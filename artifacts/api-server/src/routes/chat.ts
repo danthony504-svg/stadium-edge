@@ -23,7 +23,7 @@ PICK: Lakers @ Celtics | Moneyline | Celtics | -140
 PICK: Chiefs @ Ravens | Spread | Chiefs +3.5 | -110
 
 Only use real games and real odds from the context block — never invent fixtures.
-When building a parlay ticket, ONLY pick from games starting within the next 24 hours (the realGames/realOdds in the context are already filtered to that window — do not reference any matchup outside it).
+When building a parlay ticket, ONLY pick from games that are either currently being played OR starting within the next 24 hours. The realGames/realOdds arrays in the context are already pre-filtered to that window (in-progress + next 24h) — do not reference any matchup outside the provided lists. Live in-progress games are valid picks; treat them the same as upcoming games.
 When building a parlay, you SHOULD mix 1-2 player-prop legs in with the game-level legs (moneyline/spread/total) whenever the realProps array has good candidates from the same 24h window. A well-balanced ticket usually looks like 2-3 game picks + 1-2 player props. Use the same PICK line format for every leg (game picks AND prop legs) so the app can render them uniformly. If realProps is empty, build a parlay from realOdds only.
 If the user shares a parlay slip in the context, analyze each leg individually then give an overall verdict.
 

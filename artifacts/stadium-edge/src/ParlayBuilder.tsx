@@ -1590,14 +1590,16 @@ const extractLegCount = (text) => {
 };
 
 const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null, gameRefs = {}) => {
-  // Only consider picks for games starting within the next 24 hours. Games
-  // further out get filtered so the ticket is genuinely actionable today.
+  // Only consider picks for games either currently being played OR starting
+  // within the next 24 hours. We allow up to 4 hours in the past so in-progress
+  // games (which started a couple hours ago) are still eligible for the ticket.
   const NOW = Date.now();
   const WINDOW_MS = 24 * 60 * 60 * 1000;
+  const LIVE_BACK_MS = 4 * 60 * 60 * 1000;
   const within24h = (p) => {
     if (!p.startsAt) return true; // sample/hypothetical picks have no timestamp — keep them
     const t = new Date(p.startsAt).getTime();
-    return !isNaN(t) && t >= NOW - 60 * 60 * 1000 && t <= NOW + WINDOW_MS;
+    return !isNaN(t) && t >= NOW - LIVE_BACK_MS && t <= NOW + WINDOW_MS;
   };
   // Prefer live ESPN picks when provided and non-empty
   let pool;
@@ -3101,10 +3103,11 @@ export default function ParlayBuilder() {
     // build a ticket from matchups days out.
     const CHAT_NOW = Date.now();
     const CHAT_WINDOW_MS = 24 * 60 * 60 * 1000;
+    const CHAT_LIVE_BACK_MS = 4 * 60 * 60 * 1000; // include games already in progress
     const isWithin24h = (ts) => {
       if (!ts) return false;
       const t = new Date(ts).getTime();
-      return !isNaN(t) && t >= CHAT_NOW - 60 * 60 * 1000 && t <= CHAT_NOW + CHAT_WINDOW_MS;
+      return !isNaN(t) && t >= CHAT_NOW - CHAT_LIVE_BACK_MS && t <= CHAT_NOW + CHAT_WINDOW_MS;
     };
 
     // Proactively fetch real player props so the AI can either recommend
@@ -4359,13 +4362,15 @@ export default function ParlayBuilder() {
                 for (const [sport, games] of Object.entries(realOddsBySport)) {
                   for (const g of games) eventLookup[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}`, commenceTime: g.commenceTime };
                 }
-                // Player props are only useful for games tipping off in the next 24h.
+                // Player props are useful for games in the next 24h OR ones currently
+                // in progress (started up to ~4h ago) so live props stay searchable.
                 const NOW = Date.now();
                 const WIN_MS = 24 * 60 * 60 * 1000;
+                const LIVE_BACK_MS = 4 * 60 * 60 * 1000;
                 const within24h = (iso) => {
                   if (!iso) return false;
                   const t = new Date(iso).getTime();
-                  return !isNaN(t) && t >= NOW - 60 * 60 * 1000 && t <= NOW + WIN_MS;
+                  return !isNaN(t) && t >= NOW - LIVE_BACK_MS && t <= NOW + WIN_MS;
                 };
                 const PROP_LABELS = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
