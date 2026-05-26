@@ -2672,9 +2672,17 @@ export default function ParlayBuilder() {
 
   const toggleSport = (id) =>
     setSelectedSports((p) => (p.includes(id) ? p.filter((s) => s !== id) : [...p, id]));
+  const legKey = (l) => `${l.game}|${l.market}|${l.pick}`;
   const addLeg = (leg) => {
+    const key = legKey(leg);
+    // Prevent duplicate picks — same game + market + pick can only appear once
+    // on the ticket. Silently no-op if it's already there. Check current state
+    // synchronously so the tracker append below only fires on a real insert
+    // (a check inside the updater would also run twice under StrictMode and
+    // can't reliably gate side effects).
+    if (parlayLegs.some((l) => legKey(l) === key)) return;
     const id = Date.now() + Math.random();
-    setParlayLegs((p) => [...p, { ...leg, id }]);
+    setParlayLegs((p) => (p.some((l) => legKey(l) === key) ? p : [...p, { ...leg, id }]));
     // Snapshot the ref + reasoning at the moment of adding so History stays accurate
     const refAtTime = gameRefs[leg.game] || null;
     const reasoningAtTime = generateReasoning(leg, refAtTime);
@@ -2699,7 +2707,7 @@ export default function ParlayBuilder() {
   const removeLeg = (id) => setParlayLegs((p) => p.filter((l) => l.id !== id));
   // Remove by matching game + pick (used by the card's Added toggle)
   const removeLegByPick = (pick) =>
-    setParlayLegs((p) => p.filter((l) => !(l.game === pick.game && l.pick === pick.pick)));
+    setParlayLegs((p) => p.filter((l) => !(legKey(l) === legKey(pick))));
   const clearParlay = () => { setParlayLegs([]); setSlipAnalysis(null); setLegsAnalyzed(false); };
 
   // Map coach team abbreviations to the team names used in PICK_POOL game strings.
@@ -2998,7 +3006,18 @@ export default function ParlayBuilder() {
   // Used so the user doesn't have to tap "+ Add" on every card.
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
-    const legs = picks.map((leg) => ({ ...leg, id: Date.now() + Math.random() }));
+    // Dedupe within the incoming batch — same game + market + pick can only
+    // appear once on the ticket. (This call replaces the current slip.)
+    const seen = new Set();
+    const deduped = [];
+    for (const p of picks) {
+      const k = legKey(p);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(p);
+    }
+    if (deduped.length === 0) return;
+    const legs = deduped.map((leg) => ({ ...leg, id: Date.now() + Math.random() }));
     setParlayLegs(legs);
     // Log each to the tracker as pending
     setTracker((prev) => [
@@ -3347,7 +3366,7 @@ export default function ParlayBuilder() {
               pick: m[3].trim(),
               odds: parseInt(m[4]),
             };
-            const inSlip = parlayLegs.some((l) => l.game === pick.game && l.pick === pick.pick);
+            const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
             const assignedRef = gameRefs[pick.game];
             const conf = calculateConfidence(pick, assignedRef);
             const pickKey = `${pick.game}::${pick.pick}`;
@@ -3895,7 +3914,7 @@ export default function ParlayBuilder() {
                   ) : (
                     results.map((r, i) => {
                       const isRealGame = r.kind === "realGame";
-                      const inSlip = !isRealGame && parlayLegs.some((l) => l.game === r.game && l.pick === r.pick);
+                      const inSlip = !isRealGame && parlayLegs.some((l) => legKey(l) === legKey(r));
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
@@ -4434,7 +4453,7 @@ export default function ParlayBuilder() {
                 return (
                   <div className="border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
                     {results.map((r, i) => {
-                      const inSlip = parlayLegs.some((l) => l.game === r.game && l.pick === r.pick);
+                      const inSlip = parlayLegs.some((l) => legKey(l) === legKey(r));
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
@@ -4829,7 +4848,7 @@ export default function ParlayBuilder() {
                 <p className="text-slate-400 text-sm text-center py-8">Select a sport at the top first.</p>
               )}
               {availableDemoPicks.map((pick, i) => {
-                const inSlip = parlayLegs.some((l) => l.game === pick.game && l.pick === pick.pick);
+                const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
                 const conf = calculateConfidence(pick, gameRefs[pick.game]);
                 return (
                   <button
@@ -5041,10 +5060,10 @@ export default function ParlayBuilder() {
                           odds: m.oddsB,
                         };
                         const aInSlip = parlayLegs.some(
-                          (l) => l.game === pickA.game && l.pick === pickA.pick
+                          (l) => legKey(l) === legKey(pickA)
                         );
                         const bInSlip = parlayLegs.some(
-                          (l) => l.game === pickB.game && l.pick === pickB.pick
+                          (l) => legKey(l) === legKey(pickB)
                         );
                         return (
                           <div
@@ -5208,7 +5227,7 @@ export default function ParlayBuilder() {
                       const gamePicks = buildSimLivePicks([g]);
                       let added = 0;
                       gamePicks.forEach((pk) => {
-                        if (!parlayLegs.some((l) => l.game === pk.game && l.pick === pk.pick)) { addLeg(pk); added++; }
+                        if (!parlayLegs.some((l) => legKey(l) === legKey(pk))) { addLeg(pk); added++; }
                       });
                     }}
                     className="w-full mt-2 bg-rose-400/15 border border-rose-400/40 text-rose-300 rounded-lg py-2 text-xs font-semibold hover:bg-rose-400/25 transition"
@@ -5301,7 +5320,7 @@ export default function ParlayBuilder() {
                                 </div>
                               );
                             }
-                            const inSlip = parlayLegs.some((l) => l.game === cp.game && l.pick === cp.pick);
+                            const inSlip = parlayLegs.some((l) => legKey(l) === legKey(cp));
                             return (
                               <button
                                 onClick={() => { if (!inSlip) addLeg({ ...cp }); }}
@@ -5391,7 +5410,7 @@ export default function ParlayBuilder() {
                     {(() => {
                       const rp = findRefPick(ref, refsSport);
                       if (!rp) return null;
-                      const inSlip = parlayLegs.some((l) => l.game === rp.game && l.pick === rp.pick);
+                      const inSlip = parlayLegs.some((l) => legKey(l) === legKey(rp));
                       return (
                         <button
                           onClick={() => { if (!inSlip) addLeg({ ...rp }); }}
@@ -6063,7 +6082,7 @@ export default function ParlayBuilder() {
         const gameLines = picks.filter((p) => /spread|moneyline|total|run line|puck line|^o\/?u|over|under/i.test(p.market) || /spread|moneyline|total/i.test(p.market));
         const teamOther = picks.filter((p) => !gameLines.includes(p));
         const addable = (p) => {
-          const inSlip = parlayLegs.some((l) => l.game === p.game && l.pick === p.pick);
+          const inSlip = parlayLegs.some((l) => legKey(l) === legKey(p));
           return (
             <div key={p.pick} className="px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800">
               <div className="min-w-0">
@@ -6696,7 +6715,7 @@ export default function ParlayBuilder() {
                           {(() => {
                             const ip = findInjuryPick(team);
                             if (!ip) return null;
-                            const inSlip = parlayLegs.some((l) => l.game === ip.game && l.pick === ip.pick);
+                            const inSlip = parlayLegs.some((l) => legKey(l) === legKey(ip));
                             return (
                               <button
                                 onClick={() => { if (!inSlip) addLeg({ ...ip }); }}
@@ -6778,7 +6797,7 @@ export default function ParlayBuilder() {
                           </p>
                         ))}
                         {(() => {
-                          const inSlip = parlayLegs.some((l) => l.game === pick.game && l.pick === pick.pick);
+                          const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
                           return (
                             <button
                               onClick={() => { if (!inSlip) addLeg({ ...pick }); }}
