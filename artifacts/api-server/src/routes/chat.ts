@@ -24,7 +24,12 @@ PICK: Chiefs @ Ravens | Spread | Chiefs +3.5 | -110
 
 Only use real games and real odds from the context block — never invent fixtures.
 When building a parlay ticket, ONLY pick from games starting within the next 24 hours (the realGames/realOdds in the context are already filtered to that window — do not reference any matchup outside it).
-If the user shares a parlay slip in the context, analyze each leg individually then give an overall verdict.`;
+If the user shares a parlay slip in the context, analyze each leg individually then give an overall verdict.
+
+When the user asks about PLAYER PROPS, you MUST recommend the best 3-5 plays from the realProps array in the context (each entry is a real bookmaker line: {sport, game, player, market, line, over, under}). Pick props where the line looks beatable based on player form, matchup, and the price offered (favor lines where the over/under price has positive value, not heavy juice). Briefly justify each pick in one sentence (form/matchup/pace/usage). Format each recommended prop using the same PICK line so the app can render it:
+PICK: <Game> | <Market> | <Player Over/Under Line> | <American Odds>
+Example: PICK: Lakers @ Celtics | Player Points | Jayson Tatum Over 27.5 | -115
+If realProps is empty or missing for the requested matchup, say so honestly and suggest the user open that game's detail page so props can load — do NOT invent player lines.`;
 
 router.post("/chat", async (req, res): Promise<void> => {
   const parsed = SendChatMessageBody.safeParse(req.body);

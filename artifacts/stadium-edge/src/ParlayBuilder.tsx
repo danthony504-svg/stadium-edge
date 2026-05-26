@@ -3057,6 +3057,44 @@ export default function ParlayBuilder() {
       const t = new Date(ts).getTime();
       return !isNaN(t) && t >= CHAT_NOW - 60 * 60 * 1000 && t <= CHAT_NOW + CHAT_WINDOW_MS;
     };
+
+    // If the user is asking about player props, proactively fetch real props
+    // for the top live games in selected sports (within 24h) so the AI has
+    // real bookmaker lines + headshots to recommend from instead of guessing.
+    const wantsProps = /\b(player\s*props?|prop bet|prop parlay|props\b|over\/?under on (a |the )?player|points\b|rebounds\b|assists\b|home runs?|strikeouts?|shots on goal|passing yards?|rushing yards?|receiving yards?|receptions?)\b/i.test(text);
+    const extraProps = {}; // eventId -> props payload, merged into context for this send
+    if (wantsProps) {
+      const candidates = [];
+      for (const s of selectedSports) {
+        const oddsGames = (realOddsBySport[s] || []).filter((g) => isWithin24h(g.commenceTime));
+        const espnGames = realGamesBySport[s] || [];
+        for (const g of oddsGames.slice(0, 3)) {
+          if (!g.id) continue;
+          const espn = espnGames.find((e) => `${e.awayTeam} @ ${e.homeTeam}` === `${g.awayTeam} @ ${g.homeTeam}`);
+          candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId });
+        }
+      }
+      // Cap total prop fetches per send to keep the request snappy.
+      const toFetch = candidates.slice(0, 6);
+      await Promise.all(
+        toFetch.map(async (c) => {
+          if (realPropsByEvent[c.eventId]) { extraProps[c.eventId] = realPropsByEvent[c.eventId]; return; }
+          const qs = [`sport=${encodeURIComponent(c.sport)}`, `eventId=${encodeURIComponent(c.eventId)}`];
+          if (c.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(c.homeTeamId)}`);
+          if (c.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(c.awayTeamId)}`);
+          try {
+            const r = await fetch(`/api/sports/props?${qs.join("&")}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            extraProps[c.eventId] = data;
+          } catch { /* ignore */ }
+        }),
+      );
+      // Persist what we fetched so subsequent sends/game-detail views reuse it.
+      if (Object.keys(extraProps).length) {
+        setRealPropsByEvent((prev) => ({ ...prev, ...extraProps }));
+      }
+    }
     // Compact real games (ESPN) — limit per sport to keep context small.
     const realGames = [];
     for (const [sport, games] of Object.entries(realGamesBySport)) {
@@ -3075,16 +3113,23 @@ export default function ParlayBuilder() {
         }
       }
     }
-    // Any player props the user has actually loaded (by opening a game detail).
+    // Any player props the user has loaded (by opening a game detail) PLUS
+    // anything pre-fetched above when this message asked about props.
     const realProps = [];
     const eventToGame = {};
-    for (const games of Object.values(realOddsBySport)) {
-      for (const g of games) eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
+    const eventToSport = {};
+    for (const [sport, games] of Object.entries(realOddsBySport)) {
+      for (const g of games) {
+        eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
+        eventToSport[g.id] = sport;
+      }
     }
-    for (const [eid, data] of Object.entries(realPropsByEvent)) {
+    const mergedPropsByEvent = { ...realPropsByEvent, ...extraProps };
+    for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
       const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
+      const sport = eventToSport[eid] || null;
       for (const pr of (data.props || []).slice(0, 30)) {
-        realProps.push({ game: gameLabel, player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
+        realProps.push({ sport, game: gameLabel, player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
       }
     }
     const context = {
