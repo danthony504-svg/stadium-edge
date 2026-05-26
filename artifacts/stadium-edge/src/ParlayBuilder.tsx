@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
+import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 
 // Inline SVG icons (no internet needed). Coach = capped figure with whistle;
 // Ref = striped shirt with whistle. Styled to inherit size via props.
@@ -3511,24 +3512,24 @@ export default function ParlayBuilder() {
   // ---- Boot splash (logo loading screen) ----
   if (booting) {
     return (
-      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
-        {/* faint stadium glow backdrop */}
-        <div className="absolute inset-0 opacity-40" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 42%, rgba(34,211,238,0.22), transparent 70%)" }} />
-        <div className="relative flex flex-col items-center px-6">
-          {/* Brand logo */}
-          <img
-            src={stadiumEdgeLogo}
-            alt="Stadium Edge"
-            className="w-72 max-w-[80vw] h-auto drop-shadow-[0_0_24px_rgba(34,211,238,0.35)] animate-[fadeIn_0.6s_ease-out]"
-            draggable={false}
-          />
-          {/* loading dots */}
-          <div className="flex gap-1.5 mt-8">
+      <div className="fixed inset-0 bg-slate-950 overflow-hidden">
+        {/* Full-bleed stadium splash background */}
+        <img
+          src={stadiumEdgeSplash}
+          alt="Stadium Edge"
+          className="absolute inset-0 w-full h-full object-cover"
+          draggable={false}
+        />
+        {/* Subtle bottom vignette so the loading caption + dots stay legible */}
+        <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-slate-950/80 via-slate-950/30 to-transparent pointer-events-none" />
+        {/* Loading indicator pinned near the bottom so it doesn't cover the logo */}
+        <div className="absolute inset-x-0 bottom-16 flex flex-col items-center">
+          <div className="flex gap-1.5">
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "0ms" }} />
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "150ms" }} />
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "300ms" }} />
           </div>
-          <p className="mt-4 text-[10px] font-mono uppercase tracking-widest text-slate-500">Loading the edge…</p>
+          <p className="mt-4 text-[10px] font-mono uppercase tracking-widest text-slate-300/80">Loading the edge…</p>
         </div>
       </div>
     );
