@@ -2292,6 +2292,8 @@ export default function ParlayBuilder() {
               clock: "",
               game: `${g.awayTeam} @ ${g.homeTeam}`,
               startsAt: g.startsAt,
+              homeLogo: g.homeLogo,
+              awayLogo: g.awayLogo,
             });
           } else if (isScheduled) {
             upcoming.push({
@@ -2300,6 +2302,8 @@ export default function ParlayBuilder() {
               sport: g.sportId,
               startsAt: g.startsAt,
               venue: g.venue,
+              homeLogo: g.homeLogo,
+              awayLogo: g.awayLogo,
             });
           }
         }
@@ -3083,7 +3087,11 @@ export default function ParlayBuilder() {
       if (picks.length > 0) autoFillSlip(picks);
     } catch (err) {
       // Fall back to the local rules-based generator if the live AI fails
-      const reply = generateResponse(text, selectedSports, parlayLegs, liveMode ? livePicks : null, gameRefs);
+      // Always prefer real ESPN/Odds picks when available — the PICK_POOL
+      // fallback contains stale hardcoded matchups. Only fall back to it
+      // when livePicks is genuinely empty (live feeds unreachable).
+      const pool = livePicks.length > 0 ? livePicks : null;
+      const reply = generateResponse(text, selectedSports, parlayLegs, pool, gameRefs);
       setMessages((p) => {
         const next = p.slice();
         next[next.length - 1] = {
@@ -3845,12 +3853,18 @@ export default function ParlayBuilder() {
                     <div className="flex items-stretch justify-between gap-3">
                       {/* Teams + scores */}
                       <div className="flex-1 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-100 truncate pr-2">{g.away}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            {g.awayLogo && <img src={g.awayLogo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                            <span className="text-sm font-semibold text-slate-100 truncate">{g.away}</span>
+                          </span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.awayScore}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-100 truncate pr-2">{g.home}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            {g.homeLogo && <img src={g.homeLogo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                            <span className="text-sm font-semibold text-slate-100 truncate">{g.home}</span>
+                          </span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.homeScore}</span>
                         </div>
                       </div>
@@ -3910,7 +3924,11 @@ export default function ParlayBuilder() {
                       >
                         <div className="min-w-0">
                           <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{g.sport} · {when}</div>
-                          <div className="text-sm font-semibold text-slate-100 mt-0.5 leading-tight">{g.game}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {g.awayLogo && <img src={g.awayLogo} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                            {g.homeLogo && <img src={g.homeLogo} alt="" className="w-6 h-6 object-contain shrink-0 -ml-2" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                            <span className="text-sm font-semibold text-slate-100 leading-tight">{g.game}</span>
+                          </div>
                           {g.venue && <div className="text-[9px] text-slate-500 mt-1 truncate">{g.venue}</div>}
                         </div>
                         <span className="text-xs font-semibold text-slate-100 bg-slate-800 rounded-full px-3 py-1.5 mt-3 text-center">
