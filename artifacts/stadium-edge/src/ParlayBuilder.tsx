@@ -3596,37 +3596,32 @@ export default function ParlayBuilder() {
       const picks = [];
       const droppedGames = new Set();
       const rewrites = new Map(); // raw label -> canonical label
+      // The pool is the source of truth. If it's empty, EVERY PICK line is a
+      // hallucination — drop them all. We surface a clear note below so the
+      // user sees why instead of getting silent no-ops.
+      const poolEmpty = eligibleMatchups.length === 0;
       for (const line of fullText.split("\n")) {
         const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
-        if (m) {
-          const rawGame = m[1].trim();
-          // Only enforce the allow-list when we actually have an eligible
-          // pool — if the pool is empty (offline / no live data) we keep the
-          // existing behavior so the offline fallback path still works.
-          if (eligibleMatchups.length > 0) {
-            const hit = findEligible(rawGame);
-            if (!hit) {
-              droppedGames.add(rawGame);
-              continue;
-            }
-            if (hit.canonical && hit.canonical !== rawGame) {
-              rewrites.set(rawGame, hit.canonical);
-            }
-            picks.push({
-              game: hit.canonical || rawGame,
-              market: m[2].trim(),
-              pick: m[3].trim(),
-              odds: parseInt(m[4]),
-            });
-          } else {
-            picks.push({
-              game: rawGame,
-              market: m[2].trim(),
-              pick: m[3].trim(),
-              odds: parseInt(m[4]),
-            });
-          }
+        if (!m) continue;
+        const rawGame = m[1].trim();
+        if (poolEmpty) {
+          droppedGames.add(rawGame);
+          continue;
         }
+        const hit = findEligible(rawGame);
+        if (!hit) {
+          droppedGames.add(rawGame);
+          continue;
+        }
+        if (hit.canonical && hit.canonical !== rawGame) {
+          rewrites.set(rawGame, hit.canonical);
+        }
+        picks.push({
+          game: hit.canonical || rawGame,
+          market: m[2].trim(),
+          pick: m[3].trim(),
+          odds: parseInt(m[4]),
+        });
       }
       // Rewrite kept PICK lines with the canonical (full-name) game label and
       // strip any rejected PICK lines from the visible message so the user
@@ -3647,7 +3642,9 @@ export default function ParlayBuilder() {
           .filter((line) => line !== null)
           .join("\n");
         const note = droppedGames.size > 0
-          ? `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`
+          ? (poolEmpty
+              ? `\n\n_⚠️ Couldn't reach the live odds/schedule feed right now, so every suggested leg was dropped to avoid showing games that aren't actually on tonight. Try again in a moment — once the feeds reconnect I'll only pick from real matchups inside the next 24 hours._`
+              : `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`)
           : "";
         setMessages((p) => {
           const next = p.slice();
