@@ -895,6 +895,134 @@ const decimalToAmerican = (d) => (d >= 2 ? Math.round((d - 1) * 100) : Math.roun
 const impliedProb = (a) => (a > 0 ? 100 / (a + 100) : Math.abs(a) / (Math.abs(a) + 100));
 const formatOdds = (o) => (o > 0 ? `+${o}` : `${o}`);
 
+// ----- Display-time team name expansion -----
+// Real live data (Odds API / ESPN) already comes through with full team names
+// like "Boston Celtics". Sample / fallback data and some short-form sources use
+// nicknames ("Celtics") or abbreviations ("BOS"). For the user-facing chat
+// message header and the slip we always want the full "City Nickname" string,
+// without rewriting the underlying leg keys (which would break dedupe).
+const TEAM_FULL_NAME_MAP = {
+  // NFL
+  Chiefs: "Kansas City Chiefs", KC: "Kansas City Chiefs",
+  Bills: "Buffalo Bills", BUF: "Buffalo Bills",
+  Bengals: "Cincinnati Bengals", CIN: "Cincinnati Bengals",
+  Ravens: "Baltimore Ravens", BAL: "Baltimore Ravens",
+  Cowboys: "Dallas Cowboys", DAL: "Dallas Cowboys",
+  Eagles: "Philadelphia Eagles", PHI: "Philadelphia Eagles",
+  "49ers": "San Francisco 49ers", SF: "San Francisco 49ers",
+  Rams: "Los Angeles Rams", LAR: "Los Angeles Rams",
+  Packers: "Green Bay Packers", GB: "Green Bay Packers",
+  Lions: "Detroit Lions", DET: "Detroit Lions",
+  Dolphins: "Miami Dolphins", MIA: "Miami Dolphins",
+  Jets: "New York Jets", NYJ: "New York Jets",
+  Patriots: "New England Patriots", NE: "New England Patriots",
+  Steelers: "Pittsburgh Steelers", PIT: "Pittsburgh Steelers",
+  Broncos: "Denver Broncos", DEN: "Denver Broncos",
+  Chargers: "Los Angeles Chargers", LAC: "Los Angeles Chargers",
+  Raiders: "Las Vegas Raiders", LV: "Las Vegas Raiders",
+  Vikings: "Minnesota Vikings", MIN: "Minnesota Vikings",
+  Bears: "Chicago Bears", CHI: "Chicago Bears",
+  Saints: "New Orleans Saints", NO: "New Orleans Saints",
+  Falcons: "Atlanta Falcons", ATL: "Atlanta Falcons",
+  Panthers: "Carolina Panthers", CAR: "Carolina Panthers",
+  Buccaneers: "Tampa Bay Buccaneers", Bucs: "Tampa Bay Buccaneers", TB: "Tampa Bay Buccaneers",
+  Seahawks: "Seattle Seahawks", SEA: "Seattle Seahawks",
+  Cardinals: "Arizona Cardinals", ARI: "Arizona Cardinals",
+  Texans: "Houston Texans", HOU: "Houston Texans",
+  Colts: "Indianapolis Colts", IND: "Indianapolis Colts",
+  Jaguars: "Jacksonville Jaguars", Jags: "Jacksonville Jaguars", JAX: "Jacksonville Jaguars",
+  Titans: "Tennessee Titans", TEN: "Tennessee Titans",
+  Browns: "Cleveland Browns", CLE: "Cleveland Browns",
+  Giants: "New York Giants", NYG: "New York Giants",
+  Commanders: "Washington Commanders", WAS: "Washington Commanders",
+  // NBA
+  Celtics: "Boston Celtics", BOS: "Boston Celtics",
+  Lakers: "Los Angeles Lakers", LAL: "Los Angeles Lakers",
+  Warriors: "Golden State Warriors", GSW: "Golden State Warriors",
+  Nuggets: "Denver Nuggets",
+  Bucks: "Milwaukee Bucks", MIL: "Milwaukee Bucks",
+  Heat: "Miami Heat",
+  Knicks: "New York Knicks", NYK: "New York Knicks",
+  Sixers: "Philadelphia 76ers", "76ers": "Philadelphia 76ers", PHL: "Philadelphia 76ers",
+  Suns: "Phoenix Suns", PHX: "Phoenix Suns",
+  Mavericks: "Dallas Mavericks", Mavs: "Dallas Mavericks",
+  Thunder: "Oklahoma City Thunder", OKC: "Oklahoma City Thunder",
+  Timberwolves: "Minnesota Timberwolves", Wolves: "Minnesota Timberwolves",
+  Clippers: "Los Angeles Clippers", LAC2: "Los Angeles Clippers",
+  Nets: "Brooklyn Nets", BKN: "Brooklyn Nets",
+  Bulls: "Chicago Bulls",
+  Cavaliers: "Cleveland Cavaliers", Cavs: "Cleveland Cavaliers", CLE2: "Cleveland Cavaliers",
+  Pistons: "Detroit Pistons",
+  Pacers: "Indiana Pacers",
+  Grizzlies: "Memphis Grizzlies", MEM: "Memphis Grizzlies",
+  Hornets: "Charlotte Hornets", CHA: "Charlotte Hornets",
+  Magic: "Orlando Magic", ORL: "Orlando Magic",
+  Hawks: "Atlanta Hawks",
+  Wizards: "Washington Wizards",
+  Pelicans: "New Orleans Pelicans", NOP: "New Orleans Pelicans",
+  Spurs: "San Antonio Spurs", SAS: "San Antonio Spurs",
+  Rockets: "Houston Rockets",
+  Kings: "Sacramento Kings", SAC: "Sacramento Kings",
+  Raptors: "Toronto Raptors", TOR: "Toronto Raptors",
+  Jazz: "Utah Jazz", UTA: "Utah Jazz",
+  // MLB
+  Yankees: "New York Yankees", NYY: "New York Yankees",
+  Dodgers: "Los Angeles Dodgers", LAD: "Los Angeles Dodgers",
+  Braves: "Atlanta Braves",
+  Phillies: "Philadelphia Phillies",
+  Mets: "New York Mets", NYM: "New York Mets",
+  RedSox: "Boston Red Sox", "Red Sox": "Boston Red Sox",
+  Astros: "Houston Astros",
+  Rangers: "Texas Rangers", TEX: "Texas Rangers",
+  Padres: "San Diego Padres", SD: "San Diego Padres",
+  Giants2: "San Francisco Giants",
+  Cubs: "Chicago Cubs", CHC: "Chicago Cubs",
+  WhiteSox: "Chicago White Sox", "White Sox": "Chicago White Sox", CWS: "Chicago White Sox",
+  Brewers: "Milwaukee Brewers",
+  Twins: "Minnesota Twins",
+  Mariners: "Seattle Mariners",
+  Athletics: "Oakland Athletics", As: "Oakland Athletics", OAK: "Oakland Athletics",
+  Angels: "Los Angeles Angels", LAA: "Los Angeles Angels",
+  BlueJays: "Toronto Blue Jays", "Blue Jays": "Toronto Blue Jays",
+  Orioles: "Baltimore Orioles",
+  Rays: "Tampa Bay Rays",
+  Guardians: "Cleveland Guardians",
+  Tigers: "Detroit Tigers",
+  Royals: "Kansas City Royals",
+  Reds: "Cincinnati Reds",
+  Cardinals2: "St. Louis Cardinals", STL: "St. Louis Cardinals",
+  Pirates: "Pittsburgh Pirates",
+  Marlins: "Miami Marlins",
+  Nationals: "Washington Nationals", WSH: "Washington Nationals",
+  Rockies: "Colorado Rockies", COL: "Colorado Rockies",
+  Diamondbacks: "Arizona Diamondbacks", Dbacks: "Arizona Diamondbacks", AZ: "Arizona Diamondbacks",
+  // NHL
+  Oilers: "Edmonton Oilers", EDM: "Edmonton Oilers",
+  MapleLeafs: "Toronto Maple Leafs", "Maple Leafs": "Toronto Maple Leafs",
+  Panthers2: "Florida Panthers", FLA: "Florida Panthers",
+  Avalanche: "Colorado Avalanche",
+  Lightning: "Tampa Bay Lightning", TBL: "Tampa Bay Lightning",
+  Bruins: "Boston Bruins",
+  Rangers2: "New York Rangers", NYR: "New York Rangers",
+  Stars: "Dallas Stars",
+  Hurricanes: "Carolina Hurricanes", Canes: "Carolina Hurricanes",
+  Knights: "Vegas Golden Knights", "Golden Knights": "Vegas Golden Knights", VGK: "Vegas Golden Knights",
+};
+const expandTeamToken = (tok) => {
+  const t = (tok || "").trim();
+  if (!t) return t;
+  // already a multi-word full name (e.g. "Boston Celtics")
+  if (/\s/.test(t)) return t;
+  return TEAM_FULL_NAME_MAP[t] || t;
+};
+const displayGameLabel = (game) => {
+  if (!game || typeof game !== "string") return game || "";
+  const m = game.match(/^(.+?)\s*(@|vs\.?|v\.?)\s*(.+)$/i);
+  if (!m) return game;
+  return `${expandTeamToken(m[1])} ${m[2]} ${expandTeamToken(m[3])}`;
+};
+
+
 // "Buy points": move a spread/total line in the bettor's favor by `points`,
 // which makes the bet easier to win but worsens the payout odds. This mirrors
 // a real sportsbook alternate line. Returns a NEW pick object (or null if the
@@ -3415,7 +3543,7 @@ export default function ParlayBuilder() {
                         </div>
                       )}
                     </div>
-                    <div className="text-xs text-slate-400 truncate">{pick.game}</div>
+                    <div className="text-xs text-slate-400 break-words">{displayGameLabel(pick.game)}</div>
                     <div className="text-sm text-black font-semibold">{pick.pick}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -4745,7 +4873,7 @@ export default function ParlayBuilder() {
                   <div key={leg.id} className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-slate-400 break-words">{leg.game} · {leg.market}</div>
+                        <div className="text-[10px] text-slate-400 break-words">{displayGameLabel(leg.game)} · {leg.market}</div>
                         <div className="text-sm text-slate-100 font-semibold break-words">
                           {leg.pick}
                           {leg.pointsDelta ? (() => {
@@ -7013,7 +7141,7 @@ export default function ParlayBuilder() {
               parlayLegs.map((leg) => (
                 <div key={leg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">{leg.market} · {leg.game}</div>
+                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">{leg.market} · {displayGameLabel(leg.game)}</div>
                     <div className="text-sm font-semibold text-slate-100">{leg.pick}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
