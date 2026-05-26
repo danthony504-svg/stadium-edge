@@ -3215,10 +3215,22 @@ export default function ParlayBuilder() {
       const mm = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
       return mm ? [mm[1].trim(), mm[2].trim()] : null;
     };
+    // 24h window: include games up to 4h in the past (live / just-started)
+    // and 24h in the future. Anything outside is "far out" and must not be
+    // pickable — matches the chat handler's eligibility window exactly.
+    const NOW = Date.now();
+    const WINDOW_MS = 24 * 60 * 60 * 1000;
+    const BACK_MS = 4 * 60 * 60 * 1000;
+    const inWindow = (ts) => {
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      return !isNaN(t) && t >= NOW - BACK_MS && t <= NOW + WINDOW_MS;
+    };
     const matchups = [];
     for (const sportGames of Object.values(realGamesBySport || {})) {
       for (const g of (sportGames || [])) {
         if (!g.awayTeam || !g.homeTeam) continue;
+        if (!inWindow(g.startsAt)) continue;
         matchups.push({
           awayTokens: teamTokensFor(g.awayTeam),
           homeTokens: teamTokensFor(g.homeTeam),
@@ -3229,6 +3241,7 @@ export default function ParlayBuilder() {
     for (const sportOdds of Object.values(realOddsBySport || {})) {
       for (const g of (sportOdds || [])) {
         if (!g.awayTeam || !g.homeTeam) continue;
+        if (!inWindow(g.commenceTime)) continue;
         matchups.push({
           awayTokens: teamTokensFor(g.awayTeam),
           homeTokens: teamTokensFor(g.homeTeam),
@@ -3247,6 +3260,10 @@ export default function ParlayBuilder() {
     for (const lp of livePicks || []) {
       const label = String(lp.game || "");
       if (!label || seenLabels.has(label)) continue;
+      // Drop anything outside the 24h window — livePicks contains the next
+      // several days of ESPN games for the selected sports and we only want
+      // games starting (or already started) within the chat window.
+      if (!inWindow(lp.startsAt)) continue;
       const mm = label.match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
       if (!mm) continue;
       const away = mm[1].trim();
