@@ -3107,12 +3107,13 @@ export default function ParlayBuilder() {
       return !isNaN(t) && t >= CHAT_NOW - 60 * 60 * 1000 && t <= CHAT_NOW + CHAT_WINDOW_MS;
     };
 
-    // If the user is asking about player props, proactively fetch real props
-    // for the top live games in selected sports (within 24h) so the AI has
-    // real bookmaker lines + headshots to recommend from instead of guessing.
+    // Proactively fetch real player props so the AI can either recommend
+    // props directly OR mix them into a parlay alongside game-level picks.
+    // Trigger on either an explicit prop ask OR any parlay-building intent.
     const wantsProps = /\b(player\s*props?|prop bet|prop parlay|props\b|over\/?under on (a |the )?player|points\b|rebounds\b|assists\b|home runs?|strikeouts?|shots on goal|passing yards?|rushing yards?|receiving yards?|receptions?)\b/i.test(text);
+    const wantsParlay = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game)\b/i.test(text);
     const extraProps = {}; // eventId -> props payload, merged into context for this send
-    if (wantsProps) {
+    if (wantsProps || wantsParlay) {
       const candidates = [];
       for (const s of selectedSports) {
         const oddsGames = (realOddsBySport[s] || []).filter((g) => isWithin24h(g.commenceTime));
