@@ -6276,75 +6276,88 @@ export default function ParlayBuilder() {
         const underOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - diff * 0.5)));
         const stepFor = (sk) => (sk === "hrPerGame" || sk === "rec" ? 0.5 : sk === "passYds" || sk === "rushYds" || sk === "recYds" ? 5 : 0.5);
         const step = stepFor(statKey);
-        // SUGGESTED LINE (safe lean): pick the side that has a perfect 5/5
-        // sample hit AND the most cushion vs. the player's actual results.
-        // We bias toward a line that's already cleared every recent game so
-        // the user is taking the chalk-y, low-variance side — then nudge one
-        // step further toward "easy" for an extra buffer.
-        const suggested = (() => {
+        // SUGGESTED LINES (3 risk tiers): Safe / Balanced / Risky. Each pill is
+        // a complete pick (side + line) so the user can compare the trade-off
+        // between confidence and payout at a glance.
+        const suggestedTiers = (() => {
           const sorted = [...games].sort((a, b) => a - b);
           const sampleMin = sorted[0];
           const sampleMax = sorted[sorted.length - 1];
-          // Best safe OVER: highest line cleared 5/5 (then 4/5 fallback).
-          // Then back off one step so we sit BELOW the worst recent game.
-          let overLine = null;
-          for (let cand = 0; cand <= maxV; cand += step) {
-            const c = +cand.toFixed(1);
-            if (games.filter((v) => v >= c).length === 5) overLine = c;
-          }
-          let overFallback = false;
-          if (overLine == null) {
-            overFallback = true;
-            for (let cand = 0; cand <= maxV; cand += step) {
-              const c = +cand.toFixed(1);
-              if (games.filter((v) => v >= c).length >= 4) overLine = c;
-            }
-          }
-          // Buffer: drop one step below the worst sample game for extra safety.
-          if (overLine != null) overLine = Math.max(0, Math.min(overLine, +(sampleMin - step).toFixed(1)));
+          const hitsAtOrAbove = (c) => games.filter((v) => v >= c).length;
+          const hitsAtOrBelow = (c) => games.filter((v) => v <= c).length;
 
-          // Best safe UNDER: lowest line stayed under 5/5 (then 4/5 fallback).
-          // Then nudge one step ABOVE the best recent game for cushion.
-          let underLine = null;
-          for (let cand = maxV; cand >= 0; cand -= step) {
-            const c = +cand.toFixed(1);
-            if (games.filter((v) => v <= c).length === 5) underLine = c;
-          }
-          let underFallback = false;
-          if (underLine == null) {
-            underFallback = true;
-            for (let cand = maxV; cand >= 0; cand -= step) {
-              const c = +cand.toFixed(1);
-              if (games.filter((v) => v <= c).length >= 4) underLine = c;
-            }
-          }
-          if (underLine != null) underLine = Math.max(underLine, +(sampleMax + step).toFixed(1));
+          // Pick the side with more recent momentum — the side most sample
+          // games landed on relative to the average. That's the side we'll
+          // build the Safe + Balanced suggestions for. The Risky tier flips
+          // logic to chase payout.
+          const overSampleHits = games.filter((v) => v >= avg).length;
+          const safeSide = overSampleHits >= 3 ? "Over" : "Under";
 
-          // Pick whichever side has the MORE cushion vs. the player's pace.
-          // Cushion = how far the suggested line sits from the average on the
-          // safe side. Larger cushion = safer pick.
-          const overCushion = overLine != null ? Math.max(0, avg - overLine) : -Infinity;
-          const underCushion = underLine != null ? Math.max(0, underLine - avg) : -Infinity;
-          let side, value, fallback;
-          if (underCushion > overCushion) {
-            side = "Under"; value = underLine; fallback = underFallback;
-          } else {
-            side = "Over"; value = overLine; fallback = overFallback;
-          }
-          // Last-resort safety net if both came back null.
-          if (value == null) {
-            side = "Over"; value = Math.max(0, +(sampleMin - step).toFixed(1)); fallback = true;
-          }
-          const hitN = side === "Over"
-            ? games.filter((v) => v >= value).length
-            : games.filter((v) => v <= value).length;
-          const cushion = side === "Over" ? Math.max(0, avg - value) : Math.max(0, value - avg);
-          const cushionTxt = cushion > 0 ? ` with a ${cushion.toFixed(1)}-${statLabel.toLowerCase()} cushion vs. season avg ${avg}` : ` (right around season avg ${avg})`;
-          const safetyTag = fallback ? "Strong" : "Safe";
-          const reason = `${safetyTag} lean: ${side} ${value} ${statLabel} cleared ${hitN}/5 in the recent sample${cushionTxt}. Picked the side with the most buffer so a single off night doesn't bust the leg.`;
-          return { value, hitN, side, reason };
+          // ---- SAFE tier: line the player has cleared 5/5 with extra cushion ----
+          const safe = (() => {
+            let v = null;
+            if (safeSide === "Over") {
+              for (let c = 0; c <= maxV; c += step) {
+                const cand = +c.toFixed(1);
+                if (hitsAtOrAbove(cand) === 5) v = cand;
+              }
+              if (v != null) v = Math.max(0, Math.min(v, +(sampleMin - step).toFixed(1)));
+            } else {
+              for (let c = maxV; c >= 0; c -= step) {
+                const cand = +c.toFixed(1);
+                if (hitsAtOrBelow(cand) === 5) v = cand;
+              }
+              if (v != null) v = Math.max(v, +(sampleMax + step).toFixed(1));
+            }
+            // Fallback if no perfect-hit line exists — back off one step from extreme.
+            if (v == null) v = safeSide === "Over" ? Math.max(0, +(sampleMin - step).toFixed(1)) : +(sampleMax + step).toFixed(1);
+            return { side: safeSide, value: v };
+          })();
+
+          // ---- BALANCED tier: line near the season average (the typical book line) ----
+          const balanced = (() => {
+            // Round avg to nearest step in the right direction for the side.
+            let v = +(Math.round(avg / step) * step).toFixed(1);
+            if (statKey === "hrPerGame") v = Math.max(0.5, v);
+            v = Math.max(0, v);
+            return { side: safeSide, value: v };
+          })();
+
+          // ---- RISKY tier: chase payout — push line past the player's pace ----
+          const risky = (() => {
+            let v;
+            if (safeSide === "Over") {
+              // Aim above the best recent game so the over pays out big.
+              v = +(Math.max(sampleMax, avg) + step * 2).toFixed(1);
+            } else {
+              // Aim below the worst recent game so the under is a long shot.
+              v = Math.max(0, +(Math.min(sampleMin, avg) - step * 2).toFixed(1));
+            }
+            return { side: safeSide, value: v };
+          })();
+
+          // Compute hit-count + cushion descriptors for each tier.
+          const describe = (tier) => {
+            const hits = tier.side === "Over" ? hitsAtOrAbove(tier.value) : hitsAtOrBelow(tier.value);
+            const cushion = tier.side === "Over" ? avg - tier.value : tier.value - avg;
+            return { ...tier, hits, cushion: +cushion.toFixed(1) };
+          };
+
+          return {
+            safe: describe(safe),
+            balanced: describe(balanced),
+            risky: describe(risky),
+          };
         })();
-        const onSuggested = Math.abs((propLine ?? line) - suggested.value) < 0.01;
+        // Which tier (if any) is the bar currently sitting on?
+        const tierMatch = (t) => Math.abs((propLine ?? line) - t.value) < 0.01;
+        const activeTier = tierMatch(suggestedTiers.safe)
+          ? "safe"
+          : tierMatch(suggestedTiers.balanced)
+          ? "balanced"
+          : tierMatch(suggestedTiers.risky)
+          ? "risky"
+          : null;
         return (
           <div className="fixed inset-0 z-40 bg-slate-900 overflow-y-auto" >
             {/* Header */}
@@ -6472,29 +6485,63 @@ export default function ParlayBuilder() {
                 </div>
               </div>
 
-              {/* Suggested line */}
+              {/* Suggested lines — 3 risk tiers */}
               <div className="border border-cyan-500/30 bg-cyan-400/5 rounded-2xl p-4 mb-5">
-                <div className="flex items-center justify-between mb-1.5">
-                  <h3 className="font-bold text-cyan-300 text-sm flex items-center gap-1.5"><Sparkles size={14} /> Suggested line</h3>
-                  <span className="flex items-center gap-2">
-                    <span className={`text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${suggested.side === "Over" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-amber-500/20 text-amber-400 border border-amber-500/40"}`}>
-                      {suggested.side}
-                    </span>
-                    <span className="text-lg font-bold text-slate-100">{suggested.value} {statLabel}</span>
-                  </span>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-cyan-300 text-sm flex items-center gap-1.5"><Sparkles size={14} /> Suggested lines</h3>
+                  <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">Low → High risk</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed mb-3">{suggested.reason}</p>
-                <button
-                  onClick={() => setPropLine(suggested.value)}
-                  disabled={onSuggested}
-                  className={`w-full rounded-lg py-2 text-xs font-semibold transition ${
-                    onSuggested ? "bg-slate-800 text-slate-500 cursor-default" : "bg-cyan-400 text-slate-950 hover:bg-cyan-300"
-                  }`}
-                >
-                  {onSuggested ? `✓ Bar set — lean ${suggested.side}` : `Move bar to suggested ${suggested.side}`}
-                </button>
-                <p className="text-[9px] font-mono text-slate-600 uppercase tracking-wider mt-2 text-center">
-                  Based on sample hit-rate · a lean, not a prediction
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: "safe", label: "Safe", subtitle: "Low risk", color: "emerald", tier: suggestedTiers.safe },
+                    { key: "balanced", label: "Balanced", subtitle: "Med risk", color: "cyan", tier: suggestedTiers.balanced },
+                    { key: "risky", label: "Risky", subtitle: "High risk", color: "rose", tier: suggestedTiers.risky },
+                  ]).map(({ key, label, subtitle, color, tier }) => {
+                    const isActive = activeTier === key;
+                    const colorMap = {
+                      emerald: {
+                        ring: "border-emerald-400 bg-emerald-500/15 ring-1 ring-emerald-400",
+                        idle: "border-emerald-500/30 hover:border-emerald-400 hover:bg-emerald-500/5",
+                        text: "text-emerald-300",
+                        chip: "bg-emerald-500/20 text-emerald-300",
+                      },
+                      cyan: {
+                        ring: "border-cyan-400 bg-cyan-500/15 ring-1 ring-cyan-400",
+                        idle: "border-cyan-500/30 hover:border-cyan-400 hover:bg-cyan-500/5",
+                        text: "text-cyan-300",
+                        chip: "bg-cyan-500/20 text-cyan-300",
+                      },
+                      rose: {
+                        ring: "border-rose-400 bg-rose-500/15 ring-1 ring-rose-400",
+                        idle: "border-rose-500/30 hover:border-rose-400 hover:bg-rose-500/5",
+                        text: "text-rose-300",
+                        chip: "bg-rose-500/20 text-rose-300",
+                      },
+                    }[color];
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => setPropLine(tier.value)}
+                        className={`relative rounded-xl border p-2.5 text-center transition active:scale-95 ${isActive ? colorMap.ring : `border ${colorMap.idle}`}`}
+                      >
+                        {isActive && (
+                          <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold uppercase tracking-wider bg-slate-100 text-slate-950 px-2 py-0.5 rounded-full">✓ Set</span>
+                        )}
+                        <div className={`text-[10px] font-mono font-bold uppercase tracking-wider mb-1 ${colorMap.text}`}>{label}</div>
+                        <div className={`text-[9px] font-mono uppercase mb-1.5 text-slate-500`}>{subtitle}</div>
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${colorMap.chip}`}>{tier.side}</span>
+                          <span className="text-lg font-bold text-slate-100 leading-none">{tier.value}</span>
+                        </div>
+                        <div className="text-[9px] font-mono text-slate-500">
+                          {tier.hits}/5 hit{tier.cushion !== 0 && ` · ${tier.cushion > 0 ? "+" : ""}${tier.cushion}`}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[9px] font-mono text-slate-600 uppercase tracking-wider mt-3 text-center">
+                  Tap a pill to move the bar · sample hit-rate, not a prediction
                 </p>
               </div>
 
@@ -6525,8 +6572,9 @@ export default function ParlayBuilder() {
               {/* Over / Under — tap to add to ticket */}
               <div className="grid grid-cols-2 gap-2 mb-5">
                 {(() => {
-                  const overSuggested = onSuggested && suggested.side === "Over";
-                  const underSuggested = onSuggested && suggested.side === "Under";
+                  const activeSide = activeTier ? suggestedTiers[activeTier].side : null;
+                  const overSuggested = activeTier != null && activeSide === "Over";
+                  const underSuggested = activeTier != null && activeSide === "Under";
                   return (
                     <>
                       <button
