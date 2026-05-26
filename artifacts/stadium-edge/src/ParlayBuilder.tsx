@@ -3236,6 +3236,28 @@ export default function ParlayBuilder() {
         });
       }
     }
+    // Also include livePicks — the chat handler builds its eligibility pool
+    // from a *local* snapshot of fresh fetch results that the React state
+    // (realGamesBySport / realOddsBySport) hasn't necessarily caught up to
+    // by the time autoFillSlip runs (setState is async). livePicks is set
+    // well before any chat request, so its matchups are always available
+    // here. Without this, every chat-validated pick gets dropped a second
+    // time and the slip stays empty.
+    const seenLabels = new Set(matchups.map((m) => m.canonical));
+    for (const lp of livePicks || []) {
+      const label = String(lp.game || "");
+      if (!label || seenLabels.has(label)) continue;
+      const mm = label.match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+      if (!mm) continue;
+      const away = mm[1].trim();
+      const home = mm[2].trim();
+      matchups.push({
+        awayTokens: teamTokensFor(away),
+        homeTokens: teamTokensFor(home),
+        canonical: label,
+      });
+      seenLabels.add(label);
+    }
     if (matchups.length === 0) {
       return { kept: [], dropped: picks.map((p) => p.game) };
     }
