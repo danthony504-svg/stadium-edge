@@ -3446,12 +3446,20 @@ export default function ParlayBuilder() {
       })),
       liveMode,
       liveOdds: liveMode
-        ? livePicks.slice(0, 30).map((p) => ({
-            game: p.game,
-            market: p.market,
-            pick: p.pick,
-            odds: p.odds,
-          }))
+        ? livePicks
+            // Same 24h window as realGames/realOdds — never leak a pick
+            // whose game tips off days/weeks/months out. Picks without a
+            // known startsAt are dropped rather than passed through, so the
+            // AI can't grab a stale preseason matchup by accident.
+            .filter((p) => isWithin24h(p.startsAt))
+            .slice(0, 30)
+            .map((p) => ({
+              game: p.game,
+              market: p.market,
+              pick: p.pick,
+              odds: p.odds,
+              startsAt: p.startsAt,
+            }))
         : undefined,
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
