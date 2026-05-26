@@ -23,6 +23,7 @@ PICK: Lakers @ Celtics | Moneyline | Celtics | -140
 PICK: Chiefs @ Ravens | Spread | Chiefs +3.5 | -110
 
 Only use real games and real odds from the context block — never invent fixtures.
+When building a parlay ticket, ONLY pick from games starting within the next 24 hours (the realGames/realOdds in the context are already filtered to that window — do not reference any matchup outside it).
 If the user shares a parlay slip in the context, analyze each leg individually then give an overall verdict.`;
 
 router.post("/chat", async (req, res): Promise<void> => {

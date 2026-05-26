@@ -598,6 +598,7 @@ const fetchEspnGamesForSport = async (sportId) => {
       homeId: home.team?.id,
       awayId: away.team?.id,
       status: ev.status?.type?.name,
+      startsAt: ev.date,
       spread: typeof odds?.spread === "number" ? odds.spread : null,
       total: typeof odds?.overUnder === "number" ? odds.overUnder : null,
       details: odds?.details, // e.g. "BUF -2.5"
@@ -610,6 +611,7 @@ const buildPicksFromEspnGames = (games) => {
   const picks = [];
   for (const g of games) {
     if (g.status !== "STATUS_SCHEDULED") continue;
+    const startsAt = g.startsAt || g.date || null;
     if (g.details && typeof g.spread === "number") {
       // Spread pick on the favorite
       const favAbbr = g.details.split(" ")[0];
@@ -623,6 +625,7 @@ const buildPicksFromEspnGames = (games) => {
         teamAbbr: favAbbr,
         teamId: favAbbr === g.homeAbbr ? g.homeId : g.awayId,
         sourceSport: g.sport,
+        startsAt,
       });
     }
     if (typeof g.total === "number") {
@@ -636,6 +639,7 @@ const buildPicksFromEspnGames = (games) => {
         teamAbbr: g.homeAbbr,
         teamId: g.homeId,
         sourceSport: g.sport,
+        startsAt,
       });
       picks.push({
         game: g.game,
@@ -647,6 +651,7 @@ const buildPicksFromEspnGames = (games) => {
         teamAbbr: g.homeAbbr,
         teamId: g.homeId,
         sourceSport: g.sport,
+        startsAt,
       });
     }
     // Moneyline on favorite if spread tells us who's favored
@@ -663,6 +668,7 @@ const buildPicksFromEspnGames = (games) => {
         teamAbbr: favAbbr,
         teamId: isHomeFav ? g.homeId : g.awayId,
         sourceSport: g.sport,
+        startsAt,
       });
     }
   }
@@ -1584,10 +1590,24 @@ const extractLegCount = (text) => {
 };
 
 const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null, gameRefs = {}) => {
+  // Only consider picks for games starting within the next 24 hours. Games
+  // further out get filtered so the ticket is genuinely actionable today.
+  const NOW = Date.now();
+  const WINDOW_MS = 24 * 60 * 60 * 1000;
+  const within24h = (p) => {
+    if (!p.startsAt) return true; // sample/hypothetical picks have no timestamp — keep them
+    const t = new Date(p.startsAt).getTime();
+    return !isNaN(t) && t >= NOW - 60 * 60 * 1000 && t <= NOW + WINDOW_MS;
+  };
   // Prefer live ESPN picks when provided and non-empty
   let pool;
   if (livePool && livePool.length > 0) {
-    pool = livePool.filter((p) => sports.includes(p.sport));
+    pool = livePool.filter((p) => sports.includes(p.sport)).filter(within24h);
+    if (pool.length === 0) {
+      // No qualifying games in the 24h window — fall back to the full live
+      // pool for the selected sports rather than stale hardcoded matchups.
+      pool = livePool.filter((p) => sports.includes(p.sport));
+    }
     if (pool.length === 0) {
       // Selected sports have no live games — fall back to hypothetical
       pool = sports.flatMap((s) => (PICK_POOL[s] || []).map((p) => ({ ...p, sport: s })));
@@ -2079,6 +2099,7 @@ export default function ParlayBuilder() {
         const picks = [];
         for (const g of games) {
           const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
+          const startsAt = g.commenceTime || null;
           const h2h = g.markets.find((m) => m.key === "h2h");
           const spread = g.markets.find((m) => m.key === "spreads");
           const total = g.markets.find((m) => m.key === "totals");
@@ -2093,6 +2114,7 @@ export default function ParlayBuilder() {
                 sport: sportId,
                 teamAbbr: o.name.split(" ").pop()?.slice(0, 3).toUpperCase() ?? "",
                 sourceSport: sportId,
+                startsAt,
               });
             }
           }
@@ -2107,6 +2129,7 @@ export default function ParlayBuilder() {
                 sport: sportId,
                 teamAbbr: o.name.split(" ").pop()?.slice(0, 3).toUpperCase() ?? "",
                 sourceSport: sportId,
+                startsAt,
               });
             }
           }
@@ -2120,6 +2143,7 @@ export default function ParlayBuilder() {
                 tier: 2,
                 sport: sportId,
                 sourceSport: sportId,
+                startsAt,
               });
             }
           }
@@ -2988,19 +3012,30 @@ export default function ParlayBuilder() {
       { role: "assistant", content: "" },
     ]);
 
+    // Only surface games tipping off within the next 24h so the AI can't
+    // build a ticket from matchups days out.
+    const CHAT_NOW = Date.now();
+    const CHAT_WINDOW_MS = 24 * 60 * 60 * 1000;
+    const isWithin24h = (ts) => {
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      return !isNaN(t) && t >= CHAT_NOW - 60 * 60 * 1000 && t <= CHAT_NOW + CHAT_WINDOW_MS;
+    };
     // Compact real games (ESPN) — limit per sport to keep context small.
     const realGames = [];
     for (const [sport, games] of Object.entries(realGamesBySport)) {
-      for (const g of games.slice(0, 12)) {
+      const filtered = games.filter((g) => isWithin24h(g.startsAt));
+      for (const g of filtered.slice(0, 12)) {
         realGames.push({ sport, game: `${g.awayTeam} @ ${g.homeTeam}`, status: g.status, startsAt: g.startsAt, venue: g.venue });
       }
     }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
     for (const [sport, games] of Object.entries(realOddsBySport)) {
-      for (const g of games.slice(0, 12)) {
+      const filtered = games.filter((g) => isWithin24h(g.commenceTime));
+      for (const g of filtered.slice(0, 12)) {
         for (const p of buildPicksFromOdds(g).slice(0, 8)) {
-          realOdds.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds });
+          realOdds.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds, startsAt: g.commenceTime });
         }
       }
     }
