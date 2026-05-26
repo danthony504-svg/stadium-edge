@@ -4345,8 +4345,16 @@ export default function ParlayBuilder() {
                 // Need to know which sport+game each event belongs to so we can render + add to slip.
                 const eventLookup = {};
                 for (const [sport, games] of Object.entries(realOddsBySport)) {
-                  for (const g of games) eventLookup[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}` };
+                  for (const g of games) eventLookup[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}`, commenceTime: g.commenceTime };
                 }
+                // Player props are only useful for games tipping off in the next 24h.
+                const NOW = Date.now();
+                const WIN_MS = 24 * 60 * 60 * 1000;
+                const within24h = (iso) => {
+                  if (!iso) return false;
+                  const t = new Date(iso).getTime();
+                  return !isNaN(t) && t >= NOW - 60 * 60 * 1000 && t <= NOW + WIN_MS;
+                };
                 const PROP_LABELS = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
                   player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
@@ -4360,6 +4368,7 @@ export default function ParlayBuilder() {
                 for (const [eid, data] of Object.entries(realPropsByEvent)) {
                   const meta = eventLookup[eid];
                   if (!meta) continue;
+                  if (!within24h(meta.commenceTime)) continue;
                   for (const pr of data.props || []) {
                     const label = PROP_LABELS[pr.market] || pr.market;
                     const lineTxt = pr.line == null ? "" : ` ${pr.line}`;
