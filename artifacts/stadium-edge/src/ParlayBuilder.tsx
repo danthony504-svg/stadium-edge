@@ -6270,35 +6270,72 @@ export default function ParlayBuilder() {
         const underOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - diff * 0.5)));
         const stepFor = (sk) => (sk === "hrPerGame" || sk === "rec" ? 0.5 : sk === "passYds" || sk === "rushYds" || sk === "recYds" ? 5 : 0.5);
         const step = stepFor(statKey);
-        // SUGGESTED LINE (sample-data based, honest): find the side with the
-        // stronger edge. Scan candidate lines; an OVER lean = a line cleared in
-        // >=4/5 sample games; an UNDER lean = a line stayed under in >=4/5. Pick
-        // whichever gives the more confident, non-trivial spot.
+        // SUGGESTED LINE (safe lean): pick the side that has a perfect 5/5
+        // sample hit AND the most cushion vs. the player's actual results.
+        // We bias toward a line that's already cleared every recent game so
+        // the user is taking the chalk-y, low-variance side — then nudge one
+        // step further toward "easy" for an extra buffer.
         const suggested = (() => {
           const sorted = [...games].sort((a, b) => a - b);
-          // best over: highest line still cleared 4/5
+          const sampleMin = sorted[0];
+          const sampleMax = sorted[sorted.length - 1];
+          // Best safe OVER: highest line cleared 5/5 (then 4/5 fallback).
+          // Then back off one step so we sit BELOW the worst recent game.
           let overLine = null;
           for (let cand = 0; cand <= maxV; cand += step) {
             const c = +cand.toFixed(1);
-            if (games.filter((v) => v >= c).length >= 4) overLine = c;
+            if (games.filter((v) => v >= c).length === 5) overLine = c;
           }
-          // best under: lowest line stayed under 4/5
+          let overFallback = false;
+          if (overLine == null) {
+            overFallback = true;
+            for (let cand = 0; cand <= maxV; cand += step) {
+              const c = +cand.toFixed(1);
+              if (games.filter((v) => v >= c).length >= 4) overLine = c;
+            }
+          }
+          // Buffer: drop one step below the worst sample game for extra safety.
+          if (overLine != null) overLine = Math.max(0, Math.min(overLine, +(sampleMin - step).toFixed(1)));
+
+          // Best safe UNDER: lowest line stayed under 5/5 (then 4/5 fallback).
+          // Then nudge one step ABOVE the best recent game for cushion.
           let underLine = null;
           for (let cand = maxV; cand >= 0; cand -= step) {
             const c = +cand.toFixed(1);
-            if (games.filter((v) => v <= c).length >= 4) underLine = c;
+            if (games.filter((v) => v <= c).length === 5) underLine = c;
           }
-          // Prefer the side whose line sits closer to the season avg (more realistic
-          // book line) while still hitting 4/5 — gives a meaningful lean, not a trivial one.
-          const overGap = overLine != null ? Math.abs(overLine - avg) : Infinity;
-          const underGap = underLine != null ? Math.abs(underLine - avg) : Infinity;
-          let side = "Over", value = overLine;
-          if (underLine != null && underGap < overGap) { side = "Under"; value = underLine; }
-          if (value == null) { side = "Over"; value = +(sorted[0]).toFixed(1); }
+          let underFallback = false;
+          if (underLine == null) {
+            underFallback = true;
+            for (let cand = maxV; cand >= 0; cand -= step) {
+              const c = +cand.toFixed(1);
+              if (games.filter((v) => v <= c).length >= 4) underLine = c;
+            }
+          }
+          if (underLine != null) underLine = Math.max(underLine, +(sampleMax + step).toFixed(1));
+
+          // Pick whichever side has the MORE cushion vs. the player's pace.
+          // Cushion = how far the suggested line sits from the average on the
+          // safe side. Larger cushion = safer pick.
+          const overCushion = overLine != null ? Math.max(0, avg - overLine) : -Infinity;
+          const underCushion = underLine != null ? Math.max(0, underLine - avg) : -Infinity;
+          let side, value, fallback;
+          if (underCushion > overCushion) {
+            side = "Under"; value = underLine; fallback = underFallback;
+          } else {
+            side = "Over"; value = overLine; fallback = overFallback;
+          }
+          // Last-resort safety net if both came back null.
+          if (value == null) {
+            side = "Over"; value = Math.max(0, +(sampleMin - step).toFixed(1)); fallback = true;
+          }
           const hitN = side === "Over"
             ? games.filter((v) => v >= value).length
             : games.filter((v) => v <= value).length;
-          const reason = `${side} ${value} ${statLabel} hit in ${hitN} of the last 5 (sample), with a ${avg} season avg. A line that side cleared consistently without being trivial — a reasonable ${side.toLowerCase()} lean. Adjust to taste.`;
+          const cushion = side === "Over" ? Math.max(0, avg - value) : Math.max(0, value - avg);
+          const cushionTxt = cushion > 0 ? ` with a ${cushion.toFixed(1)}-${statLabel.toLowerCase()} cushion vs. season avg ${avg}` : ` (right around season avg ${avg})`;
+          const safetyTag = fallback ? "Strong" : "Safe";
+          const reason = `${safetyTag} lean: ${side} ${value} ${statLabel} cleared ${hitN}/5 in the recent sample${cushionTxt}. Picked the side with the most buffer so a single off night doesn't bust the leg.`;
           return { value, hitN, side, reason };
         })();
         const onSuggested = Math.abs((propLine ?? line) - suggested.value) < 0.01;
