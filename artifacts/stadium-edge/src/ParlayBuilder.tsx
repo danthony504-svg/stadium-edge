@@ -1008,6 +1008,62 @@ const TEAM_FULL_NAME_MAP = {
   Hurricanes: "Carolina Hurricanes", Canes: "Carolina Hurricanes",
   Knights: "Vegas Golden Knights", "Golden Knights": "Vegas Golden Knights", VGK: "Vegas Golden Knights",
 };
+// Map every known full team name to its sport. Used to drop cross-sport
+// hallucinations like "Miami Dolphins @ Toronto Raptors" (NFL vs NBA)
+// without needing a live data pool to compare against — works even when
+// the odds API is dead and ESPN games for the user's sport haven't loaded.
+const TEAM_NAME_TO_SPORT = {
+  // NFL
+  "Kansas City Chiefs": "nfl", "Buffalo Bills": "nfl", "Cincinnati Bengals": "nfl",
+  "Baltimore Ravens": "nfl", "Dallas Cowboys": "nfl", "Philadelphia Eagles": "nfl",
+  "San Francisco 49ers": "nfl", "Los Angeles Rams": "nfl", "Green Bay Packers": "nfl",
+  "Detroit Lions": "nfl", "Miami Dolphins": "nfl", "New York Jets": "nfl",
+  "New England Patriots": "nfl", "Pittsburgh Steelers": "nfl", "Denver Broncos": "nfl",
+  "Los Angeles Chargers": "nfl", "Las Vegas Raiders": "nfl", "Minnesota Vikings": "nfl",
+  "Chicago Bears": "nfl", "New Orleans Saints": "nfl", "Atlanta Falcons": "nfl",
+  "Carolina Panthers": "nfl", "Tampa Bay Buccaneers": "nfl", "Seattle Seahawks": "nfl",
+  "Arizona Cardinals": "nfl", "Houston Texans": "nfl", "Indianapolis Colts": "nfl",
+  "Jacksonville Jaguars": "nfl", "Tennessee Titans": "nfl", "Cleveland Browns": "nfl",
+  "New York Giants": "nfl", "Washington Commanders": "nfl",
+  // NBA
+  "Boston Celtics": "nba", "Los Angeles Lakers": "nba", "Golden State Warriors": "nba",
+  "Denver Nuggets": "nba", "Milwaukee Bucks": "nba", "Miami Heat": "nba",
+  "New York Knicks": "nba", "Philadelphia 76ers": "nba", "Phoenix Suns": "nba",
+  "Dallas Mavericks": "nba", "Oklahoma City Thunder": "nba", "Minnesota Timberwolves": "nba",
+  "Los Angeles Clippers": "nba", "Brooklyn Nets": "nba", "Chicago Bulls": "nba",
+  "Cleveland Cavaliers": "nba", "Detroit Pistons": "nba", "Indiana Pacers": "nba",
+  "Memphis Grizzlies": "nba", "Charlotte Hornets": "nba", "Orlando Magic": "nba",
+  "Atlanta Hawks": "nba", "Washington Wizards": "nba", "New Orleans Pelicans": "nba",
+  "San Antonio Spurs": "nba", "Houston Rockets": "nba", "Sacramento Kings": "nba",
+  "Toronto Raptors": "nba", "Utah Jazz": "nba", "Portland Trail Blazers": "nba",
+  // MLB
+  "New York Yankees": "mlb", "Los Angeles Dodgers": "mlb", "Atlanta Braves": "mlb",
+  "Philadelphia Phillies": "mlb", "New York Mets": "mlb", "Boston Red Sox": "mlb",
+  "Houston Astros": "mlb", "Texas Rangers": "mlb", "San Diego Padres": "mlb",
+  "San Francisco Giants": "mlb", "Chicago Cubs": "mlb", "Chicago White Sox": "mlb",
+  "Milwaukee Brewers": "mlb", "Minnesota Twins": "mlb", "Seattle Mariners": "mlb",
+  "Oakland Athletics": "mlb", "Los Angeles Angels": "mlb", "Toronto Blue Jays": "mlb",
+  "Baltimore Orioles": "mlb", "Tampa Bay Rays": "mlb", "Cleveland Guardians": "mlb",
+  "Detroit Tigers": "mlb", "Kansas City Royals": "mlb", "Cincinnati Reds": "mlb",
+  "St. Louis Cardinals": "mlb", "Pittsburgh Pirates": "mlb", "Miami Marlins": "mlb",
+  "Washington Nationals": "mlb", "Colorado Rockies": "mlb", "Arizona Diamondbacks": "mlb",
+  // NHL
+  "Edmonton Oilers": "nhl", "Toronto Maple Leafs": "nhl", "Florida Panthers": "nhl",
+  "Colorado Avalanche": "nhl", "Tampa Bay Lightning": "nhl", "Boston Bruins": "nhl",
+  "New York Rangers": "nhl", "Dallas Stars": "nhl", "Carolina Hurricanes": "nhl",
+  "Vegas Golden Knights": "nhl",
+};
+// Resolve a team string (full name OR nickname/abbr) to its sport, or null
+// if unknown. Nickname collisions (e.g. "Cardinals" — NFL Arizona vs MLB
+// St. Louis) return null so we don't false-positive a single-sport game.
+const teamSportOf = (rawName) => {
+  const n = String(rawName || "").trim();
+  if (!n) return null;
+  if (TEAM_NAME_TO_SPORT[n]) return TEAM_NAME_TO_SPORT[n];
+  const expanded = TEAM_FULL_NAME_MAP[n];
+  if (expanded && TEAM_NAME_TO_SPORT[expanded]) return TEAM_NAME_TO_SPORT[expanded];
+  return null;
+};
 const expandTeamToken = (tok) => {
   const t = (tok || "").trim();
   if (!t) return t;
@@ -3275,9 +3331,6 @@ export default function ParlayBuilder() {
       });
       seenLabels.add(label);
     }
-    if (matchups.length === 0) {
-      return { kept: [], dropped: picks.map((p) => p.game), poolSize: 0 };
-    }
     const overlap = (a, b) => {
       for (const t of a) if (b.has(t)) return true;
       return false;
@@ -3287,6 +3340,23 @@ export default function ParlayBuilder() {
     for (const p of picks) {
       const parts = splitLabel(p.game);
       if (!parts) { dropped.push(p.game); continue; }
+      // First pass: drop cross-sport legs purely from team identity. This
+      // catches hallucinations like "Miami Dolphins @ Toronto Raptors"
+      // (NFL vs NBA) even when the live data pool is empty — which is the
+      // exact case the user keeps hitting because the odds API is dead.
+      const aSport = teamSportOf(parts[0]);
+      const hSport = teamSportOf(parts[1]);
+      if (aSport && hSport && aSport !== hSport) {
+        dropped.push(p.game);
+        continue;
+      }
+      // Second pass: if the pool is populated, require a real matchup.
+      // If the pool is empty (feed gap), pass single-sport legs through —
+      // the cleanup useEffect's poolSize gate will revisit them later.
+      if (matchups.length === 0) {
+        kept.push(p);
+        continue;
+      }
       const aTokens = teamTokensFor(parts[0]);
       const hTokens = teamTokensFor(parts[1]);
       let hit = null;
@@ -3359,7 +3429,11 @@ export default function ParlayBuilder() {
     // But once the pool is real, prune ANY leg that doesn't match — even
     // if that means clearing the whole slip (correct when every leg is
     // stale junk like a cross-sport "Dolphins @ Raptors" hallucination).
-    if (poolSize === 0) return;
+    // Only skip when the pool is empty AND nothing got dropped. If the
+    // first-pass cross-sport check dropped a leg, we want to act on it
+    // even with no live data — that hallucination is never going to be
+    // valid no matter how the feeds resolve.
+    if (poolSize === 0 && kept.length === parlayLegs.length) return;
     if (kept.length === parlayLegs.length) return; // nothing to drop
     const keptKeys = new Set(kept.map(legKey));
     setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
