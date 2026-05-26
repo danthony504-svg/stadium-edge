@@ -2288,8 +2288,12 @@ export default function ParlayBuilder() {
 
     const fetchAll = async () => {
       try {
+        // Fetch games for ALL sports — Upcoming on home shows every sport, not
+        // just the ones currently selected for parlay building.
+        const allSportIds = SPORTS.map((x) => x.id);
+        const selectedSet = new Set(selectedSports);
         const results = await Promise.all(
-          selectedSports.map(async (s) => {
+          allSportIds.map(async (s) => {
             try {
               const r = await fetch(`/api/sports/games?sport=${s}`);
               if (!r.ok) return { sport: s, games: [] };
@@ -2328,6 +2332,8 @@ export default function ParlayBuilder() {
         const upcoming = [];
         for (const g of all) {
           if (!g.awayTeam || !g.homeTeam) continue;
+          // Live tile honors the selected-sports filter; Upcoming spans all sports.
+          const inSelected = selectedSet.has(g.sportId);
           const s = (g.status || "").toLowerCase();
           const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
           if (isFinal) continue;
@@ -2340,7 +2346,7 @@ export default function ParlayBuilder() {
             s.includes("top ") || s.includes("bot ") || s.includes("mid ") ||
             s.includes("period") || s.includes("quarter") || s.includes("inning")
           );
-          if (isLive) {
+          if (isLive && inSelected) {
             live.push({
               real: true,
               sport: g.sportId,
