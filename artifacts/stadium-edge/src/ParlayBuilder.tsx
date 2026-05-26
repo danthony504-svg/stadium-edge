@@ -3478,26 +3478,25 @@ export default function ParlayBuilder() {
   // (e.g. between mounts, before fetches resolve).
   useEffect(() => {
     if (parlayLegs.length === 0) return;
-    const { kept, poolSize } = filterPicksToReal(parlayLegs);
-    // Gate on poolSize, NOT kept.length. If the pool is empty (feed gap),
-    // skip pruning so we don't wipe a slip the user is still working on.
-    // But once the pool is real, prune ANY leg that doesn't match — even
-    // if that means clearing the whole slip (correct when every leg is
-    // stale junk like a cross-sport "Dolphins @ Raptors" hallucination).
-    // Only skip when the pool is empty AND nothing got dropped. If the
-    // first-pass cross-sport check dropped a leg, we want to act on it
-    // even with no live data — that hallucination is never going to be
-    // valid no matter how the feeds resolve.
-    if (poolSize === 0 && kept.length === parlayLegs.length) return;
-    if (kept.length === parlayLegs.length) return; // nothing to drop
+    const { kept } = filterPicksToReal(parlayLegs);
+    // Drop anything the filter rejected. The filter itself already
+    // handles the "feed gap" case correctly — it only drops legs that
+    // either (a) are cross-sport hallucinations, (b) have a known start
+    // time outside the 24h window, or (c) have no entry in any raw feed
+    // (unverifiable). We DON'T early-return on poolSize===0 anymore: a
+    // hallucinated leg with no raw-feed match should disappear even when
+    // the live data is momentarily empty, because more data isn't going
+    // to make a fake matchup real.
+    if (kept.length === parlayLegs.length) return; // nothing to drop — safe no-op, prevents loop
     const keptKeys = new Set(kept.map(legKey));
     setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
-    // Run on every slip change too — otherwise a leg added between data
-    // polls sits in the slip until the next refresh. The early-return on
-    // `kept.length === parlayLegs.length` makes this safe (no loop once
-    // the slip is clean).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realGamesBySport, realOddsBySport, livePicks, parlayLegs]);
+    // No deps array on purpose: runs after every render. The
+    // early-return above (`kept.length === parlayLegs.length`) makes
+    // this safe — once the slip is clean, the effect is a no-op and the
+    // loop terminates. This is the only way to guarantee the slip
+    // re-evaluates after a hot module reload, when the filter logic
+    // changes but parlayLegs state is preserved unchanged.
+  });
 
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
