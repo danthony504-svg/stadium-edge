@@ -3359,6 +3359,25 @@ export default function ParlayBuilder() {
 
   const renderAssistantMessage = (content) => {
     const lines = content.split("\n");
+    // Pre-scan PICK lines so we can render a per-message "slip snapshot" card
+    // at the bottom of this message. This keeps a permanent record of what
+    // THIS message proposed — old slips stay in chat as the conversation
+    // grows, and new questions + new slips stack underneath instead of
+    // overwriting the previous ticket.
+    const messagePicks = [];
+    for (const l of lines) {
+      const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+      if (m) {
+        messagePicks.push({
+          game: m[1].trim(),
+          market: m[2].trim(),
+          pick: m[3].trim(),
+          odds: parseInt(m[4]),
+        });
+      }
+    }
+    const allInSlip = messagePicks.length > 0 && messagePicks.every((p) => parlayLegs.some((l) => legKey(l) === legKey(p)));
+    const snapshotMath = messagePicks.length >= 2 ? calculateParlay(messagePicks) : null;
     return (
       <div className="space-y-2">
         {lines.map((line, i) => {
@@ -3569,6 +3588,31 @@ export default function ParlayBuilder() {
           }
           return <div key={i} className="h-1" />;
         })}
+        {messagePicks.length >= 2 && (
+          <div className="mt-3 border border-cyan-500/30 bg-slate-950 rounded-lg overflow-hidden">
+            <div className="bg-cyan-500/10 px-3 py-2 flex items-center justify-between border-b border-cyan-500/20">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-300">
+                This message · {messagePicks.length}-leg slip
+              </span>
+              {snapshotMath && (
+                <span className="text-xs font-mono font-bold text-cyan-300">
+                  {formatOdds(snapshotMath.american)}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => { if (!allInSlip) autoFillSlip(messagePicks); }}
+              disabled={allInSlip}
+              className={`w-full px-3 py-2 text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                allInSlip
+                  ? "bg-slate-900 text-slate-500 cursor-default"
+                  : "bg-cyan-500 text-white hover:bg-cyan-400"
+              }`}
+            >
+              {allInSlip ? "✓ All legs on your ticket" : `+ Add all ${messagePicks.length} legs to ticket`}
+            </button>
+          </div>
+        )}
       </div>
     );
   };
