@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
+import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 
 // Inline SVG icons (no internet needed). Coach = capped figure with whistle;
 // Ref = striped shirt with whistle. Styled to inherit size via props.
@@ -3512,40 +3513,20 @@ export default function ParlayBuilder() {
     return (
       <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center overflow-hidden">
         {/* faint stadium glow backdrop */}
-        <div className="absolute inset-0 opacity-40" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 38%, rgba(34,211,238,0.18), transparent 70%)" }} />
-        <div className="relative flex flex-col items-center">
-          {/* Stadium mark */}
-          <svg width="120" height="96" viewBox="0 0 120 96" fill="none" className="mb-5">
-            <g>
-              <rect x="26" y="14" width="11" height="8" rx="1.5" fill="#cbd5e1" />
-              <line x1="31.5" y1="22" x2="31.5" y2="40" stroke="#64748b" strokeWidth="2" />
-              <circle cx="31.5" cy="14" r="13" fill="rgba(56,189,248,0.3)" />
-            </g>
-            <g>
-              <rect x="83" y="14" width="11" height="8" rx="1.5" fill="#cbd5e1" />
-              <line x1="88.5" y1="22" x2="88.5" y2="40" stroke="#64748b" strokeWidth="2" />
-              <circle cx="88.5" cy="14" r="13" fill="rgba(56,189,248,0.3)" />
-            </g>
-            <path d="M18 70 Q60 36 102 70 Q60 86 18 70 Z" fill="#0f291f" stroke="#22d3ee" strokeWidth="2.5" />
-            <path d="M30 66 Q60 46 90 66 Q60 76 30 66 Z" fill="#15803d" />
-            <g stroke="#86efac" strokeWidth="1" opacity="0.8">
-              <line x1="44" y1="58" x2="44" y2="69" /><line x1="52" y1="55" x2="52" y2="71" />
-              <line x1="60" y1="54" x2="60" y2="72" /><line x1="68" y1="55" x2="68" y2="71" />
-              <line x1="76" y1="58" x2="76" y2="69" />
-            </g>
-          </svg>
-          {/* Wordmark */}
-          <h1 className="font-display text-4xl tracking-tight leading-none">
-            <span className="text-slate-200">STADIUM</span>
-          </h1>
-          <div className="font-display text-2xl tracking-[0.3em] mt-1 text-cyan-400" style={{ textShadow: "0 0 16px rgba(34,211,238,0.7)" }}>
-            EDGE
-          </div>
+        <div className="absolute inset-0 opacity-40" style={{ background: "radial-gradient(ellipse 80% 50% at 50% 42%, rgba(34,211,238,0.22), transparent 70%)" }} />
+        <div className="relative flex flex-col items-center px-6">
+          {/* Brand logo */}
+          <img
+            src={stadiumEdgeLogo}
+            alt="Stadium Edge"
+            className="w-72 max-w-[80vw] h-auto drop-shadow-[0_0_24px_rgba(34,211,238,0.35)] animate-[fadeIn_0.6s_ease-out]"
+            draggable={false}
+          />
           {/* loading dots */}
-          <div className="flex gap-1.5 mt-7">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          <div className="flex gap-1.5 mt-8">
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "0ms" }} />
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "150ms" }} />
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" style={{ animationDelay: "300ms" }} />
           </div>
           <p className="mt-4 text-[10px] font-mono uppercase tracking-widest text-slate-500">Loading the edge…</p>
         </div>
