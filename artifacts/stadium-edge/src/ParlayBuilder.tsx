@@ -3302,6 +3302,49 @@ export default function ParlayBuilder() {
     return { kept, dropped };
   };
 
+  // Look up the kickoff timestamp for a given "Away @ Home" label across
+  // every live data source we have. Returns null if the game isn't in the
+  // current live feeds (e.g. it ended and rotated out, or it was added
+  // before the latest refresh).
+  const lookupGameStart = (gameLabel) => {
+    if (!gameLabel) return null;
+    for (const sportGames of Object.values(realGamesBySport || {})) {
+      for (const g of (sportGames || [])) {
+        if (`${g.awayTeam} @ ${g.homeTeam}` === gameLabel) return g.startsAt || null;
+      }
+    }
+    for (const sportOdds of Object.values(realOddsBySport || {})) {
+      for (const g of (sportOdds || [])) {
+        if (`${g.awayTeam} @ ${g.homeTeam}` === gameLabel) return g.commenceTime || null;
+      }
+    }
+    for (const lp of livePicks || []) {
+      if (lp.game === gameLabel && lp.startsAt) return lp.startsAt;
+    }
+    return null;
+  };
+
+  // Format a kickoff timestamp as a short human-readable tag for the slip:
+  // "Today 8:30 PM", "Tomorrow 1:05 PM", or "Wed May 27 · 8:30 PM" for
+  // anything further out. Returns null on bad/missing input.
+  const formatGameTime = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return null;
+    const now = new Date();
+    const sameDay = (a, b) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (sameDay(d, now)) return `Today · ${time}`;
+    if (sameDay(d, tomorrow)) return `Tomorrow · ${time}`;
+    const date = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    return `${date} · ${time}`;
+  };
+
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
     // Guard #1: drop any leg whose matchup isn't in the live feed. This
@@ -3898,7 +3941,13 @@ export default function ParlayBuilder() {
                         </div>
                       )}
                     </div>
-                    <div className="text-xs text-slate-400 break-words">{displayGameLabel(pick.game)}</div>
+                    <div className="text-xs text-slate-400 break-words">
+                      {displayGameLabel(pick.game)}
+                      {(() => {
+                        const t = formatGameTime(lookupGameStart(pick.game));
+                        return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
+                      })()}
+                    </div>
                     <div className="text-sm text-black font-semibold">{pick.pick}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
@@ -5250,7 +5299,13 @@ export default function ParlayBuilder() {
                   <div key={leg.id} className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-slate-400 break-words">{displayGameLabel(leg.game)} · {leg.market}</div>
+                        <div className="text-[10px] text-slate-400 break-words">
+                          {displayGameLabel(leg.game)} · {leg.market}
+                          {(() => {
+                            const t = formatGameTime(lookupGameStart(leg.game));
+                            return t ? <span className="ml-1 text-cyan-500">· {t}</span> : null;
+                          })()}
+                        </div>
                         <div className="text-sm text-slate-100 font-semibold break-words">
                           {leg.pick}
                           {leg.pointsDelta ? (() => {
@@ -7518,7 +7573,13 @@ export default function ParlayBuilder() {
               parlayLegs.map((leg) => (
                 <div key={leg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">{leg.market} · {displayGameLabel(leg.game)}</div>
+                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">
+                      {leg.market} · {displayGameLabel(leg.game)}
+                      {(() => {
+                        const t = formatGameTime(lookupGameStart(leg.game));
+                        return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
+                      })()}
+                    </div>
                     <div className="text-sm font-semibold text-slate-100">{leg.pick}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
