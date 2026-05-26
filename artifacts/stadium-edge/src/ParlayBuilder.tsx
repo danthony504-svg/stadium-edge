@@ -3002,23 +3002,27 @@ export default function ParlayBuilder() {
     return Object.keys(counts).filter((g) => counts[g] > 1);
   })();
 
-  // Auto-fill the slip with a freshly built set of picks (replaces current slip).
-  // Used so the user doesn't have to tap "+ Add" on every card.
+  // Auto-fill the slip with a freshly built set of picks. APPENDS to the
+  // current slip (does not replace) so when the user taps "Build a parlay" or
+  // asks the chat to build a new one, their existing legs stay put and the
+  // new picks pile on. The Trash / "Remove all" buttons in the slip UI are
+  // the only way to clear — the chat never wipes the user's ticket. We still
+  // dedupe inside the incoming batch AND against legs already on the slip
+  // so the same pick can't land twice.
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
-    // Dedupe within the incoming batch — same game + market + pick can only
-    // appear once on the ticket. (This call replaces the current slip.)
+    const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
     const deduped = [];
     for (const p of picks) {
       const k = legKey(p);
-      if (seen.has(k)) continue;
+      if (existingKeys.has(k) || seen.has(k)) continue;
       seen.add(k);
       deduped.push(p);
     }
     if (deduped.length === 0) return;
     const legs = deduped.map((leg) => ({ ...leg, id: Date.now() + Math.random() }));
-    setParlayLegs(legs);
+    setParlayLegs((prev) => [...prev, ...legs]);
     // Log each to the tracker as pending
     setTracker((prev) => [
       ...prev,
