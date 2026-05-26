@@ -2119,6 +2119,11 @@ export default function ParlayBuilder() {
   // a specific snapshot card with the X button (we remember the message index
   // here) or it auto-hides once every game in the snapshot is final.
   const [dismissedSnapshots, setDismissedSnapshots] = useState(() => new Set());
+  // Message indices whose slip snapshot the user has "pinned" to send with
+  // the next chat message. Lets the user attach multiple prior slips to
+  // one question (e.g. "compare these three tickets") instead of being
+  // limited to just the current slip.
+  const [attachedSlipIdxs, setAttachedSlipIdxs] = useState(() => new Set());
 
   // Parse pick-like rows from uploaded text or CSV.
   // Accepts "Game | Market | Pick | Odds" or CSV "Game,Market,Pick,Odds".
@@ -3751,6 +3756,47 @@ export default function ParlayBuilder() {
         realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
       }
     }
+    // Build "extra slips" the user pinned from prior assistant messages
+    // (📎 Pin button on each per-message snapshot). Each pinned message's
+    // PICK lines get parsed, validated against the live pool, and sent
+    // alongside currentSlip so the AI can compare / analyze multiple
+    // tickets in one shot ("which of these is better?", "merge legs from
+    // both", etc.). Drops any leg the live feed can't verify.
+    // Always surface every pinned slip — even unusable ones — so the AI
+    // can acknowledge them explicitly per the MULTIPLE SLIPS prompt rule
+    // ("never silently ignore an attached slip"). If a pinned message has
+    // no PICK lines or every leg was dropped by filterPicksToReal, we
+    // still emit an entry with an unusableReason so the model tells the
+    // user why their pin couldn't be used.
+    const extraSlips = [];
+    for (const idx of attachedSlipIdxs) {
+      const m = messages[idx];
+      if (!m || m.role !== "assistant" || !m.content) {
+        extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], unusableReason: "message no longer available" });
+        continue;
+      }
+      const raw = [];
+      for (const ln of m.content.split("\n")) {
+        const mm = ln.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+        if (mm) raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: mm[3].trim(), odds: parseInt(mm[4]) });
+      }
+      if (!raw.length) {
+        extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], unusableReason: "no PICK lines parsed from that message" });
+        continue;
+      }
+      const { kept } = filterPicksToReal(raw);
+      if (!kept.length) {
+        extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], rawLegCount: raw.length, unusableReason: "all legs are outside the live 24h pool (game ended, postponed, or not in current feed)" });
+        continue;
+      }
+      const math = kept.length >= 2 ? calculateParlay(kept) : null;
+      extraSlips.push({
+        label: `Pinned slip from message #${idx + 1}`,
+        combinedOdds: math ? math.american : null,
+        droppedLegCount: raw.length - kept.length,
+        legs: kept.map((l) => ({ game: l.game, market: l.market, pick: l.pick, odds: l.odds })),
+      });
+    }
     const context = {
       selectedSports,
       currentSlip: parlayLegs.map((l) => ({
@@ -3759,6 +3805,7 @@ export default function ParlayBuilder() {
         pick: l.pick,
         odds: l.odds,
       })),
+      extraSlips: extraSlips.length ? extraSlips : undefined,
       liveMode,
       liveOdds: liveMode
         ? livePicks
@@ -4039,6 +4086,10 @@ export default function ParlayBuilder() {
       }
     } finally {
       setLoading(false);
+      // Pinned slips are one-shot: clear them once the message is sent so
+      // the user doesn't accidentally keep re-attaching them on every
+      // follow-up. They can re-pin from the snapshot card anytime.
+      if (attachedSlipIdxs.size) setAttachedSlipIdxs(new Set());
     }
   };
 
@@ -4336,6 +4387,23 @@ export default function ParlayBuilder() {
                       {formatOdds(snapshotMath.american)}
                     </span>
                   )}
+                  <button
+                    onClick={() => setAttachedSlipIdxs((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(msgIdx)) next.delete(msgIdx);
+                      else next.add(msgIdx);
+                      return next;
+                    })}
+                    aria-label={attachedSlipIdxs.has(msgIdx) ? "Unpin this slip from next message" : "Pin this slip to next message"}
+                    title={attachedSlipIdxs.has(msgIdx) ? "Pinned — will be sent with your next message" : "Pin to next message"}
+                    className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border transition ${
+                      attachedSlipIdxs.has(msgIdx)
+                        ? "border-cyan-300 bg-cyan-300/20 text-cyan-100"
+                        : "border-cyan-300/40 text-cyan-300/80 hover:border-cyan-300 hover:text-cyan-200"
+                    }`}
+                  >
+                    {attachedSlipIdxs.has(msgIdx) ? "📎 Pinned" : "📎 Pin"}
+                  </button>
                   <button
                     onClick={() => setDismissedSnapshots((prev) => {
                       const next = new Set(prev);
@@ -7898,6 +7966,20 @@ export default function ParlayBuilder() {
             <span className="text-xs text-slate-400 max-w-[140px] truncate">{attachment.name}</span>
             <button onClick={() => setAttachment(null)} className="text-slate-500 hover:text-slate-100">
               <X size={16} />
+            </button>
+          </div>
+        )}
+        {attachedSlipIdxs.size > 0 && (
+          <div className="flex items-center gap-2 mb-2 bg-cyan-500/10 border border-cyan-500/40 rounded-xl px-3 py-2 w-fit">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-200">
+              📎 {attachedSlipIdxs.size} slip{attachedSlipIdxs.size !== 1 ? "s" : ""} pinned · will send with next message
+            </span>
+            <button
+              onClick={() => setAttachedSlipIdxs(new Set())}
+              aria-label="Clear pinned slips"
+              className="text-cyan-300/80 hover:text-cyan-100"
+            >
+              <X size={14} />
             </button>
           </div>
         )}
