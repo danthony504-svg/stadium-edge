@@ -33,15 +33,32 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     return;
   }
 
+  // ESPN's scoreboard endpoint defaults to *today's UTC date only*, which gives
+  // ~1 NBA/NHL game and ~13 MLB games — making the app feel stale. Pulling a
+  // 7-day window surfaces actual upcoming matchups (e.g. 100 MLB, 8 NHL).
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+  const today = new Date();
+  const weekOut = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const dateRange = `${fmt(today)}-${fmt(weekOut)}`;
+
   try {
     const data = await cachedJson(
-      `games:${path}`,
+      `games:${path}:${dateRange}`,
       60 * 1000,
       async () => {
-        const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`ESPN ${r.status}`);
-        return (await r.json()) as { events?: EspnEvent[] };
+        const fetchEspn = async (qs: string) => {
+          const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard${qs}`;
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`ESPN ${r.status}`);
+          return (await r.json()) as { events?: EspnEvent[] };
+        };
+        // Primary: 7-day window (in-season leagues — NBA playoffs, MLB, NHL).
+        const ranged = await fetchEspn(`?dates=${dateRange}&limit=200`);
+        if ((ranged.events?.length ?? 0) > 0) return ranged;
+        // Fallback: ESPN's default response (gives the next scheduled batch
+        // for off-season leagues — e.g. NFL preseason/season opener).
+        return await fetchEspn("");
       },
     );
 
