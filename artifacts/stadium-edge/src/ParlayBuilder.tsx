@@ -3943,29 +3943,72 @@ export default function ParlayBuilder() {
       // never sees a card for a game that isn't actually on the slate. If any
       // legs were dropped, append a short honest note explaining why.
       if (droppedGames.size > 0 || rewrites.size > 0) {
-        const cleaned = fullText
-          .split("\n")
-          .map((line) => {
-            const m = line.match(/^(\s*PICK:\s*)(.+?)(\s*\|.+)$/);
-            if (!m) return line;
-            const raw = m[2].trim();
-            if (droppedGames.has(raw)) return null;
-            const canonical = rewrites.get(raw);
-            if (canonical) return `${m[1]}${canonical}${m[3]}`;
-            return line;
-          })
-          .filter((line) => line !== null)
-          .join("\n");
-        const note = droppedGames.size > 0
-          ? (poolEmpty
-              ? `\n\n_⚠️ Couldn't reach the live odds/schedule feed right now, so every suggested leg was dropped to avoid showing games that aren't actually on tonight. Try again in a moment — once the feeds reconnect I'll only pick from real matchups inside the next 24 hours._`
-              : `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`)
-          : "";
-        setMessages((p) => {
-          const next = p.slice();
-          next[next.length - 1] = { role: "assistant", content: cleaned + note };
-          return next;
-        });
+        // If EVERY pick was dropped (or the pool was empty so no pick could
+        // ever match), don't leave any prose around — the AI's narrative
+        // mentions the same hallucinated matchups by name ("Cardinals @
+        // 49ers", "Bucs @ Ravens"…) and the user reads those as real picks
+        // even though no card renders. Replace the whole message with an
+        // honest note so nothing fake stays on screen.
+        if (picks.length === 0) {
+          const note = poolEmpty
+            ? "⚠️ I can't reach the live odds/schedule feed right now (or there are no games in the 24-hour window for the sports you have selected). I'm not going to fabricate matchups, so I have nothing to recommend until the feeds reconnect or games come into the window. Try a sport with games today, or refill the odds API credits."
+            : `I tried to build a parlay, but every matchup I came up with isn't actually on the live slate in the next 24 hours. I'm not going to invent fake games. Try again in a moment, or select different sports — the in-window pool I have right now is: ${eligibleMatchups.slice(0, 5).map((m) => m.canonical).filter(Boolean).join(", ") || "(very few games)"}.`;
+          setMessages((p) => {
+            const next = p.slice();
+            next[next.length - 1] = { role: "assistant", content: note };
+            return next;
+          });
+        } else {
+          // Partial drop: rewrite canonical PICK labels, strip dropped
+          // PICK lines, AND scrub any prose line that name-drops a dropped
+          // matchup or one of its team names so the user doesn't read a
+          // hallucinated game in the narrative.
+          const droppedTokens = new Set();
+          for (const dg of droppedGames) {
+            const mm = dg.match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+            if (mm) {
+              const a = mm[1].trim().toLowerCase();
+              const h = mm[2].trim().toLowerCase();
+              if (a) droppedTokens.add(a);
+              if (h) droppedTokens.add(h);
+              // Add last-word nickname too ("49ers", "Cardinals")
+              const aLast = a.split(/\s+/).pop();
+              const hLast = h.split(/\s+/).pop();
+              if (aLast && aLast.length > 2) droppedTokens.add(aLast);
+              if (hLast && hLast.length > 2) droppedTokens.add(hLast);
+            }
+            droppedTokens.add(dg.toLowerCase());
+          }
+          const cleaned = fullText
+            .split("\n")
+            .map((line) => {
+              const m = line.match(/^(\s*PICK:\s*)(.+?)(\s*\|.+)$/);
+              if (m) {
+                const raw = m[2].trim();
+                if (droppedGames.has(raw)) return null;
+                const canonical = rewrites.get(raw);
+                if (canonical) return `${m[1]}${canonical}${m[3]}`;
+                return line;
+              }
+              // Non-PICK prose: drop the whole line if it mentions a
+              // dropped matchup or its team names.
+              const low = line.toLowerCase();
+              for (const tok of droppedTokens) {
+                if (tok && low.includes(tok)) return null;
+              }
+              return line;
+            })
+            .filter((line) => line !== null)
+            .join("\n")
+            // Collapse runs of 3+ blank lines created by line removal.
+            .replace(/\n{3,}/g, "\n\n");
+          const note = `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now.)_`;
+          setMessages((p) => {
+            const next = p.slice();
+            next[next.length - 1] = { role: "assistant", content: cleaned + note };
+            return next;
+          });
+        }
       }
       if (picks.length > 0) autoFillSlip(picks);
     } catch (err) {
