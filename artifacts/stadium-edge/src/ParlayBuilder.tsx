@@ -1813,7 +1813,7 @@ export default function ParlayBuilder() {
     {
       role: "assistant",
       content:
-        "Welcome to Stadium Edge. I weigh odds, player form, coach tendencies, and ref leans to rank picks.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.",
+        "Welcome to Stadium Edge. I'm wired to **live odds** (The Odds API), **live games** (ESPN), and a real AI brain. Flip on **PICK LIVE** to pull real odds and matchups, then ask me anything — I weigh odds value, form, coach tendencies, ref leans, injuries, and weather.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -2032,13 +2032,84 @@ export default function ParlayBuilder() {
     if (!liveMode) return;
     let cancelled = false;
     setLiveStatus("loading");
-    Promise.allSettled(selectedSports.map((s) => fetchEspnGamesForSport(s)))
+
+    const fetchRealOdds = async (sportId) => {
+      try {
+        const r = await fetch(`/api/sports/odds?sport=${sportId}`);
+        if (!r.ok) return [];
+        const games = await r.json();
+        const picks = [];
+        for (const g of games) {
+          const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
+          const h2h = g.markets.find((m) => m.key === "h2h");
+          const spread = g.markets.find((m) => m.key === "spreads");
+          const total = g.markets.find((m) => m.key === "totals");
+          if (h2h) {
+            for (const o of h2h.outcomes) {
+              picks.push({
+                game: gameLabel,
+                market: "Moneyline",
+                pick: `${o.name} ML`,
+                odds: o.price,
+                tier: o.price < -200 ? 1 : 2,
+                sport: sportId,
+                teamAbbr: o.name.split(" ").pop()?.slice(0, 3).toUpperCase() ?? "",
+                sourceSport: sportId,
+              });
+            }
+          }
+          if (spread) {
+            for (const o of spread.outcomes) {
+              picks.push({
+                game: gameLabel,
+                market: "Spread",
+                pick: `${o.name} ${o.point > 0 ? "+" : ""}${o.point}`,
+                odds: o.price,
+                tier: 2,
+                sport: sportId,
+                teamAbbr: o.name.split(" ").pop()?.slice(0, 3).toUpperCase() ?? "",
+                sourceSport: sportId,
+              });
+            }
+          }
+          if (total) {
+            for (const o of total.outcomes) {
+              picks.push({
+                game: gameLabel,
+                market: "Total",
+                pick: `${o.name} ${o.point}`,
+                odds: o.price,
+                tier: 2,
+                sport: sportId,
+                sourceSport: sportId,
+              });
+            }
+          }
+        }
+        return picks;
+      } catch (_e) {
+        return [];
+      }
+    };
+
+    Promise.allSettled([
+      ...selectedSports.map((s) => fetchEspnGamesForSport(s)),
+      ...selectedSports.map((s) => fetchRealOdds(s)),
+    ])
       .then((results) => {
         if (cancelled) return;
-        const allGames = results.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-        const newPicks = buildPicksFromEspnGames(allGames);
-        const anySuccess = results.some((r) => r.status === "fulfilled");
-        setLivePicks(newPicks);
+        const half = selectedSports.length;
+        const espnResults = results.slice(0, half);
+        const oddsResults = results.slice(half);
+
+        const allGames = espnResults.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+        const espnPicks = buildPicksFromEspnGames(allGames);
+        const realOddsPicks = oddsResults.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+
+        // Real-odds picks first (preferred); fall back to ESPN-derived for sports not in odds feed
+        const combined = [...realOddsPicks, ...espnPicks];
+        const anySuccess = results.some((r) => r.status === "fulfilled" && Array.isArray(r.value) && r.value.length > 0);
+        setLivePicks(combined);
         setLiveStatus(anySuccess ? "ok" : "blocked");
       })
       .catch(() => {
@@ -2690,7 +2761,7 @@ export default function ParlayBuilder() {
         parlayLegs.reduce((acc, leg) => acc * (calculateConfidence(leg, gameRefs[leg.game]) / 100), 1) * 100
       );
 
-  const sendMessage = (override) => {
+  const sendMessage = async (override) => {
     const text = override || input.trim();
     if ((!text && !attachment) || loading) return;
     if (!requirePro("AI Chat")) return; // chat is a Pro feature
@@ -2707,7 +2778,7 @@ export default function ParlayBuilder() {
         {
           role: "assistant",
           content:
-            "I can show your image here, but this offline version can't read what's inside it — there's no vision model running locally. For real bet-slip reading, use the Next.js version (it sends images to Claude's vision API).\n\nIf you want, type the picks out as: Game | Market | Pick | Odds and I'll add them.",
+            "I can show your image but I can't read what's inside it yet. Type the picks out as: Game | Market | Pick | Odds and I'll add them to the slip.",
         },
       ]);
       return;
@@ -2716,26 +2787,101 @@ export default function ParlayBuilder() {
     if (!text) return;
     setInput("");
     setLoading(true);
-    setMessages((p) => [...p, { role: "user", content: text }]);
-    setTimeout(() => {
-      const reply = generateResponse(text, selectedSports, parlayLegs, liveMode ? livePicks : null, gameRefs);
-      setMessages((p) => [...p, { role: "assistant", content: reply.text }]);
-      // Stash enriched pick metadata for record lookup + auto-fill the slip
-      if (reply.picks && reply.picks.length > 0) {
-        autoFillSlip(reply.picks);
-        setEnrichedPicks((prev) => {
-          const next = { ...prev };
-          for (const pk of reply.picks) {
-            if (pk.teamId && pk.sport) {
-              const key = `${pk.game}::${pk.pick}`;
-              next[key] = { teamId: pk.teamId, sport: pk.sport, teamAbbr: pk.teamAbbr };
+
+    // Capture history before adding the new user message
+    const history = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-8)
+      .map((m) => ({ role: m.role, content: m.content }));
+    history.push({ role: "user", content: text });
+
+    setMessages((p) => [
+      ...p,
+      { role: "user", content: text },
+      { role: "assistant", content: "" },
+    ]);
+
+    const context = {
+      selectedSports,
+      currentSlip: parlayLegs.map((l) => ({
+        game: l.game,
+        market: l.market,
+        pick: l.pick,
+        odds: l.odds,
+      })),
+      liveMode,
+      liveOdds: liveMode
+        ? livePicks.slice(0, 30).map((p) => ({
+            game: p.game,
+            market: p.market,
+            pick: p.pick,
+            odds: p.odds,
+          }))
+        : undefined,
+    };
+
+    let fullText = "";
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history, context }),
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          if (!chunk.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(chunk.slice(6));
+            if (data.content) {
+              fullText += data.content;
+              setMessages((p) => {
+                const next = p.slice();
+                next[next.length - 1] = { role: "assistant", content: fullText };
+                return next;
+              });
             }
-          }
-          return next;
-        });
+          } catch (_e) {}
+        }
       }
+
+      // Parse PICK: lines and auto-fill the slip
+      const picks = [];
+      for (const line of fullText.split("\n")) {
+        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+        if (m) {
+          picks.push({
+            game: m[1].trim(),
+            market: m[2].trim(),
+            pick: m[3].trim(),
+            odds: parseInt(m[4]),
+          });
+        }
+      }
+      if (picks.length > 0) autoFillSlip(picks);
+    } catch (err) {
+      // Fall back to the local rules-based generator if the live AI fails
+      const reply = generateResponse(text, selectedSports, parlayLegs, liveMode ? livePicks : null, gameRefs);
+      setMessages((p) => {
+        const next = p.slice();
+        next[next.length - 1] = {
+          role: "assistant",
+          content: reply.text + "\n\n_(AI service unavailable — used offline analyzer)_",
+        };
+        return next;
+      });
+      if (reply.picks && reply.picks.length > 0) autoFillSlip(reply.picks);
+    } finally {
       setLoading(false);
-    }, 400 + Math.random() * 400);
+    }
   };
 
   const renderAssistantMessage = (content) => {

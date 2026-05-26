@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
+export interface InjuryEntry {
+  player: string;
+  /** @nullable */
+  position?: string | null;
   status: string;
+  description: string;
 }

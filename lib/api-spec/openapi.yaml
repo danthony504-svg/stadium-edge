@@ -10,13 +10,18 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: sports
+    description: Live sports data (odds, games, injuries)
+  - name: weather
+    description: Stadium weather
+  - name: chat
+    description: AI chat for parlay analysis
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +29,202 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /sports/odds:
+    get:
+      operationId: getOdds
+      tags: [sports]
+      summary: Live odds for upcoming games in a sport
+      parameters:
+        - in: query
+          name: sport
+          required: true
+          schema: { type: string }
+          description: Sport id (nfl, nba, mlb, nhl, soccer, ncaaf, ncaab, ufc)
+      responses:
+        "200":
+          description: Games with odds
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/OddsGame" }
+        "502":
+          description: Upstream error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiErrorResponse" }
+  /sports/games:
+    get:
+      operationId: getGames
+      tags: [sports]
+      summary: Today's games (ESPN scoreboard) for a sport
+      parameters:
+        - in: query
+          name: sport
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Games
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EspnGame" }
+  /sports/injuries:
+    get:
+      operationId: getInjuries
+      tags: [sports]
+      summary: Current injury report for a sport
+      parameters:
+        - in: query
+          name: sport
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Injuries grouped by team
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/InjuryReport" }
+  /weather:
+    get:
+      operationId: getWeather
+      tags: [weather]
+      summary: Current weather for a stadium location
+      parameters:
+        - in: query
+          name: lat
+          required: true
+          schema: { type: number }
+        - in: query
+          name: lon
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Weather snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeatherSnapshot" }
+  /chat:
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: Stream AI assistant reply (Server-Sent Events)
+      description: |
+        Streams an OpenAI completion as SSE. Each event is `data: {"content": "..."}` and ends with `data: {"done": true}`.
+        Response codegen will be `unknown`; clients must use fetch + ReadableStream, not generated hooks.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatInput" }
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
 components:
   schemas:
     HealthStatus:
       type: object
       properties:
-        status:
-          type: string
-      required:
-        - status
-
+        status: { type: string }
+      required: [status]
+    ApiErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+      required: [error]
+    OddsOutcome:
+      type: object
+      required: [name, price]
+      properties:
+        name: { type: string }
+        price: { type: integer }
+        point: { type: ["number", "null"] }
+    OddsMarket:
+      type: object
+      required: [key, outcomes]
+      properties:
+        key: { type: string }
+        outcomes:
+          type: array
+          items: { $ref: "#/components/schemas/OddsOutcome" }
+    OddsGame:
+      type: object
+      required: [id, sport, homeTeam, awayTeam, commenceTime, markets]
+      properties:
+        id: { type: string }
+        sport: { type: string }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        commenceTime: { type: string }
+        markets:
+          type: array
+          items: { $ref: "#/components/schemas/OddsMarket" }
+    EspnGame:
+      type: object
+      required: [id, sport, name, shortName, status, startsAt]
+      properties:
+        id: { type: string }
+        sport: { type: string }
+        name: { type: string }
+        shortName: { type: string }
+        status: { type: string }
+        startsAt: { type: string }
+        homeTeam: { type: ["string", "null"] }
+        awayTeam: { type: ["string", "null"] }
+        homeScore: { type: ["integer", "null"] }
+        awayScore: { type: ["integer", "null"] }
+        homeTeamId: { type: ["string", "null"] }
+        awayTeamId: { type: ["string", "null"] }
+        venue: { type: ["string", "null"] }
+    InjuryEntry:
+      type: object
+      required: [player, status, description]
+      properties:
+        player: { type: string }
+        position: { type: ["string", "null"] }
+        status: { type: string }
+        description: { type: string }
+    InjuryReport:
+      type: object
+      required: [team, teamAbbr, entries]
+      properties:
+        team: { type: string }
+        teamAbbr: { type: string }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/InjuryEntry" }
+    WeatherSnapshot:
+      type: object
+      required: [tempF, condition, windMph, humidity, precipChance]
+      properties:
+        tempF: { type: number }
+        condition: { type: string }
+        windMph: { type: number }
+        humidity: { type: integer }
+        precipChance: { type: integer }
+        city: { type: ["string", "null"] }
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [system, user, assistant] }
+        content: { type: string }
+    ChatInput:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/ChatMessage" }
+        context:
+          type: object
+          description: Optional structured context (selected sports, current parlay legs, etc.)
+          additionalProperties: true

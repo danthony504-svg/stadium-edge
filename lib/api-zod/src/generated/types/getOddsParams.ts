@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+export type GetOddsParams = {
+/**
+ * Sport id (nfl, nba, mlb, nhl, soccer, ncaaf, ncaab, ufc)
+ */
+sport: string;
+};
