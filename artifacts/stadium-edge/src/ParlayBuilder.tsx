@@ -1053,13 +1053,24 @@ const TEAM_NAME_TO_SPORT = {
   "New York Rangers": "nhl", "Dallas Stars": "nhl", "Carolina Hurricanes": "nhl",
   "Vegas Golden Knights": "nhl",
 };
+// Nicknames that exist in two or more sports — looking these up via
+// TEAM_FULL_NAME_MAP returns ONE expansion (whichever was registered first
+// in the map) and would misclassify the sport. Treat them as unknown.
+const AMBIGUOUS_TEAM_NICKNAMES = new Set([
+  "cardinals", // NFL Arizona vs MLB St. Louis
+  "rangers",   // MLB Texas vs NHL New York
+  "panthers",  // NFL Carolina vs NHL Florida
+  "giants",    // NFL New York vs MLB San Francisco
+  "kings",     // MLB Sacramento (none) vs NHL LA — actually NBA Sacramento Kings only here, but still flag
+]);
 // Resolve a team string (full name OR nickname/abbr) to its sport, or null
-// if unknown. Nickname collisions (e.g. "Cardinals" — NFL Arizona vs MLB
-// St. Louis) return null so we don't false-positive a single-sport game.
+// if unknown. Returns null on ambiguous nicknames so we don't false-positive
+// a cross-sport drop.
 const teamSportOf = (rawName) => {
   const n = String(rawName || "").trim();
   if (!n) return null;
   if (TEAM_NAME_TO_SPORT[n]) return TEAM_NAME_TO_SPORT[n];
+  if (AMBIGUOUS_TEAM_NICKNAMES.has(n.toLowerCase())) return null;
   const expanded = TEAM_FULL_NAME_MAP[n];
   if (expanded && TEAM_NAME_TO_SPORT[expanded]) return TEAM_NAME_TO_SPORT[expanded];
   return null;
@@ -1930,7 +1941,8 @@ const buildParlayToTarget = (sports, legCount, opts = {}) => {
   // at the requested size, return the requested size anyway with the
   // honest "best I could do was X%" disclaimer in the caller.
   const minLegs = Math.max(3, Math.min(legCount, ranked.length));
-  let picks = ranked.slice(0, legCount);
+  const startSize = Math.max(legCount, minLegs);
+  let picks = ranked.slice(0, startSize);
   let conf = parlayConfOf(picks);
   while (conf < target && picks.length > minLegs) {
     picks = picks.slice(0, picks.length - 1); // drop weakest (last, since sorted desc)
