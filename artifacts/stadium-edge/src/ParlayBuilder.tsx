@@ -1022,6 +1022,53 @@ const displayGameLabel = (game) => {
   return `${expandTeamToken(m[1])} ${m[2]} ${expandTeamToken(m[3])}`;
 };
 
+// Reverse map: full team name -> short abbr, built once from TEAM_FULL_NAME_MAP.
+// Used to compact "Boston Celtics" -> "BOS" on the crowded home screen.
+const FULL_TO_ABBR = (() => {
+  const out = {};
+  // Walk the map; prefer the all-caps short key (2-3 letters) as the abbr.
+  for (const [k, v] of Object.entries(TEAM_FULL_NAME_MAP)) {
+    if (/^[A-Z0-9]{2,4}$/.test(k)) {
+      // strip any disambiguating digit suffix like "LAC2"
+      const clean = k.replace(/\d+$/, "");
+      if (!out[v] || clean.length < out[v].length) out[v] = clean;
+    }
+  }
+  return out;
+})();
+const shortTeamLabel = (name) => {
+  const t = (name || "").trim();
+  if (!t) return t;
+  if (FULL_TO_ABBR[t]) return FULL_TO_ABBR[t];
+  // Already short (no spaces) — return as-is
+  if (!/\s/.test(t)) return t;
+  // Fallback: last word (nickname) like "Celtics" from "Boston Celtics"
+  const parts = t.split(/\s+/);
+  return parts[parts.length - 1];
+};
+const shortGameLabel = (g) => {
+  if (!g) return "";
+  const away = g.awayAbbr || shortTeamLabel(g.away || g.awayTeam || "");
+  const home = g.homeAbbr || shortTeamLabel(g.home || g.homeTeam || "");
+  if (away && home) return `${away} @ ${home}`;
+  // Fallback: split a "Foo @ Bar" string and shorten each side
+  if (typeof g.game === "string") {
+    const m = g.game.match(/^(.+?)\s*(@|vs\.?|v\.?)\s*(.+)$/i);
+    if (m) return `${shortTeamLabel(m[1])} ${m[2]} ${shortTeamLabel(m[3])}`;
+    return g.game;
+  }
+  return "";
+};
+// "Jayson Tatum" -> "J. Tatum"; single-word names returned as-is.
+const shortPlayerName = (name) => {
+  const t = (name || "").trim();
+  if (!t || !/\s/.test(t)) return t;
+  const parts = t.split(/\s+/);
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return `${first[0]}. ${last}`;
+};
+
 
 // "Buy points": move a spread/total line in the bettor's favor by `points`,
 // which makes the bet easier to win but worsens the payout odds. This mirrors
@@ -4094,7 +4141,7 @@ export default function ParlayBuilder() {
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{r.sport} · {r.market} · {r.game}</div>
+                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{r.sport} · {r.market} · {shortGameLabel({ game: r.game })}</div>
                             <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
@@ -4210,7 +4257,7 @@ export default function ParlayBuilder() {
                           {initials}
                         </div>
                       )}
-                      <div className="text-sm font-semibold text-slate-100 leading-tight">{f.player.name}</div>
+                      <div className="text-sm font-semibold text-slate-100 leading-tight">{shortPlayerName(f.player.name)}</div>
                       <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider mt-0.5">
                         {f.player.team} · {f.player.pos}
                       </div>
@@ -4270,14 +4317,14 @@ export default function ParlayBuilder() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="flex items-center gap-1.5 min-w-0">
                             {g.awayLogo && <img src={g.awayLogo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-                            <span className="text-sm font-semibold text-slate-100 truncate">{g.away}</span>
+                            <span className="text-sm font-semibold text-slate-100 truncate">{g.awayAbbr || shortTeamLabel(g.away)}</span>
                           </span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.awayScore}</span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
                           <span className="flex items-center gap-1.5 min-w-0">
                             {g.homeLogo && <img src={g.homeLogo} alt="" className="w-5 h-5 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-                            <span className="text-sm font-semibold text-slate-100 truncate">{g.home}</span>
+                            <span className="text-sm font-semibold text-slate-100 truncate">{g.homeAbbr || shortTeamLabel(g.home)}</span>
                           </span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.homeScore}</span>
                         </div>
@@ -4341,7 +4388,7 @@ export default function ParlayBuilder() {
                           <div className="flex items-center gap-1.5 mt-0.5">
                             {g.awayLogo && <img src={g.awayLogo} alt="" className="w-6 h-6 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
                             {g.homeLogo && <img src={g.homeLogo} alt="" className="w-6 h-6 object-contain shrink-0 -ml-2" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-                            <span className="text-sm font-semibold text-slate-100 leading-tight">{g.game}</span>
+                            <span className="text-sm font-semibold text-slate-100 leading-tight">{shortGameLabel(g)}</span>
                           </div>
                           {g.venue && <div className="text-[9px] text-slate-500 mt-1 truncate">{g.venue}</div>}
                         </div>
@@ -4371,7 +4418,7 @@ export default function ParlayBuilder() {
                   >
                     <div className="min-w-0">
                       <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{g.sport}</div>
-                      <div className="text-sm font-semibold text-slate-100 mt-0.5 leading-tight">{g.game}</div>
+                      <div className="text-sm font-semibold text-slate-100 mt-0.5 leading-tight">{shortGameLabel(g)}</div>
                     </div>
                     <span className="text-xs font-semibold text-slate-100 bg-slate-800 rounded-full px-3 py-1.5 mt-3 text-center">
                       Build →
