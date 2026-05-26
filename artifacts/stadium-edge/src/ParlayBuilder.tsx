@@ -1924,6 +1924,8 @@ export default function ParlayBuilder() {
   const [homeDataStatus, setHomeDataStatus] = useState("loading"); // "loading" | "live" | "sim"
   const [realGamesBySport, setRealGamesBySport] = useState({}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
   const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
+  const [realPropsByEvent, setRealPropsByEvent] = useState({}); // { eventId: { home, away, bookmaker, props:[{player,market,line,overPrice,underPrice}] } }
+  const [propsLoading, setPropsLoading] = useState(false);
   const [homeSearch, setHomeSearch] = useState("");
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
@@ -2184,6 +2186,34 @@ export default function ParlayBuilder() {
   // Populate + refresh real live + upcoming games and bookmaker odds for the
   // selected sports. Powers the Home Screen, Sport Detail, search, and the live
   // modal. Falls back to simulated games if the API is unreachable.
+  // Fetch real player props when a Game Detail is opened. Uses the event id
+  // from the matched Odds API entry; cached on the server for 5 minutes.
+  useEffect(() => {
+    if (!gameDetail) { setPropsLoading(false); return; }
+    const { game, sport } = gameDetail;
+    const match = (realOddsBySport[sport] || []).find(
+      (g) => `${g.awayTeam} @ ${g.homeTeam}` === game,
+    );
+    if (!match?.id) { setPropsLoading(false); return; }
+    if (realPropsByEvent[match.id]) { setPropsLoading(false); return; }
+    let cancelled = false;
+    setPropsLoading(true);
+    (async () => {
+      try {
+        const r = await fetch(`/api/sports/props?sport=${sport}&eventId=${match.id}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (cancelled) return;
+        setRealPropsByEvent((prev) => ({ ...prev, [match.id]: data }));
+      } catch {
+        /* leave unset — section just won't render */
+      } finally {
+        if (!cancelled) setPropsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; setPropsLoading(false); };
+  }, [gameDetail, realOddsBySport, realPropsByEvent]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -5777,6 +5807,78 @@ export default function ParlayBuilder() {
                   )}
                 </>
               )}
+              {/* Live player props from The Odds API (real bookmaker lines) */}
+              {(() => {
+                const eid = realOddsForGame?.id;
+                const live = eid ? realPropsByEvent[eid] : null;
+                if (!live || !live.props || live.props.length === 0) {
+                  if (eid && propsLoading) {
+                    return (
+                      <Section title="Live Player Props" count={0}>
+                        <div className="px-4 py-3 text-xs text-slate-500">Loading live props…</div>
+                      </Section>
+                    );
+                  }
+                  return null;
+                }
+                const MARKET_LABEL = {
+                  player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
+                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
+                  player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",
+                  player_receptions: "Receptions", player_anytime_td: "Anytime TD",
+                  batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+                };
+                return (
+                  <Section title="Live Player Props" count={live.props.length}>
+                    <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
+                      {live.bookmaker || "Bookmaker"} · live lines
+                    </div>
+                    {live.props.map((p, i) => {
+                      const label = MARKET_LABEL[p.market] || p.market;
+                      const lineTxt = p.line == null ? "" : ` ${p.line}`;
+                      const overPick = `${p.player} Over${lineTxt} ${label}`;
+                      const underPick = `${p.player} Under${lineTxt} ${label}`;
+                      // Match existing slip dedupe semantics: game+pick. Avoids cross-game
+                      // false positives when two players share a name/line.
+                      const overIn = parlayLegs.some((l) => l.game === game && l.pick === overPick);
+                      const underIn = parlayLegs.some((l) => l.game === game && l.pick === underPick);
+                      // Use canonical "Player Prop" market so confidence/reasoning/
+                      // buy-points logic that keys off market === "Player Prop" applies.
+                      const baseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
+                      return (
+                        <div key={`${p.player}-${p.market}-${i}`} className="px-4 py-2.5 border-t border-slate-800">
+                          <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
+                          <div className="text-sm text-slate-100 mb-2">{p.player}</div>
+                          <div className="flex gap-2">
+                            {p.overPrice != null && (
+                              <button
+                                onClick={() => { if (!overIn) addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice }); }}
+                                disabled={overIn}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                              >
+                                <span>Over {p.line}</span>
+                                <span className="font-mono text-cyan-400">{formatOdds(p.overPrice)}</span>
+                              </button>
+                            )}
+                            {p.underPrice != null && (
+                              <button
+                                onClick={() => { if (!underIn) addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice }); }}
+                                disabled={underIn}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                              >
+                                <span>Under {p.line}</span>
+                                <span className="font-mono text-cyan-400">{formatOdds(p.underPrice)}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </Section>
+                );
+              })()}
               {/* Player props category — list players, tap to open their props page */}
               {gamePlayers.length > 0 && (
                 <Section title="Player Props" count={gamePlayers.length}>
