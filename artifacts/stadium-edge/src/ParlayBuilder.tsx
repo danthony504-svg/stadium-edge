@@ -3276,7 +3276,7 @@ export default function ParlayBuilder() {
       seenLabels.add(label);
     }
     if (matchups.length === 0) {
-      return { kept: [], dropped: picks.map((p) => p.game) };
+      return { kept: [], dropped: picks.map((p) => p.game), poolSize: 0 };
     }
     const overlap = (a, b) => {
       for (const t of a) if (b.has(t)) return true;
@@ -3299,7 +3299,7 @@ export default function ParlayBuilder() {
       if (!hit) { dropped.push(p.game); continue; }
       kept.push({ ...p, game: hit.canonical || p.game });
     }
-    return { kept, dropped };
+    return { kept, dropped, poolSize: matchups.length };
   };
 
   // Look up the kickoff timestamp for a given "Away @ Home" label across
@@ -3353,13 +3353,13 @@ export default function ParlayBuilder() {
   // (e.g. between mounts, before fetches resolve).
   useEffect(() => {
     if (parlayLegs.length === 0) return;
-    // Use the same logic as filterPicksToReal, but on the leg objects.
-    const { kept } = filterPicksToReal(parlayLegs);
-    // If the pool is empty filterPicksToReal returns kept=[]; in that case
-    // we want to KEEP the existing slip (don't punish the user for a
-    // momentary feed gap). Only prune when at least one leg passed — that
-    // proves the pool is real and we can trust the filter's verdict.
-    if (kept.length === 0) return;
+    const { kept, poolSize } = filterPicksToReal(parlayLegs);
+    // Gate on poolSize, NOT kept.length. If the pool is empty (feed gap),
+    // skip pruning so we don't wipe a slip the user is still working on.
+    // But once the pool is real, prune ANY leg that doesn't match — even
+    // if that means clearing the whole slip (which is correct when every
+    // leg is stale junk from before the filter existed).
+    if (poolSize === 0) return;
     if (kept.length === parlayLegs.length) return; // nothing to drop
     const keptKeys = new Set(kept.map(legKey));
     setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
