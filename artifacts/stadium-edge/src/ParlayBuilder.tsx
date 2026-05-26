@@ -2079,6 +2079,42 @@ export default function ParlayBuilder() {
   const [liveStatus, setLiveStatus] = useState("idle"); // "idle"|"loading"|"ok"|"blocked"
   const [teamRecords, setTeamRecords] = useState({}); // { "sport::teamId": record }
   const [enrichedPicks, setEnrichedPicks] = useState({}); // pickKey -> {teamId, sport, teamAbbr}
+  const [playerPhotos, setPlayerPhotos] = useState({}); // { sport: { normalizedName: url } }
+
+  // Fetch league-wide athlete headshots for each selected sport (cached server-side 6h).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const updates = {};
+      await Promise.all(
+        selectedSports.map(async (s) => {
+          if (playerPhotos[s]) return;
+          try {
+            const r = await fetch(`/api/sports/athletes?sport=${s}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            if (data?.photos) updates[s] = data.photos;
+          } catch {
+            // ignore
+          }
+        }),
+      );
+      if (!cancelled && Object.keys(updates).length) {
+        setPlayerPhotos((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-run when selected sports list changes. normalizeName intentionally omitted (stable).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSports.join(",")]);
+
+  const lookupPlayerPhoto = (sport, name) => {
+    if (!name) return null;
+    const norm = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+    return playerPhotos[sport]?.[norm] ?? null;
+  };
 
   // When Live Mode toggles on or selected sports change, fetch ESPN games
   useEffect(() => {
@@ -3811,6 +3847,7 @@ export default function ParlayBuilder() {
                   <>
                     {visible.map((f, i) => {
                   const initials = f.player.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+                  const photo = lookupPlayerPhoto(f.sport, f.player.name);
                   return (
                     <button
                       key={i}
@@ -3828,9 +3865,19 @@ export default function ParlayBuilder() {
                       }}
                       className="shrink-0 w-32 snap-start border border-slate-800 rounded-2xl p-3 bg-slate-900 hover:border-cyan-400 transition flex flex-col items-center text-center"
                     >
-                      <div className="w-14 h-14 rounded-full bg-zinc-900 text-white flex items-center justify-center text-lg font-bold mb-2">
-                        {initials}
-                      </div>
+                      {photo ? (
+                        <img
+                          src={photo}
+                          alt={f.player.name}
+                          loading="lazy"
+                          onError={(e) => { (e.currentTarget).style.display = "none"; }}
+                          className="w-14 h-14 rounded-full object-cover bg-zinc-900 mb-2"
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-zinc-900 text-white flex items-center justify-center text-lg font-bold mb-2">
+                          {initials}
+                        </div>
+                      )}
                       <div className="text-sm font-semibold text-slate-100 leading-tight">{f.player.name}</div>
                       <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider mt-0.5">
                         {f.player.team} · {f.player.pos}
@@ -6047,6 +6094,7 @@ export default function ParlayBuilder() {
                 <Section title="Player Props" count={gamePlayers.length}>
                   {gamePlayers.map((pl) => {
                     const initials = pl.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+                    const photo = lookupPlayerPhoto(sport, pl.name);
                     return (
                       <button
                         key={pl.name}
@@ -6061,7 +6109,11 @@ export default function ParlayBuilder() {
                         }}
                         className="w-full px-4 py-2.5 flex items-center gap-2 text-left border-t border-slate-800 hover:bg-slate-800/50 transition"
                       >
-                        <span className="w-8 h-8 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</span>
+                        {photo ? (
+                          <img src={photo} alt={pl.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="w-8 h-8 rounded-full object-cover bg-zinc-900 shrink-0" />
+                        ) : (
+                          <span className="w-8 h-8 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</span>
+                        )}
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-semibold text-slate-100 truncate">{pl.name}</span>
                           <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider">{pl.team} · {pl.pos} · form {pl.form}/10</span>
@@ -6153,9 +6205,16 @@ export default function ParlayBuilder() {
             <div className="px-4 py-4">
               {/* Identity */}
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-16 h-16 rounded-full bg-zinc-900 text-white flex items-center justify-center text-xl font-bold shrink-0">
-                  {initials}
-                </div>
+                {(() => {
+                  const photo = lookupPlayerPhoto(sport, pl.name);
+                  return photo ? (
+                    <img src={photo} alt={pl.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="w-16 h-16 rounded-full object-cover bg-zinc-900 shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-zinc-900 text-white flex items-center justify-center text-xl font-bold shrink-0">
+                      {initials}
+                    </div>
+                  );
+                })()}
                 <div>
                   <div className="text-xl font-bold text-slate-100">{pl.name}</div>
                   <div className="text-sm text-slate-400">{pl.team} · {pl.pos}</div>

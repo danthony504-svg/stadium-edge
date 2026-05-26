@@ -6,6 +6,7 @@ import gamesRouter from "./games";
 import injuriesRouter from "./injuries";
 import weatherRouter from "./weather";
 import chatRouter from "./chat";
+import athletesRouter from "./athletes";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(gamesRouter);
 router.use(injuriesRouter);
 router.use(weatherRouter);
 router.use(chatRouter);
+router.use(athletesRouter);
 
 export default router;

@@ -27,7 +27,8 @@ type RawEventOdds = {
 };
 
 // Fetch ESPN roster for a team and return a Map of normalized player name → headshot URL.
-const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+const normalizeName = (s: string) =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
 type EspnRoster = { athletes?: Array<{ fullName?: string; displayName?: string; headshot?: { href?: string } | string }> };
 async function fetchHeadshotMap(espnPath: string, teamId: string): Promise<Map<string, string>> {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`;
