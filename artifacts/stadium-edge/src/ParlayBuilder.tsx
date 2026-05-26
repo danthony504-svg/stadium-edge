@@ -1938,7 +1938,7 @@ export default function ParlayBuilder() {
   const [showCoaches, setShowCoaches] = useState(false);
   const [showLiveDemo, setShowLiveDemo] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
-  const [view, setView] = useState("chat"); // "chat" | "home" | "profile"
+  const [view, setView] = useState("home"); // "chat" | "home" | "profile"
   const [homeLiveGames, setHomeLiveGames] = useState([]);
   const [homeUpcomingGames, setHomeUpcomingGames] = useState([]);
   const [homeDataStatus, setHomeDataStatus] = useState("loading"); // "loading" | "live" | "sim"
