@@ -3357,14 +3357,18 @@ export default function ParlayBuilder() {
     // Gate on poolSize, NOT kept.length. If the pool is empty (feed gap),
     // skip pruning so we don't wipe a slip the user is still working on.
     // But once the pool is real, prune ANY leg that doesn't match — even
-    // if that means clearing the whole slip (which is correct when every
-    // leg is stale junk from before the filter existed).
+    // if that means clearing the whole slip (correct when every leg is
+    // stale junk like a cross-sport "Dolphins @ Raptors" hallucination).
     if (poolSize === 0) return;
     if (kept.length === parlayLegs.length) return; // nothing to drop
     const keptKeys = new Set(kept.map(legKey));
     setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
+    // Run on every slip change too — otherwise a leg added between data
+    // polls sits in the slip until the next refresh. The early-return on
+    // `kept.length === parlayLegs.length` makes this safe (no loop once
+    // the slip is clean).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realGamesBySport, realOddsBySport, livePicks]);
+  }, [realGamesBySport, realOddsBySport, livePicks, parlayLegs]);
 
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
