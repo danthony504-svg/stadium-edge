@@ -3188,12 +3188,92 @@ export default function ParlayBuilder() {
   // the only way to clear — the chat never wipes the user's ticket. We still
   // dedupe inside the incoming batch AND against legs already on the slip
   // so the same pick can't land twice.
+  // Shared guard: filter a batch of picks down to only those whose game
+  // appears in the live ESPN schedule or live odds feed. Returns the
+  // canonical (full-name) label for each kept pick so the slip stays
+  // consistent with the live data. If the live pool is empty (e.g. odds API
+  // out of credits AND no ESPN games loaded), nothing passes — we never
+  // surface a matchup we can't prove is real. Used by every path that
+  // touches the slip, so file uploads, AI replies, and the offline fallback
+  // are all guarded the same way.
+  const filterPicksToReal = (picks) => {
+    if (!picks || picks.length === 0) return { kept: [], dropped: [] };
+    const teamTokensFor = (name) => {
+      const out = new Set();
+      const raw = String(name || "").trim();
+      if (!raw) return out;
+      const norm = raw.toLowerCase();
+      out.add(norm);
+      const parts = norm.split(/\s+/);
+      out.add(parts[parts.length - 1]);
+      if (parts.length >= 3) out.add(parts.slice(-2).join(" "));
+      const abbr = FULL_TO_ABBR[raw];
+      if (abbr) out.add(abbr.toLowerCase());
+      return out;
+    };
+    const splitLabel = (label) => {
+      const mm = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+      return mm ? [mm[1].trim(), mm[2].trim()] : null;
+    };
+    const matchups = [];
+    for (const sportGames of Object.values(realGamesBySport || {})) {
+      for (const g of (sportGames || [])) {
+        if (!g.awayTeam || !g.homeTeam) continue;
+        matchups.push({
+          awayTokens: teamTokensFor(g.awayTeam),
+          homeTokens: teamTokensFor(g.homeTeam),
+          canonical: `${g.awayTeam} @ ${g.homeTeam}`,
+        });
+      }
+    }
+    for (const sportOdds of Object.values(realOddsBySport || {})) {
+      for (const g of (sportOdds || [])) {
+        if (!g.awayTeam || !g.homeTeam) continue;
+        matchups.push({
+          awayTokens: teamTokensFor(g.awayTeam),
+          homeTokens: teamTokensFor(g.homeTeam),
+          canonical: `${g.awayTeam} @ ${g.homeTeam}`,
+        });
+      }
+    }
+    if (matchups.length === 0) {
+      return { kept: [], dropped: picks.map((p) => p.game) };
+    }
+    const overlap = (a, b) => {
+      for (const t of a) if (b.has(t)) return true;
+      return false;
+    };
+    const kept = [];
+    const dropped = [];
+    for (const p of picks) {
+      const parts = splitLabel(p.game);
+      if (!parts) { dropped.push(p.game); continue; }
+      const aTokens = teamTokensFor(parts[0]);
+      const hTokens = teamTokensFor(parts[1]);
+      let hit = null;
+      for (const m of matchups) {
+        if (
+          (overlap(aTokens, m.awayTokens) && overlap(hTokens, m.homeTokens)) ||
+          (overlap(aTokens, m.homeTokens) && overlap(hTokens, m.awayTokens))
+        ) { hit = m; break; }
+      }
+      if (!hit) { dropped.push(p.game); continue; }
+      kept.push({ ...p, game: hit.canonical || p.game });
+    }
+    return { kept, dropped };
+  };
+
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
+    // Guard #1: drop any leg whose matchup isn't in the live feed. This
+    // catches the fallback path, file uploads, and any leg the chat-side
+    // filter missed.
+    const { kept } = filterPicksToReal(picks);
+    if (kept.length === 0) return;
     const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
     const deduped = [];
-    for (const p of picks) {
+    for (const p of kept) {
       const k = legKey(p);
       if (existingKeys.has(k) || seen.has(k)) continue;
       seen.add(k);
@@ -3708,17 +3788,31 @@ export default function ParlayBuilder() {
     // THIS message proposed — old slips stay in chat as the conversation
     // grows, and new questions + new slips stack underneath instead of
     // overwriting the previous ticket.
-    const messagePicks = [];
+    const rawMessagePicks = [];
     for (const l of lines) {
       const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
       if (m) {
-        messagePicks.push({
+        rawMessagePicks.push({
           game: m[1].trim(),
           market: m[2].trim(),
           pick: m[3].trim(),
           odds: parseInt(m[4]),
         });
       }
+    }
+    // Guard against stale messages saved before the eligibility filter was
+    // added — strip any PICK whose matchup isn't in the current live feed
+    // and remember the canonical relabel so the inline PICK rows below
+    // render the right team names too. Maps each raw "game|market|pick|odds"
+    // key to its kept (canonical) pick, or null if the leg was dropped.
+    const { kept: messagePicks } = filterPicksToReal(rawMessagePicks);
+    const messagePickByRaw = new Map();
+    for (const rp of rawMessagePicks) {
+      const rk = `${rp.game}::${rp.market}::${rp.pick}::${rp.odds}`;
+      const hit = messagePicks.find(
+        (k) => k.market === rp.market && k.pick === rp.pick && k.odds === rp.odds,
+      );
+      messagePickByRaw.set(rk, hit || null);
     }
     const allInSlip = messagePicks.length > 0 && messagePicks.every((p) => parlayLegs.some((l) => legKey(l) === legKey(p)));
     const snapshotMath = messagePicks.length >= 2 ? calculateParlay(messagePicks) : null;
@@ -3727,12 +3821,18 @@ export default function ParlayBuilder() {
         {lines.map((line, i) => {
           const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
           if (m) {
-            const pick = {
+            const rawPick = {
               game: m[1].trim(),
               market: m[2].trim(),
               pick: m[3].trim(),
               odds: parseInt(m[4]),
             };
+            // Skip any PICK whose matchup didn't survive the eligibility
+            // filter (stale message, hallucinated game, etc.) so the card
+            // never renders for a game that isn't on the live slate.
+            const rk = `${rawPick.game}::${rawPick.market}::${rawPick.pick}::${rawPick.odds}`;
+            const pick = messagePickByRaw.get(rk);
+            if (!pick) return null;
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
             const assignedRef = gameRefs[pick.game];
             const conf = calculateConfidence(pick, assignedRef);
