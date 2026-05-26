@@ -2367,7 +2367,50 @@ export default function ParlayBuilder() {
             });
           }
         }
-        upcoming.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+        // Sort UPCOMING by popularity within the next 24h, then by start time.
+        // Popularity heuristic = sport weight + popular-team weight (per team)
+        // + finals/playoffs bonus + small soon-to-start bonus.
+        const SPORT_W = { nfl: 100, nba: 90, soccer: 85, mlb: 70, nhl: 65, ncaaf: 60, ncaab: 55, ufc: 50 };
+        const POPULAR_TEAMS = new Set([
+          // NFL
+          "KC","DAL","BUF","PHI","SF","BAL","GB","DET","MIA","NYJ","CIN","NE","PIT","LAR",
+          // NBA
+          "LAL","BOS","GSW","DEN","MIL","PHX","DAL","NYK","MIA","OKC","MIN",
+          // MLB
+          "NYY","LAD","BOS","HOU","ATL","CHC","SF","PHI","STL",
+          // NHL
+          "TOR","BOS","NYR","EDM","COL","VGK","FLA","DAL","DET","CHI",
+          // Popular soccer clubs (abbr varies)
+          "ARS","PSG","RMA","BAR","MCI","LIV","MUN","BAY","JUV","CHE","TOT","INT","MIL","DOR","ATM",
+        ]);
+        const FINAL_RX = /final|conference|championship|playoff|elimination|series/i;
+        const popularityScore = (g) => {
+          const sportW = SPORT_W[g.sport] ?? 40;
+          const ah = (g.awayAbbr || g.away || "").toUpperCase();
+          const hh = (g.homeAbbr || g.home || "").toUpperCase();
+          // Pull abbreviations from "AWAY @ HOME" label as a fallback.
+          const m = /^(\S+)\s+@\s+(\S+)/.exec(g.game || "");
+          const a = ah || (m?.[1] || "").toUpperCase();
+          const h = hh || (m?.[2] || "").toUpperCase();
+          const teamW = (POPULAR_TEAMS.has(a) ? 25 : 0) + (POPULAR_TEAMS.has(h) ? 25 : 0);
+          const finalsW = FINAL_RX.test(g.status || "") || FINAL_RX.test(g.venue || "") ? 40 : 0;
+          // Slightly prefer games tipping off sooner (within 24h) so the
+          // soonest popular game floats to the top.
+          const ts = new Date(g.startsAt).getTime();
+          const hoursOut = isNaN(ts) ? 24 : Math.max(0, (ts - Date.now()) / 3_600_000);
+          const soonW = hoursOut <= 24 ? Math.max(0, 24 - hoursOut) * 0.5 : -1000; // de-prioritize >24h
+          return sportW + teamW + finalsW + soonW;
+        };
+        // Stash abbreviations on each upcoming game (used by popularityScore).
+        for (const u of upcoming) {
+          const src = (all || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === u.game && g.sportId === u.sport);
+          if (src) { u.awayAbbr = src.awayAbbr; u.homeAbbr = src.homeAbbr; u.status = src.status; }
+        }
+        upcoming.sort((a, b) => {
+          const sa = popularityScore(a), sb = popularityScore(b);
+          if (sb !== sa) return sb - sa;
+          return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+        });
         if (all.length > 0) {
           setHomeLiveGames(live);
           setHomeUpcomingGames(upcoming);
