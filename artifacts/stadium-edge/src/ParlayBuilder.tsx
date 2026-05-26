@@ -3499,56 +3499,156 @@ export default function ParlayBuilder() {
         }
       }
 
-      // Build the set of game labels the AI was allowed to pick from — every
-      // matchup in the 24h-filtered context arrays we just sent it. Any PICK
-      // line that names a game outside this set is a hallucination from the
-      // model's training data (typically a famous matchup days/weeks/months
-      // out) and must be dropped client-side, no matter what the prompt said.
-      const eligibleGames = new Set();
-      for (const g of realGames) eligibleGames.add(g.game);
-      for (const o of realOdds) eligibleGames.add(o.game);
-      for (const pr of realProps) eligibleGames.add(pr.game);
-      if (liveMode) {
-        for (const lp of livePicks) {
-          if (isWithin24h(lp.startsAt)) eligibleGames.add(lp.game);
+      // Build the pool of matchups the AI was allowed to pick from — every
+      // game in the 24h-filtered context arrays we just sent it. Any PICK
+      // line whose game can't be matched against this pool is a
+      // hallucination from training data and gets dropped client-side, no
+      // matter what the prompt said.
+      //
+      // The AI tends to vary the label format ("Los Angeles Lakers @ Boston
+      // Celtics" vs "Lakers @ Celtics" vs "LAL @ BOS"), so we can't rely on
+      // exact-string matching — we tokenize each side into all the
+      // identifiers we recognize (full lowercased name, nickname, abbr) and
+      // require a match on BOTH sides of the matchup.
+      const teamTokens = (name) => {
+        const out = new Set();
+        const raw = String(name || "").trim();
+        if (!raw) return out;
+        const norm = raw.toLowerCase();
+        out.add(norm);
+        const parts = norm.split(/\s+/);
+        // Nickname = last word ("celtics" from "boston celtics")
+        out.add(parts[parts.length - 1]);
+        // Two-word nickname when the team name has 3+ words ("trail blazers")
+        if (parts.length >= 3) out.add(parts.slice(-2).join(" "));
+        // Abbreviation from our reverse map (e.g. "BOS" for "Boston Celtics")
+        const abbr = FULL_TO_ABBR[raw];
+        if (abbr) out.add(abbr.toLowerCase());
+        return out;
+      };
+      const eligibleMatchups = []; // [{ awayTokens, homeTokens, canonical }]
+      const addMatchup = (away, home, canonical) => {
+        if (!away || !home) return;
+        eligibleMatchups.push({
+          awayTokens: teamTokens(away),
+          homeTokens: teamTokens(home),
+          canonical,
+        });
+      };
+      // realGames/realOdds carry full away/home team names; livePicks and
+      // realProps only carry the combined "Away @ Home" label so we split.
+      for (const sportGames of Object.values(realGamesBySportLocal || {})) {
+        for (const g of (sportGames || [])) {
+          if (isWithin24h(g.startsAt)) {
+            addMatchup(g.awayTeam, g.homeTeam, `${g.awayTeam} @ ${g.homeTeam}`);
+          }
         }
       }
+      for (const sportOdds of Object.values(realOddsBySportLocal || {})) {
+        for (const g of (sportOdds || [])) {
+          if (isWithin24h(g.commenceTime)) {
+            addMatchup(g.awayTeam, g.homeTeam, `${g.awayTeam} @ ${g.homeTeam}`);
+          }
+        }
+      }
+      const splitLabel = (label) => {
+        const mm = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+        return mm ? [mm[1].trim(), mm[2].trim()] : null;
+      };
+      for (const pr of realProps) {
+        const parts = splitLabel(pr.game);
+        if (parts) addMatchup(parts[0], parts[1], pr.game);
+      }
+      if (liveMode) {
+        for (const lp of livePicks) {
+          if (!isWithin24h(lp.startsAt)) continue;
+          const parts = splitLabel(lp.game);
+          if (parts) addMatchup(parts[0], parts[1], lp.game);
+        }
+      }
+      const findEligible = (pickGame) => {
+        const parts = splitLabel(pickGame);
+        if (!parts) return null;
+        const aTokens = teamTokens(parts[0]);
+        const hTokens = teamTokens(parts[1]);
+        const overlap = (a, b) => {
+          for (const t of a) if (b.has(t)) return true;
+          return false;
+        };
+        for (const m of eligibleMatchups) {
+          // Accept normal "A @ H" order OR a swapped "H @ A" — some
+          // bookmakers/models flip sides and we don't want to drop a real
+          // matchup over orientation.
+          if (
+            (overlap(aTokens, m.awayTokens) && overlap(hTokens, m.homeTokens)) ||
+            (overlap(aTokens, m.homeTokens) && overlap(hTokens, m.awayTokens))
+          ) {
+            return m;
+          }
+        }
+        return null;
+      };
 
       // Parse PICK: lines and auto-fill the slip. Drop any leg whose game
-      // isn't in eligibleGames so out-of-window matchups can't sneak through.
+      // can't be matched to a real 24h matchup so hallucinations can't sneak
+      // through. Rewrite the PICK line to use the canonical (full-name)
+      // label so the slip card and snapshot match the live data exactly.
       const picks = [];
       const droppedGames = new Set();
+      const rewrites = new Map(); // raw label -> canonical label
       for (const line of fullText.split("\n")) {
         const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
         if (m) {
-          const game = m[1].trim();
+          const rawGame = m[1].trim();
           // Only enforce the allow-list when we actually have an eligible
           // pool — if the pool is empty (offline / no live data) we keep the
           // existing behavior so the offline fallback path still works.
-          if (eligibleGames.size > 0 && !eligibleGames.has(game)) {
-            droppedGames.add(game);
-            continue;
+          if (eligibleMatchups.length > 0) {
+            const hit = findEligible(rawGame);
+            if (!hit) {
+              droppedGames.add(rawGame);
+              continue;
+            }
+            if (hit.canonical && hit.canonical !== rawGame) {
+              rewrites.set(rawGame, hit.canonical);
+            }
+            picks.push({
+              game: hit.canonical || rawGame,
+              market: m[2].trim(),
+              pick: m[3].trim(),
+              odds: parseInt(m[4]),
+            });
+          } else {
+            picks.push({
+              game: rawGame,
+              market: m[2].trim(),
+              pick: m[3].trim(),
+              odds: parseInt(m[4]),
+            });
           }
-          picks.push({
-            game,
-            market: m[2].trim(),
-            pick: m[3].trim(),
-            odds: parseInt(m[4]),
-          });
         }
       }
-      // Strip the rejected PICK lines from the visible message and, if any
-      // were dropped, append a short honest note so the user can see what
-      // happened instead of silently getting fewer legs.
-      if (droppedGames.size > 0) {
+      // Rewrite kept PICK lines with the canonical (full-name) game label and
+      // strip any rejected PICK lines from the visible message so the user
+      // never sees a card for a game that isn't actually on the slate. If any
+      // legs were dropped, append a short honest note explaining why.
+      if (droppedGames.size > 0 || rewrites.size > 0) {
         const cleaned = fullText
           .split("\n")
-          .filter((line) => {
-            const m = line.match(/PICK:\s*(.+?)\s*\|/);
-            return !(m && droppedGames.has(m[1].trim()));
+          .map((line) => {
+            const m = line.match(/^(\s*PICK:\s*)(.+?)(\s*\|.+)$/);
+            if (!m) return line;
+            const raw = m[2].trim();
+            if (droppedGames.has(raw)) return null;
+            const canonical = rewrites.get(raw);
+            if (canonical) return `${m[1]}${canonical}${m[3]}`;
+            return line;
           })
+          .filter((line) => line !== null)
           .join("\n");
-        const note = `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`;
+        const note = droppedGames.size > 0
+          ? `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`
+          : "";
         setMessages((p) => {
           const next = p.slice();
           next[next.length - 1] = { role: "assistant", content: cleaned + note };
