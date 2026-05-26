@@ -3345,6 +3345,27 @@ export default function ParlayBuilder() {
     return `${date} · ${time}`;
   };
 
+  // Sweep stale/invalid legs out of the slip whenever the live feeds
+  // refresh. Catches: (1) legs added before the eligibility filter existed,
+  // (2) cross-sport hallucinations that slipped through earlier code, (3)
+  // games that ended and aged out of the 24h window. Only runs once the
+  // pool is populated so we don't nuke the slip during a momentary blank
+  // (e.g. between mounts, before fetches resolve).
+  useEffect(() => {
+    if (parlayLegs.length === 0) return;
+    // Use the same logic as filterPicksToReal, but on the leg objects.
+    const { kept } = filterPicksToReal(parlayLegs);
+    // If the pool is empty filterPicksToReal returns kept=[]; in that case
+    // we want to KEEP the existing slip (don't punish the user for a
+    // momentary feed gap). Only prune when at least one leg passed — that
+    // proves the pool is real and we can trust the filter's verdict.
+    if (kept.length === 0) return;
+    if (kept.length === parlayLegs.length) return; // nothing to drop
+    const keptKeys = new Set(kept.map(legKey));
+    setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realGamesBySport, realOddsBySport, livePicks]);
+
   const autoFillSlip = (picks) => {
     if (!picks || picks.length === 0) return;
     // Guard #1: drop any leg whose matchup isn't in the live feed. This
