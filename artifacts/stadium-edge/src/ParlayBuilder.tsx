@@ -3118,17 +3118,24 @@ export default function ParlayBuilder() {
     const extraProps = {}; // eventId -> props payload, merged into context for this send
     if (wantsProps || wantsParlay) {
       const candidates = [];
+      // Widen the candidate pool when the user specifically asks for props
+      // ("find player props"). Parlay-only intent stays narrower so we don't
+      // burn unnecessary fetches when game-level picks are enough.
+      const perSportCap = wantsProps ? 5 : 3;
+      const totalCap = wantsProps ? 12 : 6;
       for (const s of selectedSports) {
         const oddsGames = (realOddsBySport[s] || []).filter((g) => isWithin24h(g.commenceTime));
         const espnGames = realGamesBySport[s] || [];
-        for (const g of oddsGames.slice(0, 3)) {
+        // Sort soonest-first so the prop pool reflects the games closest to
+        // tip-off — most actionable for "add to ticket now" intent.
+        oddsGames.sort((a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime());
+        for (const g of oddsGames.slice(0, perSportCap)) {
           if (!g.id) continue;
           const espn = espnGames.find((e) => `${e.awayTeam} @ ${e.homeTeam}` === `${g.awayTeam} @ ${g.homeTeam}`);
           candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId });
         }
       }
-      // Cap total prop fetches per send to keep the request snappy.
-      const toFetch = candidates.slice(0, 6);
+      const toFetch = candidates.slice(0, totalCap);
       await Promise.all(
         toFetch.map(async (c) => {
           if (realPropsByEvent[c.eventId]) { extraProps[c.eventId] = realPropsByEvent[c.eventId]; return; }
