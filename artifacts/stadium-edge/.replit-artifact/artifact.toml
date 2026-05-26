@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Stadium Edge"
+version = "1.0.0"
+id = "artifacts/stadium-edge"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23713
+
+[services.development]
+run = "pnpm --filter @workspace/stadium-edge run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/stadium-edge", "run", "build" ]
+publicDir = "artifacts/stadium-edge/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23713"
+BASE_PATH = "/"
