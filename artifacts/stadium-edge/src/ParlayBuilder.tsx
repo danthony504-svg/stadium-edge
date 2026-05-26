@@ -1924,10 +1924,15 @@ const buildParlayToTarget = (sports, legCount, opts = {}) => {
   const parlayConfOf = (legs) =>
     Math.round(legs.reduce((acc, l) => acc * (calculateConfidence(l, gameRefs[l.game] || null) / 100), 1) * 100);
 
-  // Try the requested leg count first; if under target, trim weakest legs
+  // Try the requested leg count first; if under target, trim weakest legs.
+  // Never trim below the requested leg count — a "Build me a parlay" that
+  // returns 2 legs feels broken to the user. If we can't clear the target
+  // at the requested size, return the requested size anyway with the
+  // honest "best I could do was X%" disclaimer in the caller.
+  const minLegs = Math.max(3, Math.min(legCount, ranked.length));
   let picks = ranked.slice(0, legCount);
   let conf = parlayConfOf(picks);
-  while (conf < target && picks.length > 1) {
+  while (conf < target && picks.length > minLegs) {
     picks = picks.slice(0, picks.length - 1); // drop weakest (last, since sorted desc)
     conf = parlayConfOf(picks);
   }
@@ -3350,9 +3355,35 @@ export default function ParlayBuilder() {
         dropped.push(p.game);
         continue;
       }
-      // Second pass: if the pool is populated, require a real matchup.
-      // If the pool is empty (feed gap), pass single-sport legs through —
-      // the cleanup useEffect's poolSize gate will revisit them later.
+      // Second pass: time-window check that runs even when the matchup
+      // pool (which only contains in-window games) is empty. We scan the
+      // raw feeds unfiltered for the leg's start time — if it's known and
+      // outside the [-4h, +24h] window we drop, no matter the sport. This
+      // catches things like "Bucs @ Ravens" in September showing up while
+      // the in-window pool is empty for the user's sport selection.
+      const rawStart = (() => {
+        const label = p.game;
+        for (const sg of Object.values(realGamesBySport || {})) {
+          for (const g of (sg || [])) {
+            if (`${g.awayTeam} @ ${g.homeTeam}` === label) return g.startsAt || null;
+          }
+        }
+        for (const so of Object.values(realOddsBySport || {})) {
+          for (const g of (so || [])) {
+            if (`${g.awayTeam} @ ${g.homeTeam}` === label) return g.commenceTime || null;
+          }
+        }
+        for (const lp of livePicks || []) {
+          if (lp.game === label && lp.startsAt) return lp.startsAt;
+        }
+        return null;
+      })();
+      if (rawStart && !inWindow(rawStart)) { dropped.push(p.game); continue; }
+
+      // Third pass: if the pool is populated, require a real matchup.
+      // If the pool is empty (feed gap) AND the leg's start isn't known,
+      // pass single-sport legs through — the cleanup useEffect's poolSize
+      // gate will revisit them later when feeds load.
       if (matchups.length === 0) {
         kept.push(p);
         continue;
