@@ -1603,21 +1603,13 @@ const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null,
     const t = new Date(p.startsAt).getTime();
     return !isNaN(t) && t >= NOW - LIVE_BACK_MS && t <= NOW + WINDOW_MS;
   };
-  // Prefer live ESPN picks when provided and non-empty
-  let pool;
+  // ONLY use real ESPN/Odds picks. If the live pool is empty or has nothing
+  // in the 24h window for the selected sports, return [] so the caller can
+  // surface an honest "no live games available" empty state instead of
+  // rendering stale hypothetical matchups.
+  let pool = [];
   if (livePool && livePool.length > 0) {
     pool = livePool.filter((p) => sports.includes(p.sport)).filter(within24h);
-    if (pool.length === 0) {
-      // No qualifying games in the 24h window — fall back to the full live
-      // pool for the selected sports rather than stale hardcoded matchups.
-      pool = livePool.filter((p) => sports.includes(p.sport));
-    }
-    if (pool.length === 0) {
-      // Selected sports have no live games — fall back to hypothetical
-      pool = sports.flatMap((s) => (PICK_POOL[s] || []).map((p) => ({ ...p, sport: s })));
-    }
-  } else {
-    pool = sports.flatMap((s) => (PICK_POOL[s] || []).map((p) => ({ ...p, sport: s })));
   }
   if (propsOnly) pool = pool.filter((p) => p.market === "Player Prop");
   if (pool.length === 0) return [];
@@ -3088,6 +3080,49 @@ export default function ParlayBuilder() {
     setInput("");
     setLoading(true);
 
+    // Re-fetch games + odds for the selected sports RIGHT NOW so the chat
+    // sees up-to-the-minute scores, lines, and live status — not a cached
+    // snapshot up to 60 seconds old. We hold the fresh data in local vars
+    // (and also push it to state) so the rest of this send uses them.
+    let realGamesBySportLocal = realGamesBySport;
+    let realOddsBySportLocal = realOddsBySport;
+    try {
+      const [gamesResults, oddsResults] = await Promise.all([
+        Promise.all(
+          selectedSports.map(async (s) => {
+            try {
+              const r = await fetch(`/api/sports/games?sport=${s}`);
+              if (!r.ok) return { sport: s, games: realGamesBySport[s] || [] };
+              const games = await r.json();
+              return { sport: s, games: games.map((g) => ({ ...g, sportId: s })).filter((g) => g.awayTeam && g.homeTeam) };
+            } catch {
+              return { sport: s, games: realGamesBySport[s] || [] };
+            }
+          }),
+        ),
+        Promise.all(
+          selectedSports.map(async (s) => {
+            try {
+              const r = await fetch(`/api/sports/odds?sport=${s}`);
+              if (!r.ok) return { sport: s, odds: realOddsBySport[s] || [] };
+              const odds = await r.json();
+              return { sport: s, odds };
+            } catch {
+              return { sport: s, odds: realOddsBySport[s] || [] };
+            }
+          }),
+        ),
+      ]);
+      const freshGames = { ...realGamesBySport };
+      for (const { sport, games } of gamesResults) freshGames[sport] = games;
+      const freshOdds = { ...realOddsBySport };
+      for (const { sport, odds } of oddsResults) freshOdds[sport] = odds;
+      realGamesBySportLocal = freshGames;
+      realOddsBySportLocal = freshOdds;
+      setRealGamesBySport(freshGames);
+      setRealOddsBySport(freshOdds);
+    } catch { /* keep cached state on failure */ }
+
     // Capture history before adding the new user message
     const history = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -3126,8 +3161,8 @@ export default function ParlayBuilder() {
       const perSportCap = wantsProps ? 5 : 3;
       const totalCap = wantsProps ? 12 : 6;
       for (const s of selectedSports) {
-        const oddsGames = (realOddsBySport[s] || []).filter((g) => isWithin24h(g.commenceTime));
-        const espnGames = realGamesBySport[s] || [];
+        const oddsGames = (realOddsBySportLocal[s] || []).filter((g) => isWithin24h(g.commenceTime));
+        const espnGames = realGamesBySportLocal[s] || [];
         // Sort soonest-first so the prop pool reflects the games closest to
         // tip-off — most actionable for "add to ticket now" intent.
         oddsGames.sort((a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime());
@@ -3159,7 +3194,7 @@ export default function ParlayBuilder() {
     }
     // Compact real games (ESPN) — limit per sport to keep context small.
     const realGames = [];
-    for (const [sport, games] of Object.entries(realGamesBySport)) {
+    for (const [sport, games] of Object.entries(realGamesBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.startsAt));
       for (const g of filtered.slice(0, 12)) {
         realGames.push({ sport, game: `${g.awayTeam} @ ${g.homeTeam}`, status: g.status, startsAt: g.startsAt, venue: g.venue });
@@ -3167,7 +3202,7 @@ export default function ParlayBuilder() {
     }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
-    for (const [sport, games] of Object.entries(realOddsBySport)) {
+    for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.commenceTime));
       for (const g of filtered.slice(0, 12)) {
         for (const p of buildPicksFromOdds(g).slice(0, 8)) {
@@ -3181,7 +3216,7 @@ export default function ParlayBuilder() {
     const eventToGame = {};
     const eventToSport = {};
     const eventToStart = {};
-    for (const [sport, games] of Object.entries(realOddsBySport)) {
+    for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       for (const g of games) {
         eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
         eventToSport[g.id] = sport;
@@ -3269,21 +3304,31 @@ export default function ParlayBuilder() {
       }
       if (picks.length > 0) autoFillSlip(picks);
     } catch (err) {
-      // Fall back to the local rules-based generator if the live AI fails
-      // Always prefer real ESPN/Odds picks when available — the PICK_POOL
-      // fallback contains stale hardcoded matchups. Only fall back to it
-      // when livePicks is genuinely empty (live feeds unreachable).
-      const pool = livePicks.length > 0 ? livePicks : null;
-      const reply = generateResponse(text, selectedSports, parlayLegs, pool, gameRefs);
-      setMessages((p) => {
-        const next = p.slice();
-        next[next.length - 1] = {
-          role: "assistant",
-          content: reply.text + "\n\n_(AI service unavailable — used offline analyzer)_",
-        };
-        return next;
-      });
-      if (reply.picks && reply.picks.length > 0) autoFillSlip(reply.picks);
+      // Fall back to the local rules-based generator if the live AI fails,
+      // but ONLY use real live picks — never the hypothetical PICK_POOL.
+      // If there are no real live picks right now, say so honestly.
+      if (livePicks.length === 0) {
+        setMessages((p) => {
+          const next = p.slice();
+          next[next.length - 1] = {
+            role: "assistant",
+            content:
+              "I'm offline right now and don't have any live games or odds to work from. Try again in a moment once the live feeds reconnect.",
+          };
+          return next;
+        });
+      } else {
+        const reply = generateResponse(text, selectedSports, parlayLegs, livePicks, gameRefs);
+        setMessages((p) => {
+          const next = p.slice();
+          next[next.length - 1] = {
+            role: "assistant",
+            content: reply.text + "\n\n_(AI service unavailable — used offline analyzer on live data)_",
+          };
+          return next;
+        });
+        if (reply.picks && reply.picks.length > 0) autoFillSlip(reply.picks);
+      }
     } finally {
       setLoading(false);
     }
