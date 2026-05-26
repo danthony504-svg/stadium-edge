@@ -3161,18 +3161,23 @@ export default function ParlayBuilder() {
     const realProps = [];
     const eventToGame = {};
     const eventToSport = {};
+    const eventToStart = {};
     for (const [sport, games] of Object.entries(realOddsBySport)) {
       for (const g of games) {
         eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
         eventToSport[g.id] = sport;
+        eventToStart[g.id] = g.commenceTime;
       }
     }
     const mergedPropsByEvent = { ...realPropsByEvent, ...extraProps };
     for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
+      // Only surface props whose underlying game tips off within the next 24h —
+      // older cached props from previously-opened games must not leak in.
+      if (!isWithin24h(eventToStart[eid])) continue;
       const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
       const sport = eventToSport[eid] || null;
       for (const pr of (data.props || []).slice(0, 30)) {
-        realProps.push({ sport, game: gameLabel, player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
+        realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
       }
     }
     const context = {
