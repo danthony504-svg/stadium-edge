@@ -3392,11 +3392,17 @@ export default function ParlayBuilder() {
       })();
       if (rawStart && !inWindow(rawStart)) { dropped.push(p.game); continue; }
 
-      // Third pass: if the pool is populated, require a real matchup.
-      // If the pool is empty (feed gap) AND the leg's start isn't known,
-      // pass single-sport legs through — the cleanup useEffect's poolSize
-      // gate will revisit them later when feeds load.
+      // Third pass: require a real matchup. If the pool is empty AND we
+      // couldn't find this leg's matchup in ANY raw feed (rawStart is
+      // null), the leg is unverifiable — drop it. This is the project's
+      // "no fake fallbacks" rule: a hallucinated matchup like
+      // "Bucs @ Ravens" (Bucs actually play Bengals) has no entry in the
+      // raw feeds, so we can't prove it's real and we must not show it.
+      // The only legs that get a pass-through here are ones whose game
+      // label DID match a raw feed entry but that entry had no usable
+      // start time — extremely rare; better to keep than drop on noise.
       if (matchups.length === 0) {
+        if (!rawStart) { dropped.push(p.game); continue; }
         kept.push(p);
         continue;
       }
