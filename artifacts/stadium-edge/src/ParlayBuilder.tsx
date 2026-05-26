@@ -1889,6 +1889,8 @@ export default function ParlayBuilder() {
   const [fabOpen, setFabOpen] = useState(false);
   const [view, setView] = useState("chat"); // "chat" | "home" | "profile"
   const [homeLiveGames, setHomeLiveGames] = useState([]);
+  const [homeUpcomingGames, setHomeUpcomingGames] = useState([]);
+  const [homeDataStatus, setHomeDataStatus] = useState("loading"); // "loading" | "live" | "sim"
   const [homeSearch, setHomeSearch] = useState("");
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
@@ -2146,15 +2148,102 @@ export default function ParlayBuilder() {
     return () => clearInterval(iv);
   }, [showLiveDemo, selectedSports]);
 
-  // Populate + refresh the home page's Live Now games while on the home view
+  // Populate + refresh the home page's Live Now + Upcoming games using REAL data.
+  // Falls back to simulated games if the API is unreachable.
   useEffect(() => {
     if (view !== "home") return;
-    setHomeLiveGames(generateSimLiveGames(selectedSports));
-    const iv = setInterval(() => {
-      setHomeLiveGames(generateSimLiveGames(selectedSports));
-    }, 10000);
-    return () => clearInterval(iv);
+    let cancelled = false;
+
+    const fetchAll = async () => {
+      try {
+        const results = await Promise.all(
+          selectedSports.map(async (s) => {
+            try {
+              const r = await fetch(`/api/sports/games?sport=${s}`);
+              if (!r.ok) return [];
+              const games = await r.json();
+              return games.map((g) => ({ ...g, sportId: s }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        if (cancelled) return;
+        const all = results.flat();
+        const live = [];
+        const upcoming = [];
+        for (const g of all) {
+          if (!g.awayTeam || !g.homeTeam) continue;
+          const s = (g.status || "").toLowerCase();
+          const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
+          if (isFinal) continue;
+          const isScheduled = s.includes("scheduled") || s.includes("pre");
+          const isLive = !isScheduled && (
+            s.includes("in progress") ||
+            s.includes("halftime") ||
+            s.includes("end of") ||
+            s.includes("1st") || s.includes("2nd") || s.includes("3rd") || s.includes("4th") ||
+            s.includes("top ") || s.includes("bot ") || s.includes("mid ") ||
+            s.includes("period") || s.includes("quarter") || s.includes("inning")
+          );
+          if (isLive) {
+            live.push({
+              real: true,
+              sport: g.sportId,
+              away: g.awayTeam,
+              home: g.homeTeam,
+              awayScore: g.awayScore ?? 0,
+              homeScore: g.homeScore ?? 0,
+              periodLabel: g.status || "Live",
+              clock: "",
+              game: `${g.awayTeam} @ ${g.homeTeam}`,
+              startsAt: g.startsAt,
+            });
+          } else if (isScheduled) {
+            upcoming.push({
+              real: true,
+              game: `${g.awayTeam} @ ${g.homeTeam}`,
+              sport: g.sportId,
+              startsAt: g.startsAt,
+              venue: g.venue,
+            });
+          }
+        }
+        upcoming.sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+        if (all.length > 0) {
+          setHomeLiveGames(live);
+          setHomeUpcomingGames(upcoming);
+          setHomeDataStatus("live");
+        } else {
+          // API unreachable or no data — fall back to simulator
+          setHomeLiveGames(generateSimLiveGames(selectedSports));
+          setHomeUpcomingGames([]);
+          setHomeDataStatus("sim");
+        }
+      } catch {
+        if (!cancelled) {
+          setHomeLiveGames(generateSimLiveGames(selectedSports));
+          setHomeUpcomingGames([]);
+          setHomeDataStatus("sim");
+        }
+      }
+    };
+
+    fetchAll();
+    const iv = setInterval(fetchAll, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
   }, [view, selectedSports]);
+
+  // Helper: ask the AI to build a parlay for a real game using live context.
+  const buildParlayForRealGame = (gameLabel, sport, kind) => {
+    if (!requirePro("Build from game")) return;
+    setView("chat");
+    const verb = kind === "live" ? "live parlay" : "parlay";
+    sendMessage(`Build me the best ${verb} for ${gameLabel} (${sport.toUpperCase()}). Use real current odds.`);
+  };
 
   // Build a simulated live parlay and post it into the chat
   const buildSimLiveParlay = () => {
@@ -3438,12 +3527,24 @@ export default function ParlayBuilder() {
 
             {homeSearch.trim().length > 0 && (() => {
               const q = homeSearch.trim().toLowerCase();
-              const all = Object.entries(PICK_POOL).flatMap(([sport, picks]) =>
-                picks.map((p) => ({ ...p, sport }))
+              // Real live + upcoming games first (no odds attached — clicking asks the AI)
+              const realGameRows = [
+                ...homeLiveGames.filter((g) => g.real).map((g) => ({
+                  kind: "realGame", sport: g.sport, game: g.game, market: "LIVE", pick: `${g.away} ${g.awayScore} — ${g.home} ${g.homeScore}`, odds: null,
+                })),
+                ...homeUpcomingGames.map((g) => ({
+                  kind: "realGame", sport: g.sport, game: g.game, market: "Upcoming", pick: g.game, odds: null,
+                })),
+              ].filter((r) =>
+                r.game.toLowerCase().includes(q) || r.pick.toLowerCase().includes(q) || r.sport.toLowerCase().includes(q)
               );
-              const results = all.filter((p) =>
+              const all = Object.entries(PICK_POOL).flatMap(([sport, picks]) =>
+                picks.map((p) => ({ ...p, sport, kind: "pickPool" }))
+              );
+              const poolResults = all.filter((p) =>
                 p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)
-              ).slice(0, 12);
+              );
+              const results = [...realGameRows.slice(0, 8), ...poolResults.slice(0, 12)];
               return (
                 <div className="mt-2 border border-slate-800 rounded-2xl bg-slate-900 shadow-sm overflow-hidden divide-y divide-slate-800">
                   {results.length === 0 ? (
@@ -3452,7 +3553,8 @@ export default function ParlayBuilder() {
                     </div>
                   ) : (
                     results.map((r, i) => {
-                      const inSlip = parlayLegs.some((l) => l.game === r.game && l.pick === r.pick);
+                      const isRealGame = r.kind === "realGame";
+                      const inSlip = !isRealGame && parlayLegs.some((l) => l.game === r.game && l.pick === r.pick);
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
@@ -3460,14 +3562,25 @@ export default function ParlayBuilder() {
                             <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="font-mono font-bold text-cyan-500 text-sm">{formatOdds(r.odds)}</span>
-                            <button
-                              onClick={() => { if (!inSlip) addLeg({ ...r }); }}
-                              disabled={inSlip}
-                              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500 cursor-default" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}
-                            >
-                              {inSlip ? "✓" : "+ Add"}
-                            </button>
+                            {!isRealGame && (
+                              <span className="font-mono font-bold text-cyan-500 text-sm">{formatOdds(r.odds)}</span>
+                            )}
+                            {isRealGame ? (
+                              <button
+                                onClick={() => { setHomeSearch(""); buildParlayForRealGame(r.game, r.sport, r.market === "LIVE" ? "live" : "upcoming"); }}
+                                className="rounded-full px-3 py-1.5 text-xs font-semibold bg-cyan-500 text-white hover:bg-cyan-600 transition"
+                              >
+                                Build →
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => { if (!inSlip) addLeg({ ...r }); }}
+                                disabled={inSlip}
+                                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500 cursor-default" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}
+                              >
+                                {inSlip ? "✓" : "+ Add"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -3581,54 +3694,59 @@ export default function ParlayBuilder() {
                 <span className="w-2 h-2 rounded-full bg-rose-500 pulse-dot" /> LIVE NOW
               </h2>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                {homeLiveGames.length} games · sim
+                {homeDataStatus === "loading" ? "loading…" : `${homeLiveGames.length} games · ${homeDataStatus === "live" ? "LIVE" : "sim"}`}
               </span>
             </div>
 
             {homeLiveGames.length === 0 ? (
               <p className="text-sm text-slate-500 px-1 py-6 text-center">
-                No simulated live games for your sports right now.
+                {homeDataStatus === "loading"
+                  ? "Loading live games…"
+                  : homeDataStatus === "live"
+                    ? "No games in progress right now for your selected sports."
+                    : "No simulated live games for your sports right now."}
               </p>
             ) : (
               <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
                 {homeLiveGames.map((g, i) => (
-                  <div key={i} className="border border-slate-800 rounded-2xl p-3 bg-gradient-to-br from-zinc-50 to-white shadow-sm shrink-0 w-72 snap-start">
+                  <div key={i} className="border border-slate-800 rounded-2xl p-3 bg-slate-950 shadow-sm shrink-0 w-72 snap-start">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-rose-500 flex items-center gap-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-rose-400 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500 pulse-dot" />
-                        {g.periodLabel} · {g.clock}
+                        {g.periodLabel}{g.clock ? ` · ${g.clock}` : ""}
                       </span>
-                      <span className="text-[9px] font-mono uppercase text-slate-500">{g.sport}</span>
+                      <span className="text-[9px] font-mono uppercase text-slate-500">{g.sport}{g.real ? " · LIVE" : " · SIM"}</span>
                     </div>
                     <div className="flex items-stretch justify-between gap-3">
                       {/* Teams + scores */}
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-100">{g.away}</span>
+                          <span className="text-sm font-semibold text-slate-100 truncate pr-2">{g.away}</span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.awayScore}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-100">{g.home}</span>
+                          <span className="text-sm font-semibold text-slate-100 truncate pr-2">{g.home}</span>
                           <span className="font-mono font-bold text-lg text-slate-100">{g.homeScore}</span>
                         </div>
                       </div>
-                      {/* Win prob bar */}
-                      <div className="w-28 flex flex-col justify-center">
-                        <div className="text-[9px] font-mono uppercase text-slate-500 mb-1 text-right">Win prob</div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] font-mono text-slate-400 w-7">{g.awayWP}%</span>
-                          <div className="flex-1 h-1.5 rounded-full bg-zinc-200 overflow-hidden">
-                            <div className="h-full bg-cyan-500" style={{ width: `${g.homeWP}%` }} />
+                      {!g.real && (
+                        <div className="w-28 flex flex-col justify-center">
+                          <div className="text-[9px] font-mono uppercase text-slate-500 mb-1 text-right">Win prob</div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-mono text-slate-400 w-7">{g.awayWP}%</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div className="h-full bg-cyan-500" style={{ width: `${g.homeWP}%` }} />
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400 w-7 text-right">{g.homeWP}%</span>
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400 w-7 text-right">{g.homeWP}%</span>
+                          <div className="text-[9px] font-mono uppercase text-slate-500 mt-1 text-right">
+                            {g.currentTotal}/{g.total} · <span className={g.pacing === "over" ? "text-emerald-500" : g.pacing === "under" ? "text-amber-500" : ""}>{g.pacing}</span>
+                          </div>
                         </div>
-                        <div className="text-[9px] font-mono uppercase text-slate-500 mt-1 text-right">
-                          {g.currentTotal}/{g.total} · <span className={g.pacing === "over" ? "text-emerald-600" : g.pacing === "under" ? "text-amber-600" : ""}>{g.pacing}</span>
-                        </div>
-                      </div>
+                      )}
                     </div>
                     <button
-                      onClick={() => buildParlayForLiveGame(g)}
+                      onClick={() => g.real ? buildParlayForRealGame(g.game, g.sport, "live") : buildParlayForLiveGame(g)}
                       className="w-full mt-2.5 bg-cyan-400 text-slate-950 rounded-lg py-2 text-xs font-semibold hover:bg-cyan-300 transition"
                     >
                       Build best parlay from this game
@@ -3639,17 +3757,45 @@ export default function ParlayBuilder() {
             )}
 
             <p className="text-[9px] font-mono text-slate-500 text-center mt-5 uppercase tracking-widest leading-relaxed">
-              ⚠️ Simulated games — not real live data. Real live games are in the Next.js version.<br/>21+ · Hypothetical only · Bet responsibly
+              {homeDataStatus === "live"
+                ? <>Live scores & schedules from ESPN, odds from The Odds API · Refreshes every 60s<br/>21+ · For entertainment · Bet responsibly</>
+                : <>⚠️ Simulated games — couldn't reach live feeds.<br/>21+ · Hypothetical only · Bet responsibly</>}
             </p>
 
             {/* Upcoming Games */}
             <div className="flex items-center justify-between mb-2 mt-8 px-1">
               <h2 className="font-display text-lg text-slate-100">UPCOMING</h2>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">tap to build</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                {homeUpcomingGames.length > 0 ? `${homeUpcomingGames.length} · live` : "tap to build"}
+              </span>
             </div>
             <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
               {(() => {
-                // Unique upcoming games from the hypothetical pool across selected sports
+                if (homeUpcomingGames.length > 0) {
+                  return homeUpcomingGames.slice(0, 16).map((g, i) => {
+                    const dt = new Date(g.startsAt);
+                    const when = isNaN(dt.getTime())
+                      ? ""
+                      : dt.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => buildParlayForRealGame(g.game, g.sport, "upcoming")}
+                        className="text-left border border-slate-800 rounded-2xl p-3 bg-slate-900 hover:border-cyan-400 transition shrink-0 w-48 snap-start flex flex-col justify-between"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{g.sport} · {when}</div>
+                          <div className="text-sm font-semibold text-slate-100 mt-0.5 leading-tight">{g.game}</div>
+                          {g.venue && <div className="text-[9px] text-slate-500 mt-1 truncate">{g.venue}</div>}
+                        </div>
+                        <span className="text-xs font-semibold text-slate-100 bg-slate-800 rounded-full px-3 py-1.5 mt-3 text-center">
+                          Build →
+                        </span>
+                      </button>
+                    );
+                  });
+                }
+                // Fallback: sample pool when no live data
                 const seen = new Set();
                 const games = [];
                 for (const s of selectedSports) {
@@ -3679,7 +3825,9 @@ export default function ParlayBuilder() {
             </div>
 
             <p className="text-[9px] font-mono text-slate-500 text-center mt-5 uppercase tracking-widest leading-relaxed">
-              Upcoming games are sample matchups · 21+ · Hypothetical only
+              {homeUpcomingGames.length > 0
+                ? "Real upcoming games from ESPN · 21+ · Bet responsibly"
+                : "Sample matchups — couldn't reach live feed · 21+ · Hypothetical only"}
             </p>
           </div>
         </div>
