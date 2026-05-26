@@ -2042,6 +2042,10 @@ export default function ParlayBuilder() {
   const [activeLegBtn, setActiveLegBtn] = useState(3);
   const [attachment, setAttachment] = useState(null); // { dataUrl, name, kind }
   const fileInputRef = useRef(null);
+  // Per-message slip snapshots persist in chat by default. The user can dismiss
+  // a specific snapshot card with the X button (we remember the message index
+  // here) or it auto-hides once every game in the snapshot is final.
+  const [dismissedSnapshots, setDismissedSnapshots] = useState(() => new Set());
 
   // Parse pick-like rows from uploaded text or CSV.
   // Accepts "Game | Market | Pick | Odds" or CSV "Game,Market,Pick,Odds".
@@ -3532,7 +3536,24 @@ export default function ParlayBuilder() {
     }
   };
 
-  const renderAssistantMessage = (content) => {
+  // Returns true if we know the matchup has finished. We look the game label
+  // up in the per-sport real-game cache; if the status reads "Final" / "FT" /
+  // "ended", the match is over. Unknown status === assume still relevant.
+  const isGameOver = (gameLabel) => {
+    if (!gameLabel) return false;
+    for (const sportGames of Object.values(realGamesBySport || {})) {
+      for (const g of (sportGames || [])) {
+        const label = `${g.awayTeam} @ ${g.homeTeam}`;
+        if (label === gameLabel) {
+          const s = String(g.status || "").toLowerCase();
+          return /final|ended|ft\b|full[- ]?time|postponed|cancel/.test(s);
+        }
+      }
+    }
+    return false;
+  };
+
+  const renderAssistantMessage = (content, msgIdx) => {
     const lines = content.split("\n");
     // Pre-scan PICK lines so we can render a per-message "slip snapshot" card
     // at the bottom of this message. This keeps a permanent record of what
@@ -3763,31 +3784,53 @@ export default function ParlayBuilder() {
           }
           return <div key={i} className="h-1" />;
         })}
-        {messagePicks.length >= 2 && (
-          <div className="mt-3 border border-cyan-500/30 bg-slate-950 rounded-lg overflow-hidden">
-            <div className="bg-cyan-500/10 px-3 py-2 flex items-center justify-between border-b border-cyan-500/20">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-300">
-                This message · {messagePicks.length}-leg slip
-              </span>
-              {snapshotMath && (
-                <span className="text-xs font-mono font-bold text-cyan-300">
-                  {formatOdds(snapshotMath.american)}
+        {(() => {
+          if (messagePicks.length < 2) return null;
+          // Hide only if the user dismissed THIS snapshot or every game in it
+          // is over. Otherwise the snapshot stays in chat indefinitely so
+          // multiple slips can coexist in one conversation.
+          if (dismissedSnapshots.has(msgIdx)) return null;
+          const allOver = messagePicks.every((p) => isGameOver(p.game));
+          if (allOver) return null;
+          return (
+            <div className="mt-3 border border-cyan-500/30 bg-slate-950 rounded-lg overflow-hidden">
+              <div className="bg-cyan-500/10 px-3 py-2 flex items-center justify-between gap-2 border-b border-cyan-500/20">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-300">
+                  This message · {messagePicks.length}-leg slip
                 </span>
-              )}
+                <div className="flex items-center gap-2">
+                  {snapshotMath && (
+                    <span className="text-xs font-mono font-bold text-cyan-300">
+                      {formatOdds(snapshotMath.american)}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setDismissedSnapshots((prev) => {
+                      const next = new Set(prev);
+                      next.add(msgIdx);
+                      return next;
+                    })}
+                    aria-label="Dismiss this slip"
+                    className="text-cyan-300/70 hover:text-cyan-200 -mr-1 p-0.5"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={() => { if (!allInSlip) autoFillSlip(messagePicks); }}
+                disabled={allInSlip}
+                className={`w-full px-3 py-2 text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                  allInSlip
+                    ? "bg-slate-900 text-slate-500 cursor-default"
+                    : "bg-cyan-500 text-white hover:bg-cyan-400"
+                }`}
+              >
+                {allInSlip ? "✓ All legs on your ticket" : `+ Add all ${messagePicks.length} legs to ticket`}
+              </button>
             </div>
-            <button
-              onClick={() => { if (!allInSlip) autoFillSlip(messagePicks); }}
-              disabled={allInSlip}
-              className={`w-full px-3 py-2 text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
-                allInSlip
-                  ? "bg-slate-900 text-slate-500 cursor-default"
-                  : "bg-cyan-500 text-white hover:bg-cyan-400"
-              }`}
-            >
-              {allInSlip ? "✓ All legs on your ticket" : `+ Add all ${messagePicks.length} legs to ticket`}
-            </button>
-          </div>
-        )}
+          );
+        })()}
       </div>
     );
   };
@@ -4878,7 +4921,7 @@ export default function ParlayBuilder() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-full w-full text-slate-200">{renderAssistantMessage(m.content)}</div>
+              <div className="max-w-full w-full text-slate-200">{renderAssistantMessage(m.content, i)}</div>
             )}
           </div>
         ))}
