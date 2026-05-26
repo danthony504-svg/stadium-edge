@@ -728,6 +728,37 @@ const fetchEspnTeamRecord = async (sportId, teamId) => {
   }
 };
 
+// Convert an /api/sports/odds entry into PICK_POOL-shaped pick objects.
+// Real bookmaker odds for moneyline / spread / totals. Safe to pass to addLeg().
+const buildPicksFromOdds = (g) => {
+  if (!g || !g.markets) return [];
+  const picks = [];
+  const game = `${g.awayTeam} @ ${g.homeTeam}`;
+  const sport = g.sport;
+  const nickname = (full) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
+  const h2h = g.markets.find((m) => m.key === "h2h");
+  const spreads = g.markets.find((m) => m.key === "spreads");
+  const totals = g.markets.find((m) => m.key === "totals");
+  if (h2h) {
+    for (const o of h2h.outcomes || []) {
+      picks.push({ game, sport, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price, tier: o.price < -150 ? 1 : 2, real: true, teamFull: o.name });
+    }
+  }
+  if (spreads) {
+    for (const o of spreads.outcomes || []) {
+      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+      picks.push({ game, sport, market: "Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+    }
+  }
+  if (totals) {
+    for (const o of totals.outcomes || []) {
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      picks.push({ game, sport, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+    }
+  }
+  return picks;
+};
+
 // ==== SIMULATED LIVE GAMES (DEMO) ====
 // This is fake data for demonstrating the live-parlay UX. It is NOT real and
 // is clearly labeled as a demo throughout the UI. Real live data requires the
@@ -1891,6 +1922,8 @@ export default function ParlayBuilder() {
   const [homeLiveGames, setHomeLiveGames] = useState([]);
   const [homeUpcomingGames, setHomeUpcomingGames] = useState([]);
   const [homeDataStatus, setHomeDataStatus] = useState("loading"); // "loading" | "live" | "sim"
+  const [realGamesBySport, setRealGamesBySport] = useState({}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
+  const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
   const [homeSearch, setHomeSearch] = useState("");
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
@@ -2148,10 +2181,10 @@ export default function ParlayBuilder() {
     return () => clearInterval(iv);
   }, [showLiveDemo, selectedSports]);
 
-  // Populate + refresh the home page's Live Now + Upcoming games using REAL data.
-  // Falls back to simulated games if the API is unreachable.
+  // Populate + refresh real live + upcoming games and bookmaker odds for the
+  // selected sports. Powers the Home Screen, Sport Detail, search, and the live
+  // modal. Falls back to simulated games if the API is unreachable.
   useEffect(() => {
-    if (view !== "home") return;
     let cancelled = false;
 
     const fetchAll = async () => {
@@ -2160,16 +2193,38 @@ export default function ParlayBuilder() {
           selectedSports.map(async (s) => {
             try {
               const r = await fetch(`/api/sports/games?sport=${s}`);
-              if (!r.ok) return [];
+              if (!r.ok) return { sport: s, games: [] };
               const games = await r.json();
-              return games.map((g) => ({ ...g, sportId: s }));
+              return { sport: s, games: games.map((g) => ({ ...g, sportId: s })) };
             } catch {
-              return [];
+              return { sport: s, games: [] };
             }
           })
         );
         if (cancelled) return;
-        const all = results.flat();
+        const bySport = {};
+        for (const { sport, games } of results) {
+          bySport[sport] = games.filter((g) => g.awayTeam && g.homeTeam);
+        }
+        setRealGamesBySport(bySport);
+        // Fire-and-forget odds fetch (don't block games render).
+        Promise.all(
+          selectedSports.map(async (s) => {
+            try {
+              const r = await fetch(`/api/sports/odds?sport=${s}`);
+              if (!r.ok) return { sport: s, odds: [] };
+              return { sport: s, odds: await r.json() };
+            } catch {
+              return { sport: s, odds: [] };
+            }
+          })
+        ).then((oddsResults) => {
+          if (cancelled) return;
+          const oBySport = {};
+          for (const { sport, odds } of oddsResults) oBySport[sport] = odds;
+          setRealOddsBySport(oBySport);
+        });
+        const all = results.flatMap((r) => r.games);
         const live = [];
         const upcoming = [];
         for (const g of all) {
@@ -2235,7 +2290,7 @@ export default function ParlayBuilder() {
       cancelled = true;
       clearInterval(iv);
     };
-  }, [view, selectedSports]);
+  }, [selectedSports]);
 
   // Helper: ask the AI to build a parlay for a real game using live context.
   const buildParlayForRealGame = (gameLabel, sport, kind) => {
@@ -4026,8 +4081,11 @@ export default function ParlayBuilder() {
             <div className="px-4 py-3">
               {(() => {
                 const q = homeSearch.trim().toLowerCase();
-                const all = Object.entries(PICK_POOL).flatMap(([sport, picks]) => picks.map((p) => ({ ...p, sport })));
-                const results = all.filter((p) => p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)).slice(0, 20);
+                // Real bookmaker picks first
+                const realPool = Object.values(realOddsBySport).flatMap((games) => games.flatMap((g) => buildPicksFromOdds(g)));
+                const samplePool = Object.entries(PICK_POOL).flatMap(([sport, picks]) => picks.map((p) => ({ ...p, sport })));
+                const all = [...realPool, ...samplePool];
+                const results = all.filter((p) => p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)).slice(0, 30);
                 if (results.length === 0) return <div className="text-center text-sm text-slate-500 py-10">No matches. Try a team, player, or market.</div>;
                 return (
                   <div className="border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
@@ -4036,7 +4094,10 @@ export default function ParlayBuilder() {
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{r.sport} · {r.market} · {r.game}</div>
+                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                              {r.real && <span className="text-emerald-400">● LIVE</span>}
+                              <span>{r.sport} · {r.market} · {r.game}</span>
+                            </div>
                             <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
@@ -4056,15 +4117,39 @@ export default function ParlayBuilder() {
           ) : sportDetail ? (
             (() => {
               const s = SPORTS.find((x) => x.id === sportDetail);
-              const games = (PICK_POOL[sportDetail] || []);
+              const realOdds = realOddsBySport[sportDetail] || [];
+              const realGames = realGamesBySport[sportDetail] || [];
+              // Build picks from real bookmaker odds, one bucket per game.
               const byGame = {};
-              games.forEach((p) => { (byGame[p.game] = byGame[p.game] || []).push(p); });
+              for (const og of realOdds) {
+                const key = `${og.awayTeam} @ ${og.homeTeam}`;
+                const picks = buildPicksFromOdds(og);
+                if (picks.length > 0) byGame[key] = picks;
+              }
+              // Also include scheduled real games that don't yet have odds (so the
+              // matchup still appears, even if betting markets aren't open yet).
+              for (const g of realGames) {
+                const st = (g.status || "").toLowerCase();
+                if (st.includes("final") || st.includes("full time") || st.includes("postponed") || st.includes("canceled") || st.includes("cancelled")) continue;
+                const key = `${g.awayTeam} @ ${g.homeTeam}`;
+                if (!byGame[key]) byGame[key] = [];
+              }
+              const hasRealGames = Object.keys(byGame).length > 0;
+              // Fallback to sample pool only when no real games at all (deep offseason for niche leagues).
+              if (!hasRealGames) {
+                const fallback = (PICK_POOL[sportDetail] || []);
+                fallback.forEach((p) => { (byGame[p.game] = byGame[p.game] || []).push(p); });
+              }
               const players = (PLAYERS[sportDetail] || []);
               return (
                 <div className="px-4 pt-4 pb-6">
                   <button onClick={() => setSportDetail(null)} className="text-cyan-400 text-sm mb-3">‹ All sports</button>
                   <h2 className="font-display text-2xl text-slate-100 mb-1 flex items-center gap-2"><span>{s?.emoji}</span> {s?.label}</h2>
-                  <p className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mb-4">Games, teams & player props · sample data</p>
+                  <p className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mb-4">
+                    {hasRealGames
+                      ? <>Live games & odds · <span className="text-emerald-400">{Object.keys(byGame).length} matchups from ESPN + The Odds API</span></>
+                      : "Games, teams & player props · sample data"}
+                  </p>
 
                   {/* Games — tap to open full game screen */}
                   {Object.keys(byGame).length > 0 && (
@@ -4089,7 +4174,7 @@ export default function ParlayBuilder() {
                             >
                               <span className="min-w-0">
                                 <span className="block text-sm font-semibold text-slate-100 truncate">{game}</span>
-                                <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length} team props · {gamePlayers.length} players</span>
+                                <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length > 0 ? `${picks.length} markets` : "Markets opening soon"} · {gamePlayers.length} players</span>
                               </span>
                               <span className="text-cyan-400 shrink-0">›</span>
                             </button>
@@ -4144,7 +4229,7 @@ export default function ParlayBuilder() {
               <div className="px-4 pt-4">
                 <h2 className="font-bold text-slate-100 mb-2">Popular</h2>
                 <div className="flex gap-2 overflow-x-auto scroll-fade pb-2 -mx-1 px-1">
-                  <button onClick={() => setShowLiveDemo(true)} className="shrink-0 flex items-center gap-2 border border-rose-500/50 rounded-xl px-4 py-2.5 text-rose-400 font-semibold hover:bg-rose-500/10 transition">🔴 Live now{simLiveGames.length > 0 && <span className="bg-rose-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold leading-none">{simLiveGames.length}</span>}</button>
+                  <button onClick={() => setShowLiveDemo(true)} className="shrink-0 flex items-center gap-2 border border-rose-500/50 rounded-xl px-4 py-2.5 text-rose-400 font-semibold hover:bg-rose-500/10 transition">🔴 Live now{(homeLiveGames.length || simLiveGames.length) > 0 && <span className="bg-rose-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold leading-none">{homeLiveGames.length || simLiveGames.length}</span>}</button>
                   {SPORTS.map((s) => (
                     <button
                       key={s.id}
@@ -4692,10 +4777,12 @@ export default function ParlayBuilder() {
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="font-display text-lg flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-rose-400 pulse-dot" /> PICK LIVE (SIM)
+                  <span className="w-2 h-2 rounded-full bg-rose-400 pulse-dot" /> PICK LIVE{homeLiveGames.length === 0 && " (SIM)"}
                 </h3>
-                <p className="text-[10px] font-mono text-rose-400/70 uppercase tracking-wider mt-0.5">
-                  ⚠️ Simulated data · {simLiveGames.length} {simLiveGames.length === 1 ? "game" : "games"} live now
+                <p className={`text-[10px] font-mono uppercase tracking-wider mt-0.5 ${homeLiveGames.length > 0 ? "text-emerald-400/80" : "text-rose-400/70"}`}>
+                  {homeLiveGames.length > 0
+                    ? <>● Live ESPN feed · {homeLiveGames.length} {homeLiveGames.length === 1 ? "game" : "games"} in progress</>
+                    : <>⚠️ Simulated data · {simLiveGames.length} {simLiveGames.length === 1 ? "game" : "games"} live now</>}
                 </p>
               </div>
               <button onClick={() => setShowLiveDemo(false)}>
@@ -4713,12 +4800,27 @@ export default function ParlayBuilder() {
             </div>
 
             <div className="overflow-y-auto scroll-fade p-3 space-y-2">
-              {simLiveGames.length === 0 && (
-                <p className="text-slate-400 text-sm text-center py-8">
-                  No simulated live games for selected sports. Try NBA, NFL, NHL, MLB, or Soccer.
-                </p>
-              )}
-              {simLiveGames.map((g, i) => (
+              {(() => {
+                const liveList = homeLiveGames.length > 0
+                  ? homeLiveGames.map((g) => ({
+                      ...g,
+                      periodLabel: g.periodLabel || g.status || "Live",
+                      clock: g.clock || "",
+                      awayWP: g.awayWP ?? "—",
+                      homeWP: g.homeWP ?? "—",
+                      currentTotal: g.currentTotal ?? ((g.awayScore || 0) + (g.homeScore || 0)),
+                      total: g.total ?? "—",
+                      pacing: g.pacing || "",
+                    }))
+                  : simLiveGames;
+                if (liveList.length === 0) {
+                  return (
+                    <p className="text-slate-400 text-sm text-center py-8">
+                      Nothing in progress right now for your selected sports. Check back closer to game time.
+                    </p>
+                  );
+                }
+                return liveList.map((g, i) => (
                 <div key={i} className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-[10px] font-mono uppercase text-rose-400 flex items-center gap-1">
@@ -4761,9 +4863,10 @@ export default function ParlayBuilder() {
                     + Add this game's live picks to ticket
                   </button>
                 </div>
-              ))}
+                ));
+              })()}
               <p className="text-[9px] font-mono text-slate-400 text-center uppercase tracking-wider pt-2">
-                Demo refreshes every 10s · real live data needs the Next.js version
+                {homeLiveGames.length > 0 ? "Live ESPN feed · refreshes every 60s" : "Demo refreshes every 10s · select active sports for real live games"}
               </p>
             </div>
           </div>
@@ -5590,7 +5693,9 @@ export default function ParlayBuilder() {
       {/* Full game-detail screen (Same-Game-Parlay style) */}
       {gameDetail && (() => {
         const { game, sport } = gameDetail;
-        const picks = (PICK_POOL[sport] || []).filter((p) => p.game === game);
+        const realOddsForGame = (realOddsBySport[sport] || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
+        const realPicks = realOddsForGame ? buildPicksFromOdds(realOddsForGame) : [];
+        const picks = realPicks.length > 0 ? realPicks : (PICK_POOL[sport] || []).filter((p) => p.game === game);
         const nameMap = TEAM_ABBR_TO_NAME[sport] || {};
         const gamePlayers = (PLAYERS[sport] || []).filter((pl) => {
           const full = nameMap[pl.team] || pl.team;
@@ -5644,7 +5749,7 @@ export default function ParlayBuilder() {
               </div>
               <div className="text-center mt-3">
                 <div className="font-display text-xl text-slate-100">{game}</div>
-                <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1">{isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay"}</div>
+                <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1">{realPicks.length > 0 ? <span className="text-emerald-400">Live odds · {realPicks.length} markets from The Odds API</span> : (isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay")}</div>
               </div>
             </div>
 
@@ -6373,7 +6478,7 @@ export default function ParlayBuilder() {
             onClick={() => { if (requirePro("Live picks")) setShowLiveDemo(true); }}
             className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-rose-400/40 text-rose-400 hover:bg-rose-400/10 transition inline-flex items-center gap-1"
           >
-            🔴 Pick Live{simLiveGames.length > 0 && <span className="bg-rose-400 text-black rounded-full px-1.5 leading-none py-0.5 text-[9px] font-bold">{simLiveGames.length}</span>}
+            🔴 Pick Live{(homeLiveGames.length || simLiveGames.length) > 0 && <span className="bg-rose-400 text-black rounded-full px-1.5 leading-none py-0.5 text-[9px] font-bold">{homeLiveGames.length || simLiveGames.length}</span>}
           </button>
           <button
             onClick={analyzeCurrentSlip}
