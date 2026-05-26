@@ -4745,8 +4745,8 @@ export default function ParlayBuilder() {
                   <div key={leg.id} className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-slate-400 truncate">{leg.game} · {leg.market}</div>
-                        <div className="text-sm text-slate-100 font-semibold truncate">
+                        <div className="text-[10px] text-slate-400 break-words">{leg.game} · {leg.market}</div>
+                        <div className="text-sm text-slate-100 font-semibold break-words">
                           {leg.pick}
                           {leg.pointsDelta ? (() => {
                             // Show the delta based on the ACTUAL line movement (current
@@ -7013,7 +7013,7 @@ export default function ParlayBuilder() {
               parlayLegs.map((leg) => (
                 <div key={leg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{leg.market} · {leg.game}</div>
+                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">{leg.market} · {leg.game}</div>
                     <div className="text-sm font-semibold text-slate-100">{leg.pick}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
