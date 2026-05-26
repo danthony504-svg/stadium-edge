@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { ODDS_SPORT_KEYS, cachedJson, rateLimit } from "../lib/sports";
+import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 
 const router: IRouter = Router();
 
@@ -26,9 +26,30 @@ type RawEventOdds = {
   }>;
 };
 
+// Fetch ESPN roster for a team and return a Map of normalized player name → headshot URL.
+const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+type EspnRoster = { athletes?: Array<{ fullName?: string; displayName?: string; headshot?: { href?: string } | string }> };
+async function fetchHeadshotMap(espnPath: string, teamId: string): Promise<Map<string, string>> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`;
+  const data = await cachedJson<EspnRoster>(`roster:${espnPath}:${teamId}`, 6 * 60 * 60 * 1000, async () => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`ESPN roster ${r.status}`);
+    return (await r.json()) as EspnRoster;
+  });
+  const m = new Map<string, string>();
+  for (const a of data.athletes ?? []) {
+    const name = a.fullName ?? a.displayName;
+    const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
+    if (name && href) m.set(normalizeName(name), href);
+  }
+  return m;
+}
+
 router.get("/sports/props", async (req, res): Promise<void> => {
   const sport = String(req.query["sport"] || "").toLowerCase();
   const eventId = String(req.query["eventId"] || "");
+  const homeTeamId = String(req.query["homeTeamId"] || "");
+  const awayTeamId = String(req.query["awayTeamId"] || "");
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
@@ -82,11 +103,29 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }
     }
 
+    // Optionally enrich with player headshots from ESPN team rosters.
+    let headshots: Map<string, string> | null = null;
+    const espnPath = ESPN_SPORT_PATHS[sport];
+    if (espnPath && (homeTeamId || awayTeamId)) {
+      const maps = await Promise.all(
+        [homeTeamId, awayTeamId].filter(Boolean).map((tid) =>
+          fetchHeadshotMap(espnPath, tid).catch(() => new Map<string, string>()),
+        ),
+      );
+      headshots = new Map<string, string>();
+      for (const m of maps) for (const [k, v] of m) headshots.set(k, v);
+    }
+
+    const props = Array.from(byKey.values()).map((p) => ({
+      ...p,
+      headshot: headshots?.get(normalizeName(p.player)) ?? null,
+    }));
+
     res.json({
       home: data.home_team ?? null,
       away: data.away_team ?? null,
       bookmaker: book?.title ?? null,
-      props: Array.from(byKey.values()),
+      props,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch player props");

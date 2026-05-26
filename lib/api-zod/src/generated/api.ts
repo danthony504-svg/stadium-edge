@@ -61,6 +61,10 @@ export const GetGamesResponseItem = zod.object({
   "awayScore": zod.number().nullish(),
   "homeTeamId": zod.string().nullish(),
   "awayTeamId": zod.string().nullish(),
+  "homeLogo": zod.string().nullish(),
+  "awayLogo": zod.string().nullish(),
+  "homeAbbr": zod.string().nullish(),
+  "awayAbbr": zod.string().nullish(),
   "venue": zod.string().nullish()
 })
 export const GetGamesResponse = zod.array(GetGamesResponseItem)

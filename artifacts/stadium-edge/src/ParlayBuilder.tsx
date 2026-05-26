@@ -1926,6 +1926,7 @@ export default function ParlayBuilder() {
   const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
   const [realPropsByEvent, setRealPropsByEvent] = useState({}); // { eventId: { home, away, bookmaker, props:[{player,market,line,overPrice,underPrice}] } }
   const [propsLoading, setPropsLoading] = useState(false);
+  const [headshotErrors, setHeadshotErrors] = useState({}); // { [headshotUrl]: true } — track broken URLs so we can swap to initials
   const [homeSearch, setHomeSearch] = useState("");
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
@@ -2196,11 +2197,19 @@ export default function ParlayBuilder() {
     );
     if (!match?.id) { setPropsLoading(false); return; }
     if (realPropsByEvent[match.id]) { setPropsLoading(false); return; }
+    // Look up team IDs from the matching ESPN game so the server can enrich
+    // each prop with player headshots from the team rosters.
+    const espnGame = (realGamesBySport[sport] || []).find(
+      (g) => `${g.awayTeam} @ ${g.homeTeam}` === game,
+    );
+    const qsParts = [`sport=${encodeURIComponent(sport)}`, `eventId=${encodeURIComponent(match.id)}`];
+    if (espnGame?.homeTeamId) qsParts.push(`homeTeamId=${encodeURIComponent(espnGame.homeTeamId)}`);
+    if (espnGame?.awayTeamId) qsParts.push(`awayTeamId=${encodeURIComponent(espnGame.awayTeamId)}`);
     let cancelled = false;
     setPropsLoading(true);
     (async () => {
       try {
-        const r = await fetch(`/api/sports/props?sport=${sport}&eventId=${match.id}`);
+        const r = await fetch(`/api/sports/props?${qsParts.join("&")}`);
         if (!r.ok) return;
         const data = await r.json();
         if (cancelled) return;
@@ -2212,7 +2221,7 @@ export default function ParlayBuilder() {
       }
     })();
     return () => { cancelled = true; setPropsLoading(false); };
-  }, [gameDetail, realOddsBySport, realPropsByEvent]);
+  }, [gameDetail, realOddsBySport, realGamesBySport, realPropsByEvent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4192,6 +4201,7 @@ export default function ParlayBuilder() {
                             const full = nameMap[pl.team] || pl.team;
                             return game.includes(full) || game.includes(pl.team);
                           });
+                          const espnGame = realGames.find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
                           return (
                             <button
                               key={game}
@@ -4200,11 +4210,19 @@ export default function ParlayBuilder() {
                                 setGameDetail({ game, sport: sportDetail });
                                 setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
                               }}
-                              className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between text-left hover:border-cyan-400 transition"
+                              className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
                             >
-                              <span className="min-w-0">
-                                <span className="block text-sm font-semibold text-slate-100 truncate">{game}</span>
-                                <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length > 0 ? `${picks.length} markets` : "Markets opening soon"} · {gamePlayers.length} players</span>
+                              <span className="flex items-center gap-2 min-w-0 flex-1">
+                                {espnGame?.awayLogo && (
+                                  <img src={espnGame.awayLogo} alt="" className="w-8 h-8 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                                {espnGame?.homeLogo && (
+                                  <img src={espnGame.homeLogo} alt="" className="w-8 h-8 object-contain shrink-0 -ml-1" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                                )}
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-semibold text-slate-100 truncate">{game}</span>
+                                  <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length > 0 ? `${picks.length} markets` : "Markets opening soon"} · {gamePlayers.length} players</span>
+                                </span>
                               </span>
                               <span className="text-cyan-400 shrink-0">›</span>
                             </button>
@@ -5724,6 +5742,7 @@ export default function ParlayBuilder() {
       {gameDetail && (() => {
         const { game, sport } = gameDetail;
         const realOddsForGame = (realOddsBySport[sport] || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
+        const realGameForGame = (realGamesBySport[sport] || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
         const realPicks = realOddsForGame ? buildPicksFromOdds(realOddsForGame) : [];
         const picks = realPicks.length > 0 ? realPicks : (PICK_POOL[sport] || []).filter((p) => p.game === game);
         const nameMap = TEAM_ABBR_TO_NAME[sport] || {};
@@ -5777,9 +5796,27 @@ export default function ParlayBuilder() {
                 <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">{(SPORTS.find((s) => s.id === sport) || {}).label}</span>
                 <span className="w-10" />
               </div>
-              <div className="text-center mt-3">
-                <div className="font-display text-xl text-slate-100">{game}</div>
-                <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1">{realPicks.length > 0 ? <span className="text-emerald-400">Live odds · {realPicks.length} markets from The Odds API</span> : (isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay")}</div>
+              <div className="mt-3">
+                {realGameForGame?.homeLogo || realGameForGame?.awayLogo ? (
+                  <div className="flex items-center justify-center gap-4 mb-2">
+                    <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                      {realGameForGame.awayLogo && (
+                        <img src={realGameForGame.awayLogo} alt={realGameForGame.awayTeam || ""} className="w-14 h-14 object-contain" />
+                      )}
+                      <div className="text-xs text-slate-300 text-center truncate w-full px-2">{realGameForGame.awayTeam}</div>
+                    </div>
+                    <div className="text-slate-500 text-xs font-mono">@</div>
+                    <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                      {realGameForGame.homeLogo && (
+                        <img src={realGameForGame.homeLogo} alt={realGameForGame.homeTeam || ""} className="w-14 h-14 object-contain" />
+                      )}
+                      <div className="text-xs text-slate-300 text-center truncate w-full px-2">{realGameForGame.homeTeam}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="font-display text-xl text-slate-100 text-center">{game}</div>
+                )}
+                <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1 text-center">{realPicks.length > 0 ? <span className="text-emerald-400">Live odds · {realPicks.length} markets from The Odds API</span> : (isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay")}</div>
               </div>
             </div>
 
@@ -5847,10 +5884,26 @@ export default function ParlayBuilder() {
                       // Use canonical "Player Prop" market so confidence/reasoning/
                       // buy-points logic that keys off market === "Player Prop" applies.
                       const baseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
+                      const initials = p.player.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+                      const showHeadshot = p.headshot && !headshotErrors[p.headshot];
                       return (
                         <div key={`${p.player}-${p.market}-${i}`} className="px-4 py-2.5 border-t border-slate-800">
-                          <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
-                          <div className="text-sm text-slate-100 mb-2">{p.player}</div>
+                          <div className="flex items-center gap-2 mb-2">
+                            {showHeadshot ? (
+                              <img
+                                src={p.headshot}
+                                alt={p.player}
+                                className="w-9 h-9 rounded-full object-cover bg-slate-800 shrink-0"
+                                onError={() => setHeadshotErrors((prev) => ({ ...prev, [p.headshot]: true }))}
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
+                              <div className="text-sm text-slate-100 truncate">{p.player}</div>
+                            </div>
+                          </div>
                           <div className="flex gap-2">
                             {p.overPrice != null && (
                               <button

@@ -15,7 +15,7 @@ type EspnEvent = {
     competitors?: Array<{
       homeAway: "home" | "away";
       score?: string;
-      team?: { id?: string; displayName?: string; abbreviation?: string };
+      team?: { id?: string; displayName?: string; abbreviation?: string; logo?: string; logos?: Array<{ href?: string }> };
     }>;
   }>;
 };
@@ -81,6 +81,10 @@ router.get("/sports/games", async (req, res): Promise<void> => {
         awayScore: Number.isFinite(awayScore) ? awayScore : null,
         homeTeamId: home?.team?.id ?? null,
         awayTeamId: away?.team?.id ?? null,
+        homeLogo: home?.team?.logo ?? home?.team?.logos?.[0]?.href ?? null,
+        awayLogo: away?.team?.logo ?? away?.team?.logos?.[0]?.href ?? null,
+        homeAbbr: home?.team?.abbreviation ?? null,
+        awayAbbr: away?.team?.abbreviation ?? null,
         venue: comp?.venue?.fullName ?? null,
       };
     });

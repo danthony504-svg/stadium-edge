@@ -54,6 +54,14 @@ export interface EspnGame {
   /** @nullable */
   awayTeamId?: string | null;
   /** @nullable */
+  homeLogo?: string | null;
+  /** @nullable */
+  awayLogo?: string | null;
+  /** @nullable */
+  homeAbbr?: string | null;
+  /** @nullable */
+  awayAbbr?: string | null;
+  /** @nullable */
   venue?: string | null;
 }
 

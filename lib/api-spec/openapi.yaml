@@ -183,6 +183,10 @@ components:
         awayScore: { type: ["integer", "null"] }
         homeTeamId: { type: ["string", "null"] }
         awayTeamId: { type: ["string", "null"] }
+        homeLogo: { type: ["string", "null"] }
+        awayLogo: { type: ["string", "null"] }
+        homeAbbr: { type: ["string", "null"] }
+        awayAbbr: { type: ["string", "null"] }
         venue: { type: ["string", "null"] }
     InjuryEntry:
       type: object
