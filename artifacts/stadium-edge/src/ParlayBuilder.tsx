@@ -2933,6 +2933,12 @@ export default function ParlayBuilder() {
     // (a check inside the updater would also run twice under StrictMode and
     // can't reliably gate side effects).
     if (parlayLegs.some((l) => legKey(l) === key)) return;
+    // Defense in depth: validate against real live data the same way the slip
+    // cleanup effect and autoFillSlip do, so a card rendered from a stale or
+    // hallucinated assistant reply can't sneak onto the slip via this direct
+    // path. If the matchup isn't verifiable in any raw feed, silently drop.
+    const { kept } = filterPicksToReal([leg]);
+    if (kept.length === 0) return;
     const id = Date.now() + Math.random();
     setParlayLegs((p) => (p.some((l) => legKey(l) === key) ? p : [...p, { ...leg, id }]));
     // Snapshot the ref + reasoning at the moment of adding so History stays accurate
