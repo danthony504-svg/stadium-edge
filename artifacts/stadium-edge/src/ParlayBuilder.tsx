@@ -2984,6 +2984,34 @@ export default function ParlayBuilder() {
       { role: "assistant", content: "" },
     ]);
 
+    // Compact real games (ESPN) — limit per sport to keep context small.
+    const realGames = [];
+    for (const [sport, games] of Object.entries(realGamesBySport)) {
+      for (const g of games.slice(0, 12)) {
+        realGames.push({ sport, game: `${g.awayTeam} @ ${g.homeTeam}`, status: g.status, startsAt: g.startsAt, venue: g.venue });
+      }
+    }
+    // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
+    const realOdds = [];
+    for (const [sport, games] of Object.entries(realOddsBySport)) {
+      for (const g of games.slice(0, 12)) {
+        for (const p of buildPicksFromOdds(g).slice(0, 8)) {
+          realOdds.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds });
+        }
+      }
+    }
+    // Any player props the user has actually loaded (by opening a game detail).
+    const realProps = [];
+    const eventToGame = {};
+    for (const games of Object.values(realOddsBySport)) {
+      for (const g of games) eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
+    }
+    for (const [eid, data] of Object.entries(realPropsByEvent)) {
+      const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
+      for (const pr of (data.props || []).slice(0, 30)) {
+        realProps.push({ game: gameLabel, player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
+      }
+    }
     const context = {
       selectedSports,
       currentSlip: parlayLegs.map((l) => ({
@@ -3001,6 +3029,9 @@ export default function ParlayBuilder() {
             odds: p.odds,
           }))
         : undefined,
+      realGames: realGames.slice(0, 60),
+      realOdds: realOdds.slice(0, 120),
+      realProps: realProps.slice(0, 80),
     };
 
     let fullText = "";
@@ -4122,8 +4153,34 @@ export default function ParlayBuilder() {
                 const q = homeSearch.trim().toLowerCase();
                 // Real bookmaker picks first
                 const realPool = Object.values(realOddsBySport).flatMap((games) => games.flatMap((g) => buildPicksFromOdds(g)));
+                // Loaded real player props — match by player name, market label, or game.
+                // Need to know which sport+game each event belongs to so we can render + add to slip.
+                const eventLookup = {};
+                for (const [sport, games] of Object.entries(realOddsBySport)) {
+                  for (const g of games) eventLookup[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}` };
+                }
+                const PROP_LABELS = {
+                  player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
+                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
+                  player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",
+                  player_receptions: "Receptions", player_anytime_td: "Anytime TD",
+                  batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+                };
+                const propPool = [];
+                for (const [eid, data] of Object.entries(realPropsByEvent)) {
+                  const meta = eventLookup[eid];
+                  if (!meta) continue;
+                  for (const pr of data.props || []) {
+                    const label = PROP_LABELS[pr.market] || pr.market;
+                    const lineTxt = pr.line == null ? "" : ` ${pr.line}`;
+                    if (pr.overPrice != null) propPool.push({ sport: meta.sport, game: meta.game, market: "Player Prop", pick: `${pr.player} Over${lineTxt} ${label}`, odds: pr.overPrice, real: true });
+                    if (pr.underPrice != null) propPool.push({ sport: meta.sport, game: meta.game, market: "Player Prop", pick: `${pr.player} Under${lineTxt} ${label}`, odds: pr.underPrice, real: true });
+                  }
+                }
                 const samplePool = Object.entries(PICK_POOL).flatMap(([sport, picks]) => picks.map((p) => ({ ...p, sport })));
-                const all = [...realPool, ...samplePool];
+                const all = [...realPool, ...propPool, ...samplePool];
                 const results = all.filter((p) => p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)).slice(0, 30);
                 if (results.length === 0) return <div className="text-center text-sm text-slate-500 py-10">No matches. Try a team, player, or market.</div>;
                 return (
