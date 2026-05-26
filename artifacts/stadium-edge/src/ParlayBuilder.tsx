@@ -3499,18 +3499,61 @@ export default function ParlayBuilder() {
         }
       }
 
-      // Parse PICK: lines and auto-fill the slip
+      // Build the set of game labels the AI was allowed to pick from — every
+      // matchup in the 24h-filtered context arrays we just sent it. Any PICK
+      // line that names a game outside this set is a hallucination from the
+      // model's training data (typically a famous matchup days/weeks/months
+      // out) and must be dropped client-side, no matter what the prompt said.
+      const eligibleGames = new Set();
+      for (const g of realGames) eligibleGames.add(g.game);
+      for (const o of realOdds) eligibleGames.add(o.game);
+      for (const pr of realProps) eligibleGames.add(pr.game);
+      if (liveMode) {
+        for (const lp of livePicks) {
+          if (isWithin24h(lp.startsAt)) eligibleGames.add(lp.game);
+        }
+      }
+
+      // Parse PICK: lines and auto-fill the slip. Drop any leg whose game
+      // isn't in eligibleGames so out-of-window matchups can't sneak through.
       const picks = [];
+      const droppedGames = new Set();
       for (const line of fullText.split("\n")) {
         const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
         if (m) {
+          const game = m[1].trim();
+          // Only enforce the allow-list when we actually have an eligible
+          // pool — if the pool is empty (offline / no live data) we keep the
+          // existing behavior so the offline fallback path still works.
+          if (eligibleGames.size > 0 && !eligibleGames.has(game)) {
+            droppedGames.add(game);
+            continue;
+          }
           picks.push({
-            game: m[1].trim(),
+            game,
             market: m[2].trim(),
             pick: m[3].trim(),
             odds: parseInt(m[4]),
           });
         }
+      }
+      // Strip the rejected PICK lines from the visible message and, if any
+      // were dropped, append a short honest note so the user can see what
+      // happened instead of silently getting fewer legs.
+      if (droppedGames.size > 0) {
+        const cleaned = fullText
+          .split("\n")
+          .filter((line) => {
+            const m = line.match(/PICK:\s*(.+?)\s*\|/);
+            return !(m && droppedGames.has(m[1].trim()));
+          })
+          .join("\n");
+        const note = `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now: ${[...droppedGames].slice(0, 3).join(", ")}${droppedGames.size > 3 ? "…" : ""})_`;
+        setMessages((p) => {
+          const next = p.slice();
+          next[next.length - 1] = { role: "assistant", content: cleaned + note };
+          return next;
+        });
       }
       if (picks.length > 0) autoFillSlip(picks);
     } catch (err) {
