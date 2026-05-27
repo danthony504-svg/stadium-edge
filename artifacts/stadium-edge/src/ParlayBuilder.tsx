@@ -3526,11 +3526,20 @@ export default function ParlayBuilder() {
     ctx.font = "bold 34px sans-serif";
     ctx.fillText("STADIUM EDGE", pad, 58);
     ctx.font = "600 20px sans-serif";
-    ctx.fillText(`${legs.length}-Leg ${legs.length > 1 ? "Parlay" : "Bet"}`, pad, 92);
-    // Combined odds (right)
+    const subtitle = ppLegCount > 0
+      ? `${legs.length}-Leg ${legs.length > 1 ? "Parlay" : "Bet"} · ${bookLegCount} book + ${ppLegCount} PP`
+      : `${legs.length}-Leg ${legs.length > 1 ? "Parlay" : "Bet"}`;
+    ctx.fillText(subtitle, pad, 92);
+    // Combined odds (right) — only meaningful when 2+ book legs share a price.
+    // For mixed/all-PP slips we say "PP slip" to avoid implying a single
+    // combined American number applies to the DFS legs.
     ctx.textAlign = "right";
     ctx.font = "bold 40px sans-serif";
-    ctx.fillText(formatOdds(parlayMath.american), W - pad, 80);
+    ctx.fillText(
+      bookLegCount >= 2 ? formatOdds(parlayMath.american) : ppLegCount > 0 ? "PP slip" : formatOdds(parlayMath.american),
+      W - pad,
+      80,
+    );
     ctx.font = "500 16px sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillText(`Model confidence ${parlayConfidence}%`, W - pad, 110);
@@ -3565,14 +3574,27 @@ export default function ParlayBuilder() {
     ctx.fillStyle = "#6b7280";
     ctx.font = "500 16px sans-serif";
     ctx.fillText("Stake", pad, fy + 40);
-    ctx.fillText("To win", pad, fy + 80);
+    ctx.fillText(ppLegCount > 0 && bookLegCount >= 1 ? "To win (book legs)" : "To win", pad, fy + 80);
     ctx.fillStyle = "#111827";
     ctx.font = "bold 22px sans-serif";
     ctx.textAlign = "right";
     ctx.fillText("$10.00", W - pad, fy + 42);
     ctx.fillStyle = "#16a34a";
-    ctx.fillText(`$${((parlayMath.decimal - 1) * 10).toFixed(2)}`, W - pad, fy + 82);
+    ctx.fillText(
+      bookLegCount >= 1 ? `$${((parlayMath.decimal - 1) * 10).toFixed(2)}` : "DFS payout",
+      W - pad,
+      fy + 82,
+    );
     ctx.textAlign = "left";
+    if (ppLegCount > 0) {
+      ctx.fillStyle = "#b45309";
+      ctx.font = "500 12px sans-serif";
+      ctx.fillText(
+        `+${ppLegCount} PrizePicks leg${ppLegCount === 1 ? "" : "s"} on DFS flat schedule (not in combined odds)`,
+        pad,
+        fy + 105,
+      );
+    }
     ctx.fillStyle = "#9ca3af";
     ctx.font = "500 12px sans-serif";
     ctx.fillText("Hypothetical only · not a real bet · 21+ · model ranking, not a prediction", pad, fy + 120);
@@ -4043,6 +4065,13 @@ export default function ParlayBuilder() {
   };
 
   const parlayMath = calculateParlay(parlayLegs);
+  // PrizePicks DFS legs have no per-leg American price, so they contribute
+  // identity-1 to `parlayMath` (no effect). Tracking the count lets us show
+  // an honest "X book leg(s), Y PP leg(s)" note in slip headers — otherwise
+  // the displayed payout looks like it covers the whole slip when it
+  // actually only covers the book legs (or shows $0 when all legs are PP).
+  const ppLegCount = parlayLegs.filter((l) => l.odds == null).length;
+  const bookLegCount = parlayLegs.length - ppLegCount;
   const payout = ((parlayMath.decimal - 1) * stake).toFixed(2);
   // Parlay confidence = product of individual leg confidences (independence assumption)
   const parlayConfidence = parlayLegs.length === 0
@@ -6162,11 +6191,17 @@ export default function ParlayBuilder() {
               })}
             </div>
             <div className="bg-slate-950 px-4 py-2.5 flex items-center justify-between border-t border-slate-800">
-              <div className="text-[10px] font-mono text-slate-400 uppercase">Parlay</div>
+              <div className="text-[10px] font-mono text-slate-400 uppercase">
+                Parlay{ppLegCount > 0 ? ` · ${bookLegCount} book + ${ppLegCount} PP` : ""}
+              </div>
               <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-slate-100">{formatOdds(parlayMath.american)}</span>
+                <span className="font-mono font-bold text-slate-100">
+                  {bookLegCount >= 2 ? formatOdds(parlayMath.american) : ppLegCount > 0 ? "PP slip" : formatOdds(parlayMath.american)}
+                </span>
                 <span className="text-xs text-slate-400">
-                  $10 wins ${((parlayMath.decimal - 1) * 10).toFixed(2)}
+                  {bookLegCount >= 1
+                    ? `$10 wins ${ppLegCount > 0 ? "(book legs only) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}`
+                    : `DFS flat payout`}
                 </span>
               </div>
             </div>
@@ -8119,7 +8154,9 @@ export default function ParlayBuilder() {
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-slate-300 whitespace-nowrap">
-                    $10 wins ${((parlayMath.decimal - 1) * 10).toFixed(2)}
+                    {bookLegCount >= 1
+                      ? `$10 wins ${ppLegCount > 0 ? "(book) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}`
+                      : `${ppLegCount} PP leg${ppLegCount === 1 ? "" : "s"} · DFS payout`}
                   </span>
                   <span className="text-blue-600 text-xl leading-none">⌃</span>
                 </div>
@@ -8327,7 +8364,9 @@ export default function ParlayBuilder() {
           </div>
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-slate-300 whitespace-nowrap">
-              $10 wins ${((parlayMath.decimal - 1) * 10).toFixed(2)}
+              {bookLegCount >= 1
+                ? `$10 wins ${ppLegCount > 0 ? "(book) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}`
+                : `${ppLegCount} PP leg${ppLegCount === 1 ? "" : "s"} · DFS payout`}
             </span>
             <span className="text-blue-600 text-xl leading-none">⌃</span>
           </div>
@@ -8385,8 +8424,15 @@ export default function ParlayBuilder() {
           <div className="bg-slate-900 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
             <span className="font-bold text-slate-100">
               {parlayLegs.length > 1 ? `${parlayLegs.length}-Leg Parlay` : "Straight bet"}
+              {ppLegCount > 0 && (
+                <span className="ml-2 text-[10px] font-mono text-amber-400 uppercase">
+                  {bookLegCount} book + {ppLegCount} PP
+                </span>
+              )}
             </span>
-            <span className="font-mono font-bold text-slate-100">{formatOdds(parlayMath.american)}</span>
+            <span className="font-mono font-bold text-slate-100">
+              {bookLegCount >= 2 ? formatOdds(parlayMath.american) : ppLegCount > 0 ? "PP slip" : formatOdds(parlayMath.american)}
+            </span>
           </div>
 
           {/* Remove all */}
@@ -8441,10 +8487,17 @@ export default function ParlayBuilder() {
                   <span className="text-sm font-bold text-slate-100">$10</span>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-[11px] font-mono uppercase text-slate-400 tracking-wider">To win</div>
-                  <div className="font-bold text-slate-100 whitespace-nowrap">
-                    ${((parlayMath.decimal - 1) * 10).toFixed(2)}
+                  <div className="text-[11px] font-mono uppercase text-slate-400 tracking-wider">
+                    To win{ppLegCount > 0 && bookLegCount >= 1 ? " (book)" : ""}
                   </div>
+                  <div className="font-bold text-slate-100 whitespace-nowrap">
+                    {bookLegCount >= 1 ? `$${((parlayMath.decimal - 1) * 10).toFixed(2)}` : "DFS payout"}
+                  </div>
+                  {ppLegCount > 0 && (
+                    <div className="text-[9px] font-mono text-amber-400 mt-0.5">
+                      +{ppLegCount} PP leg{ppLegCount === 1 ? "" : "s"} on flat schedule
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="px-4 pb-3 space-y-2">
