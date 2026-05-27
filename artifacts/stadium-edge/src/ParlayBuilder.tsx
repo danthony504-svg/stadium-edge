@@ -5145,7 +5145,16 @@ export default function ParlayBuilder() {
       // "Key reasoning:", "Notes:", "Reasoning:", "Analysis:", etc. The
       // optional prefix lets the AI add modifiers like "Per-leg", "Quick",
       // "Key", "Brief" before the actual keyword.
-      const hm = ln.match(/^\s*\**\s*(?:[a-z][a-z\s-]{0,30}\s+)?(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis|read|take|takes|thoughts?|summary|rationale|breakdown|why)\s*\**\s*:\s*(.*)$/i);
+      // Match either:
+      //   (a) "<optional prefix> <keyword>:"   e.g. "Per-leg edge notes:", "Quick read:"
+      //   (b) "<keyword> <free words>:"        e.g. "Why these legs:", "Why these picks:", "Edge breakdown:"
+      // Keyword set covers every label variant the AI has used so far for the
+      // free-form reasoning block.
+      const KEYWORDS = "edge\\s+notes?|leg\\s+notes?|notes?|reasoning|analysis|read|take|takes|thoughts?|summary|rationale|breakdown|why|edge";
+      const hm = ln.match(new RegExp(
+        `^\\s*\\**\\s*(?:[a-z][a-z\\s-]{0,30}\\s+)?(?:${KEYWORDS})(?:\\s+[a-z][a-z0-9 '\\-/]{0,40})?\\s*\\**\\s*:\\s*(.*)$`,
+        "i",
+      ));
       if (!hm) continue;
       // Walk forward, grouping lines into paragraphs. Each bulleted line
       // (`- Blue Jays...`) starts a NEW paragraph so we can route every leg
@@ -5160,7 +5169,7 @@ export default function ParlayBuilder() {
       const isBullet = (s) => /^\s*[-*•]\s/.test(s) || /^\s*\d+\.\s/.test(s);
       const stripBullet = (s) => s.replace(/^\s*(?:[-*•]|\d+\.)\s+/, "").trim();
       let j = li + 1;
-      const firstTail = (hm[2] || "").trim();
+      const firstTail = (hm[1] || "").trim();
       const paragraphs = [];
       if (firstTail) paragraphs.push({ text: firstTail, idxs: [li] });
       let cur = null;
