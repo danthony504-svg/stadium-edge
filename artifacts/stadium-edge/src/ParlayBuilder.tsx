@@ -2604,6 +2604,11 @@ export default function ParlayBuilder() {
           if (isLive) {
             live.push({
               real: true,
+              // ESPN event id — required for the per-game ESPN odds fallback
+              // (`/api/sports/espn-odds?eventId=…`). Without it the analyzer
+              // can't pull DraftKings pickcenter lines when the primary
+              // odds feed is out of credits.
+              id: g.id,
               sport: g.sportId,
               away: g.awayTeam,
               home: g.homeTeam,
