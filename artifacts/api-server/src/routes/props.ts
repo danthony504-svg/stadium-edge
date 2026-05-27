@@ -26,22 +26,41 @@ type RawEventOdds = {
   }>;
 };
 
-// Fetch ESPN roster for a team and return a Map of normalized player name → headshot URL.
+// Fetch ESPN roster for a team and return a Map of normalized player name →
+// { headshot, athleteId, teamId }. We need athleteId + teamId so the client
+// can pull each player's real game log (last 10 + vs-opponent split) from
+// the /sports/player-history endpoint when building parlays with real
+// player-prop analytics, not just bookmaker odds.
 const normalizeName = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
-type EspnRoster = { athletes?: Array<{ fullName?: string; displayName?: string; headshot?: { href?: string } | string }> };
-async function fetchHeadshotMap(espnPath: string, teamId: string): Promise<Map<string, string>> {
+type RosterAthlete = { id?: string | number; fullName?: string; displayName?: string; headshot?: { href?: string } | string };
+type EspnRoster = { athletes?: Array<RosterAthlete | { items?: RosterAthlete[]; position?: string }> };
+type RosterEntry = { headshot: string | null; athleteId: string | null; teamId: string };
+async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<string, RosterEntry>> {
   const url = `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`;
   const data = await cachedJson<EspnRoster>(`roster:${espnPath}:${teamId}`, 6 * 60 * 60 * 1000, async () => {
     const r = await fetch(url);
     if (!r.ok) throw new Error(`ESPN roster ${r.status}`);
     return (await r.json()) as EspnRoster;
   });
-  const m = new Map<string, string>();
-  for (const a of data.athletes ?? []) {
+  const m = new Map<string, RosterEntry>();
+  // ESPN ships rosters in two shapes depending on sport: a flat
+  // `athletes` array, or a position-grouped array of `{position, items}`.
+  // Flatten both into one list so the lookup works across all sports.
+  const flat: RosterAthlete[] = [];
+  for (const entry of data.athletes ?? []) {
+    if (entry && typeof entry === "object" && "items" in entry && Array.isArray((entry as { items?: RosterAthlete[] }).items)) {
+      flat.push(...((entry as { items: RosterAthlete[] }).items));
+    } else {
+      flat.push(entry as RosterAthlete);
+    }
+  }
+  for (const a of flat) {
     const name = a.fullName ?? a.displayName;
+    if (!name) continue;
     const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
-    if (name && href) m.set(normalizeName(name), href);
+    const athleteId = a.id != null ? String(a.id) : null;
+    m.set(normalizeName(name), { headshot: href ?? null, athleteId, teamId });
   }
   return m;
 }
@@ -104,23 +123,30 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       }
     }
 
-    // Optionally enrich with player headshots from ESPN team rosters.
-    let headshots: Map<string, string> | null = null;
+    // Enrich with player headshot + ESPN athleteId + their team id from
+    // each team's roster. athleteId/playerTeamId let the client fetch each
+    // player's real game log for prop-analytics in the parlay builder.
+    let rosterMap: Map<string, RosterEntry> | null = null;
     const espnPath = ESPN_SPORT_PATHS[sport];
     if (espnPath && (homeTeamId || awayTeamId)) {
       const maps = await Promise.all(
         [homeTeamId, awayTeamId].filter(Boolean).map((tid) =>
-          fetchHeadshotMap(espnPath, tid).catch(() => new Map<string, string>()),
+          fetchRosterMap(espnPath, tid).catch(() => new Map<string, RosterEntry>()),
         ),
       );
-      headshots = new Map<string, string>();
-      for (const m of maps) for (const [k, v] of m) headshots.set(k, v);
+      rosterMap = new Map<string, RosterEntry>();
+      for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
     }
 
-    const props = Array.from(byKey.values()).map((p) => ({
-      ...p,
-      headshot: headshots?.get(normalizeName(p.player)) ?? null,
-    }));
+    const props = Array.from(byKey.values()).map((p) => {
+      const r = rosterMap?.get(normalizeName(p.player));
+      return {
+        ...p,
+        headshot: r?.headshot ?? null,
+        athleteId: r?.athleteId ?? null,
+        playerTeamId: r?.teamId ?? null,
+      };
+    });
 
     res.json({
       home: data.home_team ?? null,

@@ -4333,6 +4333,13 @@ export default function ParlayBuilder() {
     const wantsProps = /\b(player\s*props?|prop bet|prop parlay|props\b|over\/?under on (a |the )?player|points\b|rebounds\b|assists\b|home runs?|strikeouts?|shots on goal|passing yards?|rushing yards?|receiving yards?|receptions?)\b/i.test(text);
     const wantsParlay = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game)\b/i.test(text);
     const extraProps = {}; // eventId -> props payload, merged into context for this send
+    // Map Odds-API eventId -> ESPN {homeTeamId, awayTeamId} captured while
+    // building the prop-fetch candidate list, so the player-history loop
+    // below can derive opponentTeamId for each prop. The prop pool is keyed
+    // by ODDS event IDs while realGamesBySportLocal is keyed by ESPN event
+    // IDs — without this map the join was failing and player analytics
+    // never reached the prompt.
+    const propEventToTeams = {};
     if (wantsProps || wantsParlay) {
       const candidates = [];
       // Widen the candidate pool when the user specifically asks for props
@@ -4350,6 +4357,9 @@ export default function ParlayBuilder() {
           if (!g.id) continue;
           const espn = espnGames.find((e) => `${e.awayTeam} @ ${e.homeTeam}` === `${g.awayTeam} @ ${g.homeTeam}`);
           candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId });
+          if (espn?.homeTeamId && espn?.awayTeamId) {
+            propEventToTeams[g.id] = { home: String(espn.homeTeamId), away: String(espn.awayTeamId) };
+          }
         }
       }
       const toFetch = candidates.slice(0, totalCap);
@@ -4443,15 +4453,76 @@ export default function ParlayBuilder() {
       }
     }
     const mergedPropsByEvent = { ...realPropsByEvent, ...extraProps };
+    // For player-prop analytics: as we walk the prop pool, we also collect
+    // the ESPN athleteId + opponent teamId for each player so we can pull
+    // their real game log right after. Opponent = the team in the same game
+    // that the player isn't on, derived from playerTeamId vs the event's
+    // ESPN home/away teamIds. Primary lookup is propEventToTeams (captured
+    // when this turn's candidates were built); fallback is a game-label
+    // match against realGamesBySportLocal so cached props from earlier
+    // sends/game-detail opens still get analytics. Dedupes by athleteId.
+    const gameLabelToTeams = {};
+    for (const [, games] of Object.entries(realGamesBySportLocal)) {
+      for (const g of games) {
+        if (g.homeTeamId && g.awayTeamId) {
+          gameLabelToTeams[`${g.awayTeam} @ ${g.homeTeam}`] = { home: String(g.homeTeamId), away: String(g.awayTeamId) };
+        }
+      }
+    }
+    const playerTargets = []; // [{sport, player, athleteId, opponentTeamId}]
+    const seenAthletes = new Set();
     for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
       // Only surface props whose underlying game tips off within the next 24h —
       // older cached props from previously-opened games must not leak in.
       if (!isWithin24h(eventToStart[eid])) continue;
       const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
       const sport = eventToSport[eid] || null;
+      const teams = propEventToTeams[eid] || gameLabelToTeams[gameLabel];
       for (const pr of (data.props || []).slice(0, 30)) {
         realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
+        if (sport && pr.athleteId && pr.playerTeamId && teams && !seenAthletes.has(pr.athleteId)) {
+          const pt = String(pr.playerTeamId);
+          const opp = pt === teams.home ? teams.away : pt === teams.away ? teams.home : null;
+          if (opp) {
+            seenAthletes.add(pr.athleteId);
+            playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: opp });
+          }
+        }
       }
+    }
+    // Pull each unique player's last 10 games + vs-opponent split from ESPN
+    // so the AI can defend prop legs with real game-log data (not just
+    // bookmaker prices). Cap at 20 players per send to keep the prompt
+    // compact; the server caches each gamelog for 30min so repeat sends are
+    // basically free. Missing/failed lookups are honest empty buckets — the
+    // AI is told to treat absent entries as "no extra signal" and never to
+    // invent player numbers.
+    const playerHistory = {};
+    const phTargets = playerTargets.slice(0, 20);
+    if (phTargets.length > 0) {
+      await Promise.all(
+        phTargets.map(async (t) => {
+          try {
+            const qs = `sport=${encodeURIComponent(t.sport)}&athleteId=${encodeURIComponent(t.athleteId)}&opponentTeamId=${encodeURIComponent(t.opponentTeamId)}`;
+            const r = await fetch(`/api/sports/player-history?${qs}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            const recent = Array.isArray(data?.recent) ? data.recent.slice(0, 5) : [];
+            const vsOpp = Array.isArray(data?.vsOpponent) ? data.vsOpponent.slice(0, 3) : [];
+            if (!recent.length && !vsOpp.length) return;
+            // Compact shape — keep stat lines as the labeled string map
+            // ESPN already gives us so any sport's stat keys flow through
+            // (PTS/REB/AST for NBA; YDS/TD for NFL; H/HR/SO for MLB; etc.).
+            // Keyed by "Player Name#athleteId" so two players with the same
+            // display name (cross-sport or same-sport) cannot collide.
+            playerHistory[`${t.player}#${t.athleteId}`] = {
+              player: t.player,
+              recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
+              vsOpponent: vsOpp.map((g) => ({ date: g.date, stats: g.stats })),
+            };
+          } catch { /* honest no-history fallback */ }
+        }),
+      );
     }
     // Build "extra slips" the user pinned from prior assistant messages
     // (📎 Pin button on each per-message snapshot). Each pinned message's
@@ -4531,6 +4602,7 @@ export default function ParlayBuilder() {
       realOdds: realOdds.slice(0, 120),
       realProps: realProps.slice(0, 80),
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
+      playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
     };
 
     let fullText = "";
