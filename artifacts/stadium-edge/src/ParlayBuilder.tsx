@@ -2412,12 +2412,25 @@ export default function ParlayBuilder() {
 
     const fetchRealOdds = async (sportId) => {
       try {
-        // Primary: The Odds API. Fallback: ESPN per-event pickcenter
-        // (same shape) when the paid feed is out of credits / down.
-        let r = await fetch(`/api/sports/odds?sport=${sportId}`);
-        if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${sportId}`);
-        if (!r.ok) return [];
-        const games = await r.json();
+        // Three-tier real-odds chain — all return identical shape:
+        //   1. The Odds API (paid, multi-book consensus)
+        //   2. ESPN pickcenter (free, DraftKings)
+        //   3. Bovada public coupon (free, Bovada)
+        // Each tier is only consulted when the prior returns !ok OR an
+        // empty array (so we don't get stuck on a tier that responds 200
+        // but has nothing for this sport, e.g. UFC out-of-season).
+        const tryFetch = async (url) => {
+          try {
+            const r = await fetch(url);
+            if (!r.ok) return null;
+            const j = await r.json();
+            return Array.isArray(j) && j.length > 0 ? j : null;
+          } catch { return null; }
+        };
+        const games = (await tryFetch(`/api/sports/odds?sport=${sportId}`))
+          ?? (await tryFetch(`/api/sports/odds-espn?sport=${sportId}`))
+          ?? (await tryFetch(`/api/sports/odds-bovada?sport=${sportId}`))
+          ?? [];
         const picks = [];
         for (const g of games) {
           const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
@@ -2598,16 +2611,22 @@ export default function ParlayBuilder() {
         // Fire-and-forget odds fetch (don't block games render).
         Promise.all(
           selectedSports.map(async (s) => {
-            try {
-              // Primary: The Odds API. Fallback: ESPN pickcenter bulk
-              // (same shape) when the paid feed errors / runs out.
-              let r = await fetch(`/api/sports/odds?sport=${s}`);
-              if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${s}`);
-              if (!r.ok) return { sport: s, odds: [] };
-              return { sport: s, odds: await r.json() };
-            } catch {
-              return { sport: s, odds: [] };
-            }
+            // Three-tier chain: paid Odds API → ESPN pickcenter → Bovada
+            // public coupon. Each tier only consulted when prior returns
+            // !ok or empty so we don't get stuck on an empty-200 response.
+            const tryFetch = async (url) => {
+              try {
+                const r = await fetch(url);
+                if (!r.ok) return null;
+                const j = await r.json();
+                return Array.isArray(j) && j.length > 0 ? j : null;
+              } catch { return null; }
+            };
+            const odds = (await tryFetch(`/api/sports/odds?sport=${s}`))
+              ?? (await tryFetch(`/api/sports/odds-espn?sport=${s}`))
+              ?? (await tryFetch(`/api/sports/odds-bovada?sport=${s}`))
+              ?? [];
+            return { sport: s, odds };
           })
         ).then((oddsResults) => {
           if (cancelled) return;
@@ -4226,15 +4245,18 @@ export default function ParlayBuilder() {
         ),
         Promise.all(
           selectedSports.map(async (s) => {
-            try {
-              let r = await fetch(`/api/sports/odds?sport=${s}`);
-              if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${s}`);
-              if (!r.ok) return { sport: s, odds: realOddsBySport[s] || [] };
-              const odds = await r.json();
-              return { sport: s, odds };
-            } catch {
-              return { sport: s, odds: realOddsBySport[s] || [] };
-            }
+            const tryFetch = async (url) => {
+              try {
+                const r = await fetch(url);
+                if (!r.ok) return null;
+                const j = await r.json();
+                return Array.isArray(j) && j.length > 0 ? j : null;
+              } catch { return null; }
+            };
+            const odds = (await tryFetch(`/api/sports/odds?sport=${s}`))
+              ?? (await tryFetch(`/api/sports/odds-espn?sport=${s}`))
+              ?? (await tryFetch(`/api/sports/odds-bovada?sport=${s}`));
+            return odds ? { sport: s, odds } : { sport: s, odds: realOddsBySport[s] || [] };
           }),
         ),
       ]);

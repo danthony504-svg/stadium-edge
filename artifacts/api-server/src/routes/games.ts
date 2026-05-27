@@ -383,4 +383,165 @@ router.get("/sports/odds-espn", async (req, res): Promise<void> => {
   }
 });
 
+// Third-tier odds fallback: Bovada's free public coupon JSON endpoint.
+// Used when BOTH The Odds API and ESPN pickcenter are unavailable. Same
+// response shape as /api/sports/odds so the client can drop it in. Real
+// Bovada lines only — never fabricated. Pre-match only (preMatchOnly=true)
+// which inherently excludes finished games.
+// Bovada sport paths. UFC/MMA omitted — Bovada's current taxonomy doesn't
+// expose it under any of the obvious paths (all return 404), so the chain
+// just falls through for UFC.
+const BOVADA_PATHS: Record<string, string> = {
+  mlb: "baseball/mlb",
+  nba: "basketball/nba",
+  nfl: "football/nfl",
+  nhl: "hockey/nhl",
+  ncaaf: "football/college-football",
+  ncaab: "basketball/college-basketball",
+  soccer: "soccer",
+};
+router.use("/sports/odds-bovada", rateLimit({ windowMs: 60_000, max: 30 }));
+router.get("/sports/odds-bovada", async (req, res): Promise<void> => {
+  const sportId = String(req.query.sport || "").toLowerCase();
+  const bvPath = BOVADA_PATHS[sportId];
+  if (!bvPath) {
+    res.status(400).json({ error: `Unsupported sport: ${sportId}` });
+    return;
+  }
+  try {
+    type BvOutcome = {
+      description?: string;
+      type?: string; // "A" away, "H" home, "O" over, "U" under
+      competitorId?: string;
+      price?: { american?: string; handicap?: string };
+    };
+    type BvMarket = {
+      description?: string;
+      key?: string; // "2W-12" h2h, "2W-HCAP" spread, "2W-OU" total
+      period?: { description?: string };
+      outcomes?: BvOutcome[];
+    };
+    type BvEvent = {
+      id: string;
+      description?: string;
+      startTime?: number;
+      live?: boolean;
+      competitors?: Array<{ id: string; name: string; home: boolean }>;
+      displayGroups?: Array<{ description?: string; markets?: BvMarket[] }>;
+    };
+    type BvPayload = Array<{ events?: BvEvent[] }>;
+
+    const data = await cachedJson<BvPayload>(
+      `odds-bovada:${bvPath}`,
+      60 * 1000,
+      async () => {
+        const url = `https://www.bovada.lv/services/sports/event/coupon/events/A/description/${bvPath}?marketFilterId=def&preMatchOnly=true&lang=en`;
+        const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+        if (!r.ok) throw new Error(`Bovada ${r.status}`);
+        return (await r.json()) as BvPayload;
+      },
+    );
+
+    const parseAmerican = (s?: string): number | null => {
+      if (!s) return null;
+      const n = parseInt(s.replace(/^\+/, ""), 10);
+      return Number.isFinite(n) ? n : null;
+    };
+    const parseHcap = (s?: string): number | null => {
+      if (!s) return null;
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const out: Array<{
+      id: string; sport: string; homeTeam: string; awayTeam: string; commenceTime: string;
+      markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }>;
+    }> = [];
+
+    // Soccer payload is multi-container (one per league); ball-sports are
+    // single-container. Flatten everything before iterating.
+    const events: BvEvent[] = data.flatMap((c) => c.events ?? []);
+    // Accept full-game periods across all sports. Bovada labels this as
+    // "Game" for US sports and "Regulation Time" for soccer; both mean
+    // 90/60/9-inning full result excluding ET/penalties/extra innings,
+    // which is what every bookmaker market we render is settled on.
+    const isFullGamePeriod = (p?: string) => {
+      const x = (p ?? "").toLowerCase();
+      return x === "game" || x === "regulation time" || x === "full game" || x === "match";
+    };
+    for (const ev of events) {
+      const homeC = ev.competitors?.find((c) => c.home);
+      const awayC = ev.competitors?.find((c) => !c.home);
+      const home = homeC?.name;
+      const away = awayC?.name;
+      if (!home || !away || !ev.startTime) continue;
+      const markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
+      const gameMarkets = (ev.displayGroups?.[0]?.markets ?? []).filter(
+        (m) => isFullGamePeriod(m.period?.description),
+      );
+      // Side-match by `type` first (H/A/O/U/D — stable across naming
+      // variations), fall back to competitorId, then description.
+      const findSide = (m: BvMarket, type: string, name: string, cid?: string) =>
+        m.outcomes?.find((o) => o.type === type)
+        ?? (cid ? m.outcomes?.find((o) => o.competitorId === cid) : undefined)
+        ?? m.outcomes?.find((o) => o.description === name);
+      for (const m of gameMarkets) {
+        // Moneyline: 2W-12 (US sports, no draw) OR 3W-1X2 (soccer, 3-way
+        // with draw). We surface only the two team prices; downstream
+        // doesn't render draws today.
+        if (m.key === "2W-12" || m.key === "3W-1X2") {
+          const homeOut = findSide(m, "H", home, homeC?.id);
+          const awayOut = findSide(m, "A", away, awayC?.id);
+          const hp = parseAmerican(homeOut?.price?.american);
+          const ap = parseAmerican(awayOut?.price?.american);
+          if (hp !== null && ap !== null) {
+            markets.push({ key: "h2h", outcomes: [
+              { name: home, price: hp, point: null },
+              { name: away, price: ap, point: null },
+            ]});
+          }
+        } else if (m.key === "2W-HCAP") {
+          const homeOut = findSide(m, "H", home, homeC?.id);
+          const awayOut = findSide(m, "A", away, awayC?.id);
+          const hp = parseAmerican(homeOut?.price?.american);
+          const ap = parseAmerican(awayOut?.price?.american);
+          const hh = parseHcap(homeOut?.price?.handicap);
+          const ah = parseHcap(awayOut?.price?.handicap);
+          if (hp !== null && ap !== null && hh !== null && ah !== null) {
+            markets.push({ key: "spreads", outcomes: [
+              { name: home, price: hp, point: hh },
+              { name: away, price: ap, point: ah },
+            ]});
+          }
+        } else if (m.key === "2W-OU") {
+          const overOut = m.outcomes?.find((o) => o.type === "O") ?? m.outcomes?.find((o) => /over/i.test(o.description ?? ""));
+          const underOut = m.outcomes?.find((o) => o.type === "U") ?? m.outcomes?.find((o) => /under/i.test(o.description ?? ""));
+          const op = parseAmerican(overOut?.price?.american);
+          const up = parseAmerican(underOut?.price?.american);
+          const line = parseHcap(overOut?.price?.handicap) ?? parseHcap(underOut?.price?.handicap);
+          if (op !== null && up !== null && line !== null) {
+            markets.push({ key: "totals", outcomes: [
+              { name: "Over", price: op, point: line },
+              { name: "Under", price: up, point: line },
+            ]});
+          }
+        }
+      }
+      if (markets.length === 0) continue;
+      out.push({
+        id: ev.id,
+        sport: sportId,
+        homeTeam: home,
+        awayTeam: away,
+        commenceTime: new Date(ev.startTime).toISOString(),
+        markets,
+      });
+    }
+    res.json(out);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch Bovada odds");
+    res.json([]);
+  }
+});
+
 export default router;
