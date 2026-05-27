@@ -2593,14 +2593,14 @@ export default function ParlayBuilder() {
           const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
           if (isFinal) continue;
           const isScheduled = s.includes("scheduled") || s.includes("pre");
-          const isLive = !isScheduled && (
-            s.includes("in progress") ||
-            s.includes("halftime") ||
-            s.includes("end of") ||
-            s.includes("1st") || s.includes("2nd") || s.includes("3rd") || s.includes("4th") ||
-            s.includes("top ") || s.includes("bot ") || s.includes("mid ") ||
-            s.includes("period") || s.includes("quarter") || s.includes("inning")
-          );
+          // A game stays in the Live bucket until ESPN literally flips it
+          // to a final/postponed/cancelled status (caught by isFinal above)
+          // or it's still pre-game (isScheduled). Anything in between —
+          // "In Progress", "Halftime", "End of 3rd", "Overtime",
+          // "Suspended", "Delayed", an unrecognized status string, etc. —
+          // is treated as live so the Pick Live view doesn't drop a game
+          // just because we don't recognize its period label.
+          const isLive = !isScheduled;
           if (isLive) {
             live.push({
               real: true,
