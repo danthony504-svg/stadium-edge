@@ -4890,12 +4890,11 @@ export default function ParlayBuilder() {
           });
         }
       }
-      // Picks here have already been validated against the eligibleMatchups
-      // pool built earlier in this same sendMessage call (which includes
-      // this turn's freshly-fetched props). Skip the second filter pass —
-      // it reads React state that hasn't committed yet and would drop
-      // valid legs.
-      if (picks.length > 0) autoFillSlip(picks, { alreadyValidated: true });
+      // Do NOT auto-add chat parlay picks to YOUR SLIP. The user wants to
+      // commit each pick manually — every PICK row in the snapshot card
+      // renders its own "+ Add" button, and there's still a "+ Add all"
+      // at the bottom. This keeps prior slips intact and lets the user
+      // cherry-pick which legs (if any) actually go on the live ticket.
     } catch (err) {
       // Distinguish "you're sending too fast" (HTTP 429 from our own rate
       // limiter) from a true AI outage. Conflating the two surfaces a
@@ -4935,7 +4934,8 @@ export default function ParlayBuilder() {
           };
           return next;
         });
-        if (reply.picks && reply.picks.length > 0) autoFillSlip(reply.picks);
+        // Same rule as the AI path: chat replies render snapshot cards with
+        // per-pick "+ Add" buttons; nothing auto-fills YOUR SLIP from chat.
       }
     } finally {
       setLoading(false);
@@ -5063,10 +5063,24 @@ export default function ParlayBuilder() {
                     </div>
                     <div className="text-sm text-slate-100 font-semibold">{pick.pick}</div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
+                  <div className="flex flex-col items-end gap-1.5">
                     <div className="font-mono text-slate-100 font-bold text-sm">
                       {formatOdds(pick.odds)}
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!inSlip) addLeg(pick);
+                      }}
+                      disabled={inSlip}
+                      className={`text-[10px] font-mono uppercase tracking-wider rounded px-2 py-1 transition ${
+                        inSlip
+                          ? "bg-slate-800 text-slate-500 cursor-default"
+                          : "bg-cyan-500 text-black hover:bg-cyan-400 active:scale-95"
+                      }`}
+                    >
+                      {inSlip ? "✓ On ticket" : "+ Add"}
+                    </button>
                   </div>
                 </div>
                 <button
