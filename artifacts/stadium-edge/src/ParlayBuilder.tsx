@@ -3507,7 +3507,7 @@ export default function ParlayBuilder() {
   const toggleSport = (id) =>
     setSelectedSports((p) => (p.includes(id) ? p.filter((s) => s !== id) : [...p, id]));
   const legKey = (l) => `${l.game}|${l.market}|${l.pick}`;
-  const addLeg = (leg) => {
+  const addLeg = (leg, opts = {}) => {
     const key = legKey(leg);
     // Prevent duplicate picks — same game + market + pick can only appear once
     // on the ticket. Silently no-op if it's already there. Check current state
@@ -3519,11 +3519,26 @@ export default function ParlayBuilder() {
     // cleanup effect and autoFillSlip do, so a card rendered from a stale or
     // hallucinated assistant reply can't sneak onto the slip via this direct
     // path. If the matchup isn't verifiable in any raw feed, silently drop.
+    // Callers that already validated against an in-call eligible pool can
+    // pass { skipValidation: true } — the chat snapshot card uses this so
+    // canonical-label mismatches don't silently swallow legitimate adds.
+    // Even when skipping the reject gate, we still ask filterPicksToReal
+    // to ATTEMPT canonicalization: if it produces a canonical version of
+    // this leg, we store it under the canonical game label so the post-
+    // grace sweep finds a matching key (otherwise the sweep would strip
+    // the leg after GRACE_MS for being keyed under a non-canonical label).
+    let toAdd = leg;
     const { kept } = filterPicksToReal([leg]);
-    if (kept.length === 0) return;
+    if (kept.length > 0) {
+      toAdd = kept[0];
+    } else if (!opts.skipValidation) {
+      return;
+    }
+    const insertKey = legKey(toAdd);
+    if (parlayLegs.some((l) => legKey(l) === insertKey)) return;
     const id = Date.now() + Math.random();
     const addedAt = Date.now();
-    setParlayLegs((p) => (p.some((l) => legKey(l) === key) ? p : [...p, { ...leg, id, addedAt }]));
+    setParlayLegs((p) => (p.some((l) => legKey(l) === insertKey) ? p : [...p, { ...toAdd, id, addedAt }]));
     // Snapshot the ref + reasoning at the moment of adding so History stays accurate
     const refAtTime = gameRefs[leg.game] || null;
     const reasoningAtTime = generateReasoning(leg, refAtTime);
@@ -4148,7 +4163,6 @@ export default function ParlayBuilder() {
   // (e.g. between mounts, before fetches resolve).
   useEffect(() => {
     if (parlayLegs.length === 0) return;
-    const { kept } = filterPicksToReal(parlayLegs);
     // Drop anything the filter rejected. The filter itself already
     // handles the "feed gap" case correctly — it only drops legs that
     // either (a) are cross-sport hallucinations, (b) have a known start
@@ -4165,11 +4179,17 @@ export default function ParlayBuilder() {
     // would strip 5-of-6 valid legs ("asked for 6, got 1" bug). Exempt
     // anything added within the last 90s; by then props/odds state has
     // caught up and the sweep can fairly judge them.
+    //
+    // We validate PER LEG (not a single bulk filter) because the bulk
+    // call's `kept` array is keyed under canonicalized labels — if a leg
+    // was inserted under the AI's raw label and later canonicalization
+    // would change it, the bulk-key set comparison wrongly drops it.
+    // Per-leg check returns truthy whenever ANY canonical form survives.
     const now = Date.now();
     const GRACE_MS = 90_000;
-    const keptKeys = new Set(kept.map(legKey));
     const survives = (l) =>
-      keptKeys.has(legKey(l)) || (l.addedAt && now - l.addedAt < GRACE_MS);
+      filterPicksToReal([l]).kept.length > 0 ||
+      (l.addedAt && now - l.addedAt < GRACE_MS);
     const survivors = parlayLegs.filter(survives);
     if (survivors.length === parlayLegs.length) return; // nothing to drop — safe no-op, prevents loop
     const survivorKeys = new Set(survivors.map(legKey));
@@ -5025,7 +5045,15 @@ export default function ParlayBuilder() {
             // keeps its slip card permanently — historical snapshots are
             // immutable, only the LIVE slip enforces eligibility.
             const rk = `${rawPick.game}::${rawPick.market}::${rawPick.pick}::${rawPick.odds}`;
-            const pick = messagePickByRaw.get(rk) || rawPick;
+            const baseP = messagePickByRaw.get(rk) || rawPick;
+            // Canonicalize the game label so the per-pick "+ Add" / "− Remove"
+            // button matches whatever label is stored in parlayLegs (addLeg
+            // also canonicalizes via the same filter). Without this, inSlip
+            // would read false right after adding, and Remove wouldn't find
+            // the leg, because the snapshot keeps the AI's raw label while
+            // the slip stores the canonical one.
+            const { kept: pickKept } = filterPicksToReal([baseP]);
+            const pick = pickKept.length > 0 ? pickKept[0] : baseP;
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
             const assignedRef = gameRefs[pick.game];
             const conf = calculateConfidence(pick, assignedRef);
@@ -5070,16 +5098,16 @@ export default function ParlayBuilder() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!inSlip) addLeg(pick);
+                        if (inSlip) removeLegByPick(pick);
+                        else addLeg(pick, { skipValidation: true });
                       }}
-                      disabled={inSlip}
-                      className={`text-[10px] font-mono uppercase tracking-wider rounded px-2 py-1 transition ${
+                      className={`text-[10px] font-mono uppercase tracking-wider rounded px-2 py-1 transition active:scale-95 ${
                         inSlip
-                          ? "bg-slate-800 text-slate-500 cursor-default"
-                          : "bg-cyan-500 text-black hover:bg-cyan-400 active:scale-95"
+                          ? "bg-rose-500 text-white hover:bg-rose-400"
+                          : "bg-cyan-500 text-black hover:bg-cyan-400"
                       }`}
                     >
-                      {inSlip ? "✓ On ticket" : "+ Add"}
+                      {inSlip ? "− Remove" : "+ Add"}
                     </button>
                   </div>
                 </div>
