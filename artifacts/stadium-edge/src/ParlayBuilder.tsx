@@ -5108,9 +5108,16 @@ export default function ParlayBuilder() {
       // "Key", "Brief" before the actual keyword.
       const hm = ln.match(/^\s*\**\s*(?:[a-z][a-z\s-]{0,30}\s+)?(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis|read|take|takes|thoughts?|summary|rationale|breakdown|why)\s*\**\s*:\s*(.*)$/i);
       if (!hm) continue;
-      // Walk forward, grouping consecutive non-blank lines into paragraphs.
-      // hm[2] is the tail of the header line ("Brewers have ..." on the same
-      // line as "Leg notes:"); hm[1] is the matched label keyword.
+      // Walk forward, grouping lines into paragraphs. Each bulleted line
+      // (`- Blue Jays...`) starts a NEW paragraph so we can route every leg
+      // bullet to its own pick. Stop only on real section headers (`Word:`)
+      // or PICK rows / numbered lists — bullets stay inside the block.
+      // hm[2] is the tail of the header line; hm[1] is the matched label.
+      const isBlockStop = (s) =>
+        /^\s*\**\s*[A-Za-z][A-Za-z0-9 /]{0,30}\s*\**\s*:\s/.test(s) ||
+        /^PICK:/i.test(s) ||
+        /^\s*\d+\.\s/.test(s);
+      const isBullet = (s) => /^\s*[-*•]\s/.test(s);
       let j = li + 1;
       const firstTail = (hm[2] || "").trim();
       const paragraphs = [];
@@ -5118,14 +5125,21 @@ export default function ParlayBuilder() {
       let cur = null;
       while (j < lines.length) {
         const lj = lines[j];
-        if (isStructuralLine(lj)) break;
+        if (isBlockStop(lj)) break;
         if (!lj.trim()) {
           if (cur) { paragraphs.push(cur); cur = null; }
           j++;
           continue;
         }
-        if (!cur) cur = { text: lj.trim(), idxs: [j] };
-        else { cur.text += " " + lj.trim(); cur.idxs.push(j); }
+        if (isBullet(lj)) {
+          if (cur) { paragraphs.push(cur); cur = null; }
+          cur = { text: lj.replace(/^\s*[-*•]\s+/, "").trim(), idxs: [j] };
+        } else if (!cur) {
+          cur = { text: lj.trim(), idxs: [j] };
+        } else {
+          cur.text += " " + lj.trim();
+          cur.idxs.push(j);
+        }
         j++;
       }
       if (cur) paragraphs.push(cur);
