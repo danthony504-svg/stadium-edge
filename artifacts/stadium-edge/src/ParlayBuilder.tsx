@@ -2260,6 +2260,8 @@ export default function ParlayBuilder() {
     return false;
   };
   const [betslipOpen, setBetslipOpen] = useState(false);
+  // Popup slip above the chat input. Collapsed by default; tap the bar to expand.
+  const [slipOpen, setSlipOpen] = useState(false);
   const [loggedIn, setLoggedIn] = useState(true); // login gate bypassed for now (set false to re-enable)
   const [booting, setBooting] = useState(true);
   const [loginEmail, setLoginEmail] = useState("");
@@ -3564,7 +3566,7 @@ export default function ParlayBuilder() {
   // Remove by matching game + pick (used by the card's Added toggle)
   const removeLegByPick = (pick) =>
     setParlayLegs((p) => p.filter((l) => !(legKey(l) === legKey(pick))));
-  const clearParlay = () => { setParlayLegs([]); setSlipAnalysis(null); setLegsAnalyzed(false); };
+  const clearParlay = () => { setParlayLegs([]); setSlipAnalysis(null); setLegsAnalyzed(false); setSlipOpen(false); };
 
   // Map coach team abbreviations to the team names used in PICK_POOL game strings.
   const TEAM_ABBR_TO_NAME = {
@@ -3636,6 +3638,7 @@ export default function ParlayBuilder() {
     if (parlayLegs.length === 0) return;
     setSlipAnalysis(analyzeSlip(parlayLegs));
     setLegsAnalyzed(true);
+    setSlipOpen(true);
   };
 
   // Render the current ticket to a PNG via canvas and trigger a download.
@@ -6572,183 +6575,6 @@ export default function ParlayBuilder() {
           </div>
         )}
 
-        {parlayLegs.length > 0 && (
-          <div className="slide-up border border-slate-800 rounded-2xl overflow-hidden bg-slate-900 shadow-sm">
-            <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between">
-              <span className="font-display text-sm">
-                YOUR SLIP · {parlayLegs.length} LEG{parlayLegs.length !== 1 ? "S" : ""}
-              </span>
-              <button onClick={clearParlay} className="text-white/70 hover:text-white">
-                <Trash2 size={14} />
-              </button>
-            </div>
-            {/* Confidence bar */}
-            <div className="px-4 pt-3 pb-1">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Model confidence</span>
-                <span className="text-sm font-bold text-cyan-500">{parlayConfidence}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                <div className="h-full bg-cyan-400 rounded-full transition-all" style={{ width: `${parlayConfidence}%` }} />
-              </div>
-              <div className="text-[9px] font-mono text-slate-500 mt-1">Model ranking, not a win probability</div>
-            </div>
-            <div className="divide-y divide-slate-800">
-              {parlayLegs.map((leg) => {
-                const eligible = canBuyPoints(leg);
-                return (
-                  <div key={leg.id} className="px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] text-slate-400 break-words">
-                          {displayGameLabel(leg.game)} · {leg.market}
-                          {(() => {
-                            const live = lookupLiveTag(leg.game);
-                            if (live) return <span className="ml-1 text-rose-400 font-semibold">· {live}</span>;
-                            const t = formatGameTime(lookupGameStart(leg.game));
-                            return t ? <span className="ml-1 text-cyan-500">· {t}</span> : null;
-                          })()}
-                        </div>
-                        <div className="text-sm text-slate-100 font-semibold break-words">
-                          {leg.pick}
-                          {leg.pointsDelta ? (() => {
-                            // Show the delta based on the ACTUAL line movement (current
-                            // number minus original), so the sign matches the button
-                            // pressed (− lowers, + raises) regardless of buy/sell math.
-                            const numOf = (s) => {
-                              const m = (s || "").match(/(\d+(?:\.\d+)?)/);
-                              return m ? parseFloat(m[1]) : null;
-                            };
-                            const cur = numOf(leg.pick);
-                            const orig = numOf(leg.originalPick || leg.pick);
-                            const moved = (cur != null && orig != null) ? +(cur - orig).toFixed(1) : leg.pointsDelta;
-                            const unit = /yds|yards|passing|rushing|receiving/i.test(leg.pick) ? "yds" : "pt";
-                            return (
-                              <span className={`ml-1 text-[10px] font-mono ${moved > 0 ? "text-emerald-600" : "text-amber-600"}`}>
-                                ({moved > 0 ? "+" : ""}{moved}{unit})
-                              </span>
-                            );
-                          })() : null}
-                        </div>
-                      </div>
-                      <div className="font-mono text-slate-100 font-bold text-sm">{formatOdds(leg.odds)}</div>
-                      <button onClick={() => removeLeg(leg.id)} className="text-slate-500 hover:text-slate-100">
-                        <X size={14} />
-                      </button>
-                    </div>
-                    {eligible && (
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        <button
-                          onClick={() => removePointOnLeg(leg.id)}
-                          title="Lower the line number"
-                          className="w-7 h-7 flex items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:border-cyan-400 hover:bg-slate-800 transition font-bold text-base leading-none"
-                        >
-                          <span className="block -mt-px">−</span>
-                        </button>
-                        <button
-                          onClick={() => addPointOnLeg(leg.id)}
-                          title="Raise the line number"
-                          className="w-7 h-7 flex items-center justify-center rounded-full border border-slate-700 text-slate-300 hover:border-cyan-400 hover:bg-slate-800 transition font-bold text-base leading-none"
-                        >
-                          <span className="block -mt-px">+</span>
-                        </button>
-                        <span className="text-[10px] font-mono text-slate-500">
-                          {(() => {
-                            const isYds = /yds|yards|passing|rushing|receiving/i.test(leg.pick);
-                            const unit = isYds ? "yds" : "pts";
-                            return `${leg.pointsDelta ? "adjusted line" : "adjust line"} (${unit})`;
-                          })()}
-                        </span>
-                        {leg.pointsDelta ? (
-                          <button
-                            onClick={() => resetLegPoints(leg.id)}
-                            className="ml-auto text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full text-slate-500 hover:text-slate-100"
-                          >
-                            reset
-                          </button>
-                        ) : null}
-                      </div>
-                    )}
-                    {legsAnalyzed && (() => {
-                      const conf = calculateConfidence(leg, gameRefs[leg.game]);
-                      const reasoning = generateReasoning(leg, gameRefs[leg.game]);
-                      return (
-                        <div className="mt-2 border-t border-slate-800 pt-2">
-                          <div className="text-[9px] font-mono uppercase tracking-wider text-slate-500 mb-0.5">
-                            Live analysis · {conf}% {confidenceLabel(conf)}
-                          </div>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">{reasoning}</p>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="bg-slate-950 px-4 py-2.5 flex items-center justify-between border-t border-slate-800">
-              <div className="text-[10px] font-mono text-slate-400 uppercase">
-                Parlay{ppLegCount > 0 ? ` · ${bookLegCount} book + ${ppLegCount} PP` : ""}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono font-bold text-slate-100">
-                  {bookLegCount >= 2 ? formatOdds(parlayMath.american) : ppLegCount > 0 ? "PP slip" : formatOdds(parlayMath.american)}
-                </span>
-                <span className="text-xs text-slate-400">
-                  {bookLegCount >= 1
-                    ? `$10 wins ${ppLegCount > 0 ? "(book legs only) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}`
-                    : `DFS flat payout`}
-                </span>
-              </div>
-            </div>
-            <div className="px-4 pb-2 text-[9px] font-mono text-slate-500 leading-relaxed">
-              + adds a point (easier to win, lower payout) · − removes a point (harder to win, higher payout). Odds are estimates — real books price points by sport and key numbers.
-            </div>
-
-            {/* Analysis panel (shown under the slip) */}
-            {slipAnalysis && (
-              <div className="mx-3 mb-3 border border-slate-800 rounded-xl bg-slate-950 px-3 py-2.5">
-                {slipAnalysis.split("\n").map((ln, li) => {
-                  if (!ln.trim()) return <div key={li} className="h-1.5" />;
-                  const parts = ln.split(/(\*\*[^*]+\*\*)/g);
-                  const italic = ln.startsWith("_") && ln.endsWith("_");
-                  return (
-                    <p key={li} className={`text-[11px] leading-relaxed ${italic ? "text-slate-400 italic" : "text-slate-300"}`}>
-                      {parts.map((p, pi) =>
-                        p.startsWith("**") && p.endsWith("**")
-                          ? <strong key={pi} className="text-slate-100">{p.slice(2, -2)}</strong>
-                          : <span key={pi}>{italic ? p.replace(/^_|_$/g, "") : p}</span>
-                      )}
-                    </p>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div className="px-3 pb-3 space-y-2">
-              <div className="flex gap-2">
-                <button
-                  onClick={analyzeCurrentSlip}
-                  className="flex-1 py-2.5 rounded-lg border border-slate-700 text-slate-200 text-xs font-semibold uppercase tracking-wider hover:border-cyan-400 transition"
-                >
-                  Analyze
-                </button>
-                <button
-                  onClick={optimizeSlip}
-                  className="flex-1 py-2.5 rounded-lg bg-cyan-400 text-slate-950 text-xs font-semibold uppercase tracking-wider hover:bg-cyan-300 transition"
-                >
-                  Fix for best outcome
-                </button>
-              </div>
-              <button
-                onClick={() => { if (requirePro("Ticket image download")) downloadTicketImage(); }}
-                className="w-full py-2.5 rounded-lg bg-cyan-500 text-white text-xs font-semibold uppercase tracking-wider hover:bg-cyan-600 transition flex items-center justify-center gap-1.5"
-              >
-                ↓ Download ticket image
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {showDemoPicker && (
@@ -9023,6 +8849,101 @@ export default function ParlayBuilder() {
       )}
 
       <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" ? "none" : undefined }}>
+        {/* Popup YOUR SLIP — collapsed pill above chat; expands upward. */}
+        {parlayLegs.length > 0 && (
+          <>
+            {slipOpen && (
+              <div className="fixed inset-0 z-30" onClick={() => setSlipOpen(false)} />
+            )}
+            {slipOpen && (
+              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up">
+                <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between">
+                  <span className="font-display text-sm">
+                    YOUR SLIP · {parlayLegs.length} LEG{parlayLegs.length !== 1 ? "S" : ""}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={clearParlay} className="text-white/80 hover:text-white" aria-label="Clear slip">
+                      <Trash2 size={14} />
+                    </button>
+                    <button onClick={() => setSlipOpen(false)} className="text-white/80 hover:text-white" aria-label="Close slip">
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-[50vh] overflow-y-auto p-2 space-y-1.5">
+                  {parlayLegs.map((leg, idx) => (
+                    <div key={leg.id ?? idx} className="flex items-start gap-2 bg-slate-800 rounded-xl px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 truncate">{leg.game}</div>
+                        <div className="text-sm text-slate-100 truncate">{leg.pick}</div>
+                        <div className="text-[10px] font-mono text-slate-400">
+                          {leg.market}{leg.odds != null ? ` · ${formatOdds(leg.odds)}` : ""}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => removeLeg(leg.id)}
+                        className="shrink-0 text-slate-400 hover:text-rose-400 transition p-1"
+                        aria-label="Remove leg"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {slipAnalysis && (
+                  <div className="px-4 py-3 border-t border-slate-800 bg-slate-950">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-300">Analysis</span>
+                      <button onClick={() => setSlipAnalysis(null)} className="text-slate-500 hover:text-slate-300 text-[10px] font-mono uppercase">clear</button>
+                    </div>
+                    <div className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">{slipAnalysis}</div>
+                  </div>
+                )}
+                <div className="px-4 py-2 border-t border-slate-800 flex items-center justify-between bg-slate-950">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    {parlayLegs.length} leg{parlayLegs.length !== 1 ? "s" : ""} · {parlayConfidence}% conf
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={analyzeCurrentSlip}
+                      className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full border border-slate-700 text-slate-300 hover:border-cyan-400 hover:text-cyan-300 transition"
+                    >
+                      Analyze
+                    </button>
+                    <div className="text-sm font-bold text-cyan-400">
+                      {parlayMath?.american ? `${parlayMath.american > 0 ? "+" : ""}${parlayMath.american}` : ""}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => setSlipOpen((v) => !v)}
+              className={`w-full mb-2 flex items-center justify-between rounded-2xl px-3 py-2 border transition ${
+                slipOpen ? "border-cyan-400 bg-cyan-400/10" : "border-slate-700 bg-slate-800 hover:border-cyan-400"
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-300 shrink-0">
+                  🎟 Slip · {parlayLegs.length}
+                </span>
+                <div className="flex gap-1 overflow-hidden">
+                  {parlayLegs.slice(0, 4).map((leg, idx) => (
+                    <span key={leg.id ?? idx} className="shrink-0 text-[10px] bg-slate-900 border border-slate-700 text-slate-300 rounded-full px-2 py-0.5 max-w-[120px] truncate">
+                      {leg.pick}
+                    </span>
+                  ))}
+                  {parlayLegs.length > 4 && (
+                    <span className="shrink-0 text-[10px] text-slate-400 px-1 py-0.5">+{parlayLegs.length - 4}</span>
+                  )}
+                </div>
+              </div>
+              <span className="shrink-0 text-[10px] font-mono text-cyan-400 ml-2">
+                {slipOpen ? "▼ Close" : "▲ Open"}
+              </span>
+            </button>
+          </>
+        )}
         {/* Build-parlay popup menu */}
         {legMenuOpen && (
           <>
