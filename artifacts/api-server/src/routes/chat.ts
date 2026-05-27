@@ -5,8 +5,11 @@ import { rateLimit } from "../lib/sports.js";
 
 const router: IRouter = Router();
 
-// Cap expensive AI calls: ~20 chats per IP per minute.
-router.use("/chat", rateLimit({ windowMs: 60_000, max: 20 }));
+// Cap expensive AI calls per IP. Bumped from 20 → 60/min because the demo
+// fires multiple chats in quick succession (per-game live parlay builds,
+// re-asks while exploring slips) and the old cap was tripping during
+// normal use, surfacing as a misleading "AI unavailable" message.
+router.use("/chat", rateLimit({ windowMs: 60_000, max: 60 }));
 
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, MLB, NHL, Soccer, NCAAF, NCAAB, and UFC.

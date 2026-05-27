@@ -1,2 +1,1 @@
-- [ESPN scoreboard live fields](espn-scoreboard-live-fields.md) — competition.status.{displayClock,period,type.shortDetail} are the real "Q3 8:42"/"Bot 7th" strings; prefer competition over event-level status mid-game.
-- [Stadium Edge no-fake-data rule](stadium-edge-no-fake-data.md) — Pick Live/tickets/chat must render "—" (or drop) when a value is missing; never default scores to 0, win prob to a number, or status to "Live"/"Scheduled" beyond real ESPN state mapping.
+- [Misleading AI-fallback messages](misleading-ai-fallback.md) — when a chat falls back to an offline analyzer, the message must name the ACTUAL cause (own rate limiter vs upstream outage), not a blanket "AI unavailable".

@@ -4069,7 +4069,11 @@ export default function ParlayBuilder() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history, context }),
       });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok || !res.body) {
+        const err = new Error(`HTTP ${res.status}`);
+        (err as Error & { status?: number }).status = res.status;
+        throw err;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -4293,10 +4297,23 @@ export default function ParlayBuilder() {
       }
       if (picks.length > 0) autoFillSlip(picks);
     } catch (err) {
-      // Fall back to the local rules-based generator if the live AI fails,
-      // but ONLY use real live picks — never the hypothetical PICK_POOL.
-      // If there are no real live picks right now, say so honestly.
-      if (livePicks.length === 0) {
+      // Distinguish "you're sending too fast" (HTTP 429 from our own rate
+      // limiter) from a true AI outage. Conflating the two surfaces a
+      // misleading "AI unavailable" message when the user only needs to
+      // wait a few seconds.
+      const status = (err as Error & { status?: number })?.status;
+      if (status === 429) {
+        setMessages((p) => {
+          const next = p.slice();
+          next[next.length - 1] = {
+            role: "assistant",
+            content:
+              "You're sending chats faster than the rate limit (60/min) — wait a few seconds and try again. The AI service itself is fine.",
+          };
+          return next;
+        });
+      } else if (livePicks.length === 0) {
+        // True AI outage and no live data to fall back on.
         setMessages((p) => {
           const next = p.slice();
           next[next.length - 1] = {
@@ -4307,6 +4324,8 @@ export default function ParlayBuilder() {
           return next;
         });
       } else {
+        // True AI outage but we have real live picks — use the local
+        // analyzer on REAL data only (never the hypothetical PICK_POOL).
         const reply = generateResponse(text, selectedSports, parlayLegs, livePicks, gameRefs);
         setMessages((p) => {
           const next = p.slice();
