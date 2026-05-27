@@ -5102,8 +5102,11 @@ export default function ParlayBuilder() {
     for (let li = 0; li < lines.length; li++) {
       const ln = lines[li];
       // Accept any of the labels the AI uses for the free-form edge block:
-      // "Edge notes:", "Leg notes:", "Notes:", "Reasoning:", "Analysis:".
-      const hm = ln.match(/^\s*\**\s*(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis)\s*\**\s*:\s*(.*)$/i);
+      // "Edge notes:", "Leg notes:", "Per-leg edge notes:", "Quick notes:",
+      // "Key reasoning:", "Notes:", "Reasoning:", "Analysis:", etc. The
+      // optional prefix lets the AI add modifiers like "Per-leg", "Quick",
+      // "Key", "Brief" before the actual keyword.
+      const hm = ln.match(/^\s*\**\s*(?:[a-z][a-z\s-]{0,30}\s+)?(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis)\s*\**\s*:\s*(.*)$/i);
       if (!hm) continue;
       // Walk forward, grouping consecutive non-blank lines into paragraphs.
       // hm[2] is the tail of the header line ("Brewers have ..." on the same
