@@ -2607,10 +2607,17 @@ export default function ParlayBuilder() {
               sport: g.sportId,
               away: g.awayTeam,
               home: g.homeTeam,
-              awayScore: g.awayScore ?? 0,
-              homeScore: g.homeScore ?? 0,
-              periodLabel: g.status || "Live",
-              clock: "",
+              // Keep nulls when ESPN hasn't shipped scores yet — UI renders
+              // "—" so we never imply 0-0 on a game that's actually live.
+              awayScore: g.awayScore ?? null,
+              homeScore: g.homeScore ?? null,
+              // Real period + clock straight from ESPN's scoreboard payload.
+              // `periodLabel` is ESPN's shortDetail ("Q3 8:42", "Bot 7th",
+              // "HT", "OT") which is what fans see on espn.com. Falls back
+              // only to the real status string — never to a fabricated "Live".
+              periodLabel: g.periodLabel || g.status || null,
+              clock: g.clock || null,
+              period: g.period ?? null,
               game: `${g.awayTeam} @ ${g.homeTeam}`,
               startsAt: g.startsAt,
               homeLogo: g.homeLogo,
@@ -6047,22 +6054,71 @@ export default function ParlayBuilder() {
 
             <div className="overflow-y-auto scroll-fade p-3 space-y-2">
               {(() => {
-                const liveList = homeLiveGames.length > 0
-                  ? homeLiveGames.map((g) => ({
-                      ...g,
-                      periodLabel: g.periodLabel || g.status || "Live",
-                      clock: g.clock || "",
-                      awayWP: g.awayWP ?? "—",
-                      homeWP: g.homeWP ?? "—",
-                      currentTotal: g.currentTotal ?? ((g.awayScore || 0) + (g.homeScore || 0)),
-                      total: g.total ?? "—",
-                      pacing: g.pacing || "",
-                    }))
+                // Decorate each real live game with the matching bookmaker
+                // total (from realOddsBySport) so we can show real
+                // current-vs-total and an honest pacing read. We never fake
+                // win probability — if ESPN's scoreboard didn't ship a
+                // value we display "—" rather than inventing a number.
+                const lookupTotal = (sport, game) => {
+                  const oddsList = realOddsBySport[sport] || [];
+                  const hit = oddsList.find(
+                    (o) => `${o.awayTeam} @ ${o.homeTeam}` === game,
+                  );
+                  if (!hit?.bookmakers?.length) return null;
+                  for (const bk of hit.bookmakers) {
+                    const totalsMkt = (bk.markets || []).find((m) => m.key === "totals");
+                    const overOutcome = totalsMkt?.outcomes?.find((o) => /over/i.test(o.name || ""));
+                    if (overOutcome?.point != null) return Number(overOutcome.point);
+                  }
+                  return null;
+                };
+                // Gate the real-feed branch on g.real === true, not on
+                // homeLiveGames.length, so simulated games can never
+                // masquerade as live-feed context with real-odds pacing.
+                const hasReal = homeLiveGames.some((g) => g.real === true);
+                const liveList = hasReal
+                  ? homeLiveGames.filter((g) => g.real === true).map((g) => {
+                      const total = lookupTotal(g.sport, g.game);
+                      const hasBothScores = Number.isFinite(g.awayScore) && Number.isFinite(g.homeScore);
+                      const currentTotal = hasBothScores ? (g.awayScore + g.homeScore) : null;
+                      // Pace: how far through regulation are we? Estimate
+                      // from period vs sport's regulation period count.
+                      // STRICTLY requires real total + both real scores +
+                      // real period — otherwise blank, never fake.
+                      const REG_PERIODS: Record<string, number> = { nfl: 4, ncaaf: 4, nba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
+                      const regCount = REG_PERIODS[g.sport];
+                      let pacing = "";
+                      if (
+                        Number.isFinite(total) &&
+                        currentTotal != null &&
+                        regCount &&
+                        Number.isFinite(g.period) &&
+                        g.period > 0
+                      ) {
+                        const elapsed = Math.min(1, g.period / regCount);
+                        if (elapsed >= 0.25) {
+                          const projected = currentTotal / elapsed;
+                          if (projected > total * 1.08) pacing = "over";
+                          else if (projected < total * 0.92) pacing = "under";
+                          else pacing = "on pace";
+                        }
+                      }
+                      return {
+                        ...g,
+                        periodLabel: g.periodLabel || g.status || "—",
+                        clock: g.clock || "",
+                        awayWP: g.awayWP ?? "—",
+                        homeWP: g.homeWP ?? "—",
+                        currentTotal: currentTotal != null ? currentTotal : "—",
+                        total: total != null ? total : "—",
+                        pacing,
+                      };
+                    })
                   : simLiveGames;
                 if (liveList.length === 0) {
                   return (
                     <p className="text-slate-400 text-sm text-center py-8">
-                      Nothing in progress right now for your selected sports. Check back closer to game time.
+                      Nothing in progress across any sport right now. Check back closer to game time.
                     </p>
                   );
                 }
@@ -6071,7 +6127,7 @@ export default function ParlayBuilder() {
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-[10px] font-mono uppercase text-rose-400 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-400 pulse-dot" />
-                      {g.periodLabel} · {g.clock}
+                      {g.periodLabel}{g.clock ? ` · ${g.clock}` : ""}
                     </div>
                     <div className="text-[9px] font-mono uppercase text-slate-400">{g.sport}</div>
                   </div>
@@ -6079,20 +6135,22 @@ export default function ParlayBuilder() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold">{g.away}</span>
-                        <span className="font-mono font-bold text-lg">{g.awayScore}</span>
+                        <span className="font-mono font-bold text-lg">{Number.isFinite(g.awayScore) ? g.awayScore : "—"}</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold">{g.home}</span>
-                        <span className="font-mono font-bold text-lg">{g.homeScore}</span>
+                        <span className="font-mono font-bold text-lg">{Number.isFinite(g.homeScore) ? g.homeScore : "—"}</span>
                       </div>
                     </div>
                   </div>
                   <div className="mt-2 pt-2 border-t border-zinc-800 flex items-center justify-between text-[10px] font-mono">
                     <span className="text-slate-400">
-                      Win prob: <span className="text-zinc-300">{g.away} {g.awayWP}%</span> · <span className="text-zinc-300">{g.home} {g.homeWP}%</span>
+                      {g.awayWP !== "—" || g.homeWP !== "—"
+                        ? <>Win prob: <span className="text-zinc-300">{g.away} {g.awayWP}%</span> · <span className="text-zinc-300">{g.home} {g.homeWP}%</span></>
+                        : <span className="text-slate-500">Win prob: live feed only</span>}
                     </span>
                     <span className={`uppercase ${g.pacing === "over" ? "text-emerald-400" : g.pacing === "under" ? "text-amber-400" : "text-slate-400"}`}>
-                      {g.currentTotal}/{g.total} {g.pacing}
+                      {g.currentTotal}/{g.total}{g.pacing ? ` ${g.pacing}` : ""}
                     </span>
                   </div>
                   <button

@@ -63,6 +63,14 @@ export interface EspnGame {
   awayAbbr?: string | null;
   /** @nullable */
   venue?: string | null;
+  /** @nullable */
+  clock?: string | null;
+  /** @nullable */
+  period?: number | null;
+  /** @nullable */
+  periodLabel?: string | null;
+  /** @nullable */
+  state?: string | null;
 }
 
 export interface InjuryEntry {

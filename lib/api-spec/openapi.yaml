@@ -188,6 +188,10 @@ components:
         homeAbbr: { type: ["string", "null"] }
         awayAbbr: { type: ["string", "null"] }
         venue: { type: ["string", "null"] }
+        clock: { type: ["string", "null"] }
+        period: { type: ["integer", "null"] }
+        periodLabel: { type: ["string", "null"] }
+        state: { type: ["string", "null"] }
     InjuryEntry:
       type: object
       required: [player, status, description]

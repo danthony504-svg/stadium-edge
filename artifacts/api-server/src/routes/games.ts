@@ -9,9 +9,20 @@ type EspnEvent = {
   name: string;
   shortName: string;
   date: string;
-  status?: { type?: { description?: string; state?: string } };
+  status?: {
+    clock?: number;
+    displayClock?: string;
+    period?: number;
+    type?: { description?: string; state?: string; shortDetail?: string };
+  };
   competitions?: Array<{
     venue?: { fullName?: string };
+    status?: {
+      clock?: number;
+      displayClock?: string;
+      period?: number;
+      type?: { description?: string; state?: string; shortDetail?: string };
+    };
     competitors?: Array<{
       homeAway: "home" | "away";
       score?: string;
@@ -68,12 +79,27 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       const away = comp?.competitors?.find((c) => c.homeAway === "away");
       const homeScore = home?.score != null ? parseInt(home.score, 10) : null;
       const awayScore = away?.score != null ? parseInt(away.score, 10) : null;
+      // Real in-game clock + period. ESPN exposes these on both the event
+      // status and the competition status — prefer competition (more
+      // reliable mid-game) and fall back to event.
+      const statusObj = comp?.status ?? e.status;
+      const displayClock = statusObj?.displayClock ?? null;
+      const period = statusObj?.period ?? null;
+      // shortDetail is the human-friendly "Q3 8:42" / "Bot 7th" / "HT" /
+      // "Final" string ESPN ships for live scoreboards. Prefer it over the
+      // generic description ("In Progress") so the UI shows what fans
+      // actually see on ESPN.
+      const periodLabel = statusObj?.type?.shortDetail ?? statusObj?.type?.description ?? null;
       return {
         id: e.id,
         sport: sportId,
         name: e.name,
         shortName: e.shortName,
-        status: e.status?.type?.description ?? "Scheduled",
+        status: e.status?.type?.description
+          ?? (e.status?.type?.state === "in" ? "In Progress"
+              : e.status?.type?.state === "post" ? "Final"
+              : e.status?.type?.state === "pre" ? "Scheduled"
+              : "Unknown"),
         startsAt: e.date,
         homeTeam: home?.team?.displayName ?? null,
         awayTeam: away?.team?.displayName ?? null,
@@ -86,6 +112,10 @@ router.get("/sports/games", async (req, res): Promise<void> => {
         homeAbbr: home?.team?.abbreviation ?? null,
         awayAbbr: away?.team?.abbreviation ?? null,
         venue: comp?.venue?.fullName ?? null,
+        clock: displayClock,
+        period,
+        periodLabel,
+        state: statusObj?.type?.state ?? e.status?.type?.state ?? null,
       };
     });
 

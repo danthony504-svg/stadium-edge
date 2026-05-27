@@ -65,7 +65,11 @@ export const GetGamesResponseItem = zod.object({
   "awayLogo": zod.string().nullish(),
   "homeAbbr": zod.string().nullish(),
   "awayAbbr": zod.string().nullish(),
-  "venue": zod.string().nullish()
+  "venue": zod.string().nullish(),
+  "clock": zod.string().nullish(),
+  "period": zod.number().nullish(),
+  "periodLabel": zod.string().nullish(),
+  "state": zod.string().nullish()
 })
 export const GetGamesResponse = zod.array(GetGamesResponseItem)
 
