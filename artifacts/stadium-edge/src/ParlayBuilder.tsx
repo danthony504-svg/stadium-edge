@@ -5159,25 +5159,22 @@ export default function ParlayBuilder() {
           .map((s) => s.trim())
           .filter(Boolean);
         const assigned = new Map(); // pickKey -> joined sentences
-        let allAssigned = true;
         for (const ch of chunks) {
           const { bestKey, bestScore, bestRunnerUp } = scoreChunk(ch);
           if (bestKey && bestScore >= 4 && bestScore > bestRunnerUp) {
             assigned.set(bestKey, (assigned.get(bestKey) ? assigned.get(bestKey) + " " : "") + ch);
-          } else {
-            allAssigned = false;
           }
         }
-        // Only hide the paragraph's lines from inline if EVERY sentence found
-        // a confident home; otherwise leave the paragraph inline so we don't
-        // strand orphan sentences.
-        if (assigned.size > 0 && allAssigned) {
-          for (const [key, text] of assigned) {
-            const prev = noteByPickKey.get(key);
-            noteByPickKey.set(key, prev ? prev + " " + text : text);
-          }
-          for (const k of p.idxs) noteLineIdxs.add(k);
+        // The user wants the chat clean: ALWAYS hide every line of the
+        // Leg/Edge-notes block from inline rendering. Matched sentences go
+        // into per-pick dropdowns; unmatched sentences (rare orphans like
+        // "Guardians/Nationals over 8 is a pace look...") drop quietly, since
+        // the AI repeats the same info inside the relevant pick's dropdown.
+        for (const [key, text] of assigned) {
+          const prev = noteByPickKey.get(key);
+          noteByPickKey.set(key, prev ? prev + " " + text : text);
         }
+        for (const k of p.idxs) noteLineIdxs.add(k);
       }
       li = j - 1; // jump past the block we just consumed
     }
