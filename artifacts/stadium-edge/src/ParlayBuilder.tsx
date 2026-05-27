@@ -5865,9 +5865,15 @@ export default function ParlayBuilder() {
                       return (
                         <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5 flex-wrap">
                               {r.real && <span className="text-emerald-400">● LIVE</span>}
                               <span>{r.sport} · {r.market} · {r.game}</span>
+                              {(() => {
+                                const live = lookupLiveTag(r.game);
+                                if (live) return <span className="text-rose-400 font-semibold">· {live}</span>;
+                                const t = formatGameTime(lookupGameStart(r.game));
+                                return t ? <span className="text-cyan-400">· {t}</span> : null;
+                              })()}
                             </div>
                             <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
                           </div>
@@ -5953,6 +5959,23 @@ export default function ParlayBuilder() {
                                 )}
                                 <span className="min-w-0">
                                   <span className="block text-sm font-semibold text-slate-100 truncate">{game}</span>
+                                  {(() => {
+                                    // Use lookupGameStart — it resolves both
+                                    // ESPN `startsAt` and odds-API `commenceTime`
+                                    // so scheduled games still surface a date/time.
+                                    const live = lookupLiveTag(game);
+                                    const time = formatGameTime(lookupGameStart(game));
+                                    if (!live && !time) return null;
+                                    return (
+                                      <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                                        {live ? (
+                                          <span className="text-rose-400 font-semibold">● {live}</span>
+                                        ) : (
+                                          <span className="text-cyan-400">{time}</span>
+                                        )}
+                                      </span>
+                                    );
+                                  })()}
                                   <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length > 0 ? `${picks.length} markets` : "Markets opening soon"} · {gamePlayers.length} players</span>
                                 </span>
                               </span>
