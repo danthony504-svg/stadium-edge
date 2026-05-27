@@ -5366,13 +5366,38 @@ export default function ParlayBuilder() {
                           </div>
                           <div>
                             <div className="text-[9px] font-mono uppercase text-slate-400 tracking-wider">Record W/L</div>
-                            {personal.total === 0 ? (
-                              <div className="text-sm font-bold text-slate-500">— · no data</div>
-                            ) : (
-                              <div className={`text-sm font-bold ${personal.wins / personal.total >= 0.5 ? "text-emerald-600" : "text-rose-600"}`}>
-                                {personal.wins}-{personal.losses} <span className="text-[10px] font-normal text-slate-400">({Math.round((personal.wins / personal.total) * 100)}%)</span>
-                              </div>
-                            )}
+                            {(() => {
+                              // For moneyline picks: show the real head-to-head
+                              // record (from matchupHistory.h2h, same source the
+                              // AI sees). Orientation: home picks use homeWins,
+                              // away picks use awayWins. Falls back to personal
+                              // tracker record for non-moneyline picks.
+                              const h2hEntry = matchupHistoryByGame[pick.game];
+                              if (pick.market === "Moneyline" && pick.game && h2hEntry?.h2h?.meetings?.length) {
+                                const sides = pick.game.split(" @ ");
+                                if (sides.length === 2) {
+                                  const home = sides[1].trim();
+                                  const pickedHome = pick.pick.toLowerCase().includes(home.toLowerCase());
+                                  const w = pickedHome ? h2hEntry.h2h.homeWins : h2hEntry.h2h.awayWins;
+                                  const l = pickedHome ? h2hEntry.h2h.awayWins : h2hEntry.h2h.homeWins;
+                                  const tot = w + l;
+                                  const pct = tot > 0 ? Math.round((w / tot) * 100) : null;
+                                  return (
+                                    <div className={`text-sm font-bold ${tot > 0 && w / tot >= 0.5 ? "text-emerald-500" : "text-rose-500"}`}>
+                                      {w}-{l} {pct !== null && <span className="text-[10px] font-normal text-slate-400">({pct}% H2H)</span>}
+                                    </div>
+                                  );
+                                }
+                              }
+                              if (personal.total === 0) {
+                                return <div className="text-sm font-bold text-slate-500">— · no data</div>;
+                              }
+                              return (
+                                <div className={`text-sm font-bold ${personal.wins / personal.total >= 0.5 ? "text-emerald-600" : "text-rose-600"}`}>
+                                  {personal.wins}-{personal.losses} <span className="text-[10px] font-normal text-slate-400">({Math.round((personal.wins / personal.total) * 100)}%)</span>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
