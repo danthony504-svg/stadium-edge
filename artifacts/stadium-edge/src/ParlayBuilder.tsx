@@ -3738,6 +3738,30 @@ export default function ParlayBuilder() {
     return null;
   };
 
+  // If a slip leg's game is currently LIVE in the ESPN feed, return a
+  // short "🔴 Q3 8:42" / "🔴 HT" tag built from the real period + clock —
+  // never a fabricated "Live" string. Returns null when the game is
+  // scheduled (pre-game), final, or simply not in any current feed (so
+  // the caller falls back to the kickoff timestamp instead).
+  const lookupLiveTag = (gameLabel) => {
+    if (!gameLabel) return null;
+    for (const sportGames of Object.values(realGamesBySport || {})) {
+      for (const g of (sportGames || [])) {
+        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        const s = (g.status || "").toLowerCase();
+        const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
+        const isScheduled = s.includes("scheduled") || s.includes("pre");
+        if (isFinal || isScheduled) return null;
+        // periodLabel is ESPN's shortDetail ("Q3 8:42", "Bot 7th", "HT",
+        // "OT"). Fall back only to the raw status string — never a
+        // synthesized "Live" — so we keep the no-fake-data guarantee.
+        const tag = g.periodLabel || g.status || null;
+        return tag ? `🔴 ${tag}` : null;
+      }
+    }
+    return null;
+  };
+
   // Format a kickoff timestamp as a short human-readable tag for the slip:
   // "Today 8:30 PM", "Tomorrow 1:05 PM", or "Wed May 27 · 8:30 PM" for
   // anything further out. Returns null on bad/missing input.
@@ -4494,6 +4518,8 @@ export default function ParlayBuilder() {
                     <div className="text-xs text-slate-400 break-words">
                       {displayGameLabel(pick.game)}
                       {(() => {
+                        const live = lookupLiveTag(pick.game);
+                        if (live) return <span className="ml-1 text-rose-600 font-semibold">· {live}</span>;
                         const t = formatGameTime(lookupGameStart(pick.game));
                         return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
@@ -5869,6 +5895,8 @@ export default function ParlayBuilder() {
                         <div className="text-[10px] text-slate-400 break-words">
                           {displayGameLabel(leg.game)} · {leg.market}
                           {(() => {
+                            const live = lookupLiveTag(leg.game);
+                            if (live) return <span className="ml-1 text-rose-400 font-semibold">· {live}</span>;
                             const t = formatGameTime(lookupGameStart(leg.game));
                             return t ? <span className="ml-1 text-cyan-500">· {t}</span> : null;
                           })()}
@@ -8201,6 +8229,8 @@ export default function ParlayBuilder() {
                     <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider break-words">
                       {leg.market} · {displayGameLabel(leg.game)}
                       {(() => {
+                        const live = lookupLiveTag(leg.game);
+                        if (live) return <span className="ml-1 text-rose-500 font-semibold">· {live}</span>;
                         const t = formatGameTime(lookupGameStart(leg.game));
                         return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
