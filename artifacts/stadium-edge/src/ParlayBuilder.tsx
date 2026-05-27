@@ -3522,7 +3522,8 @@ export default function ParlayBuilder() {
     const { kept } = filterPicksToReal([leg]);
     if (kept.length === 0) return;
     const id = Date.now() + Math.random();
-    setParlayLegs((p) => (p.some((l) => legKey(l) === key) ? p : [...p, { ...leg, id }]));
+    const addedAt = Date.now();
+    setParlayLegs((p) => (p.some((l) => legKey(l) === key) ? p : [...p, { ...leg, id, addedAt }]));
     // Snapshot the ref + reasoning at the moment of adding so History stays accurate
     const refAtTime = gameRefs[leg.game] || null;
     const reasoningAtTime = generateReasoning(leg, refAtTime);
@@ -4156,13 +4157,27 @@ export default function ParlayBuilder() {
     // hallucinated leg with no raw-feed match should disappear even when
     // the live data is momentarily empty, because more data isn't going
     // to make a fake matchup real.
-    if (kept.length === parlayLegs.length) return; // nothing to drop — safe no-op, prevents loop
+    //
+    // GRACE WINDOW: legs auto-filled by the streaming chat were validated
+    // moments ago against a freshly-fetched in-call matchup pool. The
+    // React state this sweep reads is async and may not yet include the
+    // props/odds that justified those legs — re-filtering immediately
+    // would strip 5-of-6 valid legs ("asked for 6, got 1" bug). Exempt
+    // anything added within the last 90s; by then props/odds state has
+    // caught up and the sweep can fairly judge them.
+    const now = Date.now();
+    const GRACE_MS = 90_000;
     const keptKeys = new Set(kept.map(legKey));
-    setParlayLegs((prev) => prev.filter((l) => keptKeys.has(legKey(l))));
+    const survives = (l) =>
+      keptKeys.has(legKey(l)) || (l.addedAt && now - l.addedAt < GRACE_MS);
+    const survivors = parlayLegs.filter(survives);
+    if (survivors.length === parlayLegs.length) return; // nothing to drop — safe no-op, prevents loop
+    const survivorKeys = new Set(survivors.map(legKey));
+    setParlayLegs((prev) => prev.filter((l) => survivorKeys.has(legKey(l))));
     // No deps array on purpose: runs after every render. The
-    // early-return above (`kept.length === parlayLegs.length`) makes
-    // this safe — once the slip is clean, the effect is a no-op and the
-    // loop terminates. This is the only way to guarantee the slip
+    // early-return above (`survivors.length === parlayLegs.length`)
+    // makes this safe — once the slip is clean, the effect is a no-op
+    // and the loop terminates. This is the only way to guarantee the slip
     // re-evaluates after a hot module reload, when the filter logic
     // changes but parlayLegs state is preserved unchanged.
   });
@@ -4194,14 +4209,12 @@ export default function ParlayBuilder() {
     if (deduped.length === 0) return;
     // Unique id per leg even when several land in the same millisecond
     // (Date.now() resolution is coarse; adding the index prevents React-key
-    // collisions when 6+ legs are auto-filled at once).
-    const legs = deduped.map((leg, i) => ({ ...leg, id: Date.now() + i + Math.random() }));
-    setParlayLegs((prev) => {
-      const next = [...prev, ...legs];
-      // eslint-disable-next-line no-console
-      console.log("[stadium-edge SLIP]", { received: picks.length, added: legs.length, slipNow: next.length });
-      return next;
-    });
+    // collisions when 6+ legs are auto-filled at once). addedAt is what
+    // the slip-sweep grace window keys off — without it the sweep would
+    // re-filter against stale React state and drop 5-of-6 valid legs.
+    const now = Date.now();
+    const legs = deduped.map((leg, i) => ({ ...leg, id: now + i + Math.random(), addedAt: now }));
+    setParlayLegs((prev) => [...prev, ...legs]);
     // Log each to the tracker as pending
     setTracker((prev) => [
       ...prev,
