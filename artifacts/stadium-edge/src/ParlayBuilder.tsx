@@ -2262,6 +2262,8 @@ export default function ParlayBuilder() {
   const [betslipOpen, setBetslipOpen] = useState(false);
   // Popup slip above the chat input. Collapsed by default; tap the bar to expand.
   const [slipOpen, setSlipOpen] = useState(false);
+  // Per-leg "edge notes" expand state — set of leg ids currently showing reasons.
+  const [expandedLegIds, setExpandedLegIds] = useState(() => new Set());
   const [loggedIn, setLoggedIn] = useState(true); // login gate bypassed for now (set false to re-enable)
   const [booting, setBooting] = useState(true);
   const [loginEmail, setLoginEmail] = useState("");
@@ -8871,24 +8873,58 @@ export default function ParlayBuilder() {
                   </div>
                 </div>
                 <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
-                  {parlayLegs.map((leg, idx) => (
-                    <div key={leg.id ?? idx} className="flex items-start gap-2 bg-slate-800 rounded-xl px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 truncate">{leg.game}</div>
-                        <div className="text-sm text-slate-100 truncate">{leg.pick}</div>
-                        <div className="text-[10px] font-mono text-slate-400">
-                          {leg.market}{leg.odds != null ? ` · ${formatOdds(leg.odds)}` : ""}
+                  {parlayLegs.map((leg, idx) => {
+                    const isExpanded = expandedLegIds.has(leg.id);
+                    const legReasons = isExpanded ? generateReasoning(leg, gameRefs[leg.game] || null) : [];
+                    const legConf = calculateConfidence(leg, gameRefs[leg.game] || null);
+                    return (
+                      <div key={leg.id ?? idx} className="bg-slate-800 rounded-xl overflow-hidden">
+                        <div className="flex items-start gap-2 px-3 py-2">
+                          <button
+                            onClick={() => setExpandedLegIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(leg.id)) next.delete(leg.id); else next.add(leg.id);
+                              return next;
+                            })}
+                            className="flex-1 min-w-0 text-left"
+                            aria-expanded={isExpanded}
+                            aria-label="Toggle edge notes"
+                          >
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 truncate">{leg.game}</div>
+                            <div className="text-sm text-slate-100 truncate">{leg.pick}</div>
+                            <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5">
+                              <span>{leg.market}{leg.odds != null ? ` · ${formatOdds(leg.odds)}` : ""}</span>
+                              <span className="text-cyan-400">· {legConf}% conf</span>
+                              <span className="text-slate-500 ml-auto pr-1">{isExpanded ? "▲ hide" : "▼ why"}</span>
+                            </div>
+                          </button>
+                          <button
+                            onClick={() => removeLeg(leg.id)}
+                            className="shrink-0 text-slate-400 hover:text-rose-400 transition p-1"
+                            aria-label="Remove leg"
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 pt-1 border-t border-slate-700/60 bg-slate-900/40">
+                            {legReasons.length === 0 ? (
+                              <div className="text-[11px] text-slate-500 italic">No specific notes for this leg.</div>
+                            ) : (
+                              <ul className="space-y-1.5">
+                                {legReasons.map((r, ri) => (
+                                  <li key={ri} className="text-[11px] text-slate-300 leading-snug flex gap-1.5">
+                                    <span className="text-cyan-400 shrink-0">•</span>
+                                    <span className="min-w-0">{r}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <button
-                        onClick={() => removeLeg(leg.id)}
-                        className="shrink-0 text-slate-400 hover:text-rose-400 transition p-1"
-                        aria-label="Remove leg"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {slipAnalysis && (
                   <div className="px-4 py-3 border-t border-slate-800 bg-slate-950">
