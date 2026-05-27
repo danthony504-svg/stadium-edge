@@ -5040,10 +5040,26 @@ export default function ParlayBuilder() {
     const noteLineIdxs = new Set();
     const normalize = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     const tokenize = (s) => normalize(s).split(" ").filter((t) => t.length >= 3);
-    const pickHaystacks = messagePicks.map((p) => ({
-      key: `${p.game}::${p.pick}`,
-      hay: normalize(`${p.game} ${p.pick}`),
-    }));
+    // Generic betting/sport words that must NOT count as a strong match —
+    // otherwise a paragraph mentioning "over" or "spread" would get assigned
+    // to whichever pick has the longest such token.
+    const GENERIC_TOKENS = new Set([
+      "over","under","spread","moneyline","line","total","odds","pick","picks",
+      "team","game","games","play","plays","bet","bets","prop","props","parlay",
+      "leg","legs","favorite","favourite","underdog","dog","home","away","road",
+      "live","last","next","first","second","third","fourth","quarter","half",
+      "period","inning","innings","run","runs","goal","goals","point","points",
+      "hit","hits","win","wins","loss","losses","record","margin","avg","ats",
+      "with","from","this","that","they","their","have","been","then","than",
+      "vs","versus","against","price","value","edge","form","def","off","ppg",
+    ]);
+    const pickHaystacks = messagePicks.map((p) => {
+      const hay = normalize(`${p.game} ${p.pick}`);
+      const strongTokens = tokenize(`${p.game} ${p.pick}`).filter(
+        (t) => !GENERIC_TOKENS.has(t) && !/^\d+$/.test(t),
+      );
+      return { key: `${p.game}::${p.pick}`, hay, strongTokens };
+    });
     for (let li = 0; li < lines.length; li++) {
       const ln = lines[li];
       const mm = ln.match(/^\s*\**\s*([^*:|][^:|]{0,60})\s*:\s*(.+\S)\s*$/);
@@ -5067,6 +5083,79 @@ export default function ParlayBuilder() {
         noteByPickKey.set(bestKey, body);
         noteLineIdxs.add(li);
       }
+    }
+    // Second pass: the AI also writes a free-form "Edge notes:" section
+    // (header line followed by 1+ paragraphs of prose that mention the team
+    // by name, e.g. "Brewers have the clearest form edge..."). Capture each
+    // paragraph, match it to a pick by token overlap against the team/player
+    // label, and tuck it into the same AI edge note dropdown so it doesn't
+    // sprawl down the chat.
+    // Stop the Edge-notes scan on ANY new section header (`Word:` at the
+    // start of a line), any PICK row, or any numbered list item. This keeps
+    // the scan window from swallowing later sections like `Why:`, `Confidence:`,
+    // or `Verdict:` that the AI might add after edge notes.
+    const isStructuralLine = (s) =>
+      /^\s*\**\s*[A-Za-z][A-Za-z0-9 /]{0,30}\s*\**\s*:\s/.test(s) ||
+      /^PICK:/i.test(s) ||
+      /^\s*\d+\.\s/.test(s) ||
+      /^\s*[-*•]\s/.test(s);
+    for (let li = 0; li < lines.length; li++) {
+      const ln = lines[li];
+      const hm = ln.match(/^\s*\**\s*edge\s+notes?\s*\**\s*:\s*(.*)$/i);
+      if (!hm) continue;
+      noteLineIdxs.add(li); // hide the "Edge notes:" header itself
+      // Walk forward, grouping consecutive non-blank lines into paragraphs.
+      let j = li + 1;
+      const firstTail = hm[1].trim();
+      const paragraphs = [];
+      if (firstTail) paragraphs.push({ text: firstTail, idxs: [li] });
+      let cur = null;
+      while (j < lines.length) {
+        const lj = lines[j];
+        if (isStructuralLine(lj)) break;
+        if (!lj.trim()) {
+          if (cur) { paragraphs.push(cur); cur = null; }
+          j++;
+          continue;
+        }
+        if (!cur) cur = { text: lj.trim(), idxs: [j] };
+        else { cur.text += " " + lj.trim(); cur.idxs.push(j); }
+        j++;
+      }
+      if (cur) paragraphs.push(cur);
+      for (const p of paragraphs) {
+        const ptoks = new Set(tokenize(p.text));
+        if (ptoks.size === 0) continue;
+        let bestKey = null;
+        let bestScore = 0;
+        let bestRunnerUp = 0;
+        for (const ph of pickHaystacks) {
+          // Score only on strong (non-generic) tokens, and require at least
+          // one strong-token hit so a paragraph that just mentions "over" or
+          // "spread" cannot be assigned to a random pick.
+          let score = 0;
+          let hits = 0;
+          for (const t of ph.strongTokens) {
+            if (ptoks.has(t)) { score += t.length; hits++; }
+          }
+          if (hits === 0) continue;
+          if (score > bestScore) {
+            bestRunnerUp = bestScore;
+            bestScore = score;
+            bestKey = ph.key;
+          } else if (score > bestRunnerUp) {
+            bestRunnerUp = score;
+          }
+        }
+        // Require a clear winner: best must beat runner-up so an ambiguous
+        // paragraph (mentions tokens from two picks) stays inline.
+        if (bestKey && bestScore >= 4 && bestScore > bestRunnerUp) {
+          const prev = noteByPickKey.get(bestKey);
+          noteByPickKey.set(bestKey, prev ? prev + " " + p.text : p.text);
+          for (const k of p.idxs) noteLineIdxs.add(k);
+        }
+      }
+      li = j - 1; // jump past the block we just consumed
     }
     return (
       <div className="space-y-2">
