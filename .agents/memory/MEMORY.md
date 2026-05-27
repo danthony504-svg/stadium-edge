@@ -1,1 +1,2 @@
 - [PrizePicks DFS on a sportsbook slip](prizepicks-dfs-on-sportsbook-slip.md) — mixing line-only DFS legs with American-priced legs requires gating every implied-prob, confidence, point-buy, and PICK-parser path on `odds == null`, or the null-safe math identities silently fabricate prices and inflate confidence.
+- [Matchup-history bumps](matchup-history-bumps.md) — real ESPN L10 form + H2H must layer as a capped secondary signal in the live parlay scorer; combined history bump on any leg must stay below the dominant live-signal cap or history starts to drive ranking.

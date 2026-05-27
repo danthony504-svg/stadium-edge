@@ -2834,15 +2834,18 @@ export default function ParlayBuilder() {
       (o) => o.awayTeam === g.away && o.homeTeam === g.home,
     );
     const propsKey = oddsApiMatch?.id || null;
+    // Look up the ESPN game ONCE — we use its team ids for props
+    // enrichment AND for the matchup-history pull below.
+    const espnGameForHistory = (realGamesBySport[g.sport] || []).find(
+      (e) => e.awayTeam === g.away && e.homeTeam === g.home,
+    );
     // Proactively fetch props for this game if we haven't already cached
     // them — clicking "Build best parlay" doesn't otherwise trigger the
     // game-detail or chat-side fetch path. Enrich with ESPN team ids so
     // the server can attach player headshots.
     if (propsKey && !realPropsByEvent[propsKey]) {
       try {
-        const espn = (realGamesBySport[g.sport] || []).find(
-          (e) => e.awayTeam === g.away && e.homeTeam === g.home,
-        );
+        const espn = espnGameForHistory;
         const qs = [`sport=${encodeURIComponent(g.sport)}`, `eventId=${encodeURIComponent(propsKey)}`];
         if (espn?.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(espn.homeTeamId)}`);
         if (espn?.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(espn.awayTeamId)}`);
@@ -2928,6 +2931,24 @@ export default function ParlayBuilder() {
       } catch { /* honest no-PP fallback */ }
     }
 
+    // 3c) Pull previous-matchup history: each team's last-10 form +
+    // head-to-head meetings, straight from ESPN's per-team schedule
+    // feed. Used below to bump confidence for ML / spread / total picks
+    // when real form/H2H signals back the side. Honest empty bucket on
+    // failure — never fabricated.
+    let history = null;
+    if (espnGameForHistory?.homeTeamId && espnGameForHistory?.awayTeamId) {
+      try {
+        const qs = [
+          `sport=${encodeURIComponent(g.sport)}`,
+          `homeTeamId=${encodeURIComponent(espnGameForHistory.homeTeamId)}`,
+          `awayTeamId=${encodeURIComponent(espnGameForHistory.awayTeamId)}`,
+        ];
+        const hr = await fetch(`/api/sports/matchup-history?${qs.join("&")}`);
+        if (hr.ok) history = await hr.json();
+      } catch { /* honest no-history fallback */ }
+    }
+
     // 4) Score each candidate honestly against the live state.
     const hasScores = Number.isFinite(g.awayScore) && Number.isFinite(g.homeScore);
     const margin = hasScores ? (g.homeScore - g.awayScore) : 0;     // + = home leading
@@ -2937,6 +2958,23 @@ export default function ParlayBuilder() {
     const REG_PERIODS = { nfl: 4, ncaaf: 4, nba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
     const regCount = REG_PERIODS[g.sport];
     const reasons = {};
+    // Pre-compute per-team form signals from real history (last 10 games).
+    // `marginDiff` > 0 means home team has the better recent point margin.
+    // `combinedPace` is the avg total points across both teams' last 10
+    // games — used to nudge OVER/UNDER picks when the line is well above
+    // or below their actual recent pace. All numbers are real averages of
+    // real final scores — nothing inferred or fabricated.
+    const homeL10 = history?.home?.last10 || null;
+    const awayL10 = history?.away?.last10 || null;
+    const marginDiff = (homeL10?.avgMargin != null && awayL10?.avgMargin != null)
+      ? (homeL10.avgMargin - awayL10.avgMargin) : null;
+    const combinedPace = (homeL10?.ptsFor != null && homeL10?.ptsAgainst != null
+                          && awayL10?.ptsFor != null && awayL10?.ptsAgainst != null)
+      ? ((homeL10.ptsFor + homeL10.ptsAgainst + awayL10.ptsFor + awayL10.ptsAgainst) / 2)
+      : null;
+    const h2h = history?.h2h || null;
+    const h2hHomeEdge = h2h && (h2h.meetings?.length ?? 0) > 0
+      ? (h2h.homeWins - h2h.awayWins) : null;
     const scoreCandidate = (pk) => {
       let score = 50;
       const why = [];
@@ -2962,6 +3000,29 @@ export default function ParlayBuilder() {
           score = 35 + ip * 0.4;
           why.push(`market-implied ${ip.toFixed(0)}% (no live margin yet)`);
         }
+        // Real form/H2H bump on top of the live-margin or implied-prob
+        // baseline. Capped so history never dominates a live read.
+        if (marginDiff != null) {
+          const sideEdge = isHomeML ? marginDiff : -marginDiff;
+          const bump = Math.max(-10, Math.min(10, sideEdge * 1.2));
+          if (Math.abs(bump) >= 2) {
+            score += bump;
+            const myL10 = isHomeML ? homeL10 : awayL10;
+            why.push(`${pk.teamFull} ${myL10.wins}-${myL10.losses} L10, ${myL10.avgMargin > 0 ? "+" : ""}${myL10.avgMargin} avg margin`);
+          }
+        }
+        if (h2hHomeEdge != null && h2hHomeEdge !== 0) {
+          const sideH2H = isHomeML ? h2hHomeEdge : -h2hHomeEdge;
+          if (sideH2H > 0) {
+            // Capped at +5 (was +8) so combined form+H2H bump stays at
+            // most +15 — keeps history a secondary signal, not a driver.
+            score += Math.min(5, sideH2H * 2);
+            const meetings = h2h.meetings?.length ?? 0;
+            const wins = isHomeML ? h2h.homeWins : h2h.awayWins;
+            const losses = isHomeML ? h2h.awayWins : h2h.homeWins;
+            why.push(`${wins}-${losses} in last ${meetings} H2H`);
+          }
+        }
       } else if (pk.market === "Spread") {
         const ptMatch = pk.pick.match(/(-?\+?\d+\.?\d*)$/);
         const spreadPt = ptMatch ? parseFloat(ptMatch[1]) : 0;
@@ -2983,6 +3044,17 @@ export default function ParlayBuilder() {
           score = 45;
           why.push("game just started — no live cover signal");
         }
+        // Form bump for spreads: if recent point-margin diff aligns
+        // with this side, give it a small boost. Capped at +/-8.
+        if (marginDiff != null) {
+          const sideEdge = isHomeSpread ? marginDiff : -marginDiff;
+          const bump = Math.max(-8, Math.min(8, sideEdge * 1.0));
+          if (Math.abs(bump) >= 2) {
+            score += bump;
+            const myL10 = isHomeSpread ? homeL10 : awayL10;
+            why.push(`${pk.teamFull} ${myL10.wins}-${myL10.losses} L10, ${myL10.avgMargin > 0 ? "+" : ""}${myL10.avgMargin} avg margin`);
+          }
+        }
       } else if (pk.market === "Total") {
         if (g.pacing === "over" && isOver) { score += 18; why.push(`current pace ${g.currentTotal} → over the line`); }
         else if (g.pacing === "under" && isUnder) { score += 18; why.push(`current pace ${g.currentTotal} → under the line`); }
@@ -2990,6 +3062,18 @@ export default function ParlayBuilder() {
         else if (g.pacing === "over" && isUnder) { score -= 16; why.push("pacing against this side"); }
         else if (g.pacing === "under" && isOver) { score -= 16; why.push("pacing against this side"); }
         else { score = 48; why.push("not enough game elapsed to read pacing"); }
+        // Recent-pace bump: compare the actual line to both teams' L10
+        // combined scoring pace. Only kick in when we have a posted line
+        // AND a real pace number AND a meaningful gap (≥4 points).
+        if (combinedPace != null && Number.isFinite(g.total)) {
+          const gap = combinedPace - g.total;
+          if (Math.abs(gap) >= 4) {
+            if (gap > 0 && isOver) { score += Math.min(8, gap * 0.6); why.push(`both teams averaging ${combinedPace.toFixed(1)} combined pts L10 — above the ${g.total} line`); }
+            else if (gap < 0 && isUnder) { score += Math.min(8, -gap * 0.6); why.push(`both teams averaging ${combinedPace.toFixed(1)} combined pts L10 — below the ${g.total} line`); }
+            else if (gap > 0 && isUnder) { score -= Math.min(6, gap * 0.5); why.push(`L10 pace ${combinedPace.toFixed(1)} runs hot vs this under`); }
+            else if (gap < 0 && isOver) { score -= Math.min(6, -gap * 0.5); why.push(`L10 pace ${combinedPace.toFixed(1)} runs cold vs this over`); }
+          }
+        }
       } else {
         // Player prop. If we have a real American price, use the
         // bookmaker's implied probability as an honest baseline.
@@ -3112,7 +3196,10 @@ export default function ParlayBuilder() {
       `_${stateLine}${totalLine}_\n\n` +
       sourceNote +
       droppedNote +
-      `I scored every live spot in this game (live margin, pacing, period progression, market-implied probability${liveProps?.props?.length ? ", live player props" : ""}) and took the strongest ${ticket.length} distinct-market legs.\n\n`;
+      `I scored every live spot in this game (live margin, pacing, period progression, market-implied probability${liveProps?.props?.length ? ", live player props" : ""}${history ? ", L10 form, H2H history" : ""}) and took the strongest ${ticket.length} distinct-market legs.\n\n` +
+      (history && (homeL10?.games || awayL10?.games)
+        ? `_Recent form (real ESPN finals): **${g.home}** ${homeL10?.wins ?? 0}-${homeL10?.losses ?? 0} L10 (${homeL10?.avgMargin != null ? (homeL10.avgMargin > 0 ? "+" : "") + homeL10.avgMargin : "n/a"} margin) · **${g.away}** ${awayL10?.wins ?? 0}-${awayL10?.losses ?? 0} L10 (${awayL10?.avgMargin != null ? (awayL10.avgMargin > 0 ? "+" : "") + awayL10.avgMargin : "n/a"} margin)${(h2h?.meetings?.length ?? 0) > 0 ? ` · H2H last ${h2h.meetings.length}: ${g.home} ${h2h.homeWins}-${h2h.awayWins} ${g.away}` : " · no head-to-head in ESPN's window"}._\n\n`
+        : "");
 
     // Format an odds cell. PrizePicks legs (null odds) have no per-leg
     // American price — surface that honestly instead of a fake number.
