@@ -4185,15 +4185,32 @@ export default function ParlayBuilder() {
     const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
     const deduped = [];
+    const dedupDrops = [];
     for (const p of kept) {
       const k = legKey(p);
-      if (existingKeys.has(k) || seen.has(k)) continue;
+      if (existingKeys.has(k)) { dedupDrops.push({ reason: "existing", k }); continue; }
+      if (seen.has(k)) { dedupDrops.push({ reason: "seen", k }); continue; }
       seen.add(k);
       deduped.push(p);
     }
+    // eslint-disable-next-line no-console
+    console.log("[stadium-edge autoFillSlip]", {
+      received: picks.length,
+      alreadyValidated: !!opts.alreadyValidated,
+      keptAfterFilter: kept.length,
+      existingKeysCount: existingKeys.size,
+      dedupedCount: deduped.length,
+      dedupDrops,
+      keys: kept.map(legKey),
+    });
     if (deduped.length === 0) return;
-    const legs = deduped.map((leg) => ({ ...leg, id: Date.now() + Math.random() }));
-    setParlayLegs((prev) => [...prev, ...legs]);
+    const legs = deduped.map((leg, i) => ({ ...leg, id: Date.now() + i + Math.random() }));
+    setParlayLegs((prev) => {
+      const next = [...prev, ...legs];
+      // eslint-disable-next-line no-console
+      console.log("[stadium-edge setParlayLegs]", { prevLen: prev.length, addedLen: legs.length, nextLen: next.length });
+      return next;
+    });
     // Log each to the tracker as pending
     setTracker((prev) => [
       ...prev,
