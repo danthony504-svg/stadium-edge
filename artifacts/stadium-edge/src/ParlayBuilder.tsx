@@ -5303,12 +5303,31 @@ export default function ParlayBuilder() {
                     </p>
                   </div>
                 )}
-                {noteByPickKey.get(pickKey) && (
-                  <div className="px-3 py-2 border-t border-slate-700 bg-slate-900/60">
-                    <div className="text-[9px] font-mono uppercase tracking-wider text-cyan-400 mb-1">AI edge note</div>
-                    <p className="text-[12px] text-slate-200 leading-relaxed">{noteByPickKey.get(pickKey)}</p>
-                  </div>
-                )}
+                {noteByPickKey.get(pickKey) && (() => {
+                  const noteKey = `note::${pickKey}`;
+                  const noteOpen = expandedPicks.has(noteKey);
+                  return (
+                    <>
+                      <button
+                        onClick={() => setExpandedPicks((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(noteKey)) next.delete(noteKey); else next.add(noteKey);
+                          return next;
+                        })}
+                        className="w-full border-t border-slate-700 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400 hover:bg-slate-800 flex items-center justify-between"
+                        aria-expanded={noteOpen}
+                      >
+                        <span>{noteOpen ? "▼ Hide AI edge note" : "▶ AI edge note"}</span>
+                        <Info size={10} />
+                      </button>
+                      {noteOpen && (
+                        <div className="border border-slate-700 rounded-lg m-2 px-3 py-2 bg-slate-900">
+                          <p className="text-[12px] text-slate-200 leading-relaxed">{noteByPickKey.get(pickKey)}</p>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             );
           }
