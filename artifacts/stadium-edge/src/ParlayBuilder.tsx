@@ -4768,12 +4768,18 @@ export default function ParlayBuilder() {
       // hallucination — drop them all. We surface a clear note below so the
       // user sees why instead of getting silent no-ops.
       const poolEmpty = eligibleMatchups.length === 0;
+      // [DEBUG] count PICK-ish lines for diagnostics
+      let pickLineCandidates = 0;
+      let pickLineMatched = 0;
       for (const line of fullText.split("\n")) {
+        if (/\bPICK\s*:?/i.test(line) || /^\s*\d+\.\s/.test(line)) pickLineCandidates++;
         // Match American price OR "PrizePicks line" so DFS legs aren't dropped.
         // Capturing group on the odds token so PrizePicks legs land with
-        // odds: null instead of NaN.
-        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
+        // odds: null instead of NaN. Case-insensitive on "PICK" so the
+        // model's "Pick:" / "pick:" variants still parse.
+        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/i);
         if (!m) continue;
+        pickLineMatched++;
         const rawGame = m[1].trim();
         if (poolEmpty) {
           droppedGames.add(rawGame);
@@ -4873,6 +4879,17 @@ export default function ParlayBuilder() {
       // this turn's freshly-fetched props). Skip the second filter pass —
       // it reads React state that hasn't committed yet and would drop
       // valid legs.
+      // eslint-disable-next-line no-console
+      console.log("[stadium-edge chat] parse summary", {
+        fullTextLen: fullText.length,
+        pickLineCandidates,
+        pickLineMatched,
+        keptPicks: picks.length,
+        droppedGames: [...droppedGames],
+        poolSize: eligibleMatchups.length,
+        firstFewMatchups: eligibleMatchups.slice(0, 6).map((m) => m.canonical),
+        fullText: fullText.slice(0, 4000),
+      });
       if (picks.length > 0) autoFillSlip(picks, { alreadyValidated: true });
     } catch (err) {
       // Distinguish "you're sending too fast" (HTTP 429 from our own rate
