@@ -5101,12 +5101,15 @@ export default function ParlayBuilder() {
       /^\s*[-*•]\s/.test(s);
     for (let li = 0; li < lines.length; li++) {
       const ln = lines[li];
-      const hm = ln.match(/^\s*\**\s*edge\s+notes?\s*\**\s*:\s*(.*)$/i);
+      // Accept any of the labels the AI uses for the free-form edge block:
+      // "Edge notes:", "Leg notes:", "Notes:", "Reasoning:", "Analysis:".
+      const hm = ln.match(/^\s*\**\s*(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis)\s*\**\s*:\s*(.*)$/i);
       if (!hm) continue;
-      noteLineIdxs.add(li); // hide the "Edge notes:" header itself
       // Walk forward, grouping consecutive non-blank lines into paragraphs.
+      // hm[2] is the tail of the header line ("Brewers have ..." on the same
+      // line as "Leg notes:"); hm[1] is the matched label keyword.
       let j = li + 1;
-      const firstTail = hm[1].trim();
+      const firstTail = (hm[2] || "").trim();
       const paragraphs = [];
       if (firstTail) paragraphs.push({ text: firstTail, idxs: [li] });
       let cur = null;
@@ -5123,16 +5126,16 @@ export default function ParlayBuilder() {
         j++;
       }
       if (cur) paragraphs.push(cur);
-      for (const p of paragraphs) {
-        const ptoks = new Set(tokenize(p.text));
-        if (ptoks.size === 0) continue;
+      // Big parlays (e.g. 15-leg) put multiple teams in ONE paragraph
+      // ("Brewers ... Diamondbacks ... Phillies ..."). Split each paragraph
+      // into sentence-ish chunks so each team's sentence routes to its own
+      // pick's dropdown.
+      const scoreChunk = (text) => {
+        const ptoks = new Set(tokenize(text));
         let bestKey = null;
         let bestScore = 0;
         let bestRunnerUp = 0;
         for (const ph of pickHaystacks) {
-          // Score only on strong (non-generic) tokens, and require at least
-          // one strong-token hit so a paragraph that just mentions "over" or
-          // "spread" cannot be assigned to a random pick.
           let score = 0;
           let hits = 0;
           for (const t of ph.strongTokens) {
@@ -5147,11 +5150,32 @@ export default function ParlayBuilder() {
             bestRunnerUp = score;
           }
         }
-        // Require a clear winner: best must beat runner-up so an ambiguous
-        // paragraph (mentions tokens from two picks) stays inline.
-        if (bestKey && bestScore >= 4 && bestScore > bestRunnerUp) {
-          const prev = noteByPickKey.get(bestKey);
-          noteByPickKey.set(bestKey, prev ? prev + " " + p.text : p.text);
+        return { bestKey, bestScore, bestRunnerUp };
+      };
+      for (const p of paragraphs) {
+        // Split on sentence terminators, keeping the punctuation attached.
+        const chunks = p.text
+          .split(/(?<=[.!?])\s+(?=[A-Z(])/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const assigned = new Map(); // pickKey -> joined sentences
+        let allAssigned = true;
+        for (const ch of chunks) {
+          const { bestKey, bestScore, bestRunnerUp } = scoreChunk(ch);
+          if (bestKey && bestScore >= 4 && bestScore > bestRunnerUp) {
+            assigned.set(bestKey, (assigned.get(bestKey) ? assigned.get(bestKey) + " " : "") + ch);
+          } else {
+            allAssigned = false;
+          }
+        }
+        // Only hide the paragraph's lines from inline if EVERY sentence found
+        // a confident home; otherwise leave the paragraph inline so we don't
+        // strand orphan sentences.
+        if (assigned.size > 0 && allAssigned) {
+          for (const [key, text] of assigned) {
+            const prev = noteByPickKey.get(key);
+            noteByPickKey.set(key, prev ? prev + " " + text : text);
+          }
           for (const k of p.idxs) noteLineIdxs.add(k);
         }
       }
