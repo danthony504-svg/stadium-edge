@@ -6291,7 +6291,7 @@ export default function ParlayBuilder() {
               <div className="px-4 pt-4">
                 <h2 className="font-bold text-slate-100 mb-2">Popular</h2>
                 <div className="flex gap-2 overflow-x-auto scroll-fade pb-2 -mx-1 px-1">
-                  <button onClick={() => setShowLiveDemo(true)} className="shrink-0 flex items-center gap-2 border border-rose-500/50 rounded-xl px-4 py-2.5 text-rose-400 font-semibold hover:bg-rose-500/10 transition">🔴 Live now{(homeLiveGames.length || simLiveGames.length) > 0 && <span className="bg-rose-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold leading-none">{homeLiveGames.length || simLiveGames.length}</span>}</button>
+                  <button onClick={() => setShowLiveDemo(true)} className="shrink-0 flex items-center gap-2 border border-rose-500/50 rounded-xl px-4 py-2.5 text-rose-400 font-semibold hover:bg-rose-500/10 transition">🔴 Live now{(() => { const n = homeLiveGames.filter((g) => g.real).length; return n > 0 ? <span className="bg-rose-500 text-white rounded-full px-2 py-0.5 text-[10px] font-bold leading-none">{n}</span> : null; })()}</button>
                   {SPORTS.map((s) => (
                     <button
                       key={s.id}
@@ -6853,12 +6853,15 @@ export default function ParlayBuilder() {
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
               <div>
                 <h3 className="font-display text-lg flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-rose-400 pulse-dot" /> PICK LIVE{homeLiveGames.length === 0 && " (SIM)"}
+                  <span className="w-2 h-2 rounded-full bg-rose-400 pulse-dot" /> PICK LIVE
                 </h3>
-                <p className={`text-[10px] font-mono uppercase tracking-wider mt-0.5 ${homeLiveGames.length > 0 ? "text-emerald-400/80" : "text-rose-400/70"}`}>
-                  {homeLiveGames.length > 0
-                    ? <>● Live ESPN feed · {homeLiveGames.length} {homeLiveGames.length === 1 ? "game" : "games"} in progress</>
-                    : <>⚠️ Simulated data · {simLiveGames.length} {simLiveGames.length === 1 ? "game" : "games"} live now</>}
+                <p className={`text-[10px] font-mono uppercase tracking-wider mt-0.5 ${homeLiveGames.some((g) => g.real) ? "text-emerald-400/80" : "text-slate-400"}`}>
+                  {(() => {
+                    const realCount = homeLiveGames.filter((g) => g.real).length;
+                    return realCount > 0
+                      ? <>● Live ESPN feed · {realCount} {realCount === 1 ? "game" : "games"} in progress</>
+                      : <>● Live ESPN feed · nothing in progress right now</>;
+                  })()}
                 </p>
               </div>
               <button onClick={() => setShowLiveDemo(false)}>
@@ -6866,14 +6869,16 @@ export default function ParlayBuilder() {
               </button>
             </div>
 
-            <div className="p-3 border-b border-zinc-800">
-              <button
-                onClick={() => { setView("chat"); buildSimLiveParlay(); setShowLiveDemo(false); }}
-                className="w-full bg-rose-400 text-black rounded-xl py-2.5 font-display text-sm hover:bg-rose-300 transition"
-              >
-                ⚡ BUILD BEST 2–3 LEG LIVE TICKET
-              </button>
-            </div>
+            {homeLiveGames.some((g) => g.real) && (
+              <div className="p-3 border-b border-zinc-800">
+                <button
+                  onClick={() => { setView("chat"); buildSimLiveParlay(); setShowLiveDemo(false); }}
+                  className="w-full bg-rose-400 text-black rounded-xl py-2.5 font-display text-sm hover:bg-rose-300 transition"
+                >
+                  ⚡ BUILD BEST 2–3 LEG LIVE TICKET
+                </button>
+              </div>
+            )}
 
             <div className="overflow-y-auto scroll-fade p-3 space-y-2">
               {(() => {
@@ -6895,12 +6900,13 @@ export default function ParlayBuilder() {
                   }
                   return null;
                 };
-                // Gate the real-feed branch on g.real === true, not on
-                // homeLiveGames.length, so simulated games can never
-                // masquerade as live-feed context with real-odds pacing.
-                const hasReal = homeLiveGames.some((g) => g.real === true);
-                const liveList = hasReal
-                  ? homeLiveGames.filter((g) => g.real === true).map((g) => {
+                // REAL DATA ONLY — no sim fallback. If ESPN has nothing
+                // in progress we show the empty state below rather than
+                // inventing fake "live" games. Earlier code fell back to
+                // simLiveGames here; that violated the no-fake-data rule.
+                const liveList = homeLiveGames
+                  .filter((g) => g.real === true)
+                  .map((g) => {
                       const total = lookupTotal(g.sport, g.game);
                       const hasBothScores = Number.isFinite(g.awayScore) && Number.isFinite(g.homeScore);
                       const currentTotal = hasBothScores ? (g.awayScore + g.homeScore) : null;
@@ -6936,8 +6942,7 @@ export default function ParlayBuilder() {
                         total: total != null ? total : "—",
                         pacing,
                       };
-                    })
-                  : simLiveGames;
+                    });
                 if (liveList.length === 0) {
                   return (
                     <p className="text-slate-400 text-sm text-center py-8">
@@ -7000,7 +7005,7 @@ export default function ParlayBuilder() {
                 ));
               })()}
               <p className="text-[9px] font-mono text-slate-400 text-center uppercase tracking-wider pt-2">
-                {homeLiveGames.length > 0 ? "Live ESPN feed · refreshes every 60s" : "Demo refreshes every 10s · select active sports for real live games"}
+                Live ESPN feed · refreshes every 60s
               </p>
             </div>
           </div>
@@ -7774,7 +7779,7 @@ export default function ParlayBuilder() {
                 {
                   label: "Live Now",
                   icon: <span className="text-rose-500">🔴</span>,
-                  sub: simLiveGames.length > 0 ? `${simLiveGames.length} in-progress games` : "In-progress games",
+                  sub: (() => { const n = homeLiveGames.filter((g) => g.real).length; return n > 0 ? `${n} in-progress games` : "In-progress games"; })(),
                   action: () => { if (requirePro("Live picks")) setShowLiveDemo(true); },
                 },
               ].map((item) => (
@@ -8842,7 +8847,7 @@ export default function ParlayBuilder() {
             onClick={() => { if (requirePro("Live picks")) setShowLiveDemo(true); }}
             className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-rose-400/40 text-rose-400 hover:bg-rose-400/10 transition inline-flex items-center gap-1"
           >
-            🔴 Pick Live{(homeLiveGames.length || simLiveGames.length) > 0 && <span className="bg-rose-400 text-black rounded-full px-1.5 leading-none py-0.5 text-[9px] font-bold">{homeLiveGames.length || simLiveGames.length}</span>}
+            🔴 Pick Live{(() => { const n = homeLiveGames.filter((g) => g.real).length; return n > 0 ? <span className="bg-rose-400 text-black rounded-full px-1.5 leading-none py-0.5 text-[9px] font-bold">{n}</span> : null; })()}
           </button>
           <button
             onClick={analyzeCurrentSlip}
