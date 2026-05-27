@@ -2686,6 +2686,17 @@ export default function ParlayBuilder() {
               awayLogo: g.awayLogo,
             });
           } else if (isScheduled) {
+            // Safety net: ESPN occasionally leaves a game stuck on
+            // "scheduled" past its real tipoff (cache lag, postponement
+            // flag stuck, team-name mismatch against the score feed).
+            // Any "scheduled" game whose start time is already in the
+            // past is not actually upcoming — drop it so we don't show
+            // "TUE 7:30 PM" on Wednesday morning. Tiny 10-minute grace
+            // covers pre-game pageviews where the clock crosses tipoff.
+            if (g.startsAt) {
+              const t = new Date(g.startsAt).getTime();
+              if (Number.isFinite(t) && Date.now() - t > 10 * 60 * 1000) continue;
+            }
             upcoming.push({
               real: true,
               game: `${g.awayTeam} @ ${g.homeTeam}`,
