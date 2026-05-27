@@ -5106,7 +5106,7 @@ export default function ParlayBuilder() {
       // "Key reasoning:", "Notes:", "Reasoning:", "Analysis:", etc. The
       // optional prefix lets the AI add modifiers like "Per-leg", "Quick",
       // "Key", "Brief" before the actual keyword.
-      const hm = ln.match(/^\s*\**\s*(?:[a-z][a-z\s-]{0,30}\s+)?(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis)\s*\**\s*:\s*(.*)$/i);
+      const hm = ln.match(/^\s*\**\s*(?:[a-z][a-z\s-]{0,30}\s+)?(edge\s+notes?|leg\s+notes?|notes?|reasoning|analysis|read|take|takes|thoughts?|summary|rationale|breakdown|why)\s*\**\s*:\s*(.*)$/i);
       if (!hm) continue;
       // Walk forward, grouping consecutive non-blank lines into paragraphs.
       // hm[2] is the tail of the header line ("Brewers have ..." on the same
