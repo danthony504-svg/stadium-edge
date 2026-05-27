@@ -4167,12 +4167,20 @@ export default function ParlayBuilder() {
     // changes but parlayLegs state is preserved unchanged.
   });
 
-  const autoFillSlip = (picks) => {
+  const autoFillSlip = (picks, opts = {}) => {
     if (!picks || picks.length === 0) return;
     // Guard #1: drop any leg whose matchup isn't in the live feed. This
     // catches the fallback path, file uploads, and any leg the chat-side
     // filter missed.
-    const { kept } = filterPicksToReal(picks);
+    //
+    // EXCEPTION: the streaming chat auto-fill path already validates every
+    // leg against a comprehensive matchup pool built INSIDE the same
+    // sendMessage call (which includes fresh props fetched THIS turn). If
+    // we re-run filterPicksToReal here we use React state that hasn't
+    // committed the just-fetched props yet (setState is async), so 5 of 6
+    // legs get silently dropped — the exact "asked for 6, got 1" failure.
+    // Skip the redundant filter when the caller has already validated.
+    const kept = opts.alreadyValidated ? picks : filterPicksToReal(picks).kept;
     if (kept.length === 0) return;
     const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
@@ -4860,7 +4868,12 @@ export default function ParlayBuilder() {
           });
         }
       }
-      if (picks.length > 0) autoFillSlip(picks);
+      // Picks here have already been validated against the eligibleMatchups
+      // pool built earlier in this same sendMessage call (which includes
+      // this turn's freshly-fetched props). Skip the second filter pass —
+      // it reads React state that hasn't committed yet and would drop
+      // valid legs.
+      if (picks.length > 0) autoFillSlip(picks, { alreadyValidated: true });
     } catch (err) {
       // Distinguish "you're sending too fast" (HTTP 429 from our own rate
       // limiter) from a true AI outage. Conflating the two surfaces a
