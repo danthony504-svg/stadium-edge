@@ -46,12 +46,17 @@ router.get("/sports/games", async (req, res): Promise<void> => {
 
   // ESPN's scoreboard endpoint defaults to *today's UTC date only*, which gives
   // ~1 NBA/NHL game and ~13 MLB games — making the app feel stale. Pulling a
-  // 7-day window surfaces actual upcoming matchups (e.g. 100 MLB, 8 NHL).
+  // wider window surfaces actual upcoming matchups (e.g. 100 MLB, 8 NHL).
+  // IMPORTANT: start from YESTERDAY (UTC), not today — a game that began at
+  // 2026-05-26T22:35Z is still LIVE at 2026-05-27T02:00Z, but a `?dates=2026
+  // 0527-...` query excludes it (ESPN filters by event start-date, not by
+  // live status), and the Pick Live tab ends up empty.
   const fmt = (d: Date) =>
     `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
-  const today = new Date();
-  const weekOut = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const dateRange = `${fmt(today)}-${fmt(weekOut)}`;
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
 
   try {
     const data = await cachedJson(
