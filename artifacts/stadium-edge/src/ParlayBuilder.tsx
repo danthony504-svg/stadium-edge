@@ -5030,6 +5030,44 @@ export default function ParlayBuilder() {
     }
     const allInSlip = messagePicks.length > 0 && messagePicks.every((p) => parlayLegs.some((l) => legKey(l) === legKey(p)));
     const snapshotMath = messagePicks.length >= 2 ? calculateParlay(messagePicks) : null;
+    // Per-leg edge notes: the AI writes paragraphs like "Brewers: Milwaukee
+    // is 7-3 last 10..." after the PICK lines. Move those under the matching
+    // pick card and hide them from the main message body so the chat stays
+    // tight. A line is a per-leg note when it starts with "<Label>:" AND the
+    // label matches a token inside one of this message's picks (game label
+    // or selection text). We match the most-specific pick (longest overlap).
+    const noteByPickKey = new Map();
+    const noteLineIdxs = new Set();
+    const normalize = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    const tokenize = (s) => normalize(s).split(" ").filter((t) => t.length >= 3);
+    const pickHaystacks = messagePicks.map((p) => ({
+      key: `${p.game}::${p.pick}`,
+      hay: normalize(`${p.game} ${p.pick}`),
+    }));
+    for (let li = 0; li < lines.length; li++) {
+      const ln = lines[li];
+      const mm = ln.match(/^\s*\**\s*([^*:|][^:|]{0,60})\s*:\s*(.+\S)\s*$/);
+      if (!mm) continue;
+      // Skip lines that are pick rows or numbered structure ("1. ...", "Combined: ...")
+      if (/^PICK:/i.test(ln)) continue;
+      const label = mm[1].trim();
+      const body = mm[2].trim();
+      // Ignore short structural labels the AI uses for the ticket footer.
+      if (/^(combined|implied|overall|risk|reminder|note|verdict|edge|why|tip)$/i.test(label)) continue;
+      const labelTokens = tokenize(label);
+      if (labelTokens.length === 0) continue;
+      let bestKey = null;
+      let bestScore = 0;
+      for (const ph of pickHaystacks) {
+        let score = 0;
+        for (const t of labelTokens) if (ph.hay.includes(t)) score += t.length;
+        if (score > bestScore) { bestScore = score; bestKey = ph.key; }
+      }
+      if (bestKey && bestScore >= 4 && !noteByPickKey.has(bestKey)) {
+        noteByPickKey.set(bestKey, body);
+        noteLineIdxs.add(li);
+      }
+    }
     return (
       <div className="space-y-2">
         {lines.map((line, i) => {
@@ -5265,9 +5303,16 @@ export default function ParlayBuilder() {
                     </p>
                   </div>
                 )}
+                {noteByPickKey.get(pickKey) && (
+                  <div className="px-3 py-2 border-t border-slate-700 bg-slate-900/60">
+                    <div className="text-[9px] font-mono uppercase tracking-wider text-cyan-400 mb-1">AI edge note</div>
+                    <p className="text-[12px] text-slate-200 leading-relaxed">{noteByPickKey.get(pickKey)}</p>
+                  </div>
+                )}
               </div>
             );
           }
+          if (noteLineIdxs.has(i)) return null;
           if (line.trim()) {
             const parts = line.split(/(\*\*[^*]+\*\*)/g);
             return (
