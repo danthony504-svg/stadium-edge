@@ -5373,6 +5373,33 @@ export default function ParlayBuilder() {
                               // away picks use awayWins. Falls back to personal
                               // tracker record for non-moneyline picks.
                               const h2hEntry = matchupHistoryByGame[pick.game];
+                              // For Total (over/under) picks: count how many of
+                              // the real prior H2H meetings hit the side we
+                              // picked. Each meeting carries homeScore + awayScore
+                              // — sum them and compare to the picked line.
+                              if (pick.market === "Total" && h2hEntry?.h2h?.meetings?.length) {
+                                const lineMatch = pick.pick.match(/(\d+(?:\.\d+)?)/);
+                                const line = lineMatch ? parseFloat(lineMatch[1]) : null;
+                                const isOver = /over/i.test(pick.pick);
+                                if (line != null) {
+                                  let hits = 0;
+                                  let tot = 0;
+                                  for (const m of h2hEntry.h2h.meetings) {
+                                    const combined = (m.homeScore ?? 0) + (m.awayScore ?? 0);
+                                    if (m.homeScore == null || m.awayScore == null) continue;
+                                    tot++;
+                                    if (isOver ? combined > line : combined < line) hits++;
+                                  }
+                                  if (tot > 0) {
+                                    const pct = Math.round((hits / tot) * 100);
+                                    return (
+                                      <div className={`text-sm font-bold ${hits / tot >= 0.5 ? "text-emerald-500" : "text-rose-500"}`}>
+                                        {hits}-{tot - hits} <span className="text-[10px] font-normal text-slate-400">({pct}% {isOver ? "over" : "under"} {line} H2H)</span>
+                                      </div>
+                                    );
+                                  }
+                                }
+                              }
                               if (pick.market === "Moneyline" && pick.game && h2hEntry?.h2h?.meetings?.length) {
                                 const sides = pick.game.split(" @ ");
                                 if (sides.length === 2) {
