@@ -5334,6 +5334,8 @@ export default function ParlayBuilder() {
           if (noteLineIdxs.has(i)) return null;
           // Suppress the AI's "Risk note:" footer line per user request.
           if (/^\s*\**\s*risk note\s*\**\s*:/i.test(line)) return null;
+          // Suppress the AI's "bet responsibly" / responsible-gambling reminder line.
+          if (/bet\s+responsibl|responsible\s+gambl|gamble\s+responsibl|21\s*\+/i.test(line)) return null;
           if (line.trim()) {
             const parts = line.split(/(\*\*[^*]+\*\*)/g);
             return (
