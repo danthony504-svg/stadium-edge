@@ -8875,7 +8875,10 @@ export default function ParlayBuilder() {
                 <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
                   {parlayLegs.map((leg, idx) => {
                     const isExpanded = expandedLegIds.has(leg.id);
-                    const legReasons = isExpanded ? generateReasoning(leg, gameRefs[leg.game] || null) : [];
+                    const legReasonsText = isExpanded ? (generateReasoning(leg, gameRefs[leg.game] || null) || "") : "";
+                    const legReasons = legReasonsText
+                      ? legReasonsText.split(/(?<=[.!?])\s+(?=[A-Z🏥📅📊📈📉➖🧑🌦🎯⚠️])/u).filter((s) => s.trim().length > 0)
+                      : [];
                     const legConf = calculateConfidence(leg, gameRefs[leg.game] || null);
                     return (
                       <div key={leg.id ?? idx} className="bg-slate-800 rounded-xl overflow-hidden">
