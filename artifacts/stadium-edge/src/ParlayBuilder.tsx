@@ -4185,32 +4185,18 @@ export default function ParlayBuilder() {
     const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
     const deduped = [];
-    const dedupDrops = [];
     for (const p of kept) {
       const k = legKey(p);
-      if (existingKeys.has(k)) { dedupDrops.push({ reason: "existing", k }); continue; }
-      if (seen.has(k)) { dedupDrops.push({ reason: "seen", k }); continue; }
+      if (existingKeys.has(k) || seen.has(k)) continue;
       seen.add(k);
       deduped.push(p);
     }
-    // eslint-disable-next-line no-console
-    console.log("[stadium-edge autoFillSlip]", {
-      received: picks.length,
-      alreadyValidated: !!opts.alreadyValidated,
-      keptAfterFilter: kept.length,
-      existingKeysCount: existingKeys.size,
-      dedupedCount: deduped.length,
-      dedupDrops,
-      keys: kept.map(legKey),
-    });
     if (deduped.length === 0) return;
+    // Unique id per leg even when several land in the same millisecond
+    // (Date.now() resolution is coarse; adding the index prevents React-key
+    // collisions when 6+ legs are auto-filled at once).
     const legs = deduped.map((leg, i) => ({ ...leg, id: Date.now() + i + Math.random() }));
-    setParlayLegs((prev) => {
-      const next = [...prev, ...legs];
-      // eslint-disable-next-line no-console
-      console.log("[stadium-edge setParlayLegs]", { prevLen: prev.length, addedLen: legs.length, nextLen: next.length });
-      return next;
-    });
+    setParlayLegs((prev) => [...prev, ...legs]);
     // Log each to the tracker as pending
     setTracker((prev) => [
       ...prev,
@@ -4785,18 +4771,13 @@ export default function ParlayBuilder() {
       // hallucination — drop them all. We surface a clear note below so the
       // user sees why instead of getting silent no-ops.
       const poolEmpty = eligibleMatchups.length === 0;
-      // [DEBUG] count PICK-ish lines for diagnostics
-      let pickLineCandidates = 0;
-      let pickLineMatched = 0;
       for (const line of fullText.split("\n")) {
-        if (/\bPICK\s*:?/i.test(line) || /^\s*\d+\.\s/.test(line)) pickLineCandidates++;
         // Match American price OR "PrizePicks line" so DFS legs aren't dropped.
         // Capturing group on the odds token so PrizePicks legs land with
         // odds: null instead of NaN. Case-insensitive on "PICK" so the
         // model's "Pick:" / "pick:" variants still parse.
         const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/i);
         if (!m) continue;
-        pickLineMatched++;
         const rawGame = m[1].trim();
         if (poolEmpty) {
           droppedGames.add(rawGame);
@@ -4896,17 +4877,6 @@ export default function ParlayBuilder() {
       // this turn's freshly-fetched props). Skip the second filter pass —
       // it reads React state that hasn't committed yet and would drop
       // valid legs.
-      // eslint-disable-next-line no-console
-      console.log("[stadium-edge chat] parse summary", {
-        fullTextLen: fullText.length,
-        pickLineCandidates,
-        pickLineMatched,
-        keptPicks: picks.length,
-        droppedGames: [...droppedGames],
-        poolSize: eligibleMatchups.length,
-        firstFewMatchups: eligibleMatchups.slice(0, 6).map((m) => m.canonical),
-        fullText: fullText.slice(0, 4000),
-      });
       if (picks.length > 0) autoFillSlip(picks, { alreadyValidated: true });
     } catch (err) {
       // Distinguish "you're sending too fast" (HTTP 429 from our own rate
