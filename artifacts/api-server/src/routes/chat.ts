@@ -124,7 +124,15 @@ router.post("/chat", async (req, res): Promise<void> => {
   try {
     const stream = await client.chat.completions.create({
       model: "gpt-5.4",
-      max_completion_tokens: 2048,
+      // gpt-5.4 is a reasoning model — internal reasoning tokens count
+      // against this budget. With the ANALYTICS rules requiring real
+      // matchup-history + player-history citations on EVERY leg, a single
+      // 6-leg parlay can easily need 4-6k output tokens once you add
+      // reasoning. The old 2048 cap was cutting the stream off after just
+      // 1-2 PICK lines (visible to the user as "I asked for a 6-leg parlay
+      // but only got 1 leg"). 16k is generous but the upstream service
+      // won't bill for what isn't generated.
+      max_completion_tokens: 16384,
       messages,
       stream: true,
     });
