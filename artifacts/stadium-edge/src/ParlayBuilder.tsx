@@ -890,10 +890,25 @@ const buildSimLivePicks = (liveGames) => {
   return picks;
 };
 
-const americanToDecimal = (a) => (a > 0 ? a / 100 + 1 : 100 / Math.abs(a) + 1);
+// Null/NaN-safe odds helpers. A null `odds` value means the leg comes from
+// a source without per-leg American pricing (e.g. PrizePicks DFS lines).
+// We return multiplicative identities (1, 1, 1) so such a leg is silently
+// no-op for parlay decimal/prob math — combined odds reflect priced legs
+// only. `formatOdds(null)` shows a human "PP line" tag so the UI never
+// renders `+null` or `NaN`.
+const americanToDecimal = (a) => {
+  if (a == null || !Number.isFinite(a)) return 1;
+  return a > 0 ? a / 100 + 1 : 100 / Math.abs(a) + 1;
+};
 const decimalToAmerican = (d) => (d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)));
-const impliedProb = (a) => (a > 0 ? 100 / (a + 100) : Math.abs(a) / (Math.abs(a) + 100));
-const formatOdds = (o) => (o > 0 ? `+${o}` : `${o}`);
+const impliedProb = (a) => {
+  if (a == null || !Number.isFinite(a)) return 1;
+  return a > 0 ? 100 / (a + 100) : Math.abs(a) / (Math.abs(a) + 100);
+};
+const formatOdds = (o) => {
+  if (o == null || !Number.isFinite(o)) return "PP line";
+  return o > 0 ? `+${o}` : `${o}`;
+};
 
 // ----- Display-time team name expansion -----
 // Real live data (Odds API / ESPN) already comes through with full team names
@@ -1148,6 +1163,9 @@ const shortPlayerName = (name) => {
 // approximation for a hypothetical app — a real book's price varies by sport
 // and key numbers (3, 7 in NFL). We note that it's an estimate.
 const canBuyPoints = (pick) => {
+  // No per-leg American price → cannot price a point move. PrizePicks DFS
+  // lines fall here. Allowing it would fabricate a sportsbook number.
+  if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
   if (/money\s*line|moneyline|\bml\b/i.test(pick.market) || /\bml\b/i.test(pick.pick)) return false;
   // Player props: adjustable only if there's a numeric line to move.
   // Covers "Over/Under X" and "X+" styles; excludes lineless props like
@@ -1414,6 +1432,11 @@ const samplePropResearch = (pick) => {
 //   - deterministic noise so scores feel unique per pick
 // NOTE: this is a model from the app's sample data, NOT real game film
 const calculateConfidence = (pick, ref = null) => {
+  // PrizePicks DFS legs have no per-leg American price. Don't derive a
+  // confidence from a fake implied-probability — pin them at the flat
+  // ~55% baseline our live builder uses. This keeps PP legs from
+  // inflating the parlay-wide confidence (they don't carry book pricing).
+  if (pick.odds == null || !Number.isFinite(pick.odds)) return 55;
   const implied = impliedProb(pick.odds);
   let score = implied * 100; // base: market's implied probability
 
@@ -1651,6 +1674,13 @@ const personalRecordFor = (pick, trackerEntries) => {
 // Generate a reasoning sentence for a pick using its actual properties.
 // Rule-based, not LLM — labeled clearly in the UI.
 const generateReasoning = (pick, ref = null) => {
+  // PrizePicks legs have no per-leg American price. Generating
+  // "market-implied %" / "heavy favorite" copy from null odds would be
+  // fabrication — return an honest, source-aware sentence instead.
+  if (pick.odds == null || !Number.isFinite(pick.odds)) {
+    const line = pick.pick.match(/Over\s+([\d.]+)/i)?.[1];
+    return `PrizePicks line${line ? ` at ${line}` : ""} — DFS pick'em projection, no per-leg sportsbook price. PrizePicks sets lines targeting roughly a 50/50 hit rate and pays a flat parlay-style payout, so this leg doesn't carry book-style implied odds.`;
+  }
   const reasons = [];
   const implied = (impliedProb(pick.odds) * 100).toFixed(0);
   const isFav = pick.odds < 0;
@@ -2856,6 +2886,46 @@ export default function ParlayBuilder() {
       }
     }
 
+    // 3b) PrizePicks DFS fallback. When the paid odds-API has no props
+    // for this game (off-market, quota exhausted, etc.), pull real player
+    // lines from PrizePicks. These have NO per-leg American odds — they
+    // ride on a flat DFS payout — so we attach them with `odds: null` and
+    // `priceSource: "PrizePicks"`. The null-safe odds helpers above make
+    // sure they no-op the combined-odds math instead of polluting it.
+    if (propPicks.length === 0) {
+      try {
+        const qs = [
+          `sport=${encodeURIComponent(g.sport)}`,
+          `home=${encodeURIComponent(g.home)}`,
+          `away=${encodeURIComponent(g.away)}`,
+        ];
+        const ppRes = await fetch(`/api/sports/prizepicks-props?${qs.join("&")}`);
+        if (ppRes.ok) {
+          const ppData = await ppRes.json();
+          // Dedup by player+stat so we don't double-add the same projection.
+          const seen = new Set();
+          for (const pp of ppData?.props || []) {
+            if (pp.line == null || !pp.player || !pp.market) continue;
+            // Include line in the dedup key so distinct projections for the
+            // same player/stat at different lines are preserved.
+            const key = `${pp.player.toLowerCase()}|${pp.market.toLowerCase()}|${pp.line}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            propPicks.push({
+              game: `${g.away} @ ${g.home}`,
+              sport: g.sport,
+              market: pp.market, // e.g. "Points", "Rebounds", "Dunks"
+              pick: `${pp.player} Over ${pp.line} ${pp.market}`,
+              odds: null,
+              priceSource: "PrizePicks",
+              tier: 2,
+              real: true,
+            });
+          }
+        }
+      } catch { /* honest no-PP fallback */ }
+    }
+
     // 4) Score each candidate honestly against the live state.
     const hasScores = Number.isFinite(g.awayScore) && Number.isFinite(g.homeScore);
     const margin = hasScores ? (g.homeScore - g.awayScore) : 0;     // + = home leading
@@ -2919,11 +2989,19 @@ export default function ParlayBuilder() {
         else if (g.pacing === "under" && isOver) { score -= 16; why.push("pacing against this side"); }
         else { score = 48; why.push("not enough game elapsed to read pacing"); }
       } else {
-        // Player prop — without live player stats we can only use the
-        // bookmaker's implied probability as a baseline. Honest baseline.
-        const ip = impliedProb(pk.odds) * 100;
-        score = 30 + ip * 0.4;
-        why.push(`live prop, market-implied ${ip.toFixed(0)}%`);
+        // Player prop. If we have a real American price, use the
+        // bookmaker's implied probability as an honest baseline.
+        // PrizePicks (null odds) lines are DFS pick'em — designed to be
+        // ~50/50 by construction — so we give them a flat 55 baseline
+        // instead of fabricating a price-derived signal.
+        if (pk.odds == null) {
+          score = 55;
+          why.push(`PrizePicks line — DFS standard payout (no per-leg sportsbook price)`);
+        } else {
+          const ip = impliedProb(pk.odds) * 100;
+          score = 30 + ip * 0.4;
+          why.push(`live prop, market-implied ${ip.toFixed(0)}%`);
+        }
       }
       reasons[pk.pick + "|" + pk.market] = why.join(" · ");
       return { ...pk, _score: score };
@@ -3034,20 +3112,42 @@ export default function ParlayBuilder() {
       droppedNote +
       `I scored every live spot in this game (live margin, pacing, period progression, market-implied probability${liveProps?.props?.length ? ", live player props" : ""}) and took the strongest ${ticket.length} distinct-market legs.\n\n`;
 
+    // Format an odds cell. PrizePicks legs (null odds) have no per-leg
+    // American price — surface that honestly instead of a fake number.
+    const oddsCell = (p) =>
+      p.priceSource === "PrizePicks" || p.odds == null
+        ? "PrizePicks line"
+        : formatOdds(p.odds);
+
     const lines = ticket.map((p) =>
-      `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`
+      `PICK: ${p.game} | ${p.market} | ${p.pick} | ${oddsCell(p)}`
     ).join("\n");
 
     const analysis =
       "\n\nLive analysis:\n" +
       ticket.map((p) => {
         const why = reasons[p.pick + "|" + p.market] || "live read";
-        return `• **${p.market} — ${p.pick}** (${formatOdds(p.odds)}) — ${why}`;
+        return `• **${p.market} — ${p.pick}** (${oddsCell(p)}) — ${why}`;
       }).join("\n");
 
+    // Combined-odds math only includes legs with a real American price.
+    // PrizePicks DFS legs ride a separate flat payout, so we count them
+    // separately in the footer instead of pretending they fold into the
+    // sportsbook combined number.
+    const ppLegs = ticket.filter((p) => p.odds == null).length;
+    const bookLegs = ticket.length - ppLegs;
+    const combinedLine = bookLegs >= 2
+      ? `Combined odds (${bookLegs} book leg${bookLegs === 1 ? "" : "s"}): **${formatOdds(math.american)}** · payout ${math.decimal.toFixed(2)}× stake\n` +
+        `Implied probability: ${impliedPct}% (what the market actually prices these at)\n`
+      : bookLegs === 1
+        ? `1 book leg at **${formatOdds(math.american)}** · the rest are PrizePicks lines (DFS flat payout, no combined American number).\n`
+        : `All legs are PrizePicks lines — DFS flat payout, no combined American odds.\n`;
+    const ppNote = ppLegs > 0
+      ? `_${ppLegs} of ${ticket.length} legs are PrizePicks DFS lines — they have a real line but no per-leg sportsbook price, so they don't contribute to the combined odds above._\n`
+      : "";
+
     const footer =
-      `\n\nCombined odds: **${formatOdds(math.american)}** · payout ${math.decimal.toFixed(2)}× stake\n` +
-      `Implied probability: ${impliedPct}% (what the market actually prices this at)\n` +
+      `\n\n${combinedLine}${ppNote}` +
       `_Live odds move every few seconds — confirm prices in your sportsbook before placing. 21+ · bet responsibly._`;
 
     setMessages((p) => [
@@ -4153,8 +4253,15 @@ export default function ParlayBuilder() {
       }
       const raw = [];
       for (const ln of m.content.split("\n")) {
-        const mm = ln.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
-        if (mm) raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: mm[3].trim(), odds: parseInt(mm[4]) });
+        // Accept either an American price (`+150`, `-110`) or the
+        // PrizePicks marker ("PrizePicks line") so DFS legs survive pin/
+        // snapshot round-trips with `odds: null` instead of being dropped.
+        const mm = ln.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
+        if (mm) {
+          const oddsTok = mm[4];
+          const odds = oddsTok === "PrizePicks line" ? null : parseInt(oddsTok);
+          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: mm[3].trim(), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
+        }
       }
       if (!raw.length) {
         extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], unusableReason: "no PICK lines parsed from that message" });
@@ -4343,7 +4450,8 @@ export default function ParlayBuilder() {
       // user sees why instead of getting silent no-ops.
       const poolEmpty = eligibleMatchups.length === 0;
       for (const line of fullText.split("\n")) {
-        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+        // Match American price OR "PrizePicks line" so DFS legs aren't dropped.
+        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(?:[+-]?\d+|PrizePicks line)/);
         if (!m) continue;
         const rawGame = m[1].trim();
         if (poolEmpty) {
@@ -4514,13 +4622,17 @@ export default function ParlayBuilder() {
     // overwriting the previous ticket.
     const rawMessagePicks = [];
     for (const l of lines) {
-      const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+      // Accept "PrizePicks line" alongside American prices so DFS legs
+      // pinned in earlier messages survive re-parse with odds=null.
+      const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
       if (m) {
+        const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
         rawMessagePicks.push({
           game: m[1].trim(),
           market: m[2].trim(),
           pick: m[3].trim(),
-          odds: parseInt(m[4]),
+          odds,
+          ...(odds === null ? { priceSource: "PrizePicks" } : {}),
         });
       }
     }
@@ -4543,13 +4655,17 @@ export default function ParlayBuilder() {
     return (
       <div className="space-y-2">
         {lines.map((line, i) => {
-          const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+)/);
+          // Accept "PrizePicks line" alongside American prices so DFS legs
+          // render with `odds: null` (formatOdds renders that as "PP line").
+          const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
           if (m) {
+            const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
             const rawPick = {
               game: m[1].trim(),
               market: m[2].trim(),
               pick: m[3].trim(),
-              odds: parseInt(m[4]),
+              odds,
+              ...(odds === null ? { priceSource: "PrizePicks" } : {}),
             };
             // Skip any PICK whose matchup didn't survive the eligibility
             // filter (stale message, hallucinated game, etc.) so the card

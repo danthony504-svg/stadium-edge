@@ -136,4 +136,135 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// PrizePicks fallback: when the paid odds-API has no player-prop data for a
+// game (quota out, off-market, etc.), we fall back to PrizePicks' public
+// projections endpoint. IMPORTANT: PrizePicks is a DFS pick'em product, so
+// each projection has a real LINE but NO per-leg American odds — the upstream
+// payout is parlay-only. We surface the line + stat type honestly and the
+// client renders the leg with "PrizePicks line · standard payout" instead of
+// fabricating a price. The leg cannot contribute to combined-odds math.
+// ---------------------------------------------------------------------------
+const PRIZEPICKS_LEAGUE_BY_SPORT: Record<string, number> = {
+  nba: 7, nfl: 9, mlb: 2, nhl: 8, ncaaf: 15, ncaab: 20,
+};
+
+router.use("/sports/prizepicks-props", rateLimit({ windowMs: 60_000, max: 30 }));
+
+type PPProjection = {
+  id: string;
+  attributes?: {
+    line_score?: number;
+    stat_type?: string;
+    description?: string;
+    is_live?: boolean;
+    status?: string;
+    start_time?: string;
+  };
+  relationships?: { new_player?: { data?: { id?: string } } };
+};
+type PPIncluded = {
+  id: string;
+  type: string;
+  attributes?: Record<string, unknown>;
+};
+
+router.get("/sports/prizepicks-props", async (req, res): Promise<void> => {
+  const sport = String(req.query["sport"] || "").toLowerCase();
+  const home = String(req.query["home"] || "").trim();
+  const away = String(req.query["away"] || "").trim();
+  if (!sport || !home || !away) {
+    res.status(400).json({ error: "sport, home, and away are required" });
+    return;
+  }
+  const leagueId = PRIZEPICKS_LEAGUE_BY_SPORT[sport];
+  if (!leagueId) {
+    res.json({ source: "PrizePicks", home, away, props: [] });
+    return;
+  }
+
+  try {
+    type PPPayload = { data?: PPProjection[]; included?: PPIncluded[] };
+    const data = await cachedJson<PPPayload>(
+      `pp:${leagueId}`,
+      90 * 1000,
+      async () => {
+        const url = `https://api.prizepicks.com/projections?league_id=${leagueId}&per_page=250&single_stat=true`;
+        const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; stadium-edge/1.0)" } });
+        if (!r.ok) throw new Error(`PrizePicks ${r.status}`);
+        return (await r.json()) as PPPayload;
+      },
+    );
+
+    // Index `included` so we can resolve a projection's player → team full name.
+    // A team entity has { market: "San Antonio", name: "Spurs" } — combined
+    // they form the ESPN-style full name we match against.
+    const teamFullByAbbr = new Map<string, string>();
+    const playerById = new Map<string, { name: string; teamAbbr: string; teamFull: string; image: string | null }>();
+    for (const inc of data.included ?? []) {
+      if (inc.type === "team") {
+        const a = inc.attributes ?? {};
+        const abbr = String(a["abbreviation"] ?? "");
+        const market = String(a["market"] ?? "");
+        const name = String(a["name"] ?? "");
+        if (abbr && market && name) teamFullByAbbr.set(abbr, `${market} ${name}`);
+      }
+    }
+    for (const inc of data.included ?? []) {
+      if (inc.type === "new_player") {
+        const a = inc.attributes ?? {};
+        const teamAbbr = String(a["team"] ?? "");
+        // Prefer the dynamic team-entity lookup; fall back to the player's
+        // own `market` + `team_name` (also full-form on PrizePicks).
+        const teamFull =
+          teamFullByAbbr.get(teamAbbr) ||
+          `${String(a["market"] ?? "")} ${String(a["team_name"] ?? "")}`.trim();
+        playerById.set(inc.id, {
+          name: String(a["display_name"] ?? a["name"] ?? ""),
+          teamAbbr,
+          teamFull,
+          image: typeof a["image_url"] === "string" ? (a["image_url"] as string) : null,
+        });
+      }
+    }
+
+    const wantedFull = new Set([home, away]);
+    const props: Array<{
+      player: string;
+      market: string;
+      line: number | null;
+      team: string;
+      teamFull: string;
+      isLive: boolean;
+      headshot: string | null;
+    }> = [];
+    for (const p of data.data ?? []) {
+      const playerId = p.relationships?.new_player?.data?.id;
+      if (!playerId) continue;
+      const pl = playerById.get(playerId);
+      if (!pl) continue;
+      if (!wantedFull.has(pl.teamFull)) continue;
+      const a = p.attributes ?? {};
+      const line = typeof a.line_score === "number" ? a.line_score : null;
+      const stat = a.stat_type ?? null;
+      if (!stat || line == null) continue;
+      props.push({
+        player: pl.name,
+        market: String(stat),
+        line,
+        team: pl.teamAbbr,
+        teamFull: pl.teamFull,
+        isLive: Boolean(a.is_live),
+        headshot: pl.image,
+      });
+    }
+
+    res.json({ source: "PrizePicks", home, away, props });
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch PrizePicks props");
+    // Honest empty response — client treats as "no PrizePicks lines available".
+    res.json({ source: "PrizePicks", home, away, props: [] });
+  }
+});
+
 export default router;

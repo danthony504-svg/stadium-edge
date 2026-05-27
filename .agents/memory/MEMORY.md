@@ -1,2 +1,1 @@
-- [Misleading AI-fallback messages](misleading-ai-fallback.md) — when a chat falls back to an offline analyzer, the message must name the ACTUAL cause (own rate limiter vs upstream outage), not a blanket "AI unavailable".
-- [ESPN odds fallback for live games](espn-odds-fallback.md) — ESPN summary endpoint exposes DraftKings pickcenter (h2h/spread/total) for in-progress games; use it as a real-data fallback when paid odds feeds are quota-exhausted.
+- [PrizePicks DFS on a sportsbook slip](prizepicks-dfs-on-sportsbook-slip.md) — mixing line-only DFS legs with American-priced legs requires gating every implied-prob, confidence, point-buy, and PICK-parser path on `odds == null`, or the null-safe math identities silently fabricate prices and inflate confidence.
