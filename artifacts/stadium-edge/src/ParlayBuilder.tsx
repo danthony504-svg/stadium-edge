@@ -2792,7 +2792,42 @@ export default function ParlayBuilder() {
     const main = buildPicksFromOdds({ ...oddsEntry, sport: g.sport });
 
     // 3) Optionally add live player props (over side only, reasonable odds).
-    const liveProps = realPropsByEvent[oddsEntry.id];
+    // The props API is keyed by the Odds-API event id (NOT the ESPN id), so
+    // we always look up the matching odds-API entry by team names — even
+    // when oddsEntry came from the ESPN fallback above and has an ESPN id.
+    // If the odds-API feed has no entry for this game (off-season, quota
+    // exhausted, or game just not listed), props simply aren't available
+    // here — we never fabricate them.
+    const oddsApiMatch = (realOddsBySport[g.sport] || []).find(
+      (o) => o.awayTeam === g.away && o.homeTeam === g.home,
+    );
+    const propsKey = oddsApiMatch?.id || null;
+    // Proactively fetch props for this game if we haven't already cached
+    // them — clicking "Build best parlay" doesn't otherwise trigger the
+    // game-detail or chat-side fetch path. Enrich with ESPN team ids so
+    // the server can attach player headshots.
+    if (propsKey && !realPropsByEvent[propsKey]) {
+      try {
+        const espn = (realGamesBySport[g.sport] || []).find(
+          (e) => e.awayTeam === g.away && e.homeTeam === g.home,
+        );
+        const qs = [`sport=${encodeURIComponent(g.sport)}`, `eventId=${encodeURIComponent(propsKey)}`];
+        if (espn?.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(espn.homeTeamId)}`);
+        if (espn?.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(espn.awayTeamId)}`);
+        const pr = await fetch(`/api/sports/props?${qs.join("&")}`);
+        if (pr.ok) {
+          const data = await pr.json();
+          if (data?.props?.length) {
+            setRealPropsByEvent((prev) => ({ ...prev, [propsKey]: data }));
+            // Use the just-fetched payload directly for this run — state
+            // setter is async, so realPropsByEvent[propsKey] is still empty
+            // in this closure.
+            realPropsByEvent[propsKey] = data;
+          }
+        }
+      } catch { /* honest no-props fallback */ }
+    }
+    const liveProps = propsKey ? realPropsByEvent[propsKey] : null;
     const propPicks = [];
     if (liveProps?.props?.length) {
       const MARKET_LABEL = {
