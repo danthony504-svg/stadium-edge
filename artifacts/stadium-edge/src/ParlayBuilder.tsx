@@ -4196,7 +4196,12 @@ export default function ParlayBuilder() {
     // (Date.now() resolution is coarse; adding the index prevents React-key
     // collisions when 6+ legs are auto-filled at once).
     const legs = deduped.map((leg, i) => ({ ...leg, id: Date.now() + i + Math.random() }));
-    setParlayLegs((prev) => [...prev, ...legs]);
+    setParlayLegs((prev) => {
+      const next = [...prev, ...legs];
+      // eslint-disable-next-line no-console
+      console.log("[stadium-edge SLIP]", { received: picks.length, added: legs.length, slipNow: next.length });
+      return next;
+    });
     // Log each to the tracker as pending
     setTracker((prev) => [
       ...prev,
