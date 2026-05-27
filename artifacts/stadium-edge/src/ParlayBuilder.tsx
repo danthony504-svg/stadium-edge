@@ -8856,8 +8856,8 @@ export default function ParlayBuilder() {
               <div className="fixed inset-0 z-30" onClick={() => setSlipOpen(false)} />
             )}
             {slipOpen && (
-              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up">
-                <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between">
+              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up flex flex-col" style={{ maxHeight: "75vh" }}>
+                <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between shrink-0">
                   <span className="font-display text-sm">
                     YOUR SLIP · {parlayLegs.length} LEG{parlayLegs.length !== 1 ? "S" : ""}
                   </span>
@@ -8870,7 +8870,7 @@ export default function ParlayBuilder() {
                     </button>
                   </div>
                 </div>
-                <div className="max-h-[50vh] overflow-y-auto p-2 space-y-1.5">
+                <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
                   {parlayLegs.map((leg, idx) => (
                     <div key={leg.id ?? idx} className="flex items-start gap-2 bg-slate-800 rounded-xl px-3 py-2">
                       <div className="flex-1 min-w-0">
