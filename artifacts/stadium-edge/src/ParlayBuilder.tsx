@@ -4986,19 +4986,22 @@ export default function ParlayBuilder() {
         });
       }
     }
-    // Guard against stale messages saved before the eligibility filter was
-    // added — strip any PICK whose matchup isn't in the current live feed
-    // and remember the canonical relabel so the inline PICK rows below
-    // render the right team names too. Maps each raw "game|market|pick|odds"
-    // key to its kept (canonical) pick, or null if the leg was dropped.
-    const { kept: messagePicks } = filterPicksToReal(rawMessagePicks);
+    // Treat each chat message as an IMMUTABLE historical snapshot. The user
+    // wants old slip cards to stay visible as the conversation grows — a
+    // new question + new slip should stack underneath, not silently erase
+    // earlier ones. Re-running filterPicksToReal here used to strip picks
+    // whose matchup had aged out of the live 24h window (games tipped off,
+    // props expired, odds churned), which made prior assistant messages'
+    // snapshot cards quietly vanish.
+    //
+    // Hallucinations are already blocked at the LIVE slip layer (autoFillSlip
+    // + sweep effect), so we don't need this filter to police what the chat
+    // shows. Display the picks exactly as the AI wrote them.
+    const messagePicks = rawMessagePicks;
     const messagePickByRaw = new Map();
     for (const rp of rawMessagePicks) {
       const rk = `${rp.game}::${rp.market}::${rp.pick}::${rp.odds}`;
-      const hit = messagePicks.find(
-        (k) => k.market === rp.market && k.pick === rp.pick && k.odds === rp.odds,
-      );
-      messagePickByRaw.set(rk, hit || null);
+      messagePickByRaw.set(rk, rp);
     }
     const allInSlip = messagePicks.length > 0 && messagePicks.every((p) => parlayLegs.some((l) => legKey(l) === legKey(p)));
     const snapshotMath = messagePicks.length >= 2 ? calculateParlay(messagePicks) : null;
@@ -5017,12 +5020,12 @@ export default function ParlayBuilder() {
               odds,
               ...(odds === null ? { priceSource: "PrizePicks" } : {}),
             };
-            // Skip any PICK whose matchup didn't survive the eligibility
-            // filter (stale message, hallucinated game, etc.) so the card
-            // never renders for a game that isn't on the live slate.
+            // Look up the canonical-relabeled pick (or the raw pick if the
+            // matchup is no longer in the live pool) so each chat message
+            // keeps its slip card permanently — historical snapshots are
+            // immutable, only the LIVE slip enforces eligibility.
             const rk = `${rawPick.game}::${rawPick.market}::${rawPick.pick}::${rawPick.odds}`;
-            const pick = messagePickByRaw.get(rk);
-            if (!pick) return null;
+            const pick = messagePickByRaw.get(rk) || rawPick;
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
             const assignedRef = gameRefs[pick.game];
             const conf = calculateConfidence(pick, assignedRef);
