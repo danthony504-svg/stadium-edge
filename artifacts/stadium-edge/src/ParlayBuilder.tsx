@@ -4037,20 +4037,42 @@ export default function ParlayBuilder() {
   // before the latest refresh).
   const lookupGameStart = (gameLabel) => {
     if (!gameLabel) return null;
+    // Playoff series produce multiple games with identical "Away @ Home"
+    // labels (e.g. Spurs @ Thunder Game 1, Game 3, Game 5). Collect every
+    // matching candidate then prefer:
+    //   1. a non-final game whose start is in the future (the actual next
+    //      game), nearest-soonest first
+    //   2. else any non-final game (live/in-progress)
+    //   3. else the most recent past game
+    // Without this, returning the first match leaks the finished game's
+    // start time onto the upcoming card.
+    const isFinalSt = (st) => {
+      const x = (st || "").toLowerCase();
+      return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
+    };
+    const candidates = [];
     for (const sportGames of Object.values(realGamesBySport || {})) {
       for (const g of (sportGames || [])) {
-        if (`${g.awayTeam} @ ${g.homeTeam}` === gameLabel) return g.startsAt || null;
+        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (g.startsAt) candidates.push({ ts: new Date(g.startsAt).getTime(), iso: g.startsAt, final: isFinalSt(g.status) });
       }
     }
     for (const sportOdds of Object.values(realOddsBySport || {})) {
       for (const g of (sportOdds || [])) {
-        if (`${g.awayTeam} @ ${g.homeTeam}` === gameLabel) return g.commenceTime || null;
+        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (g.commenceTime) candidates.push({ ts: new Date(g.commenceTime).getTime(), iso: g.commenceTime, final: false });
       }
     }
     for (const lp of livePicks || []) {
-      if (lp.game === gameLabel && lp.startsAt) return lp.startsAt;
+      if (lp.game === gameLabel && lp.startsAt) candidates.push({ ts: new Date(lp.startsAt).getTime(), iso: lp.startsAt, final: false });
     }
-    return null;
+    if (candidates.length === 0) return null;
+    const NOW = Date.now();
+    const future = candidates.filter((c) => !c.final && Number.isFinite(c.ts) && c.ts >= NOW - 10 * 60 * 1000);
+    if (future.length) return future.sort((a, b) => a.ts - b.ts)[0].iso;
+    const nonFinal = candidates.filter((c) => !c.final);
+    if (nonFinal.length) return nonFinal.sort((a, b) => b.ts - a.ts)[0].iso;
+    return candidates.sort((a, b) => b.ts - a.ts)[0].iso;
   };
 
   // If a slip leg's game is currently LIVE in the ESPN feed, return a
@@ -6159,7 +6181,18 @@ export default function ParlayBuilder() {
                     <div className="mb-6">
                       <h3 className="font-bold text-slate-200 mb-2 text-sm">Games — tap to see all props</h3>
                       <div className="space-y-2">
-                        {Object.entries(byGame).map(([game, picks]) => {
+                        {Object.entries(byGame).sort((a, b) => {
+                          // Sort chronologically — soonest first. Games with
+                          // no resolvable start time sink to the bottom.
+                          const ta = new Date(lookupGameStart(a[0]) || 0).getTime();
+                          const tb = new Date(lookupGameStart(b[0]) || 0).getTime();
+                          const fa = !Number.isFinite(ta) || ta === 0;
+                          const fb = !Number.isFinite(tb) || tb === 0;
+                          if (fa && fb) return 0;
+                          if (fa) return 1;
+                          if (fb) return -1;
+                          return ta - tb;
+                        }).map(([game, picks]) => {
                           const nameMap = TEAM_ABBR_TO_NAME[sportDetail] || {};
                           const gamePlayers = (PLAYERS[sportDetail] || []).filter((pl) => {
                             const full = nameMap[pl.team] || pl.team;
