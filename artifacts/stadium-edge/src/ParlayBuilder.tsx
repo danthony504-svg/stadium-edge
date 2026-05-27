@@ -4374,11 +4374,50 @@ export default function ParlayBuilder() {
     }
     // Compact real games (ESPN) — limit per sport to keep context small.
     const realGames = [];
+    // Track teamIds per game so we can pull real matchup history for each.
+    const historyTargets = []; // [{sport, gameLabel, homeTeamId, awayTeamId}]
     for (const [sport, games] of Object.entries(realGamesBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.startsAt));
       for (const g of filtered.slice(0, 12)) {
-        realGames.push({ sport, game: `${g.awayTeam} @ ${g.homeTeam}`, status: g.status, startsAt: g.startsAt, venue: g.venue });
+        const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
+        realGames.push({ sport, game: gameLabel, status: g.status, startsAt: g.startsAt, venue: g.venue });
+        if (g.homeTeamId && g.awayTeamId) {
+          historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId });
+        }
       }
+    }
+    // Pull real previous-matchup analytics for every game in the 24h pool:
+    // each team's last 10 record + pts for/against + avg margin, plus the
+    // head-to-head meetings. The server caches this for 15min so repeat
+    // sends in the same window are cheap. Cap at 16 games per send to keep
+    // the prompt compact. Failures are honest empty buckets — never
+    // fabricated — and the AI is instructed to treat missing entries as
+    // "no extra signal" rather than inventing one.
+    const matchupHistory = {};
+    const targets = historyTargets.slice(0, 16);
+    if (targets.length > 0) {
+      await Promise.all(
+        targets.map(async (t) => {
+          try {
+            const qs = `sport=${encodeURIComponent(t.sport)}&homeTeamId=${encodeURIComponent(t.homeTeamId)}&awayTeamId=${encodeURIComponent(t.awayTeamId)}`;
+            const r = await fetch(`/api/sports/matchup-history?${qs}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            // Compact shape — only what the AI needs to weigh the side.
+            const home10 = data?.home?.last10;
+            const away10 = data?.away?.last10;
+            const h2h = data?.h2h;
+            if (!home10 && !away10 && !(h2h?.meetings?.length)) return;
+            matchupHistory[t.gameLabel] = {
+              home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
+              away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
+              h2h: h2h?.meetings?.length
+                ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
+                : null,
+            };
+          } catch { /* honest no-history fallback */ }
+        }),
+      );
     }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
@@ -4491,6 +4530,7 @@ export default function ParlayBuilder() {
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
       realProps: realProps.slice(0, 80),
+      matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
     };
 
     let fullText = "";
