@@ -5043,7 +5043,7 @@ export default function ParlayBuilder() {
                       <div className="text-[10px] uppercase tracking-widest text-slate-400 font-mono">
                         {pick.market}
                       </div>
-                      <div className="text-[10px] font-mono font-bold text-black">
+                      <div className="text-[10px] font-mono font-bold text-slate-100">
                         {conf}% · {confidenceLabel(conf)}
                       </div>
                       {assignedRef && (
@@ -5061,10 +5061,10 @@ export default function ParlayBuilder() {
                         return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
                     </div>
-                    <div className="text-sm text-black font-semibold">{pick.pick}</div>
+                    <div className="text-sm text-slate-100 font-semibold">{pick.pick}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <div className="font-mono text-black font-bold text-sm">
+                    <div className="font-mono text-slate-100 font-bold text-sm">
                       {formatOdds(pick.odds)}
                     </div>
                   </div>
