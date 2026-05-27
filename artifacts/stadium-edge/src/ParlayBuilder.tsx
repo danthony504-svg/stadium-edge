@@ -5583,7 +5583,7 @@ export default function ParlayBuilder() {
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[10px] font-mono uppercase tracking-wider text-rose-400 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500 pulse-dot" />
-                        {g.periodLabel}{g.clock ? ` · ${g.clock}` : ""}
+                        {g.periodLabel}{g.clock && g.clock !== "0:00" && g.clock !== "0:0" ? ` · ${g.clock}` : ""}
                       </span>
                       <span className="text-[9px] font-mono uppercase text-slate-500">{g.sport}{g.real ? " · LIVE" : " · SIM"}</span>
                     </div>
@@ -5913,28 +5913,46 @@ export default function ParlayBuilder() {
                   return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
                 };
                 // Safety net for team-name mismatches between ESPN and the
-                // odds feed: any game whose start time is >6h in the past
+                // odds feed: any game whose start time is >4h in the past
                 // is certainly done. Catches finished games whose status
                 // lookup failed because the names don't byte-match.
                 const NOW_MS = Date.now();
-                const STALE_MS = 6 * 60 * 60 * 1000;
+                const STALE_MS = 4 * 60 * 60 * 1000;
                 const isLikelyDoneByTime = (iso) => {
                   if (!iso) return false;
                   const t = new Date(iso).getTime();
                   return Number.isFinite(t) && NOW_MS - t > STALE_MS;
                 };
+                // Status keywords that mean "actively in progress" — when
+                // ESPN reports any of these, the 4h time-cutoff must NOT
+                // suppress the game (rain delays, extra innings, suspended
+                // games, long NCAAF bowls can all legitimately run >4h).
+                const isActiveStatus = (st) => {
+                  const x = (st || "").toLowerCase();
+                  return x.includes("in progress") || x.includes("in-progress") || x.includes("live")
+                    || x.includes("halftime") || x.includes("half time") || x.includes("end of")
+                    || x.includes("delay") || x.includes("suspend") || x.includes("rain")
+                    || x.includes("overtime") || /\bot\b/.test(x) || x.includes("extra");
+                };
                 const finalKeysGlobal = new Set();
+                const liveKeysGlobal = new Set();
                 for (const games of Object.values(realGamesBySport || {})) {
                   for (const g of (games || [])) {
-                    if (isFinalStatusSearch(g.status)) finalKeysGlobal.add(`${g.awayTeam} @ ${g.homeTeam}`);
+                    const key = `${g.awayTeam} @ ${g.homeTeam}`;
+                    if (isFinalStatusSearch(g.status)) finalKeysGlobal.add(key);
+                    else if (isActiveStatus(g.status)) liveKeysGlobal.add(key);
                   }
                 }
                 // Real bookmaker picks first — skip finals AND games whose
-                // start time is >6h in the past (name-mismatch safety net).
+                // start time is >4h in the past (name-mismatch safety net),
+                // UNLESS the game is currently live/delayed/suspended.
                 const realPool = Object.values(realOddsBySport)
-                  .flatMap((games) => games.flatMap((g) =>
-                    finalKeysGlobal.has(`${g.awayTeam} @ ${g.homeTeam}`) || isLikelyDoneByTime(g.commenceTime)
-                      ? [] : buildPicksFromOdds(g)));
+                  .flatMap((games) => games.flatMap((g) => {
+                    const k = `${g.awayTeam} @ ${g.homeTeam}`;
+                    if (finalKeysGlobal.has(k)) return [];
+                    if (!liveKeysGlobal.has(k) && isLikelyDoneByTime(g.commenceTime)) return [];
+                    return buildPicksFromOdds(g);
+                  }));
                 // Loaded real player props — match by player name, market label, or game.
                 // Need to know which sport+game each event belongs to so we can render + add to slip.
                 const eventLookup = {};
@@ -5942,7 +5960,7 @@ export default function ParlayBuilder() {
                   for (const g of games) {
                     const key = `${g.awayTeam} @ ${g.homeTeam}`;
                     if (finalKeysGlobal.has(key)) continue;
-                    if (isLikelyDoneByTime(g.commenceTime)) continue;
+                    if (!liveKeysGlobal.has(key) && isLikelyDoneByTime(g.commenceTime)) continue;
                     eventLookup[g.id] = { sport, game: key, commenceTime: g.commenceTime };
                   }
                 }
@@ -6028,29 +6046,44 @@ export default function ParlayBuilder() {
               };
               // Safety net for team-name mismatches between ESPN and the
               // odds feed (e.g. "LA Lakers" vs "Los Angeles Lakers"): any
-              // game whose start time is >6h in the past is certainly
-              // done across all 8 sports — even slow NFL games wrap by
-              // ~3.5h. This catches finished games whose finalKeys lookup
-              // failed because the names don't byte-match.
+              // game whose start time is >4h in the past is certainly
+              // done across all 8 sports — NFL maxes ~3.5h, NBA/NHL/MLB
+              // ~3.5h. Tightened from 6h after MLB Finals from ~5h ago
+              // were lingering in the sport detail view.
               const NOW_MS = Date.now();
-              const STALE_MS = 6 * 60 * 60 * 1000;
+              const STALE_MS = 4 * 60 * 60 * 1000;
               const isLikelyDoneByTime = (iso) => {
                 if (!iso) return false;
                 const t = new Date(iso).getTime();
                 return Number.isFinite(t) && NOW_MS - t > STALE_MS;
               };
+              // Status keywords that mean "actively in progress" — when
+              // ESPN reports any of these, the 4h time-cutoff must NOT
+              // suppress the game (rain delays, extra innings, suspended
+              // games, long NCAAF bowls can all legitimately run >4h).
+              const isActiveStatus = (st) => {
+                const x = (st || "").toLowerCase();
+                return x.includes("in progress") || x.includes("in-progress") || x.includes("live")
+                  || x.includes("halftime") || x.includes("half time") || x.includes("end of")
+                  || x.includes("delay") || x.includes("suspend") || x.includes("rain")
+                  || x.includes("overtime") || /\bot\b/.test(x) || x.includes("extra");
+              };
               const finalKeys = new Set();
+              const liveKeys = new Set();
               for (const g of realGames) {
-                if (isFinalStatus(g.status)) finalKeys.add(`${g.awayTeam} @ ${g.homeTeam}`);
+                const k = `${g.awayTeam} @ ${g.homeTeam}`;
+                if (isFinalStatus(g.status)) finalKeys.add(k);
+                else if (isActiveStatus(g.status)) liveKeys.add(k);
               }
               // Build picks from real bookmaker odds, one bucket per game —
               // skip any game whose score feed already shows it as final,
-              // OR whose start time is >6h ago (name-mismatch safety net).
+              // OR whose start time is >4h ago (name-mismatch safety net,
+              // bypassed for games known to be actively in-progress).
               const byGame = {};
               for (const og of realOdds) {
                 const key = `${og.awayTeam} @ ${og.homeTeam}`;
                 if (finalKeys.has(key)) continue;
-                if (isLikelyDoneByTime(og.commenceTime)) continue;
+                if (!liveKeys.has(key) && isLikelyDoneByTime(og.commenceTime)) continue;
                 const picks = buildPicksFromOdds(og);
                 if (picks.length > 0) byGame[key] = picks;
               }
@@ -6058,7 +6091,9 @@ export default function ParlayBuilder() {
               // matchup still appears, even if betting markets aren't open yet).
               for (const g of realGames) {
                 if (isFinalStatus(g.status)) continue;
-                if (isLikelyDoneByTime(g.startsAt)) continue;
+                // Bypass time cutoff for active/delayed/suspended games — they
+                // legitimately can run >4h (MLB extra innings, rain delays).
+                if (!isActiveStatus(g.status) && isLikelyDoneByTime(g.startsAt)) continue;
                 const key = `${g.awayTeam} @ ${g.homeTeam}`;
                 if (!byGame[key]) byGame[key] = [];
               }
@@ -6842,7 +6877,7 @@ export default function ParlayBuilder() {
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-[10px] font-mono uppercase text-rose-400 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-400 pulse-dot" />
-                      {g.periodLabel}{g.clock ? ` · ${g.clock}` : ""}
+                      {g.periodLabel}{g.clock && g.clock !== "0:00" && g.clock !== "0:0" ? ` · ${g.clock}` : ""}
                     </div>
                     <div className="text-[9px] font-mono uppercase text-slate-400">{g.sport}</div>
                   </div>
