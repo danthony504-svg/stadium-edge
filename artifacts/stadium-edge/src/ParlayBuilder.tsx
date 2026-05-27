@@ -3940,6 +3940,23 @@ export default function ParlayBuilder() {
     // here. Without this, every chat-validated pick gets dropped a second
     // time and the slip stays empty.
     const seenLabels = new Set(matchups.map((m) => m.canonical));
+    // Also include any game whose player props we've already loaded into
+    // realPropsByEvent (typically because the user opened that game's
+    // detail page, or chat pre-fetched its props on a prior send). Without
+    // this, when the odds API is dead and ESPN has the game but the props
+    // are only cached in realPropsByEvent, a chat-recommended prop leg
+    // would fall through the matchup match and silently get dropped — the
+    // exact failure path that made "props from chat don't add to the slip".
+    for (const propData of Object.values(realPropsByEvent || {})) {
+      const label = propData?.home && propData?.away ? `${propData.away} @ ${propData.home}` : null;
+      if (!label || seenLabels.has(label)) continue;
+      matchups.push({
+        awayTokens: teamTokensFor(propData.away),
+        homeTokens: teamTokensFor(propData.home),
+        canonical: label,
+      });
+      seenLabels.add(label);
+    }
     for (const lp of livePicks || []) {
       const label = String(lp.game || "");
       if (!label || seenLabels.has(label)) continue;
@@ -4745,7 +4762,9 @@ export default function ParlayBuilder() {
       const poolEmpty = eligibleMatchups.length === 0;
       for (const line of fullText.split("\n")) {
         // Match American price OR "PrizePicks line" so DFS legs aren't dropped.
-        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(?:[+-]?\d+|PrizePicks line)/);
+        // Capturing group on the odds token so PrizePicks legs land with
+        // odds: null instead of NaN.
+        const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
         if (!m) continue;
         const rawGame = m[1].trim();
         if (poolEmpty) {
@@ -4760,11 +4779,13 @@ export default function ParlayBuilder() {
         if (hit.canonical && hit.canonical !== rawGame) {
           rewrites.set(rawGame, hit.canonical);
         }
+        const oddsTok = m[4];
         picks.push({
           game: hit.canonical || rawGame,
           market: m[2].trim(),
           pick: m[3].trim(),
-          odds: parseInt(m[4]),
+          odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
+          ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
         });
       }
       // Rewrite kept PICK lines with the canonical (full-name) game label and
