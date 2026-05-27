@@ -2932,11 +2932,42 @@ export default function ParlayBuilder() {
     // Score everything, then pick the best per market category and stop
     // when we have 2-5 distinct legs. NEVER take both sides of the same
     // market (no ML + opposing-ML, no over + under, no team + opposing
-    // spread) — that's a built-in contradiction.
+    // spread) — that's a built-in contradiction. Also enforce same-game
+    // COMBINABILITY: every leg added must be compatible with all legs
+    // already on the slip (most importantly: ML side and spread side
+    // must agree on the team — books reject Home ML + Away spread in a
+    // same-game parlay because they pull against each other).
     const scored = [...main, ...propPicks].map(scoreCandidate);
     scored.sort((a, b) => b._score - a._score);
     const picked = [];
     const usedCategory = new Set(); // "ml" | "spread" | "total" | prop key
+    // Pull "side" out of a leg so we can check directional agreement.
+    // For ML/spread the side is the team being backed; for totals it's
+    // "over"/"under"; props are skipped (Over-only, freely combinable
+    // with any team-side bet at major books).
+    const sideOf = (pk) => {
+      if (pk.market === "Moneyline" || pk.market === "Spread") {
+        if (pk.teamFull === g.home) return { kind: "team", team: g.home };
+        if (pk.teamFull === g.away) return { kind: "team", team: g.away };
+      }
+      if (pk.market === "Total") {
+        if (/\bover\b/i.test(pk.pick)) return { kind: "total", dir: "over" };
+        if (/\bunder\b/i.test(pk.pick)) return { kind: "total", dir: "under" };
+      }
+      return null;
+    };
+    const isCombinableWith = (pk, alreadyPicked) => {
+      const a = sideOf(pk);
+      if (!a) return true; // player props pass — Over-side only, no direction conflict
+      for (const q of alreadyPicked) {
+        const b = sideOf(q);
+        if (!b) continue;
+        // ML <-> Spread must back the same team. (ML vs ML / spread vs
+        // spread is already blocked by usedCategory above.)
+        if (a.kind === "team" && b.kind === "team" && a.team !== b.team) return false;
+      }
+      return true;
+    };
     for (const pk of scored) {
       if (picked.length >= 5) break;
       let cat;
@@ -2947,6 +2978,8 @@ export default function ParlayBuilder() {
       if (usedCategory.has(cat)) continue;
       // Require a minimally credible score so we don't pad weak legs.
       if (pk._score < 45 && picked.length >= 2) continue;
+      // Drop legs that contradict something already on the ticket.
+      if (!isCombinableWith(pk, picked)) continue;
       usedCategory.add(cat);
       picked.push(pk);
     }
