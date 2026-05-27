@@ -2620,7 +2620,9 @@ export default function ParlayBuilder() {
           // the user never misses a game in progress just because they
           // hadn't toggled that sport on for parlays.
           const s = (g.status || "").toLowerCase();
-          const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
+          // Widened to include "ended" + standalone "ft" so games that ESPN
+          // has flipped to a finished state never linger in the live bucket.
+          const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled") || s.includes("ended") || /\bft\b/.test(s);
           if (isFinal) continue;
           const isScheduled = s.includes("scheduled") || s.includes("pre");
           // A game stays in the Live bucket until ESPN literally flips it
@@ -3939,7 +3941,9 @@ export default function ParlayBuilder() {
       for (const g of (sportGames || [])) {
         if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
         const s = (g.status || "").toLowerCase();
-        const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled");
+        // Widened to match the All Sports filter: ended/FT games must not
+        // render a 🔴 live tag anywhere (slip legs, chat picks, game cards).
+        const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled") || s.includes("ended") || /\bft\b/.test(s);
         const isScheduled = s.includes("scheduled") || s.includes("pre");
         if (isFinal || isScheduled) return null;
         // periodLabel is ESPN's shortDetail ("Q3 8:42", "Bot 7th", "HT",
@@ -5815,13 +5819,30 @@ export default function ParlayBuilder() {
             <div className="px-4 py-3">
               {(() => {
                 const q = homeSearch.trim().toLowerCase();
-                // Real bookmaker picks first
-                const realPool = Object.values(realOddsBySport).flatMap((games) => games.flatMap((g) => buildPicksFromOdds(g)));
+                // Suppress matchups whose score feed already shows them as
+                // final/postponed/cancelled — odds caches can lag minutes.
+                const isFinalStatusSearch = (st) => {
+                  const x = (st || "").toLowerCase();
+                  return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
+                };
+                const finalKeysGlobal = new Set();
+                for (const games of Object.values(realGamesBySport || {})) {
+                  for (const g of (games || [])) {
+                    if (isFinalStatusSearch(g.status)) finalKeysGlobal.add(`${g.awayTeam} @ ${g.homeTeam}`);
+                  }
+                }
+                // Real bookmaker picks first — skip finals
+                const realPool = Object.values(realOddsBySport)
+                  .flatMap((games) => games.flatMap((g) => finalKeysGlobal.has(`${g.awayTeam} @ ${g.homeTeam}`) ? [] : buildPicksFromOdds(g)));
                 // Loaded real player props — match by player name, market label, or game.
                 // Need to know which sport+game each event belongs to so we can render + add to slip.
                 const eventLookup = {};
                 for (const [sport, games] of Object.entries(realOddsBySport)) {
-                  for (const g of games) eventLookup[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}`, commenceTime: g.commenceTime };
+                  for (const g of games) {
+                    const key = `${g.awayTeam} @ ${g.homeTeam}`;
+                    if (finalKeysGlobal.has(key)) continue;
+                    eventLookup[g.id] = { sport, game: key, commenceTime: g.commenceTime };
+                  }
                 }
                 // Player props are useful for games in the next 24h OR ones currently
                 // in progress (started up to ~4h ago) so live props stay searchable.
@@ -5896,18 +5917,30 @@ export default function ParlayBuilder() {
               const s = SPORTS.find((x) => x.id === sportDetail);
               const realOdds = realOddsBySport[sportDetail] || [];
               const realGames = realGamesBySport[sportDetail] || [];
-              // Build picks from real bookmaker odds, one bucket per game.
+              // Build a set of matchup keys that are already finished (final,
+              // postponed, cancelled) so we can suppress them everywhere
+              // below — odds caches can lag the score feed by minutes.
+              const isFinalStatus = (st) => {
+                const x = (st || "").toLowerCase();
+                return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
+              };
+              const finalKeys = new Set();
+              for (const g of realGames) {
+                if (isFinalStatus(g.status)) finalKeys.add(`${g.awayTeam} @ ${g.homeTeam}`);
+              }
+              // Build picks from real bookmaker odds, one bucket per game —
+              // skip any game whose score feed already shows it as final.
               const byGame = {};
               for (const og of realOdds) {
                 const key = `${og.awayTeam} @ ${og.homeTeam}`;
+                if (finalKeys.has(key)) continue;
                 const picks = buildPicksFromOdds(og);
                 if (picks.length > 0) byGame[key] = picks;
               }
               // Also include scheduled real games that don't yet have odds (so the
               // matchup still appears, even if betting markets aren't open yet).
               for (const g of realGames) {
-                const st = (g.status || "").toLowerCase();
-                if (st.includes("final") || st.includes("full time") || st.includes("postponed") || st.includes("canceled") || st.includes("cancelled")) continue;
+                if (isFinalStatus(g.status)) continue;
                 const key = `${g.awayTeam} @ ${g.homeTeam}`;
                 if (!byGame[key]) byGame[key] = [];
               }
