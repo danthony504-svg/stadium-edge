@@ -8910,6 +8910,13 @@ export default function ParlayBuilder() {
                     >
                       Analyze
                     </button>
+                    <button
+                      onClick={() => { if (requirePro("Fix for best outcome")) { optimizeSlip(); setSlipOpen(true); } }}
+                      className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/10 transition"
+                      title="Buy points / nudge lines toward safer outcomes"
+                    >
+                      Fix
+                    </button>
                     <div className="text-sm font-bold text-cyan-400">
                       {parlayMath?.american ? `${parlayMath.american > 0 ? "+" : ""}${parlayMath.american}` : ""}
                     </div>
