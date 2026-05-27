@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
-import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
+import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 
 const router: IRouter = Router();
 
@@ -213,6 +213,173 @@ router.get("/sports/espn-odds", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Failed to fetch ESPN odds");
     res.json(null);
+  }
+});
+
+// Bulk ESPN odds for an entire sport: iterates today's upcoming/live events
+// from the scoreboard and pulls pickcenter[0] for each. Same shape as
+// /api/sports/odds so the client can drop it in when The Odds API is out
+// of credits. Real DraftKings (or whichever provider ESPN ships) lines
+// only — never fabricated. Finished events (state="post") are dropped
+// here so the consumer doesn't have to re-filter.
+//
+// Rate-limited because cold cache fans out to up to 40 ESPN summary
+// calls per request — we don't want a client retry storm to hammer ESPN.
+router.use("/sports/odds-espn", rateLimit({ windowMs: 60_000, max: 30 }));
+router.get("/sports/odds-espn", async (req, res): Promise<void> => {
+  const sportId = String(req.query.sport || "").toLowerCase();
+  const path = ESPN_SPORT_PATHS[sportId];
+  if (!path) {
+    res.status(400).json({ error: `Unsupported sport: ${sportId}` });
+    return;
+  }
+  try {
+    // Scoreboard window: yesterday → +7 days, same as /sports/games so live
+    // games that started yesterday UTC are still included.
+    const fmt = (d: Date) =>
+      `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
+
+    type ScoreboardEvent = {
+      id: string;
+      date: string;
+      status?: { type?: { state?: string; description?: string } };
+      competitions?: Array<{
+        status?: { type?: { state?: string } };
+        competitors?: Array<{
+          homeAway: "home" | "away";
+          team?: { displayName?: string };
+        }>;
+      }>;
+    };
+
+    // Separate cache namespace from /sports/games so this route's
+    // no-fallback fetcher can't poison that route's cache with an empty
+    // result and skip its ranged→default fallback.
+    const scoreboard = await cachedJson<{ events?: ScoreboardEvent[] }>(
+      `scoreboard-odds:${path}:${dateRange}`,
+      60 * 1000,
+      async () => {
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${dateRange}&limit=200`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`ESPN ${r.status}`);
+        return (await r.json()) as { events?: ScoreboardEvent[] };
+      },
+    );
+
+    // Skip finished games entirely. Cap at 40 events per sport so we don't
+    // hammer ESPN's summary endpoint — comfortably covers a full MLB or
+    // soccer slate.
+    const events = (scoreboard.events ?? []).filter((e) => {
+      const state = e.competitions?.[0]?.status?.type?.state ?? e.status?.type?.state;
+      return state !== "post";
+    }).slice(0, 40);
+
+    // Bounded concurrency: at most 6 ESPN summary calls in flight at once
+    // so we don't trip ESPN rate limits on a cold cache for big MLB slates.
+    const runWithLimit = async <T,>(items: ScoreboardEvent[], limit: number, fn: (e: ScoreboardEvent) => Promise<T>): Promise<T[]> => {
+      const out: T[] = new Array(items.length);
+      let next = 0;
+      const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        for (;;) {
+          const i = next++;
+          if (i >= items.length) return;
+          const item = items[i];
+          if (item) out[i] = await fn(item);
+        }
+      });
+      await Promise.all(workers);
+      return out;
+    };
+
+    type Pickcenter = {
+      provider?: { name?: string };
+      spread?: number;
+      overUnder?: number;
+      overOdds?: number;
+      underOdds?: number;
+      awayTeamOdds?: { moneyLine?: number; spreadOdds?: number };
+      homeTeamOdds?: { moneyLine?: number; spreadOdds?: number };
+    };
+    type Summary = { pickcenter?: Pickcenter[] };
+
+    const num = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? v : null;
+
+    const results = await runWithLimit(events, 6, async (e) => {
+      try {
+        // Use the SAME 30s TTL/key as the per-event /sports/espn-odds
+        // route so a live-card analyzer call and a bulk-odds call share
+        // the same cache entry — and so neither route serves the other's
+        // stale 5-minute data.
+        const summary = await cachedJson<Summary>(
+          `espn-odds:${path}:${e.id}`,
+          30 * 1000,
+          async () => {
+            const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${e.id}`;
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`ESPN ${r.status}`);
+            return (await r.json()) as Summary;
+          },
+        );
+        const pc = summary.pickcenter?.[0];
+        if (!pc) return null;
+
+        const comp = e.competitions?.[0];
+        const home = comp?.competitors?.find((c) => c.homeAway === "home")?.team?.displayName ?? null;
+        const away = comp?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName ?? null;
+        if (!home || !away) return null;
+
+        const markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
+        const mlH = num(pc.homeTeamOdds?.moneyLine);
+        const mlA = num(pc.awayTeamOdds?.moneyLine);
+        if (mlH !== null && mlA !== null) {
+          markets.push({
+            key: "h2h",
+            outcomes: [
+              { name: home, price: Math.round(mlH), point: null },
+              { name: away, price: Math.round(mlA), point: null },
+            ],
+          });
+        }
+        const sp = num(pc.spread);
+        const spH = num(pc.homeTeamOdds?.spreadOdds);
+        const spA = num(pc.awayTeamOdds?.spreadOdds);
+        if (sp !== null && spH !== null && spA !== null) {
+          markets.push({
+            key: "spreads",
+            outcomes: [
+              { name: home, price: Math.round(spH), point: sp },
+              { name: away, price: Math.round(spA), point: -sp },
+            ],
+          });
+        }
+        const tot = num(pc.overUnder);
+        const totO = num(pc.overOdds);
+        const totU = num(pc.underOdds);
+        if (tot !== null && totO !== null && totU !== null) {
+          markets.push({
+            key: "totals",
+            outcomes: [
+              { name: "Over", price: Math.round(totO), point: tot },
+              { name: "Under", price: Math.round(totU), point: tot },
+            ],
+          });
+        }
+        if (markets.length === 0) return null;
+        return { id: e.id, sport: sportId, homeTeam: home, awayTeam: away, commenceTime: e.date, markets };
+      } catch {
+        return null;
+      }
+    });
+
+    res.json(results.filter((g) => g !== null));
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch ESPN bulk odds");
+    res.json([]);
   }
 });
 

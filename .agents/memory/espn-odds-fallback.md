@@ -1,14 +1,18 @@
 ---
-name: ESPN odds fallback for live games
-description: ESPN's per-event summary endpoint exposes live DraftKings odds (pickcenter) even while a game is in progress — useful as a real-data fallback when a paid odds feed is quota-exhausted.
+name: ESPN odds fallback for The Odds API
+description: When The Odds API runs out of credits, ESPN's per-event summary pickcenter[0] provides the same real DraftKings lines (h2h/spreads/totals). Iterate scoreboard, parallelize bounded, share cache with the live-card per-event route.
 ---
 
-ESPN's scoreboard endpoint drops the `odds` field once a game tips off, but the per-event summary endpoint (`/sports/{path}/summary?event={id}`) keeps `pickcenter[0]` populated with live DraftKings (or whichever provider has priority 1) numbers: `spread`, `overUnder`, `overOdds`, `underOdds`, `homeTeamOdds.{moneyLine,spreadOdds}`, `awayTeamOdds.{moneyLine,spreadOdds}`. This is real bookmaker data, not a model estimate — safe to use as a true-data fallback when a paid odds feed (the-odds-api, etc.) is out of credits or paused.
+# Rule
 
-**Why:** the no-fake-data project rule means we'd otherwise have to refuse the user's request entirely whenever the paid feed dies. ESPN's pickcenter is real bookmaker data from a different source, so it satisfies the rule.
+ESPN's site API exposes real bookmaker odds inside the `summary?event={id}` endpoint at `pickcenter[0]` (DraftKings or whichever provider ESPN ships). When the paid odds feed is unavailable (401 / OUT_OF_USAGE_CREDITS / generic upstream error), iterate the scoreboard, parallel-fetch summary per event, and map pickcenter into the same `{id, sport, homeTeam, awayTeam, commenceTime, markets:[{key:"h2h"|"spreads"|"totals", outcomes:[{name, price, point}]}]}` shape the paid feed returns. The client can then transparently retry the fallback when the primary returns `!ok`.
 
-**How to apply:**
-- `pickcenter[0].spread` is the **home-team line** (negative = home favored). Mirror for away.
-- Cache aggressively (15-30s) — live lines move fast and ESPN doesn't love being hammered.
-- Fall back gracefully: ESPN can return an empty `pickcenter` (some leagues, some games), so the route must `res.json(null)` and the caller must treat null as "still no odds, tell the user honestly".
-- Never blend pickcenter lines with paid-feed lines in the same parlay without labeling the source — different books, slightly different numbers.
+**Why:** Keeps the no-fake-data guarantee intact (only real bookmaker lines render) even during multi-day outages of the paid feed.
+
+**How to apply / pitfalls:**
+1. **Namespace cache keys.** A bulk-odds endpoint that fetches the scoreboard with no fallback must NOT share the same cache key as a primary scoreboard endpoint that has fallback logic — an empty-window response from the no-fallback fetcher will poison the other route. Use a distinct prefix (e.g., `scoreboard-odds:` vs `games:`).
+2. **Share per-event cache with the single-event route.** Both the bulk fetcher and the per-event analyzer route should write the same `espn-odds:${path}:${eventId}` key with the same TTL (30s — live lines move fast). Otherwise the longer-TTL writer poisons the shorter-TTL reader.
+3. **Bound concurrency.** Cold cache on a big MLB slate is 15-20 ESPN summary calls; cap to ~6 in flight to avoid tripping ESPN rate limits. A simple worker-pool over `Array.from({length: limit}, async () => { ... })` is sufficient — no need to pull in `p-limit`.
+4. **Rate-limit the route.** A client retry storm after primary failure can hammer ESPN through the fallback; apply the existing per-IP `rateLimit` middleware.
+5. **Filter finished games at the source.** Drop `state === "post"` events before fanning out — saves N summary calls and means the consumer doesn't have to re-filter.
+6. **Skip per-market emission when any price is missing.** Never substitute a default like `-110` for a missing price — that violates the no-fake-data rule.

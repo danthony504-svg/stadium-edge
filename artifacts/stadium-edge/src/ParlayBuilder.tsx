@@ -2412,7 +2412,10 @@ export default function ParlayBuilder() {
 
     const fetchRealOdds = async (sportId) => {
       try {
-        const r = await fetch(`/api/sports/odds?sport=${sportId}`);
+        // Primary: The Odds API. Fallback: ESPN per-event pickcenter
+        // (same shape) when the paid feed is out of credits / down.
+        let r = await fetch(`/api/sports/odds?sport=${sportId}`);
+        if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${sportId}`);
         if (!r.ok) return [];
         const games = await r.json();
         const picks = [];
@@ -2596,7 +2599,10 @@ export default function ParlayBuilder() {
         Promise.all(
           selectedSports.map(async (s) => {
             try {
-              const r = await fetch(`/api/sports/odds?sport=${s}`);
+              // Primary: The Odds API. Fallback: ESPN pickcenter bulk
+              // (same shape) when the paid feed errors / runs out.
+              let r = await fetch(`/api/sports/odds?sport=${s}`);
+              if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${s}`);
               if (!r.ok) return { sport: s, odds: [] };
               return { sport: s, odds: await r.json() };
             } catch {
@@ -4221,7 +4227,8 @@ export default function ParlayBuilder() {
         Promise.all(
           selectedSports.map(async (s) => {
             try {
-              const r = await fetch(`/api/sports/odds?sport=${s}`);
+              let r = await fetch(`/api/sports/odds?sport=${s}`);
+              if (!r.ok) r = await fetch(`/api/sports/odds-espn?sport=${s}`);
               if (!r.ok) return { sport: s, odds: realOddsBySport[s] || [] };
               const odds = await r.json();
               return { sport: s, odds };
