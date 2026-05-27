@@ -2722,21 +2722,62 @@ export default function ParlayBuilder() {
   // strongest 2-5 distinct-market legs as a chat reply + auto-fill the slip.
   // Honest fallback: if odds aren't available for this game (odds API
   // quota / off-season market), tell the user — never fabricate.
-  const buildBestParlayForLiveRealGame = (g) => {
+  const buildBestParlayForLiveRealGame = async (g) => {
     if (!requirePro("Live picks")) return;
     setView("chat");
     const userMsg = `Best 2–5 leg live parlay for ${g.away} @ ${g.home}`;
 
     // 1) Match the live game to a bookmaker odds entry by team names.
-    const oddsEntry = (realOddsBySport[g.sport] || []).find(
+    let oddsEntry = (realOddsBySport[g.sport] || []).find(
       (o) => o.awayTeam === g.away && o.homeTeam === g.home,
     );
+
+    // 1b) Fallback: if our primary odds feed is out of credits / paused,
+    // pull DraftKings live lines straight from ESPN's per-event summary
+    // (it carries pickcenter[0] even for in-progress games). Real
+    // bookmaker numbers, just from a different source — never fabricated.
+    if (!oddsEntry && g.id) {
+      try {
+        const r = await fetch(`/api/sports/espn-odds?sport=${g.sport}&eventId=${g.id}`);
+        const espnOdds = await r.json();
+        if (espnOdds && (espnOdds.moneyline || espnOdds.spread || espnOdds.total)) {
+          const markets = [];
+          if (espnOdds.moneyline) {
+            markets.push({ key: "h2h", outcomes: [
+              { name: g.home, price: espnOdds.moneyline.home },
+              { name: g.away, price: espnOdds.moneyline.away },
+            ]});
+          }
+          if (espnOdds.spread) {
+            markets.push({ key: "spreads", outcomes: [
+              { name: g.home, price: espnOdds.spread.homePrice, point: espnOdds.spread.homeLine },
+              { name: g.away, price: espnOdds.spread.awayPrice, point: espnOdds.spread.awayLine },
+            ]});
+          }
+          if (espnOdds.total) {
+            markets.push({ key: "totals", outcomes: [
+              { name: "Over", price: espnOdds.total.over, point: espnOdds.total.line },
+              { name: "Under", price: espnOdds.total.under, point: espnOdds.total.line },
+            ]});
+          }
+          oddsEntry = {
+            id: g.id,
+            sport: g.sport,
+            homeTeam: g.home,
+            awayTeam: g.away,
+            markets,
+            _source: `ESPN/${espnOdds.provider || "DraftKings"}`,
+          };
+        }
+      } catch (_e) { /* fall through to honest "no odds" message */ }
+    }
+
     if (!oddsEntry) {
       setMessages((p) => [
         ...p,
         { role: "user", content: userMsg },
         { role: "assistant", content:
-          `No live bookmaker odds available for **${g.away} @ ${g.home}** right now — likely an in-play book that's paused, or our odds feed is out of credits. I won't fabricate lines. Try again in a minute, or pick a different live game.`
+          `No live bookmaker odds available for **${g.away} @ ${g.home}** right now — both our primary feed and the ESPN fallback came back empty. I won't fabricate lines. Try again in a minute, or pick a different live game.`
         },
       ]);
       return;
@@ -2910,9 +2951,13 @@ export default function ParlayBuilder() {
     const droppedNote = dropped.length > 0
       ? `_Note: ${dropped.length} candidate leg${dropped.length === 1 ? "" : "s"} dropped by the live-game filter._\n\n`
       : "";
+    const sourceNote = oddsEntry._source
+      ? `_Live lines from ${oddsEntry._source} (primary odds feed was unavailable — using ESPN fallback)._\n\n`
+      : "";
     const intro =
       `🔴 **LIVE PARLAY — ${g.away} @ ${g.home} · ${ticket.length} legs**\n` +
       `_${stateLine}${totalLine}_\n\n` +
+      sourceNote +
       droppedNote +
       `I scored every live spot in this game (live margin, pacing, period progression, market-implied probability${liveProps?.props?.length ? ", live player props" : ""}) and took the strongest ${ticket.length} distinct-market legs.\n\n`;
 

@@ -131,4 +131,89 @@ router.get("/sports/games", async (req, res): Promise<void> => {
   }
 });
 
+// ESPN per-event "summary" endpoint carries live DraftKings odds
+// (pickcenter[0]) for in-progress games — even when the scoreboard payload
+// drops them once the game tips off. We use this as a fallback when our
+// primary odds source (the-odds-api) is out of credits or paused, so the
+// "Build best parlay from this game" pill on live cards still has real
+// numbers to work from. Real bookmaker data only — never fabricated.
+router.get("/sports/espn-odds", async (req, res): Promise<void> => {
+  const sportId = String(req.query.sport || "").toLowerCase();
+  const eventId = String(req.query.eventId || "");
+  if (!sportId || !eventId) {
+    res.status(400).json({ error: "sport and eventId required" });
+    return;
+  }
+  const path = ESPN_SPORT_PATHS[sportId];
+  if (!path) {
+    res.status(400).json({ error: `Unsupported sport: ${sportId}` });
+    return;
+  }
+  try {
+    type Pickcenter = {
+      provider?: { name?: string };
+      details?: string;
+      spread?: number;
+      overUnder?: number;
+      overOdds?: number;
+      underOdds?: number;
+      awayTeamOdds?: { moneyLine?: number; spreadOdds?: number };
+      homeTeamOdds?: { moneyLine?: number; spreadOdds?: number };
+    };
+    type Summary = {
+      pickcenter?: Pickcenter[];
+      header?: { competitions?: Array<{ competitors?: Array<{ homeAway: "home" | "away"; team?: { displayName?: string } }> }> };
+    };
+    const data = await cachedJson<Summary>(
+      `espn-odds:${path}:${eventId}`,
+      30 * 1000, // live lines move fast — short TTL
+      async () => {
+        const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${eventId}`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`ESPN ${r.status}`);
+        return (await r.json()) as Summary;
+      },
+    );
+
+    const pc = data.pickcenter?.[0];
+    if (!pc) { res.json(null); return; }
+    const comp = data.header?.competitions?.[0];
+    const home = comp?.competitors?.find((c) => c.homeAway === "home")?.team?.displayName ?? null;
+    const away = comp?.competitors?.find((c) => c.homeAway === "away")?.team?.displayName ?? null;
+
+    // ESPN's `spread` field is the home-team line (e.g. -3.5 when home is
+    // favored by 3.5). Build the picks shape our analyzer expects. Each
+    // market is only emitted when BOTH the line AND both real prices are
+    // present — we never substitute a "-110" default for a missing price
+    // (that would be fabrication, which the no-fake-data rule forbids).
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const mlH = num(pc.homeTeamOdds?.moneyLine);
+    const mlA = num(pc.awayTeamOdds?.moneyLine);
+    const sp = num(pc.spread);
+    const spH = num(pc.homeTeamOdds?.spreadOdds);
+    const spA = num(pc.awayTeamOdds?.spreadOdds);
+    const tot = num(pc.overUnder);
+    const totO = num(pc.overOdds);
+    const totU = num(pc.underOdds);
+    const out: Record<string, unknown> = {
+      provider: pc.provider?.name ?? null,
+      homeTeam: home,
+      awayTeam: away,
+      moneyline: mlH !== null && mlA !== null ? { home: mlH, away: mlA } : null,
+      spread:
+        sp !== null && spH !== null && spA !== null
+          ? { homeLine: sp, awayLine: -sp, homePrice: spH, awayPrice: spA }
+          : null,
+      total:
+        tot !== null && totO !== null && totU !== null
+          ? { line: tot, over: totO, under: totU }
+          : null,
+    };
+    res.json(out);
+  } catch (err) {
+    req.log.error({ err }, "Failed to fetch ESPN odds");
+    res.json(null);
+  }
+});
+
 export default router;

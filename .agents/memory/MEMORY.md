@@ -1,1 +1,2 @@
 - [Misleading AI-fallback messages](misleading-ai-fallback.md) — when a chat falls back to an offline analyzer, the message must name the ACTUAL cause (own rate limiter vs upstream outage), not a blanket "AI unavailable".
+- [ESPN odds fallback for live games](espn-odds-fallback.md) — ESPN summary endpoint exposes DraftKings pickcenter (h2h/spread/total) for in-progress games; use it as a real-data fallback when paid odds feeds are quota-exhausted.
