@@ -1673,7 +1673,7 @@ const personalRecordFor = (pick, trackerEntries) => {
 
 // Generate a reasoning sentence for a pick using its actual properties.
 // Rule-based, not LLM — labeled clearly in the UI.
-const generateReasoning = (pick, ref = null) => {
+const generateReasoning = (pick, ref = null, h2hEntry = null) => {
   // PrizePicks legs have no per-leg American price. Generating
   // "market-implied %" / "heavy favorite" copy from null odds would be
   // fabrication — return an honest, source-aware sentence instead.
@@ -1682,6 +1682,33 @@ const generateReasoning = (pick, ref = null) => {
     return `PrizePicks line${line ? ` at ${line}` : ""} — DFS pick'em projection, no per-leg sportsbook price. PrizePicks sets lines targeting roughly a 50/50 hit rate and pays a flat parlay-style payout, so this leg doesn't carry book-style implied odds.`;
   }
   const reasons = [];
+  // H2H W-L LEAD LINE (moneyline only): if we have real head-to-head data
+  // for this game, open Why this pick with "Record vs <Opponent>: W-L in
+  // last N meetings." Orientation is from the picked side: home picks use
+  // homeWins/awayWins; away picks swap. Pulled from the same fetch the AI
+  // already sees, so the count is real, not fabricated.
+  if (pick.market === "Moneyline" && pick.game && h2hEntry?.h2h?.meetings?.length) {
+    const sides = pick.game.split(" @ ");
+    if (sides.length === 2) {
+      const away = sides[0].trim();
+      const home = sides[1].trim();
+      const pickedHome = pick.pick.toLowerCase().includes(home.toLowerCase()) || home.toLowerCase().includes(pick.pick.split(/\s+/)[0].toLowerCase());
+      const opp = pickedHome ? away : home;
+      const wins = pickedHome ? h2hEntry.h2h.homeWins : h2hEntry.h2h.awayWins;
+      const losses = pickedHome ? h2hEntry.h2h.awayWins : h2hEntry.h2h.homeWins;
+      const meetings = h2hEntry.h2h.meetings.length;
+      reasons.push(`📊 Record vs ${opp}: ${wins}-${losses} in last ${meetings} meeting${meetings === 1 ? "" : "s"}.`);
+    }
+  } else if (pick.market === "Moneyline" && pick.game && h2hEntry && !h2hEntry?.h2h) {
+    const sides = pick.game.split(" @ ");
+    if (sides.length === 2) {
+      const away = sides[0].trim();
+      const home = sides[1].trim();
+      const pickedHome = pick.pick.toLowerCase().includes(home.toLowerCase());
+      const opp = pickedHome ? away : home;
+      reasons.push(`📊 Record vs ${opp}: no prior meetings in our data window.`);
+    }
+  }
   const implied = (impliedProb(pick.odds) * 100).toFixed(0);
   const isFav = pick.odds < 0;
   const isHeavyFav = pick.odds < -200;
@@ -2353,6 +2380,12 @@ export default function ParlayBuilder() {
   const [simTick, setSimTick] = useState(0);
   const [refsSport, setRefsSport] = useState("nba");
   const [gameRefs, setGameRefs] = useState({}); // { "Game name": { name, ...tendencies } }
+  // Real head-to-head data the chat send already fetches from /matchup-history.
+  // Keyed by "Away @ Home" game label, value is the same compact h2h object
+  // ({ homeWins, awayWins, meetings:[…] }) we send to the AI. Stored here so
+  // generateReasoning() can render the W-L line under "Why this pick?" for
+  // moneyline picks without re-fetching.
+  const [matchupHistoryByGame, setMatchupHistoryByGame] = useState({}); // { "<gameLabel>": { home, away, h2h } }
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualForm, setManualForm] = useState({ game: "", market: "Moneyline", pick: "", odds: -110 });
   const [expandedPicks, setExpandedPicks] = useState(new Set());
@@ -4500,6 +4533,12 @@ export default function ParlayBuilder() {
         }),
       );
     }
+    // Mirror the just-fetched h2h data into client state so the per-pick
+    // "Why this pick?" card can show the W-L record for moneyline legs
+    // (the user asked for it under Why this pick, not the AI edge note).
+    if (Object.keys(matchupHistory).length > 0) {
+      setMatchupHistoryByGame((prev) => ({ ...prev, ...matchupHistory }));
+    }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
@@ -5115,9 +5154,11 @@ export default function ParlayBuilder() {
       // hm[2] is the tail of the header line; hm[1] is the matched label.
       const isBlockStop = (s) =>
         /^\s*\**\s*[A-Za-z][A-Za-z0-9 /]{0,30}\s*\**\s*:\s/.test(s) ||
-        /^PICK:/i.test(s) ||
-        /^\s*\d+\.\s/.test(s);
-      const isBullet = (s) => /^\s*[-*•]\s/.test(s);
+        /^PICK:/i.test(s);
+      // Treat both `- Foo` bullets AND `5. Foo` numbered items as paragraph
+      // starters INSIDE the leg-notes block (the AI uses either format).
+      const isBullet = (s) => /^\s*[-*•]\s/.test(s) || /^\s*\d+\.\s/.test(s);
+      const stripBullet = (s) => s.replace(/^\s*(?:[-*•]|\d+\.)\s+/, "").trim();
       let j = li + 1;
       const firstTail = (hm[2] || "").trim();
       const paragraphs = [];
@@ -5133,7 +5174,7 @@ export default function ParlayBuilder() {
         }
         if (isBullet(lj)) {
           if (cur) { paragraphs.push(cur); cur = null; }
-          cur = { text: lj.replace(/^\s*[-*•]\s+/, "").trim(), idxs: [j] };
+          cur = { text: stripBullet(lj), idxs: [j] };
         } else if (!cur) {
           cur = { text: lj.trim(), idxs: [j] };
         } else {
@@ -5229,7 +5270,7 @@ export default function ParlayBuilder() {
             const conf = calculateConfidence(pick, assignedRef);
             const pickKey = `${pick.game}::${pick.pick}`;
             const isExpanded = expandedPicks.has(pickKey);
-            const reasoning = generateReasoning(pick, assignedRef);
+            const reasoning = generateReasoning(pick, assignedRef, matchupHistoryByGame[pick.game] || null);
             return (
               <div
                 key={i}
