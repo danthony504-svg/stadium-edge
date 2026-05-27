@@ -5912,15 +5912,29 @@ export default function ParlayBuilder() {
                   const x = (st || "").toLowerCase();
                   return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
                 };
+                // Safety net for team-name mismatches between ESPN and the
+                // odds feed: any game whose start time is >6h in the past
+                // is certainly done. Catches finished games whose status
+                // lookup failed because the names don't byte-match.
+                const NOW_MS = Date.now();
+                const STALE_MS = 6 * 60 * 60 * 1000;
+                const isLikelyDoneByTime = (iso) => {
+                  if (!iso) return false;
+                  const t = new Date(iso).getTime();
+                  return Number.isFinite(t) && NOW_MS - t > STALE_MS;
+                };
                 const finalKeysGlobal = new Set();
                 for (const games of Object.values(realGamesBySport || {})) {
                   for (const g of (games || [])) {
                     if (isFinalStatusSearch(g.status)) finalKeysGlobal.add(`${g.awayTeam} @ ${g.homeTeam}`);
                   }
                 }
-                // Real bookmaker picks first — skip finals
+                // Real bookmaker picks first — skip finals AND games whose
+                // start time is >6h in the past (name-mismatch safety net).
                 const realPool = Object.values(realOddsBySport)
-                  .flatMap((games) => games.flatMap((g) => finalKeysGlobal.has(`${g.awayTeam} @ ${g.homeTeam}`) ? [] : buildPicksFromOdds(g)));
+                  .flatMap((games) => games.flatMap((g) =>
+                    finalKeysGlobal.has(`${g.awayTeam} @ ${g.homeTeam}`) || isLikelyDoneByTime(g.commenceTime)
+                      ? [] : buildPicksFromOdds(g)));
                 // Loaded real player props — match by player name, market label, or game.
                 // Need to know which sport+game each event belongs to so we can render + add to slip.
                 const eventLookup = {};
@@ -5928,6 +5942,7 @@ export default function ParlayBuilder() {
                   for (const g of games) {
                     const key = `${g.awayTeam} @ ${g.homeTeam}`;
                     if (finalKeysGlobal.has(key)) continue;
+                    if (isLikelyDoneByTime(g.commenceTime)) continue;
                     eventLookup[g.id] = { sport, game: key, commenceTime: g.commenceTime };
                   }
                 }
@@ -6011,16 +6026,31 @@ export default function ParlayBuilder() {
                 const x = (st || "").toLowerCase();
                 return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
               };
+              // Safety net for team-name mismatches between ESPN and the
+              // odds feed (e.g. "LA Lakers" vs "Los Angeles Lakers"): any
+              // game whose start time is >6h in the past is certainly
+              // done across all 8 sports — even slow NFL games wrap by
+              // ~3.5h. This catches finished games whose finalKeys lookup
+              // failed because the names don't byte-match.
+              const NOW_MS = Date.now();
+              const STALE_MS = 6 * 60 * 60 * 1000;
+              const isLikelyDoneByTime = (iso) => {
+                if (!iso) return false;
+                const t = new Date(iso).getTime();
+                return Number.isFinite(t) && NOW_MS - t > STALE_MS;
+              };
               const finalKeys = new Set();
               for (const g of realGames) {
                 if (isFinalStatus(g.status)) finalKeys.add(`${g.awayTeam} @ ${g.homeTeam}`);
               }
               // Build picks from real bookmaker odds, one bucket per game —
-              // skip any game whose score feed already shows it as final.
+              // skip any game whose score feed already shows it as final,
+              // OR whose start time is >6h ago (name-mismatch safety net).
               const byGame = {};
               for (const og of realOdds) {
                 const key = `${og.awayTeam} @ ${og.homeTeam}`;
                 if (finalKeys.has(key)) continue;
+                if (isLikelyDoneByTime(og.commenceTime)) continue;
                 const picks = buildPicksFromOdds(og);
                 if (picks.length > 0) byGame[key] = picks;
               }
@@ -6028,6 +6058,7 @@ export default function ParlayBuilder() {
               // matchup still appears, even if betting markets aren't open yet).
               for (const g of realGames) {
                 if (isFinalStatus(g.status)) continue;
+                if (isLikelyDoneByTime(g.startsAt)) continue;
                 const key = `${g.awayTeam} @ ${g.homeTeam}`;
                 if (!byGame[key]) byGame[key] = [];
               }
