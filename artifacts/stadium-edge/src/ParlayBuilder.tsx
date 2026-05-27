@@ -2714,6 +2714,231 @@ export default function ParlayBuilder() {
     sendMessage(`Build me the best ${verb} for ${gameLabel} (${sport.toUpperCase()}). Use real current odds.`);
   };
 
+  // ---- In-app live-game parlay analyzer (REAL data only) ----
+  // Given one real live game (`g.real === true`), pull the matching odds
+  // entry from realOddsBySport, build candidate picks from h2h / spreads /
+  // totals + any loaded live player props, score each against the live
+  // state (score margin, pacing, period progression), and post the
+  // strongest 2-5 distinct-market legs as a chat reply + auto-fill the slip.
+  // Honest fallback: if odds aren't available for this game (odds API
+  // quota / off-season market), tell the user — never fabricate.
+  const buildBestParlayForLiveRealGame = (g) => {
+    if (!requirePro("Live picks")) return;
+    setView("chat");
+    const userMsg = `Best 2–5 leg live parlay for ${g.away} @ ${g.home}`;
+
+    // 1) Match the live game to a bookmaker odds entry by team names.
+    const oddsEntry = (realOddsBySport[g.sport] || []).find(
+      (o) => o.awayTeam === g.away && o.homeTeam === g.home,
+    );
+    if (!oddsEntry) {
+      setMessages((p) => [
+        ...p,
+        { role: "user", content: userMsg },
+        { role: "assistant", content:
+          `No live bookmaker odds available for **${g.away} @ ${g.home}** right now — likely an in-play book that's paused, or our odds feed is out of credits. I won't fabricate lines. Try again in a minute, or pick a different live game.`
+        },
+      ]);
+      return;
+    }
+
+    // 2) Build candidate picks from h2h / spreads / totals.
+    const main = buildPicksFromOdds({ ...oddsEntry, sport: g.sport });
+
+    // 3) Optionally add live player props (over side only, reasonable odds).
+    const liveProps = realPropsByEvent[oddsEntry.id];
+    const propPicks = [];
+    if (liveProps?.props?.length) {
+      const MARKET_LABEL = {
+        player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
+        player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+        player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
+        player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",
+        player_receptions: "Receptions", player_anytime_td: "Anytime TD",
+        batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+        pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+      };
+      for (const pr of liveProps.props) {
+        if (pr.overPrice == null) continue;
+        if (pr.overPrice < -200 || pr.overPrice > 180) continue;
+        const label = MARKET_LABEL[pr.market] || pr.market;
+        const lineTxt = pr.line == null ? "" : ` ${pr.line}`;
+        propPicks.push({
+          game: `${g.away} @ ${g.home}`,
+          sport: g.sport,
+          market: label,
+          pick: `${pr.player} Over${lineTxt} ${label}`,
+          odds: pr.overPrice,
+          tier: 2,
+          real: true,
+        });
+      }
+    }
+
+    // 4) Score each candidate honestly against the live state.
+    const hasScores = Number.isFinite(g.awayScore) && Number.isFinite(g.homeScore);
+    const margin = hasScores ? (g.homeScore - g.awayScore) : 0;     // + = home leading
+    const periodLabel = g.periodLabel || "live";
+    // Regulation period count per sport — used to estimate elapsed fraction
+    // so a late-game cover scores higher than an early-game one.
+    const REG_PERIODS = { nfl: 4, ncaaf: 4, nba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
+    const regCount = REG_PERIODS[g.sport];
+    const reasons = {};
+    const scoreCandidate = (pk) => {
+      let score = 50;
+      const why = [];
+      const isOver = /\bover\b/i.test(pk.pick);
+      const isUnder = /\bunder\b/i.test(pk.pick);
+      if (pk.market === "Moneyline") {
+        // Whoever is currently leading on the scoreboard gets a bump
+        // proportional to margin. Bigger lead = bigger bump. If no score
+        // yet (pre-pitch), fall back to implied probability from odds.
+        const isHomeML = pk.teamFull === g.home;
+        const isAwayML = pk.teamFull === g.away;
+        if (hasScores && (margin !== 0)) {
+          if ((isHomeML && margin > 0) || (isAwayML && margin < 0)) {
+            score += Math.min(28, Math.abs(margin) * (g.sport === "nba" ? 1.2 : g.sport === "nfl" ? 3 : g.sport === "mlb" ? 5 : 4));
+            why.push(`${pk.teamFull} leading by ${Math.abs(margin)} in ${periodLabel}`);
+          } else {
+            score -= Math.min(20, Math.abs(margin) * 1.5);
+            why.push(`${pk.teamFull} trailing by ${Math.abs(margin)} in ${periodLabel}`);
+          }
+        } else {
+          // Use implied prob as a baseline
+          const ip = impliedProb(pk.odds) * 100;
+          score = 35 + ip * 0.4;
+          why.push(`market-implied ${ip.toFixed(0)}% (no live margin yet)`);
+        }
+      } else if (pk.market === "Spread") {
+        const ptMatch = pk.pick.match(/(-?\+?\d+\.?\d*)$/);
+        const spreadPt = ptMatch ? parseFloat(ptMatch[1]) : 0;
+        const isHomeSpread = pk.teamFull === g.home;
+        // Adjusted margin from the perspective of this side
+        const adj = (isHomeSpread ? margin : -margin) + spreadPt;
+        if (hasScores) {
+          // Period progression: a 4-point cover late in the game is much
+          // more meaningful than the same cover in the 1st quarter.
+          // `elapsed` runs 0..1; multiply the cover signal by it so early
+          // leads don't get over-credited.
+          const elapsed = regCount && Number.isFinite(g.period) && g.period > 0
+            ? Math.min(1, g.period / regCount) : 0.5;
+          const lateBonus = 0.6 + 0.8 * elapsed; // 0.6 → 1.4 across the game
+          score += Math.max(-22, Math.min(24, adj * 2.5 * lateBonus));
+          if (adj > 0) why.push(`already covering by ${adj.toFixed(1)} (margin ${margin} + line ${spreadPt > 0 ? "+" : ""}${spreadPt}) — ${Math.round(elapsed * 100)}% of regulation done`);
+          else if (adj < 0) why.push(`needs ${Math.abs(adj).toFixed(1)} more to cover — ${Math.round(elapsed * 100)}% of regulation done`);
+        } else {
+          score = 45;
+          why.push("game just started — no live cover signal");
+        }
+      } else if (pk.market === "Total") {
+        if (g.pacing === "over" && isOver) { score += 18; why.push(`current pace ${g.currentTotal} → over the line`); }
+        else if (g.pacing === "under" && isUnder) { score += 18; why.push(`current pace ${g.currentTotal} → under the line`); }
+        else if (g.pacing === "on pace") { score += 4; why.push("right on pace — slight live edge to the favored side"); }
+        else if (g.pacing === "over" && isUnder) { score -= 16; why.push("pacing against this side"); }
+        else if (g.pacing === "under" && isOver) { score -= 16; why.push("pacing against this side"); }
+        else { score = 48; why.push("not enough game elapsed to read pacing"); }
+      } else {
+        // Player prop — without live player stats we can only use the
+        // bookmaker's implied probability as a baseline. Honest baseline.
+        const ip = impliedProb(pk.odds) * 100;
+        score = 30 + ip * 0.4;
+        why.push(`live prop, market-implied ${ip.toFixed(0)}%`);
+      }
+      reasons[pk.pick + "|" + pk.market] = why.join(" · ");
+      return { ...pk, _score: score };
+    };
+
+    // Score everything, then pick the best per market category and stop
+    // when we have 2-5 distinct legs. NEVER take both sides of the same
+    // market (no ML + opposing-ML, no over + under, no team + opposing
+    // spread) — that's a built-in contradiction.
+    const scored = [...main, ...propPicks].map(scoreCandidate);
+    scored.sort((a, b) => b._score - a._score);
+    const picked = [];
+    const usedCategory = new Set(); // "ml" | "spread" | "total" | prop key
+    for (const pk of scored) {
+      if (picked.length >= 5) break;
+      let cat;
+      if (pk.market === "Moneyline") cat = "ml";
+      else if (pk.market === "Spread") cat = "spread";
+      else if (pk.market === "Total") cat = "total";
+      else cat = `prop:${pk.pick.replace(/\s+Over\s+\S+\s+.*$/, "")}`; // one prop per player
+      if (usedCategory.has(cat)) continue;
+      // Require a minimally credible score so we don't pad weak legs.
+      if (pk._score < 45 && picked.length >= 2) continue;
+      usedCategory.add(cat);
+      picked.push(pk);
+    }
+
+    if (picked.length < 2) {
+      setMessages((p) => [
+        ...p,
+        { role: "user", content: userMsg },
+        { role: "assistant", content:
+          `Couldn't find 2 strong live legs in **${g.away} @ ${g.home}** right now (only ${picked.length} credible spot${picked.length === 1 ? "" : "s"}). Live markets for this game might be paused, or the score is too tight to lean either way. I won't pad with weak legs.`
+        },
+      ]);
+      return;
+    }
+
+    // 5) Pre-check the slip filter so we never tell the user "ticket added"
+    // while autoFillSlip silently drops every leg (e.g. game just fell out
+    // of the 24h window between scoring and rendering).
+    const ticketRaw = picked.slice(0, 5);
+    const { kept: ticket, dropped } = filterPicksToReal(ticketRaw);
+    if (ticket.length === 0) {
+      setMessages((p) => [
+        ...p,
+        { role: "user", content: userMsg },
+        { role: "assistant", content:
+          `Built ${ticketRaw.length} candidate legs for **${g.away} @ ${g.home}** but every one got rejected by the live-game filter (the game may have just gone Final or fallen outside the 24h window). Nothing added to your slip — pick a different game.`
+        },
+      ]);
+      return;
+    }
+    const math = calculateParlay(ticket);
+    const impliedPct = (impliedProb(math.american) * 100).toFixed(1);
+    autoFillSlip(ticket);
+
+    const stateLine = hasScores
+      ? `${g.away} ${g.awayScore} – ${g.homeScore} ${g.home} · ${periodLabel}${g.clock ? " " + g.clock : ""}`
+      : `${periodLabel}${g.clock ? " " + g.clock : ""}`;
+    const totalLine = Number.isFinite(g.total)
+      ? ` · current total ${g.currentTotal}/${g.total}${g.pacing ? ` (pacing ${g.pacing})` : ""}`
+      : "";
+
+    const droppedNote = dropped.length > 0
+      ? `_Note: ${dropped.length} candidate leg${dropped.length === 1 ? "" : "s"} dropped by the live-game filter._\n\n`
+      : "";
+    const intro =
+      `🔴 **LIVE PARLAY — ${g.away} @ ${g.home} · ${ticket.length} legs**\n` +
+      `_${stateLine}${totalLine}_\n\n` +
+      droppedNote +
+      `I scored every live spot in this game (live margin, pacing, period progression, market-implied probability${liveProps?.props?.length ? ", live player props" : ""}) and took the strongest ${ticket.length} distinct-market legs.\n\n`;
+
+    const lines = ticket.map((p) =>
+      `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`
+    ).join("\n");
+
+    const analysis =
+      "\n\nLive analysis:\n" +
+      ticket.map((p) => {
+        const why = reasons[p.pick + "|" + p.market] || "live read";
+        return `• **${p.market} — ${p.pick}** (${formatOdds(p.odds)}) — ${why}`;
+      }).join("\n");
+
+    const footer =
+      `\n\nCombined odds: **${formatOdds(math.american)}** · payout ${math.decimal.toFixed(2)}× stake\n` +
+      `Implied probability: ${impliedPct}% (what the market actually prices this at)\n` +
+      `_Live odds move every few seconds — confirm prices in your sportsbook before placing. 21+ · bet responsibly._`;
+
+    setMessages((p) => [
+      ...p,
+      { role: "user", content: userMsg },
+      { role: "assistant", content: intro + lines + analysis + footer },
+    ]);
+  };
+
   // Build a simulated live parlay and post it into the chat
   const buildSimLiveParlay = () => {
     const games = generateSimLiveGames(selectedSports);
@@ -4998,7 +5223,7 @@ export default function ParlayBuilder() {
                       )}
                     </div>
                     <button
-                      onClick={() => g.real ? buildParlayForRealGame(g.game, g.sport, "live") : buildParlayForLiveGame(g)}
+                      onClick={() => g.real ? buildBestParlayForLiveRealGame(g) : buildParlayForLiveGame(g)}
                       className="w-full mt-2.5 bg-cyan-400 text-slate-950 rounded-lg py-2 text-xs font-semibold hover:bg-cyan-300 transition"
                     >
                       Build best parlay from this game
@@ -6155,16 +6380,23 @@ export default function ParlayBuilder() {
                   </div>
                   <button
                     onClick={() => {
+                      // Real live games go through the in-app analyzer so
+                      // the user gets the full 2-5 leg breakdown in chat
+                      // plus the auto-filled slip. Sim games keep the old
+                      // direct add-to-slip behavior.
+                      if (g.real) {
+                        buildBestParlayForLiveRealGame(g);
+                        return;
+                      }
                       if (!requirePro("Live picks")) return;
                       const gamePicks = buildSimLivePicks([g]);
-                      let added = 0;
                       gamePicks.forEach((pk) => {
-                        if (!parlayLegs.some((l) => legKey(l) === legKey(pk))) { addLeg(pk); added++; }
+                        if (!parlayLegs.some((l) => legKey(l) === legKey(pk))) { addLeg(pk); }
                       });
                     }}
                     className="w-full mt-2 bg-rose-400/15 border border-rose-400/40 text-rose-300 rounded-lg py-2 text-xs font-semibold hover:bg-rose-400/25 transition"
                   >
-                    + Add this game's live picks to ticket
+                    {g.real ? "Build best 2–5 leg parlay from this game" : "+ Add this game's live picks to ticket"}
                   </button>
                 </div>
                 ));
