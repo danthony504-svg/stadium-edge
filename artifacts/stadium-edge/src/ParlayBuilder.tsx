@@ -4890,12 +4890,12 @@ export default function ParlayBuilder() {
           });
         }
       }
-      // Picks here have already been validated against the eligibleMatchups
-      // pool built earlier in this same sendMessage call (which includes
-      // this turn's freshly-fetched props). Skip the second filter pass —
-      // it reads React state that hasn't committed yet and would drop
-      // valid legs.
-      if (picks.length > 0) autoFillSlip(picks, { alreadyValidated: true });
+      // Do NOT auto-add chat parlay picks to YOUR SLIP. Each parlay response
+      // renders its own snapshot card in the chat (with a "+ Add all" button),
+      // so YOUR SLIP stays untouched across new questions. The user explicitly
+      // commits a parlay to the live ticket by clicking the snapshot's
+      // "+ Add all" — that way old slips don't get combined or overwritten
+      // when a new question is asked.
     } catch (err) {
       // Distinguish "you're sending too fast" (HTTP 429 from our own rate
       // limiter) from a true AI outage. Conflating the two surfaces a
@@ -4935,7 +4935,8 @@ export default function ParlayBuilder() {
           };
           return next;
         });
-        if (reply.picks && reply.picks.length > 0) autoFillSlip(reply.picks);
+        // Same rule as the AI path: chat parlays render as snapshot cards
+        // and do not auto-fill YOUR SLIP. User commits via "+ Add all".
       }
     } finally {
       setLoading(false);
