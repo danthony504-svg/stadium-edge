@@ -92,7 +92,7 @@ How to weigh it for prop legs (these are guides, not hard rules):
     NFL — "1Q Passing Yards", "1Q Passing TDs", "1Q Rushing Yards", "1Q Receiving Yards", and 1H versions of pass/rush/receiving yds.
     NCAAF — same as NFL but no 1Q passing TDs.
     NCAAB / MLB / NHL — no quarter or half player markets exist in our feed; do NOT pick a "1Q" or "1H" prop in those sports.
-  EXPLICIT PERIOD INTENT — HARD RULE: if the user's message contains "first quarter", "1Q", "1st quarter", "Q1", "first half", "1H", "1st half", or "H1", EVERY leg you return MUST be a quarter/half market for the requested period. That means:
+  EXPLICIT PERIOD INTENT — HARD RULE: if the user's message contains "first quarter", "1Q", "1st quarter", "Q1", "1 quarter", "first half", "1H", "1st half", "H1", or "1 half", EVERY leg you return MUST be a quarter/half market for ONE of the requested periods. If the user names BOTH periods (e.g. "first half AND 1 quarter parlay"), legs may be any mix of "_q1" and "_h1" markets — both are honored. That means:
     * Only player props ending in "_q1" (for first-quarter intent) or "_h1" (for first-half intent) — full-game props like player_points / player_pass_yds are FORBIDDEN.
     * Do NOT include game-level full-game spread, total, or moneyline picks (e.g. "Thunder +3.5", "Over 218.5") in a 1Q/1H ticket — those settle on the entire game, so they're the wrong period and violate the user's ask. Our feed does not currently include game-level 1Q/1H spread/total markets, so a pure 1Q parlay can ONLY be built from "_q1" player props (and a pure 1H parlay from "_h1" player props).
     * If the available pool doesn't have enough qualifying _q1 / _h1 props for the leg count the user asked for, RETURN A SHORTER TICKET and say so plainly in the assistant message (e.g. "I could only find 3 first-quarter props worth playing for OKC@SAS — here's the 3-leg 1Q ticket instead of 4"). DO NOT silently pad with full-game picks.
@@ -218,10 +218,15 @@ router.post("/chat", async (req, res): Promise<void> => {
   // period-suffixed variants ONLY (full-game variants of the same stat are
   // excluded) — a request like "1Q passing yards parlay" must filter to
   // player_pass_yds_q1 only, never the full-game player_pass_yds.
-  const periodIntent: "q1" | "h1" | null =
-    /\b(first\s+quarter|1st\s+quarter|1q|q1)\b/i.test(latestUser) ? "q1"
-    : /\b(first\s+half|1st\s+half|1h|h1)\b/i.test(latestUser) ? "h1"
-    : null;
+  // Period intent is a SET, not a single value — a request like
+  // "10 leg first half and 1 quarter parlay" must honor BOTH `_h1` AND
+  // `_q1` markets. Detect each independently. Looser q1/h1 patterns also
+  // catch bare "1 quarter" / "1 half" (without "first").
+  const periodIntents = new Set<"q1" | "h1">();
+  if (/\b(?:first|1st|1|one)\s+quarter\b|\b(?:1q|q1)\b/i.test(latestUser)) periodIntents.add("q1");
+  if (/\b(?:first|1st|1|one)\s+half\b|\b(?:1h|h1)\b/i.test(latestUser)) periodIntents.add("h1");
+  const periodIntent = periodIntents.size > 0; // boolean: any period asked?
+  const periodSuffixList = Array.from(periodIntents).map((p) => `_${p}`);
 
   let lockedContext = parsed.data.context;
   if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
@@ -230,11 +235,11 @@ router.post("/chat", async (req, res): Promise<void> => {
     // the base full-game markets. With period intent, REPLACE the base
     // markets with their period-suffixed variants — full-game variants
     // must be excluded so the user's "first-quarter X props" ask is
-    // honored exactly (otherwise the model could still pick a full-game
-    // line and pretend it's the requested period).
+    // honored exactly. With multiple period intents (e.g. q1 + h1), the
+    // allow-list is the union of suffix variants.
     const allowed = new Set<string>(
       periodIntent
-        ? lockedMarket.markets.map((m) => `${m}_${periodIntent}`)
+        ? lockedMarket.markets.flatMap((m) => periodSuffixList.map((s) => `${m}${s}`))
         : lockedMarket.markets,
     );
     const filteredProps = (ctx.realProps || []).filter((p) => allowed.has(String(p.market || "")));
@@ -246,8 +251,8 @@ router.post("/chat", async (req, res): Promise<void> => {
     // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
     // filter for the original failing case.
     const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; startsAt?: string }> } & Record<string, unknown>;
-    const suffix = `_${periodIntent}`;
-    let filteredProps = (ctx.realProps || []).filter((p) => String(p.market || "").endsWith(suffix));
+    const matchesAnySuffix = (m: string) => periodSuffixList.some((s) => m.endsWith(s));
+    let filteredProps = (ctx.realProps || []).filter((p) => matchesAnySuffix(String(p.market || "")));
 
     // SERVER-SIDE FRESH-FETCH FALLBACK: if the client's realProps has zero
     // period entries (because the client cache pre-dated the QH deploy and
@@ -296,7 +301,7 @@ router.post("/chat", async (req, res): Promise<void> => {
                     const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number }> };
                     const gameLabel = `${data.away} @ ${data.home}`;
                     for (const pr of (data.props || [])) {
-                      if (!String(pr.market || "").endsWith(suffix)) continue;
+                      if (!matchesAnySuffix(String(pr.market || ""))) continue;
                       freshProps.push({
                         sport,
                         game: gameLabel,
@@ -326,11 +331,13 @@ router.post("/chat", async (req, res): Promise<void> => {
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
       : "";
 
-  const periodSuffix = periodIntent ? `_${periodIntent}` : "";
-  const periodLabel = periodIntent === "q1" ? "first-quarter" : periodIntent === "h1" ? "first-half" : "";
+  const periodSuffix = periodSuffixList.join("/") || "";
+  const periodLabel = periodIntents.size === 0
+    ? ""
+    : Array.from(periodIntents).map((p) => (p === "q1" ? "first-quarter" : "first-half")).join(" + ");
   const allowedMarketsForAddendum = lockedMarket
     ? (periodIntent
-        ? lockedMarket.markets.map((m) => `${m}${periodSuffix}`).join(", ")
+        ? lockedMarket.markets.flatMap((m) => periodSuffixList.map((s) => `${m}${s}`)).join(", ")
         : lockedMarket.markets.join(", "))
     : "";
   const lockedSystemAddendum = lockedMarket
