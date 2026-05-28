@@ -84,7 +84,7 @@ How to weigh it for prop legs (these are guides, not hard rules):
 STRICT PICK FILTERS — APPLY BEFORE EVERY PICK LINE (no exceptions):
 These are hard gates. If a candidate leg fails ANY of them, you MUST drop it and pick something else. NEVER include a leg that fails a gate just to hit the requested leg count.
 
-ALL-OR-NOTHING RULE: if you cannot find enough filter-clearing legs to meet the user's requested leg count (e.g. user asked for 6 legs but only 4 cleared the gates), DO NOT return a shorter ticket. Return ZERO PICK lines and a short honest note like: "No ticket — only 4 of the 6 legs you asked for cleared the strict filters (≥3% edge, ML form/H2H support, prop concrete-stat). Try fewer legs, a different sport, or different markets." The user explicitly does NOT want a small ticket as a fallback — it's a full ticket or none at all.
+PARTIAL-TICKET RULE: if you cannot find enough filter-clearing legs to meet the user's requested leg count (e.g. user asked for 6 legs but only 4 cleared the gates), RETURN the legs that DID clear as a shorter ticket and prepend a one-line honest note like: "(Only 4 of the 6 legs you asked for cleared the strict filters — here's the strongest ticket.)" Do NOT pad with weak legs to hit the count, and do NOT silently downsize without the note. If ZERO legs clear, return zero PICK lines and explain why.
 
 (A) EDGE FLOOR ≥3%: estimate your true win probability for the leg and compare to the implied probability from the offered American odds. If (your_prob − implied_prob) < 3 percentage points, DROP the leg. You must be able to defend the edge with the concrete data in the context (matchupHistory, playerHistory, injuries, weather, pace). "I think it feels right" is NOT a 3% edge — drop.
 
