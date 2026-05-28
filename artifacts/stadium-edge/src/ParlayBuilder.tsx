@@ -8590,8 +8590,57 @@ export default function ParlayBuilder() {
                     bestScore = { side: (p.overPrice != null ? "over" : "under"), edge: 0, roster: null, statKey: null, blended: 0.5 };
                   }
                 }
+                // Build the pinned "AI Pick" summary card — surfaces the
+                // best-edge prop at the top of the section so the user sees
+                // it without scrolling through hundreds of bookmaker rows.
+                const aiPickCard = bestIdx >= 0 && bestScore ? (() => {
+                  const p = live.props[bestIdx];
+                  const label = MARKET_LABEL[p.market] || p.market;
+                  const lineTxt = p.line == null ? "" : ` ${p.line}`;
+                  const sideTxt = bestScore.side === "over" ? "Over" : "Under";
+                  const priced = bestScore.side === "over" ? p.overPrice : p.underPrice;
+                  const pickText = `${p.player} ${sideTxt}${lineTxt} ${label}`;
+                  const aiBaseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
+                  const aiPickKey = `${p.player} ${sideTxt}${lineTxt} ${label}`;
+                  const aiInSlip = parlayLegs.some((l) => l.game === game && l.pick === aiPickKey);
+                  const reasonBits = [];
+                  if (bestScore.roster) {
+                    reasonBits.push(`${bestScore.roster.name.split(" ").slice(-1)[0]} form ${bestScore.roster.form}/10`);
+                    if (bestScore.statKey && bestScore.roster.stats[bestScore.statKey] != null) {
+                      reasonBits.push(`avg ${bestScore.roster.stats[bestScore.statKey]} vs line ${p.line}`);
+                    }
+                    reasonBits.push(`${(bestScore.edge * 100).toFixed(1)}% edge vs no-vig fair`);
+                  } else {
+                    if (priced != null) reasonBits.push(`best price ${formatOdds(priced)}`);
+                    reasonBits.push("lowest-vig side of this market");
+                  }
+                  return (
+                    <div className="mx-4 mt-2 mb-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-2 border-cyan-400 overflow-hidden">
+                      <div className="bg-cyan-400 text-slate-950 px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
+                        <span>★</span><span>AI's top edge pick</span>
+                      </div>
+                      <div className="px-4 py-3">
+                        <div className="text-[10px] font-mono uppercase text-cyan-300 tracking-wider mb-0.5">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
+                        <div className="text-base font-bold text-slate-100 mb-1">{p.player}</div>
+                        <div className="text-sm text-cyan-200 mb-2"><span className="font-semibold">{sideTxt} {p.line}</span>{priced != null && <span className="font-mono ml-2">{formatOdds(priced)}</span>}</div>
+                        <div className="text-[11px] text-slate-300 leading-snug mb-3">
+                          <span className="font-bold uppercase tracking-wider text-[9px] text-cyan-300 mr-1">Why:</span>
+                          {reasonBits.join(" · ")}
+                        </div>
+                        <button
+                          onClick={() => { if (!aiInSlip && priced != null) addLeg({ ...aiBaseLeg, pick: pickText, odds: priced }); }}
+                          disabled={aiInSlip || priced == null}
+                          className={`w-full rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition ${aiInSlip ? "bg-slate-800 text-slate-500" : "bg-cyan-400 hover:bg-cyan-300 text-slate-950"}`}
+                        >
+                          {aiInSlip ? "✓ Added to ticket" : "+ Add AI pick to ticket"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })() : null;
                 return (
                   <Section title="Live Player Props" count={live.props.length}>
+                    {aiPickCard}
                     <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
                       {live.bookmaker || "Bookmaker"} · live lines
                     </div>
