@@ -2182,6 +2182,17 @@ export default function ParlayBuilder() {
   // limited to just the current slip.
   const [attachedSlipIdxs, setAttachedSlipIdxs] = useState(() => new Set());
 
+  // Normalize yes/no markets to the friendly book labels. The Odds API
+  // returns HR / anytime-TD / anytime-goal as Over 0.5 props, but books
+  // display them as "To Hit a HR" / "Anytime TD" / "Anytime Goal".
+  const friendlyPickLabel = (pickTxt) => {
+    if (!pickTxt) return pickTxt;
+    return pickTxt
+      .replace(/\bOver\s+0\.5\s+(Home Runs?|HR)\b/i, "To Hit a HR")
+      .replace(/\bOver\s+0\.5\s+(Anytime TD|TDs?|Touchdowns?)\b/i, "Anytime TD")
+      .replace(/\bOver\s+0\.5\s+(Goals?|Anytime Goal)\b/i, "Anytime Goal");
+  };
+
   // Parse pick-like rows from uploaded text or CSV.
   // Accepts "Game | Market | Pick | Odds" or CSV "Game,Market,Pick,Odds".
   const parsePicksFromText = (text) => {
@@ -2193,7 +2204,7 @@ export default function ParlayBuilder() {
       if (parts.length >= 4) {
         const odds = parseInt(parts[3].replace(/[^\d+-]/g, ""));
         if (!isNaN(odds)) {
-          found.push({ game: parts[0].trim(), market: parts[1].trim(), pick: parts[2].trim(), odds });
+          found.push({ game: parts[0].trim(), market: parts[1].trim(), pick: friendlyPickLabel(parts[2].trim()), odds });
         }
       }
     }
@@ -2952,11 +2963,22 @@ export default function ParlayBuilder() {
         if (pr.overPrice < -200 || pr.overPrice > 180) continue;
         const label = MARKET_LABEL[pr.market] || pr.market;
         const lineTxt = pr.line == null ? "" : ` ${pr.line}`;
+        // Yes/no markets are technically Over 0.5 in the feed but books
+        // display them as "To Hit a HR" / "Anytime TD" / "Anytime Goal".
+        const YES_NO_LABEL = {
+          batter_home_runs: "To Hit a HR",
+          player_anytime_td: "Anytime TD",
+          player_goals: "Anytime Goal",
+        };
+        const friendlyLabel = pr.line === 0.5 && YES_NO_LABEL[pr.market];
+        const pickTxt = friendlyLabel
+          ? `${pr.player} ${friendlyLabel}`
+          : `${pr.player} Over${lineTxt} ${label}`;
         propPicks.push({
           game: `${g.away} @ ${g.home}`,
           sport: g.sport,
           market: label,
-          pick: `${pr.player} Over${lineTxt} ${label}`,
+          pick: pickTxt,
           odds: pr.overPrice,
           tier: 2,
           real: true,
@@ -4685,7 +4707,7 @@ export default function ParlayBuilder() {
         if (mm) {
           const oddsTok = mm[4];
           const odds = oddsTok === "PrizePicks line" ? null : parseInt(oddsTok);
-          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: mm[3].trim(), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
+          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: friendlyPickLabel(mm[3].trim()), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
         }
       }
       if (!raw.length) {
@@ -4900,7 +4922,7 @@ export default function ParlayBuilder() {
         picks.push({
           game: hit.canonical || rawGame,
           market: m[2].trim(),
-          pick: m[3].trim(),
+          pick: friendlyPickLabel(m[3].trim()),
           odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
           ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
         });
@@ -5067,7 +5089,7 @@ export default function ParlayBuilder() {
         rawMessagePicks.push({
           game: m[1].trim(),
           market: m[2].trim(),
-          pick: m[3].trim(),
+          pick: friendlyPickLabel(m[3].trim()),
           odds,
           ...(odds === null ? { priceSource: "PrizePicks" } : {}),
         });
@@ -5279,7 +5301,7 @@ export default function ParlayBuilder() {
             const rawPick = {
               game: m[1].trim(),
               market: m[2].trim(),
-              pick: m[3].trim(),
+              pick: friendlyPickLabel(m[3].trim()),
               odds,
               ...(odds === null ? { priceSource: "PrizePicks" } : {}),
             };
