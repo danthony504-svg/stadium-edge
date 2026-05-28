@@ -19,6 +19,33 @@ const MARKETS_BY_SPORT: Record<string, string[]> = {
   nhl: ["player_points", "player_goals", "player_assists", "player_shots_on_goal"],
 };
 
+// Quarter / half player markets — fetched as a SEPARATE Odds API call so a
+// 422 on an unsupported market segment can't wipe out the base props above.
+// The result is merged into the same per-(player, market, line) aggregation
+// downstream; the unique market keys keep them distinct from full-game props.
+//
+// IMPORTANT: the Odds API rejects the ENTIRE batch with INVALID_MARKET if
+// even one market name in the list is unsupported, so this allowlist is
+// constrained to markets verified via direct probe of the Odds API:
+//   NBA: only _q1 for points/rebounds/assists (threes_q1 and ALL _h1 invalid)
+//   NFL: _q1 + _h1 for pass/rush/reception yds (+ pass_tds_q1); NOT receptions_q1
+//   NCAAF: _q1 + _h1 for pass/rush/reception yds
+//   NCAAB: no QH markets are supported by the Odds API today — omit entirely
+// If you add a new key here you MUST probe it on a live event first.
+const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
+  nba: [
+    "player_points_q1", "player_rebounds_q1", "player_assists_q1",
+  ],
+  nfl: [
+    "player_pass_yds_q1", "player_pass_tds_q1", "player_rush_yds_q1", "player_reception_yds_q1",
+    "player_pass_yds_h1", "player_rush_yds_h1", "player_reception_yds_h1",
+  ],
+  ncaaf: [
+    "player_pass_yds_q1", "player_rush_yds_q1", "player_reception_yds_q1",
+    "player_pass_yds_h1", "player_rush_yds_h1", "player_reception_yds_h1",
+  ],
+};
+
 type RawEventOdds = {
   home_team?: string;
   away_team?: string;
@@ -96,46 +123,60 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   }
 
   try {
-    const data = await cachedJson<RawEventOdds>(
-      `props:${oddsKey}:${eventId}`,
-      5 * 60 * 1000,
-      async () => {
-        const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${eventId}/odds?apiKey=${apiKey}&regions=us&markets=${markets.join(",")}&oddsFormat=american`;
-        const r = await fetch(url);
-        if (!r.ok) {
-          const text = await r.text();
-          throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
-        }
-        return (await r.json()) as RawEventOdds;
-      },
-    );
+    const fetchOdds = async (mkList: string[]) => {
+      const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${eventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
+      const r = await fetch(url);
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
+      }
+      return (await r.json()) as RawEventOdds;
+    };
 
-    // Union player markets across ALL bookmakers, keeping the BEST price per
-    // (player, market, line, side). Earlier this only scanned bookmakers[0],
-    // which silently dropped entire prop markets (e.g. HRs) whenever the
-    // first-listed book didn't post that market for a given game even though
-    // another book did. Best-price aggregation is also what a sharp user
-    // expects — show the most beatable line available across the US books.
-    // Best = higher American number when both positive, less-negative when
-    // both negative; sign change always favors the positive (plus money).
+    const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
+    const [data, qhData] = await Promise.all([
+      cachedJson<RawEventOdds>(`props:${oddsKey}:${eventId}`, 5 * 60 * 1000, () => fetchOdds(markets)),
+      qhMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${eventId}:v2`, 5 * 60 * 1000, async () => {
+            // Honest fallback: if a quarter/half segment 422s for this sport/event
+            // (e.g. game not in-window for QH lines yet) we return null and keep
+            // the base props rather than failing the whole request.
+            try { return await fetchOdds(qhMarkets); } catch { return null; }
+          })
+        : Promise.resolve(null),
+    ]);
+
+    // Union player markets across ALL bookmakers (base + quarter/half),
+    // keeping the BEST price per (player, market, line, side). Earlier this
+    // only scanned bookmakers[0], which silently dropped entire prop markets
+    // (e.g. HRs) whenever the first-listed book didn't post that market for a
+    // given game even though another book did. Best-price aggregation is also
+    // what a sharp user expects — show the most beatable line available
+    // across the US books. Best = higher American number when both positive,
+    // less-negative when both negative; sign change always favors the
+    // positive (plus money).
     const americanToProb = (a: number) => (a > 0 ? 100 / (a + 100) : -a / (-a + 100));
     const betterAmerican = (a: number, b: number) => (americanToProb(a) < americanToProb(b) ? a : b);
     const byKey = new Map<string, { player: string; market: string; line: number | null; overPrice: number | null; underPrice: number | null }>();
-    for (const book of data.bookmakers ?? []) {
-      for (const m of book.markets ?? []) {
-        for (const o of m.outcomes ?? []) {
-          const player = o.description ?? "—";
-          const line = o.point ?? null;
-          const k = `${player}|${m.key}|${line ?? "_"}`;
-          const row = byKey.get(k) ?? { player, market: m.key, line, overPrice: null, underPrice: null };
-          const price = Math.round(o.price);
-          const side = o.name.toLowerCase();
-          if (side === "over" || side === "yes") {
-            row.overPrice = row.overPrice == null ? price : betterAmerican(row.overPrice, price);
-          } else if (side === "under" || side === "no") {
-            row.underPrice = row.underPrice == null ? price : betterAmerican(row.underPrice, price);
+    const sources: Array<RawEventOdds | null> = [data, qhData];
+    for (const src of sources) {
+      if (!src) continue;
+      for (const book of src.bookmakers ?? []) {
+        for (const m of book.markets ?? []) {
+          for (const o of m.outcomes ?? []) {
+            const player = o.description ?? "—";
+            const line = o.point ?? null;
+            const k = `${player}|${m.key}|${line ?? "_"}`;
+            const row = byKey.get(k) ?? { player, market: m.key, line, overPrice: null, underPrice: null };
+            const price = Math.round(o.price);
+            const side = o.name.toLowerCase();
+            if (side === "over" || side === "yes") {
+              row.overPrice = row.overPrice == null ? price : betterAmerican(row.overPrice, price);
+            } else if (side === "under" || side === "no") {
+              row.underPrice = row.underPrice == null ? price : betterAmerican(row.underPrice, price);
+            }
+            byKey.set(k, row);
           }
-          byKey.set(k, row);
         }
       }
     }
