@@ -245,9 +245,79 @@ router.post("/chat", async (req, res): Promise<void> => {
     // `_h1` markets so the AI can't pick full-game props even if the
     // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
     // filter for the original failing case.
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
+    const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; startsAt?: string }> } & Record<string, unknown>;
     const suffix = `_${periodIntent}`;
-    const filteredProps = (ctx.realProps || []).filter((p) => String(p.market || "").endsWith(suffix));
+    let filteredProps = (ctx.realProps || []).filter((p) => String(p.market || "").endsWith(suffix));
+
+    // SERVER-SIDE FRESH-FETCH FALLBACK: if the client's realProps has zero
+    // period entries (because the client cache pre-dated the QH deploy and
+    // the user is on stale JS, or any other reason), fetch fresh props
+    // directly from our own /sports/props endpoint for the games present
+    // in realOdds. Both /sports/odds and /sports/props are server-side
+    // cached for 5min so this is cheap on repeat sends.
+    const QH_PERIOD_SPORTS = new Set(["nba", "nfl", "ncaaf"]);
+    const requestedSports = new Set<string>();
+    for (const o of (ctx.realOdds || [])) {
+      if (o.sport && QH_PERIOD_SPORTS.has(o.sport)) requestedSports.add(o.sport);
+    }
+    if (filteredProps.length === 0 && requestedSports.size > 0) {
+      const selfPort = process.env["PORT"] || "8080";
+      const selfBase = `http://127.0.0.1:${selfPort}`;
+      try {
+        // Build a unique set of (sport, gameLabel) pairs from realOdds —
+        // these are the games the user is implicitly asking about.
+        const gamesBySport = new Map<string, Set<string>>();
+        for (const o of (ctx.realOdds || [])) {
+          if (!o.sport || !o.game || !QH_PERIOD_SPORTS.has(o.sport)) continue;
+          if (!gamesBySport.has(o.sport)) gamesBySport.set(o.sport, new Set());
+          gamesBySport.get(o.sport)!.add(o.game);
+        }
+        const freshProps: typeof filteredProps = [];
+        await Promise.all(
+          Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
+            try {
+              const oddsRes = await fetch(`${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`);
+              if (!oddsRes.ok) return;
+              const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string }>;
+              // Match incoming game labels ("Away @ Home") to event IDs and
+              // fetch props for up to 5 events per sport (matches the
+              // client's perSportCap so we don't over-fan).
+              const idsToFetch: string[] = [];
+              for (const e of oddsList) {
+                const label = `${e.awayTeam} @ ${e.homeTeam}`;
+                if (e.id && gameSet.has(label)) idsToFetch.push(e.id);
+                if (idsToFetch.length >= 5) break;
+              }
+              await Promise.all(
+                idsToFetch.map(async (eventId) => {
+                  try {
+                    const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
+                    if (!propsRes.ok) return;
+                    const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number }> };
+                    const gameLabel = `${data.away} @ ${data.home}`;
+                    for (const pr of (data.props || [])) {
+                      if (!String(pr.market || "").endsWith(suffix)) continue;
+                      freshProps.push({
+                        sport,
+                        game: gameLabel,
+                        player: pr.player,
+                        market: pr.market,
+                        line: pr.line,
+                        // chat-payload shape uses `over`/`under`, not `overPrice`/`underPrice`
+                        ...(pr.overPrice != null ? { over: pr.overPrice } : {}),
+                        ...(pr.underPrice != null ? { under: pr.underPrice } : {}),
+                      } as typeof filteredProps[number]);
+                    }
+                  } catch { /* per-event failure is non-fatal */ }
+                }),
+              );
+            } catch { /* per-sport failure is non-fatal */ }
+          }),
+        );
+        if (freshProps.length > 0) filteredProps = freshProps;
+      } catch { /* fallback is best-effort; honest empty result if it fails */ }
+    }
+
     lockedContext = { ...ctx, realProps: filteredProps };
   }
 
