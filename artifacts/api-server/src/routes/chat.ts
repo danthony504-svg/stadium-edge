@@ -227,12 +227,29 @@ router.post("/chat", async (req, res): Promise<void> => {
   // `_q1` markets. Detect each independently. Looser q1/h1 patterns also
   // catch bare "1 quarter" / "1 half" (without "first").
   const periodIntents = new Set<"q1" | "q2" | "q3" | "q4" | "h1" | "h2">();
+  // Generic plural / unqualified period words ("quarters and half parlay",
+  // "any quarter ticket", "halves parlay") — expand to ALL quarters or both
+  // halves. Users who don't name a specific number usually want a mixed
+  // period ticket; matching just q1/h1 in that case starves the pool and
+  // produces the "no period markets" honesty answer even though we have
+  // plenty of Q2/Q3/Q4/2H game-level markets.
+  const genericQuarter = /\b(?:any\s+)?quarters?\b/i.test(latestUser);
+  const genericHalf = /\b(?:any\s+)?halves|\bhalf\b/i.test(latestUser);
   if (/\b(?:first|1st|1|one)\s+quarter\b|\b(?:1q|q1)\b/i.test(latestUser)) periodIntents.add("q1");
   if (/\b(?:second|2nd|2|two)\s+quarter\b|\b(?:2q|q2)\b/i.test(latestUser)) periodIntents.add("q2");
   if (/\b(?:third|3rd|3|three)\s+quarter\b|\b(?:3q|q3)\b/i.test(latestUser)) periodIntents.add("q3");
   if (/\b(?:fourth|4th|4|four)\s+quarter\b|\b(?:4q|q4)\b/i.test(latestUser)) periodIntents.add("q4");
   if (/\b(?:first|1st|1|one)\s+half\b|\b(?:1h|h1)\b/i.test(latestUser)) periodIntents.add("h1");
   if (/\b(?:second|2nd|2|two)\s+half\b|\b(?:2h|h2)\b/i.test(latestUser)) periodIntents.add("h2");
+  // Expand generic plural/unqualified mentions only when no specific number
+  // was named for that period family. (A request like "Q3 and any quarter"
+  // is treated as "any quarter" — Q3 is already in.)
+  if (genericQuarter && !["q1","q2","q3","q4"].some((q) => periodIntents.has(q as never))) {
+    periodIntents.add("q1"); periodIntents.add("q2"); periodIntents.add("q3"); periodIntents.add("q4");
+  }
+  if (genericHalf && !["h1","h2"].some((h) => periodIntents.has(h as never))) {
+    periodIntents.add("h1"); periodIntents.add("h2");
+  }
   const periodIntent = periodIntents.size > 0; // boolean: any period asked?
   // Per-player markets only exist for q1 / h1 on Odds API — q2/q3/q4/h2 are
   // game-level only. We still build suffix list for ALL requested periods so
