@@ -3,6 +3,7 @@
 - [Finals suppression belt-and-braces](finals-suppression-belt-and-braces.md) — render-site and source-side finished-game filtering; 4h cutoff + active-status bypass.
 - [Playoff series duplicate labels](playoff-series-duplicate-labels.md) — label-keyed game lookups must prefer future/non-final candidates, not first-match; sort detail lists chronologically.
 - [Slip-sweep / fresh-fetch race](slip-sweep-race.md) — per-render re-validator strips just-inserted items; stamp `addedAt` and grace-window them so state can catch up.
+- [Team period stats enrichment](team-period-stats.md) — real L10 q1-q4/h1/h2 from ESPN scoreboard linescores; date `dates=` is US-local not UTC; gate to sports with both linescores AND bookmaker period markets.
 - [Client-side props cache migration](client-side-props-cache-migration.md) — backend market-family additions need a shape-aware staleness check + one-shot `_checked` guard at every fetch gate, or AI sees stale pre-deploy payloads until hard refresh.
 - [Anti-correlated period picks](anti-correlation-period-picks.md) — period parlays from thin pools combine mutually-exclusive legs (Team A 1H ML + Team B 1H -3); separate HARD BAN with enumerated examples + self-check needed.
 - [Period-intent enforcement](period-intent-enforcement.md) — period parlays (q1-q4/h1/h2) need 5-layer enforcement: prompt + realProps suffix filter + market-lock REPLACEMENT + fresh-fetch fallback + game-level period markets w/ friendly labels & period-scoped duplicate-family ban.

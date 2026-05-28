@@ -4809,6 +4809,41 @@ export default function ParlayBuilder() {
     if (Object.keys(matchupHistory).length > 0) {
       setMatchupHistoryByGame((prev) => ({ ...prev, ...matchupHistory }));
     }
+    // Per-team period scoring history (real L10 q1-q4 + h1/h2 scored/allowed,
+    // computed server-side from ESPN scoreboard linescores). Lets the AI
+    // anchor period-bet reasoning to real numbers instead of the old
+    // "1Q ≈ 28% of full-game" heuristic. Only fetched for sports where the
+    // backend supports it (nba/nfl/ncaaf/ncaab) — others return sampleSize:0
+    // and we skip them silently. Keyed by "<sport>#<teamId>" to match the
+    // same lookup style the AI already uses for opponentDefense.
+    const teamPeriodStats: Record<string, { sampleSize: number; periodAverages: unknown }> = {};
+    const periodTeamTargets: Array<{ sport: string; teamId: string }> = [];
+    const seenPeriodTeam = new Set<string>();
+    for (const t of targets) {
+      for (const teamId of [t.homeTeamId, t.awayTeamId]) {
+        if (!teamId) continue;
+        const k = `${t.sport}#${teamId}`;
+        if (seenPeriodTeam.has(k)) continue;
+        seenPeriodTeam.add(k);
+        periodTeamTargets.push({ sport: t.sport, teamId: String(teamId) });
+      }
+    }
+    if (periodTeamTargets.length > 0) {
+      await Promise.all(
+        periodTeamTargets.map(async (t) => {
+          try {
+            const r = await fetch(`/api/sports/team-period-stats?sport=${encodeURIComponent(t.sport)}&teamId=${encodeURIComponent(t.teamId)}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            if (!data?.periodAverages || !data?.sampleSize) return;
+            teamPeriodStats[`${t.sport}#${t.teamId}`] = {
+              sampleSize: data.sampleSize,
+              periodAverages: data.periodAverages,
+            };
+          } catch { /* honest no-data fallback */ }
+        }),
+      );
+    }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
@@ -5040,6 +5075,7 @@ export default function ParlayBuilder() {
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
       opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
+      teamPeriodStats: Object.keys(teamPeriodStats).length ? teamPeriodStats : undefined,
     };
 
     let fullText = "";

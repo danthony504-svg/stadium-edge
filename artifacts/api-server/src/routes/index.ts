@@ -9,6 +9,7 @@ import chatRouter from "./chat";
 import athletesRouter from "./athletes";
 import historyRouter from "./history";
 import defenseRouter from "./defense";
+import teamPeriodStatsRouter from "./teamPeriodStats";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(chatRouter);
 router.use(athletesRouter);
 router.use(historyRouter);
 router.use(defenseRouter);
+router.use(teamPeriodStatsRouter);
 
 export default router;
