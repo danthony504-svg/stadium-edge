@@ -5212,6 +5212,8 @@ export default function ParlayBuilder() {
       const picks = [];
       const droppedGames = new Set();
       const rewrites = new Map(); // raw label -> canonical label
+      const droppedPickLines = new Set(); // raw PICK lines stripped by the safety-net (dedup / anti-correlation) so we can scrub them from displayed text
+      const safetyDropReasons = []; // human-readable reasons (one per dropped leg) for the transparency note
       // The pool is the source of truth. If it's empty, EVERY PICK line is a
       // hallucination — drop them all. We surface a clear note below so the
       // user sees why instead of getting silent no-ops.
@@ -5243,16 +5245,139 @@ export default function ParlayBuilder() {
             game: hit.canonical || rawGame,
             market: mkt,
             pick: friendlyPickLabel(m[3].trim(), mkt),
-            odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
-            ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
+            odds: /^PrizePicks line$/i.test(oddsTok) ? null : parseInt(oddsTok),
+            ...(/^PrizePicks line$/i.test(oddsTok) ? { priceSource: "PrizePicks" } : {}),
+            _raw: line, // keep the original PICK line so the safety-net can strip the right text if this leg gets dropped
           });
+        }
+      }
+
+      // SAFETY NET — enforce the HARD BAN programmatically. The prompt forbids
+      // duplicate market-family×period×game combos AND anti-correlated combos
+      // within one game (e.g. full-game ML on Team A + full-game (Alt) Spread
+      // on Team B covering −2.5 or more — they mathematically can't both win).
+      // The model violates these rules under scarcity pressure, so we drop the
+      // offenders here, mark their raw lines for text scrubbing, and surface a
+      // transparent note instead of silently shipping a contradictory ticket.
+      {
+        const periodOf = (mkt) => {
+          const mm = String(mkt || "").match(/^(1H|2H|Q[1-4])\b/i);
+          return mm ? mm[1].toUpperCase() : "FG";
+        };
+        const familyOf = (mkt) => {
+          const bare = String(mkt || "").replace(/^(1H|2H|Q[1-4])\s+/i, "").trim();
+          if (/^Moneyline$/i.test(bare)) return "ML";
+          if (/^(Alt\s+)?Spread$/i.test(bare)) return "SPREAD";
+          if (/^(Alt\s+)?Total$/i.test(bare)) return "TOTAL";
+          return null; // props / other — don't dedup against sides
+        };
+        // Normalize Unicode minus / en-dash / em-dash to ASCII hyphen so the
+        // numeric regexes catch "−4" / "–4" the model occasionally emits.
+        const asciiMinus = (s) => String(s || "").replace(/[\u2212\u2013\u2014\u2010\u2011]/g, "-");
+        const tokensOf = (s) => asciiMinus(s)
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((t) => t.length > 2);
+        // Resolve a pick selection to "away" / "home" / null using the game
+        // label's team tokens so "Oklahoma City Thunder ML" and "Thunder -4"
+        // both resolve to the same side. String-equality alone misclassifies
+        // them as opposite teams and would over-strip a valid pair.
+        const sidesOfGame = (gameLabel) => {
+          const mm = String(gameLabel || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+          if (!mm) return null;
+          return { away: new Set(tokensOf(mm[1])), home: new Set(tokensOf(mm[2])) };
+        };
+        const resolveSide = (pickStr, sides) => {
+          if (!sides) return null;
+          let awayHit = 0;
+          let homeHit = 0;
+          for (const t of tokensOf(pickStr)) {
+            if (sides.away.has(t)) awayHit++;
+            if (sides.home.has(t)) homeHit++;
+          }
+          if (awayHit > 0 && homeHit === 0) return "away";
+          if (homeHit > 0 && awayHit === 0) return "home";
+          return null; // ambiguous (shared token) or no match — refuse to claim a side
+        };
+        const parseSpreadPoint = (pickStr) => {
+          // "Spurs -4", "Thunder +3.5", "Spurs −4" → number, or null.
+          const mm = asciiMinus(pickStr).match(/([+-]\d+(?:\.\d+)?)/);
+          return mm ? parseFloat(mm[1]) : null;
+        };
+
+        // Pass 1 — dedup same game × period × family. Keep first occurrence.
+        const seenFamilyKey = new Set();
+        const afterDedup = [];
+        for (const p of picks) {
+          const fam = familyOf(p.market);
+          if (fam) {
+            const key = `${p.game}|${periodOf(p.market)}|${fam}`;
+            if (seenFamilyKey.has(key)) {
+              droppedPickLines.add(p._raw);
+              safetyDropReasons.push(`duplicate ${fam.toLowerCase()} family on ${p.game} (${periodOf(p.market)})`);
+              continue;
+            }
+            seenFamilyKey.add(key);
+          }
+          afterDedup.push(p);
+        }
+
+        // Pass 2 — anti-correlation: full-game ML on team A vs full-game
+        // (Alt) Spread on team B with point ≤ −2.5. If A wins outright, B
+        // cannot cover. Drop the WORSE-priced leg of the pair. Side identity
+        // is resolved via the game label's team tokens (not raw string match)
+        // so abbr/full-name/nickname variants all collapse to away/home.
+        const droppedIdx = new Set();
+        for (let i = 0; i < afterDedup.length; i++) {
+          if (droppedIdx.has(i)) continue;
+          const a = afterDedup[i];
+          if (familyOf(a.market) !== "ML" || periodOf(a.market) !== "FG") continue;
+          const sides = sidesOfGame(a.game);
+          const aSide = resolveSide(a.pick, sides);
+          if (!aSide) continue; // can't determine side → don't risk false positive
+          for (let j = 0; j < afterDedup.length; j++) {
+            if (i === j || droppedIdx.has(j)) continue;
+            const b = afterDedup[j];
+            if (b.game !== a.game) continue;
+            if (familyOf(b.market) !== "SPREAD" || periodOf(b.market) !== "FG") continue;
+            const bSide = resolveSide(b.pick, sides);
+            if (!bSide || bSide === aSide) continue; // same-team or unresolved → not anti-correlated
+            const point = parseSpreadPoint(b.pick);
+            if (point == null || point > -2.5) continue; // small dog / pickem still survivable when A wins by 1-2
+            // Anti-correlated pair confirmed. Drop the worse-priced leg
+            // (more negative American odds = worse payout for the same risk).
+            // Guard against non-finite odds (PrizePicks/missing) — fall back
+            // to deterministic tie-break (drop the spread, keep the ML).
+            const aOddsOk = Number.isFinite(a.odds);
+            const bOddsOk = Number.isFinite(b.odds);
+            let dropJ;
+            if (aOddsOk && bOddsOk) dropJ = b.odds <= a.odds;
+            else if (aOddsOk && !bOddsOk) dropJ = true;
+            else if (!aOddsOk && bOddsOk) dropJ = false;
+            else dropJ = true; // both missing → drop the spread leg by default
+            const victim = dropJ ? b : a;
+            const victimIdx = dropJ ? j : i;
+            droppedIdx.add(victimIdx);
+            droppedPickLines.add(victim._raw);
+            safetyDropReasons.push(`anti-correlated with another leg on ${a.game} (ML + opposite-team spread can't both win)`);
+            if (!dropJ) break; // a was dropped — stop scanning b's against a
+          }
+        }
+        const afterAnti = afterDedup.filter((_, idx) => !droppedIdx.has(idx));
+
+        // Replace picks in place with the filtered list and strip the _raw
+        // field so downstream code sees the same shape as before.
+        picks.length = 0;
+        for (const p of afterAnti) {
+          const { _raw, ...clean } = p;
+          picks.push(clean);
         }
       }
       // Rewrite kept PICK lines with the canonical (full-name) game label and
       // strip any rejected PICK lines from the visible message so the user
       // never sees a card for a game that isn't actually on the slate. If any
       // legs were dropped, append a short honest note explaining why.
-      if (droppedGames.size > 0 || rewrites.size > 0) {
+      if (droppedGames.size > 0 || rewrites.size > 0 || droppedPickLines.size > 0) {
         // If EVERY pick was dropped (or the pool was empty so no pick could
         // ever match), don't leave any prose around — the AI's narrative
         // mentions the same hallucinated matchups by name ("Cardinals @
@@ -5292,6 +5417,10 @@ export default function ParlayBuilder() {
           const cleaned = fullText
             .split("\n")
             .map((line) => {
+              // Strip lines the safety-net killed (duplicate market-family or
+              // anti-correlated combo). These already passed game-eligibility
+              // so we match on the exact raw line, not the game token.
+              if (droppedPickLines.has(line)) return null;
               const m = line.match(/^(\s*PICK:\s*)(.+?)(\s*\|.+)$/);
               if (m) {
                 const raw = m[2].trim();
@@ -5312,7 +5441,16 @@ export default function ParlayBuilder() {
             .join("\n")
             // Collapse runs of 3+ blank lines created by line removal.
             .replace(/\n{3,}/g, "\n\n");
-          const note = `\n\n_(Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now.)_`;
+          const noteParts = [];
+          if (droppedGames.size > 0) {
+            noteParts.push(`Skipped ${droppedGames.size} suggested leg${droppedGames.size === 1 ? "" : "s"} — that matchup isn't in the live 24h window right now.`);
+          }
+          if (droppedPickLines.size > 0) {
+            // De-dupe reasons so "duplicate total family on …" only appears once per game.
+            const uniqReasons = Array.from(new Set(safetyDropReasons));
+            noteParts.push(`Dropped ${droppedPickLines.size} leg${droppedPickLines.size === 1 ? "" : "s"} that would have built a contradictory ticket (${uniqReasons.join("; ")}).`);
+          }
+          const note = noteParts.length > 0 ? `\n\n_(${noteParts.join(" ")})_` : "";
           setMessages((p) => {
             const next = p.slice();
             next[next.length - 1] = { role: "assistant", content: cleaned + note };
