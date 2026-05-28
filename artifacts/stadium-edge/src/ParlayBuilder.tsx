@@ -747,6 +747,8 @@ const buildPicksFromOdds = (g) => {
   const h2h = g.markets.find((m) => m.key === "h2h");
   const spreads = g.markets.find((m) => m.key === "spreads");
   const totals = g.markets.find((m) => m.key === "totals");
+  const altSpreads = g.markets.find((m) => m.key === "alternate_spreads");
+  const altTotals = g.markets.find((m) => m.key === "alternate_totals");
   if (h2h) {
     for (const o of h2h.outcomes || []) {
       picks.push({ game, sport, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price, tier: o.price < -150 ? 1 : 2, real: true, teamFull: o.name });
@@ -762,6 +764,33 @@ const buildPicksFromOdds = (g) => {
     for (const o of totals.outcomes || []) {
       const pt = o.point == null ? "" : ` ${o.point}`;
       picks.push({ game, sport, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+    }
+  }
+  if (altSpreads) {
+    // Sort alt spreads by point so the ladder reads naturally. Exclude
+    // the same point already shown in the main "Spread" market to avoid
+    // a duplicate row that confuses the AI-pick tagging.
+    const mainSpreadPoints = new Set(
+      (spreads?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`),
+    );
+    const alts = (altSpreads.outcomes || [])
+      .filter((o) => !mainSpreadPoints.has(`${o.name}|${o.point ?? ""}`))
+      .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
+    for (const o of alts) {
+      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+      picks.push({ game, sport, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 3, real: true, teamFull: o.name });
+    }
+  }
+  if (altTotals) {
+    const mainTotalPoints = new Set(
+      (totals?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`),
+    );
+    const alts = (altTotals.outcomes || [])
+      .filter((o) => !mainTotalPoints.has(`${o.name}|${o.point ?? ""}`))
+      .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
+    for (const o of alts) {
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      picks.push({ game, sport, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 3, real: true });
     }
   }
   return picks;
@@ -8407,8 +8436,13 @@ export default function ParlayBuilder() {
         const isIndividual = sport === "ufc" || sport === "mma" || sport === "tennis" || sport === "golf" || sport === "nascar"
           || (/\bvs\.?\b/i.test(game) && !/@/.test(game));
         // Group team picks into categories by market keyword
-        const gameLines = picks.filter((p) => /spread|moneyline|total|run line|puck line|^o\/?u|over|under/i.test(p.market) || /spread|moneyline|total/i.test(p.market));
-        const teamOther = picks.filter((p) => !gameLines.includes(p));
+        const altSpreadPicks = picks.filter((p) => /^alt spread$/i.test(p.market));
+        const altTotalPicks = picks.filter((p) => /^alt total$/i.test(p.market));
+        const gameLines = picks.filter((p) =>
+          !altSpreadPicks.includes(p) && !altTotalPicks.includes(p) &&
+          (/spread|moneyline|total|run line|puck line|^o\/?u|over|under/i.test(p.market))
+        );
+        const teamOther = picks.filter((p) => !gameLines.includes(p) && !altSpreadPicks.includes(p) && !altTotalPicks.includes(p));
         // For every market pair (moneyline, spread, total, etc.) tag the
         // side the AI prefers based on no-vig fair edge. The single
         // best-edge pick across all markets becomes the TOP AI pick;
@@ -8438,20 +8472,18 @@ export default function ParlayBuilder() {
           favorites.sort((a, b) => b.edge - a.edge);
           const tags = new Map();
           favorites.forEach((f, i) => {
-            tags.set(legKey(f.pick), i === 0 ? "top" : i === 1 ? "alt" : "fav");
+            tags.set(legKey(f.pick), i === 0 ? "top" : "fav");
           });
           return tags;
         })();
         const addable = (p) => {
           const inSlip = parlayLegs.some((l) => legKey(l) === legKey(p));
-          const aiTag = aiTags.get(legKey(p)) || null; // "top" | "alt" | "fav" | null
+          const aiTag = aiTags.get(legKey(p)) || null; // "top" | "fav" | null
           const tagStyles = aiTag === "top"
             ? { row: "bg-cyan-500/10 ring-1 ring-inset ring-cyan-400/60", badge: "bg-cyan-400 text-slate-950", label: "★ AI PICK", btn: "bg-cyan-400 text-slate-950 hover:bg-cyan-300 ring-2 ring-cyan-300", odds: "text-cyan-300" }
-            : aiTag === "alt"
-              ? { row: "bg-amber-500/10 ring-1 ring-inset ring-amber-400/60", badge: "bg-amber-400 text-slate-950", label: "ALT PICK", btn: "bg-amber-400 text-slate-950 hover:bg-amber-300 ring-2 ring-amber-300", odds: "text-amber-300" }
-              : aiTag === "fav"
-                ? { row: "", badge: "bg-slate-700 text-cyan-300", label: "AI", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" }
-                : { row: "", badge: "", label: "", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" };
+            : aiTag === "fav"
+              ? { row: "", badge: "bg-slate-700 text-cyan-300", label: "AI", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" }
+              : { row: "", badge: "", label: "", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" };
           return (
             <div key={p.pick} className={`px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800 ${tagStyles.row}`}>
               <div className="min-w-0">
@@ -8533,6 +8565,16 @@ export default function ParlayBuilder() {
                   {gameLines.length > 0 && (
                     <Section title="Game Lines" count={gameLines.length}>
                       {gameLines.map(addable)}
+                    </Section>
+                  )}
+                  {altSpreadPicks.length > 0 && (
+                    <Section title="Alternate Spreads" count={altSpreadPicks.length}>
+                      {altSpreadPicks.map(addable)}
+                    </Section>
+                  )}
+                  {altTotalPicks.length > 0 && (
+                    <Section title="Alternate Totals" count={altTotalPicks.length}>
+                      {altTotalPicks.map(addable)}
                     </Section>
                   )}
                   {teamOther.length > 0 && (
