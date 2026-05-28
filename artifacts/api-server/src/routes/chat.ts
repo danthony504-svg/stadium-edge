@@ -117,13 +117,48 @@ router.post("/chat", async (req, res): Promise<void> => {
 
   const client = new OpenAI({ baseURL: baseUrl, apiKey });
 
+  // MARKET-LOCK enforcement (server-side belt-and-braces). When the latest
+  // user message names a specific market keyword, we (a) filter the realProps
+  // array in the context down to ONLY that market so the AI literally cannot
+  // pick anything else, and (b) inject a hard reminder line so the model
+  // can't echo a prior wrong-market assistant turn.
+  const latestUser = [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content || "";
+  const MARKET_KEYWORDS: Array<{ re: RegExp; markets: string[]; label: string }> = [
+    { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"], label: "pitcher strikeouts" },
+    { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"], label: "home runs" },
+    { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"], label: "anytime TD" },
+    { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goals"], label: "goal scorer" },
+    { re: /\b(shots on goal|sog\b)\b/i, markets: ["player_shots_on_goal"], label: "shots on goal" },
+    { re: /\b(passing yards?|pass yds?)\b/i, markets: ["player_pass_yds"], label: "passing yards" },
+    { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"], label: "rushing yards" },
+    { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"], label: "receiving yards" },
+    { re: /\breceptions?\b/i, markets: ["player_receptions"], label: "receptions" },
+    { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
+    { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
+    { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
+    { re: /\bhits?\b/i, markets: ["batter_hits"], label: "hits" },
+    { re: /\btotal bases?\b/i, markets: ["batter_total_bases"], label: "total bases" },
+  ];
+  const lockedMarket = MARKET_KEYWORDS.find((k) => k.re.test(latestUser));
+
+  let lockedContext = parsed.data.context;
+  if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
+    const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
+    const filteredProps = (ctx.realProps || []).filter((p) => lockedMarket.markets.includes(String(p.market || "")));
+    lockedContext = { ...ctx, realProps: filteredProps };
+  }
+
   const contextBlock =
-    parsed.data.context && Object.keys(parsed.data.context).length > 0
-      ? `\n\nCurrent app context:\n${JSON.stringify(parsed.data.context, null, 2)}`
+    lockedContext && Object.keys(lockedContext).length > 0
+      ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
       : "";
 
+  const lockedSystemAddendum = lockedMarket
+    ? `\n\n*** HARD MARKET LOCK FOR THIS TURN ***\nThe user asked for "${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${lockedMarket.markets.join(", ")}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. If realProps is empty or has fewer entries than the user's requested leg count, return as many as exist and add the honest short-ticket note. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.`
+    : "";
+
   const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock },
+    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum },
     ...parsed.data.messages.map((m) => ({
       role: m.role as "system" | "user" | "assistant",
       content: m.content,
