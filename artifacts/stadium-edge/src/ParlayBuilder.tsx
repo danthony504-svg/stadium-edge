@@ -6971,7 +6971,9 @@ export default function ParlayBuilder() {
                                       </span>
                                     );
                                   })()}
-                                  <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{picks.length > 0 ? `${picks.length} markets` : "Markets opening soon"} · {gamePlayers.length} players</span>
+                                  {picks.length === 0 && (
+                                    <span className="block text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">Markets opening soon</span>
+                                  )}
                                 </span>
                               </span>
                               <span className="text-cyan-400 shrink-0">›</span>
