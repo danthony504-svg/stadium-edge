@@ -8706,33 +8706,25 @@ export default function ParlayBuilder() {
                               <div className="text-sm text-slate-100 truncate">{p.player}</div>
                             </div>
                           </div>
-                          {cardReason && (
-                            <div className={`mb-2 text-[11px] leading-snug rounded-md px-2 py-1.5 ${isReco ? "bg-cyan-500/15 border border-cyan-500/40 text-cyan-100" : "bg-slate-800/60 border border-slate-700 text-slate-300"}`}>
-                              <span className={`font-bold uppercase tracking-wider text-[9px] mr-1 ${isReco ? "text-cyan-300" : "text-cyan-400"}`}>
-                                AI Pick · {cardSide === "over" ? "Over" : "Under"} {p.line}
-                              </span>
-                              <span className="block mt-0.5">{cardReason}</span>
-                            </div>
-                          )}
                           <div className="flex gap-2">
                             {p.overPrice != null && (
                               <button
                                 onClick={() => { if (!overIn) addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice }); }}
                                 disabled={overIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : recoSide === "over" ? "bg-slate-800 hover:bg-slate-700 text-slate-100 ring-1 ring-cyan-500/40" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Over {p.line}{recoSide === "over" ? (isReco ? " ★" : " ✓") : ""}</span>
-                                <span className={`font-mono ${isReco && recoSide === "over" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
+                                <span>{recoSide === "over" ? "★ " : ""}Over {p.line}</span>
+                                <span className={`font-mono ${recoSide === "over" && !overIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
                               </button>
                             )}
                             {p.underPrice != null && (
                               <button
                                 onClick={() => { if (!underIn) addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice }); }}
                                 disabled={underIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : recoSide === "under" ? "bg-slate-800 hover:bg-slate-700 text-slate-100 ring-1 ring-cyan-500/40" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Under {p.line}{recoSide === "under" ? (isReco ? " ★" : " ✓") : ""}</span>
-                                <span className={`font-mono ${isReco && recoSide === "under" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
+                                <span>{recoSide === "under" ? "★ " : ""}Under {p.line}</span>
+                                <span className={`font-mono ${recoSide === "under" && !underIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
                           </div>
