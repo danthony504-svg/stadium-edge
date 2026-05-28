@@ -11,4 +11,10 @@ Once alt-spreads and alt-totals were added to realOdds, the AI started returning
 
 **Why:** alts were originally meant as a *substitute* for the main line when a different rung had better risk/reward, not as additive legs. Without an explicit ban, the AI would happily stack them because each one technically satisfied "real edge over priced implied probability".
 
-**How to apply:** any future expansion that adds new alt market families (alt player props, alt period totals, alt team totals) MUST extend the family-grouping clause in the HARD BAN block so the dedup rule covers them too. If you see the AI returning two legs from the same game on closely-related markets, the bug is almost certainly that the new market wasn't added to the family list.
+**Two enforcement points — both must stay in sync:**
+1. **AI prompt** (`chat.ts` SYSTEM_PROMPT): hard-ban one-per-(game, market-family) and ban alts priced -1000 or worse — governs anything the chat AI returns.
+2. **Deterministic pick generator** (`ParlayBuilder.tsx` `buildPicksFromOdds`): the Odds API returns 15-30 alt rungs per side per game; rendering them all dumps duplicate cards into the UI (e.g. Over 191.5 / Over 192.5 / Over 193.5 stacked) regardless of what the AI does. The generator curates per side: filter rungs worse than -1000, then keep AT MOST ONE per (game, side) — the one with the best risk/reward (closest to even money). A game can still show both Over-alt AND Under-alt, just not multiple rungs on the same side.
+
+**Why two layers:** the AI prompt only controls chat-suggested parlay legs; the deterministic generator controls the cards rendered in game detail and "best picks" lists. Adding the rule to only one of them leaves the other path broken — both must enforce the same dedup + juice cap.
+
+**How to apply:** any future expansion that adds new alt market families (alt player props, alt period totals, alt team totals) MUST extend BOTH (a) the family-grouping clause in the chat HARD BAN block and (b) the per-side curation in `buildPicksFromOdds` so the dedup + juice-cap rules cover them too.

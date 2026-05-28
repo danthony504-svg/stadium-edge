@@ -766,31 +766,71 @@ const buildPicksFromOdds = (g) => {
       picks.push({ game, sport, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
     }
   }
+  // Alt-ladder card output is curated, not a full dump. The Odds API
+  // returns 15-30 rungs per side per game; rendering all of them creates
+  // stacks like "Over 191.5 (-3500), Over 192.5 (-2400), Over 193.5 (-2300)"
+  // — three cards that are mathematically the same bet on the same side
+  // at deep-favored prices that contribute zero parlay value. Two filters:
+  //   (1) skip any alt priced -1000 or worse (steamroller juice that's
+  //       equivalent to the main line, no add-to-ticket value).
+  //   (2) keep AT MOST ONE alt rung per (game, side) — the one with the
+  //       best risk/reward (lowest absolute juice among reasonable picks).
+  //       This is per side, so a game can still show Over-alt AND
+  //       Under-alt, just not three rungs on the same side.
+  const ALT_MAX_JUICE = -1000;
+  const pickBestRung = (rungs) => {
+    if (!rungs.length) return null;
+    // Best risk/reward = closest to even money on the favored side.
+    // For negative odds, smallest absolute value wins (-180 beats -500).
+    // For positive odds, largest value wins (+220 beats +140).
+    return rungs.slice().sort((a, b) => {
+      const sa = a.price < 0 ? Math.abs(a.price) : 1e6 - a.price;
+      const sb = b.price < 0 ? Math.abs(b.price) : 1e6 - b.price;
+      return sa - sb;
+    })[0];
+  };
   if (altSpreads) {
-    // Sort alt spreads by point so the ladder reads naturally. Exclude
-    // the same point already shown in the main "Spread" market to avoid
-    // a duplicate row that confuses the AI-pick tagging.
+    // Exclude rungs already covered by the main "Spread" market to avoid
+    // duplicate rows that confuse the AI-pick tagging.
     const mainSpreadPoints = new Set(
       (spreads?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`),
     );
-    const alts = (altSpreads.outcomes || [])
-      .filter((o) => !mainSpreadPoints.has(`${o.name}|${o.point ?? ""}`))
-      .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
-    for (const o of alts) {
-      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      picks.push({ game, sport, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 3, real: true, teamFull: o.name, point: o.point });
+    const eligible = (altSpreads.outcomes || []).filter(
+      (o) => !mainSpreadPoints.has(`${o.name}|${o.point ?? ""}`) && (o.price == null || o.price > ALT_MAX_JUICE),
+    );
+    // Group by team name (each team is one "side" of the spread).
+    const bySide = new Map();
+    for (const o of eligible) {
+      const key = o.name;
+      if (!bySide.has(key)) bySide.set(key, []);
+      bySide.get(key).push(o);
+    }
+    for (const [, rungs] of bySide) {
+      const best = pickBestRung(rungs);
+      if (!best) continue;
+      const pt = best.point == null ? "" : ` ${best.point > 0 ? "+" : ""}${best.point}`;
+      picks.push({ game, sport, market: "Alt Spread", pick: `${nickname(best.name)}${pt}`, odds: best.price, tier: 3, real: true, teamFull: best.name, point: best.point });
     }
   }
   if (altTotals) {
     const mainTotalPoints = new Set(
       (totals?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`),
     );
-    const alts = (altTotals.outcomes || [])
-      .filter((o) => !mainTotalPoints.has(`${o.name}|${o.point ?? ""}`))
-      .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
-    for (const o of alts) {
-      const pt = o.point == null ? "" : ` ${o.point}`;
-      picks.push({ game, sport, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 3, real: true, point: o.point });
+    const eligible = (altTotals.outcomes || []).filter(
+      (o) => !mainTotalPoints.has(`${o.name}|${o.point ?? ""}`) && (o.price == null || o.price > ALT_MAX_JUICE),
+    );
+    // Group by Over/Under side.
+    const bySide = new Map();
+    for (const o of eligible) {
+      const key = (o.name || "").toLowerCase();
+      if (!bySide.has(key)) bySide.set(key, []);
+      bySide.get(key).push(o);
+    }
+    for (const [, rungs] of bySide) {
+      const best = pickBestRung(rungs);
+      if (!best) continue;
+      const pt = best.point == null ? "" : ` ${best.point}`;
+      picks.push({ game, sport, market: "Alt Total", pick: `${best.name}${pt}`.trim(), odds: best.price, tier: 3, real: true, point: best.point });
     }
   }
   return picks;
