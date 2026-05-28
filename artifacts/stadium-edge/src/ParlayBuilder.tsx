@@ -8516,6 +8516,65 @@ export default function ParlayBuilder() {
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
                   pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
                 };
+                // Score every live prop and pick the single best edge to
+                // highlight as "AI PICK". Edge = no-vig fair implied prob
+                // vs the market's vigged price, with a small form bump for
+                // players we have on the roster + a "line vs player avg"
+                // tilt when the market matches a known stat.
+                const STAT_KEY_BY_MARKET = {
+                  player_points: "pts", player_rebounds: "reb", player_assists: "ast",
+                  player_threes: null, player_points_rebounds_assists: null,
+                  player_pass_yds: "passYds", player_rush_yds: "rushYds",
+                  player_reception_yds: "recYds", player_receptions: "rec",
+                  batter_hits: null, batter_total_bases: null, batter_home_runs: "hrPerGame",
+                  pitcher_strikeouts: null, player_goals: null, player_shots_on_goal: "shots",
+                };
+                const americanToProb = (odds) => {
+                  if (odds == null) return null;
+                  return odds < 0 ? -odds / (-odds + 100) : 100 / (odds + 100);
+                };
+                const sportPlayers = PLAYERS[sport] || [];
+                const findRosterPlayer = (name) => sportPlayers.find((pl) => pl.name.toLowerCase() === String(name || "").toLowerCase());
+                const scoreProp = (p) => {
+                  const oP = americanToProb(p.overPrice);
+                  const uP = americanToProb(p.underPrice);
+                  if (oP == null && uP == null) return null;
+                  // No-vig fair probability for each side
+                  let fairOver = 0.5, fairUnder = 0.5;
+                  if (oP != null && uP != null) {
+                    const sum = oP + uP;
+                    fairOver = oP / sum; fairUnder = uP / sum;
+                  }
+                  // Roster-driven prior: if the player's average for this
+                  // market is known, tilt fair toward the side our data agrees
+                  // with. Cap the tilt so it can't flip a clearly bad price.
+                  const roster = findRosterPlayer(p.player);
+                  const statKey = STAT_KEY_BY_MARKET[p.market];
+                  let prior = 0.5;
+                  if (roster && statKey && roster.stats && roster.stats[statKey] != null && p.line != null) {
+                    const avg = roster.stats[statKey];
+                    // Logistic-ish tilt: each 10% of line difference → ~6% prior shift, clamped.
+                    const diff = (avg - p.line) / Math.max(1, p.line);
+                    prior = Math.max(0.30, Math.min(0.70, 0.5 + diff * 0.6));
+                  }
+                  // Blend prior into fair (weight 0.35) when we have data
+                  const blended = roster && statKey ? (fairOver * 0.65 + prior * 0.35) : fairOver;
+                  // Edges: market-implied vs blended fair
+                  const overEdge = oP != null ? (blended - oP) : -1;
+                  const underEdge = uP != null ? ((1 - blended) - uP) : -1;
+                  const formBump = roster ? (roster.form - 7) * 0.005 : 0; // ±1.5% nudge
+                  const overScore = overEdge + formBump;
+                  const underScore = underEdge + formBump;
+                  const side = overScore >= underScore ? "over" : "under";
+                  const edge = Math.max(overScore, underScore);
+                  return { side, edge, roster, statKey, blended };
+                };
+                let bestIdx = -1, bestScore = null;
+                live.props.forEach((p, i) => {
+                  const s = scoreProp(p);
+                  if (!s || s.edge <= 0) return;
+                  if (bestScore == null || s.edge > bestScore.edge) { bestScore = s; bestIdx = i; }
+                });
                 return (
                   <Section title="Live Player Props" count={live.props.length}>
                     <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
@@ -8535,8 +8594,23 @@ export default function ParlayBuilder() {
                       const baseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
                       const initials = p.player.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
                       const showHeadshot = p.headshot && !headshotErrors[p.headshot];
+                      const isReco = i === bestIdx;
+                      const recoSide = isReco ? bestScore.side : null;
+                      const recoEdgePct = isReco ? (bestScore.edge * 100).toFixed(1) : null;
+                      const recoReason = isReco ? (() => {
+                        const bits = [];
+                        if (bestScore.roster) {
+                          bits.push(`${bestScore.roster.name.split(" ").slice(-1)[0]} form ${bestScore.roster.form}/10`);
+                          if (bestScore.statKey && bestScore.roster.stats[bestScore.statKey] != null) {
+                            const avg = bestScore.roster.stats[bestScore.statKey];
+                            bits.push(`avg ${avg} vs line ${p.line}`);
+                          }
+                        }
+                        bits.push(`${recoEdgePct}% edge vs no-vig fair`);
+                        return bits.join(" · ");
+                      })() : null;
                       return (
-                        <div key={`${p.player}-${p.market}-${i}`} className="px-4 py-2.5 border-t border-slate-800">
+                        <div key={`${p.player}-${p.market}-${i}`} className={`px-4 py-2.5 border-t border-slate-800 ${isReco ? "bg-cyan-500/5 border-l-2 border-l-cyan-400" : ""}`}>
                           <div className="flex items-center gap-2 mb-2">
                             {showHeadshot ? (
                               <img
@@ -8552,26 +8626,34 @@ export default function ParlayBuilder() {
                               <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
                               <div className="text-sm text-slate-100 truncate">{p.player}</div>
                             </div>
+                            {isReco && (
+                              <span className="shrink-0 bg-cyan-400 text-slate-950 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase">★ AI Pick</span>
+                            )}
                           </div>
+                          {isReco && (
+                            <div className="mb-2 text-[10px] font-mono text-cyan-300/90 leading-snug">
+                              {recoReason}
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             {p.overPrice != null && (
                               <button
                                 onClick={() => { if (!overIn) addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice }); }}
                                 disabled={overIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Over {p.line}</span>
-                                <span className="font-mono text-cyan-400">{formatOdds(p.overPrice)}</span>
+                                <span>Over {p.line}{isReco && recoSide === "over" ? " ★" : ""}</span>
+                                <span className={`font-mono ${isReco && recoSide === "over" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
                               </button>
                             )}
                             {p.underPrice != null && (
                               <button
                                 onClick={() => { if (!underIn) addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice }); }}
                                 disabled={underIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Under {p.line}</span>
-                                <span className="font-mono text-cyan-400">{formatOdds(p.underPrice)}</span>
+                                <span>Under {p.line}{isReco && recoSide === "under" ? " ★" : ""}</span>
+                                <span className={`font-mono ${isReco && recoSide === "under" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
                           </div>
