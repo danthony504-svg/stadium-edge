@@ -8713,7 +8713,7 @@ export default function ParlayBuilder() {
                                 disabled={overIn}
                                 className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>{recoSide === "over" ? "★ " : ""}Over {p.line}</span>
+                                <span>{recoSide === "over" ? "AI PICK · " : ""}Over {p.line}</span>
                                 <span className={`font-mono ${recoSide === "over" && !overIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
                               </button>
                             )}
@@ -8723,7 +8723,7 @@ export default function ParlayBuilder() {
                                 disabled={underIn}
                                 className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>{recoSide === "under" ? "★ " : ""}Under {p.line}</span>
+                                <span>{recoSide === "under" ? "AI PICK · " : ""}Under {p.line}</span>
                                 <span className={`font-mono ${recoSide === "under" && !underIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
