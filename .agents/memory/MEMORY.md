@@ -4,6 +4,7 @@
 - [Playoff series duplicate labels](playoff-series-duplicate-labels.md) — label-keyed game lookups must prefer future/non-final candidates, not first-match; sort detail lists chronologically.
 - [Slip-sweep / fresh-fetch race](slip-sweep-race.md) — per-render re-validator strips just-inserted items; stamp `addedAt` and grace-window them so state can catch up.
 - [Client-side props cache migration](client-side-props-cache-migration.md) — backend market-family additions need a shape-aware staleness check + one-shot `_checked` guard at every fetch gate, or AI sees stale pre-deploy payloads until hard refresh.
+- [Period-intent enforcement](period-intent-enforcement.md) — "1Q parlay" requests need 3-layer enforcement (prompt rule + server realProps filter + market-lock allow-list REPLACEMENT); prompt-only loses to model's "balanced ticket" prior.
 - [Opponent / team-defense route](opponent-defense-route.md) — ESPN per-team feeds have no true "opp allows X" splits; honest scope of /api/sports/team-defense (avgPointsAgainst from record + own-defensive output).
 - [System-prompt template-literal escaping](system-prompt-template-literals.md) — chat.ts SYSTEM_PROMPT is a backtick literal; never write `${...}` inside it (gets interpolated and breaks build). Use "<sport>#<teamId>" style placeholders.
 - [Parlay — no duplicate market×game combos](parlay-no-duplicate-market.md) — once alts ship, AI stacks main+alt on same side; hard-ban one-per-(game,market-family) + ban alts priced -1000 or worse.

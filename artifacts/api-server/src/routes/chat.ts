@@ -92,6 +92,12 @@ How to weigh it for prop legs (these are guides, not hard rules):
     NFL — "1Q Passing Yards", "1Q Passing TDs", "1Q Rushing Yards", "1Q Receiving Yards", and 1H versions of pass/rush/receiving yds.
     NCAAF — same as NFL but no 1Q passing TDs.
     NCAAB / MLB / NHL — no quarter or half player markets exist in our feed; do NOT pick a "1Q" or "1H" prop in those sports.
+  EXPLICIT PERIOD INTENT — HARD RULE: if the user's message contains "first quarter", "1Q", "1st quarter", "Q1", "first half", "1H", "1st half", or "H1", EVERY leg you return MUST be a quarter/half market for the requested period. That means:
+    * Only player props ending in "_q1" (for first-quarter intent) or "_h1" (for first-half intent) — full-game props like player_points / player_pass_yds are FORBIDDEN.
+    * Do NOT include game-level full-game spread, total, or moneyline picks (e.g. "Thunder +3.5", "Over 218.5") in a 1Q/1H ticket — those settle on the entire game, so they're the wrong period and violate the user's ask. Our feed does not currently include game-level 1Q/1H spread/total markets, so a pure 1Q parlay can ONLY be built from "_q1" player props (and a pure 1H parlay from "_h1" player props).
+    * If the available pool doesn't have enough qualifying _q1 / _h1 props for the leg count the user asked for, RETURN A SHORTER TICKET and say so plainly in the assistant message (e.g. "I could only find 3 first-quarter props worth playing for OKC@SAS — here's the 3-leg 1Q ticket instead of 4"). DO NOT silently pad with full-game picks.
+    * If the user asks for a 1Q/1H parlay in a sport that has NO quarter/half markets in our feed (NCAAB / MLB / NHL), refuse honestly: "There are no first-quarter player markets posted for [sport] in our feed — I can build you a full-game parlay if you want."
+    * If the user asks for a period the sport partially supports but THIS specific period is not in our feed (e.g. "first half NBA parlay" — NBA only has _q1 props in our feed, no _h1), refuse honestly with the same template ("There are no first-half player markets posted for the NBA in our feed — I have first-quarter or full-game; which would you like?") rather than returning a 0-leg or padded ticket.
   playerHistory.recent stats are FULL-GAME totals, NOT per-quarter — so you CANNOT compute "L5 1Q average" from our data. Do not invent a per-quarter average. Instead reason from: (a) the player's full-game stat divided crudely (1Q ≈ 22-30% of full-game for stars / role players, 1H ≈ 50-58%) as a sanity ceiling — unusually LOW posted lines flag OVER value, unusually HIGH ones flag UNDER; (b) opponent's offensive PACE keys (avgFieldGoalsAttempted, avgPoints, passingYardsPerGame, etc.) — fast / high-pace opponents inflate 1Q and 1H output for BOTH teams; (c) game script — heavy favorites often script first-half pass volume up (favor 1H pass-yds OVER) and run clock in the second half. The edge note MUST state explicitly that the read is pace + line-position based, not per-quarter game-log based, e.g. "1Q Points 6.5 looks soft — Wemby averages 24 PPG, 1Q is ~28% of his output so ~6.7 implied, Thunder play fast (89 FGA/g) → OVER 6.5 has room".
 - Compute the recent-5 average for that stat in your head and compare to the posted line. ≥15% above the line leans OVER; ≥15% below leans UNDER. A flat average within 10% is a coin flip — pass on it unless price is unusually plus.
 - If vsOpponent has ≥2 games, weigh it MORE than the generic recent-5 — the matchup-specific sample is what separates a sharp prop from a square one. Cite the vs-opponent stat line explicitly in the edge note when you use it.
@@ -196,15 +202,52 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
+    // Narrowed: bare "points"/"pts" matches generic prose like "key points
+    // to watch" / "main points from this matchup". Require a nearby betting
+    // context word (prop, parlay, leg, over, under, line, props, ticket,
+    // numeric line like "25.5") within ~40 chars so it only fires on real
+    // market-lock intent.
+    { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"], label: "points" },
     { re: /\bhits?\b/i, markets: ["batter_hits"], label: "hits" },
     { re: /\btotal bases?\b/i, markets: ["batter_total_bases"], label: "total bases" },
   ];
   const lockedMarket = MARKET_KEYWORDS.find((k) => k.re.test(latestUser));
 
+  // Detect explicit period intent (1Q / 1H) in the same user message. When
+  // present, the MARKET LOCK switches its market allow-list to the
+  // period-suffixed variants ONLY (full-game variants of the same stat are
+  // excluded) — a request like "1Q passing yards parlay" must filter to
+  // player_pass_yds_q1 only, never the full-game player_pass_yds.
+  const periodIntent: "q1" | "h1" | null =
+    /\b(first\s+quarter|1st\s+quarter|1q|q1)\b/i.test(latestUser) ? "q1"
+    : /\b(first\s+half|1st\s+half|1h|h1)\b/i.test(latestUser) ? "h1"
+    : null;
+
   let lockedContext = parsed.data.context;
   if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
     const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
-    const filteredProps = (ctx.realProps || []).filter((p) => lockedMarket.markets.includes(String(p.market || "")));
+    // Build the effective allow-list. With NO period intent, include only
+    // the base full-game markets. With period intent, REPLACE the base
+    // markets with their period-suffixed variants — full-game variants
+    // must be excluded so the user's "first-quarter X props" ask is
+    // honored exactly (otherwise the model could still pick a full-game
+    // line and pretend it's the requested period).
+    const allowed = new Set<string>(
+      periodIntent
+        ? lockedMarket.markets.map((m) => `${m}_${periodIntent}`)
+        : lockedMarket.markets,
+    );
+    const filteredProps = (ctx.realProps || []).filter((p) => allowed.has(String(p.market || "")));
+    lockedContext = { ...ctx, realProps: filteredProps };
+  } else if (periodIntent && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
+    // Period intent WITHOUT a specific market keyword (e.g. "4 leg first
+    // quarter parlay") — strip the realProps array down to only `_q1` /
+    // `_h1` markets so the AI can't pick full-game props even if the
+    // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
+    // filter for the original failing case.
+    const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
+    const suffix = `_${periodIntent}`;
+    const filteredProps = (ctx.realProps || []).filter((p) => String(p.market || "").endsWith(suffix));
     lockedContext = { ...ctx, realProps: filteredProps };
   }
 
@@ -213,9 +256,16 @@ router.post("/chat", async (req, res): Promise<void> => {
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
       : "";
 
+  const periodSuffix = periodIntent ? `_${periodIntent}` : "";
+  const periodLabel = periodIntent === "q1" ? "first-quarter" : periodIntent === "h1" ? "first-half" : "";
+  const allowedMarketsForAddendum = lockedMarket
+    ? (periodIntent
+        ? lockedMarket.markets.map((m) => `${m}${periodSuffix}`).join(", ")
+        : lockedMarket.markets.join(", "))
+    : "";
   const lockedSystemAddendum = lockedMarket
     ? `\n\n*** HARD MARKET LOCK FOR THIS TURN ***
-The user asked for "${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${lockedMarket.markets.join(", ")}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.
+The user asked for "${periodLabel ? `${periodLabel} ` : ""}${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${allowedMarketsForAddendum}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.${periodIntent ? `\nPERIOD LOCK: every leg must use a market ending in "${periodSuffix}". Full-game variants of the same stat (e.g. ${lockedMarket.markets.join(", ")}) are FORBIDDEN for this turn — the user explicitly asked for ${periodLabel} only. If the filtered realProps has fewer ${periodSuffix} entries than the requested leg count, return a SHORTER ticket and say so honestly; do NOT pad with full-game props.` : ""}
 
 *** PICK THE BEST, NOT THE FIRST ***
 The realProps array is NOT pre-ranked — do NOT just take the first N entries. For each candidate player in the filtered list, build a quick score using ALL the data available to you:
