@@ -105,21 +105,33 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       },
     );
 
-    // Flatten the first bookmaker's player markets into a clean list.
-    // Each row: { player, market, line, overPrice, underPrice }.
-    const book = data.bookmakers?.[0];
+    // Union player markets across ALL bookmakers, keeping the BEST price per
+    // (player, market, line, side). Earlier this only scanned bookmakers[0],
+    // which silently dropped entire prop markets (e.g. HRs) whenever the
+    // first-listed book didn't post that market for a given game even though
+    // another book did. Best-price aggregation is also what a sharp user
+    // expects — show the most beatable line available across the US books.
+    // Best = higher American number when both positive, less-negative when
+    // both negative; sign change always favors the positive (plus money).
+    const americanToProb = (a: number) => (a > 0 ? 100 / (a + 100) : -a / (-a + 100));
+    const betterAmerican = (a: number, b: number) => (americanToProb(a) < americanToProb(b) ? a : b);
     const byKey = new Map<string, { player: string; market: string; line: number | null; overPrice: number | null; underPrice: number | null }>();
-    for (const m of book?.markets ?? []) {
-      for (const o of m.outcomes ?? []) {
-        const player = o.description ?? "—";
-        const line = o.point ?? null;
-        const k = `${player}|${m.key}|${line ?? "_"}`;
-        const row = byKey.get(k) ?? { player, market: m.key, line, overPrice: null, underPrice: null };
-        if (o.name.toLowerCase() === "over") row.overPrice = Math.round(o.price);
-        else if (o.name.toLowerCase() === "under") row.underPrice = Math.round(o.price);
-        else if (o.name.toLowerCase() === "yes") row.overPrice = Math.round(o.price);
-        else if (o.name.toLowerCase() === "no") row.underPrice = Math.round(o.price);
-        byKey.set(k, row);
+    for (const book of data.bookmakers ?? []) {
+      for (const m of book.markets ?? []) {
+        for (const o of m.outcomes ?? []) {
+          const player = o.description ?? "—";
+          const line = o.point ?? null;
+          const k = `${player}|${m.key}|${line ?? "_"}`;
+          const row = byKey.get(k) ?? { player, market: m.key, line, overPrice: null, underPrice: null };
+          const price = Math.round(o.price);
+          const side = o.name.toLowerCase();
+          if (side === "over" || side === "yes") {
+            row.overPrice = row.overPrice == null ? price : betterAmerican(row.overPrice, price);
+          } else if (side === "under" || side === "no") {
+            row.underPrice = row.underPrice == null ? price : betterAmerican(row.underPrice, price);
+          }
+          byKey.set(k, row);
+        }
       }
     }
 
@@ -151,7 +163,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     res.json({
       home: data.home_team ?? null,
       away: data.away_team ?? null,
-      bookmaker: book?.title ?? null,
+      bookmaker: Array.from(new Set((data.bookmakers ?? []).map((b) => b.title).filter(Boolean))).join(", ") || null,
       props,
     });
   } catch (err) {
