@@ -8409,18 +8409,46 @@ export default function ParlayBuilder() {
         // Group team picks into categories by market keyword
         const gameLines = picks.filter((p) => /spread|moneyline|total|run line|puck line|^o\/?u|over|under/i.test(p.market) || /spread|moneyline|total/i.test(p.market));
         const teamOther = picks.filter((p) => !gameLines.includes(p));
+        // Find the single best AI edge across all game-line picks.
+        // Group picks by market label, compute no-vig fair prob for each
+        // pair, then pick the side with the highest edge over its vigged
+        // implied prob. Highlights one row across the whole game-detail.
+        const aiBestPick = (() => {
+          const amToProb = (o) => (o == null ? null : o < 0 ? -o / (-o + 100) : 100 / (o + 100));
+          const byMarket = new Map();
+          picks.forEach((p) => {
+            const arr = byMarket.get(p.market) || [];
+            arr.push(p); byMarket.set(p.market, arr);
+          });
+          let best = null;
+          byMarket.forEach((arr) => {
+            const probs = arr.map((p) => ({ p, ip: amToProb(p.odds) })).filter((x) => x.ip != null);
+            if (probs.length < 2) return;
+            const sum = probs.reduce((s, x) => s + x.ip, 0);
+            probs.forEach(({ p, ip }) => {
+              const fair = ip / sum;
+              const edge = fair - ip;
+              if (!best || edge > best.edge) best = { pick: p, edge };
+            });
+          });
+          return best?.pick || null;
+        })();
         const addable = (p) => {
           const inSlip = parlayLegs.some((l) => legKey(l) === legKey(p));
+          const isAi = aiBestPick && legKey(aiBestPick) === legKey(p);
           return (
-            <div key={p.pick} className="px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800">
+            <div key={p.pick} className={`px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800 ${isAi ? "bg-cyan-500/10 ring-1 ring-inset ring-cyan-400/60" : ""}`}>
               <div className="min-w-0">
-                <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{p.market}</div>
+                <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                  {isAi && <span className="text-[9px] font-bold tracking-widest text-slate-950 bg-cyan-400 px-1.5 py-0.5 rounded">★ AI PICK</span>}
+                  <span>{p.market}</span>
+                </div>
                 <div className="text-sm text-slate-100">{p.pick}</div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="font-mono font-bold text-cyan-400 text-sm">{formatOdds(p.odds)}</span>
+                <span className={`font-mono font-bold text-sm ${isAi ? "text-cyan-300" : "text-cyan-400"}`}>{formatOdds(p.odds)}</span>
                 <button onClick={() => { if (!inSlip) addLeg({ ...p, sport }); }} disabled={inSlip}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}>
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500" : isAi ? "bg-cyan-400 text-slate-950 hover:bg-cyan-300 ring-2 ring-cyan-300" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}>
                   {inSlip ? "✓" : "+ Add"}
                 </button>
               </div>
@@ -8468,7 +8496,9 @@ export default function ParlayBuilder() {
                 ) : (
                   <div className="font-display text-xl text-slate-100 text-center">{game}</div>
                 )}
-                <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1 text-center">{realPicks.length > 0 ? <span className="text-emerald-400">Live odds · {realPicks.length} markets from The Odds API</span> : (isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay")}</div>
+                {realPicks.length === 0 && (
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mt-1 text-center">{isIndividual ? "Sample markets · single match" : "Sample markets · build a single-game parlay"}</div>
+                )}
               </div>
             </div>
 
