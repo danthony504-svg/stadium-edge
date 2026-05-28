@@ -2184,13 +2184,30 @@ export default function ParlayBuilder() {
 
   // Normalize yes/no markets to the friendly book labels. The Odds API
   // returns HR / anytime-TD / anytime-goal as Over 0.5 props, but books
-  // display them as "To Hit a HR" / "Anytime TD" / "Anytime Goal".
-  const friendlyPickLabel = (pickTxt) => {
+  // display them as "To Hit a HR" / "Anytime TD" / "Anytime Goal". The
+  // AI sometimes drops the trailing market word ("Player Over 0.5" with
+  // no "Home Runs" suffix) and sometimes wraps the player in markdown
+  // bold (**Player Over 0.5**) — handle both, using the market column
+  // as the signal when the pick text alone is ambiguous.
+  const friendlyPickLabel = (pickTxt, marketTxt) => {
     if (!pickTxt) return pickTxt;
-    return pickTxt
-      .replace(/\bOver\s+0\.5\s+(Home Runs?|HR)\b/i, "To Hit a HR")
-      .replace(/\bOver\s+0\.5\s+(Anytime TD|TDs?|Touchdowns?)\b/i, "Anytime TD")
-      .replace(/\bOver\s+0\.5\s+(Goals?|Anytime Goal)\b/i, "Anytime Goal");
+    // Strip markdown bold/italic wrappers — the cards render plain text.
+    let t = String(pickTxt).replace(/\*+/g, "").trim();
+    const mk = String(marketTxt || "").toLowerCase();
+    const isHR = /home.?run|batter_home_runs/.test(mk) || /\bhome runs?\b/i.test(t) || /\bHR\b/.test(t);
+    const isTD = /anytime.?td|player_anytime_td|touchdown/.test(mk) || /\banytime td\b|\btouchdowns?\b/i.test(t);
+    const isGoal = /anytime.?goal|player_goals|^goals?$/.test(mk) || /\banytime goal\b/i.test(t);
+    // Replace "<anything> Over 0.5 <optional market word>" → "<player> <friendly>"
+    const apply = (friendly) => {
+      // Try with trailing market word first, then without.
+      const m = t.match(/^(.*?)\s*Over\s+0\.5(?:\s+\S.*)?$/i);
+      if (m) return `${m[1].trim()} ${friendly}`;
+      return t;
+    };
+    if (isHR) return apply("To Hit a HR");
+    if (isTD) return apply("Anytime TD");
+    if (isGoal) return apply("Anytime Goal");
+    return t;
   };
 
   // Parse pick-like rows from uploaded text or CSV.
@@ -2204,7 +2221,7 @@ export default function ParlayBuilder() {
       if (parts.length >= 4) {
         const odds = parseInt(parts[3].replace(/[^\d+-]/g, ""));
         if (!isNaN(odds)) {
-          found.push({ game: parts[0].trim(), market: parts[1].trim(), pick: friendlyPickLabel(parts[2].trim()), odds });
+          found.push({ game: parts[0].trim(), market: parts[1].trim(), pick: friendlyPickLabel(parts[2].trim(), parts[1].trim()), odds });
         }
       }
     }
@@ -4707,7 +4724,7 @@ export default function ParlayBuilder() {
         if (mm) {
           const oddsTok = mm[4];
           const odds = oddsTok === "PrizePicks line" ? null : parseInt(oddsTok);
-          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: friendlyPickLabel(mm[3].trim()), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
+          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: friendlyPickLabel(mm[3].trim(), mm[2].trim()), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
         }
       }
       if (!raw.length) {
@@ -4922,7 +4939,7 @@ export default function ParlayBuilder() {
         picks.push({
           game: hit.canonical || rawGame,
           market: m[2].trim(),
-          pick: friendlyPickLabel(m[3].trim()),
+          pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
           odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
           ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
         });
@@ -5089,7 +5106,7 @@ export default function ParlayBuilder() {
         rawMessagePicks.push({
           game: m[1].trim(),
           market: m[2].trim(),
-          pick: friendlyPickLabel(m[3].trim()),
+          pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
           odds,
           ...(odds === null ? { priceSource: "PrizePicks" } : {}),
         });
@@ -5301,7 +5318,7 @@ export default function ParlayBuilder() {
             const rawPick = {
               game: m[1].trim(),
               market: m[2].trim(),
-              pick: friendlyPickLabel(m[3].trim()),
+              pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
               odds,
               ...(odds === null ? { priceSource: "PrizePicks" } : {}),
             };
