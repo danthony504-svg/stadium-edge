@@ -778,7 +778,7 @@ const buildPicksFromOdds = (g) => {
       .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
     for (const o of alts) {
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      picks.push({ game, sport, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 3, real: true, teamFull: o.name });
+      picks.push({ game, sport, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 3, real: true, teamFull: o.name, point: o.point });
     }
   }
   if (altTotals) {
@@ -790,7 +790,7 @@ const buildPicksFromOdds = (g) => {
       .sort((a, b) => (a.point ?? 0) - (b.point ?? 0));
     for (const o of alts) {
       const pt = o.point == null ? "" : ` ${o.point}`;
-      picks.push({ game, sport, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 3, real: true });
+      picks.push({ game, sport, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 3, real: true, point: o.point });
     }
   }
   return picks;
@@ -8453,8 +8453,13 @@ export default function ParlayBuilder() {
           const amToProb = (o) => (o == null ? null : o < 0 ? -o / (-o + 100) : 100 / (o + 100));
           const byMarket = new Map();
           picks.forEach((p) => {
-            const arr = byMarket.get(p.market) || [];
-            arr.push(p); byMarket.set(p.market, arr);
+            // For alternate spreads/totals every ladder rung is its own
+            // 2-sided market (e.g. -7.5/+7.5), so group by |point| as well.
+            const key = (p.market === "Alt Spread" || p.market === "Alt Total")
+              ? `${p.market}|${Math.abs(p.point ?? 0)}`
+              : p.market;
+            const arr = byMarket.get(key) || [];
+            arr.push(p); byMarket.set(key, arr);
           });
           const favorites = []; // { pick, edge }
           byMarket.forEach((arr) => {
