@@ -3,7 +3,12 @@ import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib
 
 const router: IRouter = Router();
 
-router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 30 }));
+// Raised from 30 → 120/min: a single chat parlay request fans out up to
+// 12 prop fetches in one burst, and a user opening 2-3 game-detail pages
+// before that easily blew the old 30/min cap, returning silent 429s that
+// left realPropsByEvent empty client-side and made the AI say "realProps
+// is empty" even when HR markets were available upstream.
+router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120 }));
 
 const MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists"],

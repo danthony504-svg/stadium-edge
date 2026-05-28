@@ -4469,7 +4469,16 @@ export default function ParlayBuilder() {
       const toFetch = candidates.slice(0, totalCap);
       await Promise.all(
         toFetch.map(async (c) => {
-          if (realPropsByEvent[c.eventId]) { extraProps[c.eventId] = realPropsByEvent[c.eventId]; return; }
+          // Skip refetch ONLY if the cached entry has real prop rows. An
+          // earlier 429 or upstream-empty response can leave an entry like
+          // {props: []} — treating that as a hit means the next chat send
+          // never retries and the AI keeps seeing realProps: [] forever
+          // (the "no home run lines in pool" loop the user hit).
+          const cached = realPropsByEvent[c.eventId];
+          if (cached && Array.isArray(cached.props) && cached.props.length > 0) {
+            extraProps[c.eventId] = cached;
+            return;
+          }
           const qs = [`sport=${encodeURIComponent(c.sport)}`, `eventId=${encodeURIComponent(c.eventId)}`];
           if (c.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(c.homeTeamId)}`);
           if (c.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(c.awayTeamId)}`);
