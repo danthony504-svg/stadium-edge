@@ -29,5 +29,10 @@ Even with the 3-layer enforcement, the client's incoming `realProps` can be empt
 
 **How to apply:** Self-fetch via `http://127.0.0.1:${PORT}` to stay in-process. Gate the fallback strictly on `filteredProps.length === 0` so healthy clients bypass the cost. Match games by canonical `Away @ Home` label (the format used everywhere client-side). Map prop fields to the chat-payload shape (`over`/`under`, not `overPrice`/`underPrice`). Note: enrichment fields like `opponentTeamId` are dropped on the fallback path, so per-leg defense edge notes will be thinner — accepted tradeoff vs. zero data.
 
+# ALT swap suggestions in ticket output
+After the PICK + EDGE block of every ticket, the AI must emit 2-3 `ALT:` lines suggesting swap candidates the user can take to improve the ticket. Format: `ALT: <Game> | <Market> | <Selection> | <Odds> — swaps leg <N>, <reason>`. The `ALT:` prefix MUST be distinct from `PICK:` because the client auto-add parser matches `^PICK:` and would otherwise auto-stake the alternates. The prompt also forbids the literal token `PICK:` anywhere inside an ALT line (the non-anchored secondary parser at the slip-fill path can mid-line match a stray `PICK:` and cause double-adds). Alts must come from the SAME real pool as the picks — `realOdds` for sides/totals, `realProps` for props — never invent. When the live pool is too thin (one game, no alts), the AI says so honestly on a single `ALT: no meaningful swaps in tonight's pool` line rather than padding with low-quality fills.
+
+**Why:** Just showing the recommended legs is one-shot — the user wants to see swap options ("would buying off the key number help?", "is there a juicier alt rung?") without re-asking. Putting it inline keeps the conversation single-turn for the most common follow-up.
+
 # Smell test
 If the AI returns a "1Q ticket" that includes any game-level spread/total/ML or any full-game player prop, the layering is incomplete. Prompt-only fixes will look like they work on the next test and silently regress on the one after.
