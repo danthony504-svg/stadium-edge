@@ -8661,10 +8661,15 @@ export default function ParlayBuilder() {
                         const showHeadshot = headshot && !headshotErrors[headshot];
                         const initials = playerName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
                         // Per-player AI pick: best edge across all their markets.
+                        // Also count how many of their markets the AI has an opinion on.
                         let topScore = null; let topProp = null;
+                        let aiPickCount = 0;
                         plist.forEach((p) => {
                           const s = scoreProp(p);
-                          if (s && (!topScore || s.edge > topScore.edge)) { topScore = s; topProp = p; }
+                          if (s) {
+                            aiPickCount += 1;
+                            if (!topScore || s.edge > topScore.edge) { topScore = s; topProp = p; }
+                          }
                         });
                         const topLabel = topProp ? (MARKET_LABEL[topProp.market] || topProp.market) : null;
                         const topSide = topScore?.side;
@@ -8698,9 +8703,9 @@ export default function ParlayBuilder() {
                               <div className="min-w-0 flex-1">
                                 <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
                                 <div className="text-[11px] text-slate-400 truncate">
-                                  {plist.length} market{plist.length === 1 ? "" : "s"}
+                                  <span className="text-cyan-400">{aiPickCount} AI pick{aiPickCount === 1 ? "" : "s"}</span>
                                   {topProp && topSide ? (
-                                    <span className="text-cyan-400"> · AI: {topSide === "over" ? "Over" : "Under"} {topProp.line} {topLabel}{topPriced != null ? ` (${formatOdds(topPriced)})` : ""}</span>
+                                    <span className="text-cyan-400"> · top: {topSide === "over" ? "Over" : "Under"} {topProp.line} {topLabel}{topPriced != null ? ` (${formatOdds(topPriced)})` : ""}</span>
                                   ) : null}
                                 </div>
                               </div>
