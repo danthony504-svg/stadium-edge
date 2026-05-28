@@ -6410,7 +6410,7 @@ export default function ParlayBuilder() {
             <div className="flex items-center justify-between mb-2 mt-8 px-1">
               <h2 className="font-display text-lg text-slate-100">UPCOMING</h2>
               <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                {homeUpcomingGames.length > 0 ? `${homeUpcomingGames.length} · live` : "tap to build"}
+                {homeUpcomingGames.length > 0 ? `${homeUpcomingGames.length} games` : "tap to build"}
               </span>
             </div>
             <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
