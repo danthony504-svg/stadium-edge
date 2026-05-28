@@ -8572,7 +8572,11 @@ export default function ParlayBuilder() {
                 let bestIdx = -1, bestScore = null;
                 live.props.forEach((p, i) => {
                   const s = scoreProp(p);
-                  if (!s || s.edge <= 0) return;
+                  if (!s) return;
+                  // Always pick the best-scoring prop, even when no side has
+                  // a strictly-positive no-vig edge. With only a single book's
+                  // two-sided market and no roster prior, the "winner" surfaces
+                  // the lowest-vig side / best price — still meaningful info.
                   if (bestScore == null || s.edge > bestScore.edge) { bestScore = s; bestIdx = i; }
                 });
                 return (
@@ -8605,8 +8609,15 @@ export default function ParlayBuilder() {
                             const avg = bestScore.roster.stats[bestScore.statKey];
                             bits.push(`avg ${avg} vs line ${p.line}`);
                           }
+                          bits.push(`${recoEdgePct}% edge vs no-vig fair`);
+                        } else {
+                          // No roster data — frame the edge honestly as
+                          // "best-priced side of the sharpest market we see"
+                          // rather than implying we modeled the player.
+                          const priced = recoSide === "over" ? p.overPrice : p.underPrice;
+                          if (priced != null) bits.push(`best price (${formatOdds(priced)})`);
+                          bits.push("lowest-vig side of this market");
                         }
-                        bits.push(`${recoEdgePct}% edge vs no-vig fair`);
                         return bits.join(" · ");
                       })() : null;
                       return (
