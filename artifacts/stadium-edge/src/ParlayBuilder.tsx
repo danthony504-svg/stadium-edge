@@ -8640,7 +8640,7 @@ export default function ParlayBuilder() {
                   );
                 })() : null;
                 return (
-                  <Section title="Live Player Props" count={live.props.length}>
+                  <Section title="All Player Props" count={live.props.length}>
                     {aiPickCard}
                     <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
                       {live.bookmaker || "Bookmaker"} · live lines
@@ -8769,41 +8769,6 @@ export default function ParlayBuilder() {
                   </Section>
                 );
               })()}
-              {/* Player props category — list players, tap to open their props page */}
-              {gamePlayers.length > 0 && (
-                <Section title="Player Props" count={gamePlayers.length}>
-                  {gamePlayers.map((pl) => {
-                    const initials = pl.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
-                    const photo = lookupPlayerPhoto(sport, pl.name);
-                    return (
-                      <button
-                        key={pl.name}
-                        onClick={() => {
-                          const sk = sport === "nba" ? "pts" : sport === "mlb" ? "hrPerGame"
-                            : pl.pos === "QB" ? "passYds" : pl.pos === "RB" ? "rushYds"
-                            : (pl.stats.recYds !== undefined ? "recYds" : Object.keys(pl.stats)[0]);
-                          const avg = pl.stats[sk] ?? 0;
-                          setPropStatKey(sk);
-                          setPropLine(Math.round(avg * 0.9 * 2) / 2);
-                          setSelectedPlayer({ player: pl, sport });
-                        }}
-                        className="w-full px-4 py-2.5 flex items-center gap-2 text-left border-t border-slate-800 hover:bg-slate-800/50 transition"
-                      >
-                        {photo ? (
-                          <img src={photo} alt={pl.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="w-8 h-8 rounded-full object-cover bg-zinc-900 shrink-0" />
-                        ) : (
-                          <span className="w-8 h-8 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</span>
-                        )}
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-semibold text-slate-100 truncate">{pl.name}</span>
-                          <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider">{pl.team} · {pl.pos} · form {pl.form}/10</span>
-                        </span>
-                        <span className="text-cyan-400 text-xs shrink-0">props ›</span>
-                      </button>
-                    );
-                  })}
-                </Section>
-              )}
               {picks.length === 0 && gamePlayers.length === 0 && (
                 <p className="text-center text-sm text-slate-500 py-10">No sample markets for this game yet.</p>
               )}
