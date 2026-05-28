@@ -3,6 +3,7 @@
 - [Finals suppression belt-and-braces](finals-suppression-belt-and-braces.md) — render-site and source-side finished-game filtering; 4h cutoff + active-status bypass.
 - [Playoff series duplicate labels](playoff-series-duplicate-labels.md) — label-keyed game lookups must prefer future/non-final candidates, not first-match; sort detail lists chronologically.
 - [Slip-sweep / fresh-fetch race](slip-sweep-race.md) — per-render re-validator strips just-inserted items; stamp `addedAt` and grace-window them so state can catch up.
+- [Upcoming list horizon + build-flow split](upcoming-horizon-and-build-flow.md) — Upcoming must cap how far out it shows (offseason schedules list weeks ahead); upcoming Build asks leg-count first, live Build stays immediate.
 - [Team period stats enrichment](team-period-stats.md) — real L10 q1-q4/h1/h2 from ESPN scoreboard linescores; date `dates=` is US-local not UTC; gate to sports with both linescores AND bookmaker period markets.
 - [Totals pace mandate + alt swaps](totals-pace-mandate.md) — soft "lean OVER" tiebreaker language gets dropped under scarcity pressure; promote to HARD MANDATE with explicit formula + "drop the leg, don't flip it" out, and always offer alt-total ladder swaps.
 - [AI pick safety-net](ai-pick-safety-net.md) — prompt-only HARD BAN enforcement leaks under scarcity; back with post-parse filter (dedup family×period×game + anti-correlated ML/opposite-spread) using token-based side resolution + Unicode-minus normalize + case-insensitive PrizePicks check.

@@ -2284,6 +2284,10 @@ export default function ParlayBuilder() {
   ]);
   const [input, setInput] = useState("");
   const [activeLegBtn, setActiveLegBtn] = useState(3);
+  // When the user taps "Build" on a game we first ASK how many legs they want
+  // (instead of auto-building). This holds the game we're waiting on a leg
+  // count for; cleared once they answer (tap a chip or type a number).
+  const [pendingLegBuild, setPendingLegBuild] = useState(null);
   const [attachment, setAttachment] = useState(null); // { dataUrl, name, kind }
   const fileInputRef = useRef(null);
   // Per-message slip snapshots persist in chat by default. The user can dismiss
@@ -2973,7 +2977,15 @@ export default function ParlayBuilder() {
             // covers pre-game pageviews where the clock crosses tipoff.
             if (g.startsAt) {
               const t = new Date(g.startsAt).getTime();
-              if (Number.isFinite(t) && Date.now() - t > 10 * 60 * 1000) continue;
+              if (Number.isFinite(t)) {
+                // Already past its real start (cache lag / stuck flag) — not upcoming.
+                if (Date.now() - t > 10 * 60 * 1000) continue;
+                // Cap how far out "Upcoming" reaches. Offseason schedules (esp.
+                // NFL in spring/summer) list games weeks/months ahead; those
+                // aren't bettable yet and crowd out this week's slate. Only show
+                // games tipping off within the next 7 days.
+                if (t - Date.now() > 7 * 24 * 60 * 60 * 1000) continue;
+              }
             }
             upcoming.push({
               real: true,
@@ -3057,12 +3069,59 @@ export default function ParlayBuilder() {
     };
   }, [selectedSports]);
 
+  // Parse a leg count (1–15) out of a free-text reply like "5", "5 legs",
+  // "give me 4". Returns null if no usable number is present.
+  const parseLegCount = (text) => {
+    const m = /\b(\d{1,2})\b/.exec(String(text || ""));
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return n >= 1 && n <= 15 ? n : null;
+  };
+
+  // Helper: instead of auto-building, ASK how many legs the user wants for this
+  // game first. Stash the game in `pendingLegBuild`; the build fires once they
+  // answer (tap a chip via confirmLegCountForGame, or type a number — handled
+  // at the top of sendMessage).
+  const askLegCountForGame = (gameLabel, sport, kind) => {
+    if (!requirePro("Build from game")) return;
+    setView("chat");
+    setPendingLegBuild({ gameLabel, sport, kind, real: true });
+    setMessages((p) => [
+      ...p,
+      { role: "user", content: `Build a parlay for ${gameLabel}` },
+      {
+        role: "assistant",
+        content: `How many legs would you like for **${gameLabel}**?\n\nTap a number below, or type one (1–15).`,
+      },
+    ]);
+  };
+
+  // Build the parlay now that we know the leg count.
+  const confirmLegCountForGame = (n) => {
+    const pend = pendingLegBuild;
+    if (!pend) return;
+    setPendingLegBuild(null);
+    setActiveLegBtn(n);
+    if (pend.real) {
+      const verb = pend.kind === "live" ? "live parlay" : "parlay";
+      sendMessage(`Build me the best ${n}-leg ${verb} for ${pend.gameLabel} (${pend.sport.toUpperCase()}). Use real current odds.`);
+    } else {
+      buildParlayForUpcomingGame(pend.gameLabel, pend.sport, n);
+    }
+  };
+
   // Helper: ask the AI to build a parlay for a real game using live context.
   const buildParlayForRealGame = (gameLabel, sport, kind) => {
     if (!requirePro("Build from game")) return;
-    setView("chat");
-    const verb = kind === "live" ? "live parlay" : "parlay";
-    sendMessage(`Build me the best ${verb} for ${gameLabel} (${sport.toUpperCase()}). Use real current odds.`);
+    // Upcoming games go through the "how many legs?" prompt first. Live games
+    // keep building immediately (the live-game flow is a fast in-the-moment
+    // action, not a planned ticket).
+    if (kind === "live") {
+      setView("chat");
+      sendMessage(`Build me the best live parlay for ${gameLabel} (${sport.toUpperCase()}). Use real current odds.`);
+      return;
+    }
+    askLegCountForGame(gameLabel, sport, kind);
   };
 
   // ---- In-app live-game parlay analyzer (REAL data only) ----
@@ -3672,7 +3731,7 @@ export default function ParlayBuilder() {
   };
 
   // Build the best parlay focused on ONE upcoming game (from the hypothetical pool)
-  const buildParlayForUpcomingGame = (game, sport) => {
+  const buildParlayForUpcomingGame = (game, sport, legCount = 3) => {
     if (!requirePro("Build from game")) return;
     setView("chat");
     const pool = (PICK_POOL[sport] || []).filter((p) => p.game === game).map((p) => ({ ...p, sport }));
@@ -3684,14 +3743,17 @@ export default function ParlayBuilder() {
       ]);
       return;
     }
-    // Rank this game's picks by model confidence, take up to 3 strongest
+    // Rank this game's picks by model confidence, take the N strongest.
     const ranked = [...pool].sort(
       (a, b) => calculateConfidence(b, gameRefs[b.game] || null) - calculateConfidence(a, gameRefs[a.game] || null)
-    ).slice(0, 3);
+    ).slice(0, Math.max(1, legCount || 3));
     autoFillSlip(ranked);
     const math = calculateParlay(ranked);
     const conf = Math.round(ranked.reduce((acc, p) => acc * (calculateConfidence(p, gameRefs[p.game] || null) / 100), 1) * 100);
-    const intro = `Here's the best parlay I can build from **${game}**, ranked by my model (odds, form, refs, coaches). Added to your slip below.\n\n`;
+    const shortfall = ranked.length < (legCount || 3)
+      ? ` (only ${ranked.length} quality pick${ranked.length !== 1 ? "s" : ""} available for this game)`
+      : "";
+    const intro = `Here's a ${ranked.length}-leg parlay from **${game}**${shortfall}, ranked by my model (odds, form, refs, coaches). Added to your slip below.\n\n`;
     const lines = ranked.map((p) => `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`).join("\n");
     const footer = `\n\nCombined: ${formatOdds(math.american)} · **model confidence ~${conf}%**. Hypothetical only.`;
     setMessages((p) => [
@@ -4697,6 +4759,22 @@ export default function ParlayBuilder() {
     const text = override || input.trim();
     if ((!text && !attachment) || loading) return;
     if (!requirePro("AI Chat")) return; // chat is a Pro feature
+
+    // If we asked the user how many legs they want for a specific game, a typed
+    // reply (e.g. "5", "5 legs") answers that question — route it into the build
+    // instead of treating it as a fresh chat. `override` calls already carry the
+    // full build prompt, so only intercept genuine user-typed input.
+    if (!override && pendingLegBuild && text) {
+      const n = parseLegCount(text);
+      if (n) {
+        setInput("");
+        confirmLegCountForGame(n);
+        return;
+      }
+      // No number in their reply — abandon the prompt and let the message flow
+      // through as a normal chat turn.
+      setPendingLegBuild(null);
+    }
 
     // If there's an image attachment, post it with an honest note (offline can't read images)
     if (attachment && attachment.kind === "image") {
@@ -6942,7 +7020,7 @@ export default function ParlayBuilder() {
                 return games.slice(0, 12).map((g, i) => (
                   <button
                     key={i}
-                    onClick={() => buildParlayForUpcomingGame(g.game, g.sport)}
+                    onClick={() => { if (requirePro("Build from game")) { setView("chat"); setPendingLegBuild({ gameLabel: g.game, sport: g.sport, kind: "upcoming", real: false }); setMessages((p) => [...p, { role: "user", content: `Build a parlay for ${g.game}` }, { role: "assistant", content: `How many legs would you like for **${g.game}**?\n\nTap a number below, or type one (1–15).` }]); } }}
                     className="text-left border border-slate-800 rounded-2xl p-3 bg-slate-900 hover:border-cyan-400 transition shrink-0 w-44 snap-start flex flex-col justify-between"
                   >
                     <div className="min-w-0">
@@ -7547,6 +7625,21 @@ export default function ParlayBuilder() {
             )}
           </div>
         ))}
+        {pendingLegBuild && !loading && (
+          <div className="flex justify-start slide-up">
+            <div className="flex flex-wrap gap-2">
+              {[2, 3, 4, 5, 6].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => confirmLegCountForGame(n)}
+                  className="text-sm font-semibold text-cyan-300 border border-cyan-400/50 bg-cyan-400/10 rounded-full px-4 py-2 hover:bg-cyan-400/20 active:scale-95 transition"
+                >
+                  {n} legs
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {loading && (
           <div className="flex justify-start slide-up">
             <div className="flex gap-1.5 items-center py-1">
