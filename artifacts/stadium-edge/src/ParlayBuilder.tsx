@@ -8704,9 +8704,6 @@ export default function ParlayBuilder() {
                                 <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
                                 <div className="text-[11px] text-slate-400 truncate">
                                   <span className="text-cyan-400">{aiPickCount} AI pick{aiPickCount === 1 ? "" : "s"}</span>
-                                  {topProp && topSide ? (
-                                    <span className="text-cyan-400"> · top: {topSide === "over" ? "Over" : "Under"} {topProp.line} {topLabel}{topPriced != null ? ` (${formatOdds(topPriced)})` : ""}</span>
-                                  ) : null}
                                 </div>
                               </div>
                               {addedCount > 0 && (
