@@ -4726,7 +4726,17 @@ export default function ParlayBuilder() {
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.commenceTime));
       for (const g of filtered.slice(0, 12)) {
-        for (const p of buildPicksFromOdds(g).slice(0, 8)) {
+        const all = buildPicksFromOdds(g);
+        // Send all main-market picks (ML/Spread/Total) PLUS a capped sample
+        // of alternate spreads/totals so the AI can recommend a different
+        // ladder rung when it sees better edge there. Cap alts per game to
+        // keep the chat context compact — too many rungs blows the prompt
+        // size and makes the model fixate on one game.
+        const mainPicks = all.filter((p) => p.market !== "Alt Spread" && p.market !== "Alt Total");
+        const altSpread = all.filter((p) => p.market === "Alt Spread");
+        const altTotal = all.filter((p) => p.market === "Alt Total");
+        const slice = [...mainPicks.slice(0, 8), ...altSpread.slice(0, 8), ...altTotal.slice(0, 6)];
+        for (const p of slice) {
           realOdds.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds, startsAt: g.commenceTime });
         }
       }
