@@ -32,6 +32,10 @@ const SPORT_DEFENSIVE_STATS: Record<string, { category: string; stats: string[] 
     { category: "defensive", stats: ["avgSteals", "avgBlocks", "avgDefensiveRebounds"] },
     { category: "general", stats: ["avgRebounds", "assistTurnoverRatio"] },
   ],
+  ncaab: [
+    { category: "defensive", stats: ["avgSteals", "avgBlocks", "avgDefensiveRebounds"] },
+    { category: "general", stats: ["avgRebounds", "assistTurnoverRatio"] },
+  ],
   wnba: [
     { category: "defensive", stats: ["avgSteals", "avgBlocks", "avgDefensiveRebounds"] },
   ],
@@ -56,6 +60,46 @@ const SPORT_DEFENSIVE_STATS: Record<string, { category: string; stats: string[] 
   ],
 };
 
+// Opposing team's OWN OFFENSIVE profile — these drive prop-side decisions the
+// "defensive" block can't answer: a team that misses lots of buckets creates
+// more rebound chances for everyone on the floor (opp's avgFieldGoalPct LOW
+// → rebound props lean OVER), a team that throws for 280yd/game makes opp
+// receivers' yardage props lean OVER, a team with a 0.270 team BA gives
+// opposing pitchers a harder strikeout night (Ks lean UNDER), etc. ESPN's
+// per-team statistics feed exposes these reliably; missing keys silently
+// drop through.
+const SPORT_OFFENSIVE_STATS: Record<string, { category: string; stats: string[] }[]> = {
+  nba: [
+    { category: "offensive", stats: ["avgPoints", "avgAssists", "avgFieldGoalsMade", "avgFieldGoalsAttempted", "fieldGoalPct", "threePointFieldGoalPct", "avgTurnovers"] },
+  ],
+  ncaab: [
+    { category: "offensive", stats: ["avgPoints", "avgAssists", "avgFieldGoalsMade", "avgFieldGoalsAttempted", "fieldGoalPct", "threePointFieldGoalPct", "avgTurnovers"] },
+  ],
+  wnba: [
+    { category: "offensive", stats: ["avgPoints", "avgAssists", "avgFieldGoalsMade", "avgFieldGoalsAttempted", "fieldGoalPct", "threePointFieldGoalPct", "avgTurnovers"] },
+  ],
+  nfl: [
+    { category: "passing", stats: ["passingYardsPerGame", "completionPct", "yardsPerPassAttempt"] },
+    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt"] },
+    { category: "scoring", stats: ["totalPointsPerGame"] },
+  ],
+  ncaaf: [
+    { category: "passing", stats: ["passingYardsPerGame", "completionPct", "yardsPerPassAttempt"] },
+    { category: "rushing", stats: ["rushingYardsPerGame", "yardsPerRushAttempt"] },
+    { category: "scoring", stats: ["totalPointsPerGame"] },
+  ],
+  nhl: [
+    { category: "offensive", stats: ["avgGoals", "shotsTotal", "shootingPct"] },
+    { category: "general", stats: ["powerPlayPct", "faceoffsWonPct"] },
+  ],
+  mlb: [
+    { category: "batting", stats: ["avg", "onBasePct", "slugAvg", "OPS", "runsScored", "hits", "homeRuns", "strikeouts"] },
+  ],
+  soccer: [
+    { category: "offensive", stats: ["totalGoals", "shotsOnTarget", "totalShots"] },
+  ],
+};
+
 router.get("/sports/team-defense", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const teamId = String(req.query.teamId || "");
@@ -69,7 +113,7 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `team-defense:${path}:${teamId}:v2`;
+    const key = `team-defense:${path}:${teamId}:v4`;
     const out = await cachedJson(key, 60 * 60 * 1000, async () => {
       const [team, stats] = await Promise.all([
         fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${teamId}`).then((r) => r.ok ? (r.json() as Promise<EspnTeam>) : null).catch(() => null),
@@ -88,20 +132,27 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
       // field is untrusted free-text that gets appended into the chat
       // system message verbatim — stripping it removes the prompt-injection
       // surface (model can't be steered by upstream-controlled prose).
-      const defensive: Record<string, { value: number | null; displayValue: string | null }> = {};
       const cats = stats?.results?.stats?.categories ?? [];
-      const allowlist = SPORT_DEFENSIVE_STATS[sportId] ?? [];
-      for (const entry of allowlist) {
-        const cat = cats.find((c) => c.name === entry.category);
-        for (const wanted of entry.stats) {
-          const s = cat?.stats?.find((x) => x.name === wanted);
-          if (!s) continue;
-          defensive[wanted] = {
-            value: typeof s.value === "number" ? Math.round(s.value * 100) / 100 : null,
-            displayValue: typeof s.displayValue === "string" ? s.displayValue.slice(0, 32) : null,
-          };
+      // Shared extractor — same allowlist shape on both sides, so de-dupe
+      // the pass-through loop. Strips ESPN's `description` for the same
+      // prompt-injection reason as above.
+      const extract = (allowlist: { category: string; stats: string[] }[]) => {
+        const out: Record<string, { value: number | null; displayValue: string | null }> = {};
+        for (const entry of allowlist) {
+          const cat = cats.find((c) => c.name === entry.category);
+          for (const wanted of entry.stats) {
+            const s = cat?.stats?.find((x) => x.name === wanted);
+            if (!s) continue;
+            out[wanted] = {
+              value: typeof s.value === "number" ? Math.round(s.value * 100) / 100 : null,
+              displayValue: typeof s.displayValue === "string" ? s.displayValue.slice(0, 32) : null,
+            };
+          }
         }
-      }
+        return out;
+      };
+      const defensive = extract(SPORT_DEFENSIVE_STATS[sportId] ?? []);
+      const offensive = extract(SPORT_OFFENSIVE_STATS[sportId] ?? []);
       return {
         sport: sportId,
         teamId,
@@ -110,12 +161,13 @@ router.get("/sports/team-defense", async (req, res): Promise<void> => {
         avgPointsFor: avgPointsFor != null ? Math.round(avgPointsFor * 10) / 10 : null,
         pointDifferential: pointDiff != null ? Math.round(pointDiff * 10) / 10 : null,
         defensive,
+        offensive,
       };
     });
     res.json(out);
   } catch (err) {
     req.log.error({ err }, "Failed to fetch team defense");
-    res.json({ sport: sportId, teamId, teamName: null, avgPointsAgainst: null, avgPointsFor: null, pointDifferential: null, defensive: {} });
+    res.json({ sport: sportId, teamId, teamName: null, avgPointsAgainst: null, avgPointsFor: null, pointDifferential: null, defensive: {}, offensive: {} });
   }
 });
 
