@@ -2356,6 +2356,7 @@ export default function ParlayBuilder() {
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
   const [gameDetail, setGameDetail] = useState(null); // { game, sport } for the full game-detail screen
   const [openPropCats, setOpenPropCats] = useState(["Game Lines"]); // categories open (independent accordions)
+  const [expandedPropPlayers, setExpandedPropPlayers] = useState({}); // player name -> bool, tracks which player-prop cards are expanded
   const [legMenuOpen, setLegMenuOpen] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null); // { player, sport }
   const [propLine, setPropLine] = useState(null); // current adjustable prop line in the detail view
@@ -8644,98 +8645,125 @@ export default function ParlayBuilder() {
                     <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
                       {live.bookmaker || "Bookmaker"} · live lines
                     </div>
-                    {live.props.map((p, i) => {
-                      const label = MARKET_LABEL[p.market] || p.market;
-                      const lineTxt = p.line == null ? "" : ` ${p.line}`;
-                      const overPick = `${p.player} Over${lineTxt} ${label}`;
-                      const underPick = `${p.player} Under${lineTxt} ${label}`;
-                      // Match existing slip dedupe semantics: game+pick. Avoids cross-game
-                      // false positives when two players share a name/line.
-                      const overIn = parlayLegs.some((l) => l.game === game && l.pick === overPick);
-                      const underIn = parlayLegs.some((l) => l.game === game && l.pick === underPick);
-                      // Use canonical "Player Prop" market so confidence/reasoning/
-                      // buy-points logic that keys off market === "Player Prop" applies.
-                      const baseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
-                      const initials = p.player.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
-                      const showHeadshot = p.headshot && !headshotErrors[p.headshot];
-                      const isReco = i === bestIdx;
-                      // Per-card AI verdict: every prop gets its own
-                      // side/edge so the user sees a recommendation on
-                      // each row, not just the top-edge pick.
-                      const cardScore = scoreProp(p);
-                      const cardSide = cardScore?.side || null;
-                      const cardEdgePct = cardScore ? (cardScore.edge * 100).toFixed(1) : null;
-                      const cardReason = cardScore ? (() => {
-                        const bits = [];
-                        if (cardScore.roster) {
-                          bits.push(`${cardScore.roster.name.split(" ").slice(-1)[0]} form ${cardScore.roster.form}/10`);
-                          if (cardScore.statKey && cardScore.roster.stats[cardScore.statKey] != null) {
-                            const avg = cardScore.roster.stats[cardScore.statKey];
-                            bits.push(`avg ${avg} vs line ${p.line}`);
-                          }
-                          bits.push(`${cardEdgePct}% edge vs no-vig fair`);
-                        } else {
-                          const priced = cardSide === "over" ? p.overPrice : p.underPrice;
-                          if (priced != null) bits.push(`best price ${formatOdds(priced)}`);
-                          bits.push("lowest-vig side of this market");
-                        }
-                        return bits.join(" · ");
-                      })() : null;
-                      const recoSide = cardSide;
-                      return (
-                        <div key={`${p.player}-${p.market}-${i}`} className={`border-t border-slate-800 ${isReco ? "bg-cyan-500/10 ring-2 ring-inset ring-cyan-400" : ""}`}>
-                          {isReco && (
-                            <div className="bg-cyan-400 text-slate-950 px-4 py-1 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
-                              <span>★</span><span>Top edge pick</span>
-                            </div>
-                          )}
-                          <div className="px-4 py-2.5">
-                          <div className="flex items-center gap-2 mb-2">
-                            {showHeadshot ? (
-                              <img
-                                src={p.headshot}
-                                alt={p.player}
-                                className="w-9 h-9 rounded-full object-cover bg-slate-800 shrink-0"
-                                onError={() => setHeadshotErrors((prev) => ({ ...prev, [p.headshot]: true }))}
-                              />
-                            ) : (
-                              <div className="w-9 h-9 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</div>
+                    {(() => {
+                      // Group flat props list into one card per player so the
+                      // user sees a tidy roster instead of 200+ rows. Each
+                      // card expands to show every market for that player.
+                      const byPlayer = new Map();
+                      live.props.forEach((p, i) => {
+                        const arr = byPlayer.get(p.player) || [];
+                        arr.push({ ...p, _idx: i });
+                        byPlayer.set(p.player, arr);
+                      });
+                      const players = Array.from(byPlayer.entries());
+                      return players.map(([playerName, plist]) => {
+                        const headshot = plist.find((p) => p.headshot)?.headshot;
+                        const showHeadshot = headshot && !headshotErrors[headshot];
+                        const initials = playerName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+                        // Per-player AI pick: best edge across all their markets.
+                        let topScore = null; let topProp = null;
+                        plist.forEach((p) => {
+                          const s = scoreProp(p);
+                          if (s && (!topScore || s.edge > topScore.edge)) { topScore = s; topProp = p; }
+                        });
+                        const topLabel = topProp ? (MARKET_LABEL[topProp.market] || topProp.market) : null;
+                        const topSide = topScore?.side;
+                        const topPriced = topProp && topSide ? (topSide === "over" ? topProp.overPrice : topProp.underPrice) : null;
+                        // Count picks from this player already in the slip
+                        const addedCount = plist.reduce((n, p) => {
+                          const lbl = MARKET_LABEL[p.market] || p.market;
+                          const lt = p.line == null ? "" : ` ${p.line}`;
+                          const o = `${p.player} Over${lt} ${lbl}`;
+                          const u = `${p.player} Under${lt} ${lbl}`;
+                          return n + (parlayLegs.some((l) => l.game === game && (l.pick === o || l.pick === u)) ? 1 : 0);
+                        }, 0);
+                        const expanded = !!expandedPropPlayers[playerName];
+                        const hasTopEdge = topProp && plist[topProp._idx === undefined ? -1 : plist.indexOf(topProp)] && live.props.indexOf(topProp) === bestIdx;
+                        return (
+                          <div key={playerName} className={`border-t border-slate-800 ${hasTopEdge ? "bg-cyan-500/5" : ""}`}>
+                            <button
+                              onClick={() => setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] }))}
+                              className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-800/60"
+                            >
+                              {showHeadshot ? (
+                                <img
+                                  src={headshot}
+                                  alt={playerName}
+                                  className="w-11 h-11 rounded-full object-cover bg-slate-800 shrink-0"
+                                  onError={() => setHeadshotErrors((prev) => ({ ...prev, [headshot]: true }))}
+                                />
+                              ) : (
+                                <div className="w-11 h-11 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-bold shrink-0">{initials}</div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {plist.length} market{plist.length === 1 ? "" : "s"}
+                                  {topProp && topSide ? (
+                                    <span className="text-cyan-400"> · AI: {topSide === "over" ? "Over" : "Under"} {topProp.line} {topLabel}{topPriced != null ? ` (${formatOdds(topPriced)})` : ""}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              {addedCount > 0 && (
+                                <span className="shrink-0 text-[10px] font-bold uppercase bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full">{addedCount} added</span>
+                              )}
+                              <span className={`shrink-0 text-cyan-400 text-lg transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
+                            </button>
+                            {expanded && (
+                              <div className="px-3 pb-3 space-y-2 bg-slate-900/40">
+                                {plist.map((p) => {
+                                  const label = MARKET_LABEL[p.market] || p.market;
+                                  const lineTxt = p.line == null ? "" : ` ${p.line}`;
+                                  const overPick = `${p.player} Over${lineTxt} ${label}`;
+                                  const underPick = `${p.player} Under${lineTxt} ${label}`;
+                                  const overIn = parlayLegs.some((l) => l.game === game && l.pick === overPick);
+                                  const underIn = parlayLegs.some((l) => l.game === game && l.pick === underPick);
+                                  const baseLeg = { sport, game, market: "Player Prop", propMarketLabel: label, player: p.player, line: p.line };
+                                  const cardScore = scoreProp(p);
+                                  const recoSide = cardScore?.side || null;
+                                  const isTop = p === topProp && topScore;
+                                  return (
+                                    <div key={`${p.player}-${p.market}-${p._idx}`} className={`rounded-lg px-3 py-2 ${isTop ? "bg-cyan-500/10 ring-1 ring-cyan-400/60" : "bg-slate-800/50"}`}>
+                                      <div className="flex items-center justify-between mb-1.5">
+                                        <div className="text-[11px] font-mono uppercase text-slate-300 tracking-wider truncate">
+                                          {isTop && <span className="text-cyan-400">★ </span>}{label}{p.line != null ? ` · O/U ${p.line}` : ""}
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        {p.overPrice != null && (
+                                          <button
+                                            onClick={() => {
+                                              if (overIn) removeLegByPick({ ...baseLeg, pick: overPick });
+                                              else addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice });
+                                            }}
+                                            className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${overIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                          >
+                                            <span>{overIn ? "✓ ADDED · " : recoSide === "over" ? "AI · " : ""}Over {p.line}</span>
+                                            <span className={`font-mono ${overIn || (recoSide === "over") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
+                                          </button>
+                                        )}
+                                        {p.underPrice != null && (
+                                          <button
+                                            onClick={() => {
+                                              if (underIn) removeLegByPick({ ...baseLeg, pick: underPick });
+                                              else addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice });
+                                            }}
+                                            className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${underIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                          >
+                                            <span>{underIn ? "✓ ADDED · " : recoSide === "under" ? "AI · " : ""}Under {p.line}</span>
+                                            <span className={`font-mono ${underIn || (recoSide === "under") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
-                            <div className="min-w-0 flex-1">
-                              <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
-                              <div className="text-sm text-slate-100 truncate">{p.player}</div>
-                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            {p.overPrice != null && (
-                              <button
-                                onClick={() => {
-                                  if (overIn) removeLegByPick({ ...baseLeg, pick: overPick });
-                                  else addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice });
-                                }}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${overIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
-                              >
-                                <span>{overIn ? "✓ ADDED · " : recoSide === "over" ? "AI PICK · " : ""}Over {p.line}</span>
-                                <span className={`font-mono ${overIn || (recoSide === "over") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
-                              </button>
-                            )}
-                            {p.underPrice != null && (
-                              <button
-                                onClick={() => {
-                                  if (underIn) removeLegByPick({ ...baseLeg, pick: underPick });
-                                  else addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice });
-                                }}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${underIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
-                              >
-                                <span>{underIn ? "✓ ADDED · " : recoSide === "under" ? "AI PICK · " : ""}Under {p.line}</span>
-                                <span className={`font-mono ${underIn || (recoSide === "under") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
-                              </button>
-                            )}
-                          </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </Section>
                 );
               })()}
