@@ -4449,8 +4449,13 @@ export default function ParlayBuilder() {
       // Widen the candidate pool when the user specifically asks for props
       // ("find player props"). Parlay-only intent stays narrower so we don't
       // burn unnecessary fetches when game-level picks are enough.
-      const perSportCap = wantsProps ? 5 : 3;
-      const totalCap = wantsProps ? 12 : 6;
+      // When the user names a specific low-frequency prop market (HR,
+      // anytime-TD, strikeouts), widen the pool to ALL in-window games for
+      // that sport — these markets only post for a subset of games, so the
+      // default top-5 sample often misses the games where the market exists.
+      const wantsWideProps = /\b(home runs?|hr\b|anytime td|goal scorer|first goal|strikeouts?)\b/i.test(text);
+      const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : 3;
+      const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : 6;
       for (const s of selectedSports) {
         const oddsGames = (realOddsBySportLocal[s] || []).filter((g) => isWithin24h(g.commenceTime));
         const espnGames = realGamesBySportLocal[s] || [];
