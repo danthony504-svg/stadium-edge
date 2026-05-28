@@ -2428,6 +2428,25 @@ export default function ParlayBuilder() {
   const [realGamesBySport, setRealGamesBySport] = useState({}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
   const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
   const [realPropsByEvent, setRealPropsByEvent] = useState({}); // { eventId: { home, away, bookmaker, props:[{player,market,line,overPrice,underPrice}] } }
+  // Sports for which the backend now ships quarter/half player markets
+  // (_q1 / _h1). A cached entry for one of these sports that contains ZERO
+  // QH rows is treated as STALE and re-fetched — this auto-migrates users
+  // who had the page open across the QH-markets deploy and would otherwise
+  // be stuck on a pre-QH cached payload until they hard-refresh.
+  const QH_SUPPORTED_SPORTS = new Set(["nba", "nfl", "ncaaf"]);
+  const isStalePropsCache = (sport, cached) => {
+    if (!cached || !Array.isArray(cached.props) || cached.props.length === 0) return false;
+    if (!QH_SUPPORTED_SPORTS.has(sport)) return false;
+    // ONE-SHOT guard: once we've refetched this event and stamped it as
+    // QH-checked, treat the cache as fresh even if QH rows are still empty
+    // (the game may just be too far out for bookmakers to have posted QH
+    // lines yet). Without this, the game-detail useEffect — which depends
+    // on realPropsByEvent — would loop: detect stale → refetch → setState
+    // with same stale shape → effect re-runs → detect stale → refetch …
+    if (cached._qhChecked) return false;
+    return !cached.props.some((p) => /_q1$|_h1$/.test(p?.market || ""));
+  };
+  const stampQhChecked = (data) => ({ ...data, _qhChecked: true });
   const [propsLoading, setPropsLoading] = useState(false);
   const [headshotErrors, setHeadshotErrors] = useState({}); // { [headshotUrl]: true } — track broken URLs so we can swap to initials
   const [homeSearch, setHomeSearch] = useState("");
@@ -2766,7 +2785,10 @@ export default function ParlayBuilder() {
       (g) => `${g.awayTeam} @ ${g.homeTeam}` === game,
     );
     if (!match?.id) { setPropsLoading(false); return; }
-    if (realPropsByEvent[match.id]) { setPropsLoading(false); return; }
+    if (realPropsByEvent[match.id] && !isStalePropsCache(sport, realPropsByEvent[match.id])) {
+      setPropsLoading(false);
+      return;
+    }
     // Look up team IDs from the matching ESPN game so the server can enrich
     // each prop with player headshots from the team rosters.
     const espnGame = (realGamesBySport[sport] || []).find(
@@ -2783,7 +2805,7 @@ export default function ParlayBuilder() {
         if (!r.ok) return;
         const data = await r.json();
         if (cancelled) return;
-        setRealPropsByEvent((prev) => ({ ...prev, [match.id]: data }));
+        setRealPropsByEvent((prev) => ({ ...prev, [match.id]: stampQhChecked(data) }));
       } catch {
         /* leave unset — section just won't render */
       } finally {
@@ -3090,7 +3112,14 @@ export default function ParlayBuilder() {
     // them — clicking "Build best parlay" doesn't otherwise trigger the
     // game-detail or chat-side fetch path. Enrich with ESPN team ids so
     // the server can attach player headshots.
-    if (propsKey && !realPropsByEvent[propsKey]) {
+    // Local override used when we have to fetch in this closure — the
+    // setRealPropsByEvent setter is async so the React-state map is still
+    // empty in this run; we read from `freshlyFetched` first, then fall
+    // back to the existing state map.
+    let freshlyFetched = null;
+    const cachedForKey = propsKey ? realPropsByEvent[propsKey] : null;
+    const needsFetch = propsKey && (!cachedForKey || isStalePropsCache(g.sport, cachedForKey));
+    if (needsFetch) {
       try {
         const espn = espnGameForHistory;
         const qs = [`sport=${encodeURIComponent(g.sport)}`, `eventId=${encodeURIComponent(propsKey)}`];
@@ -3100,16 +3129,14 @@ export default function ParlayBuilder() {
         if (pr.ok) {
           const data = await pr.json();
           if (data?.props?.length) {
-            setRealPropsByEvent((prev) => ({ ...prev, [propsKey]: data }));
-            // Use the just-fetched payload directly for this run — state
-            // setter is async, so realPropsByEvent[propsKey] is still empty
-            // in this closure.
-            realPropsByEvent[propsKey] = data;
+            const stamped = stampQhChecked(data);
+            setRealPropsByEvent((prev) => ({ ...prev, [propsKey]: stamped }));
+            freshlyFetched = stamped;
           }
         }
       } catch { /* honest no-props fallback */ }
     }
-    const liveProps = propsKey ? realPropsByEvent[propsKey] : null;
+    const liveProps = freshlyFetched || (propsKey ? realPropsByEvent[propsKey] : null);
     const propPicks = [];
     if (liveProps?.props?.length) {
       const MARKET_LABEL = {
@@ -4709,7 +4736,7 @@ export default function ParlayBuilder() {
           // never retries and the AI keeps seeing realProps: [] forever
           // (the "no home run lines in pool" loop the user hit).
           const cached = realPropsByEvent[c.eventId];
-          if (cached && Array.isArray(cached.props) && cached.props.length > 0) {
+          if (cached && Array.isArray(cached.props) && cached.props.length > 0 && !isStalePropsCache(c.sport, cached)) {
             extraProps[c.eventId] = cached;
             return;
           }
@@ -4720,7 +4747,7 @@ export default function ParlayBuilder() {
             const r = await fetch(`/api/sports/props?${qs.join("&")}`);
             if (!r.ok) return;
             const data = await r.json();
-            extraProps[c.eventId] = data;
+            extraProps[c.eventId] = stampQhChecked(data);
           } catch { /* ignore */ }
         }),
       );
