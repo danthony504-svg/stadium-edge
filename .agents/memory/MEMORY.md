@@ -3,5 +3,7 @@
 - [Finals suppression belt-and-braces](finals-suppression-belt-and-braces.md) — render-site and source-side finished-game filtering; 4h cutoff + active-status bypass.
 - [Playoff series duplicate labels](playoff-series-duplicate-labels.md) — label-keyed game lookups must prefer future/non-final candidates, not first-match; sort detail lists chronologically.
 - [Slip-sweep / fresh-fetch race](slip-sweep-race.md) — per-render re-validator strips just-inserted items; stamp `addedAt` and grace-window them so state can catch up.
+- [Opponent / team-defense route](opponent-defense-route.md) — ESPN per-team feeds have no true "opp allows X" splits; honest scope of /api/sports/team-defense (avgPointsAgainst from record + own-defensive output).
+- [System-prompt template-literal escaping](system-prompt-template-literals.md) — chat.ts SYSTEM_PROMPT is a backtick literal; never write `${...}` inside it (gets interpolated and breaks build). Use "<sport>#<teamId>" style placeholders.
 - [Odds API alt markets endpoint](odds-api-alt-markets.md) — alternate_spreads/alternate_totals are per-event only; bulk /odds returns 422 and kills mains too.
 - [Live props AI pick must be pinned](live-props-ai-pick-pin.md) — multi-book props lists are 200+ rows; per-row highlight gets buried, pin a summary card at the section top.

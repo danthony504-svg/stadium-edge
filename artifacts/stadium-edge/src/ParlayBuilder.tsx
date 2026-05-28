@@ -4676,7 +4676,7 @@ export default function ParlayBuilder() {
       const filtered = games.filter((g) => isWithin24h(g.startsAt));
       for (const g of filtered.slice(0, 12)) {
         const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
-        realGames.push({ sport, game: gameLabel, status: g.status, startsAt: g.startsAt, venue: g.venue });
+        realGames.push({ sport, game: gameLabel, status: g.status, startsAt: g.startsAt, venue: g.venue, homeTeamId: g.homeTeamId ? String(g.homeTeamId) : null, awayTeamId: g.awayTeamId ? String(g.awayTeamId) : null });
         if (g.homeTeamId && g.awayTeamId) {
           historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId });
         }
@@ -4786,14 +4786,20 @@ export default function ParlayBuilder() {
       // chat AI with "only 4 K props in the pool" when ~10 actually existed.
       // 200 is well above any single game's prop count.
       for (const pr of (data.props || []).slice(0, 200)) {
-        realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
-        if (sport && pr.athleteId && pr.playerTeamId && teams && !seenAthletes.has(pr.athleteId)) {
+        // Compute opponentTeamId per prop so the AI has a deterministic
+        // key to look up context.opponentDefense (which is keyed by
+        // "<sport>#<opponentTeamId>"). Falls back to null when the team
+        // mapping isn't available — the prompt tells the AI to skip the
+        // defense rule when no entry exists, never to invent one.
+        let propOppId = null;
+        if (sport && pr.playerTeamId && teams) {
           const pt = String(pr.playerTeamId);
-          const opp = pt === teams.home ? teams.away : pt === teams.away ? teams.home : null;
-          if (opp) {
-            seenAthletes.add(pr.athleteId);
-            playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: opp });
-          }
+          propOppId = pt === teams.home ? teams.away : pt === teams.away ? teams.home : null;
+        }
+        realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice, opponentTeamId: propOppId });
+        if (sport && pr.athleteId && propOppId && !seenAthletes.has(pr.athleteId)) {
+          seenAthletes.add(pr.athleteId);
+          playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: propOppId });
         }
       }
     }
@@ -4828,6 +4834,41 @@ export default function ParlayBuilder() {
               vsOpponent: vsOpp.map((g) => ({ date: g.date, stats: g.stats })),
             };
           } catch { /* honest no-history fallback */ }
+        }),
+      );
+    }
+    // Opponent team defense — for each unique (sport, opponentTeamId)
+    // pair across the props pool, pull headline points-allowed + the
+    // sport-specific defensive-output stats from ESPN. Cached 60min on
+    // the server so a refresh costs almost nothing. Keyed by "sport#teamId"
+    // so the AI can look up "what is this player's opponent's defense
+    // like?" when picking a prop. Honest empty buckets when ESPN has no
+    // numbers yet (preseason / new team / unsupported sport).
+    const opponentDefense = {};
+    const defenseTargets = [];
+    const seenDef = new Set();
+    for (const t of phTargets) {
+      const key = `${t.sport}#${t.opponentTeamId}`;
+      if (seenDef.has(key) || !t.opponentTeamId) continue;
+      seenDef.add(key);
+      defenseTargets.push({ sport: t.sport, teamId: t.opponentTeamId, key });
+    }
+    if (defenseTargets.length > 0) {
+      await Promise.all(
+        defenseTargets.slice(0, 24).map(async (d) => {
+          try {
+            const qs = `sport=${encodeURIComponent(d.sport)}&teamId=${encodeURIComponent(d.teamId)}`;
+            const r = await fetch(`/api/sports/team-defense?${qs}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            opponentDefense[d.key] = {
+              teamName: data?.teamName ?? null,
+              avgPointsAgainst: data?.avgPointsAgainst ?? null,
+              avgPointsFor: data?.avgPointsFor ?? null,
+              pointDifferential: data?.pointDifferential ?? null,
+              defensive: data?.defensive ?? {},
+            };
+          } catch { /* honest no-defense fallback */ }
         }),
       );
     }
@@ -4910,6 +4951,7 @@ export default function ParlayBuilder() {
       realProps: realProps.slice(0, 400),
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
+      opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
     };
 
     let fullText = "";
