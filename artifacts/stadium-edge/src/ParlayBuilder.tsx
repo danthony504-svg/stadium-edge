@@ -4643,7 +4643,13 @@ export default function ParlayBuilder() {
     // props directly OR mix them into a parlay alongside game-level picks.
     // Trigger on either an explicit prop ask OR any parlay-building intent.
     const wantsProps = /\b(player\s*props?|prop bet|prop parlay|props\b|over\/?under on (a |the )?player|points\b|rebounds\b|assists\b|home runs?|strikeouts?|shots on goal|passing yards?|rushing yards?|receiving yards?|receptions?)\b/i.test(text);
-    const wantsParlay = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game)\b/i.test(text);
+    // "leg" / "legs" / "N-leg" / "N leg" all signal parlay-building intent
+    // even when the word "parlay" is never said (e.g. "10 leg for nba game
+    // tonight", "give me a 5-legger", "8 legs cross sport"). Without this,
+    // the prop-fetch block was skipped and the AI got stuck on the 3 base
+    // odds markets (ML/Spread/Total) per game — capping the ticket at 3-4
+    // legs regardless of what the user asked for.
+    const wantsParlay = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game|\d+\s*-?\s*legg?(?:er|ers|s)?)\b/i.test(text);
     const extraProps = {}; // eventId -> props payload, merged into context for this send
     // Map Odds-API eventId -> ESPN {homeTeamId, awayTeamId} captured while
     // building the prop-fetch candidate list, so the player-history loop
