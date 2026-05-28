@@ -8709,22 +8709,26 @@ export default function ParlayBuilder() {
                           <div className="flex gap-2">
                             {p.overPrice != null && (
                               <button
-                                onClick={() => { if (!overIn) addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice }); }}
-                                disabled={overIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                onClick={() => {
+                                  if (overIn) removeLegByPick({ ...baseLeg, pick: overPick });
+                                  else addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice });
+                                }}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${overIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>{recoSide === "over" ? "AI PICK · " : ""}Over {p.line}</span>
-                                <span className={`font-mono ${recoSide === "over" && !overIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
+                                <span>{overIn ? "✓ ADDED · " : recoSide === "over" ? "AI PICK · " : ""}Over {p.line}</span>
+                                <span className={`font-mono ${overIn || (recoSide === "over") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
                               </button>
                             )}
                             {p.underPrice != null && (
                               <button
-                                onClick={() => { if (!underIn) addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice }); }}
-                                disabled={underIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                onClick={() => {
+                                  if (underIn) removeLegByPick({ ...baseLeg, pick: underPick });
+                                  else addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice });
+                                }}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between transition ${underIn ? "bg-emerald-500 text-slate-950 ring-2 ring-emerald-300 hover:bg-emerald-400" : recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>{recoSide === "under" ? "AI PICK · " : ""}Under {p.line}</span>
-                                <span className={`font-mono ${recoSide === "under" && !underIn ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
+                                <span>{underIn ? "✓ ADDED · " : recoSide === "under" ? "AI PICK · " : ""}Under {p.line}</span>
+                                <span className={`font-mono ${underIn || (recoSide === "under") ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
                           </div>
@@ -8775,6 +8779,29 @@ export default function ParlayBuilder() {
               )}
               <div className="h-24" />
             </div>
+            {/* Sticky bet-slip bar — visible inside the game-detail overlay
+                so the user can see their ticket while building it. */}
+            {parlayLegs.length > 0 && (
+              <button
+                onClick={() => setBetslipOpen(true)}
+                className="shrink-0 bg-slate-950 border-t border-cyan-500/40 px-4 py-3 flex items-center justify-between shadow-[0_-4px_20px_rgba(0,0,0,0.4)]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center text-sm font-bold">
+                    {parlayLegs.length}
+                  </span>
+                  <span className="text-cyan-400 font-bold text-base">View ticket</span>
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-slate-300 text-sm whitespace-nowrap">
+                    {bookLegCount >= 1
+                      ? `$10 → $${((parlayMath.decimal - 1) * 10).toFixed(2)}`
+                      : `${ppLegCount} leg${ppLegCount === 1 ? "" : "s"}`}
+                  </span>
+                  <span className="text-cyan-400 text-xl leading-none">⌃</span>
+                </div>
+              </button>
+            )}
           </div>
         );
       })()}
