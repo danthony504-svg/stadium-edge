@@ -154,7 +154,17 @@ router.post("/chat", async (req, res): Promise<void> => {
       : "";
 
   const lockedSystemAddendum = lockedMarket
-    ? `\n\n*** HARD MARKET LOCK FOR THIS TURN ***\nThe user asked for "${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${lockedMarket.markets.join(", ")}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. If realProps is empty or has fewer entries than the user's requested leg count, return as many as exist and add the honest short-ticket note. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.`
+    ? `\n\n*** HARD MARKET LOCK FOR THIS TURN ***
+The user asked for "${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${lockedMarket.markets.join(", ")}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.
+
+*** PICK THE BEST, NOT THE FIRST ***
+The realProps array is NOT pre-ranked — do NOT just take the first N entries. For each candidate player in the filtered list, build a quick score using ALL the data available to you:
+  1. playerHistory.recent (last 5 games for this stat) — average vs the posted line
+  2. playerHistory.vsOpponent (prior games vs tonight's opponent) — strongest signal when ≥2 games
+  3. matchupHistory for the player's game — pace/total/H2H context
+  4. injuries / weather / pace / role notes in the realGames entries
+  5. The offered price vs your estimated true probability (edge in percentage points)
+Rank ALL candidates by your composite score and return the TOP N (where N = the user's requested leg count). Spread across DIFFERENT games when possible — if two pitchers are equally good but one is in the same game as another pick, prefer the one in a different game (lower correlation). For each leg's edge note, cite the specific recent-5 number, vs-opponent number, and matchup/pace tilt you used — that's how the user knows it's a real top pick and not a random pick. If realProps has fewer entries than the requested leg count, return all of them with the honest short-ticket note.`
     : "";
 
   const messages = [
