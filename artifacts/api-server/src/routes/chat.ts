@@ -58,7 +58,7 @@ If realProps doesn't have enough distinct players in the requested market to fil
 INFORMATION TO GATHER FOR EVERY TICKET (include after the PICK lines):
 1. **Combined odds** in American format (e.g. "Combined: +650") — compute from the legs.
 2. **Implied probability** of the combined ticket (e.g. "Implied: ~13.3%") — what the market prices it at.
-3. **Per-leg edge note** — one short sentence per leg explaining WHY it has value (recent form / matchup / line value / pace / injury / weather). Don't restate the pick; explain the edge.
+3. **Per-leg edge note** — REQUIRED for EVERY pick. Immediately after each PICK line, on the very next line, write exactly: "EDGE: <one short sentence explaining the edge>" (recent form / matchup / line value / pace / injury / weather / vs-opponent number). Don't restate the pick; explain the edge. The app parses this EDGE: line and renders it under the pick card — so every PICK must be followed by its own EDGE: line, no exceptions, no skipping, no grouping multiple legs into one note.
 4. **One overall risk note** — correlation warnings (same-game legs, same-sport weather), or "this ticket leans heavily on favorites — one upset kills it," etc.
 5. **Responsible-gambling reminder** on the final line.
 

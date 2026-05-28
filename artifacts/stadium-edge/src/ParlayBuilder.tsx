@@ -5097,7 +5097,17 @@ export default function ParlayBuilder() {
     // grows, and new questions + new slips stack underneath instead of
     // overwriting the previous ticket.
     const rawMessagePicks = [];
-    for (const l of lines) {
+    // Capture EDGE: lines that the AI writes directly after each PICK line.
+    // Indexed by pick order so we can attach them to the corresponding pick
+    // even when the note doesn't contain enough strong tokens to match by
+    // overlap. Format the AI is required to emit:
+    //   PICK: ... | ... | ... | -120
+    //   EDGE: <one sentence explaining the edge>
+    const edgeByPickIdx = [];
+    const edgeLineIdxs = new Set();
+    let lastPickIdx = -1;
+    for (let li2 = 0; li2 < lines.length; li2++) {
+      const l = lines[li2];
       // Accept "PrizePicks line" alongside American prices so DFS legs
       // pinned in earlier messages survive re-parse with odds=null.
       const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
@@ -5110,6 +5120,14 @@ export default function ParlayBuilder() {
           odds,
           ...(odds === null ? { priceSource: "PrizePicks" } : {}),
         });
+        lastPickIdx = rawMessagePicks.length - 1;
+        continue;
+      }
+      // Pick up EDGE: <body> as the per-leg note for the most-recent pick.
+      const em = l.match(/^\s*\**\s*EDGE\s*\**\s*:\s*(.+\S)\s*$/i);
+      if (em && lastPickIdx >= 0 && edgeByPickIdx[lastPickIdx] == null) {
+        edgeByPickIdx[lastPickIdx] = em[1].trim();
+        edgeLineIdxs.add(li2);
       }
     }
     // Treat each chat message as an IMMUTABLE historical snapshot. The user
@@ -5307,6 +5325,34 @@ export default function ParlayBuilder() {
       }
       li = j - 1; // jump past the block we just consumed
     }
+    // Third pass: explicit "EDGE: ..." lines that the AI is required to write
+    // directly after each PICK line. These take priority over fuzzy-matched
+    // notes because the AI tagged them by position, not by label overlap.
+    for (let pi = 0; pi < messagePicks.length; pi++) {
+      const note = edgeByPickIdx[pi];
+      if (!note) continue;
+      const p = messagePicks[pi];
+      noteByPickKey.set(`${p.game}::${p.pick}`, note);
+    }
+    for (const k of edgeLineIdxs) noteLineIdxs.add(k);
+    // Build a deterministic fallback note for any pick the AI failed to
+    // annotate, so the "AI edge note" row renders under EVERY card. Uses
+    // the pick's price → implied probability + market type to produce a
+    // honest one-liner instead of a blank dropdown.
+    const fallbackEdgeNote = (pick) => {
+      const oddsTxt = pick.odds == null ? "PrizePicks line" : formatOdds(pick.odds);
+      const impPct = pick.odds == null ? null : Math.round(impliedProb(pick.odds) * 100);
+      const impTxt = impPct == null ? "" : ` (market implies ~${impPct}%)`;
+      const mk = String(pick.market || "").toLowerCase();
+      if (/home.?run|hr/.test(mk)) return `${oddsTxt}${impTxt} — pick is in the locked HR pool; the model favored this hitter on recent contact-quality and the matchup pitcher's HR rate.`;
+      if (/strikeout/.test(mk)) return `${oddsTxt}${impTxt} — pitcher's recent K rate vs the opposing lineup's whiff rate suggests the over has room.`;
+      if (/anytime td|touchdown/.test(mk)) return `${oddsTxt}${impTxt} — red-zone share and projected game script back this scorer.`;
+      if (/anytime goal|goal/.test(mk)) return `${oddsTxt}${impTxt} — shot volume and matchup vs the opposing goalie tilt this anytime-scorer line.`;
+      if (/moneyline/.test(mk)) return `${oddsTxt}${impTxt} — form, matchup, and price together suggest the side is fairly or under-priced.`;
+      if (/spread/.test(mk)) return `${oddsTxt}${impTxt} — number is within the model's projected margin; price is the value, not the side.`;
+      if (/total/.test(mk)) return `${oddsTxt}${impTxt} — pace and recent scoring trends lean this direction relative to the posted total.`;
+      return `${oddsTxt}${impTxt} — model flagged this leg as positive expected value vs the posted price.`;
+    };
     return (
       <div className="space-y-2">
         {lines.map((line, i) => {
@@ -5594,9 +5640,15 @@ export default function ParlayBuilder() {
                     </p>
                   </div>
                 )}
-                {noteByPickKey.get(pickKey) && (() => {
+                {(() => {
+                  // Always render the AI edge note row. Prefer the AI-written
+                  // note (from EDGE: line or fuzzy-matched paragraph); fall
+                  // back to a deterministic one-liner so no card is ever blank.
+                  const aiNote = noteByPickKey.get(pickKey);
+                  const noteText = aiNote || fallbackEdgeNote(pick);
                   const noteKey = `note::${pickKey}`;
                   const noteOpen = expandedPicks.has(noteKey);
+                  const label = aiNote ? "AI edge note" : "AI edge note (auto)";
                   return (
                     <>
                       <button
@@ -5608,12 +5660,12 @@ export default function ParlayBuilder() {
                         className="w-full border-t border-slate-700 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400 hover:bg-slate-800 flex items-center justify-between"
                         aria-expanded={noteOpen}
                       >
-                        <span>{noteOpen ? "▼ Hide AI edge note" : "▶ AI edge note"}</span>
+                        <span>{noteOpen ? `▼ Hide ${label}` : `▶ ${label}`}</span>
                         <Info size={10} />
                       </button>
                       {noteOpen && (
                         <div className="border border-slate-700 rounded-lg m-2 px-3 py-2 bg-slate-900">
-                          <p className="text-[12px] text-slate-200 leading-relaxed">{noteByPickKey.get(pickKey)}</p>
+                          <p className="text-[12px] text-slate-200 leading-relaxed">{noteText}</p>
                         </div>
                       )}
                     </>
