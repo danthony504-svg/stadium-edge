@@ -3242,7 +3242,7 @@ export default function ParlayBuilder() {
         ...p,
         { role: "user", content: userMsg },
         { role: "assistant", content:
-          `Built ${ticketRaw.length} candidate legs for **${g.away} @ ${g.home}** but every one got rejected by the live-game filter (the game may have just gone Final or fallen outside the 24h window). Nothing added to your slip — pick a different game.`
+          `Built ${ticketRaw.length} candidate legs for **${g.away} @ ${g.home}** but every one got rejected by the live-game filter (the game may have just gone Final or fallen outside the 48h window). Nothing added to your slip — pick a different game.`
         },
       ]);
       return;
@@ -3952,11 +3952,13 @@ export default function ParlayBuilder() {
       const mm = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
       return mm ? [mm[1].trim(), mm[2].trim()] : null;
     };
-    // 24h window: include games up to 4h in the past (live / just-started)
-    // and 24h in the future. Anything outside is "far out" and must not be
+    // 48h window: include games up to 4h in the past (live / just-started)
+    // and 48h in the future. Anything outside is "far out" and must not be
     // pickable — matches the chat handler's eligibility window exactly.
+    // Widened from 24h to 48h so prop markets (HR / K's / anytime-TD) that
+    // only post for tomorrow's slate are visible alongside today's.
     const NOW = Date.now();
-    const WINDOW_MS = 24 * 60 * 60 * 1000;
+    const WINDOW_MS = 48 * 60 * 60 * 1000;
     const BACK_MS = 4 * 60 * 60 * 1000;
     const inWindow = (ts) => {
       if (!ts) return false;
@@ -4014,7 +4016,7 @@ export default function ParlayBuilder() {
     for (const lp of livePicks || []) {
       const label = String(lp.game || "");
       if (!label || seenLabels.has(label)) continue;
-      // Drop anything outside the 24h window — livePicks contains the next
+      // Drop anything outside the 48h window — livePicks contains the next
       // several days of ESPN games for the selected sports and we only want
       // games starting (or already started) within the chat window.
       if (!inWindow(lp.startsAt)) continue;
@@ -4204,7 +4206,7 @@ export default function ParlayBuilder() {
     // Drop anything the filter rejected. The filter itself already
     // handles the "feed gap" case correctly — it only drops legs that
     // either (a) are cross-sport hallucinations, (b) have a known start
-    // time outside the 24h window, or (c) have no entry in any raw feed
+    // time outside the 48h window, or (c) have no entry in any raw feed
     // (unverifiable). We DON'T early-return on poolSize===0 anymore: a
     // hallucinated leg with no raw-feed match should disappear even when
     // the live data is momentarily empty, because more data isn't going
@@ -4423,7 +4425,9 @@ export default function ParlayBuilder() {
     // Only surface games tipping off within the next 24h so the AI can't
     // build a ticket from matchups days out.
     const CHAT_NOW = Date.now();
-    const CHAT_WINDOW_MS = 24 * 60 * 60 * 1000;
+    // Widened from 24h to 48h so prop markets that only post for tomorrow's
+    // slate (HR / K's / anytime-TD) are visible alongside today's games.
+    const CHAT_WINDOW_MS = 48 * 60 * 60 * 1000;
     const CHAT_LIVE_BACK_MS = 4 * 60 * 60 * 1000; // include games already in progress
     const isWithin24h = (ts) => {
       if (!ts) return false;
@@ -4685,7 +4689,7 @@ export default function ParlayBuilder() {
       }
       const { kept } = filterPicksToReal(raw);
       if (!kept.length) {
-        extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], rawLegCount: raw.length, unusableReason: "all legs are outside the live 24h pool (game ended, postponed, or not in current feed)" });
+        extraSlips.push({ label: `Pinned slip from message #${idx + 1}`, legs: [], rawLegCount: raw.length, unusableReason: "all legs are outside the live 48h pool (game ended, postponed, or not in current feed)" });
         continue;
       }
       const math = kept.length >= 2 ? calculateParlay(kept) : null;
