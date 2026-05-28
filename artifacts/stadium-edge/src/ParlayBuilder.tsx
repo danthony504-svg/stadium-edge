@@ -8659,27 +8659,29 @@ export default function ParlayBuilder() {
                       const initials = p.player.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
                       const showHeadshot = p.headshot && !headshotErrors[p.headshot];
                       const isReco = i === bestIdx;
-                      const recoSide = isReco ? bestScore.side : null;
-                      const recoEdgePct = isReco ? (bestScore.edge * 100).toFixed(1) : null;
-                      const recoReason = isReco ? (() => {
+                      // Per-card AI verdict: every prop gets its own
+                      // side/edge so the user sees a recommendation on
+                      // each row, not just the top-edge pick.
+                      const cardScore = scoreProp(p);
+                      const cardSide = cardScore?.side || null;
+                      const cardEdgePct = cardScore ? (cardScore.edge * 100).toFixed(1) : null;
+                      const cardReason = cardScore ? (() => {
                         const bits = [];
-                        if (bestScore.roster) {
-                          bits.push(`${bestScore.roster.name.split(" ").slice(-1)[0]} form ${bestScore.roster.form}/10`);
-                          if (bestScore.statKey && bestScore.roster.stats[bestScore.statKey] != null) {
-                            const avg = bestScore.roster.stats[bestScore.statKey];
+                        if (cardScore.roster) {
+                          bits.push(`${cardScore.roster.name.split(" ").slice(-1)[0]} form ${cardScore.roster.form}/10`);
+                          if (cardScore.statKey && cardScore.roster.stats[cardScore.statKey] != null) {
+                            const avg = cardScore.roster.stats[cardScore.statKey];
                             bits.push(`avg ${avg} vs line ${p.line}`);
                           }
-                          bits.push(`${recoEdgePct}% edge vs no-vig fair`);
+                          bits.push(`${cardEdgePct}% edge vs no-vig fair`);
                         } else {
-                          // No roster data — frame the edge honestly as
-                          // "best-priced side of the sharpest market we see"
-                          // rather than implying we modeled the player.
-                          const priced = recoSide === "over" ? p.overPrice : p.underPrice;
-                          if (priced != null) bits.push(`best price (${formatOdds(priced)})`);
+                          const priced = cardSide === "over" ? p.overPrice : p.underPrice;
+                          if (priced != null) bits.push(`best price ${formatOdds(priced)}`);
                           bits.push("lowest-vig side of this market");
                         }
                         return bits.join(" · ");
                       })() : null;
+                      const recoSide = cardSide;
                       return (
                         <div key={`${p.player}-${p.market}-${i}`} className={`border-t border-slate-800 ${isReco ? "bg-cyan-500/10 ring-2 ring-inset ring-cyan-400" : ""}`}>
                           {isReco && (
@@ -8704,10 +8706,12 @@ export default function ParlayBuilder() {
                               <div className="text-sm text-slate-100 truncate">{p.player}</div>
                             </div>
                           </div>
-                          {isReco && (
-                            <div className="mb-2 text-[11px] text-cyan-200/90 leading-snug bg-cyan-500/10 border border-cyan-500/30 rounded-md px-2 py-1.5">
-                              <span className="font-bold uppercase tracking-wider text-[9px] text-cyan-300 mr-1">Why:</span>
-                              {recoReason}
+                          {cardReason && (
+                            <div className={`mb-2 text-[11px] leading-snug rounded-md px-2 py-1.5 ${isReco ? "bg-cyan-500/15 border border-cyan-500/40 text-cyan-100" : "bg-slate-800/60 border border-slate-700 text-slate-300"}`}>
+                              <span className={`font-bold uppercase tracking-wider text-[9px] mr-1 ${isReco ? "text-cyan-300" : "text-cyan-400"}`}>
+                                AI Pick · {cardSide === "over" ? "Over" : "Under"} {p.line}
+                              </span>
+                              <span className="block mt-0.5">{cardReason}</span>
                             </div>
                           )}
                           <div className="flex gap-2">
@@ -8715,9 +8719,9 @@ export default function ParlayBuilder() {
                               <button
                                 onClick={() => { if (!overIn) addLeg({ ...baseLeg, pick: overPick, odds: p.overPrice }); }}
                                 disabled={overIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${overIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "over" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : recoSide === "over" ? "bg-slate-800 hover:bg-slate-700 text-slate-100 ring-1 ring-cyan-500/40" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Over {p.line}{isReco && recoSide === "over" ? " ★" : ""}</span>
+                                <span>Over {p.line}{recoSide === "over" ? (isReco ? " ★" : " ✓") : ""}</span>
                                 <span className={`font-mono ${isReco && recoSide === "over" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.overPrice)}</span>
                               </button>
                             )}
@@ -8725,9 +8729,9 @@ export default function ParlayBuilder() {
                               <button
                                 onClick={() => { if (!underIn) addLeg({ ...baseLeg, pick: underPick, odds: p.underPrice }); }}
                                 disabled={underIn}
-                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
+                                className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold flex items-center justify-between ${underIn ? "bg-slate-800 text-slate-500" : isReco && recoSide === "under" ? "bg-cyan-500 text-slate-950 ring-2 ring-cyan-300 hover:bg-cyan-400" : recoSide === "under" ? "bg-slate-800 hover:bg-slate-700 text-slate-100 ring-1 ring-cyan-500/40" : "bg-slate-800 hover:bg-slate-700 text-slate-100"}`}
                               >
-                                <span>Under {p.line}{isReco && recoSide === "under" ? " ★" : ""}</span>
+                                <span>Under {p.line}{recoSide === "under" ? (isReco ? " ★" : " ✓") : ""}</span>
                                 <span className={`font-mono ${isReco && recoSide === "under" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
