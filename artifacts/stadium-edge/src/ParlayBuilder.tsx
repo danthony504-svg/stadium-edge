@@ -3710,10 +3710,39 @@ export default function ParlayBuilder() {
 
   // Map coach team abbreviations to the team names used in PICK_POOL game strings.
   const TEAM_ABBR_TO_NAME = {
-    nfl: { KC: "Chiefs", LAR: "Rams", NE: "Patriots", PIT: "Steelers", DET: "Lions", SF: "49ers", BAL: "Ravens", BUF: "Bills", DAL: "Cowboys", PHI: "Eagles", CIN: "Bengals", GB: "Packers", MIA: "Dolphins", NYJ: "Jets" },
-    nba: { MIA: "Heat", GSW: "Warriors", SAS: "Spurs", LAC: "Clippers", BOS: "Celtics", LAL: "Lakers", DEN: "Nuggets", MIL: "Bucks" },
-    mlb: { LAD: "Dodgers", NYY: "Yankees" },
-    nhl: {},
+    nfl: {
+      ARI: "Cardinals", ATL: "Falcons", BAL: "Ravens", BUF: "Bills", CAR: "Panthers", CHI: "Bears",
+      CIN: "Bengals", CLE: "Browns", DAL: "Cowboys", DEN: "Broncos", DET: "Lions", GB: "Packers",
+      HOU: "Texans", IND: "Colts", JAX: "Jaguars", KC: "Chiefs", LV: "Raiders", LAC: "Chargers",
+      LAR: "Rams", MIA: "Dolphins", MIN: "Vikings", NE: "Patriots", NO: "Saints", NYG: "Giants",
+      NYJ: "Jets", PHI: "Eagles", PIT: "Steelers", SF: "49ers", SEA: "Seahawks", TB: "Buccaneers",
+      TEN: "Titans", WAS: "Commanders",
+    },
+    nba: {
+      ATL: "Hawks", BOS: "Celtics", BKN: "Nets", CHA: "Hornets", CHI: "Bulls", CLE: "Cavaliers",
+      DAL: "Mavericks", DEN: "Nuggets", DET: "Pistons", GSW: "Warriors", HOU: "Rockets",
+      IND: "Pacers", LAC: "Clippers", LAL: "Lakers", MEM: "Grizzlies", MIA: "Heat", MIL: "Bucks",
+      MIN: "Timberwolves", NOP: "Pelicans", NYK: "Knicks", OKC: "Thunder", ORL: "Magic",
+      PHI: "76ers", PHX: "Suns", POR: "Trail Blazers", SAC: "Kings", SAS: "Spurs", TOR: "Raptors",
+      UTA: "Jazz", WAS: "Wizards",
+    },
+    mlb: {
+      ARI: "Diamondbacks", ATL: "Braves", BAL: "Orioles", BOS: "Red Sox", CHC: "Cubs",
+      CHW: "White Sox", CIN: "Reds", CLE: "Guardians", COL: "Rockies", DET: "Tigers",
+      HOU: "Astros", KC: "Royals", LAA: "Angels", LAD: "Dodgers", MIA: "Marlins", MIL: "Brewers",
+      MIN: "Twins", NYM: "Mets", NYY: "Yankees", OAK: "Athletics", PHI: "Phillies",
+      PIT: "Pirates", SD: "Padres", SF: "Giants", SEA: "Mariners", STL: "Cardinals",
+      TB: "Rays", TEX: "Rangers", TOR: "Blue Jays", WAS: "Nationals",
+    },
+    nhl: {
+      ANA: "Ducks", BOS: "Bruins", BUF: "Sabres", CGY: "Flames", CAR: "Hurricanes",
+      CHI: "Blackhawks", COL: "Avalanche", CBJ: "Blue Jackets", DAL: "Stars", DET: "Red Wings",
+      EDM: "Oilers", FLA: "Panthers", LAK: "Kings", MIN: "Wild", MTL: "Canadiens",
+      NSH: "Predators", NJD: "Devils", NYI: "Islanders", NYR: "Rangers", OTT: "Senators",
+      PHI: "Flyers", PIT: "Penguins", SJS: "Sharks", SEA: "Kraken", STL: "Blues",
+      TBL: "Lightning", TOR: "Maple Leafs", VAN: "Canucks", VGK: "Golden Knights",
+      WSH: "Capitals", WPG: "Jets",
+    },
   };
 
   // Find a pick from the pool that a coach's tendency bears on, so it can be
