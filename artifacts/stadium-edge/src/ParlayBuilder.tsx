@@ -2242,6 +2242,21 @@ export default function ParlayBuilder() {
     if (isHR) return apply("To Hit a HR");
     if (isTD) return apply("Anytime TD");
     if (isGoal) return apply("Anytime Goal");
+    // Countable stat markets (hits, strikeouts, rebounds, etc.) — books
+    // display "Over 0.5 Hits" as "1+ Hits", "Over 1.5 Hits" as "2+ Hits".
+    // Yardage stats are excluded because their half-point lines really
+    // ARE decimal cutoffs (Over 245.5 ≠ "246+").
+    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?)\b/i;
+    if (COUNTABLE_MARKET.test(t)) {
+      // Match "<player> Over N.5 <market>" where N is a non-negative int.
+      const cm = t.match(/^(.*?)\s*Over\s+(\d+)\.5\s+(.+)$/i);
+      if (cm) {
+        const player = cm[1].trim();
+        const min = parseInt(cm[2], 10) + 1;
+        const mkt = cm[3].trim();
+        return `${player} ${min}+ ${mkt}`;
+      }
+    }
     return t;
   };
 
