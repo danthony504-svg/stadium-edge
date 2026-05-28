@@ -71,27 +71,51 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       const t = new Date(g.commence_time).getTime();
       return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
     }).slice(0, 12); // cap credit spend
-    const altByEvent = new Map<string, { spreads: Map<string, { name: string; price: number; point: number | null }>; totals: Map<string, { name: string; price: number; point: number | null }> }>();
+    // Per-event extra markets: alternate ladders PLUS period markets
+    // (game-level halves/quarters: h2h/spreads/totals for h1, h2, q1-q4,
+    // plus alternate_spreads_h1 and alternate_totals_h1 — the "half lines"
+    // and "half margin" ladders). The Odds API rejects per-player Q2/Q3/Q4/H2
+    // for NBA, so player props for those periods are not available; the
+    // game-level period markets ARE supported across all bookmakers.
+    // NFL/NCAAF support is similar; the same key set is requested for all
+    // sports — the API ignores unsupported keys per sport, no global reject
+    // since these are all "valid" keys (only the per-player Q2+/H2 set is
+    // invalid, and that's handled in props.ts).
+    const PERIOD_GAME_MARKETS = [
+      "alternate_spreads", "alternate_totals",
+      "spreads_h1", "totals_h1", "h2h_h1",
+      "spreads_h2", "totals_h2", "h2h_h2",
+      "spreads_q1", "totals_q1", "h2h_q1",
+      "spreads_q2", "totals_q2", "h2h_q2",
+      "spreads_q3", "totals_q3", "h2h_q3",
+      "spreads_q4", "totals_q4", "h2h_q4",
+      "alternate_spreads_h1", "alternate_totals_h1",
+    ];
+    type Outcome = { name: string; price: number; point: number | null };
+    const altByEvent = new Map<string, Map<string, Map<string, Outcome>>>();
     await Promise.all(
       upcoming.map(async (g) => {
         try {
           const evGame = await cachedJson(
-            `odds:${oddsKey}:alt:${g.id}:v1`,
+            `odds:${oddsKey}:alt:${g.id}:v2`,
             10 * 60 * 1000,
             async () => {
-              const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=alternate_spreads,alternate_totals&oddsFormat=american`;
+              const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${PERIOD_GAME_MARKETS.join(",")}&oddsFormat=american`;
               const r = await fetch(url);
               if (!r.ok) return null;
               return (await r.json()) as RawOddsGame;
             },
           );
           if (!evGame) return;
-          const spreads = new Map<string, { name: string; price: number; point: number | null }>();
-          const totals = new Map<string, { name: string; price: number; point: number | null }>();
+          // Generic best-price-by-(name,point) merge across bookmakers for
+          // every period market key the API returned. Lower-juice wins
+          // (using americanToProb so favorites and dogs compare correctly).
+          const byMarket = new Map<string, Map<string, Outcome>>();
           for (const b of evGame.bookmakers ?? []) {
             for (const m of b.markets ?? []) {
-              const bucket = m.key === "alternate_spreads" ? spreads : m.key === "alternate_totals" ? totals : null;
-              if (!bucket) continue;
+              if (!PERIOD_GAME_MARKETS.includes(m.key)) continue;
+              let bucket = byMarket.get(m.key);
+              if (!bucket) { bucket = new Map(); byMarket.set(m.key, bucket); }
               for (const o of m.outcomes ?? []) {
                 const k = `${o.name}|${o.point ?? ""}`;
                 const prev = bucket.get(k);
@@ -101,9 +125,9 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
               }
             }
           }
-          if (spreads.size || totals.size) altByEvent.set(g.id, { spreads, totals });
+          if (byMarket.size) altByEvent.set(g.id, byMarket);
         } catch {
-          // Best-effort — alt fetch failure just means no alt ladder for this game.
+          // Best-effort — failure just means no alt/period ladder for this game.
         }
       }),
     );
@@ -122,8 +146,14 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
         }));
       const alt = altByEvent.get(g.id);
       const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
-      if (alt?.spreads.size) altMarkets.push({ key: "alternate_spreads", outcomes: Array.from(alt.spreads.values()) });
-      if (alt?.totals.size) altMarkets.push({ key: "alternate_totals", outcomes: Array.from(alt.totals.values()) });
+      if (alt) {
+        // Emit each period/alt market in a stable order so downstream
+        // consumers (and the chat AI) see them grouped predictably.
+        for (const key of PERIOD_GAME_MARKETS) {
+          const bucket = alt.get(key);
+          if (bucket?.size) altMarkets.push({ key, outcomes: Array.from(bucket.values()) });
+        }
+      }
       return {
         id: g.id,
         sport: sportId,

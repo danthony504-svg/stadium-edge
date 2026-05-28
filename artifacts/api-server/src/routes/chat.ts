@@ -97,10 +97,11 @@ How to weigh it for prop legs (these are guides, not hard rules):
     NCAAB / MLB / NHL — no quarter or half player markets exist in our feed; do NOT pick a "1Q" or "1H" prop in those sports.
   EXPLICIT PERIOD INTENT — HARD RULE: if the user's message contains "first quarter", "1Q", "1st quarter", "Q1", "1 quarter", "first half", "1H", "1st half", "H1", or "1 half", EVERY leg you return MUST be a quarter/half market for ONE of the requested periods. If the user names BOTH periods (e.g. "first half AND 1 quarter parlay"), legs may be any mix of "_q1" and "_h1" markets — both are honored. That means:
     * Only player props ending in "_q1" (for first-quarter intent) or "_h1" (for first-half intent) — full-game props like player_points / player_pass_yds are FORBIDDEN.
-    * Do NOT include game-level full-game spread, total, or moneyline picks (e.g. "Thunder +3.5", "Over 218.5") in a 1Q/1H ticket — those settle on the entire game, so they're the wrong period and violate the user's ask. Our feed does not currently include game-level 1Q/1H spread/total markets, so a pure 1Q parlay can ONLY be built from "_q1" player props (and a pure 1H parlay from "_h1" player props).
-    * If the available pool doesn't have enough qualifying _q1 / _h1 props for the leg count the user asked for, RETURN A SHORTER TICKET and say so plainly in the assistant message (e.g. "I could only find 3 first-quarter props worth playing for OKC@SAS — here's the 3-leg 1Q ticket instead of 4"). DO NOT silently pad with full-game picks.
-    * If the user asks for a 1Q/1H parlay in a sport that has NO quarter/half markets in our feed (NCAAB / MLB / NHL), refuse honestly: "There are no first-quarter player markets posted for [sport] in our feed — I can build you a full-game parlay if you want."
-    * If the user asks for a period the sport partially supports but THIS specific period is not in our feed (e.g. "first half NBA parlay" — NBA only has _q1 props in our feed, no _h1), refuse honestly with the same template ("There are no first-half player markets posted for the NBA in our feed — I have first-quarter or full-game; which would you like?") rather than returning a 0-leg or padded ticket.
+    * Do NOT include FULL-GAME spread, total, or moneyline picks (e.g. plain "Thunder +3.5", "Over 218.5", or full-game moneyline) in a 1Q/1H/Q2/Q3/Q4/2H ticket — those settle on the entire game, so they're the wrong period.
+    * GAME-LEVEL PERIOD MARKETS ARE AVAILABLE in realOdds: spreads, totals, and moneylines for each half (1H, 2H) and each quarter (Q1, Q2, Q3, Q4), plus alternate spread and alternate total ladders for the first half ("1H Alt Spread", "1H Alt Total"). These appear in realOdds with market labels formatted as "<period> <type>" — e.g. "1H Spread", "1H Total", "1H Moneyline", "1H Alt Spread", "1H Alt Total", "2H Spread", "Q3 Total", "Q2 Moneyline". Treat them as first-class legs for a period parlay alongside player props ending in "_q1"/"_h1". Use the same friendly label verbatim in the PICK line so the app renders it correctly.
+    * MIXED LEG TYPES: a clean 1Q parlay can be built from any combination of "_q1" player props AND game-level "Q1 …" markets (spread / total / moneyline) for that game. Same for 1H ("_h1" props + "1H …" game lines). For 2H / Q2 / Q3 / Q4 the per-player market is NOT in our feed — those tickets must be built ONLY from game-level period markets ("2H Spread", "Q3 Total", etc.). Refuse honestly only when neither player nor game-level period markets exist for the requested sport+period.
+    * If the available pool doesn't have enough qualifying period markets for the leg count the user asked for, RETURN A SHORTER TICKET and say so plainly in the assistant message (e.g. "I could only find 5 first-quarter legs worth playing for OKC@SAS — here's the 5-leg 1Q ticket instead of 10"). DO NOT silently pad with full-game picks.
+    * If the user asks for a period parlay in a sport that has NO period markets in our feed at all (NCAAB / MLB / NHL), refuse honestly: "There are no period markets posted for [sport] in our feed — I can build you a full-game parlay if you want."
   playerHistory.recent stats are FULL-GAME totals, NOT per-quarter — so you CANNOT compute "L5 1Q average" from our data. Do not invent a per-quarter average. Instead reason from: (a) the player's full-game stat divided crudely (1Q ≈ 22-30% of full-game for stars / role players, 1H ≈ 50-58%) as a sanity ceiling — unusually LOW posted lines flag OVER value, unusually HIGH ones flag UNDER; (b) opponent's offensive PACE keys (avgFieldGoalsAttempted, avgPoints, passingYardsPerGame, etc.) — fast / high-pace opponents inflate 1Q and 1H output for BOTH teams; (c) game script — heavy favorites often script first-half pass volume up (favor 1H pass-yds OVER) and run clock in the second half. The edge note MUST state explicitly that the read is pace + line-position based, not per-quarter game-log based, e.g. "1Q Points 6.5 looks soft — Wemby averages 24 PPG, 1Q is ~28% of his output so ~6.7 implied, Thunder play fast (89 FGA/g) → OVER 6.5 has room".
 - Compute the recent-5 average for that stat in your head and compare to the posted line. ≥15% above the line leans OVER; ≥15% below leans UNDER. A flat average within 10% is a coin flip — pass on it unless price is unusually plus.
 - If vsOpponent has ≥2 games, weigh it MORE than the generic recent-5 — the matchup-specific sample is what separates a sharp prop from a square one. Cite the vs-opponent stat line explicitly in the edge note when you use it.
@@ -154,7 +155,7 @@ When choosing which legs to include, prefer (in this order): (1) legs with a rea
 
 HARD bans that still apply: no inventing games, players, lines, or matchups not in the context; no using "feels due" as the sole reason; no two legs on the same player; no recommending a game outside the 48h pool. Everything else is a soft preference — fill the requested count from the eligible pool.
 
-HARD BAN — NO DUPLICATE MARKET×GAME COMBOS: within a single game you may pick AT MOST ONE leg from each of these market families: (a) Moneyline, (b) Spread + Alt Spread combined, (c) Total + Alt Total combined, (d) any one specific player+stat combination. Concretely, this means you may NEVER return: two totals on the same game (main Over 218.5 AND Alt Over 191.5 is BANNED — they are the same bet on the same direction priced at different rungs), two spreads on the same game (main -3.5 AND alt -7.5 is BANNED), or the main line plus an alt rung on the same side. If you would pick both, choose ONLY the rung with the best risk/reward and drop the other. The only exception is opposite-direction props on different players (e.g. Tatum points OVER and Brown rebounds OVER from the same game is fine — different players, different stats).
+HARD BAN — NO DUPLICATE MARKET×PERIOD×GAME COMBOS: within a single game AND a single settlement window (full-game, 1H, 2H, Q1, Q2, Q3, Q4) you may pick AT MOST ONE leg from each of these market families: (a) Moneyline for that period, (b) Spread + Alt Spread combined for that period, (c) Total + Alt Total combined for that period, (d) any one specific player+stat+period combination. Concretely, BANNED: two full-game totals on the same game (main Over 218.5 AND Alt Over 191.5), two 1H spreads on the same game ("1H Spread Thunder -1.5" AND "1H Alt Spread Thunder -3.5"), or the main 1H total plus a 1H alt total rung. ALLOWED across DIFFERENT periods: "1H Spread Thunder -1.5" AND "Q1 Spread Thunder -0.5" are fine (different settlement windows), and "1H Total Over 115.5" AND "Q3 Total Over 56.5" are fine. The full-game family ("Spread"/"Total"/"Moneyline" with no period prefix) is its own settlement window, independent of any period family. If you would pick two legs in the same family×period×game, choose ONLY the rung with the best risk/reward and drop the other. The only player exception is different-player props (Tatum points OVER and Brown rebounds OVER from the same game is fine — different players, different stats).
 
 HARD BAN — NO STEAMROLLER-PRICED ALTS AS FILLER: do not pick any alt-line leg priced worse than -1000 (i.e. you risk $1000 to win $100 or less, e.g. -1500, -2400, -3500). At those prices the alt is mathematically equivalent to the main line and contributes nothing to ticket value — it just dilutes the parlay's payout. If the only alt that "fits" the score-projection is priced -1000 or worse, drop it and use the main line at that game instead.
 
@@ -225,10 +226,19 @@ router.post("/chat", async (req, res): Promise<void> => {
   // "10 leg first half and 1 quarter parlay" must honor BOTH `_h1` AND
   // `_q1` markets. Detect each independently. Looser q1/h1 patterns also
   // catch bare "1 quarter" / "1 half" (without "first").
-  const periodIntents = new Set<"q1" | "h1">();
+  const periodIntents = new Set<"q1" | "q2" | "q3" | "q4" | "h1" | "h2">();
   if (/\b(?:first|1st|1|one)\s+quarter\b|\b(?:1q|q1)\b/i.test(latestUser)) periodIntents.add("q1");
+  if (/\b(?:second|2nd|2|two)\s+quarter\b|\b(?:2q|q2)\b/i.test(latestUser)) periodIntents.add("q2");
+  if (/\b(?:third|3rd|3|three)\s+quarter\b|\b(?:3q|q3)\b/i.test(latestUser)) periodIntents.add("q3");
+  if (/\b(?:fourth|4th|4|four)\s+quarter\b|\b(?:4q|q4)\b/i.test(latestUser)) periodIntents.add("q4");
   if (/\b(?:first|1st|1|one)\s+half\b|\b(?:1h|h1)\b/i.test(latestUser)) periodIntents.add("h1");
+  if (/\b(?:second|2nd|2|two)\s+half\b|\b(?:2h|h2)\b/i.test(latestUser)) periodIntents.add("h2");
   const periodIntent = periodIntents.size > 0; // boolean: any period asked?
+  // Per-player markets only exist for q1 / h1 on Odds API — q2/q3/q4/h2 are
+  // game-level only. We still build suffix list for ALL requested periods so
+  // any future per-player support flows through unchanged, but in practice
+  // the realProps filter will be empty for those periods and the AI must
+  // build the ticket from game-level period realOdds entries.
   const periodSuffixList = Array.from(periodIntents).map((p) => `_${p}`);
 
   let lockedContext = parsed.data.context;
@@ -253,9 +263,27 @@ router.post("/chat", async (req, res): Promise<void> => {
     // `_h1` markets so the AI can't pick full-game props even if the
     // SYSTEM_PROMPT rule were ignored. This is the belt-and-braces server
     // filter for the original failing case.
-    const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; startsAt?: string }> } & Record<string, unknown>;
-    const matchesAnySuffix = (m: string) => periodSuffixList.some((s) => m.endsWith(s));
+    const ctx = parsed.data.context as { realProps?: Array<{ market?: string; sport?: string; game?: string; startsAt?: string }>; realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    // Period matching now covers BOTH shapes:
+    //   - Player-prop markets ending in "_q1" / "_h1" (the Odds API raw keys
+    //     we surface unchanged in realProps).
+    //   - Game-level period markets surfaced with friendly labels like
+    //     "1H Spread", "Q2 Total", "1H Alt Spread" in realOdds.
+    // Build a label prefix set ("1H ", "Q1 ", etc.) per requested period.
+    const PERIOD_LABEL_MAP: Record<string, string[]> = {
+      q1: ["Q1 "], q2: ["Q2 "], q3: ["Q3 "], q4: ["Q4 "],
+      h1: ["1H "], h2: ["2H "],
+    };
+    const periodLabelPrefixes = Array.from(periodIntents).flatMap((p) => PERIOD_LABEL_MAP[p] ?? []);
+    const matchesAnySuffix = (m: string) =>
+      periodSuffixList.some((s) => m.endsWith(s)) ||
+      periodLabelPrefixes.some((pre) => m.startsWith(pre));
     let filteredProps = (ctx.realProps || []).filter((p) => matchesAnySuffix(String(p.market || "")));
+    // Also filter incoming realOdds to only period-matching entries — full-game
+    // sides/totals/MLs are wrong for a period parlay and the SYSTEM_PROMPT
+    // forbids them anyway; physically removing them prevents the model from
+    // picking one.
+    let filteredOdds = (ctx.realOdds || []).filter((o) => matchesAnySuffix(String(o.market || "")));
 
     // SERVER-SIDE FRESH-FETCH FALLBACK: if the client's realProps has zero
     // period entries (because the client cache pre-dated the QH deploy and
@@ -268,7 +296,13 @@ router.post("/chat", async (req, res): Promise<void> => {
     for (const o of (ctx.realOdds || [])) {
       if (o.sport && QH_PERIOD_SPORTS.has(o.sport)) requestedSports.add(o.sport);
     }
-    if (filteredProps.length === 0 && requestedSports.size > 0) {
+    // Trigger fallback when EITHER the period props pool OR the period
+    // game-level odds pool is empty/thin — stale client caches commonly miss
+    // one but not the other (e.g. realProps already has _q1 entries but
+    // realOdds has only full-game spreads). Without the OR, we'd skip
+    // harvesting period game markets and the AI would have nothing to use for
+    // 2H/Q2/Q3/Q4 tickets (no per-player props exist for those periods).
+    if ((filteredProps.length === 0 || filteredOdds.length === 0) && requestedSports.size > 0) {
       const selfPort = process.env["PORT"] || "8080";
       const selfBase = `http://127.0.0.1:${selfPort}`;
       try {
@@ -281,12 +315,56 @@ router.post("/chat", async (req, res): Promise<void> => {
           gamesBySport.get(o.sport)!.add(o.game);
         }
         const freshProps: typeof filteredProps = [];
+        const freshOdds: typeof filteredOdds = [];
+        // Map raw Odds API period market keys → friendly labels used in
+        // realOdds.market (matches what the SYSTEM_PROMPT tells the model to
+        // emit on PICK lines). Keep in sync with PERIOD_GAME_MARKETS in
+        // odds.ts. Only the periods the user actually asked for are mapped.
+        const PERIOD_KEY_TO_LABEL: Record<string, string> = {
+          spreads_h1: "1H Spread", totals_h1: "1H Total", h2h_h1: "1H Moneyline",
+          alternate_spreads_h1: "1H Alt Spread", alternate_totals_h1: "1H Alt Total",
+          spreads_h2: "2H Spread", totals_h2: "2H Total", h2h_h2: "2H Moneyline",
+          spreads_q1: "Q1 Spread", totals_q1: "Q1 Total", h2h_q1: "Q1 Moneyline",
+          spreads_q2: "Q2 Spread", totals_q2: "Q2 Total", h2h_q2: "Q2 Moneyline",
+          spreads_q3: "Q3 Spread", totals_q3: "Q3 Total", h2h_q3: "Q3 Moneyline",
+          spreads_q4: "Q4 Spread", totals_q4: "Q4 Total", h2h_q4: "Q4 Moneyline",
+        };
         await Promise.all(
           Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
             try {
               const oddsRes = await fetch(`${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`);
               if (!oddsRes.ok) return;
-              const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string }>;
+              const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string; commenceTime?: string; markets?: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> }>;
+              // Harvest game-level period markets from the SAME /api/sports/odds
+              // response — they're already nested in each event's .markets
+              // array (odds.ts now fetches h1/h2/q1-q4 spreads/totals/h2h plus
+              // 1H alt ladders). Convert each outcome into a friendly-labeled
+              // realOdds entry the model can pick. Restricted to games the
+              // user is actively looking at (gameSet) so we don't over-stuff
+              // context.
+              for (const e of oddsList) {
+                const label = `${e.awayTeam} @ ${e.homeTeam}`;
+                if (!gameSet.has(label)) continue;
+                for (const m of (e.markets || [])) {
+                  const friendly = PERIOD_KEY_TO_LABEL[m.key];
+                  if (!friendly) continue;
+                  if (!matchesAnySuffix(friendly)) continue;
+                  for (const o of (m.outcomes || [])) {
+                    const pt = o.point != null ? ` ${o.point > 0 ? "+" : ""}${o.point}` : "";
+                    const pick = m.key.startsWith("totals") || m.key.startsWith("alternate_totals")
+                      ? `${o.name}${pt}`.trim()
+                      : `${o.name}${pt}`.trim();
+                    freshOdds.push({
+                      sport,
+                      game: label,
+                      market: friendly,
+                      pick,
+                      odds: o.price,
+                      ...(e.commenceTime ? { startsAt: e.commenceTime } : {}),
+                    });
+                  }
+                }
+              }
               // Match incoming game labels ("Away @ Home") to event IDs and
               // fetch props for up to 5 events per sport (matches the
               // client's perSportCap so we don't over-fan).
@@ -323,10 +401,11 @@ router.post("/chat", async (req, res): Promise<void> => {
           }),
         );
         if (freshProps.length > 0) filteredProps = freshProps;
+        if (freshOdds.length > 0) filteredOdds = freshOdds;
       } catch { /* fallback is best-effort; honest empty result if it fails */ }
     }
 
-    lockedContext = { ...ctx, realProps: filteredProps };
+    lockedContext = { ...ctx, realProps: filteredProps, realOdds: filteredOdds };
   }
 
   const contextBlock =

@@ -34,5 +34,16 @@ After the PICK + EDGE block of every ticket, the AI must emit 2-3 `ALT:` lines s
 
 **Why:** Just showing the recommended legs is one-shot — the user wants to see swap options ("would buying off the key number help?", "is there a juicier alt rung?") without re-asking. Putting it inline keeps the conversation single-turn for the most common follow-up.
 
+# Layer 5: game-level period markets (h1/h2/q1-q4 spreads/totals/ML)
+The Odds API exposes per-event game-level period markets (`spreads_h1`, `totals_h1`, `h2h_h1`, same for `_h2`/`_q1`/`_q2`/`_q3`/`_q4`, plus `alternate_spreads_h1` and `alternate_totals_h1` — the "half lines" / "half margin" ladders). These are the ONLY period markets for `q2/q3/q4/h2` — per-player Q2+/H2 are rejected upstream — so a "2H parlay" or "Q3 parlay" must be built entirely from these. Fetch them in one combined per-event request alongside the alt ladders (still 22 keys total, single call per event, cached) and emit them on `/api/sports/odds` as additional entries in the event's `.markets` array using the raw Odds API key. Then in chat.ts, harvest them from the SAME `/api/sports/odds` response inside the Layer-4 fallback and inject as `realOdds` entries with friendly labels (`"1H Spread"`, `"Q2 Total"`, `"1H Alt Spread"`, etc.). The system-prompt must list those labels verbatim and tell the model to use them in PICK lines.
+
+**Why:** The user complaint that triggered this was "there are half-line and half-margin and Q2/Q3/Q4 markets too" — the catalog had them, the API surfaced them, but neither odds.ts nor chat.ts was pulling or labeling them, so the model saw only full-game + Q1 props and refused the ask.
+
+**How to apply:**
+- Period intent must be a SET over `{q1, q2, q3, q4, h1, h2}` — extending q1/h1-only detection. Trigger regexes need both ordinal ("second quarter") and short forms ("2Q", "Q2", "2H").
+- The period filter must match BOTH suffix (`_q1` on player markets in realProps) AND label prefix (`"Q1 "`, `"1H "`, `"2H "`, etc. on the friendly labels in realOdds). One function handles both — `endsWith(suffix) || startsWith(prefix)`.
+- Fallback trigger must fire on `(filteredProps.length === 0 || filteredOdds.length === 0)`, not `&&` — stale clients commonly have one but not the other, and for Q2+/H2 there are no props ever, so the OR is the only way the model ever sees game-level period markets.
+- HARD-BAN duplicate-family rule must be scoped by `(period × family × game)`. Without that scoping the AI thinks `"1H Spread"` and `"Q1 Spread"` on the same game are dupes — they're not, they settle on different windows.
+
 # Smell test
 If the AI returns a "1Q ticket" that includes any game-level spread/total/ML or any full-game player prop, the layering is incomplete. Prompt-only fixes will look like they work on the next test and silently regress on the one after.
