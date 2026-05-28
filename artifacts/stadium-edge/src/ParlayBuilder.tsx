@@ -4606,7 +4606,12 @@ export default function ParlayBuilder() {
       const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
       const sport = eventToSport[eid] || null;
       const teams = propEventToTeams[eid] || gameLabelToTeams[gameLabel];
-      for (const pr of (data.props || []).slice(0, 30)) {
+      // Was slice(0, 30) — but MLB games return ~10 batters × hits, ×TB,
+      // ×HR, then only 2 pitcher K's at the END of the array. The 30 cap
+      // routinely chopped off the pitcher_strikeouts entries, leaving the
+      // chat AI with "only 4 K props in the pool" when ~10 actually existed.
+      // 200 is well above any single game's prop count.
+      for (const pr of (data.props || []).slice(0, 200)) {
         realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice });
         if (sport && pr.athleteId && pr.playerTeamId && teams && !seenAthletes.has(pr.athleteId)) {
           const pt = String(pr.playerTeamId);
@@ -4728,7 +4733,7 @@ export default function ParlayBuilder() {
         : undefined,
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
-      realProps: realProps.slice(0, 80),
+      realProps: realProps.slice(0, 400),
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
     };
