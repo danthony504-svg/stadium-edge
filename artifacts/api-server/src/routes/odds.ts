@@ -40,11 +40,16 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
   }
 
   try {
+    // The Odds API only supports h2h/spreads/totals on the bulk /odds
+    // endpoint. alternate_spreads and alternate_totals are per-event:
+    // /sports/{sport}/events/{eventId}/odds. So we fetch mains in bulk,
+    // then fan out to the per-event endpoint for alts, cached separately
+    // with a longer TTL to keep credit usage sane.
     const games = await cachedJson(
-      `odds:${oddsKey}:v2-alt`,
+      `odds:${oddsKey}:v3`,
       5 * 60 * 1000,
       async () => {
-        const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals,alternate_spreads,alternate_totals&oddsFormat=american`;
+        const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&oddsFormat=american`;
         const r = await fetch(url);
         if (!r.ok) {
           const text = await r.text();
@@ -54,10 +59,55 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       },
     );
 
-    // For main markets (h2h/spreads/totals) use the first bookmaker for
-    // a single consistent price the user sees in the UI. For alternate
-    // spreads/totals, aggregate across ALL bookmakers and keep the best
-    // price per (name, point) so the user sees the widest possible ladder.
+    // Fan out alt fetches in parallel for each event that hasn't kicked
+    // off yet and starts within the next 48h. Cap concurrency by
+    // limiting how many games we even try per request. Per-event cache
+    // is 10 min — alt markets are 5x credit cost so we don't want to
+    // re-hit them on every poll.
+    const americanToProb = (a: number) => (a < 0 ? -a / (-a + 100) : 100 / (a + 100));
+    const now = Date.now();
+    const WINDOW_MS = 48 * 60 * 60 * 1000;
+    const upcoming = games.filter((g) => {
+      const t = new Date(g.commence_time).getTime();
+      return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
+    }).slice(0, 12); // cap credit spend
+    const altByEvent = new Map<string, { spreads: Map<string, { name: string; price: number; point: number | null }>; totals: Map<string, { name: string; price: number; point: number | null }> }>();
+    await Promise.all(
+      upcoming.map(async (g) => {
+        try {
+          const evGame = await cachedJson(
+            `odds:${oddsKey}:alt:${g.id}:v1`,
+            10 * 60 * 1000,
+            async () => {
+              const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=alternate_spreads,alternate_totals&oddsFormat=american`;
+              const r = await fetch(url);
+              if (!r.ok) return null;
+              return (await r.json()) as RawOddsGame;
+            },
+          );
+          if (!evGame) return;
+          const spreads = new Map<string, { name: string; price: number; point: number | null }>();
+          const totals = new Map<string, { name: string; price: number; point: number | null }>();
+          for (const b of evGame.bookmakers ?? []) {
+            for (const m of b.markets ?? []) {
+              const bucket = m.key === "alternate_spreads" ? spreads : m.key === "alternate_totals" ? totals : null;
+              if (!bucket) continue;
+              for (const o of m.outcomes ?? []) {
+                const k = `${o.name}|${o.point ?? ""}`;
+                const prev = bucket.get(k);
+                if (!prev || americanToProb(o.price) < americanToProb(prev.price)) {
+                  bucket.set(k, { name: o.name, price: Math.round(o.price), point: o.point ?? null });
+                }
+              }
+            }
+          }
+          if (spreads.size || totals.size) altByEvent.set(g.id, { spreads, totals });
+        } catch {
+          // Best-effort — alt fetch failure just means no alt ladder for this game.
+        }
+      }),
+    );
+
     const out = games.map((g) => {
       const book = g.bookmakers?.[0];
       const mainMarkets = (book?.markets ?? [])
@@ -70,30 +120,10 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             point: o.point ?? null,
           })),
         }));
-      const altAgg: Record<string, Map<string, { name: string; price: number; point: number | null }>> = {
-        alternate_spreads: new Map(),
-        alternate_totals: new Map(),
-      };
-      for (const b of g.bookmakers ?? []) {
-        for (const m of b.markets ?? []) {
-          if (!altAgg[m.key]) continue;
-          for (const o of m.outcomes ?? []) {
-            const k = `${o.name}|${o.point ?? ""}`;
-            const prev = altAgg[m.key].get(k);
-            const americanToProb = (a: number) => (a < 0 ? -a / (-a + 100) : 100 / (a + 100));
-            if (!prev || americanToProb(o.price) < americanToProb(prev.price)) {
-              altAgg[m.key].set(k, {
-                name: o.name,
-                price: Math.round(o.price),
-                point: o.point ?? null,
-              });
-            }
-          }
-        }
-      }
-      const altMarkets = Object.entries(altAgg)
-        .filter(([, m]) => m.size > 0)
-        .map(([key, m]) => ({ key, outcomes: Array.from(m.values()) }));
+      const alt = altByEvent.get(g.id);
+      const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
+      if (alt?.spreads.size) altMarkets.push({ key: "alternate_spreads", outcomes: Array.from(alt.spreads.values()) });
+      if (alt?.totals.size) altMarkets.push({ key: "alternate_totals", outcomes: Array.from(alt.totals.values()) });
       return {
         id: g.id,
         sport: sportId,
