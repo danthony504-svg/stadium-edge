@@ -2182,6 +2182,41 @@ export default function ParlayBuilder() {
   // limited to just the current slip.
   const [attachedSlipIdxs, setAttachedSlipIdxs] = useState(() => new Set());
 
+  // Map raw Odds API market keys (e.g. "batter_home_runs") to their
+  // user-facing labels. The AI sometimes copies the raw key into the
+  // PICK line's market column; we normalize at parse so the card badge
+  // never shows snake_case.
+  const friendlyMarketLabel = (marketTxt) => {
+    if (!marketTxt) return marketTxt;
+    const t = String(marketTxt).trim();
+    const MARKET_MAP = {
+      batter_home_runs: "Home Runs",
+      batter_hits: "Hits",
+      batter_total_bases: "Total Bases",
+      pitcher_strikeouts: "Strikeouts",
+      player_points: "Points",
+      player_rebounds: "Rebounds",
+      player_assists: "Assists",
+      player_threes: "3-Pointers Made",
+      player_points_rebounds_assists: "Pts+Reb+Ast",
+      player_pass_yds: "Passing Yards",
+      player_pass_tds: "Passing TDs",
+      player_rush_yds: "Rushing Yards",
+      player_reception_yds: "Receiving Yards",
+      player_receptions: "Receptions",
+      player_anytime_td: "Anytime TD",
+      player_goals: "Goals",
+      player_shots_on_goal: "Shots on Goal",
+    };
+    const lower = t.toLowerCase();
+    if (MARKET_MAP[lower]) return MARKET_MAP[lower];
+    // Generic fallback: replace underscores with spaces and title-case.
+    if (/_/.test(t)) {
+      return t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    return t;
+  };
+
   // Normalize yes/no markets to the friendly book labels. The Odds API
   // returns HR / anytime-TD / anytime-goal as Over 0.5 props, but books
   // display them as "To Hit a HR" / "Anytime TD" / "Anytime Goal". The
@@ -2221,7 +2256,7 @@ export default function ParlayBuilder() {
       if (parts.length >= 4) {
         const odds = parseInt(parts[3].replace(/[^\d+-]/g, ""));
         if (!isNaN(odds)) {
-          found.push({ game: parts[0].trim(), market: parts[1].trim(), pick: friendlyPickLabel(parts[2].trim(), parts[1].trim()), odds });
+          { const mkt = friendlyMarketLabel(parts[1].trim()); found.push({ game: parts[0].trim(), market: mkt, pick: friendlyPickLabel(parts[2].trim(), mkt), odds }); }
         }
       }
     }
@@ -4724,7 +4759,7 @@ export default function ParlayBuilder() {
         if (mm) {
           const oddsTok = mm[4];
           const odds = oddsTok === "PrizePicks line" ? null : parseInt(oddsTok);
-          raw.push({ game: mm[1].trim(), market: mm[2].trim(), pick: friendlyPickLabel(mm[3].trim(), mm[2].trim()), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) });
+          { const mkt = friendlyMarketLabel(mm[2].trim()); raw.push({ game: mm[1].trim(), market: mkt, pick: friendlyPickLabel(mm[3].trim(), mkt), odds, ...(odds === null ? { priceSource: "PrizePicks" } : {}) }); }
         }
       }
       if (!raw.length) {
@@ -4936,13 +4971,16 @@ export default function ParlayBuilder() {
           rewrites.set(rawGame, hit.canonical);
         }
         const oddsTok = m[4];
-        picks.push({
-          game: hit.canonical || rawGame,
-          market: m[2].trim(),
-          pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
-          odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
-          ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
-        });
+        {
+          const mkt = friendlyMarketLabel(m[2].trim());
+          picks.push({
+            game: hit.canonical || rawGame,
+            market: mkt,
+            pick: friendlyPickLabel(m[3].trim(), mkt),
+            odds: oddsTok === "PrizePicks line" ? null : parseInt(oddsTok),
+            ...(oddsTok === "PrizePicks line" ? { priceSource: "PrizePicks" } : {}),
+          });
+        }
       }
       // Rewrite kept PICK lines with the canonical (full-name) game label and
       // strip any rejected PICK lines from the visible message so the user
@@ -5113,13 +5151,16 @@ export default function ParlayBuilder() {
       const m = l.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
       if (m) {
         const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
-        rawMessagePicks.push({
-          game: m[1].trim(),
-          market: m[2].trim(),
-          pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
-          odds,
-          ...(odds === null ? { priceSource: "PrizePicks" } : {}),
-        });
+        {
+          const mkt = friendlyMarketLabel(m[2].trim());
+          rawMessagePicks.push({
+            game: m[1].trim(),
+            market: mkt,
+            pick: friendlyPickLabel(m[3].trim(), mkt),
+            odds,
+            ...(odds === null ? { priceSource: "PrizePicks" } : {}),
+          });
+        }
         lastPickIdx = rawMessagePicks.length - 1;
         continue;
       }
@@ -5361,10 +5402,11 @@ export default function ParlayBuilder() {
           const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
           if (m) {
             const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
+            const mkt = friendlyMarketLabel(m[2].trim());
             const rawPick = {
               game: m[1].trim(),
-              market: m[2].trim(),
-              pick: friendlyPickLabel(m[3].trim(), m[2].trim()),
+              market: mkt,
+              pick: friendlyPickLabel(m[3].trim(), mkt),
               odds,
               ...(odds === null ? { priceSource: "PrizePicks" } : {}),
             };
