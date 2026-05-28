@@ -14,6 +14,8 @@ type RawOddsGame = {
   away_team: string;
   commence_time: string;
   bookmakers?: Array<{
+    key?: string;
+    title?: string;
     markets?: Array<{
       key: string;
       outcomes?: Array<{ name: string; price: number; point?: number }>;
@@ -132,18 +134,48 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       }),
     );
 
+    const MAIN_MARKETS = ["h2h", "spreads", "totals"];
     const out = games.map((g) => {
-      const book = g.bookmakers?.[0];
-      const mainMarkets = (book?.markets ?? [])
-        .filter((m) => ["h2h", "spreads", "totals"].includes(m.key))
-        .map((m) => ({
-          key: m.key,
-          outcomes: (m.outcomes ?? []).map((o) => ({
+      // Merge main markets across ALL bookmakers so we can both pick the
+      // best price AND expose every book's price for line shopping. Group
+      // by market key -> outcome (name|point) -> list of {book, price}.
+      const mainByMarket = new Map<
+        string,
+        Map<string, { name: string; point: number | null; books: Array<{ book: string; price: number; point: number | null }> }>
+      >();
+      for (const b of g.bookmakers ?? []) {
+        const bookName = b.title || b.key || "Book";
+        for (const m of b.markets ?? []) {
+          if (!MAIN_MARKETS.includes(m.key)) continue;
+          let bucket = mainByMarket.get(m.key);
+          if (!bucket) { bucket = new Map(); mainByMarket.set(m.key, bucket); }
+          for (const o of m.outcomes ?? []) {
+            const point = o.point ?? null;
+            const k = `${o.name}|${point ?? ""}`;
+            let entry = bucket.get(k);
+            if (!entry) { entry = { name: o.name, point, books: [] }; bucket.set(k, entry); }
+            entry.books.push({ book: bookName, price: Math.round(o.price), point });
+          }
+        }
+      }
+      const mainMarkets = MAIN_MARKETS.filter((key) => mainByMarket.get(key)?.size).map((key) => ({
+        key,
+        outcomes: Array.from(mainByMarket.get(key)!.values()).map((o) => {
+          // Best price for the bettor = lowest implied probability. Sort
+          // books best-first and surface that as the headline price.
+          const books = o.books
+            .slice()
+            .sort((a, b) => americanToProb(a.price) - americanToProb(b.price))
+            .slice(0, 10);
+          const best = books[0];
+          return {
             name: o.name,
-            price: Math.round(o.price),
-            point: o.point ?? null,
-          })),
-        }));
+            price: best ? best.price : 0,
+            point: o.point,
+            books,
+          };
+        }),
+      }));
       const alt = altByEvent.get(g.id);
       const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
       if (alt) {

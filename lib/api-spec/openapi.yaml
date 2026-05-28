@@ -140,6 +140,13 @@ components:
       properties:
         error: { type: string }
       required: [error]
+    OddsBookPrice:
+      type: object
+      required: [book, price]
+      properties:
+        book: { type: string }
+        price: { type: integer }
+        point: { type: ["number", "null"] }
     OddsOutcome:
       type: object
       required: [name, price]
@@ -147,6 +154,10 @@ components:
         name: { type: string }
         price: { type: integer }
         point: { type: ["number", "null"] }
+        books:
+          type: array
+          description: Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.
+          items: { $ref: "#/components/schemas/OddsBookPrice" }
     OddsMarket:
       type: object
       required: [key, outcomes]

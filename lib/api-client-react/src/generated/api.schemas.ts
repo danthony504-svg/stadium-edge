@@ -13,11 +13,20 @@ export interface ApiErrorResponse {
   error: string;
 }
 
+export interface OddsBookPrice {
+  book: string;
+  price: number;
+  /** @nullable */
+  point?: number | null;
+}
+
 export interface OddsOutcome {
   name: string;
   price: number;
   /** @nullable */
   point?: number | null;
+  /** Per-bookmaker prices for this outcome (best first); present on main markets for line shopping. */
+  books?: OddsBookPrice[];
 }
 
 export interface OddsMarket {

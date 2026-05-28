@@ -34,7 +34,12 @@ export const GetOddsResponseItem = zod.object({
   "outcomes": zod.array(zod.object({
   "name": zod.string(),
   "price": zod.number(),
+  "point": zod.number().nullish(),
+  "books": zod.array(zod.object({
+  "book": zod.string(),
+  "price": zod.number(),
   "point": zod.number().nullish()
+})).optional().describe('Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.')
 }))
 }))
 })

@@ -751,19 +751,19 @@ const buildPicksFromOdds = (g) => {
   const altTotals = g.markets.find((m) => m.key === "alternate_totals");
   if (h2h) {
     for (const o of h2h.outcomes || []) {
-      picks.push({ game, sport, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price, tier: o.price < -150 ? 1 : 2, real: true, teamFull: o.name });
+      picks.push({ game, sport, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price, tier: o.price < -150 ? 1 : 2, real: true, teamFull: o.name, books: o.books || null });
     }
   }
   if (spreads) {
     for (const o of spreads.outcomes || []) {
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      picks.push({ game, sport, market: "Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+      picks.push({ game, sport, market: "Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 2, real: true, teamFull: o.name, books: o.books || null });
     }
   }
   if (totals) {
     for (const o of totals.outcomes || []) {
       const pt = o.point == null ? "" : ` ${o.point}`;
-      picks.push({ game, sport, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+      picks.push({ game, sport, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true, books: o.books || null });
     }
   }
   // Alt-ladder card output is curated, not a full dump. The Odds API
@@ -977,6 +977,51 @@ const impliedProb = (a) => {
 const formatOdds = (o) => {
   if (o == null || !Number.isFinite(o)) return "PP line";
   return o > 0 ? `+${o}` : `${o}`;
+};
+
+// CLV matching key: case/space-insensitive "{market}|{pick}". Used to line up a
+// persisted tracker entry with the live market price even when the stored pick
+// string differs only by casing or whitespace. Team nickname vs full-name
+// differences are handled separately by registering both variants in the map.
+const clvMatchKey = (market, pick) =>
+  `${(market || "").toLowerCase().replace(/\s+/g, " ").trim()}|${(pick || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
+
+// Cross-book line shopping: expandable per-bookmaker price list for a single
+// outcome. `books` is [{book, price, point}] sorted best-first by the API.
+// The headline price is the best one; this shows everyone else so the user
+// can see the real spread between books and where to get the top number.
+const BookCompare = ({ books }) => {
+  const [open, setOpen] = useState(false);
+  if (!books || books.length < 2) return null;
+  const best = books[0]?.price;
+  return (
+    <div className="px-4 pb-2 -mt-1">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[9px] font-mono uppercase tracking-wider text-slate-500 hover:text-cyan-400 transition"
+      >
+        {open ? "▼ Hide books" : `▶ Compare ${books.length} books`}
+      </button>
+      {open && (
+        <div className="mt-1.5 rounded-lg border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/70">
+          {books.map((b, i) => (
+            <div key={`${b.book}-${i}`} className="flex items-center justify-between px-2.5 py-1">
+              <span className="text-[11px] text-slate-300 truncate">{b.book}</span>
+              <span className={`font-mono text-[11px] font-bold ${i === 0 ? "text-emerald-400" : "text-slate-400"}`}>
+                {formatOdds(b.price)}
+                {i === 0 && <span className="ml-1 text-[8px] uppercase tracking-wider text-emerald-500/80">best</span>}
+              </span>
+            </div>
+          ))}
+          <div className="px-2.5 py-1">
+            <span className="text-[8px] font-mono uppercase tracking-wider text-slate-500">
+              Best price ({formatOdds(best)}) is the headline above · prices from US books, updates each refresh
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ----- Display-time team name expansion -----
@@ -3676,6 +3721,73 @@ export default function ParlayBuilder() {
       saveTracker(tracker);
     }
   }, [tracker]);
+
+  // AUTO CLV CAPTURE: as live odds refresh, snapshot the current market
+  // price for each tracked book pick. While the game hasn't started we keep
+  // updating `lastSeenOdds` (the latest line). Once the game leaves the
+  // pre-game feed AND its start time has passed, we freeze the last line we
+  // saw as `closingOdds` — the honest closing-line-value reference. It's
+  // best-effort: the "close" is the last line observed while the app was
+  // open before kickoff, not a guaranteed final tick. Users can still
+  // override it by hand in History. Only book legs with a numeric entry
+  // price get CLV; PrizePicks/AI-only legs are skipped.
+  useEffect(() => {
+    const byGame = new Map();
+    for (const sport of Object.keys(realOddsBySport || {})) {
+      for (const g of realOddsBySport[sport] || []) {
+        const key = `${g.awayTeam} @ ${g.homeTeam}`;
+        const priceByKey = new Map();
+        for (const p of buildPicksFromOdds(g)) {
+          if (p.odds == null || !Number.isFinite(p.odds)) continue;
+          // buildPicksFromOdds emits nickname-form picks ("Thunder ML"), but a
+          // tracker entry may have been stored with the full team name
+          // ("Oklahoma City Thunder ML") depending on which add path created
+          // it (game-detail row vs live-odds row vs AI-parsed card). Register
+          // BOTH key variants (normalized) so the live price resolves no matter
+          // which form was persisted. Totals have no team name so they already
+          // match. Prices are always the real merged book price — never invented.
+          priceByKey.set(clvMatchKey(p.market, p.pick), p.odds);
+          if (p.teamFull) {
+            const nick = p.teamFull.split(/\s+/).filter(Boolean).pop();
+            if (nick && p.pick.startsWith(nick)) {
+              priceByKey.set(clvMatchKey(p.market, p.teamFull + p.pick.slice(nick.length)), p.odds);
+            }
+          }
+        }
+        byGame.set(key, { commenceTime: g.commenceTime, priceByKey });
+      }
+    }
+    const now = Date.now();
+    setTracker((prev) => {
+      let changed = false;
+      const next = prev.map((e) => {
+        if (e.odds == null || !Number.isFinite(e.odds)) return e; // no book price → no CLV
+        if (e.closingOdds != null) return e; // already frozen / set manually
+        const live = byGame.get(e.game);
+        if (live) {
+          const cur = live.priceByKey.get(clvMatchKey(e.market, e.pick));
+          const updates = {};
+          if (live.commenceTime && e.commenceTime !== live.commenceTime) updates.commenceTime = live.commenceTime;
+          if (cur != null && Number.isFinite(cur) && e.lastSeenOdds !== cur) {
+            updates.lastSeenOdds = cur;
+            updates.lastSeenAt = now;
+          }
+          if (Object.keys(updates).length) { changed = true; return { ...e, ...updates }; }
+          return e;
+        }
+        // Game no longer in the pre-game feed. If we captured a pre-game line
+        // and the game has started, freeze that as the closing line.
+        const commenced = e.commenceTime && new Date(e.commenceTime).getTime() <= now;
+        if (e.lastSeenOdds != null && commenced) {
+          changed = true;
+          return { ...e, closingOdds: e.lastSeenOdds, closingAuto: true, closingCapturedAt: now };
+        }
+        return e;
+      });
+      return changed ? next : prev;
+    });
+  }, [realOddsBySport]);
+
   const scrollRef = useRef(null);
   const scrollAnimRef = useRef(null);
 
@@ -6893,7 +7005,7 @@ export default function ParlayBuilder() {
                       <div className="mb-6 border border-slate-800 rounded-xl p-3">
                         <h3 className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mb-1">Closing Line Value</h3>
                         <p className="text-sm text-slate-500">
-                          Enter the closing odds on your settled picks (in History) to track CLV — whether you beat the market's final line. It's the best honest signal that your picks have an edge, win or lose.
+                          CLV is captured automatically: while a game is still open, the app tracks the live line on each of your book picks and freezes it as the closing line once the game starts. Then it shows whether you beat the market's final price — the best honest signal that your picks have an edge, win or lose. (You can also enter a closing line by hand in History.)
                         </p>
                       </div>
                     );
@@ -8809,21 +8921,24 @@ export default function ParlayBuilder() {
               ? { row: "", badge: "bg-slate-700 text-cyan-300", label: "AI", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" }
               : { row: "", badge: "", label: "", btn: "bg-cyan-500 text-white hover:bg-cyan-600", odds: "text-cyan-400" };
           return (
-            <div key={p.pick} className={`px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800 ${tagStyles.row}`}>
-              <div className="min-w-0">
-                <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                  {aiTag && <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded ${tagStyles.badge}`}>{tagStyles.label}</span>}
-                  <span>{p.market}</span>
+            <div key={p.pick} className={tagStyles.row}>
+              <div className="px-4 py-2.5 flex items-center justify-between gap-2 border-t border-slate-800">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                    {aiTag && <span className={`text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded ${tagStyles.badge}`}>{tagStyles.label}</span>}
+                    <span>{p.market}</span>
+                  </div>
+                  <div className="text-sm text-slate-100">{p.pick}</div>
                 </div>
-                <div className="text-sm text-slate-100">{p.pick}</div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`font-mono font-bold text-sm ${tagStyles.odds}`}>{formatOdds(p.odds)}</span>
+                  <button onClick={() => { if (!inSlip) addLeg({ ...p, sport }); }} disabled={inSlip}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500" : tagStyles.btn}`}>
+                    {inSlip ? "✓" : "+ Add"}
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className={`font-mono font-bold text-sm ${tagStyles.odds}`}>{formatOdds(p.odds)}</span>
-                <button onClick={() => { if (!inSlip) addLeg({ ...p, sport }); }} disabled={inSlip}
-                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500" : tagStyles.btn}`}>
-                  {inSlip ? "✓" : "+ Add"}
-                </button>
-              </div>
+              <BookCompare books={p.books} />
             </div>
           );
         };

@@ -19,6 +19,7 @@ export * from './getWeatherParams';
 export * from './healthStatus';
 export * from './injuryEntry';
 export * from './injuryReport';
+export * from './oddsBookPrice';
 export * from './oddsGame';
 export * from './oddsMarket';
 export * from './oddsOutcome';
