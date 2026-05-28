@@ -9,7 +9,7 @@ const router: IRouter = Router();
 // fires multiple chats in quick succession (per-game live parlay builds,
 // re-asks while exploring slips) and the old cap was tripping during
 // normal use, surfacing as a misleading "AI unavailable" message.
-router.use("/chat", rateLimit({ windowMs: 60_000, max: 60 }));
+router.use("/chat", rateLimit({ windowMs: 60_000, max: 240 }));
 
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, MLB, NHL, Soccer, NCAAF, NCAAB, and UFC.
