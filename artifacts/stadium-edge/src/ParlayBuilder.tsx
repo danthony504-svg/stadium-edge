@@ -8579,6 +8579,17 @@ export default function ParlayBuilder() {
                   // the lowest-vig side / best price — still meaningful info.
                   if (bestScore == null || s.edge > bestScore.edge) { bestScore = s; bestIdx = i; }
                 });
+                // Belt-and-braces: if scoring failed for every prop (e.g. all
+                // missing prices), still highlight the first one with a price
+                // so the user always sees a recommendation.
+                if (bestIdx === -1 && live.props.length > 0) {
+                  const fbIdx = live.props.findIndex((p) => p.overPrice != null || p.underPrice != null);
+                  if (fbIdx >= 0) {
+                    const p = live.props[fbIdx];
+                    bestIdx = fbIdx;
+                    bestScore = { side: (p.overPrice != null ? "over" : "under"), edge: 0, roster: null, statKey: null, blended: 0.5 };
+                  }
+                }
                 return (
                   <Section title="Live Player Props" count={live.props.length}>
                     <div className="px-4 pt-1 pb-2 text-[10px] font-mono uppercase tracking-wider text-emerald-400">
@@ -8621,7 +8632,13 @@ export default function ParlayBuilder() {
                         return bits.join(" · ");
                       })() : null;
                       return (
-                        <div key={`${p.player}-${p.market}-${i}`} className={`px-4 py-2.5 border-t border-slate-800 ${isReco ? "bg-cyan-500/5 border-l-2 border-l-cyan-400" : ""}`}>
+                        <div key={`${p.player}-${p.market}-${i}`} className={`border-t border-slate-800 ${isReco ? "bg-cyan-500/10 ring-2 ring-inset ring-cyan-400" : ""}`}>
+                          {isReco && (
+                            <div className="bg-cyan-400 text-slate-950 px-4 py-1 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
+                              <span>★</span><span>Top edge pick</span>
+                            </div>
+                          )}
+                          <div className="px-4 py-2.5">
                           <div className="flex items-center gap-2 mb-2">
                             {showHeadshot ? (
                               <img
@@ -8637,12 +8654,10 @@ export default function ParlayBuilder() {
                               <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{label}{p.line != null ? ` · O/U ${p.line}` : ""}</div>
                               <div className="text-sm text-slate-100 truncate">{p.player}</div>
                             </div>
-                            {isReco && (
-                              <span className="shrink-0 bg-cyan-400 text-slate-950 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase">★ AI Pick</span>
-                            )}
                           </div>
                           {isReco && (
-                            <div className="mb-2 text-[10px] font-mono text-cyan-300/90 leading-snug">
+                            <div className="mb-2 text-[11px] text-cyan-200/90 leading-snug bg-cyan-500/10 border border-cyan-500/30 rounded-md px-2 py-1.5">
+                              <span className="font-bold uppercase tracking-wider text-[9px] text-cyan-300 mr-1">Why:</span>
                               {recoReason}
                             </div>
                           )}
@@ -8667,6 +8682,7 @@ export default function ParlayBuilder() {
                                 <span className={`font-mono ${isReco && recoSide === "under" ? "text-slate-950" : "text-cyan-400"}`}>{formatOdds(p.underPrice)}</span>
                               </button>
                             )}
+                          </div>
                           </div>
                         </div>
                       );
