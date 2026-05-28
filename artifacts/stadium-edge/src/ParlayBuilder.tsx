@@ -6908,7 +6908,7 @@ export default function ParlayBuilder() {
                   <h2 className="font-display text-2xl text-slate-100 mb-1 flex items-center gap-2"><span>{s?.emoji}</span> {s?.label}</h2>
                   <p className="text-[11px] font-mono uppercase tracking-wider text-slate-500 mb-4">
                     {hasRealGames
-                      ? <>Live games & odds · <span className="text-emerald-400">{Object.keys(byGame).length} matchups from ESPN + The Odds API</span></>
+                      ? "Live games & odds"
                       : "Games, teams & player props · sample data"}
                   </p>
 
