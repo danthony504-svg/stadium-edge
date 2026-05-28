@@ -255,6 +255,10 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
+    { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"], label: "blocks + steals" },
+    { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"], label: "blocks" },
+    { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"], label: "steals" },
+    { re: /\bturnovers?\b/i, markets: ["player_turnovers"], label: "turnovers" },
     // Narrowed: bare "points"/"pts" matches generic prose like "key points
     // to watch" / "main points from this matchup". Require a nearby betting
     // context word (prop, parlay, leg, over, under, line, props, ticket,

@@ -18,3 +18,4 @@
 - [Odds API alt markets endpoint](odds-api-alt-markets.md) — alternate_spreads/alternate_totals are per-event only; bulk /odds returns 422 and kills mains too.
 - [Live props AI pick must be pinned](live-props-ai-pick-pin.md) — multi-book props lists are 200+ rows; per-row highlight gets buried, pin a summary card at the section top.
 - [Tracker pick-string forms / CLV matching](tracker-pick-string-forms.md) — tracker persists pick in whatever form the add-path produced (nickname vs full team name); cross-refs vs buildPicksFromOdds must register/normalize both variants, never exact-match.
+- [api-server dev is one-shot build+start](api-server-no-watcher.md) — server route edits do not hot-reload; restart the API workflow or it serves stale compiled code + stale caches.

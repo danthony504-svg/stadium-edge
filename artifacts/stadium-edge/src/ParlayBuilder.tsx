@@ -3246,6 +3246,7 @@ export default function ParlayBuilder() {
       const MARKET_LABEL = {
         player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
         player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+        player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
         player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
         player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
         player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",
@@ -7308,6 +7309,7 @@ export default function ParlayBuilder() {
                 const PROP_LABELS = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
                   player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
                   player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
                   player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
                   player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",
@@ -9133,6 +9135,7 @@ export default function ParlayBuilder() {
                 const MARKET_LABEL = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
                   player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
                   player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
                   player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
                   player_rush_yds: "Rushing Yards", player_reception_yds: "Receiving Yards",

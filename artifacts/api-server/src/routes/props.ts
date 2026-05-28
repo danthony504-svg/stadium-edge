@@ -11,7 +11,7 @@ const router: IRouter = Router();
 router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120 }));
 
 const MARKETS_BY_SPORT: Record<string, string[]> = {
-  nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists"],
+  nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   ncaab: ["player_points", "player_rebounds", "player_assists"],
   nfl: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td"],
   ncaaf: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_anytime_td"],
