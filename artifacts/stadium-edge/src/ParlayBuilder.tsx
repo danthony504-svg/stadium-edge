@@ -2207,6 +2207,22 @@ export default function ParlayBuilder() {
       player_anytime_td: "Anytime TD",
       player_goals: "Goals",
       player_shots_on_goal: "Shots on Goal",
+      player_sacks: "Sacks",
+      player_tackles: "Tackles",
+      player_tackles_assists: "Tackles + Assists",
+      player_solo_tackles: "Solo Tackles",
+      player_defensive_interceptions: "Interceptions",
+      player_pass_interceptions: "Pass INTs Thrown",
+      player_pass_completions: "Pass Completions",
+      player_pass_attempts: "Pass Attempts",
+      player_rush_attempts: "Rush Attempts",
+      player_rush_reception_yds: "Rush + Rec Yards",
+      player_kicking_points: "Kicking Points",
+      player_field_goals: "Field Goals Made",
+      player_blocks: "Blocks",
+      player_steals: "Steals",
+      player_turnovers: "Turnovers",
+      player_blocks_steals: "Blocks + Steals",
     };
     const lower = t.toLowerCase();
     if (MARKET_MAP[lower]) return MARKET_MAP[lower];
@@ -2246,7 +2262,7 @@ export default function ParlayBuilder() {
     // display "Over 0.5 Hits" as "1+ Hits", "Over 1.5 Hits" as "2+ Hits".
     // Yardage stats are excluded because their half-point lines really
     // ARE decimal cutoffs (Over 245.5 ≠ "246+").
-    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?)\b/i;
+    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?|sacks?|tackles?|tackles \+ assists?|solo tackles?|interceptions?|pass ints? thrown|pass completions?|pass attempts?|rush attempts?|field goals? made|kicking points?|blocks?|steals?|turnovers?|blocks \+ steals?)\b/i;
     if (COUNTABLE_MARKET.test(t)) {
       // Match "<player> Over N.5 <market>" where N is a non-negative int.
       const cm = t.match(/^(.*?)\s*Over\s+(\d+)\.5\s+(.+)$/i);
