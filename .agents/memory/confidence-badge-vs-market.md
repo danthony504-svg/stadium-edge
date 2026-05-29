@@ -39,3 +39,28 @@ Gotchas in the parser:
 Scope: only the chat pick cards were rewired. Slip legs (`confidenceAtAdd`),
 parlay-confidence product, and the demo-picks drawer remain market-anchored by
 design.
+
+## Prompt↔parser wording is a contract (totals coin-flip trap)
+The chat.ts prompt EXAMPLE phrasing for a projected % must use vocabulary
+`parseAiProjection` actually recognizes, or the badge silently falls back to
+market and shows "COIN-FLIP". The totals HARD MANDATE once modeled a note that
+cited only `combinedPace` with NO projected % — so totals always read as
+coin-flip even though the prompt elsewhere required a projection. The model
+mirrors the nearest concrete example, so the example itself must be parseable.
+**Why:** an example that contradicts the master "state projected vs implied %"
+rule wins under scarcity. **How to apply:** when you add/relax a prompt example
+that should produce a projection, paste the exact phrase through the
+`parseAiProjection` regex (anchors: project/puts this·it·over·under/model/
+estimate/fair value/closer to/more like + bare N%) before shipping. If you want
+new wording (e.g. "puts OVER ~N%"), extend the parser anchor in lockstep.
+
+## Prop badge: "MARKET PRICE", not "COIN-FLIP"
+Player props carry no grounded projection feed, so they always fall back to the
+market-implied number. Labeling that "COIN-FLIP" reads as a model verdict it
+isn't. The chat card now shows "MARKET PRICE" when `proj == null && isPropPick`.
+`isPropPick` = market is NOT a game-side market; the game-market regex must
+include period prefixes (1H/2H/Q1-4), `alt`, a `live` prefix (live picks use
+"Live Moneyline"/"Live Total"), and soccer labels (match result / draw no bet /
+double chance / both teams to score). Anything else (stat names like Points,
+Rebounds, Home Runs, Anytime TD) is a prop. **Why:** a too-narrow regex
+misclassifies live/soccer game sides as props and mislabels them.

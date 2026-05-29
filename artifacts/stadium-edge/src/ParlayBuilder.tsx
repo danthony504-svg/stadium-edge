@@ -1629,7 +1629,7 @@ const parseAiProjection = (note) => {
   // AFTER any "implies 60%" clause, the % stop-char keeps us from grabbing the
   // implied number by mistake.
   const pm = norm.match(
-    /(?:project(?:s|ed|ion)?|puts? (?:this|it|them|him|her)|model[^%\d]{0,14}(?:at|has|sees|says)?|estimate[ds]?[^%\d]{0,10}|i (?:have|put|peg|model)[^%\d]{0,10}|fair (?:value|prob[^%\d]{0,8})?|closer to|more like)([^%\d]{0,20}?)([+-]?)\s*~?\s*(\d{1,3}(?:\.\d)?)\s*%\s*(\w+)?/i,
+    /(?:project(?:s|ed|ion)?|puts? (?:this|it|them|him|her|the over|the under|over|under)|model[^%\d]{0,14}(?:at|has|sees|says)?|estimate[ds]?[^%\d]{0,10}|i (?:have|put|peg|model)[^%\d]{0,10}|fair (?:value|prob[^%\d]{0,8})?|closer to|more like)([^%\d]{0,20}?)([+-]?)\s*~?\s*(\d{1,3}(?:\.\d)?)\s*%\s*(\w+)?/i,
   );
   let proj = null;
   if (pm) {
@@ -6389,6 +6389,18 @@ export default function ParlayBuilder() {
               aiProjForBadge.proj != null && impliedForEdge != null
                 ? aiProjForBadge.proj - impliedForEdge
                 : null;
+            // A prop is anything that isn't a recognized game-side market
+            // (moneyline / spread / total / run line / puck line, full-game or
+            // any period). Player props (Points, Rebounds, Passing Yards, etc.)
+            // carry the stat name as their market here.
+            const isPropPick = !/^(live\s+)?((1H|2H|Q[1-4])\s+)?(alt\s+)?(spread|total|moneyline|money line|run line|puck line|match result|draw no bet|double chance|both teams to score|btts)$/i.test(
+              (pick.market || "").trim(),
+            );
+            // When we have no real model projection AND it's a player prop, the
+            // badge number is just the market's implied probability — say so
+            // honestly ("MARKET PRICE") instead of dressing it up as the model's
+            // "COIN-FLIP" read.
+            const badgeIsMarketOnly = aiProjForBadge.proj == null && isPropPick;
             return (
               <div
                 key={i}
@@ -6400,8 +6412,15 @@ export default function ParlayBuilder() {
                       <div className="text-[10px] uppercase tracking-widest text-slate-400 font-mono">
                         {pick.market}
                       </div>
-                      <div className="text-[10px] font-mono font-bold text-slate-100">
-                        {conf}% · {confidenceLabel(conf)}
+                      <div
+                        className="text-[10px] font-mono font-bold text-slate-100"
+                        title={
+                          badgeIsMarketOnly
+                            ? "No grounded player-projection feed for this prop — this is the book's implied probability from the price, not a model edge."
+                            : undefined
+                        }
+                      >
+                        {conf}% · {badgeIsMarketOnly ? "MARKET PRICE" : confidenceLabel(conf)}
                       </div>
                       {edgePts != null && (
                         <div
