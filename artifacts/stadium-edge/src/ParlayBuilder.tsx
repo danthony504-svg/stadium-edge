@@ -1604,6 +1604,46 @@ const confidenceLabel = (score) => {
   return "DART";
 };
 
+// Pull the AI's OWN projected win probability out of its EDGE note. The chat
+// prompt requires every side/total/ML edge note to state both the market-implied
+// % and the model's projected % (e.g. "−150 implies 60%, ... puts this ~68% →
+// +8% edge"). The confidence badge historically anchored to the MARKET'S implied
+// probability (calculateConfidence starts at implied*100), so it always read like
+// a "market pick" no matter what the AI argued. When the note carries a real
+// projection we surface THAT as the badge so the card reflects the analysis, not
+// the price. Returns { proj, implied } in 0-100 (either may be null). We never
+// read a number tagged "edge" (that's the delta, not a probability).
+const parseAiProjection = (note) => {
+  if (!note || typeof note !== "string") return { proj: null, implied: null };
+  const norm = note.replace(/\u2212/g, "-"); // unicode minus → ascii hyphen
+  const clamp = (n) => (Number.isFinite(n) && n >= 1 && n <= 99 ? Math.round(n) : null);
+  // Implied / break-even probability the price bakes in.
+  const impM = norm.match(
+    /(?:impl(?:y|ies|ied)|market (?:implies|prices?|has|pegs?)|break-?even)[^%\d]{0,20}(\d{1,3}(?:\.\d)?)\s*%/i,
+  );
+  const implied = impM ? clamp(Number(impM[1])) : null;
+  // Projected win %. We capture the sign and the word right after the % so we
+  // can REJECT the edge delta ("+8% edge" / "→ +8% gap") — a projection is a
+  // bare 1-99 number ("~68%"), never a signed delta or a number tagged
+  // edge/gap/ev/vs. Anchored to projection vocabulary; because the anchor sits
+  // AFTER any "implies 60%" clause, the % stop-char keeps us from grabbing the
+  // implied number by mistake.
+  const pm = norm.match(
+    /(?:project(?:s|ed|ion)?|puts? (?:this|it|them|him|her)|model[^%\d]{0,14}(?:at|has|sees|says)?|estimate[ds]?[^%\d]{0,10}|i (?:have|put|peg|model)[^%\d]{0,10}|fair (?:value|prob[^%\d]{0,8})?|closer to|more like)([^%\d]{0,20}?)([+-]?)\s*~?\s*(\d{1,3}(?:\.\d)?)\s*%\s*(\w+)?/i,
+  );
+  let proj = null;
+  if (pm) {
+    const sign = pm[2];
+    const trailing = (pm[4] || "").toLowerCase();
+    const isDelta = sign === "+" || sign === "-" || /^(edge|gap|ev|vs|delta|value|more|better|swing)$/.test(trailing);
+    if (!isDelta) proj = clamp(Number(pm[3]));
+  }
+  // A projection that exactly equals the implied % usually means only the
+  // implied number matched — treat it as "no real projection found".
+  if (proj != null && implied != null && proj === implied) proj = null;
+  return { proj, implied };
+};
+
 // Long-run baseline hit rates from published sports-betting research.
 // These are MARKET averages — what the implied probability roughly works out
 // to historically. Useful context, not pick-specific predictions.
@@ -6266,8 +6306,29 @@ export default function ParlayBuilder() {
             const { kept: pickKept } = filterPicksToReal([baseP]);
             const pick = pickKept.length > 0 ? pickKept[0] : baseP;
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
-            const conf = calculateConfidence(pick);
             const pickKey = `${pick.game}::${pick.pick}`;
+            // Prefer the AI's OWN projected probability (from its EDGE note) for
+            // the badge so the card reflects the model's read, not the market
+            // price. Fall back to the implied-anchored heuristic only when the
+            // note carries no parseable projection.
+            // Try the canonical key first, then the AI's RAW label — notes are
+            // keyed off the raw parsed pick, so canonical relabeling could
+            // otherwise silently drop the projection and fall back to market.
+            const noteForBadge =
+              noteByPickKey.get(pickKey) ||
+              noteByPickKey.get(`${rawPick.game}::${rawPick.pick}`);
+            const aiProjForBadge = parseAiProjection(noteForBadge);
+            const conf = aiProjForBadge.proj != null ? aiProjForBadge.proj : calculateConfidence(pick);
+            // Edge vs the market: only meaningful when we have a real AI
+            // projection AND a book price to compare against (PP legs carry none).
+            const impliedForEdge =
+              pick.odds != null && Number.isFinite(pick.odds)
+                ? Math.round(impliedProb(pick.odds) * 100)
+                : null;
+            const edgePts =
+              aiProjForBadge.proj != null && impliedForEdge != null
+                ? aiProjForBadge.proj - impliedForEdge
+                : null;
             const isExpanded = expandedPicks.has(pickKey);
             const reasoning = generateReasoning(pick, matchupHistoryByGame[pick.game] || null);
             return (
@@ -6284,6 +6345,16 @@ export default function ParlayBuilder() {
                       <div className="text-[10px] font-mono font-bold text-slate-100">
                         {conf}% · {confidenceLabel(conf)}
                       </div>
+                      {edgePts != null && (
+                        <div
+                          className={`text-[10px] font-mono font-bold ${
+                            edgePts > 0 ? "text-emerald-400" : edgePts < 0 ? "text-rose-400" : "text-slate-400"
+                          }`}
+                          title="Model's projected win % minus the market's implied % — positive means the AI sees value the price doesn't."
+                        >
+                          {edgePts > 0 ? "+" : ""}{edgePts}% vs mkt
+                        </div>
+                      )}
                     </div>
                     <div className="text-xs text-slate-400 break-words">
                       {displayGameLabel(pick.game)}
