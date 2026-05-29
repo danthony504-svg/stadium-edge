@@ -24,3 +24,9 @@ description: How a new data signal flows ESPN -> api-server -> client context ->
 - **stadium-edge `vite build` reads `PORT` and `BASE_PATH` at config-load time** and throws before compiling if either is missing. To validate a production build run: `PORT=5000 BASE_PATH=/stadium-edge pnpm --filter @workspace/stadium-edge run build`.
 - `ParlayBuilder.tsx` is large untyped JSX (~10k lines); `tsc` has many pre-existing errors there. Use the vite build (not tsc) to confirm the client compiles.
 - Client reaches the api via relative `/api/sports/*` paths, proxied at the platform level (not in vite.config.ts). Don't expect an `/api` proxy block in the vite config.
+
+## Removing a signal — sweep ALL surfaces, not just logic
+When you remove a fabricated signal (e.g. referee leans), grep for the phrase across the WHOLE app — it hides in static user-facing copy too: the welcome/intro message, help text, and hand-written analysis note strings (like the "Fix"/optimizeSlip writeup). Deleting the logic but leaving these strings still leaks the fabricated claim to users. The mockup-sandbox has its own copy of `ParlayBuilder.tsx` that is a separate mockup — don't confuse it with the live `artifacts/stadium-edge` one.
+
+## E2e testing quirk — picks must be added to the ticket first
+Chat picks are only SUGGESTED; the user must click "+ Add all N legs to ticket" to populate `parlayLegs`. The slip footer controls ("Analyze", "Fix") only render once the ticket has legs. A test that looks for the Fix button right after the chat suggests picks will fail — always add legs to the ticket first. "Fix" is also gated behind a Pro paywall (`requirePro`).

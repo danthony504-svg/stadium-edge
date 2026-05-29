@@ -4077,11 +4077,55 @@ export default function ParlayBuilder() {
     }, "image/png");
   };
 
+  // For a leg whose line can't be moved (a moneyline, or a prop with no
+  // movable number), find a REAL safer alternate spread on the SAME game from
+  // the live odds feed (realOddsBySport). "Safer" = the biggest cushion in the
+  // team's favor (most positive point) among real spread/alt-spread rungs at
+  // reasonable juice. teamHint biases the suggestion to the leg's own team
+  // (e.g. a "Spurs ML" leg → a Spurs spread with points). Returns null when no
+  // real alt spread exists — we never invent a line.
+  const suggestAltSpreadForGame = (gameStr, teamHint) => {
+    if (!gameStr) return null;
+    const norm = (s) => String(s || "").trim().toLowerCase();
+    const wanted = norm(gameStr);
+    let match = null;
+    for (const games of Object.values(realOddsBySport || {})) {
+      for (const g of games || []) {
+        if (norm(`${g.awayTeam} @ ${g.homeTeam}`) === wanted) { match = g; break; }
+      }
+      if (match) break;
+    }
+    if (!match) return null;
+    const parsed = buildPicksFromOdds(match)
+      .filter((p) => p.market === "Spread" || p.market === "Alt Spread")
+      .map((p) => {
+        const m = String(p.pick).match(/^(.+?)\s+([+-]?\d+(?:\.\d+)?)$/);
+        if (!m) return null;
+        return { team: m[1].trim(), point: parseFloat(m[2]), odds: p.odds, pick: p.pick };
+      })
+      .filter(Boolean)
+      // Skip steamroller juice (-1000 or worse) — zero added value as a swap.
+      .filter((x) => x.odds == null || x.odds > -1000);
+    if (!parsed.length) return null;
+    let pool = parsed;
+    if (teamHint) {
+      const hint = norm(teamHint);
+      const onTeam = parsed.filter((x) => norm(x.team) === hint || norm(x.team).includes(hint) || hint.includes(norm(x.team)));
+      if (onTeam.length) pool = onTeam;
+    }
+    // Safest = the most points in the team's favor (largest positive number).
+    pool.sort((a, b) => b.point - a.point);
+    return pool[0];
+  };
+
   // "Fix for best outcome": KEEPS every leg (no removals). Adjusts each leg's
   // line toward the model's higher-confidence direction — buys points on
   // spreads/totals (easier to hit, lower payout) and nudges player-prop lines
-  // toward the player's season average. Honest framing: this optimizes the
-  // MODEL'S CONFIDENCE and line safety. It does NOT predict the outcome.
+  // toward the player's season average. For legs whose line can't be moved
+  // (moneyline or an unmovable prop), it SUGGESTS a real safer alternate spread
+  // on the same game (suggestion only — the slip is not auto-changed for those).
+  // Honest framing: this optimizes the MODEL'S CONFIDENCE and line safety. It
+  // does NOT predict the outcome.
   const optimizeSlip = () => {
     if (parlayLegs.length === 0) return;
 
@@ -4137,6 +4181,24 @@ export default function ParlayBuilder() {
     note += `Combined odds: ${formatOdds(beforeMath.american)} → ${formatOdds(afterMath.american)}\n\n`;
     if (unmovable > 0) {
       note += `${unmovable} moneyline leg${unmovable !== 1 ? "s have" : " has"} no line to move, so ${unmovable !== 1 ? "they were" : "it was"} left unchanged.\n\n`;
+    }
+    // For every leg we couldn't move, surface a REAL safer alternate spread on
+    // the same game (suggestion only — we don't auto-swap). For a moneyline,
+    // bias to that team's own spread (getting points is strictly safer than
+    // needing the outright win). Skipped silently when no real alt exists.
+    const suggestions = [];
+    adjusted.forEach((l, i) => {
+      if (l.pick !== parlayLegs[i].pick) return; // this leg was already improved
+      const teamHint = /\bML\b/i.test(l.pick) ? l.pick.replace(/\s*\bML\b.*$/i, "").trim() : null;
+      const alt = suggestAltSpreadForGame(l.game, teamHint);
+      if (alt && alt.pick !== l.pick) suggestions.push({ from: l.pick, alt });
+    });
+    if (suggestions.length > 0) {
+      note += `**Safer alternate spread${suggestions.length !== 1 ? "s" : ""} on the same game** — can't move a moneyline/prop line, but you could swap to a spread with a cushion:\n`;
+      for (const s of suggestions) {
+        note += `• ${s.from} → **${s.alt.pick}** (${formatOdds(s.alt.odds)})\n`;
+      }
+      note += `\n`;
     }
     note += `_Safer lines pay less — that's the real tradeoff, shown above. This optimizes the model's confidence and line safety; it does NOT predict the outcome. No analysis can. Hypothetical only._`;
     setSlipAnalysis(note);
