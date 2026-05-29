@@ -9674,7 +9674,7 @@ export default function ParlayBuilder() {
         return (
           <div className="fixed inset-0 z-40 bg-slate-900 flex flex-col">
             {/* Header */}
-            <div className="bg-slate-950 border-b border-slate-800 px-4 pt-4 pb-4 shrink-0">
+            <div className="bg-slate-900 border-b border-slate-800 px-4 pt-4 pb-4 shrink-0">
               <div className="flex items-center justify-between">
                 <button onClick={() => setGameDetail(null)} className="text-cyan-400 text-sm">‹ Back</button>
                 <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">{(SPORTS.find((s) => s.id === sport) || {}).label}</span>
