@@ -10187,17 +10187,21 @@ export default function ParlayBuilder() {
             return { side: safeSide, value: v };
           })();
 
-          // ---- RISKY tier: chase payout — push line past the player's pace ----
+          // ---- RISKY tier: contrarian — bet AGAINST the sample lean ----
+          // The safe/balanced tiers ride the side the recent games favor, so
+          // the genuine long-shot is the opposite side. Flipping here also
+          // guarantees the suggestions surface both an Over and an Under.
+          const riskySide = safeSide === "Over" ? "Under" : "Over";
           const risky = (() => {
             let v;
-            if (safeSide === "Over") {
-              // Aim above the best recent game so the over pays out big.
+            if (riskySide === "Over") {
+              // Player rarely reaches this high, so the over is a long shot.
               v = +(Math.max(sampleMax, avg) + step * 2).toFixed(1);
             } else {
-              // Aim below the worst recent game so the under is a long shot.
+              // Player rarely dips this low, so the under is a long shot.
               v = Math.max(0, +(Math.min(sampleMin, avg) - step * 2).toFixed(1));
             }
-            return { side: safeSide, value: v };
+            return { side: riskySide, value: v };
           })();
 
           // Compute hit-count + cushion descriptors for each tier.
