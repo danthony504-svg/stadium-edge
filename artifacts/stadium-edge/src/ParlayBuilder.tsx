@@ -2972,7 +2972,7 @@ export default function ParlayBuilder() {
       { role: "user", content: `Build a parlay for ${gameLabel}` },
       {
         role: "assistant",
-        content: `How many legs would you like for **${gameLabel}**?\n\nTap a number below, or type one (1–15).`,
+        content: `How many legs would you like for **${gameLabel}**?`,
       },
     ]);
   };
@@ -7061,7 +7061,7 @@ export default function ParlayBuilder() {
                 return games.slice(0, 12).map((g, i) => (
                   <button
                     key={i}
-                    onClick={() => { if (requirePro("Build from game")) { setView("chat"); setPendingLegBuild({ gameLabel: g.game, sport: g.sport, kind: "upcoming", real: false }); setMessages((p) => [...p, { role: "user", content: `Build a parlay for ${g.game}` }, { role: "assistant", content: `How many legs would you like for **${g.game}**?\n\nTap a number below, or type one (1–15).` }]); } }}
+                    onClick={() => { if (requirePro("Build from game")) { setView("chat"); setPendingLegBuild({ gameLabel: g.game, sport: g.sport, kind: "upcoming", real: false }); setMessages((p) => [...p, { role: "user", content: `Build a parlay for ${g.game}` }, { role: "assistant", content: `How many legs would you like for **${g.game}**?` }]); } }}
                     className="text-left border border-slate-800 rounded-2xl p-3 bg-slate-900 hover:border-cyan-400 transition shrink-0 w-44 snap-start flex flex-col justify-between"
                   >
                     <div className="min-w-0">
@@ -7667,21 +7667,6 @@ export default function ParlayBuilder() {
             )}
           </div>
         ))}
-        {pendingLegBuild && !loading && (
-          <div className="flex justify-start slide-up">
-            <div className="flex flex-wrap gap-2">
-              {[2, 3, 4, 5, 6].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => confirmLegCountForGame(n)}
-                  className="text-sm font-semibold text-cyan-300 border border-cyan-400/50 bg-cyan-400/10 rounded-full px-4 py-2 hover:bg-cyan-400/20 active:scale-95 transition"
-                >
-                  {n} legs
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
         {loading && (
           <div className="flex justify-start slide-up">
             <div className="flex gap-1.5 items-center py-1">
