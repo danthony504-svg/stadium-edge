@@ -46,6 +46,23 @@ const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
   ],
 };
 
+// Alternate-line player markets — the real bookmaker LADDER around each main
+// prop line (e.g. points at 17.5 / 19.5 / 24.5 / 29.5 / 34.5 ...). Fetched as
+// a SEPARATE Odds API call (same all-or-nothing 422 caveat as QH markets, so a
+// bad key just returns null and leaves the base props intact). The "_alternate"
+// suffix is stripped downstream so each rung folds into the SAME (player, stat)
+// bucket as the main line — giving the AI a real cushion/value ladder instead
+// of only the single posted number. Keys here are the documented Odds API
+// alternate keys; probe any new key on a live event before adding it.
+const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
+  nba: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_threes_alternate"],
+  ncaab: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate"],
+  nfl: ["player_pass_yds_alternate", "player_pass_tds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate", "player_receptions_alternate"],
+  ncaaf: ["player_pass_yds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate"],
+  mlb: ["batter_hits_alternate", "batter_total_bases_alternate", "batter_home_runs_alternate", "pitcher_strikeouts_alternate"],
+  nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
+};
+
 type RawEventOdds = {
   home_team?: string;
   away_team?: string;
@@ -134,7 +151,8 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     };
 
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
-    const [data, qhData] = await Promise.all([
+    const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
+    const [data, qhData, altData] = await Promise.all([
       cachedJson<RawEventOdds>(`props:${oddsKey}:${eventId}`, 5 * 60 * 1000, () => fetchOdds(markets)),
       qhMarkets.length
         ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${eventId}:v2`, 5 * 60 * 1000, async () => {
@@ -142,6 +160,14 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             // (e.g. game not in-window for QH lines yet) we return null and keep
             // the base props rather than failing the whole request.
             try { return await fetchOdds(qhMarkets); } catch { return null; }
+          })
+        : Promise.resolve(null),
+      altMarkets.length
+        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${eventId}:v1`, 5 * 60 * 1000, async () => {
+            // Same honest fallback as QH: the alternate-ladder batch is all-or-
+            // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
+            // window) returns null and the base + QH props stand on their own.
+            try { return await fetchOdds(altMarkets); } catch { return null; }
           })
         : Promise.resolve(null),
     ]);
@@ -157,17 +183,23 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // positive (plus money).
     const americanToProb = (a: number) => (a > 0 ? 100 / (a + 100) : -a / (-a + 100));
     const betterAmerican = (a: number, b: number) => (americanToProb(a) < americanToProb(b) ? a : b);
-    const byKey = new Map<string, { player: string; market: string; line: number | null; overPrice: number | null; underPrice: number | null }>();
-    const sources: Array<RawEventOdds | null> = [data, qhData];
-    for (const src of sources) {
-      if (!src) continue;
+    type PropRow = { player: string; market: string; line: number | null; overPrice: number | null; underPrice: number | null; alt: boolean };
+    const byKey = new Map<string, PropRow>();
+    // Ingest a source's outcomes. Alternate-ladder sources strip the
+    // "_alternate" suffix so each rung folds into the SAME (player, stat) bucket
+    // as the main line; a rung that also exists as a real MAIN line is treated
+    // as main (alt=false), never as an alt rung.
+    const ingest = (src: RawEventOdds | null, isAlt: boolean) => {
+      if (!src) return;
       for (const book of src.bookmakers ?? []) {
         for (const m of book.markets ?? []) {
+          const marketKey = isAlt ? m.key.replace(/_alternate$/, "") : m.key;
           for (const o of m.outcomes ?? []) {
             const player = o.description ?? "—";
             const line = o.point ?? null;
-            const k = `${player}|${m.key}|${line ?? "_"}`;
-            const row = byKey.get(k) ?? { player, market: m.key, line, overPrice: null, underPrice: null };
+            const k = `${player}|${marketKey}|${line ?? "_"}`;
+            const row = byKey.get(k) ?? { player, market: marketKey, line, overPrice: null, underPrice: null, alt: isAlt };
+            if (!isAlt) row.alt = false;
             const price = Math.round(o.price);
             const side = o.name.toLowerCase();
             if (side === "over" || side === "yes") {
@@ -179,7 +211,49 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           }
         }
       }
+    };
+    // Mains first (so a shared line stays main), then alternate ladders.
+    ingest(data, false);
+    ingest(qhData, false);
+    ingest(altData, true);
+
+    // Trim alternate rungs: the raw ladder can run 3.5 → 49.5 with deep-ITM and
+    // longshot rungs that would bloat the chat context + UI list (capped
+    // downstream). Per (player, stat) keep only rungs within a sane bettable
+    // price band and nearest the MAIN line — enough for a cushion rung and a
+    // value rung on each side. Mains are always kept and emitted first so the
+    // downstream slice caps drop alt rungs before any main line.
+    const inBand = (p: number | null) => p != null && p >= -600 && p <= 600;
+    const allRows = Array.from(byKey.values());
+    const mainLineByPM = new Map<string, number>();
+    for (const r of allRows) {
+      if (!r.alt && r.line != null) {
+        const pm = `${r.player}|${r.market}`;
+        if (!mainLineByPM.has(pm)) mainLineByPM.set(pm, r.line);
+      }
     }
+    const mains = allRows.filter((r) => !r.alt);
+    const altByPM = new Map<string, PropRow[]>();
+    for (const r of allRows) {
+      if (!r.alt) continue;
+      if (!inBand(r.overPrice) && !inBand(r.underPrice)) continue;
+      const pm = `${r.player}|${r.market}`;
+      const list = altByPM.get(pm) ?? [];
+      list.push(r);
+      altByPM.set(pm, list);
+    }
+    const ALT_CAP_PER_PM = 6;
+    const trimmedAlts: PropRow[] = [];
+    for (const [pm, list] of altByPM) {
+      const mainLine = mainLineByPM.get(pm);
+      list.sort((a, b) => {
+        const da = a.line != null ? Math.abs(a.line - (mainLine ?? 0)) : Infinity;
+        const db = b.line != null ? Math.abs(b.line - (mainLine ?? 0)) : Infinity;
+        return da - db;
+      });
+      for (const r of list.slice(0, ALT_CAP_PER_PM)) trimmedAlts.push(r);
+    }
+    const aggregatedRows = [...mains, ...trimmedAlts];
 
     // Enrich with player headshot + ESPN athleteId + their team id from
     // each team's roster. athleteId/playerTeamId let the client fetch each
@@ -196,7 +270,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
     }
 
-    const props = Array.from(byKey.values()).map((p) => {
+    const props = aggregatedRows.map((p) => {
       const r = rosterMap?.get(normalizeName(p.player));
       return {
         ...p,
