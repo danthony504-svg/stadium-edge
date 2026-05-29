@@ -19,6 +19,25 @@ closed the socket mid-await, not an LLM failure.
 model produces zero output bytes during its think phase, so a big enough prompt
 pushes time-to-first-token past the idle limit.
 
+**PRIMARY LATENCY FIX — `reasoning_effort`:** the dominant cause of "not loading"
+was NOT the proxy idle abort, it was gpt-5.4's DEFAULT heavy reasoning. With the
+big betting prompt, time-to-first-token was 35-80s of pure silent thinking (server
+logs showed /api/chat completing at 80969ms, and the user's real request aborting
+at 35060ms). Setting `reasoning_effort: "low"` on the `chat.completions.create`
+call drops TTFB to ~1-3s (verified: 1 heartbeat then 231 data chunks through the
+PUBLIC proxy). The picks come from the real-data context block and the rules are
+explicit in the system prompt, so deep open-ended reasoning isn't needed. The
+heartbeat is the belt-and-suspenders; `reasoning_effort` is what actually makes it
+usable. esbuild (build.mjs) strips TS types so unknown SDK params compile fine, and
+the upstream API accepts `reasoning_effort` for gpt-5.4. Bump to "medium" only if
+pick quality regresses.
+
+**TEST THROUGH THE PUBLIC PROXY, not localhost:** the client fetches `/api/chat`
+with NO Vite proxy — it routes browser → Replit path-based proxy → api-server.
+A `curl localhost:8080` bypasses that proxy and the gzip negotiation, so it can
+look fine while the real browser path still fails. Always reproduce latency/abort
+issues via `curl https://$REPLIT_DEV_DOMAIN/api/chat -H "Accept-Encoding: gzip"`.
+
 **How to apply:**
 - After `res.flushHeaders()`, write an SSE COMMENT heartbeat (`": keep-alive\n\n"`)
   immediately and on a ~10s interval until the first real token arrives; clear it

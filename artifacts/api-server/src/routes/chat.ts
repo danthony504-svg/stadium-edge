@@ -754,6 +754,16 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
       // but only got 1 leg"). 16k is generous but the upstream service
       // won't bill for what isn't generated.
       max_completion_tokens: 16384,
+      // gpt-5.4 defaults to HEAVY internal reasoning, which on this prompt
+      // meant 35-80s of SILENT thinking before the first visible token — the
+      // user saw a blank screen and gave up ("not loading"). The picks come
+      // straight from the real-data context block and the rules are spelled
+      // out explicitly in the system prompt, so the model doesn't need deep
+      // open-ended reasoning to follow them. "low" cuts time-to-first-token to
+      // a few seconds (tokens then stream visibly) while still respecting the
+      // HARD BANs / analytics citations. Bump back to "medium" only if pick
+      // quality regresses.
+      reasoning_effort: "low",
       messages,
       stream: true,
     }, { signal: upstreamAbort.signal });
