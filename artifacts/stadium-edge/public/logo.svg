@@ -1,0 +1,8 @@
+<svg width="240" height="44" viewBox="0 0 240 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="14" cy="22" r="6" fill="#22d3ee">
+    <animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />
+  </circle>
+  <text x="30" y="30" font-family="'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif" font-size="24" font-weight="800" letter-spacing="-0.5">
+    <tspan fill="#e2e8f0">STADIUM</tspan><tspan fill="#22d3ee"> EDGE</tspan>
+  </text>
+</svg>

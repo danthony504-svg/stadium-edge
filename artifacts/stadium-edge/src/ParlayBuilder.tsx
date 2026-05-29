@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useUser, useClerk } from "@clerk/react";
+import { useLocation } from "wouter";
 import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
@@ -2556,67 +2558,16 @@ export default function ParlayBuilder() {
   const [slipOpen, setSlipOpen] = useState(false);
   // Per-leg "edge notes" expand state — set of leg ids currently showing reasons.
   const [expandedLegIds, setExpandedLegIds] = useState(() => new Set());
-  const [loggedIn, setLoggedIn] = useState(true); // login gate bypassed for now (set false to re-enable)
+  // Real authentication via Replit-managed Clerk. The user store IS the database:
+  // accounts created here persist in Clerk. Auth is optional — the app is a public
+  // landing; signing in lets a user attach their tracked slips to an account.
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const [, navigate] = useLocation();
+  const handleSignOut = () => {
+    signOut();
+  };
   const [booting, setBooting] = useState(true);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPass, setLoginPass] = useState("");
-  const [loginMode, setLoginMode] = useState("signin"); // "signin" | "signup"
-  // Sign-up verification (DEMO — offline can't send a real email/SMS, so the code
-  // is shown on screen. Real codes via email/SMS provider are the Next.js version.)
-  const [verifyStep, setVerifyStep] = useState(false);
-  const [verifyMethod, setVerifyMethod] = useState("email"); // "email" | "sms"
-  const [loginPhone, setLoginPhone] = useState("");
-  const [sentCode, setSentCode] = useState("");
-  const [enteredCode, setEnteredCode] = useState("");
-  const [loginError, setLoginError] = useState("");
-
-  const handleLogin = () => {
-    setLoginError("");
-    if (!loginEmail.trim() || !loginPass.trim()) {
-      setLoginError("Enter an email and password to continue.");
-      return;
-    }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(loginEmail.trim())) {
-      setLoginError("That doesn't look like a valid email.");
-      return;
-    }
-    // Sign-up goes through a verification step; sign-in logs in directly (demo).
-    if (loginMode === "signup") {
-      setVerifyMethod("email");
-      setVerifyStep(true);
-      setSentCode("");
-      setEnteredCode("");
-      return;
-    }
-    // DEMO ONLY: no real authentication. Any valid-format input is accepted.
-    setLoggedIn(true);
-    setLoginPass("");
-    setView("home");
-  };
-  // Generate + "send" a 6-digit code (demo: shown on screen, not actually sent).
-  const sendVerifyCode = () => {
-    setLoginError("");
-    if (verifyMethod === "sms" && loginPhone.replace(/\D/g, "").length < 10) {
-      setLoginError("Enter a valid phone number for the SMS code.");
-      return;
-    }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    setSentCode(code);
-    setEnteredCode("");
-  };
-  const confirmVerifyCode = () => {
-    setLoginError("");
-    if (enteredCode.trim() !== sentCode) {
-      setLoginError("That code doesn't match. Check the demo code shown above.");
-      return;
-    }
-    setVerifyStep(false);
-    setSentCode("");
-    setEnteredCode("");
-    setLoggedIn(true);
-    setLoginPass("");
-    setView("home");
-  };
   const swipeStart = useRef(null); // { x, y } or null
 
   const onPointerDown = (e) => {
@@ -6873,195 +6824,6 @@ export default function ParlayBuilder() {
   }
 
   // ---- Login screen (DEMO — not real authentication) ----
-  if (!loggedIn) {
-    return (
-      <div
-        className="fixed inset-0 bg-slate-950 text-slate-100 flex flex-col items-center justify-center px-6 overflow-hidden"
-        style={{ fontFamily: "'Bricolage Grotesque', sans-serif" }}
-      >
-        {/* Blurred faux home-screen backdrop */}
-        <div
-          aria-hidden
-          className="absolute inset-0 pointer-events-none select-none"
-          style={{ filter: "blur(11px) saturate(1.15)", transform: "scale(1.06)", opacity: 0.9 }}
-        >
-          <div className="px-4 pt-6">
-            <div className="h-7 w-40 bg-zinc-300 rounded-md mb-2" />
-            <div className="h-9 w-64 bg-zinc-300/80 rounded-lg mb-1" />
-            <div className="h-3 w-48 bg-zinc-200 rounded mb-5" />
-            {/* hero card */}
-            <div className="h-28 w-full bg-cyan-400/30 rounded-2xl mb-4" />
-            {/* pill row */}
-            <div className="grid grid-cols-3 gap-2 mb-5">
-              <div className="h-11 bg-slate-900 rounded-full shadow-sm" />
-              <div className="h-11 bg-slate-900 rounded-full shadow-sm" />
-              <div className="h-11 bg-slate-900 rounded-full shadow-sm" />
-            </div>
-            {/* featured row */}
-            <div className="h-5 w-40 bg-zinc-300 rounded mb-2" />
-            <div className="flex gap-3 mb-5">
-              <div className="h-32 w-28 bg-slate-900 rounded-2xl shadow-sm shrink-0" />
-              <div className="h-32 w-28 bg-slate-900 rounded-2xl shadow-sm shrink-0" />
-              <div className="h-32 w-28 bg-slate-900 rounded-2xl shadow-sm shrink-0" />
-            </div>
-            {/* live row */}
-            <div className="h-5 w-32 bg-zinc-300 rounded mb-2" />
-            <div className="flex gap-3">
-              <div className="h-24 w-56 bg-slate-900 rounded-2xl shadow-sm shrink-0" />
-              <div className="h-24 w-56 bg-slate-900 rounded-2xl shadow-sm shrink-0" />
-            </div>
-          </div>
-        </div>
-        {/* Frosted dim layer for contrast */}
-        <div aria-hidden className="absolute inset-0 bg-slate-900/25 backdrop-blur-[2px]" />
-
-        <div className="w-full max-w-sm relative z-10 bg-slate-900/70 backdrop-blur-md rounded-3xl p-6 shadow-xl border border-white/60">
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-3 h-3 bg-cyan-400 rounded-full pulse-dot mb-3" />
-            <h1 className="font-display text-4xl">
-              <span className="text-slate-200">STADIUM</span><span className="text-cyan-400" style={{textShadow:"0 0 14px rgba(34,211,238,0.6)"}}> EDGE</span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-1 font-mono uppercase tracking-widest">
-              {loginMode === "signin" ? "Sign in to continue" : "Create your account"}
-            </p>
-          </div>
-
-          {verifyStep ? (
-            <div className="space-y-3">
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4">
-                <h3 className="font-bold text-slate-100 text-sm mb-1">Verify it's you</h3>
-                <p className="text-xs text-slate-400 mb-3">Choose where to send your 6-digit code.</p>
-                <div className="grid grid-cols-2 gap-2 mb-3">
-                  <button
-                    onClick={() => { setVerifyMethod("email"); setSentCode(""); setLoginError(""); }}
-                    className={`rounded-lg py-2 text-xs font-semibold border transition ${verifyMethod === "email" ? "border-cyan-400 bg-cyan-400/10 text-cyan-300" : "border-slate-700 text-slate-400 hover:border-slate-600"}`}
-                  >
-                    ✉️ Email
-                  </button>
-                  <button
-                    onClick={() => { setVerifyMethod("sms"); setSentCode(""); setLoginError(""); }}
-                    className={`rounded-lg py-2 text-xs font-semibold border transition ${verifyMethod === "sms" ? "border-cyan-400 bg-cyan-400/10 text-cyan-300" : "border-slate-700 text-slate-400 hover:border-slate-600"}`}
-                  >
-                    💬 Text (SMS)
-                  </button>
-                </div>
-                {verifyMethod === "email" ? (
-                  <div className="text-xs text-slate-400 mb-3">Code will go to <span className="text-slate-200">{loginEmail || "your email"}</span></div>
-                ) : (
-                  <input
-                    type="tel"
-                    value={loginPhone}
-                    onChange={(e) => setLoginPhone(e.target.value)}
-                    placeholder="Phone number"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition mb-3"
-                  />
-                )}
-
-                {!sentCode ? (
-                  <button onClick={sendVerifyCode} className="w-full bg-cyan-400 text-black rounded-xl py-3 font-display text-sm hover:bg-cyan-300 transition">
-                    SEND CODE
-                  </button>
-                ) : (
-                  <>
-                    <div className="bg-cyan-400/10 border border-cyan-400/30 rounded-lg px-3 py-2 mb-3 text-center">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-cyan-300">Demo code (would be {verifyMethod === "email" ? "emailed" : "texted"})</div>
-                      <div className="text-2xl font-bold tracking-[0.3em] text-slate-100">{sentCode}</div>
-                    </div>
-                    <input
-                      value={enteredCode}
-                      onChange={(e) => setEnteredCode(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") confirmVerifyCode(); }}
-                      placeholder="Enter 6-digit code"
-                      inputMode="numeric"
-                      maxLength={6}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 text-center tracking-[0.3em] focus:outline-none focus:border-cyan-400 transition mb-2"
-                    />
-                    <button onClick={confirmVerifyCode} className="w-full bg-cyan-400 text-black rounded-xl py-3 font-display text-sm hover:bg-cyan-300 transition mb-1">
-                      VERIFY & CREATE ACCOUNT
-                    </button>
-                    <button onClick={sendVerifyCode} className="w-full text-[11px] text-slate-500 hover:text-cyan-400 py-1">Resend code</button>
-                  </>
-                )}
-                {loginError && <p className="text-rose-400 text-xs mt-2">{loginError}</p>}
-              </div>
-              <button
-                onClick={() => { setVerifyStep(false); setSentCode(""); setEnteredCode(""); setLoginError(""); }}
-                className="w-full text-xs text-slate-500 hover:text-slate-300 py-1"
-              >
-                ‹ Back
-              </button>
-              <p className="text-[9px] font-mono text-slate-600 text-center leading-relaxed">
-                ⚠️ Demo — the offline app can't send a real email or text, so the code is shown on screen. Real email/SMS verification is in the Next.js version.
-              </p>
-            </div>
-          ) : (
-          <div className="space-y-3">
-            <input
-              type="email"
-              value={loginEmail}
-              onChange={(e) => setLoginEmail(e.target.value)}
-              placeholder="Email"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition"
-            />
-            <input
-              type="password"
-              value={loginPass}
-              onChange={(e) => setLoginPass(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }}
-              placeholder="Password"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition"
-            />
-            {loginError && (
-              <p className="text-rose-400 text-xs">{loginError}</p>
-            )}
-            <button
-              onClick={handleLogin}
-              className="w-full bg-cyan-400 text-black rounded-xl py-3 font-display text-sm hover:bg-cyan-300 active:scale-95 transition"
-            >
-              {loginMode === "signin" ? "SIGN IN" : "CREATE ACCOUNT"}
-            </button>
-          </div>
-          )}
-
-          {!verifyStep && (<>
-          {/* Face ID (DEMO — not a real biometric check) */}
-          <button
-            onClick={() => { setLoginEmail("demo@stadiumedge.app"); setLoginPass("demo"); setLoggedIn(true); setView("home"); }}
-            className="w-full mt-4 flex items-center justify-center gap-2 border border-slate-700 rounded-xl py-3 text-sm font-semibold text-slate-300 hover:border-cyan-400 hover:text-cyan-500 transition"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" />
-              <path d="M9 10v1M15 10v1M12 9v4l-1 1M9.5 15.5a3.5 3.5 0 0 0 5 0" />
-            </svg>
-            Use Face ID
-          </button>
-
-          <div className="text-center mt-4">
-            <button
-              onClick={() => { setLoginMode(loginMode === "signin" ? "signup" : "signin"); setLoginError(""); }}
-              className="text-xs text-slate-500 hover:text-cyan-400 transition"
-            >
-              {loginMode === "signin" ? "No account? Create one" : "Have an account? Sign in"}
-            </button>
-          </div>
-
-          <button
-            onClick={() => { setLoginEmail("demo@stadiumedge.app"); setLoginPass("demo"); setLoggedIn(true); setView("home"); }}
-            className="w-full mt-6 text-center text-[11px] font-mono uppercase tracking-wider text-slate-400 hover:text-zinc-300 transition"
-          >
-            → Continue as guest (demo)
-          </button>
-          </>)}
-
-          <p className="text-[9px] font-mono text-slate-400 text-center mt-8 leading-relaxed">
-            ⚠️ DEMO LOGIN — no real authentication, and the Face ID button is a mockup
-            (no real biometric check). Don't enter a real password. Stores nothing.
-            Real Face ID / passkey login is in the Next.js version. 21+ · Hypothetical only.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -7106,6 +6868,7 @@ export default function ParlayBuilder() {
             <div className="w-2 h-2 bg-cyan-400 rounded-full pulse-dot" />
             <h1 className="font-display text-xl tracking-tight"><span className="text-slate-200">STADIUM</span><span className="text-cyan-400" style={{textShadow:"0 0 10px rgba(34,211,238,0.6)"}}> EDGE</span></h1>
           </div>
+          <div className="flex items-center gap-2">
           <button
             onClick={() => setLiveMode((v) => !v)}
             className={`flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border transition ${
@@ -7134,6 +6897,23 @@ export default function ParlayBuilder() {
                   : `Live · ${livePicks.length}`
               : "Offline"}
           </button>
+          {user ? (
+            <button
+              onClick={() => setView("profile")}
+              title={user.primaryEmailAddress?.emailAddress || "Account"}
+              className="w-7 h-7 rounded-full bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs font-bold flex items-center justify-center hover:bg-cyan-500/25 transition shrink-0"
+            >
+              {(user.firstName?.[0] || user.username?.[0] || user.primaryEmailAddress?.emailAddress?.[0] || "U").toUpperCase()}
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate("/sign-in")}
+              className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border border-cyan-400/50 text-cyan-300 bg-cyan-400/10 hover:bg-cyan-400/20 transition shrink-0"
+            >
+              Sign in
+            </button>
+          )}
+          </div>
         </div>
       </header>
 
@@ -7364,7 +7144,7 @@ export default function ParlayBuilder() {
           <div className="px-6 pt-4 pb-6 text-center">
             <div className="w-3 h-3 bg-cyan-400 rounded-full pulse-dot mb-3 mx-auto" />
             <p className="text-sm text-slate-400 max-w-xs mx-auto mb-5">
-              {loginEmail ? `Good luck, ${loginEmail.split("@")[0]}.` : "Your parlay assistant."} Build picks, analyze odds, track your slips.
+              {user ? `Good luck, ${user.firstName || user.username || user.primaryEmailAddress?.emailAddress?.split("@")[0] || "champ"}.` : "Your parlay assistant."} Build picks, analyze odds, track your slips.
             </p>
             <button
               onClick={() => { if (requirePro("AI Chat")) setView("chat"); }}
@@ -7647,9 +7427,9 @@ export default function ParlayBuilder() {
                   </div>
                   <div className="min-w-0">
                     <div className="text-xl font-bold text-slate-100 truncate">
-                      {loginEmail ? loginEmail.split("@")[0] : "Guest"}
+                      {user ? (user.firstName || user.username || user.primaryEmailAddress?.emailAddress?.split("@")[0] || "Member") : "Guest"}
                     </div>
-                    <div className="text-sm text-slate-400 truncate">{loginEmail || "demo@stadiumedge.app"}</div>
+                    <div className="text-sm text-slate-400 truncate">{user?.primaryEmailAddress?.emailAddress || "Not signed in"}</div>
                   </div>
                 </div>
 
@@ -7705,7 +7485,7 @@ export default function ParlayBuilder() {
                     Back to chat
                   </button>
                   <button
-                    onClick={() => { setLoggedIn(false); setLoginEmail(""); setLoginPass(""); setView("chat"); }}
+                    onClick={() => { handleSignOut(); }}
                     className="w-full text-rose-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-rose-50 transition"
                   >
                     Sign out
@@ -9560,11 +9340,11 @@ export default function ParlayBuilder() {
 
             </div>
             <button
-              onClick={() => { setLoggedIn(false); setFabOpen(false); setLoginEmail(""); setLoginPass(""); }}
+              onClick={() => { if (user) { handleSignOut(); } else { navigate("/sign-in"); } setFabOpen(false); }}
               className="mx-3 mb-2 px-3 py-2.5 rounded-lg text-slate-500 hover:bg-zinc-800 hover:text-white transition text-sm text-left flex items-center gap-3"
             >
               <span className="w-5 flex items-center justify-center">⎋</span>
-              Sign out
+              {user ? "Sign out" : "Sign in"}
             </button>
             <div className="px-4 py-3 border-t border-zinc-800 text-[9px] font-mono text-slate-400 uppercase tracking-wider">
               21+ · Hypothetical · Bet responsibly
