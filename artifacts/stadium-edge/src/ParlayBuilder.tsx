@@ -2214,6 +2214,9 @@ export default function ParlayBuilder() {
       player_assists: "Assists",
       player_threes: "3-Pointers Made",
       player_points_rebounds_assists: "Pts+Reb+Ast",
+      player_points_rebounds: "Pts+Reb",
+      player_points_assists: "Pts+Ast",
+      player_rebounds_assists: "Reb+Ast",
       player_points_q1: "1Q Points",
       player_rebounds_q1: "1Q Rebounds",
       player_assists_q1: "1Q Assists",
@@ -2287,7 +2290,7 @@ export default function ParlayBuilder() {
     // display "Over 0.5 Hits" as "1+ Hits", "Over 1.5 Hits" as "2+ Hits".
     // Yardage stats are excluded because their half-point lines really
     // ARE decimal cutoffs (Over 245.5 ≠ "246+").
-    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?|sacks?|tackles?|tackles \+ assists?|solo tackles?|interceptions?|pass ints? thrown|pass completions?|pass attempts?|rush attempts?|field goals? made|kicking points?|blocks?|steals?|turnovers?|blocks \+ steals?)\b/i;
+    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|pts\+reb|pts\+ast|reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?|sacks?|tackles?|tackles \+ assists?|solo tackles?|interceptions?|pass ints? thrown|pass completions?|pass attempts?|rush attempts?|field goals? made|kicking points?|blocks?|steals?|turnovers?|blocks \+ steals?)\b/i;
     if (COUNTABLE_MARKET.test(t)) {
       // Match "<player> Over N.5 <market>" where N is a non-negative int.
       const cm = t.match(/^(.*?)\s*Over\s+(\d+)\.5\s+(.+)$/i);
@@ -3139,7 +3142,7 @@ export default function ParlayBuilder() {
     if (liveProps?.props?.length) {
       const MARKET_LABEL = {
         player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
-        player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+        player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast", player_points_rebounds: "Pts+Reb", player_points_assists: "Pts+Ast", player_rebounds_assists: "Reb+Ast",
         player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
         player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
         player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
@@ -7552,7 +7555,7 @@ export default function ParlayBuilder() {
                 };
                 const PROP_LABELS = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
-                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast", player_points_rebounds: "Pts+Reb", player_points_assists: "Pts+Ast", player_rebounds_assists: "Reb+Ast",
                   player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
                   player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
                   player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
@@ -9315,7 +9318,7 @@ export default function ParlayBuilder() {
                 }
                 const MARKET_LABEL = {
                   player_points: "Points", player_rebounds: "Rebounds", player_assists: "Assists",
-                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast",
+                  player_threes: "3-Pointers Made", player_points_rebounds_assists: "Pts+Reb+Ast", player_points_rebounds: "Pts+Reb", player_points_assists: "Pts+Ast", player_rebounds_assists: "Reb+Ast",
                   player_blocks: "Blocks", player_steals: "Steals", player_turnovers: "Turnovers", player_blocks_steals: "Blocks + Steals",
                   player_points_q1: "1Q Points", player_rebounds_q1: "1Q Rebounds", player_assists_q1: "1Q Assists",
                   player_pass_yds: "Passing Yards", player_pass_tds: "Passing TDs",
@@ -9336,6 +9339,7 @@ export default function ParlayBuilder() {
                 const STAT_KEY_BY_MARKET = {
                   player_points: "pts", player_rebounds: "reb", player_assists: "ast",
                   player_threes: null, player_points_rebounds_assists: null,
+                  player_points_rebounds: null, player_points_assists: null, player_rebounds_assists: null,
                   player_pass_yds: "passYds", player_rush_yds: "rushYds",
                   player_reception_yds: "recYds", player_receptions: "rec",
                   batter_hits: null, batter_total_bases: null, batter_home_runs: "hrPerGame",
