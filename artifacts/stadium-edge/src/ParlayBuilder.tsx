@@ -4650,6 +4650,58 @@ export default function ParlayBuilder() {
     return candidates.sort((a, b) => b.ts - a.ts)[0].iso;
   };
 
+  // True when a game LABEL resolves ONLY to a finished/past game and has no
+  // live or future candidate in the current feeds. This catches two cases:
+  //   1. the AI built a pick on a genuinely finished game, and
+  //   2. the AI FLIPPED home/away ("OKC @ SAS" instead of the real upcoming
+  //      "SAS @ OKC"), and the reversed label collides with a DIFFERENT,
+  //      already-final game in the feed — which would otherwise stamp that
+  //      finished game's "Today 7:30 PM" tipoff onto the card.
+  // Used to suppress such cards in the chat render. Unknown labels (no feed
+  // match at all) return false so a legit pick whose feed simply dropped is
+  // still kept (historical snapshots stay immutable).
+  const gameResolvesToFinal = (gameLabel) => {
+    if (!gameLabel) return false;
+    const isFinalSt = (st) => {
+      const x = (st || "").toLowerCase();
+      return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
+    };
+    const isActiveSt = (st) => {
+      const x = (st || "").toLowerCase();
+      return x.includes("in progress") || x.includes("in-progress") || x.includes("live")
+        || x.includes("halftime") || x.includes("half time") || x.includes("end of")
+        || x.includes("delay") || x.includes("suspend") || x.includes("overtime") || /\bot\b/.test(x);
+    };
+    let sawFinal = false;
+    const NOW = Date.now();
+    const GRACE = 10 * 60 * 1000;
+    for (const sportGames of Object.values(realGamesBySport || {})) {
+      for (const g of (sportGames || [])) {
+        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (isActiveSt(g.status)) return false; // live → keep
+        if (isFinalSt(g.status)) { sawFinal = true; continue; }
+        const t = g.startsAt ? new Date(g.startsAt).getTime() : NaN;
+        if (!Number.isFinite(t) || t > NOW - GRACE) return false; // future/scheduled → keep
+        sawFinal = true; // scheduled-but-past tipoff with no live status → treat as done
+      }
+    }
+    // A future/live odds or livePicks entry for this exact label keeps it alive;
+    // an odds entry whose commence time is already past (and nothing live/future
+    // contradicts it) is itself evidence the game is done.
+    for (const sportOdds of Object.values(realOddsBySport || {})) {
+      for (const g of (sportOdds || [])) {
+        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        const t = g.commenceTime ? new Date(g.commenceTime).getTime() : NaN;
+        if (!Number.isFinite(t) || t > NOW - GRACE) return false;
+        sawFinal = true;
+      }
+    }
+    for (const lp of livePicks || []) {
+      if (lp.game === gameLabel) return false;
+    }
+    return sawFinal;
+  };
+
   // If a slip leg's game is currently LIVE in the ESPN feed, return a
   // short "🔴 Q3 8:42" / "🔴 HT" tag built from the real period + clock —
   // never a fabricated "Live" string. Returns null when the game is
@@ -6305,6 +6357,14 @@ export default function ParlayBuilder() {
             // the slip stores the canonical one.
             const { kept: pickKept } = filterPicksToReal([baseP]);
             const pick = pickKept.length > 0 ? pickKept[0] : baseP;
+            // SUPPRESS finished-game cards: if this pick's matchup (or the AI's
+            // raw, possibly home/away-FLIPPED label) resolves only to a game the
+            // feed has marked final / past tipoff, don't render a card — it would
+            // otherwise show a dead game stamped "Today 7:30 PM". A flipped label
+            // collides with a different, already-finished game, so check both.
+            if (gameResolvesToFinal(pick.game) || gameResolvesToFinal(rawPick.game)) {
+              return null;
+            }
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
             const pickKey = `${pick.game}::${pick.pick}`;
             // Prefer the AI's OWN projected probability (from its EDGE note) for

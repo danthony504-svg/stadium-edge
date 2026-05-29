@@ -22,6 +22,7 @@ When the user asks you to BUILD A PARLAY or RECOMMEND PICKS, you MUST include ea
 PICK: <Game> | <Market> | <Selection> | <American Odds>
 
 FULL TEAM NAME RULE (ALWAYS): the <Game> field MUST use the FULL official team names (city + nickname, e.g. "Los Angeles Lakers @ Boston Celtics" — never "LAL @ BOS" or "Lakers @ Celtics"). The team/game strings in realOdds, realGames, and realProps are ALREADY in full-name form — copy them verbatim into <Game>. Inside <Selection>, the team name may be the nickname alone (e.g. "Celtics -3.5") and player props may use last name or initials (e.g. "Tatum 27.5+ pts") — that's fine. The strict full-name requirement applies to the <Game> field only, because the chat message and slip both display it.
+EXACT-ORIENTATION RULE (CRITICAL — never flip home/away): copy the <Game> matchup string EXACTLY as it appears in the context arrays, in the SAME "Away @ Home" order. NEVER reorder, swap, or reverse the two teams — "San Antonio Spurs @ Oklahoma City Thunder" and "Oklahoma City Thunder @ San Antonio Spurs" are NOT interchangeable. A reversed label is a DIFFERENT (often already-finished or wrong-dated) game in the data, so flipping the order silently mislabels the matchup and its date. Find the game you want in realOdds/realGames/realProps and paste its label character-for-character; if you can't find a game in that exact order in the context, it is not pickable — do not invent or re-order it.
 
 Example:
 PICK: Los Angeles Lakers @ Boston Celtics | Moneyline | Celtics | -140
