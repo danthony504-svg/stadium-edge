@@ -5230,8 +5230,18 @@ export default function ParlayBuilder() {
         seenEventIds.add(c.eventId);
         return true;
       });
-      await Promise.all(
-        toFetch.map(async (c) => {
+      // Run the prop fetches with BOUNDED CONCURRENCY instead of one big
+      // Promise.all burst. A wide-props ask ("5-leg strikeout parlay") uncaps
+      // the candidate list to the whole slate (~28 MLB games on a busy night),
+      // and on a COLD server cache each request fans out to ~3 upstream Odds API
+      // calls — so an unbounded burst fired 80+ simultaneous upstream calls,
+      // tripped the Odds API rate limit, and dropped most games' props, leaving
+      // realProps empty (the "0 pitcher strikeout props available" failure the
+      // user hit). A small worker pool keeps simultaneous upstream load low so
+      // the server cache warms steadily and every game's props actually arrive.
+      // toFetch is already ordered named-games-first and the pool pulls in
+      // order, so a named single-game ticket's props are still fetched first.
+      const fetchOnePropCandidate = async (c) => {
           // Skip refetch ONLY if the cached entry has real prop rows. An
           // earlier 429 or upstream-empty response can leave an entry like
           // {props: []} — treating that as a hit means the next chat send
@@ -5281,8 +5291,23 @@ export default function ParlayBuilder() {
               await new Promise((resolve) => setTimeout(resolve, delay));
             }
           }
-        }),
+      };
+      // Small fixed pool: each worker pulls the next candidate index until the
+      // list is exhausted, so at most PROP_FETCH_CONCURRENCY games are fetched
+      // at once instead of all ~28 firing simultaneously.
+      const PROP_FETCH_CONCURRENCY = 5;
+      let nextPropIdx = 0;
+      const propWorkers = Array.from(
+        { length: Math.min(PROP_FETCH_CONCURRENCY, toFetch.length) },
+        async () => {
+          while (true) {
+            const i = nextPropIdx++;
+            if (i >= toFetch.length) break;
+            await fetchOnePropCandidate(toFetch[i]);
+          }
+        },
       );
+      await Promise.all(propWorkers);
       // Persist what we fetched so subsequent sends/game-detail views reuse it.
       if (Object.keys(extraProps).length) {
         setRealPropsByEvent((prev) => ({ ...prev, ...extraProps }));
