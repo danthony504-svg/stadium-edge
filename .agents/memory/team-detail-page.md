@@ -26,6 +26,25 @@ selection still matches the side + gameLabel it was requested for
 **Why:** a rapid Away→Home re-tap would otherwise merge one team's real stats under
 the other team's identity — real numbers, wrong team = misleading.
 
+## Matchup-aware suggested line (projection)
+The headline suggested team total is NOT the raw L10 average — it's a venue-aware
+projection: `(this team's scoring at THIS game's venue + opponent's points-allowed
+at the opposite venue) / 2`, from real ESPN home/away splits.
+- Home side: own `homeSplit.ptsFor` + opp `awaySplit.ptsAgainst`.
+- Away side: own `awaySplit.ptsFor` + opp `homeSplit.ptsAgainst`.
+- `hasProjection` must use `Number.isFinite` (not `!= null`) to avoid NaN; falls
+  back to raw L10 avg when splits missing.
+- The open handler must also store the OPPONENT node's splits (`oppSplits`), not
+  just the tapped side's — easy to forget.
+- **Both** odds surfaces (AI-pick card AND the Over/Under buttons) must anchor
+  `diff = line - projected`. There are two near-identical `const d = pLine - avg`
+  blocks (player view ~10282, team view ~10704); only the TEAM one changes —
+  caught a bug where the AI card still used `avg`.
+- Safe / Alt-Under tiers stay sample-based on real recent scores (historical
+  hit-rate hedges); only the Balanced/AI pick is projection-centered.
+**Why:** "suggested line = their season average" ignores the opponent; the
+projection makes it matchup-aware while staying 100% real-data-derived.
+
 ## Wiring notes
 - `realGameForGame` (game-detail IIFE) carries homeTeam/awayTeam, homeLogo/awayLogo,
   and homeTeamId/awayTeamId — everything the team page needs. Disable the tap when

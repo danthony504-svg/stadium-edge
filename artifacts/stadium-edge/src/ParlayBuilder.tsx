@@ -9602,7 +9602,10 @@ export default function ParlayBuilder() {
             const r = await fetch(`/api/sports/matchup-history?sport=${encodeURIComponent(sport)}&homeTeamId=${encodeURIComponent(rg.homeTeamId)}&awayTeamId=${encodeURIComponent(rg.awayTeamId)}`);
             const d = await r.json();
             const node = side === "home" ? d?.home : d?.away;
-            setSelectedTeam((prev) => (matchesRequest(prev) ? { ...prev, loading: false, last10: node?.last10 || null, recent: Array.isArray(node?.recent) ? node.recent : [], streak: node?.streak || null, season: node?.season || null } : prev));
+            // Opponent node — its venue split feeds the forward-looking
+            // matchup projection (this team's scoring vs the opp's defense).
+            const oppNode = side === "home" ? d?.away : d?.home;
+            setSelectedTeam((prev) => (matchesRequest(prev) ? { ...prev, loading: false, last10: node?.last10 || null, recent: Array.isArray(node?.recent) ? node.recent : [], streak: node?.streak || null, season: node?.season || null, splits: { home: node?.homeSplit || null, away: node?.awaySplit || null }, oppSplits: { home: oppNode?.homeSplit || null, away: oppNode?.awaySplit || null } } : prev));
           } catch {
             setSelectedTeam((prev) => (matchesRequest(prev) ? { ...prev, loading: false, error: true } : prev));
           }
@@ -10639,11 +10642,21 @@ export default function ParlayBuilder() {
         const n = games.length;
         const avg = t.last10?.ptsFor != null ? t.last10.ptsFor : +(games.reduce((a, b) => a + b, 0) / n).toFixed(1);
         const step = 0.5;
-        const line = teamLine != null ? teamLine : +(Math.round(avg / step) * step).toFixed(1);
+        // FORWARD-LOOKING MATCHUP PROJECTION (the suggested team total): blend
+        // this team's scoring at THIS game's venue with the opponent's defense
+        // at the opposite venue — all real ESPN home/away splits. Falls back to
+        // the raw L10 average when split data is missing. This is what makes the
+        // suggested line matchup-aware instead of just "their season average".
+        const venueScoring = t.side === "home" ? t.splits?.home?.ptsFor : t.splits?.away?.ptsFor;
+        const oppVenueDef = t.side === "home" ? t.oppSplits?.away?.ptsAgainst : t.oppSplits?.home?.ptsAgainst;
+        const hasProjection = Number.isFinite(venueScoring) && Number.isFinite(oppVenueDef);
+        const projected = hasProjection ? +(((venueScoring + oppVenueDef) / 2)).toFixed(1) : avg;
+        const oppLast = (t.oppName || "").split(" ").slice(-1)[0];
+        const line = teamLine != null ? teamLine : +(Math.round(projected / step) * step).toFixed(1);
         const maxV = Math.max(...games, line) * 1.2 || 1;
-        // Odds scale off how far the set line sits from the real average.
-        // Multiplier is small because team totals are large numbers (~100+).
-        const diff = line - avg;
+        // Odds scale off how far the set line sits from the matchup projection.
+        // Multiplier is small because team totals can be large numbers (~100+).
+        const diff = line - projected;
         const overOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 + diff * 0.05)));
         const underOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - diff * 0.05)));
         const hitsAtOrAbove = (c) => games.filter((v) => v >= c).length;
@@ -10668,7 +10681,7 @@ export default function ParlayBuilder() {
             if (v == null) v = safeSide === "Over" ? Math.max(0, +(sampleMin - step).toFixed(1)) : +(sampleMax + step).toFixed(1);
             return { side: safeSide, value: v };
           })();
-          const balanced = { side: safeSide, value: Math.max(0, +(Math.round(avg / step) * step).toFixed(1)) };
+          const balanced = { side: safeSide, value: Math.max(0, +(Math.round(projected / step) * step).toFixed(1)) };
           const altUnder = (() => {
             const snap = (x) => +(Math.round(x / step) * step).toFixed(1);
             const bump = Math.max(step * 2, +(avg * 0.04).toFixed(2));
@@ -10688,7 +10701,7 @@ export default function ParlayBuilder() {
         const aiPick = (() => {
           const side = suggestedTiers.balanced.side;
           const pLine = suggestedTiers.balanced.value;
-          const d = pLine - avg;
+          const d = pLine - projected;
           const odds = side === "Over"
             ? decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 + d * 0.05)))
             : decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - d * 0.05)));
@@ -10738,6 +10751,9 @@ export default function ParlayBuilder() {
                 </div>
                 <p className="text-xs text-slate-300/90 leading-snug">
                   Leaning <span className="font-semibold text-amber-200">{aiPick.side.toLowerCase()}</span> — {t.teamName.split(" ").slice(-1)[0]} went {aiPick.side === "Over" ? "over" : "under"} this in {aiPick.support} of the last {n} games (L10 avg {avg}).
+                  {hasProjection && (
+                    <> Line set to the <span className="font-semibold text-amber-200">matchup projection {projected}</span> — {t.side === "home" ? "home" : "road"} scoring {venueScoring} blended with {oppLast}{"'"}s defense ({oppVenueDef} allowed).</>
+                  )}
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button
@@ -10864,7 +10880,7 @@ export default function ParlayBuilder() {
                   <div className="text-center">
                     <div className="text-4xl font-bold text-slate-100">{line}</div>
                     <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">team points line</div>
-                    <div className="text-[10px] font-mono text-slate-500 mt-0.5">L10 avg {avg}</div>
+                    <div className="text-[10px] font-mono text-slate-500 mt-0.5">L10 avg {avg}{hasProjection ? ` · proj ${projected}` : ""}</div>
                   </div>
                   <button onClick={() => setTeamLine(+(line + step).toFixed(1))} className="w-12 h-12 rounded-full border border-slate-700 text-2xl font-bold text-slate-300 hover:border-cyan-400 hover:bg-slate-800 active:scale-95 transition flex items-center justify-center">+</button>
                 </div>
@@ -10900,7 +10916,7 @@ export default function ParlayBuilder() {
               </div>
 
               <p className="text-[9px] font-mono text-slate-500 text-center mb-24 uppercase tracking-widest leading-relaxed">
-                ✅ Recent scores & averages are real ESPN results.<br/>Team-total lines you set are hypothetical · odds are estimates · 21+
+                ✅ Recent scores, averages & venue splits are real ESPN results.<br/>{hasProjection ? "Projection blends real splits · " : ""}lines you set & odds are estimates · 21+
               </p>
             </div>
 
