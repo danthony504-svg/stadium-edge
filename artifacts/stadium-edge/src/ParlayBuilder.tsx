@@ -7749,8 +7749,135 @@ export default function ParlayBuilder() {
                 const samplePool = Object.entries(PICK_POOL).flatMap(([sport, picks]) => picks.map((p) => ({ ...p, sport })));
                 const all = [...realPool, ...propPool, ...samplePool];
                 const results = all.filter((p) => p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)).slice(0, 30);
-                if (results.length === 0) return <div className="text-center text-sm text-slate-500 py-10">No matches. Try a team, player, or market.</div>;
+
+                // TEAM/GAME matches — every live or upcoming matchup whose label
+                // (either team name) contains the query. Each opens the full game
+                // screen, which lists ALL game lines + every live player prop.
+                const gameMatches = [];
+                const seenGameKeys = new Set();
+                for (const [sport, games] of Object.entries(realOddsBySport)) {
+                  for (const g of games) {
+                    const key = `${g.awayTeam} @ ${g.homeTeam}`;
+                    if (finalKeysGlobal.has(key)) continue;
+                    if (!liveKeysGlobal.has(key) && isLikelyDoneByTime(g.commenceTime)) continue;
+                    if (!key.toLowerCase().includes(q)) continue;
+                    const dedupKey = `${sport}::${key}`;
+                    if (seenGameKeys.has(dedupKey)) continue;
+                    seenGameKeys.add(dedupKey);
+                    gameMatches.push({ game: key, sport });
+                  }
+                }
+
+                // PLAYER matches — distinct players whose name contains the query.
+                // Sample-roster players open the dedicated props page (line slider +
+                // suggested tiers); live-feed-only players open their game screen
+                // where all of their real bookmaker props are listed.
+                const playerMatches = [];
+                const seenPlayerNames = new Set();
+                for (const [sport, list] of Object.entries(PLAYERS)) {
+                  for (const pl of list) {
+                    const lk = pl.name.toLowerCase();
+                    if (!lk.includes(q)) continue;
+                    if (seenPlayerNames.has(lk)) continue;
+                    seenPlayerNames.add(lk);
+                    playerMatches.push({ name: pl.name, team: pl.team, sport, player: pl });
+                  }
+                }
+                for (const [eid, data] of Object.entries(realPropsByEvent)) {
+                  const meta = eventLookup[eid];
+                  if (!meta) continue;
+                  if (!within24h(meta.commenceTime)) continue;
+                  for (const pr of (data.props || [])) {
+                    if (!pr.player) continue;
+                    const lk = pr.player.toLowerCase();
+                    if (!lk.includes(q)) continue;
+                    if (seenPlayerNames.has(lk)) continue;
+                    seenPlayerNames.add(lk);
+                    playerMatches.push({ name: pr.player, sport: meta.sport, game: meta.game });
+                  }
+                }
+
+                if (results.length === 0 && gameMatches.length === 0 && playerMatches.length === 0) {
+                  return <div className="text-center text-sm text-slate-500 py-10">No matches. Try a team, player, or market.</div>;
+                }
                 return (
+                  <div className="space-y-5">
+                    {gameMatches.length > 0 && (
+                      <div>
+                        <h3 className="font-bold text-slate-200 mb-2 text-sm">Teams — tap to view all props</h3>
+                        <div className="space-y-2">
+                          {gameMatches.slice(0, 10).map((gm) => {
+                            const live = lookupLiveTag(gm.game);
+                            const time = formatGameTime(lookupGameStart(gm.game));
+                            return (
+                              <button
+                                key={`${gm.sport}::${gm.game}`}
+                                onClick={() => {
+                                  const indiv = gm.sport === "ufc" || gm.sport === "mma" || gm.sport === "tennis" || gm.sport === "golf" || gm.sport === "nascar" || (/\bvs\.?\b/i.test(gm.game) && !/@/.test(gm.game));
+                                  setGameDetail({ game: gm.game, sport: gm.sport });
+                                  setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
+                                }}
+                                className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider">{gm.sport}</span>
+                                  <span className="block text-sm font-semibold text-slate-100 truncate">{gm.game}</span>
+                                  {(live || time) && (
+                                    <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                                      {live ? <span className="text-rose-400 font-semibold">● {live}</span> : <span className="text-cyan-400">{time}</span>}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="text-cyan-400 text-xs font-semibold shrink-0 flex items-center gap-1">All props <span>›</span></span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {playerMatches.length > 0 && (
+                      <div>
+                        <h3 className="font-bold text-slate-200 mb-2 text-sm">Players — tap to view all props</h3>
+                        <div className="space-y-2">
+                          {playerMatches.slice(0, 10).map((pm, pi) => {
+                            const initials = pm.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+                            return (
+                              <button
+                                key={`${pm.name}-${pi}`}
+                                onClick={() => {
+                                  if (pm.player) {
+                                    const pl = pm.player;
+                                    const sk = (pm.sport === "nba" || pm.sport === "wnba") ? "pts" : pm.sport === "mlb" ? "hrPerGame"
+                                      : pl.pos === "QB" ? "passYds" : pl.pos === "RB" ? "rushYds"
+                                      : (pl.stats.recYds !== undefined ? "recYds" : Object.keys(pl.stats)[0]);
+                                    const avg = pl.stats[sk] ?? 0;
+                                    setPropStatKey(sk);
+                                    setPropLine(Math.round(avg * 0.9 * 2) / 2);
+                                    setSelectedPlayer({ player: pl, sport: pm.sport });
+                                  } else if (pm.game) {
+                                    setGameDetail({ game: pm.game, sport: pm.sport });
+                                    setOpenPropCats(["Live Player Props"]);
+                                  }
+                                }}
+                                className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <span className="w-9 h-9 rounded-full bg-zinc-900 text-white flex items-center justify-center text-xs font-bold shrink-0">{initials}</span>
+                                  <span className="min-w-0">
+                                    <span className="block text-sm font-semibold text-slate-100 truncate">{pm.name}</span>
+                                    <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider truncate">{pm.team ? `${pm.team} · ` : ""}{pm.sport}{pm.game ? ` · ${pm.game}` : ""}</span>
+                                  </span>
+                                </span>
+                                <span className="text-cyan-400 text-xs font-semibold shrink-0 flex items-center gap-1">All props <span>›</span></span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {results.length > 0 && (
                   <div className="border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800">
                     {results.map((r, i) => {
                       const inSlip = parlayLegs.some((l) => legKey(l) === legKey(r));
@@ -7779,6 +7906,8 @@ export default function ParlayBuilder() {
                         </div>
                       );
                     })}
+                  </div>
+                    )}
                   </div>
                 );
               })()}
