@@ -220,6 +220,22 @@ Example: PICK: Los Angeles Lakers @ Boston Celtics | Player Points | Tatum Over 
 (Same FULL TEAM NAME RULE applies to <Game>. <Selection> may use last name / initials for players.)
 If realProps is empty or missing for the requested matchup, say so honestly and suggest the user open that game's detail page so props can load — do NOT invent player lines.`;
 
+// Sports whose feed actually carries game-level period markets to bet on.
+const QH_PERIOD_SPORTS = new Set(["nba", "nfl", "ncaaf"]);
+
+// Map raw Odds API period market keys → friendly labels used in
+// realOdds.market (matches what the SYSTEM_PROMPT tells the model to emit on
+// PICK lines). Keep in sync with PERIOD_GAME_MARKETS in odds.ts.
+const PERIOD_KEY_TO_LABEL: Record<string, string> = {
+  spreads_h1: "1H Spread", totals_h1: "1H Total", h2h_h1: "1H Moneyline",
+  alternate_spreads_h1: "1H Alt Spread", alternate_totals_h1: "1H Alt Total",
+  spreads_h2: "2H Spread", totals_h2: "2H Total", h2h_h2: "2H Moneyline",
+  spreads_q1: "Q1 Spread", totals_q1: "Q1 Total", h2h_q1: "Q1 Moneyline",
+  spreads_q2: "Q2 Spread", totals_q2: "Q2 Total", h2h_q2: "Q2 Moneyline",
+  spreads_q3: "Q3 Spread", totals_q3: "Q3 Total", h2h_q3: "Q3 Moneyline",
+  spreads_q4: "Q4 Spread", totals_q4: "Q4 Total", h2h_q4: "Q4 Moneyline",
+};
+
 router.post("/chat", async (req, res): Promise<void> => {
   const parsed = SendChatMessageBody.safeParse(req.body);
   if (!parsed.success) {
@@ -304,6 +320,14 @@ router.post("/chat", async (req, res): Promise<void> => {
     periodIntents.add("h1"); periodIntents.add("h2");
   }
   const periodIntent = periodIntents.size > 0; // boolean: any period asked?
+  // SAME-GAME parlay intent ("same game", "same-game", "sgp"). For a
+  // same-game card the game-level period markets (1H/2H/Q1-Q4 spreads /
+  // totals / MLs) are legitimate ADDITIONAL legs — they settle on different
+  // windows than the full game, so the HARD BAN treats them as non-duplicate.
+  // The client's buildPicksFromOdds only surfaces full-game sides + alt
+  // ladders, so without harvesting these a same-game ticket is capped at a
+  // few side legs + one-prop-per-player. We append them to realOdds below.
+  const sameGameIntent = /\b(same[-\s]?game|sgp)\b/i.test(latestUser);
   // Per-player markets only exist for q1 / h1 on Odds API — q2/q3/q4/h2 are
   // game-level only. We still build suffix list for ALL requested periods so
   // any future per-player support flows through unchanged, but in practice
@@ -312,6 +336,7 @@ router.post("/chat", async (req, res): Promise<void> => {
   const periodSuffixList = Array.from(periodIntents).map((p) => `_${p}`);
 
   let lockedContext = parsed.data.context;
+  let sameGamePeriodsInjected = false; // true once same-game period markets are appended
   if (lockedMarket && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
     const ctx = parsed.data.context as { realProps?: Array<{ market?: string }> } & Record<string, unknown>;
     // Build the effective allow-list. With NO period intent, include only
@@ -361,7 +386,6 @@ router.post("/chat", async (req, res): Promise<void> => {
     // directly from our own /sports/props endpoint for the games present
     // in realOdds. Both /sports/odds and /sports/props are server-side
     // cached for 5min so this is cheap on repeat sends.
-    const QH_PERIOD_SPORTS = new Set(["nba", "nfl", "ncaaf"]);
     const requestedSports = new Set<string>();
     for (const o of (ctx.realOdds || [])) {
       if (o.sport && QH_PERIOD_SPORTS.has(o.sport)) requestedSports.add(o.sport);
@@ -386,19 +410,6 @@ router.post("/chat", async (req, res): Promise<void> => {
         }
         const freshProps: typeof filteredProps = [];
         const freshOdds: typeof filteredOdds = [];
-        // Map raw Odds API period market keys → friendly labels used in
-        // realOdds.market (matches what the SYSTEM_PROMPT tells the model to
-        // emit on PICK lines). Keep in sync with PERIOD_GAME_MARKETS in
-        // odds.ts. Only the periods the user actually asked for are mapped.
-        const PERIOD_KEY_TO_LABEL: Record<string, string> = {
-          spreads_h1: "1H Spread", totals_h1: "1H Total", h2h_h1: "1H Moneyline",
-          alternate_spreads_h1: "1H Alt Spread", alternate_totals_h1: "1H Alt Total",
-          spreads_h2: "2H Spread", totals_h2: "2H Total", h2h_h2: "2H Moneyline",
-          spreads_q1: "Q1 Spread", totals_q1: "Q1 Total", h2h_q1: "Q1 Moneyline",
-          spreads_q2: "Q2 Spread", totals_q2: "Q2 Total", h2h_q2: "Q2 Moneyline",
-          spreads_q3: "Q3 Spread", totals_q3: "Q3 Total", h2h_q3: "Q3 Moneyline",
-          spreads_q4: "Q4 Spread", totals_q4: "Q4 Total", h2h_q4: "Q4 Moneyline",
-        };
         await Promise.all(
           Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
             try {
@@ -419,16 +430,18 @@ router.post("/chat", async (req, res): Promise<void> => {
                   const friendly = PERIOD_KEY_TO_LABEL[m.key];
                   if (!friendly) continue;
                   if (!matchesAnySuffix(friendly)) continue;
+                  // Totals show the bare number ("Over 53"); spreads/MLs show a
+                  // signed number ("Thunder +1.5") — matches client formatting.
+                  const isTotal = friendly.includes("Total");
                   for (const o of (m.outcomes || [])) {
-                    const pt = o.point != null ? ` ${o.point > 0 ? "+" : ""}${o.point}` : "";
-                    const pick = m.key.startsWith("totals") || m.key.startsWith("alternate_totals")
-                      ? `${o.name}${pt}`.trim()
-                      : `${o.name}${pt}`.trim();
+                    const pt = o.point != null
+                      ? (isTotal ? ` ${o.point}` : ` ${o.point > 0 ? "+" : ""}${o.point}`)
+                      : "";
                     freshOdds.push({
                       sport,
                       game: label,
                       market: friendly,
-                      pick,
+                      pick: `${o.name}${pt}`.trim(),
                       odds: o.price,
                       ...(e.commenceTime ? { startsAt: e.commenceTime } : {}),
                     });
@@ -476,6 +489,97 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
 
     lockedContext = { ...ctx, realProps: filteredProps, realOdds: filteredOdds };
+  } else if (sameGameIntent && parsed.data.context && Array.isArray((parsed.data.context as { realOdds?: unknown[] }).realOdds)) {
+    // SAME-GAME parlay (no explicit period intent): harvest game-level period
+    // markets (1H/2H/Q1-Q4 spreads/totals/MLs) for the games already in
+    // realOdds and APPEND them as additional legs. These settle on different
+    // windows than the full game, so per the HARD BAN they are NOT duplicates
+    // — they let the assistant build a longer same-game card without forcing
+    // correlated/duplicate full-game legs. The markets already live in each
+    // event's .markets array on /api/sports/odds (odds.ts fetches them); we
+    // curate to ONE best-priced rung per (market, side) to keep context lean
+    // and avoid handing the model multiple same-family rungs.
+    const ctx = parsed.data.context as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
+    const existingOdds = ctx.realOdds || [];
+    const gamesBySport = new Map<string, Set<string>>();
+    for (const o of existingOdds) {
+      if (!o.sport || !o.game || !QH_PERIOD_SPORTS.has(o.sport)) continue;
+      if (!gamesBySport.has(o.sport)) gamesBySport.set(o.sport, new Set());
+      gamesBySport.get(o.sport)!.add(o.game);
+    }
+    if (gamesBySport.size > 0) {
+      const selfPort = process.env["PORT"] || "8080";
+      const selfBase = `http://127.0.0.1:${selfPort}`;
+      const periodOdds: typeof existingOdds = [];
+      // Closest-to-even-money wins (smallest abs juice on negatives, largest
+      // plus on positives) — same risk/reward heuristic the client uses.
+      const rungScore = (price: number) => (price < 0 ? Math.abs(price) : 1e6 - price);
+      try {
+        await Promise.all(
+          Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
+            try {
+              const oddsRes = await fetch(`${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`);
+              if (!oddsRes.ok) return;
+              const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string; commenceTime?: string; markets?: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> }>;
+              for (const e of oddsList) {
+                const label = `${e.awayTeam} @ ${e.homeTeam}`;
+                if (!gameSet.has(label)) continue;
+                for (const m of (e.markets || [])) {
+                  const friendly = PERIOD_KEY_TO_LABEL[m.key];
+                  if (!friendly) continue;
+                  // Skip the period ALT ladders — the main period lines are
+                  // enough to extend a same-game card and the alts would bloat
+                  // context with dozens of rungs the HARD BAN forbids stacking.
+                  if (friendly.includes("Alt")) continue;
+                  // Keep only the best-priced rung per side (o.name groups
+                  // Over/Under for totals and each team for spreads/MLs).
+                  const bestBySide = new Map<string, { name: string; price: number; point: number | null }>();
+                  for (const o of (m.outcomes || [])) {
+                    const prev = bestBySide.get(o.name);
+                    if (!prev || rungScore(o.price) < rungScore(prev.price)) {
+                      bestBySide.set(o.name, { name: o.name, price: o.price, point: o.point });
+                    }
+                  }
+                  // Totals show the bare number ("Over 53"); spreads/MLs show a
+                  // signed number ("Thunder +1.5") — matches client formatting.
+                  const isTotal = friendly.includes("Total");
+                  for (const o of bestBySide.values()) {
+                    const pt = o.point != null
+                      ? (isTotal ? ` ${o.point}` : ` ${o.point > 0 ? "+" : ""}${o.point}`)
+                      : "";
+                    periodOdds.push({
+                      sport,
+                      game: label,
+                      market: friendly,
+                      pick: `${o.name}${pt}`.trim(),
+                      odds: Math.round(o.price),
+                      ...(e.commenceTime ? { startsAt: e.commenceTime } : {}),
+                    });
+                  }
+                }
+              }
+            } catch { /* per-sport failure is non-fatal */ }
+          }),
+        );
+      } catch { /* best-effort; honest no-period result if it fails */ }
+      if (periodOdds.length > 0) {
+        // Dedup against anything already in realOdds (defensive — if the client
+        // ever starts emitting period markets we don't want doubled legs).
+        const seen = new Set(
+          existingOdds.map((o) => `${o.sport}|${o.game}|${o.market}|${o.pick}`),
+        );
+        const newPeriodOdds = periodOdds.filter((o) => {
+          const key = `${o.sport}|${o.game}|${o.market}|${o.pick}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (newPeriodOdds.length > 0) {
+          lockedContext = { ...ctx, realOdds: [...existingOdds, ...newPeriodOdds] };
+          sameGamePeriodsInjected = true;
+        }
+      }
+    }
   }
 
   const contextBlock =
@@ -506,8 +610,15 @@ The realProps array is NOT pre-ranked — do NOT just take the first N entries. 
 Rank ALL candidates by your composite score and return the TOP N (where N = the user's requested leg count). Spread across DIFFERENT games when possible — if two pitchers are equally good but one is in the same game as another pick, prefer the one in a different game (lower correlation). For each leg's edge note, cite the specific recent-5 number, vs-opponent number, and matchup/pace tilt you used — that's how the user knows it's a real top pick and not a random pick. If realProps has fewer entries than the requested leg count, return all of them with the honest short-ticket note.`
     : "";
 
+  const sameGameSystemAddendum = sameGamePeriodsInjected
+    ? `\n\n*** SAME-GAME PARLAY FOR THIS TURN ***
+The user wants a SAME-GAME parlay. realOdds now ALSO includes GAME-LEVEL PERIOD MARKETS for the game(s) in context — labeled "1H Spread", "1H Total", "1H Moneyline", "2H Spread", "2H Total", "Q1 Spread", "Q1 Total", "Q1 Moneyline", "Q2 …", "Q3 …", "Q4 …". These settle on DIFFERENT windows than the full game, so per the HARD BAN they are NOT duplicates of the full-game side/total/ML — treat them as first-class legs and use them to extend the same-game card toward the requested count. Copy the friendly label verbatim into the PICK line.
+STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × game) — never two Q1 totals, never a full-game spread plus the same team's full-game ML, etc.; and never combine correlated or anti-correlated legs within the same game/period (ML + same-team spread, both teams' spreads, an Over total + a star's points-Over that the total already implies, a period ML + a full-game spread that contradicts it, …).
+HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
+    : "";
+
   const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum },
+    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum },
     ...parsed.data.messages.map((m) => ({
       role: m.role as "system" | "user" | "assistant",
       content: m.content,

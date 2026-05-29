@@ -45,5 +45,18 @@ The Odds API exposes per-event game-level period markets (`spreads_h1`, `totals_
 - Fallback trigger must fire on `(filteredProps.length === 0 || filteredOdds.length === 0)`, not `&&` — stale clients commonly have one but not the other, and for Q2+/H2 there are no props ever, so the OR is the only way the model ever sees game-level period markets.
 - HARD-BAN duplicate-family rule must be scoped by `(period × family × game)`. Without that scoping the AI thinks `"1H Spread"` and `"Q1 Spread"` on the same game are dupes — they're not, they settle on different windows.
 
+# Same-game (SGP) intent — append period markets to extend, don't replace
+Distinct from explicit period intent: a "same game parlay" / "same-game" / "sgp" request wants a LONG card on ONE game. The client's buildPicksFromOdds only emits full-game ML/spread/total + alt ladders, so the honest independent-leg ceiling is ~8 (2-3 sides minus correlated ML+spread, one prop per player). Game-level period markets are the lever to stretch it: they settle on different windows so per the HARD BAN they are NOT duplicates of the full-game side/total/ML.
+
+Detect via `/\b(same[-\s]?game|sgp)\b/i` on the latest user text only. This is an `else if` AFTER the lockedMarket and periodIntent branches (precedence matters — explicit period requests must still use the replace-semantics period path; this branch is purely additive). It self-fetches `/api/sports/odds`, harvests the main period markets (PERIOD_KEY_TO_LABEL) for ONLY the games already in realOdds, **skips period Alt ladders** (they'd bloat context with rungs the HARD BAN forbids stacking), curates to ONE best-priced rung per (market, side) via the closest-to-even rungScore, and APPENDS to realOdds (extend, never replace — full-game legs stay). A `sameGamePeriodsInjected` flag gates a system addendum telling the model period markets are valid non-duplicate legs, to still enforce every HARD BAN (one family×period×game; no correlated/anti-correlated legs), and to be HONEST that period legs are partly correlated with the full game — return a SHORTER card if it can't reach the count cleanly rather than padding.
+
+**Why:** Same-game ≠ period intent. The user explicitly approved wiring period lines into same-game builds so cards stretch across settlement windows without fabricating or forcing correlated/duplicate legs. The full-game pool alone caps clean SGPs at ~8.
+
+**How to apply:**
+- Pick formatting must match the client: TOTALS show the bare number (`Over 53.5`), spreads/MLs show a signed number (`Thunder +1.5`). The shared rule is `friendly.includes("Total") ? \` ${point}\` : \` ${point>0?"+":""}${point}\``. The old period-intent harvest had a pointless identical ternary that signed totals (`Over +53.5`) — both harvest sites must use the isTotal split.
+- Dedup appended period odds by `(sport|game|market|pick)` against existingOdds before composing context — defensive against the client ever emitting period markets itself (would otherwise double legs).
+- Don't infer same-game from a single game being named — require the explicit phrasing. Cross-game 15-leg builds are fine from the normal path; only same-game needs the period lever.
+- Correlation protection is still prompt-only (no server-side pruning). Acceptable, but it's the residual quality risk on long SGPs; the model occasionally still doubles a player's props (one-prop-per-player is prompt-only too).
+
 # Smell test
 If the AI returns a "1Q ticket" that includes any game-level spread/total/ML or any full-game player prop, the layering is incomplete. Prompt-only fixes will look like they work on the next test and silently regress on the one after.
