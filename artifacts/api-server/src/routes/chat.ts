@@ -656,6 +656,106 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
   }
 
+  // NAMED-GAME CONTEXT TRIM (prefill-latency fix — the real cause of "not
+  // loading"): when the user names one (or a few) specific games — e.g.
+  // "10-leg parlay for San Antonio Spurs @ Oklahoma City Thunder" — every leg
+  // is GAME-LOCKED to that matchup anyway (see the "Best parlay for <game>"
+  // REQUEST TYPE), so shipping all ~400 props + 120 odds + full playerHistory
+  // for OTHER games is pure wasted prompt. A 100KB+ context pushes the reasoning
+  // model's time-to-first-token to ~25-35s of pure prefill, and the user gives
+  // up on the blank screen. Here we detect the named game(s) and physically
+  // strip realProps/realOdds/realGames/playerHistory/matchupHistory down to
+  // them, cutting the prompt ~10x and TTFB to a few seconds. If NO game is named
+  // (generic "build me a parlay"), we leave the full context intact so cross-game
+  // variety is preserved. Runs AFTER the lock branches so it composes with them
+  // (e.g. a market-locked single-game request stays narrowed on both axes).
+  if (lockedContext && typeof lockedContext === "object") {
+    const ctxAny = lockedContext as Record<string, unknown>;
+    const userText = latestUser.toLowerCase();
+    // Team nickname(s): last word ("thunder"), plus the two-word form for
+    // multi-word nicknames ("trail blazers", "red sox").
+    const nick = (name: unknown): string[] => {
+      const norm = String(name || "").toLowerCase().trim();
+      if (!norm) return [];
+      const parts = norm.split(/\s+/);
+      const out = [parts[parts.length - 1]];
+      if (parts.length >= 3) out.push(parts.slice(-2).join(" "));
+      return out.filter(Boolean);
+    };
+    const splitLabel = (label: unknown): [string, string] | null => {
+      const mm = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+      return mm ? [mm[1].trim(), mm[2].trim()] : null;
+    };
+    // A label is "named" only when BOTH sides' nicknames appear in the message.
+    const labelIsNamed = (label: unknown): boolean => {
+      const parts = splitLabel(label);
+      if (!parts) return false;
+      // Word-boundary match so common-word nicknames (e.g. "Heat", "Magic",
+      // "City") don't fire on incidental substrings in the user's message.
+      const hasWord = (n: string) =>
+        n.length > 0 &&
+        new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(userText);
+      const awayHit = nick(parts[0]).some(hasWord);
+      const homeHit = nick(parts[1]).some(hasWord);
+      return awayHit && homeHit;
+    };
+    const gameOf = (g: Record<string, unknown>): string => {
+      if (typeof g?.["game"] === "string") return g["game"] as string;
+      if (g?.["awayTeam"] && g?.["homeTeam"]) return `${g["awayTeam"]} @ ${g["homeTeam"]}`;
+      return "";
+    };
+    const realProps = Array.isArray(ctxAny["realProps"]) ? ctxAny["realProps"] as Array<Record<string, unknown>> : [];
+    const realOdds = Array.isArray(ctxAny["realOdds"]) ? ctxAny["realOdds"] as Array<Record<string, unknown>> : [];
+    const realGames = Array.isArray(ctxAny["realGames"]) ? ctxAny["realGames"] as Array<Record<string, unknown>> : [];
+    const allLabels = new Set<string>();
+    for (const o of realOdds) { const l = gameOf(o); if (l) allLabels.add(l); }
+    for (const p of realProps) { const l = gameOf(p); if (l) allLabels.add(l); }
+    for (const g of realGames) { const l = gameOf(g); if (l) allLabels.add(l); }
+    const namedLabels = new Set(Array.from(allLabels).filter(labelIsNamed));
+    // Only trim when the user focused on specific game(s) AND it's a real
+    // reduction (some games would be dropped) — never narrow a generic request.
+    const trimmedProps = realProps.filter((p) => namedLabels.has(gameOf(p)));
+    const trimmedOdds = realOdds.filter((o) => namedLabels.has(gameOf(o)));
+    const trimmedGames = realGames.filter((g) => namedLabels.has(gameOf(g)));
+    // Fail open: only trim when it's a real reduction (some games dropped) AND
+    // the trim still leaves usable data — a label-format mismatch that wiped
+    // both props and odds means we keep the full context rather than starve
+    // the model into a false "no data" answer.
+    if (
+      namedLabels.size > 0 &&
+      namedLabels.size < allLabels.size &&
+      (trimmedProps.length > 0 || trimmedOdds.length > 0)
+    ) {
+      // playerHistory is keyed "Player Name#athleteId"; keep only players still
+      // present in the trimmed props so the model keeps the stats it can cite.
+      let trimmedPlayerHistory = ctxAny["playerHistory"];
+      if (trimmedPlayerHistory && typeof trimmedPlayerHistory === "object") {
+        const keepPlayers = new Set(trimmedProps.map((p) => String(p["player"] || "").toLowerCase()));
+        trimmedPlayerHistory = Object.fromEntries(
+          Object.entries(trimmedPlayerHistory as Record<string, unknown>).filter(([k, v]) => {
+            const disp = String((v as Record<string, unknown>)?.["player"] || k.split("#")[0] || "").toLowerCase();
+            return keepPlayers.has(disp);
+          }),
+        );
+      }
+      // matchupHistory is keyed by the exact "Away @ Home" label.
+      let trimmedMatchup = ctxAny["matchupHistory"];
+      if (trimmedMatchup && typeof trimmedMatchup === "object") {
+        trimmedMatchup = Object.fromEntries(
+          Object.entries(trimmedMatchup as Record<string, unknown>).filter(([k]) => namedLabels.has(k)),
+        );
+      }
+      lockedContext = {
+        ...ctxAny,
+        realProps: trimmedProps,
+        realOdds: trimmedOdds,
+        realGames: trimmedGames,
+        ...(trimmedPlayerHistory ? { playerHistory: trimmedPlayerHistory } : {}),
+        ...(trimmedMatchup ? { matchupHistory: trimmedMatchup } : {}),
+      } as typeof lockedContext;
+    }
+  }
+
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`

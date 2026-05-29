@@ -56,3 +56,32 @@ issues via `curl https://$REPLIT_DEV_DOMAIN/api/chat -H "Accept-Encoding: gzip"`
   logged). `res` "close" fires on real socket teardown; treat it as a disconnect
   only when `!res.writableEnded` (otherwise it's the normal post-`res.end()` close).
   Pass the AbortController's signal as the 2nd arg to `client.chat.completions.create`.
+
+# Named-game context trim — cut prefill when every leg is locked to one matchup
+
+Single-game parlay requests ("Spurs @ Thunder, 10 legs") still carried the FULL
+client context (up to 400 props + 120 odds + per-player playerHistory across ALL
+games). Prefill over that huge block is a second TTFB driver on top of reasoning.
+After the lockedMarket/periodIntent/sameGameIntent branches and BEFORE the
+`JSON.stringify(lockedContext)` serialization, detect game label(s) whose BOTH team
+nicknames appear in the latest user message and filter realProps/realOdds/realGames/
+playerHistory/matchupHistory down to only the named game(s). Measured effect:
+single-game TTFB dropped to ~12-13s (from 30-90s) with `reasoning_effort:"low"`.
+
+**Why:** when the user names ONE game, every leg is game-locked to it anyway (see
+single-game-request-lock.md), so the other ~19 games' data is dead prefill weight.
+A generic "build me a parlay" names no game → keep full cross-game variety.
+
+**How to apply / gotchas:**
+- Gate the trim on `namedLabels.size > 0 && namedLabels.size < allLabels.size` so a
+  generic request (0 named) and an all-games-named request both fall through untouched.
+- Match nicknames with WORD BOUNDARIES (`\b<escaped>\b`, case-insensitive), NOT raw
+  `includes()` — common-word nicknames ("Heat", "Magic", "City", "Kings") fire on
+  incidental substrings otherwise. Require BOTH sides' nicknames for a label to count.
+- FAIL OPEN: only apply the trim when it still leaves usable data
+  (`trimmedProps.length > 0 || trimmedOdds.length > 0`). A label-format mismatch that
+  wipes both would otherwise starve the model into a false "no data" answer — keep the
+  full context instead.
+- playerHistory is keyed `"Player Name#athleteId"`; retain entries whose display name
+  (value `.player` or the key before `#`, lowercased) is still in the trimmed props.
+  matchupHistory is keyed by the exact `"Away @ Home"` label.
