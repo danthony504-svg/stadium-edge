@@ -152,12 +152,17 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           teamName: home.teamName,
           last10: summarizeForm(home.results, 10),
           last5: summarizeForm(home.results, 5),
+          // Most recent COMPLETED game date — lets the client compute real
+          // days-rest / back-to-back vs the upcoming game's start time. Null
+          // when the team has no completed games in the feed.
+          lastGameDate: home.results[0]?.date ?? null,
         },
         away: {
           teamId: awayTeamId,
           teamName: away.teamName,
           last10: summarizeForm(away.results, 10),
           last5: summarizeForm(away.results, 5),
+          lastGameDate: away.results[0]?.date ?? null,
         },
         h2h: {
           meetings: h2h,
@@ -171,8 +176,8 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
     req.log.error({ err }, "Failed to fetch matchup history");
     res.json({
       sport: sportId,
-      home: { teamId: homeTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null } },
-      away: { teamId: awayTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null } },
+      home: { teamId: homeTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, lastGameDate: null },
+      away: { teamId: awayTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, lastGameDate: null },
       h2h: { meetings: [], homeWins: 0, awayWins: 0 },
     });
   }
@@ -216,7 +221,7 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     // Flatten the gamelog into a flat list keyed by eventId with the labeled stats.
     const labels = (log.labels ?? log.names ?? []) as string[];
     const eventMeta = log.events ?? {};
-    const flat: Array<{ eventId: string; date: string | null; opponentId: string | null; opponentName: string | null; stats: Record<string, string> }> = [];
+    const flat: Array<{ eventId: string; date: string | null; opponentId: string | null; opponentName: string | null; isHome: boolean | null; stats: Record<string, string> }> = [];
     for (const st of log.seasonTypes ?? []) {
       for (const cat of st.categories ?? []) {
         for (const ev of cat.events ?? []) {
@@ -224,11 +229,16 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
           const meta = eventMeta[ev.eventId];
           const stats: Record<string, string> = {};
           (ev.stats ?? []).forEach((v, i) => { if (labels[i]) stats[labels[i]] = v; });
+          // ESPN gamelog encodes home/away in atVs: "vs" = home game,
+          // "@" = away game. Null when the feed omits it.
+          const atVs = meta?.atVs;
+          const isHome = atVs === "vs" ? true : atVs === "@" ? false : null;
           flat.push({
             eventId: ev.eventId,
             date: meta?.gameDate ?? null,
             opponentId: meta?.opponent?.id ?? null,
             opponentName: meta?.opponent?.displayName ?? null,
+            isHome,
             stats,
           });
         }
@@ -243,12 +253,40 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     const vsOpponent = opponentTeamId
       ? flat.filter((g) => g.opponentId === opponentTeamId).slice(0, 5)
       : [];
+    // Home / away splits — per-stat average over the FULL season log (not
+    // just the last 5), split by where the game was played. Only numeric
+    // stats are averaged; rate stats (.241) and counting stats both parse.
+    // Honest empty bucket ({ games: 0, averages: {} }) when a side has no
+    // games or atVs is missing throughout — never fabricated.
+    const splitAverages = (games: typeof flat) => {
+      const sums: Record<string, number> = {};
+      const counts: Record<string, number> = {};
+      for (const g of games) {
+        for (const [lab, raw] of Object.entries(g.stats)) {
+          const n = Number(raw);
+          if (!Number.isFinite(n)) continue;
+          sums[lab] = (sums[lab] ?? 0) + n;
+          counts[lab] = (counts[lab] ?? 0) + 1;
+        }
+      }
+      const averages: Record<string, number> = {};
+      for (const lab of Object.keys(sums)) {
+        averages[lab] = Math.round((sums[lab] / counts[lab]) * 100) / 100;
+      }
+      return { games: games.length, averages };
+    };
+    const homeGames = flat.filter((g) => g.isHome === true);
+    const awayGames = flat.filter((g) => g.isHome === false);
+    const homeSplit = splitAverages(homeGames);
+    const awaySplit = splitAverages(awayGames);
     res.json({
       sport: sportId,
       athleteId,
       labels,
       recent,
       vsOpponent,
+      homeSplit,
+      awaySplit,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch player history");

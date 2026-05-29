@@ -21,24 +21,6 @@ const CoachIcon = ({ size = 16 }) => (
   </svg>
 );
 
-const RefIcon = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ display: "inline-block", verticalAlign: "middle" }}>
-    <circle cx="12" cy="12" r="12" fill="#7c3aed" />
-    {/* head */}
-    <circle cx="12" cy="9.5" r="3.3" fill="#f1c9a5" />
-    {/* hair */}
-    <path d="M8.8 8.6c0-2 1.5-3.4 3.2-3.4s3.2 1.2 3.2 3c-1-0.8-5.2-0.9-6.4 0.4z" fill="#4b2e1e" />
-    {/* striped shirt */}
-    <path d="M5.8 21c0-3.4 2.8-5.2 6.2-5.2s6.2 1.8 6.2 5.2H5.8z" fill="#f9fafb" />
-    <rect x="7.4" y="16.2" width="1.3" height="4.8" fill="#111827" />
-    <rect x="10.1" y="15.8" width="1.3" height="5.2" fill="#111827" />
-    <rect x="12.8" y="15.8" width="1.3" height="5.2" fill="#111827" />
-    <rect x="15.5" y="16.2" width="1.3" height="4.8" fill="#111827" />
-    {/* whistle */}
-    <rect x="11.2" y="12.4" width="2.2" height="1.5" rx="0.7" fill="#374151" />
-  </svg>
-);
-
 const WeatherIcon = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ display: "inline-block", verticalAlign: "middle" }}>
     {/* sun */}
@@ -302,47 +284,6 @@ const situationalEdges = (pick) => {
   return { notes, delta: Math.max(-5, Math.min(5, delta)) };
 };
 
-
-//   homeFav:  +10 = home-team friendly
-//   foulRate: +10 = whistle-heavy (high foul/penalty rate)
-const REFS = {
-  nba: [
-    { name: "Scott Foster", overLean: 6, homeFav: -3, foulRate: 7, notes: "Whistle-heavy, called 'The Extender' for late free throws. Overs historically tilt." },
-    { name: "Tony Brothers", overLean: 4, homeFav: 2, foulRate: 6, notes: "High foul rate, slight home-team lean. Often debated for consistency." },
-    { name: "James Capers", overLean: -2, homeFav: 1, foulRate: -3, notes: "Lets them play — fewer fouls called, modest under lean." },
-    { name: "Marc Davis", overLean: 5, homeFav: 0, foulRate: 6, notes: "Quick whistle, neutral on home/away. Star-friendly reputation." },
-    { name: "Ed Malloy", overLean: 3, homeFav: 0, foulRate: 4, notes: "Average tempo, slight over lean." },
-    { name: "Zach Zarba", overLean: -3, homeFav: -1, foulRate: -4, notes: "Lets contact go, unders historically profitable." },
-    { name: "Eric Lewis", overLean: 2, homeFav: 1, foulRate: 3, notes: "Average across the board, slight overs lean." },
-  ],
-  nfl: [
-    { name: "Carl Cheffers", overLean: 3, homeFav: 1, foulRate: 5, notes: "Heavy flag thrower — penalties extend drives, often boosts totals." },
-    { name: "Shawn Hochuli", overLean: -1, homeFav: 0, foulRate: -2, notes: "Lower penalty count, slight under lean." },
-    { name: "Brad Allen", overLean: 4, homeFav: 2, foulRate: 6, notes: "High penalty crew, defensive calls common. Watch passing props." },
-    { name: "Clete Blakeman", overLean: 2, homeFav: 0, foulRate: 3, notes: "Average crew, slight over." },
-    { name: "Bill Vinovich", overLean: 1, homeFav: -2, foulRate: 2, notes: "Road-friendly history, controversial in big games." },
-    { name: "Jerome Boger", overLean: 5, homeFav: 3, foulRate: 7, notes: "Penalty-heavy crew, home-team bias documented." },
-  ],
-  mlb: [
-    { name: "Angel Hernandez", overLean: 4, homeFav: -2, foulRate: 0, notes: "Notoriously inconsistent strike zone — favors hitters, overs lean." },
-    { name: "CB Bucknor", overLean: 3, homeFav: 0, foulRate: 0, notes: "Wide zone variance, overs tilt." },
-    { name: "Pat Hoberg", overLean: -3, homeFav: 0, foulRate: 0, notes: "Most accurate plate ump per public tracking — tight zone, slight under." },
-    { name: "Lance Barksdale", overLean: 2, homeFav: 1, foulRate: 0, notes: "Loose zone late in games, overs tendency." },
-  ],
-  nhl: [
-    { name: "Wes McCauley", overLean: 1, homeFav: 0, foulRate: 2, notes: "Player-friendly, lets physical play go but calls obvious infractions." },
-    { name: "Chris Rooney", overLean: 3, homeFav: 1, foulRate: 5, notes: "More penalties — power plays drive overs." },
-    { name: "Dan O'Halloran", overLean: 0, homeFav: 0, foulRate: -1, notes: "Veteran neutral ref, average across the board." },
-  ],
-  ncaab: [
-    { name: "Ted Valentine", overLean: 3, homeFav: 2, foulRate: 5, notes: "Tight whistle, home crowd-influenced reputation." },
-    { name: "John Higgins", overLean: 1, homeFav: 0, foulRate: 2, notes: "Average tempo, slight over." },
-  ],
-  soccer: [
-    { name: "Michael Oliver", overLean: 1, homeFav: -1, foulRate: 3, notes: "Strict — books many cards, slight away-team lean in big games." },
-    { name: "Anthony Taylor", overLean: 0, homeFav: 1, foulRate: 4, notes: "Card-heavy, controversial home calls." },
-  ],
-};
 
 // Sample coach tendency database — documented reputations, illustrative.
 // Tendencies on a -2 to +2 scale:
@@ -1542,10 +1483,9 @@ const samplePropResearch = (pick) => {
 //   - implied probability from odds (the market's view)
 //   - player form rating if it's a player prop and the player is in our DB
 //   - small market-type adjustment (heavy favorites priced sharper)
-//   - referee tendency adjustment when a ref is assigned
 //   - deterministic noise so scores feel unique per pick
 // NOTE: this is a model from the app's sample data, NOT real game film
-const calculateConfidence = (pick, ref = null) => {
+const calculateConfidence = (pick) => {
   // PrizePicks DFS legs have no per-leg American price. Don't derive a
   // confidence from a fake implied-probability — pin them at the flat
   // ~55% baseline our live builder uses. This keeps PP legs from
@@ -1584,28 +1524,6 @@ const calculateConfidence = (pick, ref = null) => {
   if (pick.market === "Moneyline" && pick.odds < -150) score += 3; // heavy favs cash more often
   if (pick.market === "Player Prop" && pick.odds > 200) score -= 4; // long-tail props miss often
   if (pick.market === "Total" || pick.market === "Spread") score -= 1; // standard juice markets
-
-  // Referee adjustment
-  if (ref) {
-    const pickLower = pick.pick.toLowerCase();
-    const market = pick.market.toLowerCase();
-    const isOver = /\bover\b/.test(pickLower);
-    const isUnder = /\bunder\b/.test(pickLower);
-    if (isOver) score += (ref.overLean || 0) * 0.6;
-    if (isUnder) score -= (ref.overLean || 0) * 0.6;
-    if (pick.market === "Player Prop" && /pts|points|pass yds|passing|free throw|rebound/i.test(pick.pick)) {
-      score += (ref.foulRate || 0) * 0.3;
-    }
-    if (market === "spread" || market === "moneyline") {
-      const game = pick.game.toLowerCase();
-      const homeTeam = (game.split("@").pop() || game.split("vs").pop() || "").trim();
-      if (homeTeam && pickLower.includes(homeTeam.split(" ")[0])) {
-        score += (ref.homeFav || 0) * 0.4;
-      } else {
-        score -= (ref.homeFav || 0) * 0.4;
-      }
-    }
-  }
 
   // Coach tendency adjustment — match coach by team in pick/game
   const coaches = Object.values(COACHES).flat();
@@ -1787,7 +1705,7 @@ const personalRecordFor = (pick, trackerEntries) => {
 
 // Generate a reasoning sentence for a pick using its actual properties.
 // Rule-based, not LLM — labeled clearly in the UI.
-const generateReasoning = (pick, ref = null, h2hEntry = null) => {
+const generateReasoning = (pick, h2hEntry = null) => {
   // PrizePicks legs have no per-leg American price. Generating
   // "market-implied %" / "heavy favorite" copy from null odds would be
   // fabrication — return an honest, source-aware sentence instead.
@@ -1889,26 +1807,6 @@ const generateReasoning = (pick, ref = null, h2hEntry = null) => {
     }
   }
 
-  // Referee impact
-  if (ref) {
-    const refImpacts = [];
-    const pickLower = pick.pick.toLowerCase();
-    if ((pick.market === "Total" || /over|under/i.test(pickLower)) && ref.overLean !== 0) {
-      const isOver = /over/i.test(pickLower);
-      if ((isOver && ref.overLean > 0) || (!isOver && ref.overLean < 0)) {
-        refImpacts.push(`${ref.name} ${ref.overLean > 0 ? "leans overs" : "leans unders"} (${ref.overLean > 0 ? "+" : ""}${ref.overLean})`);
-      } else {
-        refImpacts.push(`${ref.name}'s ${ref.overLean > 0 ? "over" : "under"} lean works against this leg`);
-      }
-    }
-    if (pick.market === "Player Prop" && /pts|points|pass yds|free throw|rebound/i.test(pickLower) && ref.foulRate !== 0) {
-      refImpacts.push(`${ref.foulRate > 0 ? "high" : "low"} foul rate ${ref.foulRate > 0 ? "boosts" : "limits"} scoring chances`);
-    }
-    if (refImpacts.length > 0) {
-      reasons.push(`🧑‍⚖️ Ref: ${refImpacts.join("; ")}.`);
-    }
-  }
-
   // Coach tendency — match a coach by team abbreviation appearing in the pick/game
   const allCoaches = Object.values(COACHES).flat();
   const matchedCoach = allCoaches.find((c) => {
@@ -2004,7 +1902,7 @@ const extractLegCount = (text) => {
   return 3;
 };
 
-const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null, gameRefs = {}) => {
+const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null) => {
   // Only consider picks for games either currently being played OR starting
   // within the next 24 hours. We allow up to 4 hours in the past so in-progress
   // games (which started a couple hours ago) are still eligible for the ticket.
@@ -2032,12 +1930,11 @@ const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null,
   else if (tier === "balanced") filtered = pool.filter((p) => p.tier === 2);
   if (filtered.length < legCount) filtered = pool;
 
-  // Score every candidate using the FULL model (odds + form + ref + coach).
+  // Score every candidate using the FULL model (odds + form + coach).
   // Add a small deterministic jitter so the same request varies slightly
   // between builds without abandoning the ranking.
   const scored = filtered.map((p) => {
-    const ref = gameRefs[p.game] || null;
-    const conf = calculateConfidence(p, ref);
+    const conf = calculateConfidence(p);
     const jitter = (hashSeed(p.pick + Date.now().toString().slice(-4)) - 0.5) * 2;
     return { pick: p, conf, rank: conf + jitter };
   });
@@ -2091,20 +1988,20 @@ const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null,
 // trim the weakest legs until the compounded parlay confidence clears the
 // target. Returns { picks, parlayConf, hitTarget, requestedLegs }.
 const buildParlayToTarget = (sports, legCount, opts = {}) => {
-  const { propsOnly = false, livePool = null, gameRefs = {}, target = 60, tierBias = "balanced" } = opts;
+  const { propsOnly = false, livePool = null, target = 60, tierBias = "balanced" } = opts;
   // Start from a generous candidate set ranked by confidence. A "safe" tierBias
   // pulls from higher-probability legs so the assembled ticket earns a genuinely
   // higher confidence — not an inflated number, just better-chosen legs.
-  const candidates = buildParlay(sports, tierBias, Math.max(legCount, 8), propsOnly, livePool, gameRefs);
+  const candidates = buildParlay(sports, tierBias, Math.max(legCount, 8), propsOnly, livePool);
   if (candidates.length === 0) return { picks: [], parlayConf: 0, hitTarget: false, requestedLegs: legCount };
 
   // Rank by individual confidence, highest first
   const ranked = [...candidates].sort(
-    (a, b) => calculateConfidence(b, gameRefs[b.game] || null) - calculateConfidence(a, gameRefs[a.game] || null)
+    (a, b) => calculateConfidence(b) - calculateConfidence(a)
   );
 
   const parlayConfOf = (legs) =>
-    Math.round(legs.reduce((acc, l) => acc * (calculateConfidence(l, gameRefs[l.game] || null) / 100), 1) * 100);
+    Math.round(legs.reduce((acc, l) => acc * (calculateConfidence(l) / 100), 1) * 100);
 
   // Try the requested leg count first; if under target, trim weakest legs.
   // Never trim below the requested leg count — a "Build me a parlay" that
@@ -2162,7 +2059,7 @@ const analyzeSlip = (legs) => {
   return analysis;
 };
 
-const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) => {
+const generateResponse = (text, sports, legs, livePool = null) => {
   const intent = detectIntent(text);
   const legCount = extractLegCount(text);
 
@@ -2173,7 +2070,7 @@ const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) =>
   }
 
   if (intent === "help") {
-    return { text: `Here's what I can do:\n\n• Tap **3-Leg / 6-Leg / 9-Leg / 15-Leg** to build that size parlay\n• Or type "build me a 5-leg parlay" for any size\n• "Player props parlay" — props only\n• "Analyze my slip" — risk + correlation breakdown\n• "Explain implied probability" — odds math\n\nI rank every pick by odds, player form, coach trends, and ref leans. Confidence compounds down with each leg — more legs = bigger payout, lower confidence.`, picks: [] };
+    return { text: `Here's what I can do:\n\n• Tap **3-Leg / 6-Leg / 9-Leg / 15-Leg** to build that size parlay\n• Or type "build me a 5-leg parlay" for any size\n• "Player props parlay" — props only\n• "Analyze my slip" — risk + correlation breakdown\n• "Explain implied probability" — odds math\n\nI rank every pick by odds, player form, and coach trends. Confidence compounds down with each leg — more legs = bigger payout, lower confidence.`, picks: [] };
   }
 
   if (intent === "math") {
@@ -2205,13 +2102,13 @@ const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) =>
   let picks, targetResult = null;
   if (targetMode) {
     targetResult = buildParlayToTarget(sports, legCount, {
-      propsOnly, livePool, gameRefs, target: 60,
+      propsOnly, livePool, target: 60,
       tierBias: bestMode ? "safe" : "balanced", // best mode draws the highest-probability legs
     });
     picks = targetResult.picks;
   } else {
     // Explicit leg count: build exactly that many, ranked by full model, no trimming
-    picks = buildParlay(sports, tier, legCount, propsOnly, livePool, gameRefs);
+    picks = buildParlay(sports, tier, legCount, propsOnly, livePool);
   }
   const usingLive = livePool && livePool.length > 0 && picks.some((p) => p.teamId);
   if (picks.length === 0) {
@@ -2225,7 +2122,7 @@ const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) =>
     : bestMode
       ? "model-optimized"
       : { safe: "favorite-heavy", balanced: "balanced", longshot: "high-variance" }[tier];
-  const pickConfidences = picks.map((p) => calculateConfidence(p, gameRefs[p.game] || null));
+  const pickConfidences = picks.map((p) => calculateConfidence(p));
   const parlayConf = Math.round(
     pickConfidences.reduce((acc, c) => acc * (c / 100), 1) * 100
   );
@@ -2233,25 +2130,12 @@ const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) =>
   if (bestMode) {
     // Build a transparent signal breakdown for each leg
     const legBreakdowns = picks.map((p) => {
-      const conf = calculateConfidence(p, gameRefs[p.game] || null);
-      const signals = [];
-      // player form
-      if (p.market === "Player Prop") {
-        const allP = Object.values(PLAYERS).flat();
-        const mp = allP.find((pl) => p.pick.toLowerCase().includes(pl.name.toLowerCase().split(" ").pop().toLowerCase()));
-        if (mp) signals.push(`form ${mp.form}/10`);
-      }
-      // coach
-      const coach = Object.values(COACHES).flat().find((c) => c.team && c.team !== "—" && (p.pick.toLowerCase().includes(c.team.toLowerCase()) || p.game.toLowerCase().includes(c.team.toLowerCase())));
-      if (coach) signals.push(`coach ${coach.name.split(" (")[0]}`);
-      // ref
-      if (gameRefs[p.game]) signals.push(`ref ${gameRefs[p.game].name.split(" ")[0]}`);
       return `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`;
     });
     const hitMsg = targetResult && targetResult.hitTarget
       ? `Cleared the 60% bar at ${picks.length} leg${picks.length !== 1 ? "s" : ""}.`
       : `Best I could clear was ${parlayConf}% — going to fewer legs would raise it. I won't pad it with weak legs to hit a number.`;
-    const intro = `Here's my **highest-confidence parlay** targeting 60%+ model confidence. I ran every candidate through the full tool stack — odds, player form, matchup, ref leans, coach game-state, weather, injuries, and rest/travel/pace — drew from the highest-probability legs, and trimmed until the compounded confidence cleared the bar. ${hitMsg}${usingLive ? " Built from today's real ESPN games." : ""}\n\nThis raises confidence by choosing genuinely better legs — not by inflating the number. Expand "Why this pick?" on each card to see every factor.\n\n`;
+    const intro = `Here's my **highest-confidence parlay** targeting 60%+ model confidence. I ran every candidate through the full tool stack — odds, player form, matchup, coach game-state, weather, injuries, and rest/travel/pace — drew from the highest-probability legs, and trimmed until the compounded confidence cleared the bar. ${hitMsg}${usingLive ? " Built from today's real ESPN games." : ""}\n\nThis raises confidence by choosing genuinely better legs — not by inflating the number. Expand "Why this pick?" on each card to see every factor.\n\n`;
     const footer = `\n\nCombined: ${formatOdds(math.american)} · market implied ~${(math.prob * 100).toFixed(1)}% · **model confidence ~${parlayConf}%**${usingLive ? " · Live ESPN data" : " · sample data"}.\n\nEven a 60%+ parlay loses often — that's the math of variance. Bet responsibly.`;
     return { text: intro + legBreakdowns.join("\n") + footer, picks };
   }
@@ -2263,8 +2147,8 @@ const generateResponse = (text, sports, legs, livePool = null, gameRefs = {}) =>
     : "";
 
   const intro = usingLive
-    ? `Here's a ${picks.length}-leg ${tierLabel} parlay from **today's real ESPN games**, ranked by my full model (odds, form, refs, coaches, weather). Team records load when you expand "Why this pick?".\n\n`
-    : `Here's a ${picks.length}-leg ${tierLabel} parlay — these scored highest in my model, which weighs odds, player form, ref tendencies, coach trends, weather, injuries, and situational spots (rest, travel/altitude, pace) together.${targetNote} I've added them to your slip below — remove any you don't want.\n\n`;
+    ? `Here's a ${picks.length}-leg ${tierLabel} parlay from **today's real ESPN games**, ranked by my full model (odds, form, coaches, weather). Team records load when you expand "Why this pick?".\n\n`
+    : `Here's a ${picks.length}-leg ${tierLabel} parlay — these scored highest in my model, which weighs odds, player form, coach trends, weather, injuries, and situational spots (rest, travel/altitude, pace) together.${targetNote} I've added them to your slip below — remove any you don't want.\n\n`;
   const pickLines = picks
     .map((p) => `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`)
     .join("\n");
@@ -2464,7 +2348,6 @@ export default function ParlayBuilder() {
   const [playerA, setPlayerA] = useState(null);
   const [playerB, setPlayerB] = useState(null);
   const [selectingFor, setSelectingFor] = useState(null); // 'A' or 'B'
-  const [showRefs, setShowRefs] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
   const [showInjuries, setShowInjuries] = useState(false);
   const [showCoaches, setShowCoaches] = useState(false);
@@ -2620,8 +2503,6 @@ export default function ParlayBuilder() {
   const [showSports, setShowSports] = useState(false);
   const [simLiveGames, setSimLiveGames] = useState([]);
   const [simTick, setSimTick] = useState(0);
-  const [refsSport, setRefsSport] = useState("nba");
-  const [gameRefs, setGameRefs] = useState({}); // { "Game name": { name, ...tendencies } }
   // Real head-to-head data the chat send already fetches from /matchup-history.
   // Keyed by "Away @ Home" game label, value is the same compact h2h object
   // ({ homeWins, awayWins, meetings:[…] }) we send to the AI. Stored here so
@@ -3687,7 +3568,7 @@ export default function ParlayBuilder() {
     const math = calculateParlay(ticket);
     // Model confidence (relative ranking from sample data) vs implied prob (the market)
     const modelConf = Math.round(
-      ticket.map((p) => calculateConfidence(p, gameRefs[p.game])).reduce((acc, c) => acc * (c / 100), 1) * 100
+      ticket.map((p) => calculateConfidence(p)).reduce((acc, c) => acc * (c / 100), 1) * 100
     );
     const impliedPct = (impliedProb(math.american) * 100).toFixed(1);
     autoFillSlip(ticket);
@@ -3746,15 +3627,15 @@ export default function ParlayBuilder() {
     }
     // Rank this game's picks by model confidence, take the N strongest.
     const ranked = [...pool].sort(
-      (a, b) => calculateConfidence(b, gameRefs[b.game] || null) - calculateConfidence(a, gameRefs[a.game] || null)
+      (a, b) => calculateConfidence(b) - calculateConfidence(a)
     ).slice(0, Math.max(1, legCount || 3));
     autoFillSlip(ranked);
     const math = calculateParlay(ranked);
-    const conf = Math.round(ranked.reduce((acc, p) => acc * (calculateConfidence(p, gameRefs[p.game] || null) / 100), 1) * 100);
+    const conf = Math.round(ranked.reduce((acc, p) => acc * (calculateConfidence(p) / 100), 1) * 100);
     const shortfall = ranked.length < (legCount || 3)
       ? ` (only ${ranked.length} quality pick${ranked.length !== 1 ? "s" : ""} available for this game)`
       : "";
-    const intro = `Here's a ${ranked.length}-leg parlay from **${game}**${shortfall}, ranked by my model (odds, form, refs, coaches). Added to your slip below.\n\n`;
+    const intro = `Here's a ${ranked.length}-leg parlay from **${game}**${shortfall}, ranked by my model (odds, form, coaches). Added to your slip below.\n\n`;
     const lines = ranked.map((p) => `PICK: ${p.game} | ${p.market} | ${p.pick} | ${formatOdds(p.odds)}`).join("\n");
     const footer = `\n\nCombined: ${formatOdds(math.american)} · **model confidence ~${conf}%**. Hypothetical only.`;
     setMessages((p) => [
@@ -3968,10 +3849,9 @@ export default function ParlayBuilder() {
     const id = Date.now() + Math.random();
     const addedAt = Date.now();
     setParlayLegs((p) => (p.some((l) => legKey(l) === insertKey) ? p : [...p, { ...toAdd, id, addedAt }]));
-    // Snapshot the ref + reasoning at the moment of adding so History stays accurate
-    const refAtTime = gameRefs[leg.game] || null;
-    const reasoningAtTime = generateReasoning(leg, refAtTime);
-    const confAtTime = calculateConfidence(leg, refAtTime);
+    // Snapshot the reasoning at the moment of adding so History stays accurate
+    const reasoningAtTime = generateReasoning(leg);
+    const confAtTime = calculateConfidence(leg);
     setTracker((prev) => [
       ...prev,
       {
@@ -3985,7 +3865,6 @@ export default function ParlayBuilder() {
         addedAt: Date.now(),
         reasoning: reasoningAtTime,
         confidenceAtAdd: confAtTime,
-        refAtAdd: refAtTime ? { name: refAtTime.name } : null,
       },
     ]);
   };
@@ -4053,21 +3932,6 @@ export default function ParlayBuilder() {
       if (spread) return { ...spread, sport };
     }
     return { ...pool[0], sport };
-  };
-
-  // Find a total pick matching a ref's over/under lean, to add to the ticket.
-  const findRefPick = (ref, sport) => {
-    const pool = (PICK_POOL[sport] || []);
-    const totals = pool.filter((p) => /total/i.test(p.market) || /over|under/i.test(p.pick));
-    if (totals.length === 0) return null;
-    if (ref.overLean > 0) {
-      const over = totals.find((p) => /over/i.test(p.pick));
-      if (over) return { ...over, sport };
-    } else if (ref.overLean < 0) {
-      const under = totals.find((p) => /under/i.test(p.pick));
-      if (under) return { ...under, sport };
-    }
-    return { ...totals[0], sport };
   };
 
   // Find a bettable pick tied to an injury: a pick in the injured team's game
@@ -4222,7 +4086,7 @@ export default function ParlayBuilder() {
     if (parlayLegs.length === 0) return;
 
     const beforeConf = Math.round(
-      parlayLegs.map((l) => calculateConfidence(l, gameRefs[l.game])).reduce((acc, c) => acc * (c / 100), 1) * 100
+      parlayLegs.map((l) => calculateConfidence(l)).reduce((acc, c) => acc * (c / 100), 1) * 100
     );
     const beforeMath = calculateParlay(parlayLegs);
 
@@ -4261,7 +4125,7 @@ export default function ParlayBuilder() {
     setLegsAnalyzed(false);
 
     const afterConf = Math.round(
-      adjusted.map((l) => calculateConfidence(l, gameRefs[l.game])).reduce((acc, c) => acc * (c / 100), 1) * 100
+      adjusted.map((l) => calculateConfidence(l)).reduce((acc, c) => acc * (c / 100), 1) * 100
     );
     const afterMath = calculateParlay(adjusted);
     const movedCount = adjusted.filter((l, i) => l.pick !== parlayLegs[i].pick).length;
@@ -4700,7 +4564,6 @@ export default function ParlayBuilder() {
     setTracker((prev) => [
       ...prev,
       ...legs.map((leg) => {
-        const refAtTime = gameRefs[leg.game] || null;
         return {
           id: leg.id,
           game: leg.game,
@@ -4710,9 +4573,8 @@ export default function ParlayBuilder() {
           signature: pickSignature(leg),
           status: "pending",
           addedAt: Date.now(),
-          reasoning: generateReasoning(leg, refAtTime),
-          confidenceAtAdd: calculateConfidence(leg, refAtTime),
-          refAtAdd: refAtTime ? { name: refAtTime.name } : null,
+          reasoning: generateReasoning(leg),
+          confidenceAtAdd: calculateConfidence(leg),
         };
       }),
     ]);
@@ -4753,7 +4615,7 @@ export default function ParlayBuilder() {
   const parlayConfidence = parlayLegs.length === 0
     ? 0
     : Math.round(
-        parlayLegs.reduce((acc, leg) => acc * (calculateConfidence(leg, gameRefs[leg.game]) / 100), 1) * 100
+        parlayLegs.reduce((acc, leg) => acc * (calculateConfidence(leg) / 100), 1) * 100
       );
 
   const sendMessage = async (override) => {
@@ -4957,7 +4819,7 @@ export default function ParlayBuilder() {
         const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
         realGames.push({ sport, game: gameLabel, status: g.status, startsAt: g.startsAt, venue: g.venue, homeTeamId: g.homeTeamId ? String(g.homeTeamId) : null, awayTeamId: g.awayTeamId ? String(g.awayTeamId) : null });
         if (g.homeTeamId && g.awayTeamId) {
-          historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId });
+          historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId, startsAt: g.startsAt });
         }
       }
     }
@@ -4983,9 +4845,23 @@ export default function ParlayBuilder() {
             const away10 = data?.away?.last10;
             const h2h = data?.h2h;
             if (!home10 && !away10 && !(h2h?.meetings?.length)) return;
+            // Real days-rest / back-to-back, computed from each team's last
+            // COMPLETED game date (from the matchup-history feed) vs this
+            // game's scheduled start. Null when either date is missing — never
+            // fabricated. backToBack means 0-1 calendar days between games.
+            const gameStart = t.startsAt ? new Date(t.startsAt).getTime() : null;
+            const computeRest = (lastDate) => {
+              if (!lastDate || gameStart == null) return null;
+              const diffMs = gameStart - new Date(lastDate).getTime();
+              if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+              const restDays = Math.floor(diffMs / 86400000);
+              return { restDays, backToBack: restDays <= 1 };
+            };
             matchupHistory[t.gameLabel] = {
               home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
               away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
+              homeRest: computeRest(data?.home?.lastGameDate),
+              awayRest: computeRest(data?.away?.lastGameDate),
               h2h: h2h?.meetings?.length
                 ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
                 : null,
@@ -5106,14 +4982,19 @@ export default function ParlayBuilder() {
         // mapping isn't available — the prompt tells the AI to skip the
         // defense rule when no entry exists, never to invent one.
         let propOppId = null;
+        // Whether the player is on the HOME team tonight — used to preselect
+        // the venue-correct home/away split client-side (null when the team
+        // mapping isn't available).
+        let propIsHome = null;
         if (sport && pr.playerTeamId && teams) {
           const pt = String(pr.playerTeamId);
           propOppId = pt === teams.home ? teams.away : pt === teams.away ? teams.home : null;
+          propIsHome = pt === teams.home ? true : pt === teams.away ? false : null;
         }
         realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice, opponentTeamId: propOppId });
         if (sport && pr.athleteId && propOppId && !seenAthletes.has(pr.athleteId)) {
           seenAthletes.add(pr.athleteId);
-          playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: propOppId });
+          playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: propOppId, isHome: propIsHome });
         }
       }
     }
@@ -5142,10 +5023,25 @@ export default function ParlayBuilder() {
             // (PTS/REB/AST for NBA; YDS/TD for NFL; H/HR/SO for MLB; etc.).
             // Keyed by "Player Name#athleteId" so two players with the same
             // display name (cross-sport or same-sport) cannot collide.
+            // Real home/away per-stat averages over the full season log
+            // (from the player-history feed). Only attach a side when it has
+            // games — honest empty buckets are dropped so the AI never sees a
+            // fabricated 0-game split.
+            const homeSplit = data?.homeSplit && data.homeSplit.games > 0 ? data.homeSplit : null;
+            const awaySplit = data?.awaySplit && data.awaySplit.games > 0 ? data.awaySplit : null;
+            // Preselect the venue-correct split for TONIGHT based on whether
+            // this player is on the home or road team — removes ambiguity for
+            // the model. Null when venue is unknown; the model then falls back
+            // to the raw homeSplit/awaySplit per the prompt rule.
+            const venue = t.isHome === true ? "home" : t.isHome === false ? "away" : null;
+            const tonightSplit = venue === "home" ? homeSplit : venue === "away" ? awaySplit : null;
             playerHistory[`${t.player}#${t.athleteId}`] = {
               player: t.player,
               recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
               vsOpponent: vsOpp.map((g) => ({ date: g.date, stats: g.stats })),
+              ...(homeSplit ? { homeSplit } : {}),
+              ...(awaySplit ? { awaySplit } : {}),
+              ...(tonightSplit ? { tonightVenue: venue, tonightSplit } : {}),
             };
           } catch { /* honest no-history fallback */ }
         }),
@@ -5183,6 +5079,60 @@ export default function ParlayBuilder() {
               defensive: data?.defensive ?? {},
             };
           } catch { /* honest no-defense fallback */ }
+        }),
+      );
+    }
+    // MLB platoon (batter handedness vs opposing probable pitcher hand).
+    // First pull today's probable starters (one fetch, keyed by ESPN teamId
+    // with the pitcher's throwing hand resolved server-side). Then, for each
+    // unique MLB batter in the prop pool, pull their real vs-LHP / vs-RHP
+    // splits and pair them against the opposing starter. The resulting map is
+    // keyed by "Player#athleteId" (same convention as playerHistory).
+    // Everything here is real ESPN data — missing pieces become honest nulls,
+    // never fabricated platoon edges.
+    const mlbPlatoon = {};
+    const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
+    if (mlbTargets.length > 0) {
+      let probables = {};
+      try {
+        const pr = await fetch(`/api/sports/mlb-probables`);
+        if (pr.ok) {
+          const pdata = await pr.json();
+          probables = pdata?.probables || {};
+        }
+      } catch { /* honest no-probables fallback */ }
+      await Promise.all(
+        mlbTargets.map(async (t) => {
+          try {
+            const r = await fetch(`/api/sports/mlb-batter-splits?athleteId=${encodeURIComponent(t.athleteId)}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            const bats = data?.bats || null;
+            const oppPitcher = probables[t.opponentTeamId] || null;
+            const oppThrows = oppPitcher?.throws || null;
+            // Platoon edge: opposite hands = advantage for the batter; same
+            // hand = disadvantage; switch hitters are marked "switch" (they
+            // always bat from the favorable side). Null when we lack a hand.
+            let platoon = null;
+            if (bats === "Switch") platoon = "switch";
+            else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
+            // The batter's split line vs THIS pitcher's hand (what actually
+            // matters tonight). Null when the pitcher's hand or that split
+            // isn't available.
+            const vsThatHand = oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
+            // Skip entries with no usable signal at all (no hand, no splits).
+            if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
+            mlbPlatoon[`${t.player}#${t.athleteId}`] = {
+              player: t.player,
+              bats,
+              opposingPitcherName: oppPitcher?.name || null,
+              opposingPitcherThrows: oppThrows,
+              platoon,
+              vsThatHand: vsThatHand || null,
+              vsLeft: data?.vsLeft || null,
+              vsRight: data?.vsRight || null,
+            };
+          } catch { /* honest no-platoon fallback */ }
         }),
       );
     }
@@ -5267,6 +5217,7 @@ export default function ParlayBuilder() {
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
       opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
       teamPeriodStats: Object.keys(teamPeriodStats).length ? teamPeriodStats : undefined,
+      mlbPlatoon: Object.keys(mlbPlatoon).length ? mlbPlatoon : undefined,
     };
 
     let fullText = "";
@@ -5684,7 +5635,7 @@ export default function ParlayBuilder() {
       } else {
         // True AI outage but we have real live picks — use the local
         // analyzer on REAL data only (never the hypothetical PICK_POOL).
-        const reply = generateResponse(text, selectedSports, parlayLegs, livePicks, gameRefs);
+        const reply = generateResponse(text, selectedSports, parlayLegs, livePicks);
         setMessages((p) => {
           const next = p.slice();
           next[next.length - 1] = {
@@ -6020,11 +5971,10 @@ export default function ParlayBuilder() {
             const { kept: pickKept } = filterPicksToReal([baseP]);
             const pick = pickKept.length > 0 ? pickKept[0] : baseP;
             const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
-            const assignedRef = gameRefs[pick.game];
-            const conf = calculateConfidence(pick, assignedRef);
+            const conf = calculateConfidence(pick);
             const pickKey = `${pick.game}::${pick.pick}`;
             const isExpanded = expandedPicks.has(pickKey);
-            const reasoning = generateReasoning(pick, assignedRef, matchupHistoryByGame[pick.game] || null);
+            const reasoning = generateReasoning(pick, matchupHistoryByGame[pick.game] || null);
             return (
               <div
                 key={i}
@@ -6039,11 +5989,6 @@ export default function ParlayBuilder() {
                       <div className="text-[10px] font-mono font-bold text-slate-100">
                         {conf}% · {confidenceLabel(conf)}
                       </div>
-                      {assignedRef && (
-                        <div className="text-[9px] font-mono text-slate-400 border border-slate-700 rounded px-1">
-                          🧑‍⚖️ {assignedRef.name.split(" ")[0]}
-                        </div>
-                      )}
                     </div>
                     <div className="text-xs text-slate-400 break-words">
                       {displayGameLabel(pick.game)}
@@ -7669,7 +7614,7 @@ export default function ParlayBuilder() {
               )}
               {availableDemoPicks.map((pick, i) => {
                 const inSlip = parlayLegs.some((l) => legKey(l) === legKey(pick));
-                const conf = calculateConfidence(pick, gameRefs[pick.game]);
+                const conf = calculateConfidence(pick);
                 return (
                   <button
                     key={i}
@@ -7956,7 +7901,7 @@ export default function ParlayBuilder() {
         );
       })()}
 
-      {/* REFS MODAL */}
+      {/* LIVE DEMO MODAL */}
       {showLiveDemo && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-30 flex items-end"
@@ -8222,133 +8167,6 @@ export default function ParlayBuilder() {
                   </div>
                 );
               })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showRefs && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-30 flex items-end"
-          onClick={() => setShowRefs(false)}
-        >
-          <div
-            className="bg-zinc-900 border-t-2 border-amber-400 w-full rounded-t-3xl max-h-[85vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-              <div>
-                <h3 className="font-display text-lg flex items-center gap-2"><RefIcon size={20} /> REF STUDY</h3>
-                <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider mt-0.5">
-                  Sample tendency data · not live assignments
-                </p>
-              </div>
-              <button onClick={() => setShowRefs(false)}>
-                <X size={20} className="text-slate-500" />
-              </button>
-            </div>
-            <div className="px-4 py-3 border-b border-zinc-800">
-              <div className="flex gap-1.5 overflow-x-auto pb-1">
-                {SPORTS.filter((s) => (REFS[s.id] || []).length > 0).map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setRefsSport(s.id)}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold uppercase border ${
-                      refsSport === s.id
-                        ? "bg-amber-400 text-black border-amber-400"
-                        : "bg-transparent text-slate-500 border-zinc-800"
-                    }`}
-                  >
-                    {s.emoji} {s.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="overflow-y-auto scroll-fade p-3 space-y-2">
-              {(REFS[refsSport] || []).map((ref, i) => {
-                const assignedTo = Object.entries(gameRefs)
-                  .filter(([_, r]) => r.name === ref.name)
-                  .map(([g]) => g);
-                return (
-                  <div key={i} className="border border-zinc-800 rounded-lg p-3 bg-zinc-950">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="font-display text-sm">{ref.name}</div>
-                      <div className="flex gap-1 text-[9px] font-mono">
-                        {ref.overLean !== 0 && (
-                          <span className={ref.overLean > 0 ? "text-emerald-400" : "text-rose-400"}>
-                            {ref.overLean > 0 ? "OVER" : "UNDER"} {Math.abs(ref.overLean)}
-                          </span>
-                        )}
-                        {ref.foulRate !== 0 && (
-                          <span className="text-amber-400">
-                            FOULS {ref.foulRate > 0 ? "+" : ""}{ref.foulRate}
-                          </span>
-                        )}
-                        {ref.homeFav !== 0 && (
-                          <span className="text-blue-400">HOME +{ref.homeFav}</span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-500 mb-2">{ref.notes}</p>
-                    {(() => {
-                      const rp = findRefPick(ref, refsSport);
-                      if (!rp) return null;
-                      const inSlip = parlayLegs.some((l) => legKey(l) === legKey(rp));
-                      return (
-                        <button
-                          onClick={() => { if (!inSlip) addLeg({ ...rp }); }}
-                          disabled={inSlip}
-                          className={`w-full mb-2 rounded-lg py-1.5 text-[11px] font-semibold transition ${
-                            inSlip ? "bg-zinc-800 text-slate-400 cursor-default" : "bg-amber-400 text-black hover:bg-amber-300"
-                          }`}
-                        >
-                          {inSlip ? "✓ In ticket" : `+ Add ${rp.pick} ${formatOdds(rp.odds)} (matches ${ref.overLean > 0 ? "OVER" : ref.overLean < 0 ? "UNDER" : ""} lean)`}
-                        </button>
-                      );
-                    })()}
-                    {parlayLegs.length > 0 && (
-                      <div className="space-y-1 mt-2 pt-2 border-t border-zinc-800">
-                        <div className="text-[9px] font-mono uppercase text-slate-400">Assign to game:</div>
-                        <div className="flex flex-wrap gap-1">
-                          {[...new Set(parlayLegs.map((l) => l.game))].map((g) => {
-                            const isAssigned = gameRefs[g]?.name === ref.name;
-                            return (
-                              <button
-                                key={g}
-                                onClick={() => {
-                                  setGameRefs((prev) => {
-                                    const next = { ...prev };
-                                    if (isAssigned) delete next[g];
-                                    else next[g] = ref;
-                                    return next;
-                                  });
-                                }}
-                                className={`text-[10px] px-2 py-1 rounded border ${
-                                  isAssigned
-                                    ? "bg-amber-400 text-black border-amber-400"
-                                    : "border-zinc-700 text-zinc-300"
-                                }`}
-                              >
-                                {isAssigned ? "✓ " : ""}{g}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {assignedTo.length > 0 && (
-                      <div className="text-[10px] font-mono text-amber-400 mt-2">
-                        Assigned: {assignedTo.join(", ")}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {parlayLegs.length === 0 && (
-                <div className="text-xs text-slate-400 text-center pt-3 pb-2">
-                  Add legs to your slip to assign refs to games.
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -8638,7 +8456,7 @@ export default function ParlayBuilder() {
                     {filteredPending.map((e) => {
                       const expanded = expandedHistory.has(e.id);
                       // Regenerate reasoning if not stored (older entries)
-                      const reasoning = e.reasoning || generateReasoning(e, e.refAtAdd ? REFS[Object.keys(REFS).find((s) => REFS[s].some((r) => r.name === e.refAtAdd.name))]?.find((r) => r.name === e.refAtAdd.name) : null);
+                      const reasoning = e.reasoning || generateReasoning(e);
                       return (
                         <div key={e.id} className="border-b border-zinc-800/50">
                           <div className="px-4 py-2 flex items-start justify-between gap-2">
@@ -8648,11 +8466,6 @@ export default function ParlayBuilder() {
                                 {e.confidenceAtAdd !== undefined && (
                                   <div className={`text-[10px] font-mono font-bold ${confidenceColor(e.confidenceAtAdd)}`}>
                                     {e.confidenceAtAdd}%
-                                  </div>
-                                )}
-                                {e.refAtAdd && (
-                                  <div className="text-[9px] font-mono text-amber-400/80 border border-amber-400/30 rounded px-1">
-                                    🧑‍⚖️ {e.refAtAdd.name.split(" ")[0]}
                                   </div>
                                 )}
                               </div>
@@ -8740,11 +8553,6 @@ export default function ParlayBuilder() {
                                 {e.confidenceAtAdd !== undefined && (
                                   <div className={`text-[10px] font-mono font-bold ${confidenceColor(e.confidenceAtAdd)}`}>
                                     {e.confidenceAtAdd}%
-                                  </div>
-                                )}
-                                {e.refAtAdd && (
-                                  <div className="text-[9px] font-mono text-amber-400/80 border border-amber-400/30 rounded px-1">
-                                    🧑‍⚖️ {e.refAtAdd.name.split(" ")[0]}
                                   </div>
                                 )}
                               </div>
@@ -8915,7 +8723,6 @@ export default function ParlayBuilder() {
               <div className="pt-2 mt-2 border-t border-zinc-800/60">
                 <div className="px-3 py-1 text-[9px] font-mono uppercase tracking-widest text-slate-400">Tools</div>
                 {[
-                  { label: "Referee Trends", icon: <RefIcon size={18} />, action: () => { if (requirePro("Referee Trends")) setShowRefs(true); } },
                   { label: "Coach Trends", icon: <CoachIcon size={18} />, action: () => { if (requirePro("Coach Trends")) setShowCoaches(true); } },
                   { label: "Weather", icon: <WeatherIcon size={18} />, action: () => { if (requirePro("Weather")) setShowWeather(true); } },
                   { label: "Injury Report", icon: <InjuryIcon size={18} />, action: () => { if (requirePro("Injury Report")) setShowInjuries(true); } },
@@ -10321,12 +10128,6 @@ export default function ParlayBuilder() {
             className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-slate-700 text-slate-400 hover:border-cyan-400 hover:text-cyan-400 transition disabled:opacity-30"
           >
             <TrendingUp size={10} className="inline mr-1" /> Analyze
-          </button>
-          <button
-            onClick={() => { if (requirePro("Referee Trends")) setShowRefs(true); }}
-            className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-amber-400/40 text-amber-400 hover:bg-amber-400/10 transition inline-flex items-center gap-1"
-          >
-            <RefIcon size={14} /> Refs
           </button>
           <button
             onClick={() => { if (requirePro("Coach Trends")) setShowCoaches(true); }}
