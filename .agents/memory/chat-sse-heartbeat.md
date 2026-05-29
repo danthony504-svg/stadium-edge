@@ -57,6 +57,41 @@ issues via `curl https://$REPLIT_DEV_DOMAIN/api/chat -H "Accept-Encoding: gzip"`
   only when `!res.writableEnded` (otherwise it's the normal post-`res.end()` close).
   Pass the AbortController's signal as the 2nd arg to `client.chat.completions.create`.
 
+# "curl works, browser shows nothing" — proxy buffering + invisible heartbeat
+
+A later "Still nothing" report had a different root cause than TTFB. Server logs
+showed `POST /api/chat` reaching the server, headers out (200), then `request
+aborted` at ~18s — and there is NO client-side AbortController/timeout, so that
+abort is the USER giving up on a blank bubble. Two compounding causes:
+1. The `: keep-alive` heartbeat is an SSE COMMENT; the client loop ignores any
+   chunk not starting with `data: `, so it keeps the socket alive but renders
+   NOTHING. The user sees a blank bubble for the whole 12-18s time-to-first-token.
+2. The Replit path-based proxy can BUFFER the SSE stream for a real browser
+   (which sends `Accept-Encoding`) and flush nothing until the connection ends.
+   A `curl`/node test with NO `Accept-Encoding` streams fine and MASKS the bug —
+   so "works in curl, blank in browser" is the tell.
+
+**Fix (both needed):**
+- Set `res.setHeader("X-Accel-Buffering", "no")` BEFORE `flushHeaders()` — the
+  standard nginx-family directive that stops the proxy buffering the stream.
+- Emit ONE real `data:` event immediately after headers (a `{status:"…"}` line),
+  not just the comment heartbeat, so the bubble paints instant feedback during the
+  silent TTFB. Client shows it transiently and OVERWRITES it with the first real
+  token (guard the status branch on `!fullText`); keep `fullText` built only from
+  `data.content` so the status never enters PICK-line validation.
+- Client fallback: if the stream ends with empty `fullText`, replace the transient
+  status with a retry message — otherwise an empty/errored stream leaves the bubble
+  stuck on "…" forever (looks identical to the original "nothing loaded" bug).
+
+**Why:** keep-alive comments solve the proxy IDLE timeout but not the BUFFERING
+problem and give zero visible feedback; the immediate `data:` event + no-buffering
+header are what make the browser actually paint something fast.
+
+**How to test:** node/curl WITHOUT Accept-Encoding can look healthy while the
+browser is blank — reproduce buffering by sending `Accept-Encoding: gzip` and
+confirm the response header `x-accel-buffering: no` and that the first chunk lands
+sub-second.
+
 # Named-game context trim — cut prefill when every leg is locked to one matchup
 
 Single-game parlay requests ("Spurs @ Thunder, 10 legs") still carried the FULL

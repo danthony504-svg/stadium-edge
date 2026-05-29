@@ -802,6 +802,12 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  // Stop the proxy in front of us from BUFFERING the stream. Without this the
+  // Replit path-based proxy can hold the SSE bytes for a browser (which sends
+  // Accept-Encoding) and flush nothing until the connection ends — the user
+  // sees a permanently blank bubble even though tokens are flowing server-side
+  // (a curl test with no Accept-Encoding looks fine, masking the bug).
+  res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
   // SSE heartbeat — gpt-5.4 is a reasoning model that can spend 20-40s on
@@ -818,6 +824,13 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
     try { res.write(`: keep-alive\n\n`); } catch { /* socket gone */ }
   }, 10000);
   res.write(`: keep-alive\n\n`);
+  // Emit an IMMEDIATE visible status line (a real "data:" event, not a comment)
+  // so the browser paints feedback the instant the stream opens, instead of a
+  // blank bubble during the model's silent time-to-first-token. The client
+  // shows this transiently and OVERWRITES it with the first real token, so it
+  // never pollutes the final answer or the client-side PICK-line validation
+  // (which reads only the streamed content, never the status).
+  res.write(`data: ${JSON.stringify({ status: "Pulling real odds & matchup data, then building your ticket\u2026" })}\n\n`);
   const stopHeartbeat = () => {
     if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
   };

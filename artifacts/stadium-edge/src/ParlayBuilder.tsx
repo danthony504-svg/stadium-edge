@@ -5785,6 +5785,17 @@ export default function ParlayBuilder() {
           if (!chunk.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(chunk.slice(6));
+            if (data.status && !fullText) {
+              // Transient "thinking" line from the server, shown the instant the
+              // stream opens so the bubble isn't blank during the model's silent
+              // time-to-first-token. The content branch below overwrites it as
+              // soon as the first real token arrives (fullText is still empty).
+              setMessages((p) => {
+                const next = p.slice();
+                next[next.length - 1] = { role: "assistant", content: data.status };
+                return next;
+              });
+            }
             if (data.content) {
               fullText += data.content;
               setMessages((p) => {
@@ -5795,6 +5806,22 @@ export default function ParlayBuilder() {
             }
           } catch (_e) {}
         }
+      }
+
+      // If the stream ended without a single real token (model error / upstream
+      // rate-limit), the bubble would otherwise stay stuck on the transient
+      // "Pulling real odds…" status forever. Replace it with a clear, honest
+      // retry message and skip pick-validation (there's nothing to validate).
+      if (!fullText.trim()) {
+        setMessages((p) => {
+          const next = p.slice();
+          next[next.length - 1] = {
+            role: "assistant",
+            content: "That didn't come back in time — tap send to try again.",
+          };
+          return next;
+        });
+        return;
       }
 
       // Build the pool of matchups the AI was allowed to pick from — every
