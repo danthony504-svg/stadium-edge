@@ -5226,12 +5226,36 @@ export default function ParlayBuilder() {
           const qs = [`sport=${encodeURIComponent(c.sport)}`, `eventId=${encodeURIComponent(c.eventId)}`];
           if (c.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(c.homeTeamId)}`);
           if (c.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(c.awayTeamId)}`);
-          try {
-            const r = await fetch(`/api/sports/props?${qs.join("&")}`);
-            if (!r.ok) return;
-            const data = await r.json();
-            extraProps[c.eventId] = stampQhChecked(data);
-          } catch { /* ignore */ }
+          // Fetch this game's props with a bounded retry. The prop fetches above
+          // fire as one parallel burst, which can briefly trip the upstream Odds
+          // API rate limit (429) or a transient 502 — and a single non-OK
+          // response used to silently drop that game's props for the WHOLE send
+          // (`if (!r.ok) return`), leaving realProps empty for the named game so
+          // the AI could only build game-level legs ("not adding player props").
+          // Retry a few times with jittered backoff so a transient hiccup during
+          // the burst doesn't cost us the named game's props. The NAMED game gets
+          // an extra attempt since every leg of a single-game ticket depends on
+          // it. We only retry on 429/5xx (transient); a 4xx other than 429 is a
+          // real "no props for this event" and isn't worth re-hitting.
+          const maxAttempts = c.named ? 4 : 2;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              const r = await fetch(`/api/sports/props?${qs.join("&")}`);
+              if (r.ok) {
+                const data = await r.json();
+                extraProps[c.eventId] = stampQhChecked(data);
+                break;
+              }
+              // Only transient statuses are worth retrying; give up on other 4xx.
+              if (r.status !== 429 && r.status < 500) break;
+            } catch { /* network blip — fall through to backoff + retry */ }
+            if (attempt < maxAttempts - 1) {
+              // Jittered backoff so the retries don't re-burst in lockstep and
+              // re-trip the same rate limit: ~250ms, ~500ms, ~1s (+ up to 250ms).
+              const delay = 250 * 2 ** attempt + Math.random() * 250;
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+          }
         }),
       );
       // Persist what we fetched so subsequent sends/game-detail views reuse it.
