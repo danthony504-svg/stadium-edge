@@ -4907,6 +4907,51 @@ export default function ParlayBuilder() {
       const t = new Date(ts).getTime();
       return !isNaN(t) && t >= CHAT_NOW - CHAT_LIVE_BACK_MS && t <= CHAT_NOW + CHAT_WINDOW_MS;
     };
+    // A finished game has no bettable market — it must never reach the AI's
+    // pickable pool, in EITHER mode. (The 4h-back window above exists so a
+    // genuinely in-progress game stays eligible for live picks, but a game
+    // ESPN has flipped to final/postponed/cancelled is dead.)
+    const isFinalStatusChat = (st) => {
+      const x = (st || "").toLowerCase();
+      return x.includes("final") || x.includes("full time") || x.includes("postponed") || x.includes("canceled") || x.includes("cancelled") || x.includes("ended") || /\bft\b/.test(x);
+    };
+    // For a PRE-GAME build (not live mode) a game that already tipped off is
+    // not bettable as a pre-game side — even if ESPN's status feed lags or the
+    // team name doesn't match the score feed (so isFinalStatusChat misses it),
+    // a start time already in the past is a strong "this game is underway or
+    // over" signal. Live mode keeps the 4h-back window so in-progress games
+    // stay eligible there. 10-min grace covers the clock crossing tip-off.
+    const PREGAME_GRACE_MS = 10 * 60 * 1000;
+    const pregameOk = (ts) => {
+      if (liveMode) return true;
+      if (!ts) return true; // no timestamp (sample/hypothetical) — keep
+      const t = new Date(ts).getTime();
+      return isNaN(t) || t > CHAT_NOW - PREGAME_GRACE_MS;
+    };
+    // Matchup labels ESPN has marked final — used to cross-filter the Odds API
+    // pool (which carries no status, only a commence time) so a finished game
+    // can't sneak back in through the odds feed.
+    const finalKeysChat = new Set();
+    for (const games of Object.values(realGamesBySportLocal || {})) {
+      for (const g of (games || [])) {
+        if (isFinalStatusChat(g.status)) finalKeysChat.add(`${g.awayTeam} @ ${g.homeTeam}`);
+      }
+    }
+    // True when a game is still bettable for the AI's pool.
+    const gamePickable = (label, status, ts) => {
+      // Its own status says it's done — dead in either mode.
+      if (isFinalStatusChat(status)) return false;
+      // Non-live: a game already past tip-off (status feed may lag) is dead.
+      if (!pregameOk(ts)) return false;
+      // Odds-feed cross-filter: a label ESPN marked final kills a same-label
+      // entry UNLESS that entry is clearly a future game (protects game 2 of
+      // an MLB doubleheader, which shares the "Away @ Home" label with game 1).
+      if (finalKeysChat.has(label)) {
+        const t = ts ? new Date(ts).getTime() : NaN;
+        if (isNaN(t) || t <= CHAT_NOW + PREGAME_GRACE_MS) return false;
+      }
+      return true;
+    };
 
     // Proactively fetch real player props so the AI can either recommend
     // props directly OR mix them into a parlay alongside game-level picks.
@@ -4940,7 +4985,7 @@ export default function ParlayBuilder() {
       const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : 3;
       const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : 6;
       for (const s of selectedSports) {
-        const oddsGames = (realOddsBySportLocal[s] || []).filter((g) => isWithin24h(g.commenceTime));
+        const oddsGames = (realOddsBySportLocal[s] || []).filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
         const espnGames = realGamesBySportLocal[s] || [];
         // Sort soonest-first so the prop pool reflects the games closest to
         // tip-off — most actionable for "add to ticket now" intent.
@@ -4988,7 +5033,7 @@ export default function ParlayBuilder() {
     // Track teamIds per game so we can pull real matchup history for each.
     const historyTargets = []; // [{sport, gameLabel, homeTeamId, awayTeamId}]
     for (const [sport, games] of Object.entries(realGamesBySportLocal)) {
-      const filtered = games.filter((g) => isWithin24h(g.startsAt));
+      const filtered = games.filter((g) => isWithin24h(g.startsAt) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.startsAt));
       for (const g of filtered.slice(0, 12)) {
         const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
         realGames.push({ sport, game: gameLabel, status: g.status, startsAt: g.startsAt, venue: g.venue, homeTeamId: g.homeTeamId ? String(g.homeTeamId) : null, awayTeamId: g.awayTeamId ? String(g.awayTeamId) : null });
@@ -5103,7 +5148,7 @@ export default function ParlayBuilder() {
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
     const realOdds = [];
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
-      const filtered = games.filter((g) => isWithin24h(g.commenceTime));
+      const filtered = games.filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
       for (const g of filtered.slice(0, 12)) {
         const all = buildPicksFromOdds(g);
         // Send all main-market picks (ML/Spread/Total) PLUS a capped sample
@@ -5157,6 +5202,8 @@ export default function ParlayBuilder() {
       // older cached props from previously-opened games must not leak in.
       if (!isWithin24h(eventToStart[eid])) continue;
       const gameLabel = eventToGame[eid] || `${data.away} @ ${data.home}`;
+      // A finished/already-started game's props must never reach the AI prompt.
+      if (!gamePickable(gameLabel, null, eventToStart[eid])) continue;
       const sport = eventToSport[eid] || null;
       const teams = propEventToTeams[eid] || gameLabelToTeams[gameLabel];
       // Was slice(0, 30) — but MLB games return ~10 batters × hits, ×TB,
@@ -5421,7 +5468,7 @@ export default function ParlayBuilder() {
             // whose game tips off days/weeks/months out. Picks without a
             // known startsAt are dropped rather than passed through, so the
             // AI can't grab a stale preseason matchup by accident.
-            .filter((p) => isWithin24h(p.startsAt))
+            .filter((p) => isWithin24h(p.startsAt) && gamePickable(p.game, p.status, p.startsAt))
             .slice(0, 30)
             .map((p) => {
               // Attach the REAL live score/period/clock for in-progress games so
@@ -5536,15 +5583,17 @@ export default function ParlayBuilder() {
       // realProps only carry the combined "Away @ Home" label so we split.
       for (const sportGames of Object.values(realGamesBySportLocal || {})) {
         for (const g of (sportGames || [])) {
-          if (isWithin24h(g.startsAt)) {
-            addMatchup(g.awayTeam, g.homeTeam, `${g.awayTeam} @ ${g.homeTeam}`);
+          const label = `${g.awayTeam} @ ${g.homeTeam}`;
+          if (isWithin24h(g.startsAt) && gamePickable(label, g.status, g.startsAt)) {
+            addMatchup(g.awayTeam, g.homeTeam, label);
           }
         }
       }
       for (const sportOdds of Object.values(realOddsBySportLocal || {})) {
         for (const g of (sportOdds || [])) {
-          if (isWithin24h(g.commenceTime)) {
-            addMatchup(g.awayTeam, g.homeTeam, `${g.awayTeam} @ ${g.homeTeam}`);
+          const label = `${g.awayTeam} @ ${g.homeTeam}`;
+          if (isWithin24h(g.commenceTime) && gamePickable(label, g.status, g.commenceTime)) {
+            addMatchup(g.awayTeam, g.homeTeam, label);
           }
         }
       }
@@ -5553,12 +5602,16 @@ export default function ParlayBuilder() {
         return mm ? [mm[1].trim(), mm[2].trim()] : null;
       };
       for (const pr of realProps) {
+        // realProps carries no status; cross-filter against the final-game
+        // label set and start time so a finished game's props can't re-add it.
+        if (!gamePickable(pr.game, null, pr.startsAt)) continue;
         const parts = splitLabel(pr.game);
         if (parts) addMatchup(parts[0], parts[1], pr.game);
       }
       if (liveMode) {
         for (const lp of livePicks) {
           if (!isWithin24h(lp.startsAt)) continue;
+          if (!gamePickable(lp.game, lp.status, lp.startsAt)) continue;
           const parts = splitLabel(lp.game);
           if (parts) addMatchup(parts[0], parts[1], lp.game);
         }
