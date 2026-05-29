@@ -7382,12 +7382,6 @@ export default function ParlayBuilder() {
               </>
             )}
 
-            <p className="text-[9px] font-mono text-slate-500 text-center mt-5 uppercase tracking-widest leading-relaxed">
-              {homeDataStatus === "live"
-                ? <>Live scores & schedules from ESPN, odds from The Odds API · Refreshes every 60s<br/>21+ · For entertainment · Bet responsibly</>
-                : <>⚠️ Simulated games — couldn't reach live feeds.<br/>21+ · Hypothetical only · Bet responsibly</>}
-            </p>
-
             {/* Upcoming Games */}
             <div className="flex items-center justify-between mb-2 mt-8 px-1">
               <h2 className="font-display text-lg text-slate-100">UPCOMING</h2>
