@@ -7222,7 +7222,7 @@ export default function ParlayBuilder() {
               {[
                 { label: "Hot Picks", icon: <HotPicksIcon size={18} />, msg: "Build me the best parlay" },
                 { label: "Easy Money", icon: <EasyMoneyIcon size={18} />, msg: "Build me a safe parlay" },
-                { label: "Long Shot", icon: <LongShotIcon size={18} />, msg: "Build me a longshot parlay" },
+                { label: "Lottery Ticket", icon: <LongShotIcon size={18} />, msg: "Build me a longshot parlay" },
               ].map((p) => (
                 <button
                   key={p.label}
