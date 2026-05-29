@@ -2525,7 +2525,7 @@ export default function ParlayBuilder() {
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
   const [gameDetail, setGameDetail] = useState(null); // { game, sport } for the full game-detail screen
-  const [openPropCats, setOpenPropCats] = useState(["Game Lines"]); // categories open (independent accordions)
+  const [openPropCats, setOpenPropCats] = useState(["AI Spreads & Totals", "Game Lines"]); // categories open (independent accordions)
   const [expandedPropPlayers, setExpandedPropPlayers] = useState({}); // player name -> bool, tracks which player-prop cards are expanded
   const [legMenuOpen, setLegMenuOpen] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null); // { player, sport }
@@ -7032,7 +7032,7 @@ export default function ParlayBuilder() {
                                     setHomeSearch("");
                                     const indiv = gm.sport === "ufc" || gm.sport === "mma" || gm.sport === "tennis" || gm.sport === "golf" || gm.sport === "nascar" || (/\bvs\.?\b/i.test(gm.game) && !/@/.test(gm.game));
                                     setGameDetail({ game: gm.game, sport: gm.sport });
-                                    setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
+                                    setOpenPropCats(indiv ? ["Match Markets"] : ["AI Spreads & Totals", "Game Lines"]);
                                   }}
                                   className="w-full border border-slate-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
                                 >
@@ -7764,7 +7764,7 @@ export default function ParlayBuilder() {
                                 onClick={() => {
                                   const indiv = gm.sport === "ufc" || gm.sport === "mma" || gm.sport === "tennis" || gm.sport === "golf" || gm.sport === "nascar" || (/\bvs\.?\b/i.test(gm.game) && !/@/.test(gm.game));
                                   setGameDetail({ game: gm.game, sport: gm.sport });
-                                  setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
+                                  setOpenPropCats(indiv ? ["Match Markets"] : ["AI Spreads & Totals", "Game Lines"]);
                                 }}
                                 className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
                               >
@@ -7972,7 +7972,7 @@ export default function ParlayBuilder() {
                               onClick={() => {
                                 const indiv = sportDetail === "ufc" || sportDetail === "mma" || sportDetail === "tennis" || sportDetail === "golf" || sportDetail === "nascar" || (/\bvs\.?\b/i.test(game) && !/@/.test(game));
                                 setGameDetail({ game, sport: sportDetail });
-                                setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
+                                setOpenPropCats(indiv ? ["Match Markets"] : ["AI Spreads & Totals", "Game Lines"]);
                               }}
                               className="w-full border border-slate-800 rounded-2xl px-3 py-3 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
                             >
@@ -9495,6 +9495,57 @@ export default function ParlayBuilder() {
             </div>
           );
         };
+        // AI's single best Spread and Total side, by no-vig fair edge across
+        // the two posted sides of each main market. Surfaced in a dedicated
+        // "AI Spreads & Totals" tab so the user gets one clear call per market
+        // using only the REAL bookmaker prices already on the board.
+        const aiMarketPick = (matcher) => {
+          const amToProb = (o) => (o == null ? null : o < 0 ? -o / (-o + 100) : 100 / (o + 100));
+          // REAL bookmaker lines only — never recommend off the sample
+          // PICK_POOL fallback (those lack `real`). Keeps the "real prices
+          // only" promise of this tab honest.
+          const probs = gameLines
+            .filter((p) => p.real && matcher(p.market))
+            .map((p) => ({ p, ip: amToProb(p.odds) }))
+            .filter((x) => x.ip != null);
+          if (probs.length < 2) return null;
+          const sum = probs.reduce((s, x) => s + x.ip, 0);
+          let best = null;
+          probs.forEach(({ p, ip }) => {
+            const edge = ip / sum - ip; // no-vig fair prob minus market-implied prob
+            if (!best || edge > best.edge) best = { pick: p, edge };
+          });
+          return best;
+        };
+        const aiSpreadPick = aiMarketPick((m) => /spread|run line|puck line/i.test(m));
+        const aiTotalPick = aiMarketPick((m) => /total|^o\/?u|over|under/i.test(m));
+        const aiLineCard = (kind, best) => {
+          if (!best) return null;
+          const p = best.pick;
+          const inSlip = parlayLegs.some((l) => legKey(l) === legKey(p));
+          const reason = best.edge > 0.0001
+            ? `${(best.edge * 100).toFixed(1)}% edge vs the no-vig fair price`
+            : "lowest-vig side of this market";
+          return (
+            <div className="mx-4 mt-2 mb-1 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-2 border-cyan-400 overflow-hidden">
+              <div className="bg-cyan-400 text-slate-950 px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
+                <span>★</span><span>AI {kind} pick</span>
+              </div>
+              <div className="px-4 py-3">
+                <div className="text-[10px] font-mono uppercase text-cyan-300 tracking-wider mb-0.5">{p.market}</div>
+                <div className="text-base font-bold text-slate-100 mb-1">{p.pick}</div>
+                <div className="text-sm text-cyan-200 mb-2"><span className="font-mono">{formatOdds(p.odds)}</span></div>
+                <div className="text-[11px] text-slate-300 leading-snug mb-3">
+                  <span className="font-bold uppercase tracking-wider text-[9px] text-cyan-300 mr-1">Why:</span>{reason}
+                </div>
+                <button onClick={() => { if (!inSlip) addLeg({ ...p, sport }); }} disabled={inSlip}
+                  className={`w-full rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition ${inSlip ? "bg-slate-800 text-slate-500" : "bg-cyan-400 hover:bg-cyan-300 text-slate-950"}`}>
+                  {inSlip ? "✓ Added to ticket" : "+ Add AI pick to ticket"}
+                </button>
+              </div>
+            </div>
+          );
+        };
         return (
           <div className="fixed inset-0 z-40 bg-slate-900 flex flex-col">
             {/* Header */}
@@ -9555,20 +9606,17 @@ export default function ParlayBuilder() {
                 ) : null
               ) : (
                 <>
-                  {/* Game Lines grid */}
+                  {/* AI's recommended spread & total side (real prices only) */}
+                  {(aiSpreadPick || aiTotalPick) && (
+                    <Section title="AI Spreads & Totals" count={(aiSpreadPick ? 1 : 0) + (aiTotalPick ? 1 : 0)}>
+                      {aiLineCard("spread", aiSpreadPick)}
+                      {aiLineCard("total", aiTotalPick)}
+                    </Section>
+                  )}
+                  {/* Game Lines grid (main spreads, totals, moneyline) */}
                   {gameLines.length > 0 && (
                     <Section title="Game Lines" count={gameLines.length}>
                       {gameLines.map(addable)}
-                    </Section>
-                  )}
-                  {altSpreadPicks.length > 0 && (
-                    <Section title="Alternate Spreads" count={altSpreadPicks.length}>
-                      {altSpreadPicks.map(addable)}
-                    </Section>
-                  )}
-                  {altTotalPicks.length > 0 && (
-                    <Section title="Alternate Totals" count={altTotalPicks.length}>
-                      {altTotalPicks.map(addable)}
                     </Section>
                   )}
                   {teamOther.length > 0 && (
