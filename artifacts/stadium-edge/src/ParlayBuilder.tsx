@@ -5079,22 +5079,60 @@ export default function ParlayBuilder() {
       const wantsWideProps = /\b(home runs?|hr\b|anytime td|goal scorer|first goal|strikeouts?)\b/i.test(text);
       const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : 3;
       const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : 6;
+      // Detect a game the user NAMED in this message (both teams mentioned, e.g.
+      // "best 10-leg parlay for San Antonio Spurs @ Oklahoma City Thunder").
+      // A named game is GAME-LOCKED in the prompt — every leg must come from it,
+      // including props — so its props MUST be fetched even if the generic
+      // "soonest N games per sport, capped at totalCap" heuristic would skip it
+      // (e.g. when MLB/NHL also have games in the window and fill the cap first,
+      // or the named game isn't among its sport's soonest few). Without this the
+      // named game's realProps arrived empty and the AI honestly but wrongly
+      // reported "only 1 independent leg available — no props posted".
+      const lowerText = (text || "").toLowerCase();
+      const teamKey = (full) => (full || "").split(/\s+/).filter(Boolean).pop().toLowerCase();
+      // Word-boundary match (not bare substring) so a team nickname only counts
+      // when it appears as a whole word — avoids incidental collisions. Requires
+      // BOTH teams' nicknames present, so a single stray word never force-locks.
+      const mentionsWord = (word) => {
+        if (!word) return false;
+        const esc = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`\\b${esc}\\b`).test(lowerText);
+      };
+      const gameNamedInText = (g) => mentionsWord(teamKey(g.homeTeam)) && mentionsWord(teamKey(g.awayTeam));
       for (const s of selectedSports) {
         const oddsGames = (realOddsBySportLocal[s] || []).filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
         const espnGames = realGamesBySportLocal[s] || [];
         // Sort soonest-first so the prop pool reflects the games closest to
         // tip-off — most actionable for "add to ticket now" intent.
         oddsGames.sort((a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime());
-        for (const g of oddsGames.slice(0, perSportCap)) {
+        // Named games ALWAYS qualify regardless of the per-sport soonest-N cap;
+        // the rest fill the remaining slots soonest-first.
+        const namedGames = oddsGames.filter(gameNamedInText);
+        const restGames = oddsGames.filter((g) => !gameNamedInText(g)).slice(0, perSportCap);
+        for (const g of [...namedGames, ...restGames]) {
           if (!g.id) continue;
           const espn = espnGames.find((e) => `${e.awayTeam} @ ${e.homeTeam}` === `${g.awayTeam} @ ${g.homeTeam}`);
-          candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId });
+          candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId, named: gameNamedInText(g) });
           if (espn?.homeTeamId && espn?.awayTeamId) {
             propEventToTeams[g.id] = { home: String(espn.homeTeamId), away: String(espn.awayTeamId) };
           }
         }
       }
-      const toFetch = candidates.slice(0, totalCap);
+      // Named games are fetched FIRST and are never dropped by the global cap;
+      // other games fill whatever slots remain up to totalCap.
+      const namedCandidates = candidates.filter((c) => c.named);
+      const otherCandidates = candidates.filter((c) => !c.named);
+      // De-dupe by eventId (a game can't be both named-and-other, but guard
+      // against any accidental repeat so we never fetch the same event twice).
+      const seenEventIds = new Set();
+      const toFetch = [
+        ...namedCandidates,
+        ...otherCandidates.slice(0, Math.max(0, totalCap - namedCandidates.length)),
+      ].filter((c) => {
+        if (!c.eventId || seenEventIds.has(c.eventId)) return false;
+        seenEventIds.add(c.eventId);
+        return true;
+      });
       await Promise.all(
         toFetch.map(async (c) => {
           // Skip refetch ONLY if the cached entry has real prop rows. An
