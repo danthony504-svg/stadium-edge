@@ -110,6 +110,19 @@ function summarizeForm(results: Array<{ teamScore: number | null; oppScore: numb
   };
 }
 
+// Compact list of a team's most recent COMPLETED games (newest first) with
+// real final scores. Powers the team detail page's recent-performance chart —
+// every number is a real ESPN final score, nothing fabricated.
+function recentList(
+  results: Array<{ date: string; opponentName: string | null; teamScore: number | null; oppScore: number | null; won: boolean | null; isHome: boolean }>,
+  n: number,
+) {
+  return results
+    .filter((r) => r.teamScore != null && r.oppScore != null)
+    .slice(0, n)
+    .map((r) => ({ date: r.date, opp: r.opponentName, home: r.isHome, pts: r.teamScore, oppPts: r.oppScore, won: r.won }));
+}
+
 // Current win/loss streak from a team's results (newest first). Counts how
 // many consecutive games — from the most recent — ended the same way. Real,
 // derived straight from final scores; null when there are no decided games.
@@ -185,6 +198,8 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           // Current W/L streak and full-season record — real, from final scores.
           streak: computeStreak(home.results),
           season: seasonRecord(home.results),
+          // Real last-10 game-by-game scores for the team detail chart.
+          recent: recentList(home.results, 10),
           // Most recent COMPLETED game date — lets the client compute real
           // days-rest / back-to-back vs the upcoming game's start time. Null
           // when the team has no completed games in the feed.
@@ -199,6 +214,7 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           awaySplit: summarizeForm(away.results.filter((r) => !r.isHome), 10),
           streak: computeStreak(away.results),
           season: seasonRecord(away.results),
+          recent: recentList(away.results, 10),
           lastGameDate: away.results[0]?.date ?? null,
         },
         h2h: {
@@ -213,8 +229,8 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
     req.log.error({ err }, "Failed to fetch matchup history");
     res.json({
       sport: sportId,
-      home: { teamId: homeTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, lastGameDate: null },
-      away: { teamId: awayTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, lastGameDate: null },
+      home: { teamId: homeTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, recent: [], lastGameDate: null },
+      away: { teamId: awayTeamId, teamName: null, last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null }, recent: [], lastGameDate: null },
       h2h: { meetings: [], homeWins: 0, awayWins: 0 },
     });
   }

@@ -2526,6 +2526,12 @@ export default function ParlayBuilder() {
   const [propLine, setPropLine] = useState(null); // current adjustable prop line in the detail view
   const propChartRef = useRef(null);
   const [propStatKey, setPropStatKey] = useState(null);
+  // Team detail page (mirror of the player props page, but for a team total —
+  // built from REAL last-10 final scores, not a sample). { sport, side,
+  // teamName, logo, oppName, gameLabel, loading, error, last10, recent, streak, season }
+  const [selectedTeam, setSelectedTeam] = useState(null);
+  const [teamLine, setTeamLine] = useState(null); // adjustable team-total line in the team view
+  const teamChartRef = useRef(null);
   const [slipAnalysis, setSlipAnalysis] = useState(null); // analysis text shown under the slip
   const [legsAnalyzed, setLegsAnalyzed] = useState(false); // per-leg analysis under each bet
   const [selectedPlan, setSelectedPlan] = useState("free");
@@ -9572,6 +9578,35 @@ export default function ParlayBuilder() {
         const { game, sport } = gameDetail;
         const realOddsForGame = (realOddsBySport[sport] || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
         const realGameForGame = (realGamesBySport[sport] || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === game);
+        // Open the team detail page for one side of this matchup. Loads the
+        // team's REAL last-10 final scores from the matchup-history feed (same
+        // endpoint the AI uses), then mirrors the player-props layout for a
+        // team-total line. Needs both ESPN team ids — bails quietly without them.
+        const openTeamDetail = async (side) => {
+          const rg = realGameForGame;
+          if (!rg?.homeTeamId || !rg?.awayTeamId) return;
+          setTeamLine(null);
+          setSelectedTeam({
+            sport, side,
+            teamName: side === "home" ? rg.homeTeam : rg.awayTeam,
+            logo: side === "home" ? rg.homeLogo : rg.awayLogo,
+            oppName: side === "home" ? rg.awayTeam : rg.homeTeam,
+            gameLabel: game, loading: true,
+          });
+          // Only the request that still matches the CURRENT selection may
+          // write its data — guards against a rapid Away→Home re-tap where an
+          // earlier response would otherwise merge one team's real stats under
+          // the other team's identity (a misleading cross-team bleed).
+          const matchesRequest = (prev) => prev && prev.loading && prev.side === side && prev.gameLabel === game;
+          try {
+            const r = await fetch(`/api/sports/matchup-history?sport=${encodeURIComponent(sport)}&homeTeamId=${encodeURIComponent(rg.homeTeamId)}&awayTeamId=${encodeURIComponent(rg.awayTeamId)}`);
+            const d = await r.json();
+            const node = side === "home" ? d?.home : d?.away;
+            setSelectedTeam((prev) => (matchesRequest(prev) ? { ...prev, loading: false, last10: node?.last10 || null, recent: Array.isArray(node?.recent) ? node.recent : [], streak: node?.streak || null, season: node?.season || null } : prev));
+          } catch {
+            setSelectedTeam((prev) => (matchesRequest(prev) ? { ...prev, loading: false, error: true } : prev));
+          }
+        };
         const realPicks = realOddsForGame ? buildPicksFromOdds(realOddsForGame) : [];
         const picks = realPicks.length > 0 ? realPicks : (PICK_POOL[sport] || []).filter((p) => p.game === game);
         const nameMap = TEAM_ABBR_TO_NAME[sport] || {};
@@ -9683,19 +9718,33 @@ export default function ParlayBuilder() {
               <div className="mt-3">
                 {realGameForGame?.homeLogo || realGameForGame?.awayLogo ? (
                   <div className="flex items-center justify-center gap-4 mb-2">
-                    <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                    <button
+                      onClick={() => openTeamDetail("away")}
+                      disabled={!realGameForGame.homeTeamId || !realGameForGame.awayTeamId}
+                      className="flex flex-col items-center gap-1 flex-1 min-w-0 rounded-xl py-1 transition active:scale-95 enabled:hover:bg-slate-800/60 disabled:cursor-default"
+                    >
                       {realGameForGame.awayLogo && (
-                        <img src={realGameForGame.awayLogo} alt={realGameForGame.awayTeam || ""} className="w-14 h-14 object-contain" />
+                        <img src={realGameForGame.awayLogo} alt={realGameForGame.awayTeam || ""} className="w-14 h-14 object-contain pointer-events-none" />
                       )}
                       <div className="text-xs text-slate-300 text-center truncate w-full px-2">{realGameForGame.awayTeam}</div>
-                    </div>
+                      {realGameForGame.homeTeamId && realGameForGame.awayTeamId && (
+                        <div className="text-[8px] font-mono uppercase tracking-wider text-cyan-400/80">View team ›</div>
+                      )}
+                    </button>
                     <div className="text-slate-500 text-xs font-mono">@</div>
-                    <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                    <button
+                      onClick={() => openTeamDetail("home")}
+                      disabled={!realGameForGame.homeTeamId || !realGameForGame.awayTeamId}
+                      className="flex flex-col items-center gap-1 flex-1 min-w-0 rounded-xl py-1 transition active:scale-95 enabled:hover:bg-slate-800/60 disabled:cursor-default"
+                    >
                       {realGameForGame.homeLogo && (
-                        <img src={realGameForGame.homeLogo} alt={realGameForGame.homeTeam || ""} className="w-14 h-14 object-contain" />
+                        <img src={realGameForGame.homeLogo} alt={realGameForGame.homeTeam || ""} className="w-14 h-14 object-contain pointer-events-none" />
                       )}
                       <div className="text-xs text-slate-300 text-center truncate w-full px-2">{realGameForGame.homeTeam}</div>
-                    </div>
+                      {realGameForGame.homeTeamId && realGameForGame.awayTeamId && (
+                        <div className="text-[8px] font-mono uppercase tracking-wider text-cyan-400/80">View team ›</div>
+                      )}
+                    </button>
                   </div>
                 ) : (
                   <div className="font-display text-xl text-slate-100 text-center">{game}</div>
@@ -10546,6 +10595,325 @@ export default function ParlayBuilder() {
                     {bookLegCount >= 1
                       ? `$10 wins ${ppLegCount > 0 ? "(book) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}`
                       : `${ppLegCount} PP leg${ppLegCount === 1 ? "" : "s"} · DFS payout`}
+                  </span>
+                  <span className="text-blue-600 text-xl leading-none">⌃</span>
+                </div>
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Team detail page — mirror of the player-props page, but for a TEAM
+          TOTAL. Stats and the recent-performance chart are REAL last-10 final
+          scores from ESPN (teams are not the sample exception); only the line
+          you set and its odds are hypothetical estimates, clearly disclaimed. */}
+      {selectedTeam && (() => {
+        const t = selectedTeam;
+        const sport = t.sport;
+        const close = () => setSelectedTeam(null);
+        const initials = (t.teamName || "?").split(" ").map((w) => w[0]).join("").slice(0, 3).toUpperCase();
+        // Loading / error / empty guards.
+        if (t.loading) {
+          return (
+            <div className="fixed inset-0 z-40 bg-slate-900 flex flex-col items-center justify-center gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-slate-700 border-t-cyan-400 animate-spin" />
+              <div className="text-sm text-slate-400">Loading {t.teamName} form…</div>
+              <button onClick={close} className="text-cyan-400 text-sm mt-2">Close</button>
+            </div>
+          );
+        }
+        const recent = Array.isArray(t.recent) ? t.recent : [];
+        if (t.error || recent.length === 0) {
+          return (
+            <div className="fixed inset-0 z-40 bg-slate-900 flex flex-col items-center justify-center gap-3 px-8 text-center">
+              <div className="text-slate-200 font-semibold">No recent game data</div>
+              <div className="text-xs text-slate-500">We only show real results, and there aren't enough completed games for {t.teamName} yet.</div>
+              <button onClick={close} className="text-cyan-400 text-sm mt-2">Close</button>
+            </div>
+          );
+        }
+        // REAL chart data: team points per game, oldest → newest (left → right).
+        const chartGames = recent.slice(0, 8).reverse();
+        const games = chartGames.map((g) => g.pts);
+        const n = games.length;
+        const avg = t.last10?.ptsFor != null ? t.last10.ptsFor : +(games.reduce((a, b) => a + b, 0) / n).toFixed(1);
+        const step = 0.5;
+        const line = teamLine != null ? teamLine : +(Math.round(avg / step) * step).toFixed(1);
+        const maxV = Math.max(...games, line) * 1.2 || 1;
+        // Odds scale off how far the set line sits from the real average.
+        // Multiplier is small because team totals are large numbers (~100+).
+        const diff = line - avg;
+        const overOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 + diff * 0.05)));
+        const underOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - diff * 0.05)));
+        const hitsAtOrAbove = (c) => games.filter((v) => v >= c).length;
+        const hitsAtOrBelow = (c) => games.filter((v) => v <= c).length;
+        // SUGGESTED LINES (Safe / Balanced / Alt Under) on the team total —
+        // same logic as the player page, computed from real recent scores.
+        const suggestedTiers = (() => {
+          const sorted = [...games].sort((a, b) => a - b);
+          const sampleMin = sorted[0];
+          const sampleMax = sorted[sorted.length - 1];
+          const overSampleHits = games.filter((v) => v >= avg).length;
+          const safeSide = overSampleHits >= Math.ceil(n / 2) ? "Over" : "Under";
+          const safe = (() => {
+            let v = null;
+            if (safeSide === "Over") {
+              for (let c = 0; c <= maxV; c += step) { const cand = +c.toFixed(1); if (hitsAtOrAbove(cand) === n) v = cand; }
+              if (v != null) v = Math.max(0, Math.min(v, +(sampleMin - step).toFixed(1)));
+            } else {
+              for (let c = maxV; c >= 0; c -= step) { const cand = +c.toFixed(1); if (hitsAtOrBelow(cand) === n) v = cand; }
+              if (v != null) v = Math.max(v, +(sampleMax + step).toFixed(1));
+            }
+            if (v == null) v = safeSide === "Over" ? Math.max(0, +(sampleMin - step).toFixed(1)) : +(sampleMax + step).toFixed(1);
+            return { side: safeSide, value: v };
+          })();
+          const balanced = { side: safeSide, value: Math.max(0, +(Math.round(avg / step) * step).toFixed(1)) };
+          const altUnder = (() => {
+            const snap = (x) => +(Math.round(x / step) * step).toFixed(1);
+            const bump = Math.max(step * 2, +(avg * 0.04).toFixed(2));
+            let v = snap(balanced.value + bump);
+            const cap = snap(sampleMax + step);
+            if (v > cap) v = cap;
+            if (v <= balanced.value) v = snap(balanced.value + step);
+            return { side: "Under", value: v };
+          })();
+          const describe = (tier) => {
+            const hits = tier.side === "Over" ? hitsAtOrAbove(tier.value) : hitsAtOrBelow(tier.value);
+            const cushion = tier.side === "Over" ? avg - tier.value : tier.value - avg;
+            return { ...tier, hits, cushion: +cushion.toFixed(1) };
+          };
+          return { safe: describe(safe), balanced: describe(balanced), altUnder: describe(altUnder) };
+        })();
+        const aiPick = (() => {
+          const side = suggestedTiers.balanced.side;
+          const pLine = suggestedTiers.balanced.value;
+          const d = pLine - avg;
+          const odds = side === "Over"
+            ? decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 + d * 0.05)))
+            : decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - d * 0.05)));
+          const support = side === "Over" ? hitsAtOrAbove(pLine) : hitsAtOrBelow(pLine);
+          return { side, line: pLine, odds, support };
+        })();
+        const tierMatch = (tr) => Math.abs(line - tr.value) < 0.01;
+        const activeTier = tierMatch(suggestedTiers.safe) ? "safe" : tierMatch(suggestedTiers.balanced) ? "balanced" : tierMatch(suggestedTiers.altUnder) ? "altUnder" : null;
+        const statCells = [
+          { k: "PPG", v: avg },
+          { k: "OPP PPG", v: t.last10?.ptsAgainst ?? "—" },
+          { k: "MARGIN", v: t.last10?.avgMargin != null ? `${t.last10.avgMargin > 0 ? "+" : ""}${t.last10.avgMargin}` : "—" },
+          { k: "STREAK", v: t.streak ? `${t.streak.type}${t.streak.count}` : "—" },
+          { k: "RECORD", v: t.season ? `${t.season.wins}-${t.season.losses}` : (t.last10 ? `${t.last10.wins}-${t.last10.losses}` : "—") },
+        ];
+        return (
+          <div className="fixed inset-0 z-40 bg-slate-900 overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between z-10">
+              <h2 className="font-display text-lg text-slate-100">Team Total</h2>
+              <button onClick={close} className="text-blue-600 font-semibold">Close</button>
+            </div>
+
+            <div className="px-4 py-4">
+              {/* Identity */}
+              <div className="flex items-center gap-3 mb-4">
+                {t.logo ? (
+                  <img src={t.logo} alt={t.teamName} className="w-16 h-16 object-contain shrink-0" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-zinc-900 text-white flex items-center justify-center text-lg font-bold shrink-0">{initials}</div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-xl font-bold text-slate-100 truncate">{t.teamName}</div>
+                  <div className="text-sm text-slate-400 truncate">{t.last10 ? `${t.last10.wins}-${t.last10.losses} L10` : "Recent form"}{t.oppName ? ` · vs ${t.oppName}` : ""}</div>
+                </div>
+              </div>
+
+              {/* AI Suggested Pick */}
+              <div className="rounded-2xl border border-amber-400/40 bg-gradient-to-br from-amber-500/15 to-amber-400/5 p-4 mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300 flex items-center gap-1.5"><Sparkles size={13} /> AI Suggested Pick</span>
+                </div>
+                <div className="flex items-baseline gap-2 mb-1.5">
+                  <span className="text-2xl font-bold text-slate-50">{aiPick.side} {aiPick.line}</span>
+                  <span className="text-sm font-semibold text-slate-300">Team Points</span>
+                  <span className="ml-auto font-mono font-bold text-amber-300 text-lg">{formatOdds(aiPick.odds)}</span>
+                </div>
+                <p className="text-xs text-slate-300/90 leading-snug">
+                  Leaning <span className="font-semibold text-amber-200">{aiPick.side.toLowerCase()}</span> — {t.teamName.split(" ").slice(-1)[0]} went {aiPick.side === "Over" ? "over" : "under"} this in {aiPick.support} of the last {n} games (L10 avg {avg}).
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => addLeg({ game: t.gameLabel, market: "Team Total", pick: `${t.teamName} ${aiPick.side} ${aiPick.line} Points`, odds: aiPick.odds, sport })}
+                    className="flex-1 rounded-lg bg-amber-400 text-slate-950 font-bold text-sm py-2 active:scale-95 transition"
+                  >
+                    + Add to slip
+                  </button>
+                  <button
+                    onClick={() => setTeamLine(aiPick.line)}
+                    className="rounded-lg border border-amber-400/40 text-amber-200 font-semibold text-sm px-3 py-2 active:scale-95 transition"
+                  >
+                    Load line
+                  </button>
+                </div>
+              </div>
+
+              {/* Real last-10 stats */}
+              <div className="rounded-2xl overflow-hidden border border-slate-800 mb-5">
+                <div className="bg-zinc-900 text-white text-center text-xs font-mono uppercase tracking-widest py-2">Last 10 Games · Real</div>
+                <div className="grid grid-flow-col auto-cols-fr divide-x divide-slate-800">
+                  {statCells.map((c) => (
+                    <div key={c.k} className="py-3 text-center">
+                      <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{c.k}</div>
+                      <div className="text-lg font-bold text-slate-100">{c.v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Recent performance — REAL scores */}
+              <div className="border border-slate-800 rounded-2xl p-4 mb-5">
+                <h3 className="font-bold text-slate-100 mb-1">Recent Performance</h3>
+                <div className="text-xs text-slate-400 mb-3">
+                  {avg} pts/game · L10 avg · line {line} <span className="text-slate-500">(drag the line or use −/+)</span>
+                </div>
+                <div
+                  ref={teamChartRef}
+                  className="flex items-end justify-between gap-1.5 h-40 border-b border-slate-800 relative touch-none select-none"
+                  onPointerDown={(e) => {
+                    const setFromY = (clientY) => {
+                      const el = teamChartRef.current;
+                      if (!el) return;
+                      const rect = el.getBoundingClientRect();
+                      const frac = Math.min(1, Math.max(0, (rect.bottom - clientY) / rect.height));
+                      let val = frac * maxV;
+                      val = Math.round(val / step) * step;
+                      val = Math.max(0, +val.toFixed(1));
+                      setTeamLine(val);
+                    };
+                    setFromY(e.clientY);
+                    const move = (ev) => setFromY(ev.clientY);
+                    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+                    window.addEventListener("pointermove", move);
+                    window.addEventListener("pointerup", up);
+                  }}
+                >
+                  <div className="absolute left-0 right-0 border-t-2 border-dashed border-blue-400 z-10 pointer-events-none" style={{ bottom: `${(line / maxV) * 100}%` }}>
+                    <div className="absolute -right-1 -top-3 flex items-center gap-1">
+                      <span className="text-[9px] font-mono font-bold text-blue-300 bg-slate-900 px-1 rounded">{line}</span>
+                      <span className="w-5 h-5 rounded-full bg-blue-500 border-2 border-slate-900 flex items-center justify-center text-[8px] text-white">↕</span>
+                    </div>
+                  </div>
+                  {games.map((v, gi) => {
+                    const over = v >= line;
+                    return (
+                      <div key={gi} className="flex-1 flex flex-col items-center justify-end h-full pointer-events-none">
+                        <div className="text-[10px] font-bold text-slate-300 mb-1">{v}</div>
+                        <div className={`w-full rounded-t ${over ? "bg-emerald-500" : "bg-zinc-400"}`} style={{ height: `${Math.max(4, (v / maxV) * 100)}%` }} />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between mt-1.5 gap-1.5">
+                  {chartGames.map((g, gi) => (
+                    <div key={gi} className="flex-1 text-center">
+                      <div className={`text-[9px] font-mono font-bold ${g.won ? "text-emerald-400" : "text-rose-400"}`}>{g.won ? "W" : "L"}</div>
+                      <div className="text-[8px] font-mono text-slate-600 truncate">{g.home ? "vs" : "@"} {(g.opp || "").split(" ").slice(-1)[0]}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Suggested lines — 3 tiers */}
+              <div className="border border-cyan-500/30 bg-cyan-400/5 rounded-2xl p-4 mb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-bold text-cyan-300 text-sm flex items-center gap-1.5"><Sparkles size={14} /> Suggested lines</h3>
+                  <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">3 ways to play</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: "safe", label: "Safe", subtitle: "Low risk", color: "emerald", tier: suggestedTiers.safe },
+                    { key: "balanced", label: "Balanced", subtitle: "Med risk", color: "cyan", tier: suggestedTiers.balanced },
+                    { key: "altUnder", label: "Alt Under", subtitle: "Safer under", color: "violet", tier: suggestedTiers.altUnder },
+                  ]).map(({ key, label, subtitle, color, tier }) => {
+                    const isActive = activeTier === key;
+                    const colorMap = {
+                      emerald: { ring: "border-emerald-400 bg-emerald-500/15 ring-1 ring-emerald-400", idle: "border-emerald-500/30 hover:border-emerald-400 hover:bg-emerald-500/5", text: "text-emerald-300", chip: "bg-emerald-500/20 text-emerald-300" },
+                      cyan: { ring: "border-cyan-400 bg-cyan-500/15 ring-1 ring-cyan-400", idle: "border-cyan-500/30 hover:border-cyan-400 hover:bg-cyan-500/5", text: "text-cyan-300", chip: "bg-cyan-500/20 text-cyan-300" },
+                      violet: { ring: "border-violet-400 bg-violet-500/15 ring-1 ring-violet-400", idle: "border-violet-500/30 hover:border-violet-400 hover:bg-violet-500/5", text: "text-violet-300", chip: "bg-violet-500/20 text-violet-300" },
+                    }[color];
+                    return (
+                      <button key={key} onClick={() => setTeamLine(tier.value)} className={`relative rounded-xl border p-2.5 text-center transition active:scale-95 ${isActive ? colorMap.ring : `border ${colorMap.idle}`}`}>
+                        {isActive && <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold uppercase tracking-wider bg-slate-100 text-slate-950 px-2 py-0.5 rounded-full">✓ Set</span>}
+                        <div className={`text-[10px] font-mono font-bold uppercase tracking-wider mb-1 ${colorMap.text}`}>{label}</div>
+                        <div className="text-[9px] font-mono uppercase mb-1.5 text-slate-500">{subtitle}</div>
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <span className={`text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${colorMap.chip}`}>{tier.side}</span>
+                          <span className="text-lg font-bold text-slate-100 leading-none">{tier.value}</span>
+                        </div>
+                        <div className="text-[9px] font-mono text-slate-500">{tier.hits}/{n} hit{tier.cushion !== 0 && ` · ${tier.cushion > 0 ? "+" : ""}${tier.cushion}`}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[9px] font-mono text-slate-600 uppercase tracking-wider mt-3 text-center">Tap a pill to move the bar · real hit-rate, not a prediction</p>
+              </div>
+
+              {/* Adjustable team-total line */}
+              <h3 className="font-bold text-slate-100 mb-2">Team Total — set your line</h3>
+              <div className="border border-slate-800 rounded-2xl p-4 mb-3">
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setTeamLine(Math.max(0, +(line - step).toFixed(1)))} className="w-12 h-12 rounded-full border border-slate-700 text-2xl font-bold text-slate-300 hover:border-cyan-400 hover:bg-slate-800 active:scale-95 transition flex items-center justify-center">−</button>
+                  <div className="text-center">
+                    <div className="text-4xl font-bold text-slate-100">{line}</div>
+                    <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">team points line</div>
+                    <div className="text-[10px] font-mono text-slate-500 mt-0.5">L10 avg {avg}</div>
+                  </div>
+                  <button onClick={() => setTeamLine(+(line + step).toFixed(1))} className="w-12 h-12 rounded-full border border-slate-700 text-2xl font-bold text-slate-300 hover:border-cyan-400 hover:bg-slate-800 active:scale-95 transition flex items-center justify-center">+</button>
+                </div>
+              </div>
+
+              {/* Over / Under — add to ticket */}
+              <div className="grid grid-cols-2 gap-2 mb-5">
+                {(() => {
+                  const activeSide = activeTier ? suggestedTiers[activeTier].side : null;
+                  const overSuggested = activeTier != null && activeSide === "Over";
+                  const underSuggested = activeTier != null && activeSide === "Under";
+                  return (
+                    <>
+                      <button
+                        onClick={() => addLeg({ game: t.gameLabel, market: "Team Total", pick: `${t.teamName} Under ${line} Points`, odds: underOdds, sport })}
+                        className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${underSuggested ? "border-amber-400 bg-amber-500/10 ring-1 ring-amber-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
+                      >
+                        {underSuggested && <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold uppercase tracking-wider bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full">✦ Suggested</span>}
+                        <div className={`text-sm ${underSuggested ? "text-amber-300 font-semibold" : "text-slate-300"}`}>Under {line}</div>
+                        <div className="font-mono font-bold text-blue-600">{formatOdds(underOdds)}</div>
+                      </button>
+                      <button
+                        onClick={() => addLeg({ game: t.gameLabel, market: "Team Total", pick: `${t.teamName} Over ${line} Points`, odds: overOdds, sport })}
+                        className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${overSuggested ? "border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
+                      >
+                        {overSuggested && <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] font-mono font-bold uppercase tracking-wider bg-emerald-400 text-slate-950 px-2 py-0.5 rounded-full">✦ Suggested</span>}
+                        <div className={`text-sm ${overSuggested ? "text-emerald-300 font-semibold" : "text-slate-300"}`}>Over {line}</div>
+                        <div className="font-mono font-bold text-blue-600">{formatOdds(overOdds)}</div>
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <p className="text-[9px] font-mono text-slate-500 text-center mb-24 uppercase tracking-widest leading-relaxed">
+                ✅ Recent scores & averages are real ESPN results.<br/>Team-total lines you set are hypothetical · odds are estimates · 21+
+              </p>
+            </div>
+
+            {/* Betslip bar */}
+            {parlayLegs.length > 0 && (
+              <button onClick={() => setBetslipOpen(true)} className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 px-4 py-4 flex items-center justify-between shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-50">
+                <div className="flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">{parlayLegs.length}</span>
+                  <span className="text-blue-600 font-bold text-lg">Betslip</span>
+                </div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-slate-300 whitespace-nowrap">
+                    {bookLegCount >= 1 ? `$10 wins ${ppLegCount > 0 ? "(book) " : ""}$${((parlayMath.decimal - 1) * 10).toFixed(2)}` : `${ppLegCount} PP leg${ppLegCount === 1 ? "" : "s"} · DFS payout`}
                   </span>
                   <span className="text-blue-600 text-xl leading-none">⌃</span>
                 </div>
