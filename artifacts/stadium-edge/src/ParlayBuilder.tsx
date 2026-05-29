@@ -9269,23 +9269,6 @@ export default function ParlayBuilder() {
                 </button>
               ))}
 
-              <div className="pt-2 mt-2 border-t border-zinc-800/60">
-                <div className="px-3 py-1 text-[9px] font-mono uppercase tracking-widest text-slate-400">Tools</div>
-                {[
-                  { label: "Coach Trends", icon: <CoachIcon size={18} />, action: () => { if (requirePro("Coach Trends")) setShowCoaches(true); } },
-                  { label: "Weather", icon: <WeatherIcon size={18} />, action: () => { if (requirePro("Weather")) setShowWeather(true); } },
-                  { label: "Injury Report", icon: <InjuryIcon size={18} />, action: () => { if (requirePro("Injury Report")) setShowInjuries(true); } },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => { item.action(); setFabOpen(false); }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-zinc-300 hover:bg-zinc-800 transition text-sm text-left"
-                  >
-                    <span className="w-5 flex items-center justify-center">{item.icon}</span>
-                    {item.label}
-                  </button>
-                ))}
-              </div>
             </div>
             <button
               onClick={() => { setLoggedIn(false); setFabOpen(false); setLoginEmail(""); setLoginPass(""); }}
