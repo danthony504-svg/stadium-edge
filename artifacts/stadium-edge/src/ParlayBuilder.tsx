@@ -7157,9 +7157,16 @@ export default function ParlayBuilder() {
             {/* Upcoming Games */}
             <div className="flex items-center justify-between mb-2 mt-8 px-1">
               <h2 className="font-display text-lg text-slate-100">UPCOMING</h2>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                {homeUpcomingGames.length > 0 ? `${homeUpcomingGames.length} games` : "tap to build"}
-              </span>
+              {homeUpcomingGames.length > 0 ? (
+                <button
+                  onClick={() => { setHomeSearch(""); setView("allupcoming"); }}
+                  className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 hover:text-cyan-300 transition"
+                >
+                  View all {homeUpcomingGames.length} →
+                </button>
+              ) : (
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">tap to build</span>
+              )}
             </div>
             <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
               {(() => {
@@ -7790,10 +7797,100 @@ export default function ParlayBuilder() {
         </div>
       )}
 
+      {view === "allupcoming" && (
+        <div className="flex-1 overflow-y-auto bg-slate-900">
+          {/* Header */}
+          <div className="bg-slate-900 px-4 pt-4 pb-4 sticky top-0 z-10 border-b border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <button onClick={() => { setHomeSearch(""); setView("home"); }} className="text-slate-400 hover:text-slate-100 text-sm">‹ Back</button>
+              <h1 className="text-slate-100 font-bold text-lg">Upcoming Games</h1>
+              <span className="w-10" />
+            </div>
+            <div className="relative">
+              <input
+                value={homeSearch}
+                onChange={(e) => setHomeSearch(e.target.value)}
+                placeholder='Search upcoming games or teams…'
+                className="w-full bg-slate-800 border border-slate-700 rounded-full pl-10 pr-9 py-3 text-sm text-slate-100 focus:outline-none focus:border-cyan-400 transition"
+              />
+              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              {homeSearch && (
+                <button onClick={() => setHomeSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="px-4 py-4">
+            {(() => {
+              const q = homeSearch.trim().toLowerCase();
+              const games = q
+                ? homeUpcomingGames.filter((g) => (g.game || "").toLowerCase().includes(q) || (g.sport || "").toLowerCase().includes(q))
+                : homeUpcomingGames;
+              if (games.length === 0) {
+                return (
+                  <p className="text-center text-slate-500 text-sm py-12">
+                    {q ? "No upcoming games match your search." : "No upcoming games right now for your selected sports."}
+                  </p>
+                );
+              }
+              // Group by sport for easier scanning
+              const bySport = {};
+              for (const g of games) { (bySport[g.sport] ||= []).push(g); }
+              return (
+                <div className="space-y-6">
+                  {Object.entries(bySport).map(([sport, list]) => (
+                    <div key={sport}>
+                      <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2 px-1">
+                        {sport} · {list.length} {list.length === 1 ? "game" : "games"}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        {list.map((g, i) => {
+                          const dt = new Date(g.startsAt);
+                          const when = isNaN(dt.getTime())
+                            ? ""
+                            : dt.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => buildParlayForRealGame(g.game, g.sport, "upcoming")}
+                              className="text-left border border-slate-800 rounded-2xl p-3 bg-slate-900 hover:border-cyan-400 transition flex items-center gap-3"
+                            >
+                              <div className="flex items-center shrink-0">
+                                {g.awayLogo && <img src={g.awayLogo} alt="" className="w-8 h-8 object-contain shrink-0" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                                {g.homeLogo && <img src={g.homeLogo} alt="" className="w-8 h-8 object-contain shrink-0 -ml-2" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{when}</div>
+                                <div className="text-sm font-semibold text-slate-100 leading-tight truncate">{shortGameLabel(g)}</div>
+                                {g.venue && <div className="text-[9px] text-slate-500 mt-0.5 truncate">{g.venue}</div>}
+                              </div>
+                              <span className="text-xs font-semibold text-slate-100 bg-slate-800 rounded-full px-3 py-1.5 shrink-0">
+                                Build →
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <p className="text-[9px] font-mono text-slate-500 text-center mt-6 uppercase tracking-widest leading-relaxed">
+              Real upcoming games from ESPN · 21+ · Bet responsibly
+            </p>
+          </div>
+        </div>
+      )}
+
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto scroll-fade px-4 py-4 space-y-5 bg-slate-900"
-        style={{ paddingBottom: 130, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" ? "none" : undefined }}
+        style={{ paddingBottom: 130, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}
       >
         {messages.map((m, i) => (
           <div key={i} className={`slide-up flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -10033,7 +10130,7 @@ export default function ParlayBuilder() {
       )}
 
       {/* Global ticket bar — shows on home/profile/plans when picks exist */}
-      {parlayLegs.length > 0 && (view === "home" || view === "profile" || view === "plans" || view === "allsports") && (
+      {parlayLegs.length > 0 && (view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming") && (
         <button
           onClick={() => setBetslipOpen(true)}
           className="absolute bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 px-4 py-4 flex items-center justify-between shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-30"
@@ -10204,7 +10301,7 @@ export default function ParlayBuilder() {
         </div>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" ? "none" : undefined }}>
+      <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}>
         {/* Popup YOUR SLIP — collapsed pill above chat; expands upward. */}
         {parlayLegs.length > 0 && (
           <>
