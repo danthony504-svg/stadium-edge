@@ -7150,46 +7150,181 @@ export default function ParlayBuilder() {
                 p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)
               );
               const results = [...realGameRows.slice(0, 8), ...poolResults.slice(0, 12)];
+
+              // TEAM/GAME matches — distinct live/upcoming matchups whose label
+              // matches the query. Each opens the full game screen (all game lines
+              // + every live player prop for that matchup).
+              const gameMatches = [];
+              const seenGameKeys = new Set();
+              for (const r of realGameRows) {
+                const dk = `${r.sport}::${r.game}`;
+                if (seenGameKeys.has(dk)) continue;
+                seenGameKeys.add(dk);
+                gameMatches.push({ game: r.game, sport: r.sport });
+              }
+
+              // PLAYER matches — sample-roster players open the dedicated props
+              // page; live-feed players open their game screen (Live Player Props).
+              const validGameKeys = new Set([
+                ...homeLiveGames.filter((g) => g.real).map((g) => `${g.sport}::${g.game}`),
+                ...homeUpcomingGames.map((g) => `${g.sport}::${g.game}`),
+              ]);
+              const eidToGame = {};
+              for (const [sport, games] of Object.entries(realOddsBySport)) {
+                for (const g of games) {
+                  eidToGame[g.id] = { sport, game: `${g.awayTeam} @ ${g.homeTeam}` };
+                }
+              }
+              const playerMatches = [];
+              const seenPlayerNames = new Set();
+              for (const [sport, list] of Object.entries(PLAYERS)) {
+                for (const pl of list) {
+                  const lk = pl.name.toLowerCase();
+                  if (!lk.includes(q)) continue;
+                  if (seenPlayerNames.has(lk)) continue;
+                  seenPlayerNames.add(lk);
+                  playerMatches.push({ name: pl.name, team: pl.team, sport, player: pl });
+                }
+              }
+              for (const [eid, data] of Object.entries(realPropsByEvent)) {
+                const meta = eidToGame[eid];
+                if (!meta) continue;
+                if (!validGameKeys.has(`${meta.sport}::${meta.game}`)) continue;
+                for (const pr of (data.props || [])) {
+                  if (!pr.player) continue;
+                  const lk = pr.player.toLowerCase();
+                  if (!lk.includes(q)) continue;
+                  if (seenPlayerNames.has(lk)) continue;
+                  seenPlayerNames.add(lk);
+                  playerMatches.push({ name: pr.player, sport: meta.sport, game: meta.game });
+                }
+              }
+
+              const nothing = results.length === 0 && gameMatches.length === 0 && playerMatches.length === 0;
               return (
-                <div className="mt-2 border border-slate-800 rounded-2xl bg-slate-900 shadow-sm overflow-hidden divide-y divide-slate-800">
-                  {results.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-sm text-slate-500">
-                      No matches. Try a team (e.g. "Chiefs"), a player (e.g. "Mahomes"), or a market (e.g. "spread").
-                    </div>
-                  ) : (
-                    results.map((r, i) => {
-                      const isRealGame = r.kind === "realGame";
-                      const inSlip = !isRealGame && parlayLegs.some((l) => legKey(l) === legKey(r));
-                      return (
-                        <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{r.sport} · {r.market} · {shortGameLabel({ game: r.game })}</div>
-                            <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {!isRealGame && (
-                              <span className="font-mono font-bold text-cyan-500 text-sm">{formatOdds(r.odds)}</span>
-                            )}
-                            {isRealGame ? (
-                              <button
-                                onClick={() => { setHomeSearch(""); buildParlayForRealGame(r.game, r.sport, r.market === "LIVE" ? "live" : "upcoming"); }}
-                                className="rounded-full px-3 py-1.5 text-xs font-semibold bg-cyan-500 text-white hover:bg-cyan-600 transition"
-                              >
-                                Build →
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => { if (!inSlip) addLeg({ ...r }); }}
-                                disabled={inSlip}
-                                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500 cursor-default" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}
-                              >
-                                {inSlip ? "✓" : "+ Add"}
-                              </button>
-                            )}
+                <div className="mt-2 space-y-3">
+                  {(gameMatches.length > 0 || playerMatches.length > 0) && (
+                    <div className="border border-slate-800 rounded-2xl bg-slate-900 shadow-sm overflow-hidden">
+                      {gameMatches.length > 0 && (
+                        <div className="p-3">
+                          <h3 className="text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-2">Teams — tap to view all props</h3>
+                          <div className="space-y-2">
+                            {gameMatches.slice(0, 8).map((gm) => {
+                              const live = lookupLiveTag(gm.game);
+                              const time = formatGameTime(lookupGameStart(gm.game));
+                              return (
+                                <button
+                                  key={`${gm.sport}::${gm.game}`}
+                                  onClick={() => {
+                                    setHomeSearch("");
+                                    const indiv = gm.sport === "ufc" || gm.sport === "mma" || gm.sport === "tennis" || gm.sport === "golf" || gm.sport === "nascar" || (/\bvs\.?\b/i.test(gm.game) && !/@/.test(gm.game));
+                                    setGameDetail({ game: gm.game, sport: gm.sport });
+                                    setOpenPropCats(indiv ? ["Match Markets"] : ["Game Lines"]);
+                                  }}
+                                  className="w-full border border-slate-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider">{gm.sport}</span>
+                                    <span className="block text-sm font-semibold text-slate-100 truncate">{gm.game}</span>
+                                    {(live || time) && (
+                                      <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
+                                        {live ? <span className="text-rose-400 font-semibold">● {live}</span> : <span className="text-cyan-400">{time}</span>}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-cyan-400 text-xs font-semibold shrink-0 flex items-center gap-1">All props <span>›</span></span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
-                      );
-                    })
+                      )}
+                      {playerMatches.length > 0 && (
+                        <div className={`p-3 ${gameMatches.length > 0 ? "border-t border-slate-800" : ""}`}>
+                          <h3 className="text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-2">Players — tap to view all props</h3>
+                          <div className="space-y-2">
+                            {playerMatches.slice(0, 8).map((pm, pi) => {
+                              const initials = pm.name.split(" ").map((w) => w[0]).join("").slice(0, 2);
+                              return (
+                                <button
+                                  key={`${pm.name}-${pi}`}
+                                  onClick={() => {
+                                    setHomeSearch("");
+                                    if (pm.player) {
+                                      const pl = pm.player;
+                                      const sk = (pm.sport === "nba" || pm.sport === "wnba") ? "pts" : pm.sport === "mlb" ? "hrPerGame"
+                                        : pl.pos === "QB" ? "passYds" : pl.pos === "RB" ? "rushYds"
+                                        : (pl.stats.recYds !== undefined ? "recYds" : Object.keys(pl.stats)[0]);
+                                      const avg = pl.stats[sk] ?? 0;
+                                      setPropStatKey(sk);
+                                      setPropLine(Math.round(avg * 0.9 * 2) / 2);
+                                      setSelectedPlayer({ player: pl, sport: pm.sport });
+                                    } else if (pm.game) {
+                                      setGameDetail({ game: pm.game, sport: pm.sport });
+                                      setOpenPropCats(["Live Player Props"]);
+                                    }
+                                  }}
+                                  className="w-full border border-slate-800 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3 text-left hover:border-cyan-400 transition"
+                                >
+                                  <span className="flex items-center gap-2 min-w-0">
+                                    <span className="w-8 h-8 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{initials}</span>
+                                    <span className="min-w-0">
+                                      <span className="block text-sm font-semibold text-slate-100 truncate">{pm.name}</span>
+                                      <span className="block text-[10px] font-mono uppercase text-slate-500 tracking-wider truncate">{pm.team ? `${pm.team} · ` : ""}{pm.sport}{pm.game ? ` · ${pm.game}` : ""}</span>
+                                    </span>
+                                  </span>
+                                  <span className="text-cyan-400 text-xs font-semibold shrink-0 flex items-center gap-1">All props <span>›</span></span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {results.length > 0 && (
+                    <div className="border border-slate-800 rounded-2xl bg-slate-900 shadow-sm overflow-hidden divide-y divide-slate-800">
+                      {results.map((r, i) => {
+                        const isRealGame = r.kind === "realGame";
+                        const inSlip = !isRealGame && parlayLegs.some((l) => legKey(l) === legKey(r));
+                        return (
+                          <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{r.sport} · {r.market} · {shortGameLabel({ game: r.game })}</div>
+                              <div className="text-sm font-semibold text-slate-100 truncate">{r.pick}</div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {!isRealGame && (
+                                <span className="font-mono font-bold text-cyan-500 text-sm">{formatOdds(r.odds)}</span>
+                              )}
+                              {isRealGame ? (
+                                <button
+                                  onClick={() => { setHomeSearch(""); buildParlayForRealGame(r.game, r.sport, r.market === "LIVE" ? "live" : "upcoming"); }}
+                                  className="rounded-full px-3 py-1.5 text-xs font-semibold bg-cyan-500 text-white hover:bg-cyan-600 transition"
+                                >
+                                  Build →
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { if (!inSlip) addLeg({ ...r }); }}
+                                  disabled={inSlip}
+                                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${inSlip ? "bg-slate-800 text-slate-500 cursor-default" : "bg-cyan-500 text-white hover:bg-cyan-600"}`}
+                                >
+                                  {inSlip ? "✓" : "+ Add"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {nothing && (
+                    <div className="border border-slate-800 rounded-2xl bg-slate-900 shadow-sm px-4 py-6 text-center text-sm text-slate-500">
+                      No matches. Try a team (e.g. "Chiefs"), a player (e.g. "Mahomes"), or a market (e.g. "spread").
+                    </div>
                   )}
                 </div>
               );

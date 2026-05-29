@@ -1,3 +1,4 @@
+- [ParlayBuilder multiple search renders](parlaybuilder-multiple-search-renders.md) — 3 independent homeSearch result blocks (home ~7133, All Sports ~7650, all-upcoming ~8180); a search UX change must hit all of them.
 - [Single-game request lock](single-game-request-lock.md) — naming one game game-locks ALL legs incl props to that game; never widen to other games to hit leg count.
 - [Adding pick AI signals](adding-pick-ai-signals.md) — ESPN->api->client->prompt 4-hop flow; career-vs-season stats gotcha; honest-null for weather; build/restart quirks.
 - [ESPN odds fallback](espn-odds-fallback.md) — bulk per-event pickcenter[0] as second-tier real odds when Odds API is down; cache + concurrency notes.
