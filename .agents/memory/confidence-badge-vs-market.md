@@ -71,6 +71,24 @@ honesty escape is mandatory — thin/contradictory/absent sample ⇒ NO projecte
 a pseudo-precise % from a hit count of 1-2 games. The projected % must trace to
 real cleared-the-line counts, never to the price.
 
+## "Use more AI picks not MARKET picks" → widen playerHistory coverage
+A recurring complaint that the cards show "MARKET PRICE" too often is usually NOT
+a prompt problem — it's COVERAGE. A prop card can only show a grounded projection
+when `context.playerHistory` has that player's game log; otherwise it honestly
+falls back to "MARKET PRICE". The client only fetches game logs for the first N
+unique players (`phTargets = playerTargets.slice(0, N)` in ParlayBuilder.tsx), so
+any recommended prop for an uncovered player necessarily reads market-price.
+**Fix that worked:** raise that cap (was 20 → 40; fetches are parallel + server-
+cached 30min) AND add a chat.ts find-props TIE-BREAKER: prefer recommending props
+whose player HAS a playerHistory entry (so the pick carries a real projected hit %)
+over no-history props. **Why:** more grounded data ⇒ more cards show the AI's
+projection + green edge chip instead of the bare market number. **How to apply:**
+the tie-breaker must be explicit it is NOT a fabrication license (a no-history prop
+with the genuine best edge may still be picked, leaned on honestly) — never invent
+game logs to make a prop look data-backed. realProps cap is 400 but history cap is
+40, so coverage is improved, not complete; bumping further trades latency/token
+budget for coverage.
+
 ## Prop badge: "MARKET PRICE", not "COIN-FLIP"
 Player props fall back to the market-implied number ONLY when the AI emits no
 projection (no/thin playerHistory — see section above). Labeling that "COIN-FLIP"

@@ -5331,13 +5331,16 @@ export default function ParlayBuilder() {
     }
     // Pull each unique player's last 10 games + vs-opponent split from ESPN
     // so the AI can defend prop legs with real game-log data (not just
-    // bookmaker prices). Cap at 20 players per send to keep the prompt
-    // compact; the server caches each gamelog for 30min so repeat sends are
-    // basically free. Missing/failed lookups are honest empty buckets — the
+    // bookmaker prices). Cap at 40 players per send: every player WITHOUT a
+    // game-log entry can only get a "MARKET PRICE" badge (no grounded model
+    // projection), so widening coverage directly increases how many recommended
+    // props read as a real AI edge instead of a market price. The server caches
+    // each gamelog for 30min and the fetches run in parallel, so repeat sends
+    // are basically free. Missing/failed lookups are honest empty buckets — the
     // AI is told to treat absent entries as "no extra signal" and never to
     // invent player numbers.
     const playerHistory = {};
-    const phTargets = playerTargets.slice(0, 20);
+    const phTargets = playerTargets.slice(0, 40);
     if (phTargets.length > 0) {
       await Promise.all(
         phTargets.map(async (t) => {
