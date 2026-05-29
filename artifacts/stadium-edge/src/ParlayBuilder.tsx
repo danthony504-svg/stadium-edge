@@ -7311,23 +7311,22 @@ export default function ParlayBuilder() {
 
           {/* Live Now */}
           <div className="px-4 pb-28">
-            <div className="flex items-center justify-between mb-2 px-1">
-              <h2 className="font-display text-lg text-slate-100 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-rose-500 pulse-dot" /> LIVE NOW
-              </h2>
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                {homeDataStatus === "loading" ? "loading…" : `${homeLiveGames.filter((g) => g.real).length} games · LIVE`}
-              </span>
-            </div>
+            {/* Hide the entire LIVE NOW section until at least one game is
+                actually live; once games are in progress, show ALL of them.
+                No empty/"no games" placeholder — the section simply isn't there
+                when nothing is live. */}
+            {homeLiveGames.filter((g) => g.real).length > 0 && (
+              <>
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <h2 className="font-display text-lg text-slate-100 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-rose-500 pulse-dot" /> LIVE NOW
+                  </h2>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                    {`${homeLiveGames.filter((g) => g.real).length} games · LIVE`}
+                  </span>
+                </div>
 
-            {homeLiveGames.filter((g) => g.real).length === 0 ? (
-              <p className="text-sm text-slate-500 px-1 py-6 text-center">
-                {homeDataStatus === "loading"
-                  ? "Loading live games…"
-                  : "No games in progress right now for your selected sports."}
-              </p>
-            ) : (
-              <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
+                <div className="flex gap-3 overflow-x-auto scroll-fade pb-2 -mx-1 px-1 snap-x">
                 {homeLiveGames.filter((g) => g.real).map((g, i) => (
                   <div key={i} className="border border-slate-800 rounded-2xl p-3 bg-slate-950 shadow-sm shrink-0 w-72 snap-start">
                     <div className="flex items-center justify-between mb-2">
@@ -7379,7 +7378,8 @@ export default function ParlayBuilder() {
                     </button>
                   </div>
                 ))}
-              </div>
+                </div>
+              </>
             )}
 
             <p className="text-[9px] font-mono text-slate-500 text-center mt-5 uppercase tracking-widest leading-relaxed">
