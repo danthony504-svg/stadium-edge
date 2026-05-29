@@ -2526,6 +2526,7 @@ export default function ParlayBuilder() {
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
   const [gameDetail, setGameDetail] = useState(null); // { game, sport } for the full game-detail screen
   const [openPropCats, setOpenPropCats] = useState(["AI Spreads & Totals", "Game Lines"]); // categories open (independent accordions)
+  const [gameDetailHistory, setGameDetailHistory] = useState({ key: null, data: null, loading: false }); // real recent-form pull for the open Game Detail's AI spread/total tab
   const [expandedPropPlayers, setExpandedPropPlayers] = useState({}); // player name -> bool, tracks which player-prop cards are expanded
   const [legMenuOpen, setLegMenuOpen] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null); // { player, sport }
@@ -2844,6 +2845,36 @@ export default function ParlayBuilder() {
     })();
     return () => { cancelled = true; setPropsLoading(false); };
   }, [gameDetail, realOddsBySport, realGamesBySport, realPropsByEvent]);
+
+  // Fetch REAL recent-form history (each team's last-10 scoring) for the open
+  // Game Detail, so the "AI Spreads & Totals" tab can base its spread/total
+  // call on actual analytics — not just a de-vigged price. Honest empty bucket
+  // on failure; the tab then falls back to the market-price read.
+  useEffect(() => {
+    if (!gameDetail) { setGameDetailHistory({ key: null, data: null, loading: false }); return; }
+    const { game, sport } = gameDetail;
+    const key = `${sport}::${game}`;
+    const espnGame = (realGamesBySport[sport] || []).find(
+      (g) => `${g.awayTeam} @ ${g.homeTeam}` === game,
+    );
+    if (!espnGame?.homeTeamId || !espnGame?.awayTeamId) {
+      setGameDetailHistory({ key, data: null, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setGameDetailHistory({ key, data: null, loading: true });
+    (async () => {
+      try {
+        const qs = `sport=${encodeURIComponent(sport)}&homeTeamId=${encodeURIComponent(espnGame.homeTeamId)}&awayTeamId=${encodeURIComponent(espnGame.awayTeamId)}`;
+        const r = await fetch(`/api/sports/matchup-history?${qs}`);
+        const data = r.ok ? await r.json() : null;
+        if (!cancelled) setGameDetailHistory({ key, data, loading: false });
+      } catch {
+        if (!cancelled) setGameDetailHistory({ key, data: null, loading: false });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [gameDetail, realGamesBySport]);
 
   useEffect(() => {
     let cancelled = false;
@@ -9495,15 +9526,29 @@ export default function ParlayBuilder() {
             </div>
           );
         };
-        // AI's single best Spread and Total side, by no-vig fair edge across
-        // the two posted sides of each main market. Surfaced in a dedicated
-        // "AI Spreads & Totals" tab so the user gets one clear call per market
-        // using only the REAL bookmaker prices already on the board.
-        const aiMarketPick = (matcher) => {
+        // AI's single best Spread and Total side, surfaced in a dedicated
+        // "AI Spreads & Totals" tab so the user gets one clear call per market.
+        // PRIMARY signal: the same REAL recent-form analytics the chat
+        // assistant uses — each team's last-10 scoring (avg margin + points
+        // for/against), fetched for this matchup into gameDetailHistory. We
+        // project a margin (spread) and a combined pace (total) from those real
+        // averages and recommend the side they favor, citing the numbers. When
+        // that history isn't available we fall back to the de-vigged market
+        // price (clearly labelled). Only REAL lines (p.real) are ever read.
+        const histForGame = (gameDetailHistory.key === `${sport}::${game}` && gameDetailHistory.data) ? gameDetailHistory.data : null;
+        const histLoading = gameDetailHistory.key === `${sport}::${game}` && gameDetailHistory.loading;
+        const homeL10 = histForGame?.home?.last10 || null;
+        const awayL10 = histForGame?.away?.last10 || null;
+        const homeName = realGameForGame?.homeTeam || null;
+        const awayName = realGameForGame?.awayTeam || null;
+        const spreadMatcher = (m) => /^spread$|run line|puck line/i.test(m);
+        const totalMatcher = (m) => /^total$/i.test(m);
+        const parsePoint = (txt) => { const m = String(txt || "").match(/([+-]?\d+(?:\.\d+)?)\s*$/); return m ? parseFloat(m[1]) : null; };
+        const fmtSigned = (n) => `${n > 0 ? "+" : ""}${n}`;
+        const l10Desc = (l10) => `${l10.wins}-${l10.losses} L10, ${fmtSigned(l10.avgMargin)} margin`;
+        // De-vigged market-price fallback, honestly labelled as price-only.
+        const pricePick = (matcher) => {
           const amToProb = (o) => (o == null ? null : o < 0 ? -o / (-o + 100) : 100 / (o + 100));
-          // REAL bookmaker lines only — never recommend off the sample
-          // PICK_POOL fallback (those lack `real`). Keeps the "real prices
-          // only" promise of this tab honest.
           const probs = gameLines
             .filter((p) => p.real && matcher(p.market))
             .map((p) => ({ p, ip: amToProb(p.odds) }))
@@ -9515,17 +9560,54 @@ export default function ParlayBuilder() {
             const edge = ip / sum - ip; // no-vig fair prob minus market-implied prob
             if (!best || edge > best.edge) best = { pick: p, edge };
           });
-          return best;
+          if (!best) return null;
+          return { pick: best.pick, reason: "Best price after removing the bookmaker's margin — recent-form data isn't available for this matchup." };
         };
-        const aiSpreadPick = aiMarketPick((m) => /spread|run line|puck line/i.test(m));
-        const aiTotalPick = aiMarketPick((m) => /total|^o\/?u|over|under/i.test(m));
+        // Analytics-first Spread pick: project tonight's margin from each team's
+        // real L10 avg margin, then take the side that covers its posted number.
+        const aiSpreadAnalytics = (() => {
+          if (!homeL10 || !awayL10 || homeL10.avgMargin == null || awayL10.avgMargin == null || !homeName) return null;
+          const spreads = gameLines.filter((p) => p.real && spreadMatcher(p.market) && p.teamFull);
+          if (spreads.length < 2) return null;
+          const projHome = homeL10.avgMargin - awayL10.avgMargin; // + = home projected to win by this
+          let best = null;
+          spreads.forEach((p) => {
+            const pt = parsePoint(p.pick);
+            if (pt == null) return;
+            const isHome = p.teamFull === homeName;
+            const sideProj = isHome ? projHome : -projHome;
+            const cushion = sideProj + pt; // > 0 → projection has this side covering
+            if (!best || cushion > best.cushion) best = { pick: p, cushion };
+          });
+          if (!best) return null;
+          const favName = projHome >= 0 ? homeName : awayName;
+          const reason = `Model margin: ${favName} by ~${Math.abs(projHome).toFixed(1)} (${homeName} ${l10Desc(homeL10)} · ${awayName} ${l10Desc(awayL10)}) → ${best.pick.pick} covers by ~${best.cushion.toFixed(1)}.`;
+          return { pick: best.pick, reason };
+        })();
+        // Analytics-first Total pick: combined L10 pace vs the posted line.
+        const aiTotalAnalytics = (() => {
+          if (!homeL10 || !awayL10 || !homeName) return null;
+          if (homeL10.ptsFor == null || homeL10.ptsAgainst == null || awayL10.ptsFor == null || awayL10.ptsAgainst == null) return null;
+          const totals = gameLines.filter((p) => p.real && totalMatcher(p.market));
+          if (totals.length < 2) return null;
+          const combinedPace = (homeL10.ptsFor + homeL10.ptsAgainst + awayL10.ptsFor + awayL10.ptsAgainst) / 2;
+          let lineNum = null;
+          for (const p of totals) { const m = String(p.pick).match(/(\d+(?:\.\d+)?)/); if (m) { lineNum = parseFloat(m[1]); break; } }
+          if (lineNum == null) return null;
+          const diff = combinedPace - lineNum; // + → lean Over
+          const side = diff >= 0 ? "Over" : "Under";
+          const pick = totals.find((p) => new RegExp(`^${side}`, "i").test(p.pick));
+          if (!pick) return null;
+          const reason = `Recent pace ~${combinedPace.toFixed(0)} pts (${homeName} ${homeL10.ptsFor}/${homeL10.ptsAgainst}, ${awayName} ${awayL10.ptsFor}/${awayL10.ptsAgainst} for/against) vs the ${lineNum} line → lean ${side} by ~${Math.abs(diff).toFixed(1)}.`;
+          return { pick, reason };
+        })();
+        const aiSpreadPick = aiSpreadAnalytics || pricePick(spreadMatcher);
+        const aiTotalPick = aiTotalAnalytics || pricePick(totalMatcher);
         const aiLineCard = (kind, best) => {
           if (!best) return null;
           const p = best.pick;
           const inSlip = parlayLegs.some((l) => legKey(l) === legKey(p));
-          const reason = best.edge > 0.0001
-            ? `${(best.edge * 100).toFixed(1)}% edge vs the no-vig fair price`
-            : "lowest-vig side of this market";
+          const reason = best.reason;
           return (
             <div className="mx-4 mt-2 mb-1 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 border-2 border-cyan-400 overflow-hidden">
               <div className="bg-cyan-400 text-slate-950 px-3 py-1.5 text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
@@ -9606,9 +9688,12 @@ export default function ParlayBuilder() {
                 ) : null
               ) : (
                 <>
-                  {/* AI's recommended spread & total side (real prices only) */}
+                  {/* AI's recommended spread & total side (real recent-form analytics, price fallback) */}
                   {(aiSpreadPick || aiTotalPick) && (
                     <Section title="AI Spreads & Totals" count={(aiSpreadPick ? 1 : 0) + (aiTotalPick ? 1 : 0)}>
+                      {histLoading && (
+                        <div className="px-4 pt-1 text-[10px] font-mono uppercase tracking-wider text-cyan-400/70">Refreshing with recent-form data…</div>
+                      )}
                       {aiLineCard("spread", aiSpreadPick)}
                       {aiLineCard("total", aiTotalPick)}
                     </Section>
