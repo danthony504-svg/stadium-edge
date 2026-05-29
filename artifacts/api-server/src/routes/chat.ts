@@ -761,6 +761,27 @@ router.post("/chat", async (req, res): Promise<void> => {
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
       : "";
 
+  try {
+    const lc = (lockedContext ?? {}) as Record<string, unknown>;
+    const cnt = (v: unknown) =>
+      Array.isArray(v) ? v.length : v && typeof v === "object" ? Object.keys(v).length : 0;
+    req.log.info(
+      {
+        chatCtx: {
+          contextChars: contextBlock.length,
+          realProps: cnt(lc.realProps),
+          realOdds: cnt(lc.realOdds),
+          realGames: cnt(lc.realGames),
+          playerHistory: cnt(lc.playerHistory),
+          matchupHistory: cnt(lc.matchupHistory),
+        },
+      },
+      "chat context size before model call",
+    );
+  } catch {
+    /* logging must never break the request */
+  }
+
   const periodSuffix = periodSuffixList.join("/") || "";
   const periodLabel = periodIntents.size === 0
     ? ""
@@ -800,15 +821,24 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
   ];
 
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  // "no-transform" is the HTTP-standard directive that forbids intermediary
+  // proxies from TRANSFORMING the body — crucially, from gzip-compressing it.
+  // The Replit path-based proxy buffers the whole SSE stream to compress it
+  // whenever the client sends "Accept-Encoding: gzip" (every real browser does),
+  // flushing nothing until the connection ends → permanently blank bubble. A
+  // curl/node test with "Accept-Encoding: identity" streams fine and MASKS the
+  // bug (status arrives at 0.14s), while gzip clients see nothing for 90s+.
+  // "no-transform" stops that buffering; "X-Accel-Buffering: no" alone did not.
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  // Stop the proxy in front of us from BUFFERING the stream. Without this the
-  // Replit path-based proxy can hold the SSE bytes for a browser (which sends
-  // Accept-Encoding) and flush nothing until the connection ends — the user
-  // sees a permanently blank bubble even though tokens are flowing server-side
-  // (a curl test with no Accept-Encoding looks fine, masking the bug).
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
+  // Belt-and-braces: emit a large comment-padding burst immediately. Some
+  // buffering proxies hold output until they accumulate a minimum number of
+  // bytes; a ~2KB initial payload exceeds that threshold and forces an instant
+  // flush. The client ignores any chunk that doesn't start with "data: ", so
+  // this padding never affects the rendered answer.
+  res.write(`:${" ".repeat(2048)}\n\n`);
 
   // SSE heartbeat — gpt-5.4 is a reasoning model that can spend 20-40s on
   // internal reasoning BEFORE emitting its first visible token, especially on
@@ -872,11 +902,14 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
       // user saw a blank screen and gave up ("not loading"). The picks come
       // straight from the real-data context block and the rules are spelled
       // out explicitly in the system prompt, so the model doesn't need deep
-      // open-ended reasoning to follow them. "low" cuts time-to-first-token to
-      // a few seconds (tokens then stream visibly) while still respecting the
-      // HARD BANs / analytics citations. Bump back to "medium" only if pick
-      // quality regresses.
-      reasoning_effort: "low",
+      // open-ended reasoning to follow them. "low" STILL left >25s of silent
+      // thinking on the full LIVE context (user gave up again), so we drop to
+      // "minimal" — the lowest gpt-5.4 setting — to push time-to-first-token to
+      // a few seconds. The picks come straight from the real-data context block,
+      // and the client-side PICK validation drops any stray rule violations, so
+      // minimal reasoning is an acceptable trade for actually streaming a ticket.
+      // Bump back up only if pick quality visibly regresses.
+      reasoning_effort: "minimal",
       messages,
       stream: true,
     }, { signal: upstreamAbort.signal });

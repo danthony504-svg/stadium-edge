@@ -66,31 +66,38 @@ abort is the USER giving up on a blank bubble. Two compounding causes:
 1. The `: keep-alive` heartbeat is an SSE COMMENT; the client loop ignores any
    chunk not starting with `data: `, so it keeps the socket alive but renders
    NOTHING. The user sees a blank bubble for the whole 12-18s time-to-first-token.
-2. The Replit path-based proxy can BUFFER the SSE stream for a real browser
-   (which sends `Accept-Encoding`) and flush nothing until the connection ends.
-   A `curl`/node test with NO `Accept-Encoding` streams fine and MASKS the bug —
-   so "works in curl, blank in browser" is the tell.
+2. The Replit path-based proxy BUFFERS the whole SSE stream to GZIP-compress it
+   whenever the client sends `Accept-Encoding: gzip` — which every real browser
+   does — and flushes nothing until the connection ends. A `curl`/node test with
+   `Accept-Encoding: identity` streams fine and MASKS the bug, so "works in curl,
+   blank in browser" is the tell. MEASURED: identity → first status 0.14s; gzip →
+   nothing for 90s+ (request then "aborted" = user gave up).
 
-**Fix (both needed):**
-- Set `res.setHeader("X-Accel-Buffering", "no")` BEFORE `flushHeaders()` — the
-  standard nginx-family directive that stops the proxy buffering the stream.
-- Emit ONE real `data:` event immediately after headers (a `{status:"…"}` line),
-  not just the comment heartbeat, so the bubble paints instant feedback during the
-  silent TTFB. Client shows it transiently and OVERWRITES it with the first real
-  token (guard the status branch on `!fullText`); keep `fullText` built only from
-  `data.content` so the status never enters PICK-line validation.
+**Fix — `Cache-Control: no-transform` is the one that actually works:**
+- `res.setHeader("Cache-Control", "no-cache, no-transform")` — `no-transform` is
+  the HTTP-standard directive forbidding intermediaries from compressing/transforming
+  the body. THIS is what stops the proxy buffering. `X-Accel-Buffering: no` alone
+  did NOT fix it (it's nginx-family and the Replit proxy ignored it for gzip clients).
+  Keep `X-Accel-Buffering: no` too as belt-and-braces, but no-transform is the fix.
+- Emit a ~2KB comment-padding burst (`:` + spaces + `\n\n`) immediately after
+  `flushHeaders()` — exceeds any minimum-buffer threshold and forces an instant flush.
+- Emit ONE real `data:` event right after (a `{status:"…"}` line), not just the
+  comment heartbeat, so the bubble paints instant feedback during the silent TTFB.
+  Client shows it transiently and OVERWRITES it with the first real token (guard the
+  status branch on `!fullText`); keep `fullText` built only from `data.content` so
+  the status never enters PICK-line validation.
 - Client fallback: if the stream ends with empty `fullText`, replace the transient
   status with a retry message — otherwise an empty/errored stream leaves the bubble
   stuck on "…" forever (looks identical to the original "nothing loaded" bug).
 
-**Why:** keep-alive comments solve the proxy IDLE timeout but not the BUFFERING
-problem and give zero visible feedback; the immediate `data:` event + no-buffering
-header are what make the browser actually paint something fast.
+**Why:** the proxy buffers in order to gzip; only `no-transform` tells it to stop.
+keep-alive comments solve the proxy IDLE timeout but not BUFFERING and give zero
+visible feedback. After the fix, gzip clients get first status at 0.17s and first
+real token ~5-6s (with `reasoning_effort:"minimal"`).
 
-**How to test:** node/curl WITHOUT Accept-Encoding can look healthy while the
-browser is blank — reproduce buffering by sending `Accept-Encoding: gzip` and
-confirm the response header `x-accel-buffering: no` and that the first chunk lands
-sub-second.
+**How to test:** ALWAYS test with `Accept-Encoding: gzip` (identity masks the bug).
+Confirm the first `data:` chunk lands sub-second through the PUBLIC `$REPLIT_DEV_DOMAIN`
+proxy, not just localhost.
 
 # Named-game context trim — cut prefill when every leg is locked to one matchup
 
