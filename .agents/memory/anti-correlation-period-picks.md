@@ -26,3 +26,11 @@ The canonical anti-correlation failures the model produces:
 
 # Smell test
 If a ticket combines two legs from the same game+period where one leg names Team A and the other names Team B, manually verify both can win simultaneously. If they can't, the rule is incomplete or being ignored — strengthen the example list, don't just re-emphasize the principle.
+
+# Extension — full-game Total OVER + star scoring UNDERS (directional consistency)
+The original rule scoped the "Over total + lead-scorer Under" case too narrowly (period-only, same-player). Production slip showed the FULL-GAME version across DIFFERENT stars: "Over 219.5" + "SGA Under 35.5 pts" + "Wemby Under 27.5 pts" + "Holmgren Under 22.5 PRA" — self-defeating (clearing the total needs the stars to score; in the low-scoring game the unders cash but the over dies).
+**Fix applied (prompt-only):** broadened the anti-corr bullet to full-game + cross-player + points-inclusive (PTS, PTS+REB+AST), and added a LAST-STEP "DIRECTIONAL-CONSISTENCY PASS": per game, pick ONE scoring direction — a Total OVER forbids same-game scoring UNDERS and vice versa. **Exempt:** assists/rebounds/steals/blocks (don't scale tightly with the total) — only points/points-inclusive legs are bound.
+**Why:** the model treated the narrow example as period/same-player-specific and didn't generalize. A worked numeric example matching the exact failing slip + a standalone final pass is what makes it stick (same lesson as the parent rule).
+
+# Compliance note — why prompt framing matters here (no server-side option)
+The /api/chat response is a PURE token stream (no buffering, client parses PICK: lines live), so server-side stripping of a contradictory leg is impractical and risks the auto-add parser — enforcement must be prompt-side. First prompt pass only half-worked: model made the star leg consistent but let a ROLE player's points under through and called the shorter slip "clean." What fixed it: (1) frame the directional pass as a "HARD GATE ON YOUR OUTPUT, not advice", (2) state it binds EVERY player regardless of star status, (3) add the EXACT failing example from the test ("Total Over 227.5" + "Dylan Harper Under 19.5"), and (4) explicitly say "dropping to fewer legs does NOT make a contradictory slip clean." Verified via e2e twice.
