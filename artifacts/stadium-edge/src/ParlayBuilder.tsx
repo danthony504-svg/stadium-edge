@@ -2163,7 +2163,7 @@ export default function ParlayBuilder() {
     {
       role: "assistant",
       content:
-        "Welcome to Stadium Edge. I'm wired to **live odds** (The Odds API), **live games** (ESPN), and a real AI brain. Flip on **PICK LIVE** to pull real odds and matchups, then ask me anything — I weigh odds value, form, coach tendencies, ref leans, injuries, and weather.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.",
+        "Welcome to Stadium Edge. I'm wired to **live odds** (The Odds API), **live games** (ESPN), and a real AI brain. Flip on **PICK LIVE** to pull real odds and matchups, then ask me anything — I weigh odds value, form, coach tendencies, injuries, and weather.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -4132,7 +4132,7 @@ export default function ParlayBuilder() {
     const unmovable = adjusted.length - movedCount;
 
     let note = `**Adjusted all ${adjusted.length} leg${adjusted.length !== 1 ? "s" : ""} — none removed**\n\n`;
-    note += `I reviewed each leg (odds, player form, ref leans, coach trends) and moved its line toward the safer side — bought points on spreads/totals and nudged prop lines toward the player's average.\n\n`;
+    note += `I reviewed each leg (odds, player form, coach trends) and moved its line toward the safer side — bought points on spreads/totals and nudged prop lines toward the player's average.\n\n`;
     note += `Model confidence: **${beforeConf}% → ${afterConf}%**\n`;
     note += `Combined odds: ${formatOdds(beforeMath.american)} → ${formatOdds(afterMath.american)}\n\n`;
     if (unmovable > 0) {
