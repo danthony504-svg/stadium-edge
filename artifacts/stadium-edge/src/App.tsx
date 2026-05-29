@@ -1,8 +1,12 @@
 import { ClerkProvider, SignIn, SignUp } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { dark } from "@clerk/themes";
-import { Switch, Route, useLocation, Router as WouterRouter } from "wouter";
+import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
 import ParlayBuilder from "./ParlayBuilder";
+
+// Login temporarily disabled. Flip to `true` to bring back the sign-in/sign-up
+// pages (also flip AUTH_ENABLED in ParlayBuilder.tsx to show the entry buttons).
+const AUTH_ENABLED = false;
 
 // REQUIRED — copy verbatim. Resolves the key from window.location.hostname so the
 // same build serves multiple Clerk custom domains.
@@ -132,8 +136,14 @@ function ClerkProviderWithRoutes() {
     >
       <Switch>
         <Route path="/" component={ParlayBuilder} />
-        <Route path="/sign-in/*?" component={SignInPage} />
-        <Route path="/sign-up/*?" component={SignUpPage} />
+        <Route
+          path="/sign-in/*?"
+          component={AUTH_ENABLED ? SignInPage : () => <Redirect to="/" />}
+        />
+        <Route
+          path="/sign-up/*?"
+          component={AUTH_ENABLED ? SignUpPage : () => <Redirect to="/" />}
+        />
         <Route component={ParlayBuilder} />
       </Switch>
     </ClerkProvider>

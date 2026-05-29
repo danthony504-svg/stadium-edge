@@ -5,6 +5,10 @@ import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Sword
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 
+// Login temporarily disabled. Flip to `true` to bring back the sign-in/sign-up
+// entry points (and re-enable the /sign-in & /sign-up routes in App.tsx).
+const AUTH_ENABLED = false;
+
 // Inline SVG icons (no internet needed). Coach = capped figure with whistle;
 // Ref = striped shirt with whistle. Styled to inherit size via props.
 const CoachIcon = ({ size = 16 }) => (
@@ -6905,14 +6909,14 @@ export default function ParlayBuilder() {
             >
               {(user.firstName?.[0] || user.username?.[0] || user.primaryEmailAddress?.emailAddress?.[0] || "U").toUpperCase()}
             </button>
-          ) : (
+          ) : AUTH_ENABLED ? (
             <button
               onClick={() => navigate("/sign-in")}
               className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border border-cyan-400/50 text-cyan-300 bg-cyan-400/10 hover:bg-cyan-400/20 transition shrink-0"
             >
               Sign in
             </button>
-          )}
+          ) : null}
           </div>
         </div>
       </header>
@@ -9339,6 +9343,7 @@ export default function ParlayBuilder() {
               ))}
 
             </div>
+            {(user || AUTH_ENABLED) && (
             <button
               onClick={() => { if (user) { handleSignOut(); } else { navigate("/sign-in"); } setFabOpen(false); }}
               className="mx-3 mb-2 px-3 py-2.5 rounded-lg text-slate-500 hover:bg-zinc-800 hover:text-white transition text-sm text-left flex items-center gap-3"
@@ -9346,6 +9351,7 @@ export default function ParlayBuilder() {
               <span className="w-5 flex items-center justify-center">⎋</span>
               {user ? "Sign out" : "Sign in"}
             </button>
+            )}
             <div className="px-4 py-3 border-t border-zinc-800 text-[9px] font-mono text-slate-400 uppercase tracking-wider">
               21+ · Hypothetical · Bet responsibly
             </div>
