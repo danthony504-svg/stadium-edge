@@ -127,6 +127,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   const eventId = String(req.query["eventId"] || "");
   const homeTeamId = String(req.query["homeTeamId"] || "");
   const awayTeamId = String(req.query["awayTeamId"] || "");
+  // Full team names (e.g. "Oklahoma City Thunder") — used to resolve the REAL
+  // Odds API event id when the client's eventId came from a FALLBACK odds source
+  // (ESPN scoreboard / Bovada). Those fallbacks fire when the primary Odds API
+  // bulk-odds fetch is rate-limited, and they stamp the game with an ESPN/Bovada
+  // id, NOT an Odds API id. Querying the Odds API per-event props endpoint with
+  // that wrong id 404s → empty props → the chat AI honestly but wrongly reports
+  // "no player props are up" even though the Odds API HAS props for the game.
+  const homeName = String(req.query["home"] || "").trim();
+  const awayName = String(req.query["away"] || "").trim();
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
@@ -152,8 +161,64 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   }
 
   try {
+    // The Odds API per-event props endpoint only accepts an Odds API event id
+    // (32-char hex). When the client's eventId came from a fallback odds source
+    // it's an ESPN/Bovada id (numeric / different shape) and would 404. If we
+    // have the team names, resolve the REAL Odds API id from the free events
+    // endpoint (0 quota credits) by matching nicknames. The events list shares a
+    // 5-min cache so repeat lookups don't re-hit upstream.
+    const looksLikeOddsApiId = /^[a-f0-9]{32}$/i.test(eventId);
+    let effectiveEventId = eventId;
+    if (!looksLikeOddsApiId && homeName && awayName) {
+      try {
+        const events = await cachedJson<Array<{ id: string; home_team: string; away_team: string }>>(
+          `odds-events:${oddsKey}`,
+          5 * 60 * 1000,
+          async () => {
+            const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events?apiKey=${apiKey}&dateFormat=iso`;
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`events ${r.status}`);
+            return (await r.json()) as Array<{ id: string; home_team: string; away_team: string }>;
+          },
+        );
+        // Prefer a FULL-name match (normalized alnum). Fall back to nickname
+        // (last alpha word) ONLY when it uniquely identifies one event. Both
+        // comparisons are orientation-agnostic (ESPN/Bovada home/away can be
+        // flipped vs the Odds API). Critically we FAIL CLOSED: if the nickname
+        // is ambiguous (collision sports — NCAAB/NCAAF "Tigers", "Wildcats")
+        // we resolve NOTHING rather than risk returning a DIFFERENT game's
+        // props, which would be fabrication. Empty props is the honest outcome.
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const nick = (s: string) => (s.toLowerCase().match(/[a-z]+/g) || []).pop() || "";
+        const wantHomeFull = norm(homeName);
+        const wantAwayFull = norm(awayName);
+        const fullMatches = events.filter((e) => {
+          const eh = norm(e.home_team);
+          const ea = norm(e.away_team);
+          return (eh === wantHomeFull && ea === wantAwayFull) || (eh === wantAwayFull && ea === wantHomeFull);
+        });
+        let chosen: { id: string } | undefined;
+        if (fullMatches.length === 1) {
+          chosen = fullMatches[0];
+        } else if (fullMatches.length === 0) {
+          const wantHomeNick = nick(homeName);
+          const wantAwayNick = nick(awayName);
+          const nickMatches = events.filter((e) => {
+            const eh = nick(e.home_team);
+            const ea = nick(e.away_team);
+            return (eh === wantHomeNick && ea === wantAwayNick) || (eh === wantAwayNick && ea === wantHomeNick);
+          });
+          if (nickMatches.length === 1) chosen = nickMatches[0];
+        }
+        if (chosen?.id) effectiveEventId = chosen.id;
+        else req.log.warn({ sport, homeName, awayName }, "Odds API event-id resolution ambiguous/not-found; using client eventId (props may be empty)");
+      } catch (err) {
+        req.log.warn({ err, sport, homeName, awayName }, "Odds API event-id resolution failed; using client eventId");
+      }
+    }
+
     const fetchOdds = async (mkList: string[]) => {
-      const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${eventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
+      const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${effectiveEventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
       const r = await fetch(url);
       if (!r.ok) {
         const text = await r.text();
@@ -165,9 +230,9 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     const qhMarkets = QH_MARKETS_BY_SPORT[sport] ?? [];
     const altMarkets = ALT_MARKETS_BY_SPORT[sport] ?? [];
     const [data, qhData, altData] = await Promise.all([
-      cachedJson<RawEventOdds>(`props:${oddsKey}:${eventId}`, 5 * 60 * 1000, () => fetchOdds(markets)),
+      cachedJson<RawEventOdds>(`props:${oddsKey}:${effectiveEventId}`, 5 * 60 * 1000, () => fetchOdds(markets)),
       qhMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${eventId}:v2`, 5 * 60 * 1000, async () => {
+        ? cachedJson<RawEventOdds | null>(`props-qh:${oddsKey}:${effectiveEventId}:v2`, 5 * 60 * 1000, async () => {
             // Honest fallback: if a quarter/half segment 422s for this sport/event
             // (e.g. game not in-window for QH lines yet) we return null and keep
             // the base props rather than failing the whole request.
@@ -175,7 +240,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
           })
         : Promise.resolve(null),
       altMarkets.length
-        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${eventId}:v1`, 5 * 60 * 1000, async () => {
+        ? cachedJson<RawEventOdds | null>(`props-alt:${oddsKey}:${effectiveEventId}:v1`, 5 * 60 * 1000, async () => {
             // Same honest fallback as QH: the alternate-ladder batch is all-or-
             // nothing on the Odds API, so a 422 (bad/unsupported key, game not in
             // window) returns null and the base + QH props stand on their own.

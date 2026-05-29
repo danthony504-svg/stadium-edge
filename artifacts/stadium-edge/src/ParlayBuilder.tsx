@@ -2861,6 +2861,11 @@ export default function ParlayBuilder() {
     const qsParts = [`sport=${encodeURIComponent(sport)}`, `eventId=${encodeURIComponent(match.id)}`];
     if (espnGame?.homeTeamId) qsParts.push(`homeTeamId=${encodeURIComponent(espnGame.homeTeamId)}`);
     if (espnGame?.awayTeamId) qsParts.push(`awayTeamId=${encodeURIComponent(espnGame.awayTeamId)}`);
+    // Pass team names so the server can resolve the real Odds API event id when
+    // match.id came from a fallback odds source (ESPN/Bovada) — otherwise that
+    // id 404s/422s the props endpoint and Game Detail shows no props.
+    if (match.homeTeam) qsParts.push(`home=${encodeURIComponent(match.homeTeam)}`);
+    if (match.awayTeam) qsParts.push(`away=${encodeURIComponent(match.awayTeam)}`);
     let cancelled = false;
     setPropsLoading(true);
     (async () => {
@@ -5190,7 +5195,7 @@ export default function ParlayBuilder() {
         for (const g of [...namedGames, ...restGames]) {
           if (!g.id) continue;
           const espn = espnGames.find((e) => `${e.awayTeam} @ ${e.homeTeam}` === `${g.awayTeam} @ ${g.homeTeam}`);
-          candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId, named: gameNamedInText(g) });
+          candidates.push({ sport: s, eventId: g.id, homeTeamId: espn?.homeTeamId, awayTeamId: espn?.awayTeamId, home: g.homeTeam, away: g.awayTeam, named: gameNamedInText(g) });
           if (espn?.homeTeamId && espn?.awayTeamId) {
             propEventToTeams[g.id] = { home: String(espn.homeTeamId), away: String(espn.awayTeamId) };
           }
@@ -5226,6 +5231,12 @@ export default function ParlayBuilder() {
           const qs = [`sport=${encodeURIComponent(c.sport)}`, `eventId=${encodeURIComponent(c.eventId)}`];
           if (c.homeTeamId) qs.push(`homeTeamId=${encodeURIComponent(c.homeTeamId)}`);
           if (c.awayTeamId) qs.push(`awayTeamId=${encodeURIComponent(c.awayTeamId)}`);
+          // Pass full team names so the server can resolve the REAL Odds API
+          // event id when our eventId came from a fallback odds source (ESPN/
+          // Bovada). Without this, a fallback id 404s the props endpoint and the
+          // game's player props arrive empty even though the Odds API has them.
+          if (c.home) qs.push(`home=${encodeURIComponent(c.home)}`);
+          if (c.away) qs.push(`away=${encodeURIComponent(c.away)}`);
           // Fetch this game's props with a bounded retry. The prop fetches above
           // fire as one parallel burst, which can briefly trip the upstream Odds
           // API rate limit (429) or a transient 502 — and a single non-OK
