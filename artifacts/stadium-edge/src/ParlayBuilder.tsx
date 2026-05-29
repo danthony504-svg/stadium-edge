@@ -5820,17 +5820,11 @@ export default function ParlayBuilder() {
           if (!chunk.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(chunk.slice(6));
-            if (data.status && !fullText) {
-              // Transient "thinking" line from the server, shown the instant the
-              // stream opens so the bubble isn't blank during the model's silent
-              // time-to-first-token. The content branch below overwrites it as
-              // soon as the first real token arrives (fullText is still empty).
-              setMessages((p) => {
-                const next = p.slice();
-                next[next.length - 1] = { role: "assistant", content: data.status };
-                return next;
-              });
-            }
+            // The server sends a transient { status } event the instant the SSE
+            // stream opens (it also flushes the stream early). We intentionally
+            // do NOT render it as bubble text — the animated "loading" dots
+            // already signal that the assistant is working, so the bubble stays
+            // clean until the first real token arrives.
             if (data.content) {
               fullText += data.content;
               setMessages((p) => {
@@ -5844,9 +5838,9 @@ export default function ParlayBuilder() {
       }
 
       // If the stream ended without a single real token (model error / upstream
-      // rate-limit), the bubble would otherwise stay stuck on the transient
-      // "Pulling real odds…" status forever. Replace it with a clear, honest
-      // retry message and skip pick-validation (there's nothing to validate).
+      // rate-limit), the bubble would otherwise stay empty (just the loading
+      // dots) forever. Replace it with a clear, honest retry message and skip
+      // pick-validation (there's nothing to validate).
       if (!fullText.trim()) {
         setMessages((p) => {
           const next = p.slice();

@@ -855,12 +855,11 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
     try { res.write(`: keep-alive\n\n`); } catch { /* socket gone */ }
   }, 10000);
   res.write(`: keep-alive\n\n`);
-  // Emit an IMMEDIATE visible status line (a real "data:" event, not a comment)
-  // so the browser paints feedback the instant the stream opens, instead of a
-  // blank bubble during the model's silent time-to-first-token. The client
-  // shows this transiently and OVERWRITES it with the first real token, so it
-  // never pollutes the final answer or the client-side PICK-line validation
-  // (which reads only the streamed content, never the status).
+  // Emit an early "data:" status event so the stream flushes open promptly
+  // during the model's silent time-to-first-token. The client intentionally
+  // does NOT render this text — it relies on its own animated loading dots for
+  // feedback — so the status never pollutes the final answer or the
+  // client-side PICK-line validation (which reads only the streamed content).
   res.write(`data: ${JSON.stringify({ status: "Pulling real odds & matchup data, then building your ticket\u2026" })}\n\n`);
   const stopHeartbeat = () => {
     if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
