@@ -10353,18 +10353,6 @@ export default function ParlayBuilder() {
           >
             <TrendingUp size={10} className="inline mr-1" /> Analyze
           </button>
-          <button
-            onClick={() => { if (requirePro("Coach Trends")) setShowCoaches(true); }}
-            className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-sky-400/40 text-sky-400 hover:bg-sky-400/10 transition inline-flex items-center gap-1"
-          >
-            <CoachIcon size={14} /> Coaches
-          </button>
-          <button
-            onClick={() => { if (requirePro("Weather")) setShowWeather(true); }}
-            className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-sky-400/40 text-sky-300 hover:bg-sky-400/10 transition inline-flex items-center gap-1"
-          >
-            <WeatherIcon size={14} /> Weather
-          </button>
         </div>
         {attachment && attachment.kind === "image" && (
           <div className="flex items-center gap-2 mb-2 bg-slate-800 border border-slate-800 rounded-xl p-2 w-fit">
