@@ -2985,7 +2985,7 @@ export default function ParlayBuilder() {
     setActiveLegBtn(n);
     if (pend.real) {
       const verb = pend.kind === "live" ? "live parlay" : "parlay";
-      sendMessage(`Build me the best ${n}-leg ${verb} for ${pend.gameLabel} (${pend.sport.toUpperCase()}). Use real current odds.`);
+      sendMessage(`Build me the best ${n}-leg ${verb} for ${pend.gameLabel} (${pend.sport.toUpperCase()}). Use real current odds. Only use markets and player props from THIS game — do not pull legs from any other game; if this game can't supply ${n} independent legs, return fewer and say why.`);
     } else {
       buildParlayForUpcomingGame(pend.gameLabel, pend.sport, n);
     }
