@@ -4149,6 +4149,28 @@ export default function ParlayBuilder() {
     },
   };
 
+  // Expand a search query so team initials/abbreviations also match. Team game
+  // labels use full names ("Oklahoma City Thunder"), so we map an abbreviation
+  // (OKC) to its nickname (Thunder) — which the full label contains — and add
+  // that as an extra search term. Returns the raw query plus any matched
+  // nicknames (all lowercase).
+  const expandTeamQuery = (q) => {
+    const terms = [q];
+    if (q.length >= 2) {
+      for (const sport of Object.keys(TEAM_ABBR_TO_NAME)) {
+        const m = TEAM_ABBR_TO_NAME[sport];
+        for (const abbr of Object.keys(m)) {
+          if (abbr.toLowerCase().startsWith(q)) terms.push(m[abbr].toLowerCase());
+        }
+      }
+    }
+    return Array.from(new Set(terms));
+  };
+  const matchesTerms = (text, terms) => {
+    const t = (text || "").toLowerCase();
+    return terms.some((term) => t.includes(term));
+  };
+
   // Find a pick from the pool that a coach's tendency bears on, so it can be
   // added to the ticket. Aggressive/front-runner → that team's spread or ML;
   // big-game → an over in their game. Returns a pick or null.
@@ -7132,6 +7154,7 @@ export default function ParlayBuilder() {
 
             {homeSearch.trim().length > 0 && (() => {
               const q = homeSearch.trim().toLowerCase();
+              const terms = expandTeamQuery(q);
               // Real live + upcoming games first (no odds attached — clicking asks the AI)
               const realGameRows = [
                 ...homeLiveGames.filter((g) => g.real).map((g) => ({
@@ -7141,13 +7164,13 @@ export default function ParlayBuilder() {
                   kind: "realGame", sport: g.sport, game: g.game, market: "Upcoming", pick: g.game, odds: null,
                 })),
               ].filter((r) =>
-                r.game.toLowerCase().includes(q) || r.pick.toLowerCase().includes(q) || r.sport.toLowerCase().includes(q)
+                matchesTerms(r.game, terms) || matchesTerms(r.pick, terms) || r.sport.toLowerCase().includes(q)
               );
               const all = Object.entries(PICK_POOL).flatMap(([sport, picks]) =>
                 picks.map((p) => ({ ...p, sport, kind: "pickPool" }))
               );
               const poolResults = all.filter((p) =>
-                p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)
+                matchesTerms(p.game, terms) || matchesTerms(p.pick, terms) || p.market.toLowerCase().includes(q)
               );
               const results = [...realGameRows.slice(0, 8), ...poolResults.slice(0, 12)];
 
@@ -7883,7 +7906,8 @@ export default function ParlayBuilder() {
                 }
                 const samplePool = Object.entries(PICK_POOL).flatMap(([sport, picks]) => picks.map((p) => ({ ...p, sport })));
                 const all = [...realPool, ...propPool, ...samplePool];
-                const results = all.filter((p) => p.game.toLowerCase().includes(q) || p.pick.toLowerCase().includes(q) || p.market.toLowerCase().includes(q)).slice(0, 30);
+                const terms = expandTeamQuery(q);
+                const results = all.filter((p) => matchesTerms(p.game, terms) || matchesTerms(p.pick, terms) || p.market.toLowerCase().includes(q)).slice(0, 30);
 
                 // TEAM/GAME matches — every live or upcoming matchup whose label
                 // (either team name) contains the query. Each opens the full game
@@ -7895,7 +7919,7 @@ export default function ParlayBuilder() {
                     const key = `${g.awayTeam} @ ${g.homeTeam}`;
                     if (finalKeysGlobal.has(key)) continue;
                     if (!liveKeysGlobal.has(key) && isLikelyDoneByTime(g.commenceTime)) continue;
-                    if (!key.toLowerCase().includes(q)) continue;
+                    if (!matchesTerms(key, terms)) continue;
                     const dedupKey = `${sport}::${key}`;
                     if (seenGameKeys.has(dedupKey)) continue;
                     seenGameKeys.add(dedupKey);
@@ -8313,8 +8337,9 @@ export default function ParlayBuilder() {
           <div className="px-4 py-4">
             {(() => {
               const q = homeSearch.trim().toLowerCase();
+              const terms = expandTeamQuery(q);
               const games = q
-                ? homeUpcomingGames.filter((g) => (g.game || "").toLowerCase().includes(q) || (g.sport || "").toLowerCase().includes(q))
+                ? homeUpcomingGames.filter((g) => matchesTerms(g.game, terms) || (g.sport || "").toLowerCase().includes(q))
                 : homeUpcomingGames;
               if (games.length === 0) {
                 return (
