@@ -54,10 +54,28 @@ that should produce a projection, paste the exact phrase through the
 estimate/fair value/closer to/more like + bare N%) before shipping. If you want
 new wording (e.g. "puts OVER ~N%"), extend the parser anchor in lockstep.
 
+## Props CAN be real model picks — projection is grounded, not fabricated
+Reversal of the earlier "props intentionally carry NO projected %" stance. We
+already feed the AI real prop data per leg: `playerHistory.recent` (last-5 stat
+lines), `playerHistory.vsOpponent` (prior games vs tonight's opponent),
+home/away/tonight splits, and `opponentDefense` (shooting % → rebound room,
+turnovers → steals, avgPointsAgainst → scoring). The prompt now REQUIRES, when
+playerHistory has data, a parseable projected hit % GROUNDED in the empirical
+hit count (how many recent / vsOpponent games actually cleared the line) plus the
+defensive/home-split tilt — stated with `parseAiProjection` wording + the price's
+implied %. That makes the prop a real edge pick with a green chip, not a market
+price. **Why:** the data to justify a defensible projection was always there; the
+only gap was that props never emitted a parser-readable %. **How to apply:** the
+honesty escape is mandatory — thin/contradictory/absent sample ⇒ NO projected %
+(qualitative lean only) ⇒ card correctly reads "MARKET PRICE". Never manufacture
+a pseudo-precise % from a hit count of 1-2 games. The projected % must trace to
+real cleared-the-line counts, never to the price.
+
 ## Prop badge: "MARKET PRICE", not "COIN-FLIP"
-Player props carry no grounded projection feed, so they always fall back to the
-market-implied number. Labeling that "COIN-FLIP" reads as a model verdict it
-isn't. The chat card now shows "MARKET PRICE" when `proj == null && isPropPick`.
+Player props fall back to the market-implied number ONLY when the AI emits no
+projection (no/thin playerHistory — see section above). Labeling that "COIN-FLIP"
+reads as a model verdict it isn't. The chat card shows "MARKET PRICE" when
+`proj == null && isPropPick`.
 `isPropPick` = market is NOT a game-side market; the game-market regex must
 include period prefixes (1H/2H/Q1-4), `alt`, a `live` prefix (live picks use
 "Live Moneyline"/"Live Total"), and soccer labels (match result / draw no bet /
