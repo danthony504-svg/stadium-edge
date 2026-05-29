@@ -42,6 +42,20 @@ the "(sample)" label. Replaced with the REAL streak/venue from matchupHistory,
 honest silence when absent. **Why:** the no-fabrication rule applies to "Why this
 pick?" copy too, not just the AI edge notes.
 
+## Alt-spread usage scales with leg count (prompt-only)
+SYSTEM_PROMPT block "SCALE ALT-SPREADS WITH LEG COUNT": longer tickets should put
+MORE of their GAME-SIDE legs (props counted separately) onto real cushioned Alt
+Spread rungs to raise per-leg hit rate. Tiered targets (4-5→≥1, 6-8→≥2, 9-12→≥3,
+13+→most). **Why prompt-only:** there's no deterministic post-parse alt-spread
+enforcer (would need the price/point validator that doesn't exist — see gap below),
+so this is a lean, not a hard guarantee. Three precedence guards baked in so it
+doesn't fight existing rules: (1) it's the LOWEST-priority guideline — hard locks
+(market/game/period-intent, correlation & duplicate-family bans) + no-fabrication
+always win; (2) never invent a rung, respect the -1000 alt floor and
+one-leg-per-(game,market-family) ban; (3) conviction still gates — if no real alt
+rung has a defensible edge, keep the main line and count it an honest shortfall,
+never step into a worse line to hit the quota.
+
 ## Known gap — pick validation does NOT check price/point (pre-existing, pipeline-wide)
 `filterPicksToReal` (ParlayBuilder.tsx) only validates that a leg's GAME is a real
 in-window matchup (team-token overlap + [-4h,+48h] window). It does NOT verify the
