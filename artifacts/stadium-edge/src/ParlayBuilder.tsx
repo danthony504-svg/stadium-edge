@@ -2019,7 +2019,7 @@ const detectIntent = (text) => {
   if (/player.?prop|props.?only|just.?props|only.?props|prop parlay/.test(t)) return "props";
   if (/\bbest\b|optimal|highest.?confidence|smartest|top.?pick|sharp/.test(t)) return "best";
   if (/safe|conservative|low.?risk|chalk|favorite/.test(t)) return "safe";
-  if (/longshot|lotto|big.*pay|moonshot|risky|long.*odd|underdog/.test(t)) return "longshot";
+  if (/longshot|lotto|lottery|big.*pay|moonshot|risky|long.*odd|underdog/.test(t)) return "longshot";
   if (/correlat|same.?game|sgp/.test(t)) return "correlation";
   if (/probabil|implied|edge|math/.test(t)) return "math";
   if (/help|how.*work|what.*do|guide/.test(t)) return "help";
@@ -7222,7 +7222,7 @@ export default function ParlayBuilder() {
               {[
                 { label: "Hot Picks", icon: <HotPicksIcon size={18} />, msg: "Build me the best parlay" },
                 { label: "Easy Money", icon: <EasyMoneyIcon size={18} />, msg: "Build me a safe parlay" },
-                { label: "Lottery Ticket", icon: <LongShotIcon size={18} />, msg: "Build me a longshot parlay" },
+                { label: "Lottery Ticket", icon: <LongShotIcon size={18} />, msg: "Build me a lottery ticket" },
               ].map((p) => (
                 <button
                   key={p.label}
