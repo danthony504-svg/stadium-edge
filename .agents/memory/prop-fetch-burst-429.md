@@ -1,9 +1,47 @@
 ---
-name: Prop-fetch parallel-burst 429 drop
-description: Why "chat not adding player props" can be intermittent — the client prop fetch burst trips upstream rate limits and silently drops the named game's props for that send.
+name: Prop-fetch empty realProps — two distinct causes
+description: "chat not adding player props" / "0 strikeout props" has TWO independent root causes — the order-blind realProps slice(400) cap (PRIMARY for market-named requests) and the parallel-burst 429 drop (intermittent, cold-cache).
 ---
 
-# Prop-fetch parallel-burst 429 silently drops props
+# PRIMARY root cause for "0 <market> props": the order-blind slice(400) cap
+
+This is the cause that actually explained the reproducible "Can you build me a 5-leg
+strikeout parlay → 0 pitcher strikeout props available" failure. The burst-429 fix below
+did NOT fix it (the data WAS reaching the client; per-event `/api/sports/props` returned K
+props fine). **Smoking gun in the server diagnostic: `realProps:0` but `playerHistory:40`
+on the same send** — the props were dropped but their players survived.
+
+**Mechanism:** in `ParlayBuilder.tsx`, the chat send builds `realProps` by walking
+`mergedPropsByEvent = {...realPropsByEvent (cached, possibly other-sport), ...extraProps
+(this send's fetches)}` at ~165 props/game, then hard-caps with `realProps.slice(0, 400)`
+when assembling the context. Cached/other-sport games iterate FIRST (object spread key
+order), so ~2.4 games front-load all 400 slots. The freshly-fetched `pitcher_strikeouts`
+props land at array positions PAST 400 and get sliced off entirely. Meanwhile
+`playerTargets` (→`playerHistory`) has its OWN independent `slice(0,40)` filled in the same
+loop, so the pitchers still appear there — hence `realProps:0` + `playerHistory:40`. The
+server then market-locks `realProps` down to ONLY `pitcher_strikeouts` (chat.ts
+`MARKET_KEYWORDS`, exact-match `allowed.has(market)`) and sees an empty pool → AI honestly
+reports "0 props". `wantsWideProps` makes it worse (uncaps `toFetch` to the whole ~23-game
+slate → ~3800 props pushed through a 400 cap).
+
+**Fix (client-only, Vite HMR — no api-server restart):** right before the `slice(0, 400)`,
+detect the user's requested market by mirroring the server `MARKET_KEYWORDS` regex map
+VERBATIM (first-match-wins, combos before singles) into a client `PROP_MARKET_KEYWORDS`,
+then stable-partition `realProps` into [requested-market head, everything-else tail] so the
+requested props can never be sliced off. Gated to only reorder when a keyword matches, so
+generic parlays are unchanged. Suffix matching is PERIOD variants only
+(`_(q1..q4|h1|h2)$`), NOT a bare `startsWith(base+"_")` — the latter would let
+`player_points` pull in `player_points_rebounds/_assists` combos the server lock drops
+anyway (`_alternate` rungs are already folded into the base key server-side). Verified by
+simulation: front-loaded pool of 2970 props / 75 K → OLD slice=0 K, NEW slice=75 K.
+**Residual (acceptable):** if a SINGLE requested market itself exceeds 400 props, the cap
+can still trim it — not a real-world concern at current slate sizes.
+**Drift risk:** client `PROP_MARKET_KEYWORDS` and server `MARKET_KEYWORDS` must stay in
+sync; a new prop market added to the server lock should be mirrored here too.
+
+---
+
+# SECONDARY (intermittent) cause: Prop-fetch parallel-burst 429 silently drops props
 
 When a chat parlay is built, the client fetches `/api/sports/props` for up to several games
 (`totalCap`: 6 normal / 12 props / 999 wide-props) in a burst. That burst can briefly trip the
