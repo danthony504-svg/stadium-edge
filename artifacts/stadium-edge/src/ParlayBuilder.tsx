@@ -3234,6 +3234,44 @@ export default function ParlayBuilder() {
     const REG_PERIODS = { nfl: 4, ncaaf: 4, nba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
     const regCount = REG_PERIODS[g.sport];
     const reasons = {};
+    // --- DEAD-MARKET GUARD ---------------------------------------------------
+    // A moneyline (or near-impossible spread cover) on a team trailing by an
+    // insurmountable margin this late in the game is a no-bet — real books lock
+    // those markets (e.g. the OKC ML padlocked while down 26 in Q4). We EXCLUDE
+    // such legs outright rather than just docking points, so a blowout never
+    // yields "back the team that's down 26 in the 4th". Returns true when a
+    // deficit of `deficitAgainst` points is effectively unwinnable right now.
+    // Per-sport deficit that's a wrap IN THE FINAL PERIOD (early in that period).
+    const DEAD_FINAL_DEFICIT = { nba: 12, ncaab: 12, nfl: 16, ncaaf: 19, nhl: 3, mlb: 4, soccer: 3 };
+    const PERIOD_MINUTES = { nba: 12, ncaab: 20, nfl: 15, ncaaf: 15, nhl: 20 };
+    const inFinalPeriod = !!regCount && Number.isFinite(g.period) && g.period >= regCount;
+    const penultimatePeriod = !!regCount && Number.isFinite(g.period) && g.period === regCount - 1;
+    // Seconds left in the CURRENT period, parsed off ESPN's live clock when present.
+    const clockSecs = (() => {
+      if (!g.clock) return null;
+      const m = String(g.clock).match(/(\d+):(\d{2})/);
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+    })();
+    const isDeadDeficit = (deficitAgainst) => {
+      if (!hasScores || deficitAgainst <= 0) return false;
+      const base = DEAD_FINAL_DEFICIT[g.sport];
+      if (base == null) return false; // UFC / unknown — no scoreboard-margin concept
+      if (inFinalPeriod) {
+        // The unwinnable line tightens as the period clock runs down. With no
+        // live clock we assume mid-period.
+        const perMin = PERIOD_MINUTES[g.sport];
+        const periodElapsedFrac = (clockSecs != null && perMin)
+          ? Math.max(0, Math.min(1, 1 - clockSecs / (perMin * 60)))
+          : 0.5;
+        const threshold = periodElapsedFrac >= 0.66 ? Math.ceil(base * 0.6)
+                        : periodElapsedFrac >= 0.33 ? Math.ceil(base * 0.8)
+                        : base;
+        return deficitAgainst >= threshold;
+      }
+      // One period before the final: only a true blowout is already decided.
+      if (penultimatePeriod) return deficitAgainst >= base * 2;
+      return false;
+    };
     // Pre-compute per-team form signals from real history (last 10 games).
     // `marginDiff` > 0 means home team has the better recent point margin.
     // `combinedPace` is the avg total points across both teams' last 10
@@ -3262,6 +3300,15 @@ export default function ParlayBuilder() {
         // yet (pre-pitch), fall back to implied probability from odds.
         const isHomeML = pk.teamFull === g.home;
         const isAwayML = pk.teamFull === g.away;
+        // HARD EXCLUDE a moneyline on the team that's trailing by an
+        // insurmountable margin this late — that market is effectively dead
+        // (books lock it). deficitAgainst > 0 means THIS team is behind.
+        const mlDeficitAgainst = isHomeML ? -margin : margin;
+        if (isDeadDeficit(mlDeficitAgainst)) {
+          reasons[pk.pick + "|" + pk.market] =
+            `${pk.teamFull} down ${mlDeficitAgainst} in ${periodLabel}${g.clock ? " " + g.clock : ""} — comeback near-impossible, market effectively dead`;
+          return { ...pk, _score: -999, _dead: true };
+        }
         if (hasScores && (margin !== 0)) {
           if ((isHomeML && margin > 0) || (isAwayML && margin < 0)) {
             score += Math.min(28, Math.abs(margin) * (g.sport === "nba" ? 1.2 : g.sport === "nfl" ? 3 : g.sport === "mlb" ? 5 : 4));
@@ -3299,12 +3346,22 @@ export default function ParlayBuilder() {
             why.push(`${wins}-${losses} in last ${meetings} H2H`);
           }
         }
-      } else if (pk.market === "Spread") {
+      } else if (pk.market === "Spread" || pk.market === "Alt Spread") {
         const ptMatch = pk.pick.match(/(-?\+?\d+\.?\d*)$/);
         const spreadPt = ptMatch ? parseFloat(ptMatch[1]) : 0;
         const isHomeSpread = pk.teamFull === g.home;
         // Adjusted margin from the perspective of this side
         const adj = (isHomeSpread ? margin : -margin) + spreadPt;
+        // HARD EXCLUDE a spread the trailing side can no longer realistically
+        // cover this late (e.g. +5.5 while down 26 in Q4 needs +20.5 net).
+        // A near-pick'em cover (down 26 on +25.5 → adj -0.5) stays live.
+        // isDeadDeficit() already scopes itself to the final/penultimate period,
+        // so it handles both — no extra period gate needed here.
+        if (hasScores && adj < 0 && isDeadDeficit(-adj)) {
+          reasons[pk.pick + "|" + pk.market] =
+            `needs ${Math.abs(adj).toFixed(1)} more to cover in ${periodLabel}${g.clock ? " " + g.clock : ""} — out of reach, market effectively dead`;
+          return { ...pk, _score: -999, _dead: true };
+        }
         if (hasScores) {
           // Period progression: a 4-point cover late in the game is much
           // more meaningful than the same cover in the 1st quarter.
@@ -3416,6 +3473,9 @@ export default function ParlayBuilder() {
       else if (pk.market === "Total") cat = "total";
       else cat = `prop:${pk.pick.replace(/\s+Over\s+\S+\s+.*$/, "")}`; // one prop per player
       if (usedCategory.has(cat)) continue;
+      // HARD skip dead markets (trailing-team ML / out-of-reach spread late) no
+      // matter how thin the ticket is — never recommend an effectively-locked bet.
+      if (pk._dead || pk._score <= 0) continue;
       // Require a minimally credible score so we don't pad weak legs.
       if (pk._score < 45 && picked.length >= 2) continue;
       // Drop legs that contradict something already on the ticket.
@@ -5296,13 +5356,30 @@ export default function ParlayBuilder() {
             // AI can't grab a stale preseason matchup by accident.
             .filter((p) => isWithin24h(p.startsAt))
             .slice(0, 30)
-            .map((p) => ({
-              game: p.game,
-              market: p.market,
-              pick: p.pick,
-              odds: p.odds,
-              startsAt: p.startsAt,
-            }))
+            .map((p) => {
+              // Attach the REAL live score/period/clock for in-progress games so
+              // the AI can respect game state (never back a team down big late,
+              // never offer a market the book has effectively locked). Joined by
+              // game label against the live scoreboard feed. Honest nulls when
+              // the game hasn't tipped or ESPN hasn't shipped a score yet.
+              const lg = homeLiveGames.find((g) => g.real && g.game === p.game);
+              const live = lg && Number.isFinite(lg.awayScore) && Number.isFinite(lg.homeScore)
+                ? {
+                    awayScore: lg.awayScore,
+                    homeScore: lg.homeScore,
+                    periodLabel: lg.periodLabel || null,
+                    clock: lg.clock || null,
+                  }
+                : null;
+              return {
+                game: p.game,
+                market: p.market,
+                pick: p.pick,
+                odds: p.odds,
+                startsAt: p.startsAt,
+                ...(live || {}),
+              };
+            })
         : undefined,
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
