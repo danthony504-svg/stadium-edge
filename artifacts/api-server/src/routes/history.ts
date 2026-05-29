@@ -110,6 +110,31 @@ function summarizeForm(results: Array<{ teamScore: number | null; oppScore: numb
   };
 }
 
+// Current win/loss streak from a team's results (newest first). Counts how
+// many consecutive games — from the most recent — ended the same way. Real,
+// derived straight from final scores; null when there are no decided games.
+function computeStreak(results: Array<{ won: boolean | null }>) {
+  const decided = results.filter((r) => r.won === true || r.won === false);
+  if (decided.length === 0) return null;
+  const type = decided[0].won ? "W" : "L";
+  let count = 0;
+  for (const r of decided) {
+    if ((r.won ? "W" : "L") === type) count++;
+    else break;
+  }
+  return { type, count };
+}
+
+// Full-season record over every COMPLETED game in the feed — a real proxy for
+// standings/quality. winPct is wins / decided games, rounded to 3 dp.
+function seasonRecord(results: Array<{ won: boolean | null }>) {
+  const decided = results.filter((r) => r.won === true || r.won === false);
+  if (decided.length === 0) return { games: 0, wins: 0, losses: 0, winPct: null };
+  const wins = decided.filter((r) => r.won === true).length;
+  const losses = decided.length - wins;
+  return { games: decided.length, wins, losses, winPct: Math.round((wins / decided.length) * 1000) / 1000 };
+}
+
 // Matchup history: pulls form for both teams + head-to-head meetings.
 // Returns honest empty buckets when a feed has no data (no fabrication).
 router.get("/sports/matchup-history", async (req, res): Promise<void> => {
@@ -152,6 +177,14 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           teamName: home.teamName,
           last10: summarizeForm(home.results, 10),
           last5: summarizeForm(home.results, 5),
+          // Venue splits: this team's last-10 form in games played AT HOME vs
+          // ON THE ROAD. For the upcoming game (at the home team's venue),
+          // homeSplit is the relevant read for the home side.
+          homeSplit: summarizeForm(home.results.filter((r) => r.isHome), 10),
+          awaySplit: summarizeForm(home.results.filter((r) => !r.isHome), 10),
+          // Current W/L streak and full-season record — real, from final scores.
+          streak: computeStreak(home.results),
+          season: seasonRecord(home.results),
           // Most recent COMPLETED game date — lets the client compute real
           // days-rest / back-to-back vs the upcoming game's start time. Null
           // when the team has no completed games in the feed.
@@ -162,6 +195,10 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           teamName: away.teamName,
           last10: summarizeForm(away.results, 10),
           last5: summarizeForm(away.results, 5),
+          homeSplit: summarizeForm(away.results.filter((r) => r.isHome), 10),
+          awaySplit: summarizeForm(away.results.filter((r) => !r.isHome), 10),
+          streak: computeStreak(away.results),
+          season: seasonRecord(away.results),
           lastGameDate: away.results[0]?.date ?? null,
         },
         h2h: {

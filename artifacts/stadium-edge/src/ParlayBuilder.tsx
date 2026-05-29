@@ -1793,17 +1793,30 @@ const generateReasoning = (pick, h2hEntry = null) => {
     reasons.push(`${pick.market} at ${formatOdds(pick.odds)}, ${implied}% implied.`);
   }
 
-  // Team trending (sample): a deterministic recent-form read for team-side picks
-  // (ML / spread / total), so the "why" reflects who's hot or cold lately.
-  if (pick.market !== "Player Prop" && pick.game) {
-    const tSeed = hashSeed(`${pick.game}-${pick.pick}-trend`);
-    const streak = Math.floor(tSeed * 5) + 1; // 1-5
-    if (tSeed > 0.6) {
-      reasons.push(`📈 Trending up: this side is ${streak}-${5 - streak >= 0 ? Math.max(0, 5 - streak) : 0} in its last 5 (sample) and covering — recent form points its way.`);
-    } else if (tSeed < 0.35) {
-      reasons.push(`📉 Trending down: cold stretch lately (sample) — a reason to be cautious, baked into the confidence score.`);
-    } else {
-      reasons.push(`➖ Form is mixed lately (sample) — no strong recent trend either direction.`);
+  // Team trending — REAL recent-form read for SIDE picks (moneyline / spread /
+  // run line / puck line), pulled from the same matchup-history fetch the AI
+  // sees. Resolves which side this pick is on, then surfaces that side's actual
+  // current streak and venue split. Totals have NO side, so they're excluded —
+  // a streak/venue note keyed to one team would misattribute the read. Honest
+  // silence when we have no history for the game — no fabricated "(sample)" trend.
+  const SIDE_MARKETS = new Set(["Moneyline", "Spread", "Alt Spread", "Run Line", "Puck Line"]);
+  if (SIDE_MARKETS.has(pick.market) && pick.game && h2hEntry) {
+    const sides = pick.game.split(" @ ");
+    if (sides.length === 2) {
+      const away = sides[0].trim();
+      const home = sides[1].trim();
+      const firstTok = pick.pick.split(/\s+/)[0].toLowerCase();
+      const pickedHome = pick.pick.toLowerCase().includes(home.toLowerCase())
+        || home.toLowerCase().includes(firstTok);
+      const streak = pickedHome ? h2hEntry.homeStreak : h2hEntry.awayStreak;
+      const venue = pickedHome ? h2hEntry.homeVenueForm : h2hEntry.awayVenueForm;
+      if (streak && streak.count >= 2) {
+        if (streak.type === "W") reasons.push(`📈 On a real ${streak.count}-game win streak (ESPN finals) — recent form points its way.`);
+        else reasons.push(`📉 On a real ${streak.count}-game losing streak (ESPN finals) — a reason for caution, baked into the score.`);
+      }
+      if (venue && venue.record) {
+        reasons.push(`🏟️ ${venue.record} ${pickedHome ? "at home" : "on the road"} this season (${venue.avgMargin > 0 ? "+" : ""}${venue.avgMargin} avg margin) — real venue split.`);
+      }
     }
   }
 
@@ -3289,6 +3302,17 @@ export default function ParlayBuilder() {
     const h2h = history?.h2h || null;
     const h2hHomeEdge = h2h && (h2h.meetings?.length ?? 0) > 0
       ? (h2h.homeWins - h2h.awayWins) : null;
+    // Pre-game venue splits + current streak (real ESPN). For a game at the
+    // home team's venue, the home side's HOME split vs the away side's AWAY
+    // split is the venue-specific read. `venueDiff` > 0 favors the home side.
+    const homeVenue = (history?.home?.homeSplit && history.home.homeSplit.games > 0) ? history.home.homeSplit : null;
+    const awayVenue = (history?.away?.awaySplit && history.away.awaySplit.games > 0) ? history.away.awaySplit : null;
+    const venueDiff = (homeVenue?.avgMargin != null && awayVenue?.avgMargin != null)
+      ? (homeVenue.avgMargin - awayVenue.avgMargin) : null;
+    const homeStreak = history?.home?.streak || null;
+    const awayStreak = history?.away?.streak || null;
+    // Signed streak strength: + for a win streak, − for a losing streak.
+    const streakStrength = (s) => (s && s.count > 0 ? (s.type === "W" ? s.count : -s.count) : 0);
     const scoreCandidate = (pk) => {
       let score = 50;
       const why = [];
@@ -3346,6 +3370,24 @@ export default function ParlayBuilder() {
             why.push(`${wins}-${losses} in last ${meetings} H2H`);
           }
         }
+        // Venue split bump: home side's home form vs away side's road form.
+        // Capped at ±6 so it complements — never overrides — the L10/H2H read.
+        if (venueDiff != null) {
+          const sideVenue = isHomeML ? venueDiff : -venueDiff;
+          const vBump = Math.max(-6, Math.min(6, sideVenue * 0.9));
+          if (Math.abs(vBump) >= 2) {
+            score += vBump;
+            const vf = isHomeML ? homeVenue : awayVenue;
+            why.push(`${pk.teamFull} ${vf.record} ${isHomeML ? "at home" : "on the road"} (${vf.avgMargin > 0 ? "+" : ""}${vf.avgMargin} margin)`);
+          }
+        }
+        // Streak bump: ride a hot side, fade a cold one. Capped at ±5.
+        const myStreak = isHomeML ? homeStreak : awayStreak;
+        const sStr = streakStrength(myStreak);
+        if (sStr !== 0) {
+          score += Math.max(-5, Math.min(5, sStr * 1.2));
+          why.push(`${pk.teamFull} on a ${Math.abs(sStr)}-game ${myStreak.type === "W" ? "win" : "losing"} streak`);
+        }
       } else if (pk.market === "Spread" || pk.market === "Alt Spread") {
         const ptMatch = pk.pick.match(/(-?\+?\d+\.?\d*)$/);
         const spreadPt = ptMatch ? parseFloat(ptMatch[1]) : 0;
@@ -3386,6 +3428,16 @@ export default function ParlayBuilder() {
             score += bump;
             const myL10 = isHomeSpread ? homeL10 : awayL10;
             why.push(`${pk.teamFull} ${myL10.wins}-${myL10.losses} L10, ${myL10.avgMargin > 0 ? "+" : ""}${myL10.avgMargin} avg margin`);
+          }
+        }
+        // Venue split bump for spreads — same venue read as ML, capped ±5.
+        if (venueDiff != null) {
+          const sideVenue = isHomeSpread ? venueDiff : -venueDiff;
+          const vBump = Math.max(-5, Math.min(5, sideVenue * 0.7));
+          if (Math.abs(vBump) >= 2) {
+            score += vBump;
+            const vf = isHomeSpread ? homeVenue : awayVenue;
+            why.push(`${pk.teamFull} ${vf.record} ${isHomeSpread ? "at home" : "on the road"} (${vf.avgMargin > 0 ? "+" : ""}${vf.avgMargin} margin)`);
           }
         }
       } else if (pk.market === "Total") {
@@ -4979,9 +5031,24 @@ export default function ParlayBuilder() {
               const restDays = Math.floor(diffMs / 86400000);
               return { restDays, backToBack: restDays <= 1 };
             };
+            // Real venue splits, current streak and season record — the new
+            // pre-game signals. For the upcoming game (at the home venue) the
+            // home team's HOME split and the away team's AWAY split are the
+            // relevant venue reads. A form bucket with games:0 means honest
+            // "no split data" — passed through as null so the AI won't lean on it.
+            const splitOf = (s) => (s && s.games > 0
+              ? { record: `${s.wins}-${s.losses}`, avgMargin: s.avgMargin, ptsFor: s.ptsFor, ptsAgainst: s.ptsAgainst, games: s.games } : null);
+            const seasonOf = (s) => (s && s.games > 0
+              ? { record: `${s.wins}-${s.losses}`, winPct: s.winPct } : null);
             matchupHistory[t.gameLabel] = {
               home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
               away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
+              homeVenueForm: splitOf(data?.home?.homeSplit),
+              awayVenueForm: splitOf(data?.away?.awaySplit),
+              homeStreak: data?.home?.streak || null,
+              awayStreak: data?.away?.streak || null,
+              homeSeason: seasonOf(data?.home?.season),
+              awaySeason: seasonOf(data?.away?.season),
               homeRest: computeRest(data?.home?.lastGameDate),
               awayRest: computeRest(data?.away?.lastGameDate),
               h2h: h2h?.meetings?.length

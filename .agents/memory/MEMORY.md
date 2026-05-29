@@ -24,3 +24,4 @@
 - [Tracker pick-string forms / CLV matching](tracker-pick-string-forms.md) — tracker persists pick in whatever form the add-path produced (nickname vs full team name); cross-refs vs buildPicksFromOdds must register/normalize both variants, never exact-match.
 - [api-server dev is one-shot build+start](api-server-no-watcher.md) — server route edits do not hot-reload; restart the API workflow or it serves stale compiled code + stale caches.
 - [Live dead-market guard](live-dead-market-guard.md) — live picks must respect score+clock; HARD-exclude trailing-team ML / out-of-reach spread late; match "Alt Spread" too; feed live score to chat AI.
+- [Pre-game venue/streak/season signals](pregame-venue-streak-signals.md) — home/away splits + streak + season record all derive from ESPN schedule already pulled (no new feed); venue orientation gotcha; streak/venue notes are SIDE-markets only; pick validation never checks price/point.
