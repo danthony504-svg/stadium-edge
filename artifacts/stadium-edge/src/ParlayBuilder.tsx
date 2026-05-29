@@ -10140,7 +10140,7 @@ export default function ParlayBuilder() {
         const underOdds = decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - diff * 0.5)));
         const stepFor = (sk) => (sk === "hrPerGame" || sk === "rec" ? 0.5 : sk === "passYds" || sk === "rushYds" || sk === "recYds" ? 5 : 0.5);
         const step = stepFor(statKey);
-        // SUGGESTED LINES (3 risk tiers): Safe / Balanced / Risky. Each pill is
+        // SUGGESTED LINES (3 tiers): Safe / Balanced / Alt Under. Each pill is
         // a complete pick (side + line) so the user can compare the trade-off
         // between confidence and payout at a glance.
         const suggestedTiers = (() => {
@@ -10152,8 +10152,8 @@ export default function ParlayBuilder() {
 
           // Pick the side with more recent momentum — the side most sample
           // games landed on relative to the average. That's the side we'll
-          // build the Safe + Balanced suggestions for. The Risky tier flips
-          // logic to chase payout.
+          // build the Safe + Balanced suggestions for. The Alt Under tier is
+          // always an Under set a few points higher for a safer alternative.
           const overSampleHits = games.filter((v) => v >= avg).length;
           const safeSide = overSampleHits >= 3 ? "Over" : "Under";
 
@@ -10187,21 +10187,24 @@ export default function ParlayBuilder() {
             return { side: safeSide, value: v };
           })();
 
-          // ---- RISKY tier: contrarian — bet AGAINST the sample lean ----
-          // The safe/balanced tiers ride the side the recent games favor, so
-          // the genuine long-shot is the opposite side. Flipping here also
-          // guarantees the suggestions surface both an Over and an Under.
-          const riskySide = safeSide === "Over" ? "Under" : "Over";
-          const risky = (() => {
-            let v;
-            if (riskySide === "Over") {
-              // Player rarely reaches this high, so the over is a long shot.
-              v = +(Math.max(sampleMax, avg) + step * 2).toFixed(1);
-            } else {
-              // Player rarely dips this low, so the under is a long shot.
-              v = Math.max(0, +(Math.min(sampleMin, avg) - step * 2).toFixed(1));
-            }
-            return { side: riskySide, value: v };
+          // ---- ALT UNDER tier: a safer Under set a few points ABOVE the
+          // balanced line. A higher number is easier to stay beneath, so it
+          // clears more often than the balanced line — an "alternate under"
+          // for players who want a lower-risk under at reduced juice. ----
+          const altUnder = (() => {
+            const snap = (x) => +(Math.round(x / step) * step).toFixed(1);
+            // Bump a few points above the balanced line, scaled to the stat
+            // size, then snap onto the line grid.
+            const bump = Math.max(step * 2, +(avg * 0.15).toFixed(2));
+            let v = snap(balanced.value + bump);
+            // Soft guard: don't sit absurdly far above every game (keep on grid).
+            const cap = snap(sampleMax + step);
+            if (v > cap) v = cap;
+            // Hard guarantee: always strictly higher than the balanced line —
+            // that's the whole point of the alternate under. Stays grid-aligned
+            // because balanced.value is already a multiple of step.
+            if (v <= balanced.value) v = snap(balanced.value + step);
+            return { side: "Under", value: v };
           })();
 
           // Compute hit-count + cushion descriptors for each tier.
@@ -10214,7 +10217,7 @@ export default function ParlayBuilder() {
           return {
             safe: describe(safe),
             balanced: describe(balanced),
-            risky: describe(risky),
+            altUnder: describe(altUnder),
           };
         })();
         // The single headline recommendation shown at the top of the page.
@@ -10239,8 +10242,8 @@ export default function ParlayBuilder() {
           ? "safe"
           : tierMatch(suggestedTiers.balanced)
           ? "balanced"
-          : tierMatch(suggestedTiers.risky)
-          ? "risky"
+          : tierMatch(suggestedTiers.altUnder)
+          ? "altUnder"
           : null;
         return (
           <div className="fixed inset-0 z-40 bg-slate-900 overflow-y-auto" >
@@ -10402,13 +10405,13 @@ export default function ParlayBuilder() {
               <div className="border border-cyan-500/30 bg-cyan-400/5 rounded-2xl p-4 mb-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-bold text-cyan-300 text-sm flex items-center gap-1.5"><Sparkles size={14} /> Suggested lines</h3>
-                  <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">Low → High risk</span>
+                  <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">3 ways to play</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     { key: "safe", label: "Safe", subtitle: "Low risk", color: "emerald", tier: suggestedTiers.safe },
                     { key: "balanced", label: "Balanced", subtitle: "Med risk", color: "cyan", tier: suggestedTiers.balanced },
-                    { key: "risky", label: "Risky", subtitle: "High risk", color: "rose", tier: suggestedTiers.risky },
+                    { key: "altUnder", label: "Alt Under", subtitle: "Safer under", color: "violet", tier: suggestedTiers.altUnder },
                   ]).map(({ key, label, subtitle, color, tier }) => {
                     const isActive = activeTier === key;
                     const colorMap = {
@@ -10429,6 +10432,12 @@ export default function ParlayBuilder() {
                         idle: "border-rose-500/30 hover:border-rose-400 hover:bg-rose-500/5",
                         text: "text-rose-300",
                         chip: "bg-rose-500/20 text-rose-300",
+                      },
+                      violet: {
+                        ring: "border-violet-400 bg-violet-500/15 ring-1 ring-violet-400",
+                        idle: "border-violet-500/30 hover:border-violet-400 hover:bg-violet-500/5",
+                        text: "text-violet-300",
+                        chip: "bg-violet-500/20 text-violet-300",
                       },
                     }[color];
                     return (
