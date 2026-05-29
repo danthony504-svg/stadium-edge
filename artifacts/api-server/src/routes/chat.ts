@@ -704,6 +704,44 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
 
+  // SSE heartbeat — gpt-5.4 is a reasoning model that can spend 20-40s on
+  // internal reasoning BEFORE emitting its first visible token, especially on
+  // a large single-game context (deep period markets + props). During that
+  // silent window the proxy in front of us sees an idle connection and kills
+  // it (~30s), so the user gets "nothing loaded" even though the model is
+  // still working. We emit an SSE COMMENT line (": ...\n\n") immediately and
+  // every 10s to keep the connection alive. The client ignores any chunk that
+  // doesn't start with "data: ", so heartbeats never corrupt the output. We
+  // stop heartbeating once real content starts and always clean up on
+  // end/error/disconnect.
+  let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+    try { res.write(`: keep-alive\n\n`); } catch { /* socket gone */ }
+  }, 10000);
+  res.write(`: keep-alive\n\n`);
+  const stopHeartbeat = () => {
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+  };
+  // If the client (or proxy) disconnects mid-stream, stop the heartbeat AND
+  // abort the upstream model call so we don't keep consuming reasoning/output
+  // tokens for a response nobody is reading. `clientGone` also guards every
+  // subsequent res.write so we never write to a dead socket.
+  //
+  // IMPORTANT: listen on `res` "close", NOT `req` "close". For a POST, Node
+  // fires the REQUEST stream's "close" as soon as the body has been read
+  // (which is almost immediately) — using that to abort would kill every call
+  // before the model produces a token. The RESPONSE "close" fires on real
+  // socket teardown; we treat it as a disconnect only if we haven't already
+  // finished writing (res.writableEnded). On a normal end it's a harmless no-op.
+  let clientGone = false;
+  const upstreamAbort = new AbortController();
+  res.on("close", () => {
+    stopHeartbeat();
+    if (!res.writableEnded) {
+      clientGone = true;
+      upstreamAbort.abort();
+    }
+  });
+
   try {
     const stream = await client.chat.completions.create({
       model: "gpt-5.4",
@@ -718,17 +756,26 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
       max_completion_tokens: 16384,
       messages,
       stream: true,
-    });
+    }, { signal: upstreamAbort.signal });
 
     for await (const chunk of stream) {
+      if (clientGone) break;
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
+        stopHeartbeat(); // first real token — no more keep-alives needed
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
     }
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-    res.end();
+    stopHeartbeat();
+    if (!clientGone && !res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    }
   } catch (err) {
+    stopHeartbeat();
+    // Client disconnected (we aborted the upstream call ourselves) — the socket
+    // is already gone, so there's nothing to report. Stay silent.
+    if (clientGone || res.writableEnded || res.destroyed) return;
     req.log.error({ err }, "Chat stream failed");
     res.write(
       `data: ${JSON.stringify({

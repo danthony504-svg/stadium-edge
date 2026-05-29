@@ -6034,7 +6034,14 @@ export default function ParlayBuilder() {
             const bSide = resolveSide(b.pick, sides);
             if (!bSide || bSide === aSide) continue; // same-team or unresolved → not anti-correlated
             const point = parseSpreadPoint(b.pick);
-            if (point == null || point > -2.5) continue; // small dog / pickem still survivable when A wins by 1-2
+            // b is the OPPOSITE team from a's ML. ANY negative spread on that
+            // team (—0.5, —1, —1.5, —2, —2.5, …) means that team is favored to
+            // WIN its period by that margin — which is impossible if a's team
+            // wins the same period outright. So every negative opposite-team
+            // spread is anti-correlated with the ML, not just —2.5+. Positive
+            // (getting points) or pick'em rungs stay survivable (A can win by 1
+            // while B still covers a +line), so only ban strictly-negative.
+            if (point == null || point >= 0) continue;
             // Anti-correlated pair confirmed. Drop the worse-priced leg
             // (more negative American odds = worse payout for the same risk).
             // Guard against non-finite odds (PrizePicks/missing) — fall back
