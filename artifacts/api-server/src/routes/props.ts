@@ -12,6 +12,7 @@ router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120 }));
 
 const MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
+  wnba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   ncaab: ["player_points", "player_rebounds", "player_assists"],
   nfl: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td"],
   ncaaf: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_anytime_td"],
@@ -36,6 +37,12 @@ const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: [
     "player_points_q1", "player_rebounds_q1", "player_assists_q1",
   ],
+  // WNBA: only player_points_q1 is verified on a live event; reb/ast Q1 were
+  // not confirmed and the QH batch is all-or-nothing (one bad key 422s the
+  // whole call), so keep this to the confirmed market to guarantee Q1 data.
+  wnba: [
+    "player_points_q1",
+  ],
   nfl: [
     "player_pass_yds_q1", "player_pass_tds_q1", "player_rush_yds_q1", "player_reception_yds_q1",
     "player_pass_yds_h1", "player_rush_yds_h1", "player_reception_yds_h1",
@@ -56,6 +63,7 @@ const QH_MARKETS_BY_SPORT: Record<string, string[]> = {
 // alternate keys; probe any new key on a live event before adding it.
 const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_threes_alternate"],
+  wnba: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate", "player_threes_alternate"],
   ncaab: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate"],
   nfl: ["player_pass_yds_alternate", "player_pass_tds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate", "player_receptions_alternate"],
   ncaaf: ["player_pass_yds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate"],
@@ -123,11 +131,15 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
   }
-  const oddsKey = ODDS_SPORT_KEYS[sport];
-  if (!oddsKey) {
+  const oddsKeyRaw = ODDS_SPORT_KEYS[sport];
+  if (!oddsKeyRaw) {
     res.status(400).json({ error: `Unsupported sport: ${sport}` });
     return;
   }
+  // Player props are only configured for single-key sports; the multi-key
+  // sports (soccer/tennis) have no MARKETS_BY_SPORT entry and return [] below,
+  // so collapsing to the first key here is safe (it's never used for them).
+  const oddsKey = Array.isArray(oddsKeyRaw) ? oddsKeyRaw[0] : oddsKeyRaw;
   const markets = MARKETS_BY_SPORT[sport];
   if (!markets) {
     res.json({ home: null, away: null, props: [] });
@@ -303,6 +315,12 @@ router.get("/sports/props", async (req, res): Promise<void> => {
 // client renders the leg with "PrizePicks line · standard payout" instead of
 // fabricating a price. The leg cannot contribute to combined-odds math.
 // ---------------------------------------------------------------------------
+// PrizePicks projection league ids — used ONLY as a last-resort fallback when
+// the paid Odds API has no player props for an event. WNBA is intentionally
+// omitted: its real props come through the Odds API (verified working), and we
+// have no VERIFIED PrizePicks league id for it. Guessing one would silently
+// fetch a different sport's projections — a fabrication the no-fake-data rule
+// forbids — so WNBA simply has no PP fallback rather than a wrong one.
 const PRIZEPICKS_LEAGUE_BY_SPORT: Record<string, number> = {
   nba: 7, nfl: 9, mlb: 2, nhl: 8, ncaaf: 15, ncaab: 20,
 };

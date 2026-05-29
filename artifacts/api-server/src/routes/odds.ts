@@ -30,11 +30,20 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     return;
   }
   const sportId = parsed.data.sport.toLowerCase();
-  const oddsKey = ODDS_SPORT_KEYS[sportId];
-  if (!oddsKey) {
+  const oddsKeyRaw = ODDS_SPORT_KEYS[sportId];
+  if (!oddsKeyRaw) {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
+  // Some app sports fan out to MULTIPLE Odds API keys (soccer = several
+  // leagues, tennis = ATP + WTA). Normalize to an array and fetch+merge all.
+  const oddsKeys = Array.isArray(oddsKeyRaw) ? oddsKeyRaw : [oddsKeyRaw];
+  // Tennis is winner-odds (moneyline) ONLY by product requirement — no
+  // spreads/totals/alt/period markets. Enforce it server-side (don't even
+  // request them) so the feed can never surface anything beyond h2h, rather
+  // than relying on the upstream feed happening to omit them.
+  const moneylineOnly = sportId === "tennis";
+  const bulkMarkets = moneylineOnly ? "h2h" : "h2h,spreads,totals";
   const apiKey = process.env["ODDS_API_KEY"];
   if (!apiKey) {
     res.status(502).json({ error: "ODDS_API_KEY not configured" });
@@ -47,19 +56,27 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     // /sports/{sport}/events/{eventId}/odds. So we fetch mains in bulk,
     // then fan out to the per-event endpoint for alts, cached separately
     // with a longer TTL to keep credit usage sane.
-    const games = await cachedJson(
-      `odds:${oddsKey}:v3`,
-      5 * 60 * 1000,
-      async () => {
-        const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&oddsFormat=american`;
-        const r = await fetch(url);
-        if (!r.ok) {
-          const text = await r.text();
-          throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
-        }
-        return (await r.json()) as RawOddsGame[];
-      },
+    // Fetch each underlying Odds API key (cached per key) and merge. Each key
+    // is best-effort: one dead/empty league (common late-season) must not wipe
+    // out the others, so a per-key failure resolves to [] rather than throwing.
+    const perKey = await Promise.all(
+      oddsKeys.map((key) =>
+        cachedJson(
+          `odds:${key}:v3`,
+          5 * 60 * 1000,
+          async () => {
+            const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=us&markets=${bulkMarkets}&oddsFormat=american`;
+            const r = await fetch(url);
+            if (!r.ok) {
+              const text = await r.text();
+              throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
+            }
+            return (await r.json()) as RawOddsGame[];
+          },
+        ).catch(() => [] as RawOddsGame[]),
+      ),
     );
+    const games = perKey.flat();
 
     // Fan out alt fetches in parallel for each event that hasn't kicked
     // off yet and starts within the next 48h. Cap concurrency by
@@ -69,7 +86,10 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     const americanToProb = (a: number) => (a < 0 ? -a / (-a + 100) : 100 / (a + 100));
     const now = Date.now();
     const WINDOW_MS = 48 * 60 * 60 * 1000;
-    const upcoming = games.filter((g) => {
+    // Moneyline-only sports (tennis) skip the per-event alt/period fetch
+    // entirely — those endpoints only serve spreads/totals/period ladders,
+    // which tennis must never show.
+    const upcoming = moneylineOnly ? [] : games.filter((g) => {
       const t = new Date(g.commence_time).getTime();
       return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
     }).slice(0, 12); // cap credit spend
@@ -99,10 +119,13 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       upcoming.map(async (g) => {
         try {
           const evGame = await cachedJson(
-            `odds:${oddsKey}:alt:${g.id}:v2`,
+            // Key the per-event alt/period fetch by the event's OWN sport_key
+            // (which league/tour it belongs to) so merged multi-key sports hit
+            // the correct endpoint and cache bucket.
+            `odds:${g.sport_key}:alt:${g.id}:v2`,
             10 * 60 * 1000,
             async () => {
-              const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${PERIOD_GAME_MARKETS.join(",")}&oddsFormat=american`;
+              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${PERIOD_GAME_MARKETS.join(",")}&oddsFormat=american`;
               const r = await fetch(url);
               if (!r.ok) return null;
               return (await r.json()) as RawOddsGame;

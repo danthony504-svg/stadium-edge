@@ -84,12 +84,14 @@ const InjuryIcon = ({ size = 16 }) => (
 const SPORTS = [
   { id: "nfl", label: "NFL", emoji: "🏈" },
   { id: "nba", label: "NBA", emoji: "🏀" },
+  { id: "wnba", label: "WNBA", emoji: "🏀" },
   { id: "mlb", label: "MLB", emoji: "⚾" },
   { id: "nhl", label: "NHL", emoji: "🏒" },
   { id: "soccer", label: "Soccer", emoji: "⚽" },
   { id: "ncaaf", label: "NCAAF", emoji: "🏟️" },
   { id: "ncaab", label: "NCAAB", emoji: "🎓" },
   { id: "ufc", label: "UFC", emoji: "🥊" },
+  { id: "tennis", label: "Tennis", emoji: "🎾" },
 ];
 
 // Player database — hypothetical stats with form ratings (1-10) for matchup engine
@@ -224,7 +226,7 @@ const injuryContextForPick = (pick) => {
 // game string so it's stable per matchup. Real rest days + pace are derivable
 // from ESPN's schedule/stats in the Next.js version. Returns directional notes
 // and a small net confidence delta. Never predicts a result.
-const PACE_SPORTS = ["nba", "nhl", "ncaab"];
+const PACE_SPORTS = ["nba", "wnba", "nhl", "ncaab"];
 const situationalEdges = (pick) => {
   if (!pick.game) return null;
   const seedR = hashSeed(`${pick.game}-rest`);
@@ -386,6 +388,15 @@ const STAT_CATEGORIES = {
       { key: "blk", label: "Blocks" },
     ],
   },
+  wnba: {
+    ALL: [
+      { key: "pts", label: "Points" },
+      { key: "reb", label: "Rebounds" },
+      { key: "ast", label: "Assists" },
+      { key: "stl", label: "Steals" },
+      { key: "blk", label: "Blocks" },
+    ],
+  },
   mlb: {
     ALL: [
       { key: "hrPerGame", label: "Home Runs" },
@@ -500,6 +511,7 @@ const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 const ESPN_SPORT_MAP = {
   nfl: { sport: "football", league: "nfl" },
   nba: { sport: "basketball", league: "nba" },
+  wnba: { sport: "basketball", league: "wnba" },
   mlb: { sport: "baseball", league: "mlb" },
   nhl: { sport: "hockey", league: "nhl" },
   ncaaf: { sport: "football", league: "college-football" },
@@ -1106,6 +1118,12 @@ const TEAM_NAME_TO_SPORT = {
   "Atlanta Hawks": "nba", "Washington Wizards": "nba", "New Orleans Pelicans": "nba",
   "San Antonio Spurs": "nba", "Houston Rockets": "nba", "Sacramento Kings": "nba",
   "Toronto Raptors": "nba", "Utah Jazz": "nba", "Portland Trail Blazers": "nba",
+  // WNBA
+  "Atlanta Dream": "wnba", "Chicago Sky": "wnba", "Connecticut Sun": "wnba",
+  "Dallas Wings": "wnba", "Indiana Fever": "wnba", "Las Vegas Aces": "wnba",
+  "Los Angeles Sparks": "wnba", "Minnesota Lynx": "wnba", "New York Liberty": "wnba",
+  "Phoenix Mercury": "wnba", "Seattle Storm": "wnba", "Washington Mystics": "wnba",
+  "Golden State Valkyries": "wnba",
   // MLB
   "New York Yankees": "mlb", "Los Angeles Dodgers": "mlb", "Atlanta Braves": "mlb",
   "Philadelphia Phillies": "mlb", "New York Mets": "mlb", "Boston Red Sox": "mlb",
@@ -2421,7 +2439,7 @@ export default function ParlayBuilder() {
   // QH rows is treated as STALE and re-fetched — this auto-migrates users
   // who had the page open across the QH-markets deploy and would otherwise
   // be stuck on a pre-QH cached payload until they hard-refresh.
-  const QH_SUPPORTED_SPORTS = new Set(["nba", "nfl", "ncaaf"]);
+  const QH_SUPPORTED_SPORTS = new Set(["nba", "wnba", "nfl", "ncaaf"]);
   const isStalePropsCache = (sport, cached) => {
     if (!cached || !Array.isArray(cached.props) || cached.props.length === 0) return false;
     if (!QH_SUPPORTED_SPORTS.has(sport)) return false;
@@ -2938,7 +2956,7 @@ export default function ParlayBuilder() {
         // Sort UPCOMING by popularity within the next 24h, then by start time.
         // Popularity heuristic = sport weight + popular-team weight (per team)
         // + finals/playoffs bonus + small soon-to-start bonus.
-        const SPORT_W = { nfl: 100, nba: 90, soccer: 85, mlb: 70, nhl: 65, ncaaf: 60, ncaab: 55, ufc: 50 };
+        const SPORT_W = { nfl: 100, nba: 90, soccer: 85, wnba: 80, mlb: 70, nhl: 65, ncaaf: 60, ncaab: 55, ufc: 50, tennis: 45 };
         const POPULAR_TEAMS = new Set([
           // NFL
           "KC","DAL","BUF","PHI","SF","BAL","GB","DET","MIA","NYJ","CIN","NE","PIT","LAR",
@@ -3287,7 +3305,7 @@ export default function ParlayBuilder() {
     const periodLabel = g.periodLabel || "live";
     // Regulation period count per sport — used to estimate elapsed fraction
     // so a late-game cover scores higher than an early-game one.
-    const REG_PERIODS = { nfl: 4, ncaaf: 4, nba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
+    const REG_PERIODS = { nfl: 4, ncaaf: 4, nba: 4, wnba: 4, ncaab: 2, nhl: 3, mlb: 9, soccer: 2, ufc: 3 };
     const regCount = REG_PERIODS[g.sport];
     const reasons = {};
     // --- DEAD-MARKET GUARD ---------------------------------------------------
@@ -3298,8 +3316,8 @@ export default function ParlayBuilder() {
     // yields "back the team that's down 26 in the 4th". Returns true when a
     // deficit of `deficitAgainst` points is effectively unwinnable right now.
     // Per-sport deficit that's a wrap IN THE FINAL PERIOD (early in that period).
-    const DEAD_FINAL_DEFICIT = { nba: 12, ncaab: 12, nfl: 16, ncaaf: 19, nhl: 3, mlb: 4, soccer: 3 };
-    const PERIOD_MINUTES = { nba: 12, ncaab: 20, nfl: 15, ncaaf: 15, nhl: 20 };
+    const DEAD_FINAL_DEFICIT = { nba: 12, wnba: 12, ncaab: 12, nfl: 16, ncaaf: 19, nhl: 3, mlb: 4, soccer: 3 };
+    const PERIOD_MINUTES = { nba: 12, wnba: 10, ncaab: 20, nfl: 15, ncaaf: 15, nhl: 20 };
     const inFinalPeriod = !!regCount && Number.isFinite(g.period) && g.period >= regCount;
     const penultimatePeriod = !!regCount && Number.isFinite(g.period) && g.period === regCount - 1;
     // Seconds left in the CURRENT period, parsed off ESPN's live clock when present.
@@ -7770,7 +7788,7 @@ export default function ParlayBuilder() {
                             <button
                               key={i}
                               onClick={() => {
-                                const sk = sportDetail === "nba" ? "pts" : sportDetail === "mlb" ? "hrPerGame"
+                                const sk = (sportDetail === "nba" || sportDetail === "wnba") ? "pts" : sportDetail === "mlb" ? "hrPerGame"
                                   : pl.pos === "QB" ? "passYds" : pl.pos === "RB" ? "rushYds"
                                   : (pl.stats.recYds !== undefined ? "recYds" : Object.keys(pl.stats)[0]);
                                 const avg = pl.stats[sk] ?? 0;

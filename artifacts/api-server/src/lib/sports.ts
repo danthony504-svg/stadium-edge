@@ -1,17 +1,34 @@
-export const ODDS_SPORT_KEYS: Record<string, string> = {
+// An app "sport" can map to a single Odds API sport key (most sports) OR to
+// MULTIPLE keys that are fetched and merged under one tab:
+//   - soccer  → several live leagues (the API has no single "all soccer" key)
+//   - tennis  → ATP + WTA draws of the active major
+// odds.ts normalizes this to an array, fetches each key, and tags every
+// returned event with its own sport_key so per-event (alt/period) fetches and
+// caches stay keyed to the correct league/tour.
+export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
   nfl: "americanfootball_nfl",
   nba: "basketball_nba",
+  wnba: "basketball_wnba",
   mlb: "baseball_mlb",
   nhl: "icehockey_nhl",
-  soccer: "soccer_uefa_champs_league",
+  soccer: [
+    "soccer_uefa_champs_league",
+    "soccer_france_ligue_one",
+    "soccer_brazil_campeonato",
+    "soccer_japan_j_league",
+    "soccer_italy_serie_b",
+    "soccer_spain_segunda_division",
+  ],
   ncaaf: "americanfootball_ncaaf",
   ncaab: "basketball_ncaab",
   ufc: "mma_mixed_martial_arts",
+  tennis: ["tennis_atp_french_open", "tennis_wta_french_open"],
 };
 
 export const ESPN_SPORT_PATHS: Record<string, string> = {
   nfl: "football/nfl",
   nba: "basketball/nba",
+  wnba: "basketball/wnba",
   mlb: "baseball/mlb",
   nhl: "hockey/nhl",
   soccer: "soccer/uefa.champions",
