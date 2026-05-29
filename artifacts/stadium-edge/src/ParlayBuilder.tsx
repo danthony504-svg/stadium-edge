@@ -2523,6 +2523,8 @@ export default function ParlayBuilder() {
   const [expandedPropPlayers, setExpandedPropPlayers] = useState({}); // player name -> bool, tracks which player-prop cards are expanded
   const [legMenuOpen, setLegMenuOpen] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null); // { player, sport }
+  const [statsPlayer, setStatsPlayer] = useState(null); // { player, athleteId, sport, headshot, teamFull, opponentTeamId, opponentName } — real ESPN game-log stats screen
+  const [statsData, setStatsData] = useState({ loading: false, error: null, data: null }); // /api/sports/player-history result for statsPlayer
   const [propLine, setPropLine] = useState(null); // current adjustable prop line in the detail view
   const propChartRef = useRef(null);
   const [propStatKey, setPropStatKey] = useState(null);
@@ -2883,6 +2885,34 @@ export default function ParlayBuilder() {
     })();
     return () => { cancelled = true; setPropsLoading(false); };
   }, [gameDetail, realOddsBySport, realGamesBySport, realPropsByEvent]);
+
+  // Real ESPN game-log stats for the player stats screen. Fetches the live
+  // game log (last 10 games + vs-opponent) from /api/sports/player-history.
+  // Honest empty/error states — never fabricated.
+  useEffect(() => {
+    if (!statsPlayer?.athleteId || !statsPlayer?.sport) {
+      setStatsData({ loading: false, error: null, data: null });
+      return;
+    }
+    let cancelled = false;
+    setStatsData({ loading: true, error: null, data: null });
+    (async () => {
+      try {
+        const qs = [
+          `sport=${encodeURIComponent(statsPlayer.sport)}`,
+          `athleteId=${encodeURIComponent(statsPlayer.athleteId)}`,
+        ];
+        if (statsPlayer.opponentTeamId) qs.push(`opponentTeamId=${encodeURIComponent(statsPlayer.opponentTeamId)}`);
+        const r = await fetch(`/api/sports/player-history?${qs.join("&")}`);
+        if (!r.ok) throw new Error(`player-history ${r.status}`);
+        const d = await r.json();
+        if (!cancelled) setStatsData({ loading: false, error: null, data: d });
+      } catch {
+        if (!cancelled) setStatsData({ loading: false, error: "Couldn't load this player's stats right now.", data: null });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [statsPlayer]);
 
   useEffect(() => {
     let cancelled = false;
@@ -9937,33 +9967,67 @@ export default function ParlayBuilder() {
                         }, 0);
                         const expanded = !!expandedPropPlayers[playerName];
                         const hasTopEdge = topProp && plist[topProp._idx === undefined ? -1 : plist.indexOf(topProp)] && live.props.indexOf(topProp) === bestIdx;
+                        // Real ESPN identity for the stats screen — only wire the
+                        // tap-through when we actually have an athleteId from the roster.
+                        const playerAthleteId = plist.find((p) => p.athleteId)?.athleteId || null;
+                        const playerTeamId = plist.find((p) => p.playerTeamId)?.playerTeamId || null;
+                        const homeTid = realGameForGame?.homeTeamId ? String(realGameForGame.homeTeamId) : null;
+                        const awayTid = realGameForGame?.awayTeamId ? String(realGameForGame.awayTeamId) : null;
+                        const ptid = playerTeamId != null ? String(playerTeamId) : null;
+                        // Only classify the player's side when their team id explicitly
+                        // matches home OR away — an unknown/mismatched id stays null so
+                        // we never guess the opponent (which would mis-wire vs-opponent).
+                        const playerOnHome = ptid != null && ptid === homeTid ? true : ptid != null && ptid === awayTid ? false : null;
+                        const oppTeamId = playerOnHome == null ? null : playerOnHome ? awayTid : homeTid;
+                        const oppName = playerOnHome == null ? null : playerOnHome ? realGameForGame?.awayTeam : realGameForGame?.homeTeam;
+                        const teamFull = playerOnHome == null ? null : playerOnHome ? realGameForGame?.homeTeam : realGameForGame?.awayTeam;
+                        const openStats = playerAthleteId
+                          ? () => setStatsPlayer({
+                              player: playerName,
+                              athleteId: String(playerAthleteId),
+                              sport,
+                              headshot: showHeadshot ? headshot : null,
+                              teamFull: teamFull || null,
+                              opponentTeamId: oppTeamId || null,
+                              opponentName: oppName || null,
+                            })
+                          : null;
                         return (
                           <div key={playerName} className={`border-t border-slate-800 ${hasTopEdge ? "bg-cyan-500/5" : ""}`}>
-                            <button
-                              onClick={() => setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] }))}
-                              className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-800/60"
-                            >
-                              {showHeadshot ? (
-                                <img
-                                  src={headshot}
-                                  alt={playerName}
-                                  className="w-11 h-11 rounded-full object-cover bg-slate-800 shrink-0"
-                                  onError={() => setHeadshotErrors((prev) => ({ ...prev, [headshot]: true }))}
-                                />
-                              ) : (
-                                <div className="w-11 h-11 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-bold shrink-0">{initials}</div>
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
-                                <div className="text-[11px] text-slate-400 truncate">
-                                  <span className="text-cyan-400">{aiPickCount} AI pick{aiPickCount === 1 ? "" : "s"}</span>
+                            <div className="w-full px-4 py-3 flex items-center gap-3">
+                              <button
+                                onClick={openStats || (() => setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] })))}
+                                className="flex items-center gap-3 text-left flex-1 min-w-0 hover:opacity-80"
+                              >
+                                {showHeadshot ? (
+                                  <img
+                                    src={headshot}
+                                    alt={playerName}
+                                    className="w-11 h-11 rounded-full object-cover bg-slate-800 shrink-0"
+                                    onError={() => setHeadshotErrors((prev) => ({ ...prev, [headshot]: true }))}
+                                  />
+                                ) : (
+                                  <div className="w-11 h-11 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-xs font-bold shrink-0">{initials}</div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
+                                  <div className="text-[11px] text-slate-400 truncate">
+                                    <span className="text-cyan-400">{aiPickCount} AI pick{aiPickCount === 1 ? "" : "s"}</span>
+                                    {openStats && <span className="text-slate-500"> · tap for stats</span>}
+                                  </div>
                                 </div>
-                              </div>
+                              </button>
                               {addedCount > 0 && (
                                 <span className="shrink-0 text-[10px] font-bold uppercase bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full">{addedCount} added</span>
                               )}
-                              <span className={`shrink-0 text-cyan-400 text-lg transition-transform ${expanded ? "rotate-180" : ""}`}>⌄</span>
-                            </button>
+                              <button
+                                onClick={() => setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] }))}
+                                aria-label={expanded ? "Hide props" : "Show props"}
+                                className="shrink-0 px-2 py-1 -mr-1 rounded hover:bg-slate-800/60"
+                              >
+                                <span className={`text-cyan-400 text-lg transition-transform inline-block ${expanded ? "rotate-180" : ""}`}>⌄</span>
+                              </button>
+                            </div>
                             {expanded && (
                               <div className="px-3 pb-3 space-y-2 bg-slate-900/40">
                                 {plist.map((p) => {
@@ -10050,6 +10114,107 @@ export default function ParlayBuilder() {
                 </div>
               </button>
             )}
+          </div>
+        );
+      })()}
+
+      {/* Real ESPN player stats screen — opened by tapping a live player row.
+          Shows the player's real last-10 game log + vs-opponent split from
+          /api/sports/player-history. Honest empty states, no fabrication. */}
+      {statsPlayer && (() => {
+        const { loading, error, data } = statsData;
+        const labels = data?.labels || [];
+        const recent = data?.recent || [];
+        const vsOpp = data?.vsOpponent || [];
+        const fmtDate = (d) => {
+          if (!d) return "—";
+          const dt = new Date(d);
+          return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        };
+        const initials = statsPlayer.player.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+        const StatTable = ({ rows }) => (
+          <div className="overflow-x-auto rounded-lg border border-slate-800">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-800/60 text-slate-400">
+                  <th className="text-left font-mono uppercase tracking-wider px-3 py-2 sticky left-0 bg-slate-800/60 whitespace-nowrap">Date</th>
+                  <th className="text-left font-mono uppercase tracking-wider px-3 py-2 whitespace-nowrap">Opp</th>
+                  {labels.map((l) => (
+                    <th key={l} className="text-right font-mono uppercase tracking-wider px-3 py-2 whitespace-nowrap">{l}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((g, i) => (
+                  <tr key={g.eventId || i} className="border-t border-slate-800">
+                    <td className="text-left px-3 py-2 text-slate-300 sticky left-0 bg-slate-900 whitespace-nowrap">{fmtDate(g.date)}</td>
+                    <td className="text-left px-3 py-2 text-slate-400 whitespace-nowrap">{g.isHome === true ? "vs " : g.isHome === false ? "@ " : ""}{g.opponentName || "—"}</td>
+                    {labels.map((l) => (
+                      <td key={l} className="text-right px-3 py-2 text-slate-100 whitespace-nowrap">{g.stats?.[l] ?? "—"}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900 overflow-y-auto">
+            {/* Header */}
+            <div className="sticky top-0 bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between z-10">
+              <h2 className="font-display text-lg text-slate-100">Player Stats</h2>
+              <button onClick={() => setStatsPlayer(null)} className="text-cyan-400 text-sm font-semibold">Close</button>
+            </div>
+
+            <div className="px-4 py-4 space-y-5">
+              {/* Identity */}
+              <div className="flex items-center gap-3">
+                {statsPlayer.headshot ? (
+                  <img src={statsPlayer.headshot} alt={statsPlayer.player} className="w-16 h-16 rounded-full object-cover bg-slate-800 shrink-0" />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-base font-bold shrink-0">{initials}</div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-xl font-display text-slate-100 truncate">{statsPlayer.player}</div>
+                  <div className="text-xs text-slate-400 truncate">
+                    {statsPlayer.teamFull || ""}
+                    {statsPlayer.opponentName ? `${statsPlayer.teamFull ? " · " : ""}Next vs ${statsPlayer.opponentName}` : ""}
+                  </div>
+                </div>
+              </div>
+
+              {loading && (
+                <div className="text-sm text-slate-500 py-12 text-center">Loading real game log…</div>
+              )}
+              {!loading && error && (
+                <div className="text-sm text-slate-500 py-12 text-center">{error}</div>
+              )}
+              {!loading && !error && labels.length === 0 && (
+                <div className="text-sm text-slate-500 py-12 text-center">No game log is available for this player right now.</div>
+              )}
+
+              {!loading && !error && labels.length > 0 && (
+                <>
+                  <div>
+                    <h3 className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-2">Last {recent.length} Games</h3>
+                    {recent.length > 0 ? <StatTable rows={recent} /> : (
+                      <div className="text-sm text-slate-500 py-6 text-center">No recent games found.</div>
+                    )}
+                  </div>
+
+                  {statsPlayer.opponentName && (
+                    <div>
+                      <h3 className="text-[11px] font-mono uppercase tracking-widest text-slate-500 mb-2">vs {statsPlayer.opponentName}</h3>
+                      {vsOpp.length > 0 ? <StatTable rows={vsOpp} /> : (
+                        <div className="text-sm text-slate-500 py-6 text-center">No prior games vs {statsPlayer.opponentName} in this season's log.</div>
+                      )}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-slate-600 text-center pt-2">Real game log via ESPN.</p>
+                </>
+              )}
+            </div>
           </div>
         );
       })()}
