@@ -691,7 +691,7 @@ const fetchEspnTeamRecord = async (sportId, teamId) => {
 
 // Convert an /api/sports/odds entry into PICK_POOL-shaped pick objects.
 // Real bookmaker odds for moneyline / spread / totals. Safe to pass to addLeg().
-const buildPicksFromOdds = (g) => {
+const buildPicksFromOdds = (g, includePeriods = false) => {
   if (!g || !g.markets) return [];
   const picks = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
@@ -784,6 +784,66 @@ const buildPicksFromOdds = (g) => {
       if (!best) continue;
       const pt = best.point == null ? "" : ` ${best.point}`;
       picks.push({ game, sport, market: "Alt Total", pick: `${best.name}${pt}`.trim(), odds: best.price, tier: 3, real: true, point: best.point });
+    }
+  }
+  // Game-level PERIOD markets (quarters / halves). Only emitted when the
+  // caller asks (single-game lock or explicit period/same-game intent) so the
+  // multi-game chat context stays compact. The server (odds.ts) ships these as
+  // raw keys (h2h_q1, spreads_h1, totals_q3, alternate_spreads_h1, …). We
+  // convert them to the friendly "<period> <type>" labels the chat SYSTEM_PROMPT
+  // already documents ("1H Spread", "Q3 Total", "Q2 Moneyline", "1H Alt Spread",
+  // "1H Alt Total"). familyOf/periodOf in the chat safety-net already parse this
+  // format, so each period is a distinct, non-duplicate family for the AI.
+  if (includePeriods) {
+    const PERIOD_LABEL = { h1: "1H", h2: "2H", q1: "Q1", q2: "Q2", q3: "Q3", q4: "Q4" };
+    for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
+      const pml = g.markets.find((m) => m.key === `h2h_${suffix}`);
+      const psp = g.markets.find((m) => m.key === `spreads_${suffix}`);
+      const ptot = g.markets.find((m) => m.key === `totals_${suffix}`);
+      if (pml) {
+        for (const o of pml.outcomes || []) {
+          picks.push({ game, sport, market: `${plabel} Moneyline`, pick: `${nickname(o.name)} ML`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+        }
+      }
+      if (psp) {
+        for (const o of psp.outcomes || []) {
+          const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+          picks.push({ game, sport, market: `${plabel} Spread`, pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+        }
+      }
+      if (ptot) {
+        for (const o of ptot.outcomes || []) {
+          const pt = o.point == null ? "" : ` ${o.point}`;
+          picks.push({ game, sport, market: `${plabel} Total`, pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+        }
+      }
+    }
+    // First-half alternate ladders (only 1H alts are posted by the feed).
+    const altSpreadH1 = g.markets.find((m) => m.key === "alternate_spreads_h1");
+    const altTotalH1 = g.markets.find((m) => m.key === "alternate_totals_h1");
+    if (altSpreadH1) {
+      const mainPts = new Set((g.markets.find((m) => m.key === "spreads_h1")?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`));
+      const eligible = (altSpreadH1.outcomes || []).filter((o) => !mainPts.has(`${o.name}|${o.point ?? ""}`) && (o.price == null || o.price > ALT_MAX_JUICE));
+      const bySide = new Map();
+      for (const o of eligible) { const k = o.name; if (!bySide.has(k)) bySide.set(k, []); bySide.get(k).push(o); }
+      for (const [, rungs] of bySide) {
+        const best = pickBestRung(rungs);
+        if (!best) continue;
+        const pt = best.point == null ? "" : ` ${best.point > 0 ? "+" : ""}${best.point}`;
+        picks.push({ game, sport, market: "1H Alt Spread", pick: `${nickname(best.name)}${pt}`, odds: best.price, tier: 3, real: true, teamFull: best.name, point: best.point });
+      }
+    }
+    if (altTotalH1) {
+      const mainPts = new Set((g.markets.find((m) => m.key === "totals_h1")?.outcomes || []).map((o) => `${o.name}|${o.point ?? ""}`));
+      const eligible = (altTotalH1.outcomes || []).filter((o) => !mainPts.has(`${o.name}|${o.point ?? ""}`) && (o.price == null || o.price > ALT_MAX_JUICE));
+      const bySide = new Map();
+      for (const o of eligible) { const k = (o.name || "").toLowerCase(); if (!bySide.has(k)) bySide.set(k, []); bySide.get(k).push(o); }
+      for (const [, rungs] of bySide) {
+        const best = pickBestRung(rungs);
+        if (!best) continue;
+        const pt = best.point == null ? "" : ` ${best.point}`;
+        picks.push({ game, sport, market: "1H Alt Total", pick: `${best.name}${pt}`.trim(), odds: best.price, tier: 3, real: true, point: best.point });
+      }
     }
   }
   return picks;
@@ -5297,25 +5357,65 @@ export default function ParlayBuilder() {
       );
     }
     // Compact real bookmaker markets (The Odds API h2h/spreads/totals).
+    // PERIOD markets (quarters/halves) are heavy, so only fold them in when the
+    // message is a single-game lock OR explicitly asks for period / same-game
+    // legs — otherwise the multi-game context stays compact (full-game + alts
+    // only, as before). Without period markets a single-game request collapses
+    // to ~1-2 independent legs because a game's full-game ML/Spread/Total are
+    // correlated/duplicate-banned among themselves.
+    const periodOrSgpIntent = /first quarter|1q\b|1st quarter|\bq[1-4]\b|first half|1h\b|1st half|\bh1\b|2nd half|2h\b|second half|same.?game|\bsgp\b/i.test(text || "");
+    const namedGameLabelSet = new Set();
+    {
+      const lt = (text || "").toLowerCase();
+      const tk = (full) => (full || "").split(/\s+/).filter(Boolean).pop().toLowerCase();
+      const mw = (w) => { if (!w) return false; const e = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); return new RegExp(`\\b${e}\\b`).test(lt); };
+      for (const games of Object.values(realOddsBySportLocal)) {
+        for (const g of games) {
+          if (mw(tk(g.homeTeam)) && mw(tk(g.awayTeam))) namedGameLabelSet.add(`${g.awayTeam} @ ${g.homeTeam}`);
+        }
+      }
+    }
     const realOdds = [];
+    const namedAccum = [];
+    const otherAccum = [];
+    const isPeriodMarket = (mk) => /^(1H|2H|Q[1-4])\b/.test(mk);
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
+      // Named games first so the 12-per-sport cap never drops the one the user
+      // asked about.
+      filtered.sort((a, b) => {
+        const an = namedGameLabelSet.has(`${a.awayTeam} @ ${a.homeTeam}`) ? 0 : 1;
+        const bn = namedGameLabelSet.has(`${b.awayTeam} @ ${b.homeTeam}`) ? 0 : 1;
+        return an - bn;
+      });
       for (const g of filtered.slice(0, 12)) {
-        const all = buildPicksFromOdds(g);
+        const label = `${g.awayTeam} @ ${g.homeTeam}`;
+        const isNamed = namedGameLabelSet.has(label);
+        const includePeriods = isNamed || periodOrSgpIntent;
+        const all = buildPicksFromOdds(g, includePeriods);
         // Send all main-market picks (ML/Spread/Total) PLUS a capped sample
         // of alternate spreads/totals so the AI can recommend a different
         // ladder rung when it sees better edge there. Cap alts per game to
         // keep the chat context compact — too many rungs blows the prompt
         // size and makes the model fixate on one game.
-        const mainPicks = all.filter((p) => p.market !== "Alt Spread" && p.market !== "Alt Total");
+        const mainPicks = all.filter((p) => p.market !== "Alt Spread" && p.market !== "Alt Total" && !isPeriodMarket(p.market));
+        const periodPicks = all.filter((p) => isPeriodMarket(p.market));
         const altSpread = all.filter((p) => p.market === "Alt Spread");
         const altTotal = all.filter((p) => p.market === "Alt Total");
-        const slice = [...mainPicks.slice(0, 8), ...altSpread.slice(0, 8), ...altTotal.slice(0, 6)];
+        // A named single game gets deep period inclusion (it's the whole pool
+        // for that ticket); broad period/sgp intent across games gets a smaller
+        // per-game sample so the prompt size stays bounded.
+        const periodCap = isNamed ? 60 : 12;
+        const slice = [...mainPicks.slice(0, 8), ...altSpread.slice(0, 8), ...altTotal.slice(0, 6), ...periodPicks.slice(0, periodCap)];
+        const target = isNamed ? namedAccum : otherAccum;
         for (const p of slice) {
-          realOdds.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds, startsAt: g.commenceTime });
+          target.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds, startsAt: g.commenceTime });
         }
       }
     }
+    // Named-game legs lead so the context cap (slice below) never truncates the
+    // deep period set the single-game ticket depends on.
+    realOdds.push(...namedAccum, ...otherAccum);
     // Any player props the user has loaded (by opening a game detail) PLUS
     // anything pre-fetched above when this message asked about props.
     const realProps = [];
@@ -5910,16 +6010,19 @@ export default function ParlayBuilder() {
           afterDedup.push(p);
         }
 
-        // Pass 2 — anti-correlation: full-game ML on team A vs full-game
-        // (Alt) Spread on team B with point ≤ −2.5. If A wins outright, B
-        // cannot cover. Drop the WORSE-priced leg of the pair. Side identity
-        // is resolved via the game label's team tokens (not raw string match)
-        // so abbr/full-name/nickname variants all collapse to away/home.
+        // Pass 2 — anti-correlation: ML on team A vs (Alt) Spread on team B
+        // with point ≤ −2.5, WITHIN THE SAME PERIOD (full-game, 1H/2H, or a
+        // quarter). If A wins that period outright, B cannot cover it, so the
+        // pair can't both win. Drop the WORSE-priced leg. Side identity is
+        // resolved via the game label's team tokens (not raw string match) so
+        // abbr/full-name/nickname variants all collapse to away/home. Both legs
+        // must share the same period — a full-game ML and a Q1 spread settle on
+        // different windows and are NOT mutually exclusive.
         const droppedIdx = new Set();
         for (let i = 0; i < afterDedup.length; i++) {
           if (droppedIdx.has(i)) continue;
           const a = afterDedup[i];
-          if (familyOf(a.market) !== "ML" || periodOf(a.market) !== "FG") continue;
+          if (familyOf(a.market) !== "ML") continue;
           const sides = sidesOfGame(a.game);
           const aSide = resolveSide(a.pick, sides);
           if (!aSide) continue; // can't determine side → don't risk false positive
@@ -5927,7 +6030,7 @@ export default function ParlayBuilder() {
             if (i === j || droppedIdx.has(j)) continue;
             const b = afterDedup[j];
             if (b.game !== a.game) continue;
-            if (familyOf(b.market) !== "SPREAD" || periodOf(b.market) !== "FG") continue;
+            if (familyOf(b.market) !== "SPREAD" || periodOf(b.market) !== periodOf(a.market)) continue;
             const bSide = resolveSide(b.pick, sides);
             if (!bSide || bSide === aSide) continue; // same-team or unresolved → not anti-correlated
             const point = parseSpreadPoint(b.pick);
