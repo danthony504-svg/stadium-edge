@@ -10094,10 +10094,18 @@ export default function ParlayBuilder() {
         // Build a sample 5-game log around the average (deterministic)
         const games = [];
         for (let i = 0; i < 5; i++) {
-          const seed = hashSeed(`${pl.name}-${statKey}-feat-${i}`);
+          // Index goes FIRST in the seed string so each game diverges early in
+          // the hash cascade — appending it last produced near-identical seeds
+          // (all 5 bars came out the same value).
+          const seed = hashSeed(`feat-${i}-${pl.name}-${statKey}`);
           const swing = (seed - 0.5) * 2;
           let v = avg + swing * avg * 0.4;
-          v = Math.max(0, statKey === "hrPerGame" ? Math.round(v) : Math.round(v));
+          // Round to a precision that suits the stat's magnitude — small rate
+          // stats (HR/game, batting avg, blocks) would all collapse to the same
+          // integer otherwise and the bars would look flat.
+          const decimals = avg >= 10 ? 0 : avg >= 2 ? 1 : 2;
+          const f = 10 ** decimals;
+          v = Math.max(0, Math.round(v * f) / f);
           games.push(v);
         }
         const maxV = Math.max(...games, line) * 1.2 || 1;
@@ -10182,6 +10190,22 @@ export default function ParlayBuilder() {
             risky: describe(risky),
           };
         })();
+        // The single headline recommendation shown at the top of the page.
+        // It's the side the sample form leans, set at a realistic line near the
+        // season average (the Balanced tier), with odds + support computed for
+        // that exact line so the chip and rationale stay in sync.
+        const aiPick = (() => {
+          const side = suggestedTiers.balanced.side;
+          const pLine = suggestedTiers.balanced.value;
+          const d = pLine - avg;
+          const odds = side === "Over"
+            ? decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 + d * 0.5)))
+            : decimalToAmerican(Math.min(8, Math.max(1.2, 1.9 - d * 0.5)));
+          const support = side === "Over"
+            ? games.filter((v) => v >= pLine).length
+            : games.filter((v) => v <= pLine).length;
+          return { side, line: pLine, odds, support };
+        })();
         // Which tier (if any) is the bar currently sitting on?
         const tierMatch = (t) => Math.abs((propLine ?? line) - t.value) < 0.01;
         const activeTier = tierMatch(suggestedTiers.safe)
@@ -10215,6 +10239,35 @@ export default function ParlayBuilder() {
                 <div>
                   <div className="text-xl font-bold text-slate-100">{pl.name}</div>
                   <div className="text-sm text-slate-400">{pl.team} · {pl.pos}</div>
+                </div>
+              </div>
+
+              {/* AI Suggested Pick — single headline recommendation pinned at top */}
+              <div className="rounded-2xl border border-amber-400/40 bg-gradient-to-br from-amber-500/15 to-amber-400/5 p-4 mb-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300 flex items-center gap-1.5"><Sparkles size={13} /> AI Suggested Pick</span>
+                </div>
+                <div className="flex items-baseline gap-2 mb-1.5">
+                  <span className="text-2xl font-bold text-slate-50">{aiPick.side} {aiPick.line}</span>
+                  <span className="text-sm font-semibold text-slate-300">{statLabel}</span>
+                  <span className="ml-auto font-mono font-bold text-amber-300 text-lg">{formatOdds(aiPick.odds)}</span>
+                </div>
+                <p className="text-xs text-slate-300/90 leading-snug">
+                  Leaning <span className="font-semibold text-amber-200">{aiPick.side.toLowerCase()}</span> — the sample form cleared this {aiPick.side === "Over" ? "over" : "under"} in {aiPick.support} of the last 5 games (season avg {avg}).
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => addLeg({ game: `${pl.team} game`, market: "Player Prop", pick: `${pl.name} ${aiPick.side} ${aiPick.line} ${statLabel}`, odds: aiPick.odds, sport })}
+                    className="flex-1 rounded-lg bg-amber-400 text-slate-950 font-bold text-sm py-2 active:scale-95 transition"
+                  >
+                    + Add to slip
+                  </button>
+                  <button
+                    onClick={() => { setPropStatKey(statKey); setPropLine(aiPick.line); }}
+                    className="rounded-lg border border-amber-400/40 text-amber-200 font-semibold text-sm px-3 py-2 active:scale-95 transition"
+                  >
+                    Load line
+                  </button>
                 </div>
               </div>
 
