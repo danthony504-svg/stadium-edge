@@ -9943,22 +9943,43 @@ export default function ParlayBuilder() {
                         // stats); only players we can match get the stats page.
                         const normName = (s) => (s || "").toLowerCase().replace(/[^a-z]/g, "");
                         const poolPlayer = (PLAYERS[sport] || []).find((p) => normName(p.name) === normName(playerName)) || null;
-                        const openStats = poolPlayer
-                          ? () => {
-                              const sk = (sport === "nba" || sport === "wnba") ? "pts" : sport === "mlb" ? "hrPerGame"
-                                : poolPlayer.pos === "QB" ? "passYds" : poolPlayer.pos === "RB" ? "rushYds"
-                                : (poolPlayer.stats.recYds !== undefined ? "recYds" : Object.keys(poolPlayer.stats)[0]);
-                              const avg = poolPlayer.stats[sk] ?? 0;
-                              setPropStatKey(sk);
-                              setPropLine(Math.round(avg * 0.9 * 2) / 2);
-                              setSelectedPlayer({ player: poolPlayer, sport });
-                            }
-                          : null;
+                        // For players not in the curated pool, build a stats view
+                        // from their REAL live prop lines (no fabricated season
+                        // numbers) so every player's row is tappable.
+                        const synthStats = (() => {
+                          if (poolPlayer) return null;
+                          const stats = {};
+                          plist.forEach((p) => {
+                            if (p.line == null) return;
+                            const key = STAT_KEY_BY_MARKET[p.market] || MARKET_LABEL[p.market] || p.market;
+                            if (stats[key] === undefined) stats[key] = p.line;
+                          });
+                          return Object.keys(stats).length ? stats : null;
+                        })();
+                        const canOpenStats = !!poolPlayer || !!synthStats;
+                        const openStats = () => {
+                          if (poolPlayer) {
+                            const sk = (sport === "nba" || sport === "wnba") ? "pts" : sport === "mlb" ? "hrPerGame"
+                              : poolPlayer.pos === "QB" ? "passYds" : poolPlayer.pos === "RB" ? "rushYds"
+                              : (poolPlayer.stats.recYds !== undefined ? "recYds" : Object.keys(poolPlayer.stats)[0]);
+                            const avg = poolPlayer.stats[sk] ?? 0;
+                            setPropStatKey(sk);
+                            setPropLine(Math.round(avg * 0.9 * 2) / 2);
+                            setSelectedPlayer({ player: poolPlayer, sport });
+                          } else if (synthStats) {
+                            const sk = Object.keys(synthStats)[0];
+                            setPropStatKey(sk);
+                            setPropLine(synthStats[sk] ?? 0);
+                            setSelectedPlayer({ player: { name: playerName, team: "", pos: "", stats: synthStats, form: 0, headshot: showHeadshot ? headshot : null, gameLabel: game, _synth: true }, sport });
+                          } else {
+                            setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] }));
+                          }
+                        };
                         return (
                           <div key={playerName} className={`border-t border-slate-800 ${hasTopEdge ? "bg-cyan-500/5" : ""}`}>
                             <div className="w-full px-4 py-3 flex items-center gap-3">
                               <button
-                                onClick={openStats || (() => setExpandedPropPlayers((s) => ({ ...s, [playerName]: !s[playerName] })))}
+                                onClick={openStats}
                                 className="flex items-center gap-3 text-left flex-1 min-w-0 hover:opacity-80"
                               >
                                 {showHeadshot ? (
@@ -9975,7 +9996,7 @@ export default function ParlayBuilder() {
                                   <div className="text-sm text-slate-100 font-semibold truncate">{playerName}</div>
                                   <div className="text-[11px] text-slate-400 truncate">
                                     <span className="text-cyan-400">{aiPickCount} AI pick{aiPickCount === 1 ? "" : "s"}</span>
-                                    {openStats && <span className="text-slate-500"> · tap for stats</span>}
+                                    {canOpenStats && <span className="text-slate-500"> · tap for stats</span>}
                                   </div>
                                 </div>
                               </button>
@@ -10083,6 +10104,8 @@ export default function ParlayBuilder() {
       {/* All Sports picker */}
       {selectedPlayer && (() => {
         const pl = selectedPlayer.player;
+        const isSynth = !!pl._synth; // built from live prop lines, not curated season stats
+        const gameLabel = pl.gameLabel || `${pl.team} game`;
         const sport = selectedPlayer.sport;
         const statKey = propStatKey || Object.keys(pl.stats)[0];
         const statLabel = {
@@ -10227,7 +10250,7 @@ export default function ParlayBuilder() {
               {/* Identity */}
               <div className="flex items-center gap-3 mb-4">
                 {(() => {
-                  const photo = lookupPlayerPhoto(sport, pl.name);
+                  const photo = lookupPlayerPhoto(sport, pl.name) || pl.headshot || null;
                   return photo ? (
                     <img src={photo} alt={pl.name} loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="w-16 h-16 rounded-full object-cover bg-zinc-900 shrink-0" />
                   ) : (
@@ -10238,7 +10261,7 @@ export default function ParlayBuilder() {
                 })()}
                 <div>
                   <div className="text-xl font-bold text-slate-100">{pl.name}</div>
-                  <div className="text-sm text-slate-400">{pl.team} · {pl.pos}</div>
+                  <div className="text-sm text-slate-400">{[pl.team, pl.pos].filter(Boolean).join(" · ") || "Live prop lines"}</div>
                 </div>
               </div>
 
@@ -10253,11 +10276,11 @@ export default function ParlayBuilder() {
                   <span className="ml-auto font-mono font-bold text-amber-300 text-lg">{formatOdds(aiPick.odds)}</span>
                 </div>
                 <p className="text-xs text-slate-300/90 leading-snug">
-                  Leaning <span className="font-semibold text-amber-200">{aiPick.side.toLowerCase()}</span> — the sample form cleared this {aiPick.side === "Over" ? "over" : "under"} in {aiPick.support} of the last 5 games (season avg {avg}).
+                  Leaning <span className="font-semibold text-amber-200">{aiPick.side.toLowerCase()}</span> — the sample form cleared this {aiPick.side === "Over" ? "over" : "under"} in {aiPick.support} of the last 5 games ({isSynth ? "live line" : "season avg"} {avg}).
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => addLeg({ game: `${pl.team} game`, market: "Player Prop", pick: `${pl.name} ${aiPick.side} ${aiPick.line} ${statLabel}`, odds: aiPick.odds, sport })}
+                    onClick={() => addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} ${aiPick.side} ${aiPick.line} ${statLabel}`, odds: aiPick.odds, sport })}
                     className="flex-1 rounded-lg bg-amber-400 text-slate-950 font-bold text-sm py-2 active:scale-95 transition"
                   >
                     + Add to slip
@@ -10274,7 +10297,7 @@ export default function ParlayBuilder() {
               {/* Season stats */}
               <div className="rounded-2xl overflow-hidden border border-slate-800 mb-5">
                 <div className="bg-zinc-900 text-white text-center text-xs font-mono uppercase tracking-widest py-2">
-                  2025-26 Season Stats
+                  {isSynth ? "Live Prop Lines" : "2025-26 Season Stats"}
                 </div>
                 <div className="grid grid-flow-col auto-cols-fr divide-x divide-slate-800">
                   {Object.entries(pl.stats).slice(0, 5).map(([k, v]) => (
@@ -10315,7 +10338,7 @@ export default function ParlayBuilder() {
                   })}
                 </div>
                 <div className="text-xs text-slate-400 mb-3">
-                  {avg} {statLabel}/game · 2025-26 avg · line {line} <span className="text-slate-500">(drag the line or use −/+)</span>
+                  {avg} {statLabel}{isSynth ? "" : "/game"} · {isSynth ? "live line" : "2025-26 avg"} · line {line} <span className="text-slate-500">(drag the line or use −/+)</span>
                 </div>
                 <div
                   ref={propChartRef}
@@ -10444,7 +10467,7 @@ export default function ParlayBuilder() {
                   <div className="text-center">
                     <div className="text-4xl font-bold text-slate-100">{line}</div>
                     <div className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">{statLabel} line</div>
-                    <div className="text-[10px] font-mono text-slate-500 mt-0.5">season avg {avg}</div>
+                    <div className="text-[10px] font-mono text-slate-500 mt-0.5">{isSynth ? "live line" : "season avg"} {avg}</div>
                   </div>
                   <button
                     onClick={() => setPropLine(+(line + step).toFixed(1))}
@@ -10465,7 +10488,7 @@ export default function ParlayBuilder() {
                     <>
                       <button
                         onClick={() => {
-                          addLeg({ game: `${pl.team} game`, market: "Player Prop", pick: `${pl.name} Under ${line} ${statLabel}`, odds: underOdds, sport });
+                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Under ${line} ${statLabel}`, odds: underOdds, sport });
                         }}
                         className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${underSuggested ? "border-amber-400 bg-amber-500/10 ring-1 ring-amber-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
                       >
@@ -10475,7 +10498,7 @@ export default function ParlayBuilder() {
                       </button>
                       <button
                         onClick={() => {
-                          addLeg({ game: `${pl.team} game`, market: "Player Prop", pick: `${pl.name} Over ${line} ${statLabel}`, odds: overOdds, sport });
+                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Over ${line} ${statLabel}`, odds: overOdds, sport });
                         }}
                         className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${overSuggested ? "border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
                       >
