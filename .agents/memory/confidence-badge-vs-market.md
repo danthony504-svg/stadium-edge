@@ -89,6 +89,27 @@ game logs to make a prop look data-backed. realProps cap is 400 but history cap 
 40, so coverage is improved, not complete; bumping further trades latency/token
 budget for coverage.
 
+## Requested-market props read MARKET PRICE → ORDER, not just cap size
+When the user names a market ("5-leg strikeout parlay") and EVERY returned leg
+reads "MARKET PRICE", the cause is usually prop-ORDER starvation at the two
+independent caps, not the prompt and not the cap size. Props are collected in
+prop-order where a game's requested-market props sit LAST (e.g. pitcher_strikeouts
+trail ALL the batter props in that game). So on a wide ask: (a) `playerTargets`
+fills the 40-player game-log cap with batters before reaching the picked pitchers
+→ those pitchers get NO `playerHistory` → no projection → MARKET PRICE; and
+independently (b) `realProps` can push the requested market past the 400 prompt
+cap so the server market-locks an empty pool ("0 <market> props available").
+**Fix that worked:** detect the requested market ONCE (hoist `PROP_MARKET_KEYWORDS`
+/ `reqMarketEntry` / `isReqMarket` above the playerTargets loop), collect
+`reqMarketAthletes` during the realProps build, then stable-partition BOTH lists
+to float requested-market players/props to the front before each slice
+(`phSource`→phTargets, orderedProps→400-cap). **Why:** the data chain (athleteId
+enrichment + player-history per-start counts + prompt projection rule) all works;
+the only gap was the picked players never surviving the fetch cap. **How to apply:**
+verify the full chain with curl first (props with `homeTeamId`/`awayTeamId` →
+athleteId; player-history → real stat counts) so you fix COVERAGE/ORDER, not the
+prompt. Gate the float on `reqMarketEntry` so generic requests are unchanged.
+
 ## Prop badge: "MARKET PRICE", not "COIN-FLIP"
 Player props fall back to the market-implied number ONLY when the AI emits no
 projection (no/thin playerHistory — see section above). Labeling that "COIN-FLIP"

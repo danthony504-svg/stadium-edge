@@ -5520,6 +5520,58 @@ export default function ParlayBuilder() {
         }
       }
     }
+    // MARKET-PRIORITY DETECTION (shared by the playerHistory game-log fetch
+    // below AND the realProps 400-cap further down). When the user names a prop
+    // market ("5-leg strikeout parlay"), the server market-locks realProps to
+    // ONLY that market, and a prop card shows a real AI projection (instead of
+    // "MARKET PRICE") ONLY when context.playerHistory carries that player's game
+    // log. But the game-log fetch is capped at the first 40 unique players
+    // (phTargets) and players are collected in PROP ORDER — where the requested
+    // market's players sit LAST in each game (e.g. a game's pitcher_strikeouts
+    // props trail ALL of its batter props). So on a wide strikeout ask the
+    // 40-slot budget fills up with batters and the actually-picked pitchers get
+    // NO game log → every leg honestly reads "MARKET PRICE" even though the K
+    // history exists. Float the requested market's PLAYERS to the front of the
+    // game-log fetch (and its PROPS to the front of the 400-cap) so the picks
+    // the user asked for are the ones backed by real data. Mirrors the server
+    // MARKET_KEYWORDS map verbatim (first-match-wins, combos before singles) so
+    // client priority and server lock agree.
+    const PROP_MARKET_KEYWORDS = [
+      { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"] },
+      { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"] },
+      { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"] },
+      { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goals"] },
+      { re: /\b(shots on goal|sog\b)\b/i, markets: ["player_shots_on_goal"] },
+      { re: /\b(passing yards?|pass yds?)\b/i, markets: ["player_pass_yds"] },
+      { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"] },
+      { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"] },
+      { re: /\breceptions?\b/i, markets: ["player_receptions"] },
+      { re: /\b(pra\b|p\s*\+\s*r\s*\+\s*a|points?\s*\+\s*rebounds?\s*\+\s*assists?|pts?\s*\+\s*reb\s*\+\s*ast)\b/i, markets: ["player_points_rebounds_assists"] },
+      { re: /\b(points?\s*\+\s*rebounds?|pts?\s*\+\s*reb|p\s*\+\s*r)\b/i, markets: ["player_points_rebounds"] },
+      { re: /\b(points?\s*\+\s*assists?|pts?\s*\+\s*ast|p\s*\+\s*a)\b/i, markets: ["player_points_assists"] },
+      { re: /\b(rebounds?\s*\+\s*assists?|reb\s*\+\s*ast|r\s*\+\s*a)\b/i, markets: ["player_rebounds_assists"] },
+      { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"] },
+      { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"] },
+      { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"] },
+      { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"] },
+      { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"] },
+      { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"] },
+      { re: /\bturnovers?\b/i, markets: ["player_turnovers"] },
+      { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"] },
+      { re: /\bhits?\b/i, markets: ["batter_hits"] },
+      { re: /\btotal bases?\b/i, markets: ["batter_total_bases"] },
+    ];
+    const reqMarketEntry = PROP_MARKET_KEYWORDS.find((k) => k.re.test(text));
+    // Match the base market AND only its PERIOD variants ("_q1".."_h2") so a
+    // "1Q rebounds parlay" floats the right rungs too. Deliberately NOT a bare
+    // `startsWith(base + "_")` — that would let `player_points` also pull in
+    // `player_points_rebounds`/`_assists` combo markets the server lock drops
+    // anyway. (`_alternate` rungs are folded into the base key server-side.)
+    const isPeriodVariant = (m, b) => m.startsWith(`${b}_`) && /_(q1|q2|q3|q4|h1|h2)$/.test(m);
+    const isReqMarket = (m) => !!reqMarketEntry && reqMarketEntry.markets.some((b) => m === b || isPeriodVariant(String(m || ""), b));
+    // athleteIds that have a prop in the requested market — used to prioritize
+    // their game-log fetch so the picked players carry a real projection.
+    const reqMarketAthletes = new Set();
     const playerTargets = []; // [{sport, player, athleteId, opponentTeamId}]
     const seenAthletes = new Set();
     for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
@@ -5553,6 +5605,7 @@ export default function ParlayBuilder() {
           propIsHome = pt === teams.home ? true : pt === teams.away ? false : null;
         }
         realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice, alt: pr.alt === true, opponentTeamId: propOppId });
+        if (pr.athleteId && isReqMarket(pr.market)) reqMarketAthletes.add(String(pr.athleteId));
         if (sport && pr.athleteId && propOppId && !seenAthletes.has(pr.athleteId)) {
           seenAthletes.add(pr.athleteId);
           playerTargets.push({ sport, player: pr.player, athleteId: String(pr.athleteId), opponentTeamId: propOppId, isHome: propIsHome });
@@ -5570,7 +5623,18 @@ export default function ParlayBuilder() {
     // AI is told to treat absent entries as "no extra signal" and never to
     // invent player numbers.
     const playerHistory = {};
-    const phTargets = playerTargets.slice(0, 40);
+    // Float the requested market's players (e.g. pitchers on a strikeout ask) to
+    // the front so their game logs survive the 40-player cap — otherwise the
+    // batter props collected ahead of them eat the budget and the picked players
+    // read "MARKET PRICE" purely for lack of a game log. Stable within groups.
+    let phSource = playerTargets;
+    if (reqMarketEntry && reqMarketAthletes.size) {
+      const head = [];
+      const tail = [];
+      for (const t of playerTargets) (reqMarketAthletes.has(String(t.athleteId)) ? head : tail).push(t);
+      phSource = [...head, ...tail];
+    }
+    const phTargets = phSource.slice(0, 40);
     if (phTargets.length > 0) {
       await Promise.all(
         phTargets.map(async (t) => {
@@ -5780,60 +5844,20 @@ export default function ParlayBuilder() {
         legs: kept.map((l) => ({ game: l.game, market: l.market, pick: l.pick, odds: l.odds })),
       });
     }
-    // MARKET-PRIORITY ORDERING (the real "0 strikeout props" fix): when the
-    // user names a prop market ("5-leg strikeout parlay"), the server filters
-    // realProps down to ONLY that market (chat.ts MARKET_KEYWORDS). The
-    // realProps array below is capped at 400 to bound prompt size, but it's
-    // built by walking mergedPropsByEvent = {...cached, ...this-send fetches}
-    // at ~165 props/game — so a couple of cached/other-sport games front-load
-    // the array and push the freshly-fetched requested-market props (e.g. the
-    // ~50 pitcher_strikeouts lines across the slate) PAST slot 400, where the
-    // slice drops them entirely. The server then market-locks an already-empty
-    // pool and the AI honestly reports "0 <market> props available" even though
-    // we fetched plenty (the player shows up in playerHistory, which has its
-    // own independent cap, but the prop itself is gone). Float the requested
-    // market's props to the front so the cap can never slice off exactly what
-    // the user asked for. Mirrors the server keyword map verbatim (first match
-    // wins, combos before singles) so client priority and server lock agree.
-    const PROP_MARKET_KEYWORDS = [
-      { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"] },
-      { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"] },
-      { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"] },
-      { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goals"] },
-      { re: /\b(shots on goal|sog\b)\b/i, markets: ["player_shots_on_goal"] },
-      { re: /\b(passing yards?|pass yds?)\b/i, markets: ["player_pass_yds"] },
-      { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"] },
-      { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"] },
-      { re: /\breceptions?\b/i, markets: ["player_receptions"] },
-      { re: /\b(pra\b|p\s*\+\s*r\s*\+\s*a|points?\s*\+\s*rebounds?\s*\+\s*assists?|pts?\s*\+\s*reb\s*\+\s*ast)\b/i, markets: ["player_points_rebounds_assists"] },
-      { re: /\b(points?\s*\+\s*rebounds?|pts?\s*\+\s*reb|p\s*\+\s*r)\b/i, markets: ["player_points_rebounds"] },
-      { re: /\b(points?\s*\+\s*assists?|pts?\s*\+\s*ast|p\s*\+\s*a)\b/i, markets: ["player_points_assists"] },
-      { re: /\b(rebounds?\s*\+\s*assists?|reb\s*\+\s*ast|r\s*\+\s*a)\b/i, markets: ["player_rebounds_assists"] },
-      { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"] },
-      { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"] },
-      { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"] },
-      { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"] },
-      { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"] },
-      { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"] },
-      { re: /\bturnovers?\b/i, markets: ["player_turnovers"] },
-      { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"] },
-      { re: /\bhits?\b/i, markets: ["batter_hits"] },
-      { re: /\btotal bases?\b/i, markets: ["batter_total_bases"] },
-    ];
+    // MARKET-PRIORITY ORDERING (the "0 strikeout props" fix): the server filters
+    // realProps down to ONLY the requested market (chat.ts MARKET_KEYWORDS). This
+    // array is capped at 400 to bound prompt size, but it's built by walking
+    // mergedPropsByEvent = {...cached, ...this-send fetches} at ~165 props/game —
+    // so a couple of cached/other-sport games can front-load it and push the
+    // freshly-fetched requested-market props past slot 400, where the slice drops
+    // them and the server market-locks an already-empty pool. Float the requested
+    // market's props to the front so the cap can never slice off exactly what the
+    // user asked for. Reuses the shared MARKET-PRIORITY DETECTION above.
     let orderedProps = realProps;
-    const reqMarketEntry = PROP_MARKET_KEYWORDS.find((k) => k.re.test(text));
     if (reqMarketEntry) {
-      // Match the base market AND only its PERIOD variants ("_q1".."_h2") so a
-      // "1Q rebounds parlay" floats the right rungs too. Deliberately NOT a
-      // bare `startsWith(base + "_")` — that would let `player_points` also pull
-      // in `player_points_rebounds`/`_assists` combo markets the server lock
-      // drops anyway, wasting head slots. (`_alternate` rungs are folded into
-      // the base key server-side before emit, so they never appear here.)
-      const isPeriodVariant = (m, b) => m.startsWith(`${b}_`) && /_(q1|q2|q3|q4|h1|h2)$/.test(m);
-      const isReq = (m) => reqMarketEntry.markets.some((b) => m === b || isPeriodVariant(String(m || ""), b));
       const head = [];
       const tail = [];
-      for (const p of realProps) (isReq(p.market) ? head : tail).push(p);
+      for (const p of realProps) (isReqMarket(p.market) ? head : tail).push(p);
       orderedProps = [...head, ...tail];
     }
     const context = {
