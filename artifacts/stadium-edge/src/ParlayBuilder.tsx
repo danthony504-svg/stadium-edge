@@ -5153,14 +5153,21 @@ export default function ParlayBuilder() {
     // Everything here is real ESPN data — missing pieces become honest nulls,
     // never fabricated platoon edges.
     const mlbPlatoon = {};
+    // Per-game MLB environment (real park factor + altitude, real ballpark
+    // weather, and each probable starter's real season tendency). Keyed by the
+    // game label so the model can join it to realGames / realProps. Built from
+    // the same /mlb-probables payload — no extra round trip.
+    const mlbGameEnv = {};
+    let probables = {};
+    let probablesGames = {};
     const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
     if (mlbTargets.length > 0) {
-      let probables = {};
       try {
         const pr = await fetch(`/api/sports/mlb-probables`);
         if (pr.ok) {
           const pdata = await pr.json();
           probables = pdata?.probables || {};
+          probablesGames = pdata?.games || {};
         }
       } catch { /* honest no-probables fallback */ }
       await Promise.all(
@@ -5189,6 +5196,9 @@ export default function ParlayBuilder() {
               bats,
               opposingPitcherName: oppPitcher?.name || null,
               opposingPitcherThrows: oppThrows,
+              // The opposing starter's REAL season tendency (HR/9, K/9, fly-ball
+              // share, opponent OPS, etc.) — null when ESPN has no line.
+              opposingPitcherTendency: oppPitcher?.tendency || null,
               platoon,
               vsThatHand: vsThatHand || null,
               vsLeft: data?.vsLeft || null,
@@ -5197,6 +5207,28 @@ export default function ParlayBuilder() {
           } catch { /* honest no-platoon fallback */ }
         }),
       );
+      // Assemble per-game environment for every MLB game in the live pool:
+      // real park factor + altitude + venue (server static), real ballpark
+      // weather (null for domes -> climate-controlled), and BOTH probable
+      // starters' real season tendency. Keyed by the game label so the model
+      // can join it to realProps (HR props -> opposing starter; strikeout props
+      // -> the pitcher's own kPer9). Honest skip when a game has no data.
+      for (const g of realGames) {
+        if (g.sport !== "mlb") continue;
+        const env = probablesGames[g.homeTeamId] || null;
+        const home = probables[g.homeTeamId] || null;
+        const away = probables[g.awayTeamId] || null;
+        if (!env && !home && !away) continue;
+        const dome = env?.park?.dome === true;
+        mlbGameEnv[g.game] = {
+          venue: env?.venue || g.venue || null,
+          park: env?.park || null,
+          weather: dome ? null : env?.weather || null,
+          climateControlled: dome || undefined,
+          homePitcher: home ? { name: home.name, throws: home.throws, tendency: home.tendency || null } : null,
+          awayPitcher: away ? { name: away.name, throws: away.throws, tendency: away.tendency || null } : null,
+        };
+      }
     }
     // Build "extra slips" the user pinned from prior assistant messages
     // (📎 Pin button on each per-message snapshot). Each pinned message's
@@ -5280,6 +5312,7 @@ export default function ParlayBuilder() {
       opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
       teamPeriodStats: Object.keys(teamPeriodStats).length ? teamPeriodStats : undefined,
       mlbPlatoon: Object.keys(mlbPlatoon).length ? mlbPlatoon : undefined,
+      mlbGameEnv: Object.keys(mlbGameEnv).length ? mlbGameEnv : undefined,
     };
 
     let fullText = "";

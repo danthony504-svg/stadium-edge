@@ -1,3 +1,4 @@
+- [Adding pick AI signals](adding-pick-ai-signals.md) — ESPN->api->client->prompt 4-hop flow; career-vs-season stats gotcha; honest-null for weather; build/restart quirks.
 - [ESPN odds fallback](espn-odds-fallback.md) — bulk per-event pickcenter[0] as second-tier real odds when Odds API is down; cache + concurrency notes.
 - [Bovada odds fallback](bovada-odds-fallback.md) — third-tier real odds scrape; soccer multi-container + period-label + side-matching gotchas, no UFC.
 - [Finals suppression belt-and-braces](finals-suppression-belt-and-braces.md) — render-site and source-side finished-game filtering; 4h cutoff + active-status bypass.

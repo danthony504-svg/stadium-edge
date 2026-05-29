@@ -30,3 +30,9 @@ When you remove a fabricated signal (e.g. referee leans), grep for the phrase ac
 
 ## E2e testing quirk — picks must be added to the ticket first
 Chat picks are only SUGGESTED; the user must click "+ Add all N legs to ticket" to populate `parlayLegs`. The slip footer controls ("Analyze", "Fix") only render once the ticket has legs. A test that looks for the Fix button right after the chat suggests picks will fail — always add legs to the ticket first. "Fix" is also gated behind a Pro paywall (`requirePro`).
+
+## ESPN athlete stats: career vs season (MLB pitcher tendency)
+In an ESPN athlete `/statistics` category, `category.totals` is the player's **CAREER** line; the per-season rows live in `category.statistics[]` keyed by `season.year` and aligned to `category.labels`. For a "current form / season tendency" signal pick the latest `statistics[]` row and **never fall back to `totals`** — a career number mislabeled as season tendency silently violates never-fabricate. No season row => return null (honest), let the field stay null. The `season=` query param is ignored by ESPN.
+
+## Honest-null for external feed fields (weather etc.)
+When mapping an external API (OpenWeather), do NOT coerce missing fields with `?? 0` / `?? "Clear"` — that fabricates a reading. Make each field nullable and emit null when absent; the model's rule text must say "skip null fields, never guess". Also: OpenWeather `/data/2.5/weather` is a **current snapshot, not a first-pitch forecast** — label it as such in the prompt so the model doesn't overstate precision. Domes/retractables => whole weather block null (climateControlled), treat as NEUTRAL.
