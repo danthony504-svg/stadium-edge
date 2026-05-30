@@ -5858,6 +5858,48 @@ export default function ParlayBuilder() {
     // fabricated — and the AI is instructed to treat missing entries as
     // "no extra signal" rather than inventing one.
     const matchupHistory = {};
+    // Deterministic moneyline lean: collapse the SAME real signals the app's
+    // own pick-engine (scoreCandidate) uses to rank a straight winner — L10
+    // avg margin, season win%, home/road venue split, current streak, and H2H
+    // — into a single signed "home edge" (+ favors home). The chat AI is then
+    // FORCED to pick mlLean.side for any moneyline, so the same matchup can't
+    // come back as the home team one request and the away team the next. Pure
+    // function of the real data → identical side every time (no flip-flop).
+    const _clampLean = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const _streakStr = (s) => (s && s.count > 0 ? (s.type === "W" ? s.count : -s.count) : 0);
+    const computeMlLean = (label, d) => {
+      const parts = (label || "").split(" @ ");
+      const awayNm = (parts[0] || "").trim();
+      const homeNm = (parts[1] || "").trim();
+      if (!awayNm || !homeNm || !d) return null;
+      const h10 = d?.home?.last10, a10 = d?.away?.last10;
+      const hSeas = d?.home?.season, aSeas = d?.away?.season;
+      const hVen = (d?.home?.homeSplit?.games > 0) ? d.home.homeSplit : null;
+      const aVen = (d?.away?.awaySplit?.games > 0) ? d.away.awaySplit : null;
+      const h2h = d?.h2h?.meetings?.length ? d.h2h : null;
+      let edge = 0; let any = false;
+      if (h10?.avgMargin != null && a10?.avgMargin != null) { edge += _clampLean((h10.avgMargin - a10.avgMargin) * 1.2, -10, 10); any = true; }
+      if (hSeas?.winPct != null && aSeas?.winPct != null) { edge += _clampLean((hSeas.winPct - aSeas.winPct) * 15, -8, 8); any = true; }
+      if (hVen?.avgMargin != null && aVen?.avgMargin != null) { edge += _clampLean((hVen.avgMargin - aVen.avgMargin) * 0.9, -6, 6); any = true; }
+      const sd = _streakStr(d?.home?.streak) - _streakStr(d?.away?.streak);
+      if (sd !== 0) { edge += _clampLean(sd * 1.2, -5, 5); any = true; }
+      if (h2h) { edge += _clampLean((h2h.homeWins - h2h.awayWins) * 2, -5, 5); any = true; }
+      if (!any || Math.abs(edge) < 1) return null; // genuinely too close → no forced side
+      const homeFav = edge > 0;
+      const side = homeFav ? homeNm : awayNm;
+      const reasons = [];
+      const favL10 = homeFav ? h10 : a10, oppL10 = homeFav ? a10 : h10;
+      if (favL10?.avgMargin != null) reasons.push(`${side} ${favL10.wins}-${favL10.losses} L10 (${favL10.avgMargin > 0 ? "+" : ""}${favL10.avgMargin} margin)${oppL10?.avgMargin != null ? ` vs ${oppL10.wins}-${oppL10.losses} (${oppL10.avgMargin > 0 ? "+" : ""}${oppL10.avgMargin})` : ""}`);
+      const favSeas = homeFav ? hSeas : aSeas;
+      if (favSeas?.winPct != null) reasons.push(`${favSeas.wins}-${favSeas.losses} season (${Math.round(favSeas.winPct * 100)}% win)`);
+      const favVen = homeFav ? hVen : aVen;
+      if (favVen) reasons.push(`${favVen.wins}-${favVen.losses} ${homeFav ? "at home" : "on the road"} (${favVen.avgMargin > 0 ? "+" : ""}${favVen.avgMargin} margin)`);
+      const favStreak = homeFav ? d?.home?.streak : d?.away?.streak;
+      if (favStreak && favStreak.type === "W" && favStreak.count >= 2) reasons.push(`${favStreak.count}-game win streak`);
+      if (h2h) { const fw = homeFav ? h2h.homeWins : h2h.awayWins, fl = homeFav ? h2h.awayWins : h2h.homeWins; if (fw !== fl) reasons.push(`${fw}-${fl} H2H last ${h2h.meetings.length}`); }
+      if (reasons.length === 0) reasons.push(`${side} holds the edge on combined form, season, venue and streak metrics`);
+      return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
+    };
     const targets = historyTargets.slice(0, 16);
     if (targets.length > 0) {
       await Promise.all(
@@ -5907,6 +5949,7 @@ export default function ParlayBuilder() {
               h2h: h2h?.meetings?.length
                 ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
                 : null,
+              mlLean: computeMlLean(t.gameLabel, data),
             };
           } catch { /* honest no-history fallback */ }
         }),
