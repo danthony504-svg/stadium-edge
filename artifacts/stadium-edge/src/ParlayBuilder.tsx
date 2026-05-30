@@ -5167,8 +5167,21 @@ export default function ParlayBuilder() {
       // that sport — these markets only post for a subset of games, so the
       // default top-5 sample often misses the games where the market exists.
       const wantsWideProps = /\b(home runs?|hr\b|anytime td|goal scorer|first goal|strikeouts?)\b/i.test(text);
-      const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : 3;
-      const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : 6;
+      // Scale prop-fetch breadth with the REQUESTED leg count. A big parlay
+      // ("15-leg") needs distinct player props from many games to reach the
+      // count without correlated filler — but the default parlay caps only
+      // fetched props for 6 games (perSport 3), structurally capping the ticket
+      // at ~10 game-level legs no matter how many the user asked for (a few
+      // games × ~2 independent sides each, with NO props to climb past that).
+      // Parse the requested N and widen the candidate pool to ~N games so the
+      // AI actually has enough distinct props to build what was asked. Bounded
+      // concurrency + the 5-min server prop cache keep the extra fetches cheap,
+      // and only games that truly exist in the 48h window get fetched.
+      const reqLegMatch = text.match(/(\d+)\s*-?\s*(?:leg|legg|pick|game)/i);
+      const requestedLegs = reqLegMatch ? parseInt(reqLegMatch[1], 10) : 0;
+      const bigParlay = requestedLegs >= 8;
+      const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : bigParlay ? Math.min(requestedLegs, 12) : 3;
+      const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : bigParlay ? Math.min(requestedLegs + 4, 24) : 6;
       // Detect a game the user NAMED in this message (both teams mentioned, e.g.
       // "best 10-leg parlay for San Antonio Spurs @ Oklahoma City Thunder").
       // A named game is GAME-LOCKED in the prompt — every leg must come from it,
