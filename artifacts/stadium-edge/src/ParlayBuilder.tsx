@@ -2540,6 +2540,7 @@ export default function ParlayBuilder() {
   const [teamLine, setTeamLine] = useState(null); // adjustable team-total line in the team view
   const teamChartRef = useRef(null);
   const [slipAnalysis, setSlipAnalysis] = useState(null); // analysis text shown under the slip
+  const [fixSummary, setFixSummary] = useState(null); // compact one-line receipt of the last Fix action
   const [legsAnalyzed, setLegsAnalyzed] = useState(false); // per-leg analysis under each bet
   const [selectedPlan, setSelectedPlan] = useState("free");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -4098,11 +4099,11 @@ export default function ParlayBuilder() {
       },
     ]);
   };
-  const removeLeg = (id) => setParlayLegs((p) => p.filter((l) => l.id !== id));
+  const removeLeg = (id) => { setFixSummary(null); setParlayLegs((p) => p.filter((l) => l.id !== id)); };
   // Remove by matching game + pick (used by the card's Added toggle)
   const removeLegByPick = (pick) =>
     setParlayLegs((p) => p.filter((l) => !(legKey(l) === legKey(pick))));
-  const clearParlay = () => { setParlayLegs([]); setSlipAnalysis(null); setLegsAnalyzed(false); setSlipOpen(false); };
+  const clearParlay = () => { setParlayLegs([]); setSlipAnalysis(null); setFixSummary(null); setLegsAnalyzed(false); setSlipOpen(false); };
 
   // Map coach team abbreviations to the team names used in PICK_POOL game strings.
   const TEAM_ABBR_TO_NAME = {
@@ -4405,9 +4406,13 @@ export default function ParlayBuilder() {
       return leg;
     });
 
-    // Apply the safer lines to the slip silently. The leg cards re-render with
-    // the new line + price, which is the only feedback the user wants — no
-    // analysis panel. Clear any stale analysis so an old note can't linger.
+    // Count how many existing legs actually moved (line or price changed) so
+    // we can show a compact receipt. Clear any stale full analysis note first.
+    const changed = adjusted.reduce((n, leg, i) => {
+      const orig = parlayLegs[i];
+      return n + (orig && (orig.pick !== leg.pick || orig.odds !== leg.odds) ? 1 : 0);
+    }, 0);
+
     setParlayLegs(adjusted);
     setLegsAnalyzed(false);
     setSlipAnalysis(null);
@@ -4419,6 +4424,14 @@ export default function ParlayBuilder() {
     // parlayLegs). No-op if no eligible pick exists.
     const aiPick = bestAiPickForFix(adjusted.map((l) => l.game));
     if (aiPick) autoFillSlip([aiPick]);
+
+    // Compact one-line receipt so the user can SEE what Fix did — how many
+    // legs were safened and whether a new AI leg was added — without the
+    // wall-of-text analysis panel they explicitly rejected.
+    setFixSummary(
+      `${changed} leg${changed !== 1 ? "s" : ""} safened` +
+      (aiPick ? ` · +1 AI leg (${aiPick.pick})` : "")
+    );
   };
 
   // Up = add a point (line in your favor); Down = remove a point (against you)
@@ -11292,7 +11305,7 @@ export default function ParlayBuilder() {
               <div className="fixed inset-0 z-30" onClick={() => setSlipOpen(false)} />
             )}
             {slipOpen && (
-              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up flex flex-col" style={{ maxHeight: "75vh" }}>
+              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up flex flex-col" style={{ maxHeight: "85vh" }}>
                 <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between shrink-0">
                   <span className="font-display text-sm">
                     YOUR SLIP · {parlayLegs.length} LEG{parlayLegs.length !== 1 ? "S" : ""}
@@ -11333,6 +11346,14 @@ export default function ParlayBuilder() {
                       <button onClick={() => setSlipAnalysis(null)} className="text-slate-500 hover:text-slate-300 text-[10px] font-mono uppercase">clear</button>
                     </div>
                     <div className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">{slipAnalysis}</div>
+                  </div>
+                )}
+                {fixSummary && (
+                  <div className="px-3 py-1.5 border-t border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between gap-2 shrink-0">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-300 truncate">✓ Fixed · {fixSummary}</span>
+                    <button onClick={() => setFixSummary(null)} className="text-emerald-400/60 hover:text-emerald-300 shrink-0" aria-label="Dismiss fix summary">
+                      <X size={12} />
+                    </button>
                   </div>
                 )}
                 <div className="px-4 py-2 border-t border-slate-800 flex items-center justify-between bg-slate-950">
