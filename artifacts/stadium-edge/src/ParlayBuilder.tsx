@@ -6224,21 +6224,48 @@ export default function ParlayBuilder() {
         legs: kept.map((l) => ({ game: l.game, market: l.market, pick: l.pick, odds: l.odds })),
       });
     }
-    // MARKET-PRIORITY ORDERING (the "0 strikeout props" fix): the server filters
-    // realProps down to ONLY the requested market (chat.ts MARKET_KEYWORDS). This
-    // array is capped at 400 to bound prompt size, but it's built by walking
-    // mergedPropsByEvent = {...cached, ...this-send fetches} at ~165 props/game —
-    // so a couple of cached/other-sport games can front-load it and push the
-    // freshly-fetched requested-market props past slot 400, where the slice drops
-    // them and the server market-locks an already-empty pool. Float the requested
-    // market's props to the front so the cap can never slice off exactly what the
-    // user asked for. Reuses the shared MARKET-PRIORITY DETECTION above.
+    // FOCAL-GAME / FOCAL-SPORT PROP FLOAT (the "only 11 of 19 players reached the
+    // AI" fix): realProps is assembled by walking mergedPropsByEvent in worker-
+    // COMPLETION order (nondeterministic), then capped at 400 to bound the prompt.
+    // On a busy multi-sport night (e.g. 12 MLB games at ~165 props each) other
+    // games' props crowd the focal game out of that cap, so a single-game request
+    // like "15-leg, mostly props from tonight's NBA game" sees only a fraction of
+    // the focal game's distinct players (often ~11 of 19) and the AI honestly
+    // shortens the ticket. Game-LINES are already floated for named games, but
+    // props are not, and a bare sport mention ("nba") wasn't detected at all.
+    // Float props for (a) any named game and (b) any sport named in the message to
+    // the FRONT before the 400-slice, so the focal game's FULL player pool always
+    // survives. Within the focal block, the requested-market float still applies.
+    const SPORT_MENTION_RE = {
+      nba: /\bnba\b/i,
+      wnba: /\bwnba\b/i,
+      mlb: /\b(mlb|baseball)\b/i,
+      nhl: /\b(nhl|hockey)\b/i,
+      nfl: /\bnfl\b/i,
+      ncaaf: /\b(ncaaf|cfb|college football)\b/i,
+      ncaab: /\b(ncaab|cbb|college basketball)\b/i,
+      soccer: /\b(soccer|epl|premier league|la liga|bundesliga|serie a|ligue 1|mls|ucl|champions league)\b/i,
+      ufc: /\b(ufc|mma)\b/i,
+      tennis: /\btennis\b/i,
+    };
+    const mentionedSports = new Set(
+      Object.entries(SPORT_MENTION_RE).filter(([, re]) => re.test(text)).map(([s]) => s),
+    );
     let orderedProps = realProps;
-    if (reqMarketEntry) {
-      const head = [];
-      const tail = [];
-      for (const p of realProps) (isReqMarket(p.market) ? head : tail).push(p);
-      orderedProps = [...head, ...tail];
+    if (reqMarketEntry || mentionedSports.size || namedGameLabelSet.size) {
+      // 6 stable buckets, named-game focus OUTRANKS a broad sport mention so a
+      // named game's props are never crowded out by the rest of that sport's
+      // slate. focusTier: named game = 0, sport mention = 1, neither = 2; the
+      // requested-market float stays the secondary key within each tier.
+      const buckets: (typeof realProps)[] = [[], [], [], [], [], []];
+      for (const p of realProps) {
+        const focusTier = namedGameLabelSet.has(p.game)
+          ? 0
+          : (!!p.sport && mentionedSports.has(p.sport)) ? 1 : 2;
+        const req = isReqMarket(p.market);
+        buckets[focusTier * 2 + (req ? 0 : 1)].push(p);
+      }
+      orderedProps = buckets.flat();
     }
     const context = {
       selectedSports,
