@@ -1243,6 +1243,28 @@ const displayGameLabel = (game) => {
   return `${expandTeamToken(m[1])} ${m[2]} ${expandTeamToken(m[3])}`;
 };
 
+// Flip- and name-form-tolerant matcher for "Away @ Home" labels. The AI's
+// pick label can carry a different name form (abbr / nickname / full name) or a
+// reversed home/away orientation than the live feed. Exact-string lookups then
+// silently fail — which is why the scheduled time/date dropped off chat pick
+// cards even though the matchup was in the feed. Normalize both sides (expand
+// tokens, lowercase, strip non-alphanumerics) and accept either orientation.
+const gameLabelSides = (label) => {
+  const m = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+  if (!m) return null;
+  const norm = (s) => expandTeamToken(s.trim()).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const a = norm(m[1]);
+  const b = norm(m[2]);
+  if (!a || !b) return null;
+  return [a, b];
+};
+const gameLabelsMatch = (l1, l2) => {
+  const s1 = gameLabelSides(l1);
+  const s2 = gameLabelSides(l2);
+  if (!s1 || !s2) return false;
+  return (s1[0] === s2[0] && s1[1] === s2[1]) || (s1[0] === s2[1] && s1[1] === s2[0]);
+};
+
 // Reverse map: full team name -> short abbr, built once from TEAM_FULL_NAME_MAP.
 // Used to compact "Boston Celtics" -> "BOS" on the crowded home screen.
 const FULL_TO_ABBR = (() => {
@@ -4927,18 +4949,18 @@ export default function ParlayBuilder() {
     const candidates = [];
     for (const sportGames of Object.values(realGamesBySport || {})) {
       for (const g of (sportGames || [])) {
-        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (!gameLabelsMatch(`${g.awayTeam} @ ${g.homeTeam}`, gameLabel)) continue;
         if (g.startsAt) candidates.push({ ts: new Date(g.startsAt).getTime(), iso: g.startsAt, final: isFinalSt(g.status) });
       }
     }
     for (const sportOdds of Object.values(realOddsBySport || {})) {
       for (const g of (sportOdds || [])) {
-        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (!gameLabelsMatch(`${g.awayTeam} @ ${g.homeTeam}`, gameLabel)) continue;
         if (g.commenceTime) candidates.push({ ts: new Date(g.commenceTime).getTime(), iso: g.commenceTime, final: false });
       }
     }
     for (const lp of livePicks || []) {
-      if (lp.game === gameLabel && lp.startsAt) candidates.push({ ts: new Date(lp.startsAt).getTime(), iso: lp.startsAt, final: false });
+      if (gameLabelsMatch(lp.game, gameLabel) && lp.startsAt) candidates.push({ ts: new Date(lp.startsAt).getTime(), iso: lp.startsAt, final: false });
     }
     if (candidates.length === 0) return null;
     const NOW = Date.now();
@@ -5010,7 +5032,7 @@ export default function ParlayBuilder() {
     if (!gameLabel) return null;
     for (const sportGames of Object.values(realGamesBySport || {})) {
       for (const g of (sportGames || [])) {
-        if (`${g.awayTeam} @ ${g.homeTeam}` !== gameLabel) continue;
+        if (!gameLabelsMatch(`${g.awayTeam} @ ${g.homeTeam}`, gameLabel)) continue;
         const s = (g.status || "").toLowerCase();
         // Widened to match the All Sports filter: ended/FT games must not
         // render a 🔴 live tag anywhere (slip legs, chat picks, game cards).
@@ -7170,12 +7192,15 @@ export default function ParlayBuilder() {
                     <div className="text-xs text-slate-400 break-words">
                       {displayGameLabel(pick.game)}
                       {(() => {
-                        // Per user request, do NOT show the scheduled game
-                        // time/date on chat pick cards (stale day-after odds
-                        // could surface a misleading "Today X PM"). Keep only
-                        // the live 🔴 in-progress indicator as a safety signal.
+                        // Show the live 🔴 in-progress tag if the game is live,
+                        // otherwise the scheduled time/date. lookupGameStart /
+                        // lookupLiveTag now match labels tolerantly (name form +
+                        // home/away flip) so the time no longer drops off when
+                        // the AI's label differs from the live-feed label.
                         const live = lookupLiveTag(pick.game);
-                        return live ? <span className="ml-1 text-rose-600 font-semibold">· {live}</span> : null;
+                        if (live) return <span className="ml-1 text-rose-600 font-semibold">· {live}</span>;
+                        const t = formatGameTime(lookupGameStart(pick.game));
+                        return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
                     </div>
                     <div className="text-sm text-slate-100 font-semibold">{pick.pick}</div>
