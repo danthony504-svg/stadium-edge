@@ -26,27 +26,48 @@ Two things must consume `composerH`, or content hides behind the bar:
 any bottom-anchored overlay must account for. `dvh` (not `vh`) handles mobile
 toolbar collapse; target is iOS Safari which supports it.
 
-# "+ Add all N legs" can silently land fewer than N
+# "+ Add all N legs" silently landing 3-of-13 = Odds-API pool CHURN, not bad legs
 
-`messagePicks = rawMessagePicks` renders EVERY AI `PICK:` line uncapped, so the
-button label "Add all N legs" equals the AI's PICK-line count. But the onClick
-runs `autoFillSlip(messagePicks)` WITHOUT `alreadyValidated`, so it re-runs
-`filterPicksToReal` against current React state — any leg whose game isn't
-verifiable in the live 48h pool, plus duplicates already on the slip, get
-dropped. Result: user asks for 15, sees "Add all 15", slip shows 10, no
-explanation → "only added 10 when it was supposed to be 15".
+`messagePicks` renders EVERY AI `PICK:` line, and those lines are ALREADY
+validated at generation time (hallucinated/out-of-window legs are scrubbed from
+the message text before it renders via `cleaned`). So a displayed leg is a real
+game. The "only 3 of 13 added / couldn't be verified in the live feed" report is
+NOT hallucination: the Odds API pool CHURNS between sends (429 → smaller ESPN
+fallback, server log shows realOdds 120→82→120, realGames stable ~18). A real
+game valid at generation churns OUT of current React state by add-click, and a
+blind re-`filterPicksToReal` at click time drops it.
 
-**Fix shape:** `autoFillSlip` returns
-`{ requested, added, droppedNotLive (game-label STRINGS from
-filterPicksToReal().dropped), droppedDup (count) }` at every exit; the add-all
-onClick posts an honest assistant message when `added < requested`. Note
-`filterPicksToReal` returns `{ kept (pick OBJECTS), dropped (game STRINGS),
-poolSize }` — `dropped` is strings, don't `.game` it. Keep the drop-reason
-wording neutral ("couldn't be verified in the live feed") — drops also include
-malformed/cross-sport/unverifiable labels, not only out-of-window.
+Two compounding sites both re-validated against churned state:
+1. **"+ Add all" onClick** ran `autoFillSlip(messagePicks)` WITHOUT
+   `alreadyValidated`.
+2. **slip-sweep effect** (`survives`, no-deps effect) re-runs
+   `filterPicksToReal([l])` per leg every render and strips churned-but-real
+   legs once the 90s `addedAt` grace expires — so fixing only the add path is
+   insufficient; the leg vanishes ~90s later.
 
-**Why not just bypass validation:** the slip-sweep effect re-validates with a
-grace window and would strip truly-stale legs anyway, so honest feedback beats
-forcing legs that won't survive. This is distinct from the streaming auto-fill
-path, which legitimately passes `alreadyValidated` (props fetched same turn
-aren't in committed state yet).
+**Fix (the right one — trust generation-time validation, survive churn):**
+- "+ Add all" onClick: partition `messagePicks` into `finished`
+  (`gameResolvesToFinal`) vs `live`; call
+  `autoFillSlip(live, { alreadyValidated: true, chatValidated: true })`. Honest
+  message uses `messagePicks.length` as denominator (added X of N; Y already
+  finished; Z already on slip) — and since alreadyValidated fully accounts for
+  the shortfall, no "couldn't be verified" wording anymore.
+- `autoFillSlip` + `addLeg(skipValidation)`: stamp inserted legs
+  `chatValidated: true` and `gameStartTs` (from `lookupGameStart` AT INSERT,
+  while the game is still in a feed).
+- slip-sweep `survives`: also keep a leg if
+  `l.chatValidated && !gameResolvesToFinal(l.game) && !(gameStartTs &&
+  now-gameStartTs > 8h)`. I.e. churn never strips a chat-committed leg; only a
+  CONFIRMED-finished game (or the 8h staleness fallback for a finished game that
+  rotated out of every feed so gameResolvesToFinal can't see it) removes it.
+
+**Why `gameStartTs` is stamped at insert, not read at sweep time:**
+`lookupGameStart` returns null once the game is evicted from all feeds — exactly
+the case the staleness fallback must cover — so it must be captured while the
+game is still present.
+
+**Supersedes earlier "honest feedback beats forcing legs" note:** that was wrong
+about the cause (assumed the dropped legs were genuinely unverifiable). They were
+real; the bug was re-validating against a transiently-churned pool. The streaming
+auto-fill path's `alreadyValidated` was the correct pattern all along — the add
+paths just needed the same trust plus churn-resistant persistence.

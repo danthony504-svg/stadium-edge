@@ -4104,7 +4104,13 @@ export default function ParlayBuilder() {
     if (parlayLegs.some((l) => legKey(l) === insertKey)) return;
     const id = Date.now() + Math.random();
     const addedAt = Date.now();
-    setParlayLegs((p) => (p.some((l) => legKey(l) === insertKey) ? p : [...p, { ...toAdd, id, addedAt }]));
+    // Capture the game's known start time NOW (while it's still in a feed) so a
+    // chat-validated leg can be expired later even if the game rotates out of
+    // every feed once it's over (see the slip-sweep staleness fallback).
+    const gsRaw = lookupGameStart(toAdd.game);
+    const gsTs = gsRaw ? new Date(gsRaw).getTime() : NaN;
+    const gameStartTs = Number.isFinite(gsTs) ? gsTs : null;
+    setParlayLegs((p) => (p.some((l) => legKey(l) === insertKey) ? p : [...p, { ...toAdd, id, addedAt, ...(opts.skipValidation ? { chatValidated: true, gameStartTs } : {}) }]));
     // Snapshot the reasoning at the moment of adding so History stays accurate
     const reasoningAtTime = generateReasoning(leg);
     const confAtTime = calculateConfidence(leg);
@@ -4881,9 +4887,25 @@ export default function ParlayBuilder() {
     // Per-leg check returns truthy whenever ANY canonical form survives.
     const now = Date.now();
     const GRACE_MS = 90_000;
+    // Hard ceiling for keeping a chat-validated leg whose game has rotated out
+    // of every feed: 8h comfortably covers long games / extra innings while
+    // still clearing a stale leg the same day.
+    const CHATVALID_MAX_MS = 8 * 60 * 60 * 1000;
     const survives = (l) =>
       filterPicksToReal([l]).kept.length > 0 ||
-      (l.addedAt && now - l.addedAt < GRACE_MS);
+      (l.addedAt && now - l.addedAt < GRACE_MS) ||
+      // Legs committed from a chat slip card were already validated against the
+      // live pool when the AI generated that message (hallucinated / out-of-
+      // window legs were stripped before the text rendered). The Odds API pool
+      // CHURNS between sends — a 429 collapses it to a smaller ESPN fallback —
+      // so a real game the user picked can briefly disappear from the current
+      // pool, and a blind re-filter here would wrongly strip it. Keep any
+      // chat-validated leg until its game has actually FINISHED, OR — as a
+      // bounded staleness fallback for a finished game that rotated out of
+      // every feed (so gameResolvesToFinal can no longer see it) — until well
+      // past its known start time.
+      (l.chatValidated && !gameResolvesToFinal(l.game) &&
+        !(l.gameStartTs && now - l.gameStartTs > CHATVALID_MAX_MS));
     const survivors = parlayLegs.filter(survives);
     if (survivors.length === parlayLegs.length) return; // nothing to drop — safe no-op, prevents loop
     const survivorKeys = new Set(survivors.map(legKey));
@@ -4931,7 +4953,15 @@ export default function ParlayBuilder() {
     // the slip-sweep grace window keys off — without it the sweep would
     // re-filter against stale React state and drop 5-of-6 valid legs.
     const now = Date.now();
-    const legs = deduped.map((leg, i) => ({ ...leg, id: now + i + Math.random(), addedAt: now }));
+    const legs = deduped.map((leg, i) => {
+      const base = { ...leg, id: now + i + Math.random(), addedAt: now };
+      if (!opts.chatValidated) return base;
+      // Stamp the known start time so the slip-sweep can expire this leg long
+      // after kickoff even if the game has rotated out of every live feed.
+      const gsRaw = lookupGameStart(leg.game);
+      const gsTs = gsRaw ? new Date(gsRaw).getTime() : NaN;
+      return { ...base, chatValidated: true, gameStartTs: Number.isFinite(gsTs) ? gsTs : null };
+    });
     setParlayLegs((prev) => [...prev, ...legs]);
     // Log each to the tracker as pending
     setTracker((prev) => [
@@ -7075,18 +7105,28 @@ export default function ParlayBuilder() {
               <button
                 onClick={() => {
                   if (allInSlip) return;
-                  const r = autoFillSlip(messagePicks);
-                  if (r && r.added < r.requested) {
+                  // These picks were already validated against the live pool
+                  // when the AI wrote this message — hallucinated / out-of-window
+                  // legs were stripped from the text before it rendered. Re-
+                  // validating now against current state would silently drop real
+                  // games that have since churned out of the Odds API pool (it
+                  // 429s to a smaller ESPN fallback between sends), which is why a
+                  // "13-leg" ticket used to land only 3. Trust the prior
+                  // validation and only exclude games that have actually FINISHED
+                  // since this message was written.
+                  const finished = messagePicks.filter((p) => gameResolvesToFinal(p.game));
+                  const live = messagePicks.filter((p) => !gameResolvesToFinal(p.game));
+                  const r = autoFillSlip(live, { alreadyValidated: true, chatValidated: true });
+                  if (r && r.added < messagePicks.length) {
                     const reasons = [];
-                    if (r.droppedNotLive.length) {
-                      const games = Array.from(new Set(r.droppedNotLive));
-                      reasons.push(`${r.droppedNotLive.length} couldn't be verified in the live feed (${games.slice(0, 3).join(", ")}${games.length > 3 ? "…" : ""})`);
+                    if (finished.length) reasons.push(`${finished.length} already finished`);
+                    if (r.droppedDup) reasons.push(`${r.droppedDup} already on your slip`);
+                    if (reasons.length) {
+                      setMessages((p) => [
+                        ...p,
+                        { role: "assistant", content: `Added **${r.added} of ${messagePicks.length}** legs to your slip — ${reasons.join("; ")}.` },
+                      ]);
                     }
-                    if (r.droppedDup) reasons.push(`${r.droppedDup} were already on your slip`);
-                    setMessages((p) => [
-                      ...p,
-                      { role: "assistant", content: `Added **${r.added} of ${r.requested}** legs to your slip${reasons.length ? ` — ${reasons.join("; ")}.` : "."} Ask me to top it up with fresh picks if you want the full count.` },
-                    ]);
                   }
                 }}
                 disabled={allInSlip}
