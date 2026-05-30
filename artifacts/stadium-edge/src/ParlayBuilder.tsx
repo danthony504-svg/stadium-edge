@@ -5070,6 +5070,140 @@ export default function ParlayBuilder() {
     return `${date} · ${time}`;
   };
 
+  // ----- Betting-value signals (no-vig fair line, cross-book +EV, key #s) -----
+  // Turn a chat pick into the three market-inefficiency signals the user asked
+  // for. All of it is derived ONLY from real bookmaker prices already in
+  // realOddsBySport (both sides + per-book `books` arrays) — nothing invented.
+  // Returns null for props / period legs / anything we can't ground both sides
+  // of, so those cards stay clean.
+  const probToAmerican = (p) => {
+    if (!Number.isFinite(p) || p <= 0 || p >= 1) return null;
+    return p >= 0.5 ? Math.round(-(p / (1 - p)) * 100) : Math.round(((1 - p) / p) * 100);
+  };
+  const medianOf = (arr) => {
+    const a = (arr || []).filter((x) => Number.isFinite(x)).sort((x, y) => x - y);
+    if (!a.length) return null;
+    const m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+  const normTeamStr = (s) =>
+    expandTeamToken(String(s || "").trim()).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const teamSideMatches = (outcomeName, sideStr) => {
+    const a = normTeamStr(outcomeName);
+    const b = normTeamStr(sideStr);
+    if (!a || !b) return false;
+    return a === b || a.includes(b) || b.includes(a);
+  };
+  // Football spread key-number context. 3 and 7 are the dominant NFL/CFB
+  // margins; 6/10/14 secondary. A half-point across a key number is real value.
+  const keyNumberNote = (pick) => {
+    if (!/^(nfl|ncaaf|cfb|college)/i.test(pick.sport || "")) return null;
+    if (!/spread/i.test(pick.market || "")) return null;
+    const m = String(pick.pick || "").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+    if (!m) return null;
+    const n = Math.abs(parseFloat(m[1]));
+    if (!Number.isFinite(n)) return null;
+    const KEY = { 3: "the single biggest margin in football", 7: "the second-most common margin" };
+    if (KEY[n] != null && Number.isInteger(n)) {
+      return `🔑 Line sits ON the key number ${n} (${KEY[n]}). A push is live here — buying/selling the half-point off ${n} changes real win probability, so the exact number matters.`;
+    }
+    for (const k of [3, 7]) {
+      if (Math.abs(n - k) === 0.5) {
+        const side = n < k ? `inside ${k}` : `past ${k}`;
+        return `🔑 Half a point ${side} the key number ${k}. ${n < k ? `Getting +${n} (short of +${k}) costs you the push on ${k}` : `Laying -${n} (past -${k}) means you've bought past the key number`} — worth shopping for the better side of ${k}.`;
+      }
+    }
+    for (const k of [6, 10, 14]) {
+      if (n === k) return `🔑 On secondary key number ${k} — common football margin; the half-point still carries value.`;
+    }
+    return null;
+  };
+  // Resolve a pick to {sideBooks, fairAmerican, fairProb, vigPct, evPct}.
+  const valueSignals = (pick) => {
+    if (!pick) return null;
+    const mk = (pick.market || "").trim();
+    // Only full-game ML / Spread / Total carry both-sides + per-book data.
+    if (/(1H|2H|Q[1-4]|first|second|half|quarter|period|prop)/i.test(mk)) return null;
+    let key = null;
+    if (/^(money\s?line|moneyline)$/i.test(mk)) key = "h2h";
+    else if (/^(spread|run line|puck line)$/i.test(mk)) key = "spreads";
+    else if (/^total$/i.test(mk)) key = "totals";
+    if (!key) return null;
+    // Find the game in the odds feed (prefer the pick's own sport, then any),
+    // using the tolerant label match.
+    let game = null;
+    const sportOrder = [
+      ...(pick.sport && realOddsBySport[pick.sport] ? [pick.sport] : []),
+      ...Object.keys(realOddsBySport || {}).filter((s) => s !== pick.sport),
+    ];
+    for (const s of sportOrder) {
+      const g = (realOddsBySport[s] || []).find((gg) => gameLabelsMatch(`${gg.awayTeam} @ ${gg.homeTeam}`, pick.game));
+      if (g) { game = g; break; }
+    }
+    if (!game || !game.markets) return null;
+    const market = game.markets.find((m) => m.key === key);
+    if (!market || !(market.outcomes || []).length) return null;
+    const outs = market.outcomes;
+    // The main market can carry MULTIPLE points (books post slightly different
+    // main lines, merged by name|point). Pair side+opp at the SAME line, never
+    // first-opposite, or the no-vig / EV math is built on mismatched prices.
+    const ptEq = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-6;
+    let side = null, opp = null;
+    if (key === "totals") {
+      const ou = /under/i.test(pick.pick || "") ? "under" : /over/i.test(pick.pick || "") ? "over" : null;
+      if (!ou) return null;
+      const ptM = String(pick.pick || "").match(/(\d+(?:\.\d+)?)\s*$/);
+      const pt = ptM ? parseFloat(ptM[1]) : null;
+      const isOU = (o, kind) => new RegExp(`^${kind}$`, "i").test(o.name || "");
+      const matches = outs.filter((o) => isOU(o, ou));
+      side = (pt != null ? matches.find((o) => ptEq(o.point, pt)) : matches[0]) || null;
+      if (!side) return null;
+      // Opposite O/U at the SAME total.
+      opp = outs.find((o) => o !== side && /^(over|under)$/i.test(o.name || "") && ptEq(o.point, side.point)) || null;
+    } else if (key === "spreads") {
+      const ptM = String(pick.pick || "").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+      const pt = ptM ? parseFloat(ptM[1]) : null;
+      const teamPart = String(pick.pick || "").replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "").trim();
+      const teamMatches = outs.filter((o) => teamSideMatches(o.name, teamPart));
+      side = (pt != null ? teamMatches.find((o) => ptEq(o.point, pt)) : teamMatches[0]) || null;
+      if (!side) return null;
+      // Opp = the OTHER team at the mirror point (home -x ⇄ away +x).
+      opp = outs.find((o) => !teamSideMatches(o.name, teamPart) && (side.point == null || ptEq(o.point, -side.point))) || null;
+    } else {
+      // h2h moneyline: a single point-less pair.
+      const teamPart = String(pick.pick || "").replace(/\s*ML\s*$/i, "").trim();
+      side = outs.find((o) => teamSideMatches(o.name, teamPart)) || null;
+      opp = outs.find((o) => o !== side) || null;
+    }
+    if (!side || !opp || !Number.isFinite(side.price) || !Number.isFinite(opp.price)) return null;
+    const impS = impliedProb(side.price);
+    const impO = impliedProb(opp.price);
+    const denom = impS + impO;
+    if (!(denom > 0)) return null;
+    const fairProb = impS / denom;
+    const fairAmerican = probToAmerican(fairProb);
+    const vigPct = (denom - 1) * 100;
+    // Cross-book +EV: consensus "true" prob from the MEDIAN price of each side,
+    // checked against the BEST available price for this side. If the top book
+    // pays more than the de-vigged consensus says is fair, that's real value.
+    const sideMed = medianOf((side.books || []).map((b) => b.price)) ?? side.price;
+    const oppMed = medianOf((opp.books || []).map((b) => b.price)) ?? opp.price;
+    const impSMed = impliedProb(sideMed), impOMed = impliedProb(oppMed);
+    const consensusFair = impSMed + impOMed > 0 ? impSMed / (impSMed + impOMed) : null;
+    let evPct = null;
+    if (consensusFair != null) {
+      evPct = (consensusFair * americanToDecimal(side.price) - 1) * 100;
+    }
+    return {
+      fairAmerican,
+      fairProb,
+      vigPct,
+      evPct,
+      bestBooks: side.books && side.books.length >= 2 ? side.books : null,
+      keyNote: keyNumberNote(pick),
+    };
+  };
+
   // Sweep stale/invalid legs out of the slip whenever the live feeds
   // refresh. Catches: (1) legs added before the eligibility filter existed,
   // (2) cross-sport hallucinations that slipped through earlier code, (3)
@@ -7157,6 +7291,10 @@ export default function ParlayBuilder() {
             // honestly ("MARKET PRICE") instead of dressing it up as the model's
             // "COIN-FLIP" read.
             const badgeIsMarketOnly = aiProjForBadge.proj == null && isPropPick;
+            // Market-inefficiency signals (no-vig fair line, cross-book +EV,
+            // football key numbers). Null for props / period legs.
+            const vs = valueSignals(pick);
+            const showEV = vs && vs.evPct != null && vs.evPct >= 0.5;
             return (
               <div
                 key={i}
@@ -7186,6 +7324,22 @@ export default function ParlayBuilder() {
                           title="Model's projected win % minus the market's implied % — positive means the AI sees value the price doesn't."
                         >
                           {edgePts > 0 ? "+" : ""}{edgePts}% vs mkt
+                        </div>
+                      )}
+                      {vs && vs.fairAmerican != null && (
+                        <div
+                          className="text-[10px] font-mono font-bold text-slate-300"
+                          title={`No-vig fair line: with the bookmaker's margin stripped from BOTH sides, the true price is ${formatOdds(vs.fairAmerican)} (~${Math.round(vs.fairProb * 100)}%). The book holds ${vs.vigPct.toFixed(1)}% on this market.`}
+                        >
+                          Fair {formatOdds(vs.fairAmerican)} · {Math.round(vs.fairProb * 100)}%
+                        </div>
+                      )}
+                      {showEV && (
+                        <div
+                          className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 rounded px-1.5"
+                          title={`+EV from line shopping: the best book's price beats the de-vigged consensus of all books by ${vs.evPct.toFixed(1)}% expected value. Take this number at the top book below.`}
+                        >
+                          +EV {vs.evPct.toFixed(1)}%
                         </div>
                       )}
                     </div>
@@ -7256,6 +7410,16 @@ export default function ParlayBuilder() {
                     </>
                   );
                 })()}
+                {vs && vs.keyNote && (
+                  <div className="border-t border-slate-800 px-3 py-1.5">
+                    <p className="text-[11px] text-amber-300/90 leading-snug">{vs.keyNote}</p>
+                  </div>
+                )}
+                {vs && vs.bestBooks && (
+                  <div className="border-t border-slate-800 pt-1">
+                    <BookCompare books={vs.bestBooks} />
+                  </div>
+                )}
               </div>
             );
           }
