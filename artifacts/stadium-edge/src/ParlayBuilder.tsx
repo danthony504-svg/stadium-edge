@@ -11324,9 +11324,20 @@ export default function ParlayBuilder() {
                     <div key={leg.id ?? idx} className="flex items-start gap-2 bg-slate-800 rounded-xl px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 truncate">{leg.game}</div>
-                        <div className="text-sm text-slate-100 truncate">{leg.pick}</div>
+                        <div className="text-sm text-slate-100 truncate flex items-center gap-1.5">
+                          <span className="truncate">{leg.pick}</span>
+                          {leg.originalPick && leg.originalPick !== leg.pick && (
+                            <span className="shrink-0 inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-1.5 py-0.5">
+                              <span className="text-emerald-400/60 line-through">{leg.originalPick}</span>
+                              {leg.pointsDelta ? `+${Math.abs(leg.pointsDelta)}pt` : "fixed"}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] font-mono text-slate-400">
                           {leg.market}{leg.odds != null ? ` · ${formatOdds(leg.odds)}` : ""}
+                          {leg.originalOdds != null && leg.originalOdds !== leg.odds && (
+                            <span className="text-emerald-400/60"> · was {formatOdds(leg.originalOdds)}</span>
+                          )}
                         </div>
                       </div>
                       <button
