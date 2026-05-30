@@ -64,13 +64,20 @@ export async function cachedJson<T>(
 }
 
 // Simple per-IP sliding-window rate limiter for expensive routes.
+// Behind Replit's proxy every request shares one IP, so the bucket key MUST
+// also be scoped per-limiter — otherwise a single global per-IP bucket is
+// shared across ALL limited routes (odds, props, chat, weather, ...) and
+// unrelated traffic throttles the odds fallbacks, falsely thinning the pool.
 const rlBuckets = new Map<string, number[]>();
 const RL_MAX_KEYS = 5000;
+let rlScopeSeq = 0;
 export function rateLimit(opts: { windowMs: number; max: number }) {
+  const scope = `rl${rlScopeSeq++}`;
   return (req: { ip?: string; socket?: { remoteAddress?: string } }, res: { status: (n: number) => { json: (b: unknown) => void } }, next: () => void) => {
     const ip = req.ip || req.socket?.remoteAddress || "unknown";
+    const bucketKey = `${scope}:${ip}`;
     const now = Date.now();
-    const arr = (rlBuckets.get(ip) || []).filter((t) => now - t < opts.windowMs);
+    const arr = (rlBuckets.get(bucketKey) || []).filter((t) => now - t < opts.windowMs);
     if (arr.length >= opts.max) {
       res.status(429).json({ error: "Too many requests" });
       return;
@@ -80,7 +87,7 @@ export function rateLimit(opts: { windowMs: number; max: number }) {
       const oldest = rlBuckets.keys().next().value;
       if (oldest !== undefined) rlBuckets.delete(oldest);
     }
-    rlBuckets.set(ip, arr);
+    rlBuckets.set(bucketKey, arr);
     next();
   };
 }

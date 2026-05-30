@@ -224,8 +224,12 @@ router.get("/sports/espn-odds", async (req, res): Promise<void> => {
 // here so the consumer doesn't have to re-filter.
 //
 // Rate-limited because cold cache fans out to up to 40 ESPN summary
-// calls per request — we don't want a client retry storm to hammer ESPN.
-router.use("/sports/odds-espn", rateLimit({ windowMs: 60_000, max: 30 }));
+// calls per request. Responses are cached server-side (cachedJson), so the
+// cap is only an abuse guard — keep it high enough that a legit full-slate
+// fan-out (every selected sport cascading here when the paid feed is empty,
+// across both the live + chat effects) doesn't trip false 429s and silently
+// drop sports from the pool. Behind the proxy this counts per shared IP.
+router.use("/sports/odds-espn", rateLimit({ windowMs: 60_000, max: 120 }));
 router.get("/sports/odds-espn", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const path = ESPN_SPORT_PATHS[sportId];
@@ -400,7 +404,10 @@ const BOVADA_PATHS: Record<string, string> = {
   ncaab: "basketball/college-basketball",
   soccer: "soccer",
 };
-router.use("/sports/odds-bovada", rateLimit({ windowMs: 60_000, max: 30 }));
+// Cached server-side; cap is an abuse guard only. Match odds-espn so a
+// full-slate fallback fan-out across both fetch effects can't false-429 and
+// thin the pool. Per shared proxy IP.
+router.use("/sports/odds-bovada", rateLimit({ windowMs: 60_000, max: 120 }));
 router.get("/sports/odds-bovada", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const bvPath = BOVADA_PATHS[sportId];

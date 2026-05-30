@@ -2676,9 +2676,16 @@ export default function ParlayBuilder() {
         // Each tier is only consulted when the prior returns !ok OR an
         // empty array (so we don't get stuck on a tier that responds 200
         // but has nothing for this sport, e.g. UFC out-of-season).
-        const tryFetch = async (url) => {
+        const tryFetch = async (url, retry = true) => {
           try {
             const r = await fetch(url);
+            // 429 = our own per-IP limiter throttled a burst, NOT "no data for
+            // this sport". Retry once after a short jitter so a transient
+            // throttle doesn't silently drop the sport from the pool.
+            if (r.status === 429 && retry) {
+              await new Promise((res) => setTimeout(res, 400 + Math.random() * 600));
+              return tryFetch(url, false);
+            }
             if (!r.ok) return null;
             const j = await r.json();
             return Array.isArray(j) && j.length > 0 ? j : null;
@@ -2909,9 +2916,13 @@ export default function ParlayBuilder() {
             // Three-tier chain: paid Odds API → ESPN pickcenter → Bovada
             // public coupon. Each tier only consulted when prior returns
             // !ok or empty so we don't get stuck on an empty-200 response.
-            const tryFetch = async (url) => {
+            const tryFetch = async (url, retry = true) => {
               try {
                 const r = await fetch(url);
+                if (r.status === 429 && retry) {
+                  await new Promise((res) => setTimeout(res, 400 + Math.random() * 600));
+                  return tryFetch(url, false);
+                }
                 if (!r.ok) return null;
                 const j = await r.json();
                 return Array.isArray(j) && j.length > 0 ? j : null;
@@ -5027,9 +5038,13 @@ export default function ParlayBuilder() {
         ),
         Promise.all(
           selectedSports.map(async (s) => {
-            const tryFetch = async (url) => {
+            const tryFetch = async (url, retry = true) => {
               try {
                 const r = await fetch(url);
+                if (r.status === 429 && retry) {
+                  await new Promise((res) => setTimeout(res, 400 + Math.random() * 600));
+                  return tryFetch(url, false);
+                }
                 if (!r.ok) return null;
                 const j = await r.json();
                 return Array.isArray(j) && j.length > 0 ? j : null;
