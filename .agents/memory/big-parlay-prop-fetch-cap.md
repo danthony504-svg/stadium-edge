@@ -26,13 +26,36 @@ requested leg count.
 Only games that truly exist in the 48h window get fetched; bounded concurrency
 (5 workers) + the 5-min server prop cache + the 429 retry keep it cheap.
 
-**Why this is the right lever, not the prompt:** chat.ts SYSTEM_PROMPT already
-makes the "N-leg" REQUEST TYPE override the generic "no game named → 4-5 leg
-random ticket" default (the precedence line + "N-leg → return EXACTLY N PICK
-lines"). The AI WANTS to build 15; it just had no props to climb past ~10. The
-honest-design rules (no correlated/fake filler, return shorter ticket if data is
-thin) are correct and untouched — the fix supplies MORE real props, never loosens
-a ban.
+**It took TWO levers, not one (this is the key correction):** the cap fix was
+necessary but NOT sufficient. After it, a "15-leg" send verifiably delivers a
+RICH pool to the model (durable server diag: realProps=400, ~41 distinct players,
+realOdds=120, ~18 games) — yet the model still under-built to ~4 legs and even
+falsely told the user "realProps is empty." So the prompt DID also need work.
+
+**Real-world limiter = distinct PROP games, not prop count.** At a typical hour
+only ~3 games have props posted (e.g. one NBA game alone returns ~691 props,
+capped to 200/game in assembly), while many games return 0 props or a 502. So the
+400-cap fills from ~3 games / ~41 players — tons of players but heavily same-game,
+hence correlated. To reach a large N HONESTLY the model must combine ONE leg per
+distinct game across the ~18 game-level games in realOdds (props where available,
+else ML/spread/total) and only THEN add extra distinct-player props from the
+prop-rich games. The model wouldn't do this on its own.
+
+**Prompt fix (chat.ts SYSTEM_PROMPT, the "N-leg parlay" REQUEST TYPE line):**
+added explicit "HOW TO SCALE TO N" guidance — (1) one leg per distinct game first,
+(2) then extra distinct-player props (different player AND stat family) from
+prop-rich games, noting same-game correlation, (3) COUNT distinct games/players
+before shortening, (4) HARD guard: never claim/imply realProps is empty when it
+has entries (it's the authoritative live pool). No HARD BAN (correlated/duplicate
+market×period×game, anti-fabrication, shorten-if-truly-thin) was loosened.
+
+**Diagnosis tip that cracked it:** ephemeral pino logs were unreadable (api-server
+has no watcher and the test harness keeps restarting it, rotating logs). Use a
+DURABLE file append (e.g. /tmp/chat_diag.log) of realProps count + distinctPropGames
++ distinctPropPlayers + propsPerGame to see exactly what reached the model. REMOVE
+it (and any client console diag) before commit. You can also fully replicate the
+client's toFetch/assembly in the code_execution sandbox against localhost:8080
+(odds + props endpoints) to compute the pool without a browser.
 
 **Gotchas / non-obvious:**
 - `isWithin24h` in this block is MISNAMED — it actually enforces a 48h window
