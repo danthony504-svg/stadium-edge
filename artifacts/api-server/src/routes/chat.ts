@@ -813,8 +813,36 @@ STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × ga
 HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
     : "";
 
+  // LIVE-BETS LOCK — the client sets context.liveOnly when the user explicitly
+  // asks for live / in-play bets, and pre-filters realGames/realOdds/realProps to
+  // games CURRENTLY in progress (each marked live:true with the real score/period)
+  // OR, when nothing is in progress, leaves liveGameCount === 0 so we answer
+  // honestly instead of passing off scheduled games as "live".
+  const liveCtx = parsed.data.context as
+    | { liveOnly?: boolean; liveGameCount?: number; realOdds?: unknown[]; realProps?: unknown[] }
+    | undefined;
+  const liveOnly = !!liveCtx?.liveOnly;
+  const liveGameCount = Number(liveCtx?.liveGameCount ?? 0);
+  const liveOddsCount = Array.isArray(liveCtx?.realOdds) ? liveCtx!.realOdds!.length : 0;
+  const livePropsCount = Array.isArray(liveCtx?.realProps) ? liveCtx!.realProps!.length : 0;
+  const liveMarketCount = liveOddsCount + livePropsCount;
+  // Three branches keyed FIRST on whether any game is actually in progress
+  // (liveGameCount) — never conflate "no live games" with "live games but the
+  // odds feed is momentarily thin". Only the true zero-in-progress case may say
+  // "nothing is live".
+  const liveOnlySystemAddendum = !liveOnly
+    ? ""
+    : liveGameCount === 0
+      ? `\n\n*** LIVE BETS REQUESTED — NOTHING IS LIVE RIGHT NOW ***
+The user asked for LIVE / in-progress bets, but NO games are currently in progress. Do NOT build a live ticket and do NOT present any upcoming/scheduled game as "live" — that is exactly the mistake to avoid. Tell the user plainly that nothing is live at the moment. You MAY briefly point them to the soonest UPCOMING games in realGames/realOdds (with their start times) and offer to build a pre-game ticket instead, but label those clearly as upcoming, never live.`
+      : liveMarketCount > 0
+        ? `\n\n*** LIVE BETS ONLY FOR THIS TURN ***
+The user asked for LIVE / in-progress bets. realGames/realOdds/realProps have been pre-filtered to ONLY games CURRENTLY IN PROGRESS — every entry carries live:true plus the real awayScore/homeScore/periodLabel/clock. EVERY pick MUST come from these in-progress games; do NOT include ANY pre-game/scheduled/upcoming matchup this turn (a "Today 7:00 PM" game that hasn't tipped off is NOT a live bet). Apply the LIVE GAME STATE rule to every leg — respect the current score and time remaining, and never recommend a market the scoreboard has already decided. If the live pool can't support the requested leg count with defensible, still-live markets (or only player props are live), return a SHORTER ticket and say so honestly.`
+        : `\n\n*** LIVE BETS REQUESTED — GAMES ARE LIVE BUT NO LIVE LINES RIGHT NOW ***
+${liveGameCount} game(s) are currently in progress, but the book has no live odds or props posted for them this moment (lines often pull during fast-moving sequences). Do NOT pull in any pre-game/scheduled matchup to fill the gap, and do NOT pretend an upcoming game is live. Tell the user honestly that games are live but no live lines are available right now, name the in-progress matchup(s) from realGames if helpful, and suggest they retry in a moment.`;
+
   const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum },
+    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum },
     ...parsed.data.messages.map((m) => ({
       role: m.role as "system" | "user" | "assistant",
       content: m.content,

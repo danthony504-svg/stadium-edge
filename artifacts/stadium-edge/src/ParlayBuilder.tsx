@@ -5030,6 +5030,15 @@ export default function ParlayBuilder() {
   // the caller falls back to the kickoff timestamp instead).
   const lookupLiveTag = (gameLabel) => {
     if (!gameLabel) return null;
+    // A team pairing can resolve to MORE than one game in the feed — an MLB
+    // doubleheader, or tomorrow's series rematch listed alongside tonight's
+    // in-progress game (same "Away @ Home" label). Returning on the FIRST
+    // label match meant a SCHEDULED duplicate encountered first would suppress
+    // the 🔴 tag and let lookupGameStart stamp the future tipoff ("Tomorrow
+    // 5:40 PM") onto a card for a game that's actually live right now. So scan
+    // ALL matches and let an in-progress instance win over scheduled/final
+    // duplicates — only give up once no live copy exists (same precedence the
+    // playoff-series fix gave lookupGameStart).
     for (const sportGames of Object.values(realGamesBySport || {})) {
       for (const g of (sportGames || [])) {
         if (!gameLabelsMatch(`${g.awayTeam} @ ${g.homeTeam}`, gameLabel)) continue;
@@ -5038,12 +5047,12 @@ export default function ParlayBuilder() {
         // render a 🔴 live tag anywhere (slip legs, chat picks, game cards).
         const isFinal = s.includes("final") || s.includes("full time") || s.includes("postponed") || s.includes("canceled") || s.includes("cancelled") || s.includes("ended") || /\bft\b/.test(s);
         const isScheduled = s.includes("scheduled") || s.includes("pre");
-        if (isFinal || isScheduled) return null;
+        if (isFinal || isScheduled) continue; // non-live duplicate — keep looking
         // periodLabel is ESPN's shortDetail ("Q3 8:42", "Bot 7th", "HT",
         // "OT"). Fall back only to the raw status string — never a
         // synthesized "Live" — so we keep the no-fake-data guarantee.
         const tag = g.periodLabel || g.status || null;
-        return tag ? `🔴 ${tag}` : null;
+        if (tag) return `🔴 ${tag}`;
       }
     }
     return null;
@@ -6423,8 +6432,46 @@ export default function ParlayBuilder() {
       }
       orderedProps = buckets.flat();
     }
+    // LIVE-BETS INTENT — when the user explicitly asks for "live" / in-play /
+    // in-progress bets, restrict the AI's pick menu to games ACTUALLY in
+    // progress right now (from the real ESPN scoreboard feed in homeLiveGames),
+    // and tell it honestly when nothing is live. Without this the AI treats
+    // live + upcoming identically and hands back scheduled games ("Today 5PM")
+    // when the user asked for live bets. ESPN team labels can differ from the
+    // Odds API labels, so match tolerantly with gameLabelsMatch, never ===.
+    const wantsLiveBets = /\b(?:live|in[-\s]?play|in[-\s]?progress)\b/i.test(text);
+    const liveGameLabels = (homeLiveGames || [])
+      .filter((g) => g && g.real && g.game)
+      .map((g) => g.game);
+    let ctxGames = realGames.slice(0, 60);
+    let ctxOdds = realOdds.slice(0, 120);
+    let ctxProps = orderedProps.slice(0, 400);
+    let liveGameCount = 0;
+    if (wantsLiveBets) {
+      const isLiveLabel = (label) => liveGameLabels.some((ll) => gameLabelsMatch(ll, label));
+      const liveSnap = (label) => homeLiveGames.find((g) => g.real && gameLabelsMatch(g.game, label));
+      const withLive = (entry) => {
+        const m = liveSnap(entry.game);
+        const score = m && Number.isFinite(m.awayScore) && Number.isFinite(m.homeScore)
+          ? { awayScore: m.awayScore, homeScore: m.homeScore }
+          : {};
+        return { ...entry, live: true, periodLabel: (m && m.periodLabel) || null, clock: (m && m.clock) || null, ...score };
+      };
+      const liveGames = realGames.filter((g) => isLiveLabel(g.game));
+      liveGameCount = new Set(liveGames.map((g) => g.game)).size;
+      if (liveGameCount > 0) {
+        ctxGames = liveGames.slice(0, 60).map(withLive);
+        ctxOdds = realOdds.filter((o) => isLiveLabel(o.game)).slice(0, 120).map(withLive);
+        ctxProps = orderedProps.filter((p) => isLiveLabel(p.game)).slice(0, 400);
+      }
+      // When liveGameCount === 0 we keep the upcoming pool in context so the AI
+      // can honestly say nothing is live AND point to the soonest games — the
+      // liveOnly flag below stops it from passing those off as "live".
+    }
     const context = {
       selectedSports,
+      liveOnly: wantsLiveBets || undefined,
+      liveGameCount: wantsLiveBets ? liveGameCount : undefined,
       currentSlip: parlayLegs.map((l) => ({
         game: l.game,
         market: l.market,
@@ -6466,9 +6513,9 @@ export default function ParlayBuilder() {
               };
             })
         : undefined,
-      realGames: realGames.slice(0, 60),
-      realOdds: realOdds.slice(0, 120),
-      realProps: orderedProps.slice(0, 400),
+      realGames: ctxGames,
+      realOdds: ctxOdds,
+      realProps: ctxProps,
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
       opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
