@@ -4245,109 +4245,302 @@ export default function ParlayBuilder() {
     setSlipOpen(true);
   };
 
-  // Render the current ticket to a PNG via canvas and trigger a download.
-  // Uses the canvas API directly (no internet / no library) so it works offline.
-  const downloadTicketImage = () => {
+  // Render the current ticket to a premium dark "AI PICKS" PNG via the canvas
+  // API directly (no internet / no library) so it works offline. Every number
+  // shown is derived from REAL slip data — per-leg + parlay confidence, combined
+  // odds, stake/payout. We deliberately DON'T print fabricated betting signals
+  // (sharp money %, public bet %, line movement, edge score) the app has no feed
+  // for; the design's richness comes from layout/typography, not invented stats.
+  const downloadTicketImage = async () => {
     if (parlayLegs.length === 0) return;
     const legs = parlayLegs;
     const W = 720;
-    const pad = 40;
-    const rowH = 78;
-    const headerH = 150;
-    const footerH = 150;
-    const H = headerH + legs.length * rowH + footerH;
-    const canvas = document.createElement("canvas");
+    const pad = 36;
     const scale = 2; // crisp on retina
+
+    // ---- Derived REAL stats -------------------------------------------------
+    const legConfs = legs.map((l) => Math.round(calculateConfidence(l)));
+    const avgConf = Math.round(legConfs.reduce((a, b) => a + b, 0) / legs.length);
+    let bestIdx = 0;
+    legConfs.forEach((c, i) => { if (c > legConfs[bestIdx]) bestIdx = i; });
+    const teamBets = legs.filter((l) => l.market !== "Player Prop").length;
+    const propBets = legs.length - teamBets;
+    const plusLegs = legs.filter((l) => typeof l.odds === "number" && l.odds > 0).length;
+    const oddsLabel = bookLegCount >= 2
+      ? formatOdds(parlayMath.american)
+      : bookLegCount === 1 ? formatOdds(parlayMath.american) : "PP SLIP";
+    const toWin = bookLegCount >= 1 ? `$${payout}` : "DFS";
+    const potReturn = bookLegCount >= 1 ? `$${(parseFloat(payout) + stake).toFixed(2)}` : "DFS";
+
+    // Honest "why" bullets (max 4) — all derived from real slip data.
+    const bullets = [];
+    bullets.push(`Avg leg confidence ${avgConf}% · parlay ${parlayConfidence}%`);
+    bullets.push(`Top leg: ${legs[bestIdx].pick} (${legConfs[bestIdx]}%)`);
+    if (teamBets > 0 && propBets > 0) {
+      bullets.push(`Balanced: ${teamBets} team market${teamBets === 1 ? "" : "s"} + ${propBets} player prop${propBets === 1 ? "" : "s"}`);
+    } else if (propBets > 0) {
+      bullets.push(`${propBets} player prop${propBets === 1 ? "" : "s"} screened on form & matchup`);
+    } else {
+      bullets.push(`${teamBets} team market${teamBets === 1 ? "" : "s"} screened by the model`);
+    }
+    if (bookLegCount >= 2) {
+      bullets.push(`Combined book price ${formatOdds(parlayMath.american)} — $${payout} to win on $${stake}`);
+    } else if (plusLegs > 0) {
+      bullets.push(`Includes ${plusLegs} plus-money value pick${plusLegs === 1 ? "" : "s"}`);
+    }
+    const whyBullets = bullets.slice(0, 4);
+
+    // ---- Layout geometry ----------------------------------------------------
+    const headerH = 164;
+    const heroH = 128;
+    const picksLabelH = 44;
+    const rowH = 96;
+    const payoutH = 132;
+    const whyBodyH = Math.max(whyBullets.length * 30, 124);
+    const whyH = 56 + whyBodyH + 22;
+    const footerH = 84;
+    const GAP = 16;
+    const innerW = W - pad * 2;
+    let H = headerH + GAP + heroH + GAP + picksLabelH + legs.length * rowH + GAP + payoutH + GAP + whyH + GAP + footerH + 12;
+
+    const canvas = document.createElement("canvas");
     canvas.width = W * scale;
     canvas.height = H * scale;
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     ctx.scale(scale, scale);
+    ctx.textBaseline = "alphabetic";
 
-    // Background
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, W, H);
-
-    // Header band (violet)
-    ctx.fillStyle = "#7c3aed";
-    ctx.fillRect(0, 0, W, headerH);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 34px sans-serif";
-    ctx.fillText("STADIUM EDGE", pad, 58);
-    ctx.font = "600 20px sans-serif";
-    const subtitle = ppLegCount > 0
-      ? `${legs.length}-Leg ${legs.length > 1 ? "Parlay" : "Bet"} · ${bookLegCount} book + ${ppLegCount} PP`
-      : `${legs.length}-Leg ${legs.length > 1 ? "Parlay" : "Bet"}`;
-    ctx.fillText(subtitle, pad, 92);
-    // Combined odds (right) — only meaningful when 2+ book legs share a price.
-    // For mixed/all-PP slips we say "PP slip" to avoid implying a single
-    // combined American number applies to the DFS legs.
-    ctx.textAlign = "right";
-    ctx.font = "bold 40px sans-serif";
-    ctx.fillText(
-      bookLegCount >= 2 ? formatOdds(parlayMath.american) : ppLegCount > 0 ? "PP slip" : formatOdds(parlayMath.american),
-      W - pad,
-      80,
-    );
-    ctx.font = "500 16px sans-serif";
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillText(`Model confidence ${parlayConfidence}%`, W - pad, 110);
-    ctx.textAlign = "left";
-
-    // Legs
-    let y = headerH + 20;
-    legs.forEach((leg, i) => {
-      ctx.strokeStyle = "#e5e7eb";
+    // ---- Helpers ------------------------------------------------------------
+    const rr = (x, y, w, h, r) => {
+      const rad = Math.min(r, w / 2, h / 2);
       ctx.beginPath();
-      ctx.moveTo(pad, y - 12);
-      ctx.lineTo(W - pad, y - 12);
-      ctx.stroke();
-      ctx.fillStyle = "#6b7280";
-      ctx.font = "500 14px sans-serif";
-      ctx.fillText(`${leg.market} · ${leg.game}`.slice(0, 64), pad, y + 8);
-      ctx.fillStyle = "#111827";
-      ctx.font = "bold 20px sans-serif";
-      ctx.fillText(leg.pick.slice(0, 44), pad, y + 36);
-      ctx.fillStyle = "#7c3aed";
-      ctx.font = "bold 20px sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(formatOdds(leg.odds), W - pad, y + 24);
-      ctx.textAlign = "left";
-      y += rowH;
+      ctx.moveTo(x + rad, y);
+      ctx.arcTo(x + w, y, x + w, y + h, rad);
+      ctx.arcTo(x + w, y + h, x, y + h, rad);
+      ctx.arcTo(x, y + h, x, y, rad);
+      ctx.arcTo(x, y, x + w, y, rad);
+      ctx.closePath();
+    };
+    const fit = (text, maxW, font) => {
+      ctx.font = font;
+      let t = String(text ?? "");
+      if (ctx.measureText(t).width <= maxW) return t;
+      while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+      return t + "…";
+    };
+    const badgeFor = (m) => {
+      const x = (m || "").toLowerCase();
+      if (x.includes("prop")) return { label: "PLAYER PROP", color: "#c084fc" };
+      if (x.includes("spread")) return { label: "SPREAD", color: "#60a5fa" };
+      if (x.includes("moneyline") || x === "ml") return { label: "MONEYLINE", color: "#22d3ee" };
+      if (x.includes("total") || x.includes("over") || x.includes("under")) return { label: "TOTAL", color: "#fbbf24" };
+      return { label: (m || "PICK").toUpperCase(), color: "#94a3b8" };
+    };
+    const hexA = (hex, a) => {
+      const n = parseInt(hex.slice(1), 16);
+      return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+    };
+    const monogram = (s) => {
+      const words = (s || "").replace(/[^a-zA-Z ]/g, " ").trim().split(/\s+/).filter(Boolean);
+      if (!words.length) return "SE";
+      if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+      return (words[0][0] + words[1][0]).toUpperCase();
+    };
+    const confColor = (c) => (c >= 65 ? "#22c55e" : c >= 50 ? "#eab308" : "#fb923c");
+    const loadImage = (src) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
     });
 
-    // Footer
-    const fy = headerH + legs.length * rowH;
-    ctx.fillStyle = "#f4f4f5";
-    ctx.fillRect(0, fy, W, footerH);
-    ctx.fillStyle = "#6b7280";
-    ctx.font = "500 16px sans-serif";
-    ctx.fillText("Stake", pad, fy + 40);
-    ctx.fillText(ppLegCount > 0 && bookLegCount >= 1 ? "To win (book legs)" : "To win", pad, fy + 80);
-    ctx.fillStyle = "#111827";
-    ctx.font = "bold 22px sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText("$10.00", W - pad, fy + 42);
-    ctx.fillStyle = "#16a34a";
-    ctx.fillText(
-      bookLegCount >= 1 ? `$${((parlayMath.decimal - 1) * 10).toFixed(2)}` : "DFS payout",
-      W - pad,
-      fy + 82,
-    );
-    ctx.textAlign = "left";
-    if (ppLegCount > 0) {
-      ctx.fillStyle = "#b45309";
-      ctx.font = "500 12px sans-serif";
-      ctx.fillText(
-        `+${ppLegCount} PrizePicks leg${ppLegCount === 1 ? "" : "s"} on DFS flat schedule (not in combined odds)`,
-        pad,
-        fy + 105,
-      );
-    }
-    ctx.fillStyle = "#9ca3af";
-    ctx.font = "500 12px sans-serif";
-    ctx.fillText("Hypothetical only · not a real bet · 21+ · model ranking, not a prediction", pad, fy + 120);
+    // ---- Background + ambient stadium glows ---------------------------------
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#070b16");
+    bg.addColorStop(1, "#0a1122");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    const glowL = ctx.createRadialGradient(110, 50, 0, 110, 50, 340);
+    glowL.addColorStop(0, "rgba(34,211,238,0.20)");
+    glowL.addColorStop(1, "rgba(34,211,238,0)");
+    ctx.fillStyle = glowL; ctx.fillRect(0, 0, W, 280);
+    const glowR = ctx.createRadialGradient(W - 110, 50, 0, W - 110, 50, 340);
+    glowR.addColorStop(0, "rgba(34,197,94,0.16)");
+    glowR.addColorStop(1, "rgba(34,197,94,0)");
+    ctx.fillStyle = glowR; ctx.fillRect(0, 0, W, 280);
 
-    // Download
+    // ---- Header (centered brand) -------------------------------------------
+    const logo = await loadImage(stadiumEdgeLogo);
+    if (logo) {
+      const lh = 54, lw = lh * (logo.width / logo.height || 1);
+      ctx.drawImage(logo, W / 2 - lw / 2, 22, lw, lh);
+    }
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = "800 38px sans-serif";
+    ctx.fillText("STADIUM EDGE", W / 2, 110);
+    ctx.fillStyle = "#22d3ee";
+    ctx.font = "700 15px sans-serif";
+    ctx.fillText("• A I   P A R L A Y   P I C K S •", W / 2, 138);
+    ctx.textAlign = "left";
+
+    // ---- Hero stat panel (3 cells) -----------------------------------------
+    let y = headerH + GAP;
+    ctx.fillStyle = "#0f1729";
+    rr(pad, y, innerW, heroH, 18); ctx.fill();
+    ctx.strokeStyle = "#1e2a44"; ctx.lineWidth = 1; rr(pad, y, innerW, heroH, 18); ctx.stroke();
+    const cellW = innerW / 3;
+    const heroCells = [
+      { label: "COMBINED ODDS", value: oddsLabel, color: "#22d3ee" },
+      { label: "PARLAY CONFIDENCE", value: `${parlayConfidence}%`, color: confColor(parlayConfidence) },
+      { label: legs.length === 1 ? "LEG" : "LEGS", value: String(legs.length), color: "#f8fafc", sub: `${teamBets} team · ${propBets} prop` },
+    ];
+    heroCells.forEach((c, i) => {
+      const cx = pad + cellW * i + cellW / 2;
+      if (i > 0) {
+        ctx.strokeStyle = "#1b263e"; ctx.beginPath();
+        ctx.moveTo(pad + cellW * i, y + 22); ctx.lineTo(pad + cellW * i, y + heroH - 22); ctx.stroke();
+      }
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#7c8aa5"; ctx.font = "700 12px sans-serif";
+      ctx.fillText(c.label, cx, y + 38);
+      ctx.fillStyle = c.color; ctx.font = "800 38px sans-serif";
+      ctx.fillText(fit(c.value, cellW - 24, "800 38px sans-serif"), cx, y + 82);
+      if (c.sub) { ctx.fillStyle = "#64748b"; ctx.font = "600 12px sans-serif"; ctx.fillText(c.sub, cx, y + 104); }
+    });
+    ctx.textAlign = "left";
+
+    // ---- Picks label --------------------------------------------------------
+    y += heroH + GAP;
+    ctx.fillStyle = "#f8fafc"; ctx.font = "800 16px sans-serif";
+    ctx.fillText("THE PICKS", pad, y + 28);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#64748b"; ctx.font = "700 13px sans-serif";
+    ctx.fillText(`${legs.length} PICKS · ${teamBets} TEAM · ${propBets} PROP`, W - pad, y + 28);
+    ctx.textAlign = "left";
+
+    // ---- Pick rows ----------------------------------------------------------
+    y += picksLabelH;
+    legs.forEach((leg, i) => {
+      const ry = y + i * rowH;
+      const card = rowH - 12;
+      ctx.fillStyle = "#0e1626"; rr(pad, ry, innerW, card, 14); ctx.fill();
+      ctx.strokeStyle = "#1b2740"; ctx.lineWidth = 1; rr(pad, ry, innerW, card, 14); ctx.stroke();
+      const b = badgeFor(leg.market);
+      // left accent
+      ctx.fillStyle = b.color; rr(pad, ry, 5, card, 3); ctx.fill();
+      // monogram chip
+      const chipX = pad + 20, chipY = ry + card / 2, chipR = 22;
+      ctx.fillStyle = hexA(b.color, 0.16);
+      ctx.beginPath(); ctx.arc(chipX + chipR, chipY, chipR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = hexA(b.color, 0.5); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(chipX + chipR, chipY, chipR, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = b.color; ctx.font = "800 16px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(monogram(leg.pick), chipX + chipR, chipY + 6);
+      ctx.textAlign = "left";
+      const textX = chipX + chipR * 2 + 16;
+      const rightColW = 110;
+      const textMaxW = W - pad - rightColW - textX - 12;
+      // badge + game
+      ctx.font = "800 10px sans-serif"; ctx.fillStyle = b.color;
+      const badgeW = ctx.measureText(b.label).width + 16;
+      ctx.fillStyle = hexA(b.color, 0.14); rr(textX, ry + 16, badgeW, 18, 9); ctx.fill();
+      ctx.fillStyle = b.color; ctx.font = "800 10px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText(b.label, textX + 8, ry + 29);
+      ctx.fillStyle = "#64748b"; ctx.font = "600 12px sans-serif";
+      ctx.fillText(fit(leg.game, textMaxW - badgeW - 10, "600 12px sans-serif"), textX + badgeW + 10, ry + 29);
+      // pick
+      ctx.fillStyle = "#f1f5f9"; ctx.font = "800 19px sans-serif";
+      ctx.fillText(fit(leg.pick, textMaxW, "800 19px sans-serif"), textX, ry + 57);
+      // right: odds + confidence
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#e2e8f0"; ctx.font = "800 20px sans-serif";
+      ctx.fillText(formatOdds(leg.odds), W - pad - 16, ry + 34);
+      const c = legConfs[i];
+      ctx.fillStyle = confColor(c); ctx.font = "800 14px sans-serif";
+      ctx.fillText(`${c}%`, W - pad - 16, ry + 58);
+      ctx.fillStyle = "#475569"; ctx.font = "600 10px sans-serif";
+      ctx.fillText("CONFIDENCE", W - pad - 16, ry + 72);
+      ctx.textAlign = "left";
+    });
+
+    // ---- Payout panel (3 cells) --------------------------------------------
+    y += legs.length * rowH + GAP;
+    const payGrad = ctx.createLinearGradient(pad, y, pad + innerW, y);
+    payGrad.addColorStop(0, "#0c1a2e");
+    payGrad.addColorStop(1, "#0c241c");
+    ctx.fillStyle = payGrad; rr(pad, y, innerW, payoutH, 18); ctx.fill();
+    ctx.strokeStyle = "#1f3a33"; ctx.lineWidth = 1; rr(pad, y, innerW, payoutH, 18); ctx.stroke();
+    const payCells = [
+      { label: "STAKE", value: `$${stake.toFixed(2)}`, color: "#f8fafc" },
+      { label: bookLegCount >= 1 ? "TO WIN" : "TO WIN", value: toWin, color: "#22c55e" },
+      { label: "POTENTIAL RETURN", value: potReturn, color: "#22c55e" },
+    ];
+    payCells.forEach((c, i) => {
+      const cx = pad + cellW * i + cellW / 2;
+      if (i > 0) {
+        ctx.strokeStyle = "#1c3a30"; ctx.beginPath();
+        ctx.moveTo(pad + cellW * i, y + 24); ctx.lineTo(pad + cellW * i, y + payoutH - 40); ctx.stroke();
+      }
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#7c8aa5"; ctx.font = "700 12px sans-serif";
+      ctx.fillText(c.label, cx, y + 40);
+      ctx.fillStyle = c.color; ctx.font = "800 34px sans-serif";
+      ctx.fillText(fit(c.value, cellW - 20, "800 34px sans-serif"), cx, y + 80);
+    });
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#64748b"; ctx.font = "600 11px sans-serif";
+    const payNote = ppLegCount > 0
+      ? `${bookLegCount} book leg${bookLegCount === 1 ? "" : "s"} priced · ${ppLegCount} PrizePicks leg${ppLegCount === 1 ? "" : "s"} on flat DFS schedule (not in combined odds)`
+      : `Based on a $${stake.toFixed(2)} stake at ${formatOdds(parlayMath.american)} combined odds`;
+    ctx.fillText(fit(payNote, innerW - 24, "600 11px sans-serif"), W / 2, y + payoutH - 16);
+    ctx.textAlign = "left";
+
+    // ---- Why panel (bullets + confidence gauge) ----------------------------
+    y += payoutH + GAP;
+    ctx.fillStyle = "#0f1729"; rr(pad, y, innerW, whyH, 18); ctx.fill();
+    ctx.strokeStyle = "#1e2a44"; ctx.lineWidth = 1; rr(pad, y, innerW, whyH, 18); ctx.stroke();
+    ctx.fillStyle = "#22c55e"; ctx.font = "800 14px sans-serif";
+    ctx.fillText("WHY THE AI LIKES THIS PARLAY", pad + 22, y + 34);
+    const gaugeW = 150;
+    const bulletMaxW = innerW - gaugeW - 64;
+    whyBullets.forEach((t, i) => {
+      const by = y + 64 + i * 30;
+      ctx.fillStyle = "#22c55e"; ctx.font = "800 13px sans-serif";
+      ctx.fillText("✓", pad + 22, by);
+      ctx.fillStyle = "#cbd5e1"; ctx.font = "600 13px sans-serif";
+      ctx.fillText(fit(t, bulletMaxW, "600 13px sans-serif"), pad + 42, by);
+    });
+    // half-circle confidence gauge (right)
+    const gx = pad + innerW - gaugeW / 2 - 16;
+    const gy = y + whyH - 40;
+    const gR = 50;
+    ctx.lineCap = "round"; ctx.lineWidth = 12;
+    ctx.strokeStyle = "#1e293b";
+    ctx.beginPath(); ctx.arc(gx, gy, gR, Math.PI, Math.PI * 2); ctx.stroke();
+    const frac = Math.max(0, Math.min(1, parlayConfidence / 100));
+    ctx.strokeStyle = confColor(parlayConfidence);
+    ctx.beginPath(); ctx.arc(gx, gy, gR, Math.PI, Math.PI + Math.PI * frac); ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = confColor(parlayConfidence); ctx.font = "800 26px sans-serif";
+    ctx.fillText(`${parlayConfidence}%`, gx, gy - 6);
+    ctx.fillStyle = "#7c8aa5"; ctx.font = "700 11px sans-serif";
+    ctx.fillText("PARLAY CONFIDENCE", gx, gy + 16);
+    ctx.textAlign = "left";
+
+    // ---- Footer -------------------------------------------------------------
+    y += whyH + GAP;
+    ctx.fillStyle = "#0b1120"; rr(pad, y, innerW, footerH, 16); ctx.fill();
+    ctx.strokeStyle = "#1a2236"; ctx.lineWidth = 1; rr(pad, y, innerW, footerH, 16); ctx.stroke();
+    ctx.fillStyle = "#22d3ee"; ctx.font = "800 14px sans-serif";
+    ctx.fillText("STADIUM EDGE AI", pad + 22, y + 32);
+    ctx.fillStyle = "#94a3b8"; ctx.font = "600 12px sans-serif";
+    ctx.fillText("Make smarter bets. Beat the market.", pad + 22, y + 52);
+    ctx.fillStyle = "#475569"; ctx.font = "600 10px sans-serif";
+    ctx.fillText("Hypothetical only · not a real bet · 21+ · model ranking, not a prediction", pad + 22, y + 70);
+
+    // ---- Download -----------------------------------------------------------
     canvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
