@@ -3976,6 +3976,20 @@ export default function ParlayBuilder() {
 
   const scrollRef = useRef(null);
   const scrollAnimRef = useRef(null);
+  // The bottom composer (slip pill + controls + input) is absolutely
+  // positioned over the chat, so its height varies (slip pill, attachments,
+  // pinned slips all grow it). Measure it and pad the scroll area to match so
+  // the last messages are never hidden behind it.
+  const composerRef = useRef(null);
+  const [composerH, setComposerH] = useState(130);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setComposerH(el.offsetHeight));
+    ro.observe(el);
+    setComposerH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
 
   // Custom slow, eased scroll-to-bottom. Duration scales a little with
   // distance so big jumps don't feel abrupt, capped for sanity.
@@ -8465,7 +8479,7 @@ export default function ParlayBuilder() {
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto scroll-fade px-4 py-4 space-y-5 bg-slate-900"
-        style={{ paddingBottom: 130, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}
+        style={{ paddingBottom: Math.max(composerH, 130) + 16, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}
       >
         {messages.map((m, i) => (
           <div key={i} className={`slide-up flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -11457,7 +11471,7 @@ export default function ParlayBuilder() {
         </div>
       )}
 
-      <div className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}>
+      <div ref={composerRef} className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}>
         {/* Popup YOUR SLIP — collapsed pill above chat; expands upward. */}
         {parlayLegs.length > 0 && (
           <>
