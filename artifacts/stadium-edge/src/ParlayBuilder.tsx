@@ -4897,7 +4897,7 @@ export default function ParlayBuilder() {
   });
 
   const autoFillSlip = (picks, opts = {}) => {
-    if (!picks || picks.length === 0) return;
+    if (!picks || picks.length === 0) return { requested: 0, added: 0, droppedNotLive: [], droppedDup: 0 };
     // Guard #1: drop any leg whose matchup isn't in the live feed. This
     // catches the fallback path, file uploads, and any leg the chat-side
     // filter missed.
@@ -4909,8 +4909,11 @@ export default function ParlayBuilder() {
     // committed the just-fetched props yet (setState is async), so 5 of 6
     // legs get silently dropped — the exact "asked for 6, got 1" failure.
     // Skip the redundant filter when the caller has already validated.
-    const kept = opts.alreadyValidated ? picks : filterPicksToReal(picks).kept;
-    if (kept.length === 0) return;
+    const requested = picks.length;
+    const filtered = opts.alreadyValidated ? { kept: picks, dropped: [] } : filterPicksToReal(picks);
+    const kept = filtered.kept;
+    const droppedNotLive = (filtered.dropped || []).filter(Boolean);
+    if (kept.length === 0) return { requested, added: 0, droppedNotLive, droppedDup: 0 };
     const existingKeys = new Set(parlayLegs.map(legKey));
     const seen = new Set();
     const deduped = [];
@@ -4920,7 +4923,8 @@ export default function ParlayBuilder() {
       seen.add(k);
       deduped.push(p);
     }
-    if (deduped.length === 0) return;
+    const droppedDup = kept.length - deduped.length;
+    if (deduped.length === 0) return { requested, added: 0, droppedNotLive, droppedDup };
     // Unique id per leg even when several land in the same millisecond
     // (Date.now() resolution is coarse; adding the index prevents React-key
     // collisions when 6+ legs are auto-filled at once). addedAt is what
@@ -4947,6 +4951,7 @@ export default function ParlayBuilder() {
         };
       }),
     ]);
+    return { requested, added: legs.length, droppedNotLive, droppedDup };
   };
 
   const updateTrackerStatus = (entryId, status) => {
@@ -7068,7 +7073,22 @@ export default function ParlayBuilder() {
                 </div>
               </div>
               <button
-                onClick={() => { if (!allInSlip) autoFillSlip(messagePicks); }}
+                onClick={() => {
+                  if (allInSlip) return;
+                  const r = autoFillSlip(messagePicks);
+                  if (r && r.added < r.requested) {
+                    const reasons = [];
+                    if (r.droppedNotLive.length) {
+                      const games = Array.from(new Set(r.droppedNotLive));
+                      reasons.push(`${r.droppedNotLive.length} couldn't be verified in the live feed (${games.slice(0, 3).join(", ")}${games.length > 3 ? "…" : ""})`);
+                    }
+                    if (r.droppedDup) reasons.push(`${r.droppedDup} were already on your slip`);
+                    setMessages((p) => [
+                      ...p,
+                      { role: "assistant", content: `Added **${r.added} of ${r.requested}** legs to your slip${reasons.length ? ` — ${reasons.join("; ")}.` : "."} Ask me to top it up with fresh picks if you want the full count.` },
+                    ]);
+                  }
+                }}
                 disabled={allInSlip}
                 className={`w-full px-3 py-2 text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
                   allInSlip
@@ -11479,7 +11499,7 @@ export default function ParlayBuilder() {
               <div className="fixed inset-0 z-30" onClick={() => setSlipOpen(false)} />
             )}
             {slipOpen && (
-              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up flex flex-col" style={{ maxHeight: "85vh" }}>
+              <div className="absolute bottom-full left-3 right-3 mb-2 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden slide-up flex flex-col" style={{ maxHeight: `calc(100dvh - ${composerH + 24}px)` }}>
                 <div className="bg-cyan-500 text-white px-4 py-2 flex items-center justify-between shrink-0">
                   <span className="font-display text-sm">
                     YOUR SLIP · {parlayLegs.length} LEG{parlayLegs.length !== 1 ? "S" : ""}
@@ -11497,9 +11517,9 @@ export default function ParlayBuilder() {
                   {parlayLegs.map((leg, idx) => (
                     <div key={leg.id ?? idx} className="flex items-start gap-2 bg-slate-800 rounded-xl px-3 py-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 truncate">{leg.game}</div>
-                        <div className="text-sm text-slate-100 truncate flex items-center gap-1.5">
-                          <span className="truncate">{leg.pick}</span>
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-slate-400 break-words">{leg.game}</div>
+                        <div className="text-sm text-slate-100 flex items-start gap-1.5 flex-wrap">
+                          <span className="break-words">{leg.pick}</span>
                           {leg.originalPick && leg.originalPick !== leg.pick && (
                             <span className="shrink-0 inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-1.5 py-0.5">
                               <span className="text-emerald-400/60 line-through">{leg.originalPick}</span>
