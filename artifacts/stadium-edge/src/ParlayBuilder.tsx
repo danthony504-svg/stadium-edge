@@ -6794,23 +6794,6 @@ export default function ParlayBuilder() {
     }
   };
 
-  // Returns true if we know the matchup has finished. We look the game label
-  // up in the per-sport real-game cache; if the status reads "Final" / "FT" /
-  // "ended", the match is over. Unknown status === assume still relevant.
-  const isGameOver = (gameLabel) => {
-    if (!gameLabel) return false;
-    for (const sportGames of Object.values(realGamesBySport || {})) {
-      for (const g of (sportGames || [])) {
-        const label = `${g.awayTeam} @ ${g.homeTeam}`;
-        if (label === gameLabel) {
-          const s = String(g.status || "").toLowerCase();
-          return /final|ended|ft\b|full[- ]?time|postponed|cancel/.test(s);
-        }
-      }
-    }
-    return false;
-  };
-
   const renderAssistantMessage = (content, msgIdx) => {
     const lines = content.split("\n");
     // Pre-scan PICK lines so we can render a per-message "slip snapshot" card
@@ -7278,7 +7261,16 @@ export default function ParlayBuilder() {
           // is over. Otherwise the snapshot stays in chat indefinitely so
           // multiple slips can coexist in one conversation.
           if (dismissedSnapshots.has(msgIdx)) return null;
-          const allOver = messagePicks.every((p) => isGameOver(p.game));
+          // Hide the add-all card ONLY when every leg has actually finished.
+          // Use the SAME finished-game test as the inline cards
+          // (gameResolvesToFinal) and the add-all onClick below — not the
+          // cruder isGameOver, which checked ESPN status alone. ESPN can mark
+          // a game Final while the Odds API pool still carries it with a
+          // stale/future commence time; in that case the inline pick cards
+          // (and the add-all onClick) keep the leg alive, so the visibility
+          // gate must agree or the "+ Add all" card vanishes while every
+          // per-leg "+ Add" button still shows.
+          const allOver = messagePicks.every((p) => gameResolvesToFinal(p.game));
           if (allOver) return null;
           return (
             <div className="mt-3 border border-cyan-500/30 bg-slate-950 rounded-lg overflow-hidden">
