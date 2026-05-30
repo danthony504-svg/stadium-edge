@@ -4329,6 +4329,41 @@ export default function ParlayBuilder() {
     }, "image/png");
   };
 
+  // Pick ONE brand-new AI-recommended leg for the "Fix" button to append.
+  // "Best" = highest model confidence (calculateConfidence), drawn ONLY from
+  // the live odds feed (realOddsBySport) so we never invent a line, and from a
+  // game NOT already on the slip (excludeGames) to avoid correlated/contradictory
+  // legs. Skips no-value steamroller juice and extreme longshots, and any pick
+  // already on the slip. Returns null when nothing eligible exists.
+  const bestAiPickForFix = (excludeGames) => {
+    // Identify a game by its (orientation-independent) team pair, not its raw
+    // label, so "A vs B", "B @ A", and "A @ B" all resolve to the same key.
+    // This prevents a same-game (correlated) leg from sneaking on when an
+    // existing leg's label format differs from the odds-feed format.
+    const gamePairKey = (label) => {
+      const m = String(label || "").match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+      if (!m) return String(label || "").trim().toLowerCase();
+      return [m[1].trim().toLowerCase(), m[2].trim().toLowerCase()].sort().join(" @ ");
+    };
+    const exclude = new Set((excludeGames || []).map(gamePairKey));
+    const existingKeys = new Set(parlayLegs.map(legKey));
+    const candidates = [];
+    for (const games of Object.values(realOddsBySport || {})) {
+      for (const g of games || []) {
+        const label = `${g.awayTeam} @ ${g.homeTeam}`;
+        if (exclude.has(gamePairKey(label))) continue;
+        for (const pk of buildPicksFromOdds(g)) {
+          if (pk.odds != null && (pk.odds <= -1000 || pk.odds >= 1000)) continue;
+          if (existingKeys.has(legKey(pk))) continue;
+          candidates.push(pk);
+        }
+      }
+    }
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => calculateConfidence(b) - calculateConfidence(a));
+    return candidates[0];
+  };
+
   // "Fix for best outcome": KEEPS every leg (no removals). Adjusts each leg's
   // line toward the model's higher-confidence direction — buys points on
   // spreads/totals (easier to hit, lower payout) and nudges player-prop lines
@@ -4376,6 +4411,14 @@ export default function ParlayBuilder() {
     setParlayLegs(adjusted);
     setLegsAnalyzed(false);
     setSlipAnalysis(null);
+
+    // Then append ONE brand-new AI-recommended real leg from the live odds
+    // feed (a game not already on the slip). autoFillSlip re-validates the
+    // matchup, dedupes, logs it to the tracker, and rolls the new leg's price
+    // into the slip's aggregated total automatically (the total derives from
+    // parlayLegs). No-op if no eligible pick exists.
+    const aiPick = bestAiPickForFix(adjusted.map((l) => l.game));
+    if (aiPick) autoFillSlip([aiPick]);
   };
 
   // Up = add a point (line in your favor); Down = remove a point (against you)
