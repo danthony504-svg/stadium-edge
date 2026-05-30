@@ -5236,9 +5236,11 @@ export default function ParlayBuilder() {
     // bare/worded number in this message → inherit the last count the user asked
     // for earlier in the conversation. This is what lets "no, give me the full
     // 15" / "do 15" / "make it bigger" reach the requested count on a follow-up.
-    let requestedLegs = explicitLegCount(text);
+    // Keyword form ("<N> leg/pick") is always safe. Number-words and bare
+    // numbers are only trusted mid-parlay, then we inherit the latest prior ask.
+    let requestedLegs = keywordLegCount(text);
     if (!requestedLegs && inParlayConvo) {
-      requestedLegs = bareLegCount(text) || explicitLegCount(priorUserText) || bareLegCount(priorUserText);
+      requestedLegs = bareLegCount(text) || wordLegCount(text) || inheritLegCount();
     }
     const bigParlay = requestedLegs >= 8;
     // Parlay intent is satisfied by the current message OR by an ongoing parlay
