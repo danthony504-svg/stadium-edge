@@ -5148,7 +5148,79 @@ export default function ParlayBuilder() {
     // the prop-fetch block was skipped and the AI got stuck on the 3 base
     // odds markets (ML/Spread/Total) per game — capping the ticket at 3-4
     // legs regardless of what the user asked for.
-    const wantsParlay = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game|\d+\s*-?\s*legg?(?:er|ers|s)?)\b/i.test(text);
+    const wantsParlayRe = /\b(parlay|ticket|build (me )?(a |my )?(slip|card|ticket)|picks?\b|recommend|suggest|best (bets?|plays?|picks?)|lock|locks?\b|sgp|same.?game|\d+\s*-?\s*legg?(?:er|ers|s)?)\b/i;
+    const wantsParlayMsg = wantsParlayRe.test(text);
+    // CONVERSATION-AWARE INTENT. A follow-up CORRECTION almost never repeats the
+    // word "parlay" or "leg" — e.g. after the AI returns a 10-leg ticket the user
+    // says "no, give me the full 15", "I asked for 15", "do 15", "make it bigger",
+    // "the full fifteen". Those match NEITHER wantsParlay NOR the "<N> leg" regex,
+    // so the prop-fetch block was skipped (realProps arrived EMPTY) and bigParlay
+    // was false (alts kept → only ~6-7 distinct games), so the model honestly but
+    // WRONGLY told the user "only ~10 legs, realProps is empty". Fix: treat the
+    // message as parlay intent when the RECENT conversation is already about a
+    // parlay, and resolve the requested leg count from the current message
+    // (digits, "<N> leg", or a number-word) OR inherit it from the last turn.
+    const priorMsgs = (messages || []).filter((m) => m.role === "user" || m.role === "assistant").slice(-8);
+    const priorUserText = priorMsgs.filter((m) => m.role === "user").map((m) => m.content || "").join("\n");
+    const priorAssistantText = priorMsgs.filter((m) => m.role === "assistant").map((m) => m.content || "").join("\n");
+    // We're mid-parlay if the user recently asked for one OR the assistant already
+    // produced PICK lines / talked legs/parlay/ticket.
+    const inParlayConvo = wantsParlayMsg || wantsParlayRe.test(priorUserText) || /\bPICK:\s|\b\d+\s*-?\s*leg|\bparlay\b|\bticket\b/i.test(priorAssistantText);
+    const NUM_WORDS = { three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30 };
+    // Explicit "<N> leg/pick/game/selection/teamer" — the keyword makes this
+    // ALWAYS-SAFE to honor (it cannot be money/time/ordinal). Returns the LAST
+    // such match so "not 10 — make it a 15 leg" resolves to 15.
+    const keywordLegCount = (str) => {
+      if (!str) return 0;
+      const re = /(\d+)\s*-?\s*(?:leg|legg|pick|game|selection|teamer)/gi;
+      let m; let last = 0;
+      while ((m = re.exec(String(str)))) last = parseInt(m[1], 10);
+      return last;
+    };
+    // Spelled-out number-word ("the full fifteen"). NOT self-qualifying, so the
+    // CALLER must only use this when we're already in a parlay conversation —
+    // otherwise "I have fifteen dollars" would look like a leg count. Skips a
+    // number-word immediately followed by a money/unit noun.
+    const wordLegCount = (str) => {
+      if (!str) return 0;
+      const s = String(str);
+      let best = 0; let bestIdx = -1;
+      for (const w of Object.keys(NUM_WORDS)) {
+        const re = new RegExp(`\\b${w}\\b(?!\\s*(?:dollars?|bucks?|cents?|units?|percent))`, "gi");
+        let m;
+        while ((m = re.exec(s))) { if (m.index >= bestIdx) { bestIdx = m.index; best = NUM_WORDS[w]; } }
+      }
+      return best;
+    };
+    // A bare in-range number (3-30) standing on its own ("do 15", "I asked for
+    // 15") — NOT attached to money/percent/time/ordinals. Token-scanned (no regex
+    // lookbehind, which older Safari rejects). Only trusted by the CALLER when
+    // we're already in a parlay conversation. Takes the LAST qualifying number so
+    // "why only 10? I asked for 15" resolves to 15.
+    const bareLegCount = (str) => {
+      if (!str) return 0;
+      let last = 0;
+      for (const raw of String(str).split(/\s+/)) {
+        // Trim surrounding punctuation but KEEP $ and % so we can detect money.
+        const tok = raw.replace(/^[^\w$%]+|[^\w$%]+$/g, "");
+        if (/[$%]/.test(tok)) continue;          // $15 / 15% → not a leg count
+        if (!/^\d{1,2}$/.test(tok)) continue;     // rejects "15th", "15k", "2:30", "abc15"
+        const n = parseInt(tok, 10);
+        if (n >= 3 && n <= 30) last = n;
+      }
+      return last;
+    };
+    // Inherit the most-recent leg count the user named earlier — scan prior USER
+    // turns newest→oldest so the LATEST explicit ask wins (recency), not key order.
+    const priorUserMsgsArr = priorMsgs.filter((m) => m.role === "user").map((m) => m.content || "");
+    const inheritLegCount = () => {
+      for (let i = priorUserMsgsArr.length - 1; i >= 0; i--) {
+        const s = priorUserMsgsArr[i];
+        const n = keywordLegCount(s) || wordLegCount(s) || bareLegCount(s);
+        if (n) return n;
+      }
+      return 0;
+    };
     const extraProps = {}; // eventId -> props payload, merged into context for this send
     // Map Odds-API eventId -> ESPN {homeTeamId, awayTeamId} captured while
     // building the prop-fetch candidate list, so the player-history loop
@@ -5160,10 +5232,23 @@ export default function ParlayBuilder() {
     // Parse the requested leg count ONCE at this scope so BOTH the prop-fetch
     // block below AND the game-level realOdds assembly further down can use it.
     // A big parlay needs BREADTH (many distinct games) over per-game DEPTH.
-    const reqLegMatch = text.match(/(\d+)\s*-?\s*(?:leg|legg|pick|game)/i);
-    const requestedLegs = reqLegMatch ? parseInt(reqLegMatch[1], 10) : 0;
+    // Precedence: explicit count in THIS message → (only when mid-parlay) a
+    // bare/worded number in this message → inherit the last count the user asked
+    // for earlier in the conversation. This is what lets "no, give me the full
+    // 15" / "do 15" / "make it bigger" reach the requested count on a follow-up.
+    let requestedLegs = explicitLegCount(text);
+    if (!requestedLegs && inParlayConvo) {
+      requestedLegs = bareLegCount(text) || explicitLegCount(priorUserText) || bareLegCount(priorUserText);
+    }
     const bigParlay = requestedLegs >= 8;
-    if (wantsProps || wantsParlay) {
+    // Parlay intent is satisfied by the current message OR by an ongoing parlay
+    // conversation in which the user is clearly still iterating (a resolved leg
+    // count, or words like "more"/"bigger"/"longer"/"full").
+    const wantsParlay = wantsParlayMsg || (inParlayConvo && (requestedLegs > 0 || /\b(more|bigger|longer|full|all of them|add)\b/i.test(text)));
+    // Run the JIT prop-fetch whenever there's prop OR parlay intent, OR we
+    // resolved a leg count at all — so a follow-up correction never reaches the
+    // model with realProps empty.
+    if (wantsProps || wantsParlay || requestedLegs > 0) {
       const candidates = [];
       // Widen the candidate pool when the user specifically asks for props
       // ("find player props"). Parlay-only intent stays narrower so we don't
