@@ -5079,6 +5079,26 @@ export default function ParlayBuilder() {
     return `${date} · ${time}`;
   };
 
+  // Renders the live in-progress indicator (formerly a bare 🔴 emoji) as a
+  // styled "LIVE" pill button: a pulsing red dot + "LIVE" + the real period
+  // tag ("Top 3rd", "Q3 8:42"). Accepts the raw lookupLiveTag string and
+  // strips any leading 🔴/●/· glyphs so existing call sites need no changes
+  // beyond swapping the span for this component. Returns null when not live.
+  const LiveBadge = ({ live, className = "" }) => {
+    if (!live) return null;
+    const period = String(live).replace(/^[🔴●·\s]+/, "").trim();
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-500/40 px-1.5 py-0.5 align-middle ${className}`}>
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75 animate-ping" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500" />
+        </span>
+        <span className="text-[9px] font-bold uppercase tracking-wider text-rose-300 leading-none">LIVE</span>
+        {period && <span className="text-[9px] font-semibold uppercase tracking-wider text-rose-200/90 leading-none">{period}</span>}
+      </span>
+    );
+  };
+
   // ----- Betting-value signals (no-vig fair line, cross-book +EV, key #s) -----
   // Turn a chat pick into the three market-inefficiency signals the user asked
   // for. All of it is derived ONLY from real bookmaker prices already in
@@ -7399,7 +7419,7 @@ export default function ParlayBuilder() {
                         // home/away flip) so the time no longer drops off when
                         // the AI's label differs from the live-feed label.
                         const live = lookupLiveTag(pick.game);
-                        if (live) return <span className="ml-1 text-rose-600 font-semibold">· {live}</span>;
+                        if (live) return <LiveBadge live={live} className="ml-1" />;
                         const t = formatGameTime(lookupGameStart(pick.game));
                         return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
@@ -7839,7 +7859,7 @@ export default function ParlayBuilder() {
                                     <span className="block text-sm font-semibold text-slate-100 truncate">{gm.game}</span>
                                     {(live || time) && (
                                       <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
-                                        {live ? <span className="text-rose-400 font-semibold">● {live}</span> : <span className="text-cyan-400">{time}</span>}
+                                        {live ? <LiveBadge live={live} /> : <span className="text-cyan-400">{time}</span>}
                                       </span>
                                     )}
                                   </span>
@@ -8571,7 +8591,7 @@ export default function ParlayBuilder() {
                                   <span className="block text-sm font-semibold text-slate-100 truncate">{gm.game}</span>
                                   {(live || time) && (
                                     <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
-                                      {live ? <span className="text-rose-400 font-semibold">● {live}</span> : <span className="text-cyan-400">{time}</span>}
+                                      {live ? <LiveBadge live={live} /> : <span className="text-cyan-400">{time}</span>}
                                     </span>
                                   )}
                                 </span>
@@ -8636,7 +8656,7 @@ export default function ParlayBuilder() {
                               <span>{r.sport} · {r.market} · {r.game}</span>
                               {(() => {
                                 const live = lookupLiveTag(r.game);
-                                if (live) return <span className="text-rose-400 font-semibold">· {live}</span>;
+                                if (live) return <LiveBadge live={live} />;
                                 const t = formatGameTime(lookupGameStart(r.game));
                                 return t ? <span className="text-cyan-400">· {t}</span> : null;
                               })()}
@@ -8793,7 +8813,7 @@ export default function ParlayBuilder() {
                                     return (
                                       <span className="block text-[10px] font-mono uppercase tracking-wider mt-0.5">
                                         {live ? (
-                                          <span className="text-rose-400 font-semibold">● {live}</span>
+                                          <LiveBadge live={live} />
                                         ) : (
                                           <span className="text-cyan-400">{time}</span>
                                         )}
@@ -11919,7 +11939,7 @@ export default function ParlayBuilder() {
                       {leg.market} · {displayGameLabel(leg.game)}
                       {(() => {
                         const live = lookupLiveTag(leg.game);
-                        if (live) return <span className="ml-1 text-rose-500 font-semibold">· {live}</span>;
+                        if (live) return <LiveBadge live={live} className="ml-1" />;
                         const t = formatGameTime(lookupGameStart(leg.game));
                         return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
                       })()}
