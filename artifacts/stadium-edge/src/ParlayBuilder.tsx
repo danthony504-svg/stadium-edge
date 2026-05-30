@@ -7170,10 +7170,12 @@ export default function ParlayBuilder() {
                     <div className="text-xs text-slate-400 break-words">
                       {displayGameLabel(pick.game)}
                       {(() => {
+                        // Per user request, do NOT show the scheduled game
+                        // time/date on chat pick cards (stale day-after odds
+                        // could surface a misleading "Today X PM"). Keep only
+                        // the live 🔴 in-progress indicator as a safety signal.
                         const live = lookupLiveTag(pick.game);
-                        if (live) return <span className="ml-1 text-rose-600 font-semibold">· {live}</span>;
-                        const t = formatGameTime(lookupGameStart(pick.game));
-                        return t ? <span className="ml-1 text-cyan-600">· {t}</span> : null;
+                        return live ? <span className="ml-1 text-rose-600 font-semibold">· {live}</span> : null;
                       })()}
                     </div>
                     <div className="text-sm text-slate-100 font-semibold">{pick.pick}</div>
