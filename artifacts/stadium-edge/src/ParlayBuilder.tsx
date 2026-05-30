@@ -10768,7 +10768,7 @@ export default function ParlayBuilder() {
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} ${aiPick.side} ${aiPick.line} ${statLabel}`, odds: aiPick.odds, sport })}
+                    onClick={() => addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} ${aiPick.side} ${aiPick.line} ${statLabel}`, odds: aiPick.odds, sport }, { skipValidation: true })}
                     className="flex-1 rounded-lg bg-amber-400 text-slate-950 font-bold text-sm py-2 active:scale-95 transition"
                   >
                     + Add to slip
@@ -10982,7 +10982,7 @@ export default function ParlayBuilder() {
                     <>
                       <button
                         onClick={() => {
-                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Under ${line} ${statLabel}`, odds: underOdds, sport });
+                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Under ${line} ${statLabel}`, odds: underOdds, sport }, { skipValidation: true });
                         }}
                         className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${underSuggested ? "border-amber-400 bg-amber-500/10 ring-1 ring-amber-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
                       >
@@ -10992,7 +10992,7 @@ export default function ParlayBuilder() {
                       </button>
                       <button
                         onClick={() => {
-                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Over ${line} ${statLabel}`, odds: overOdds, sport });
+                          addLeg({ game: gameLabel, market: "Player Prop", pick: `${pl.name} Over ${line} ${statLabel}`, odds: overOdds, sport }, { skipValidation: true });
                         }}
                         className={`relative rounded-xl py-3 text-center active:scale-95 transition border ${overSuggested ? "border-emerald-400 bg-emerald-500/10 ring-1 ring-emerald-400" : "border-slate-700 hover:border-cyan-400 hover:bg-slate-950"}`}
                       >
