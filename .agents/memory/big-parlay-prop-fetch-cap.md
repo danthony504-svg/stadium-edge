@@ -65,3 +65,43 @@ client's toFetch/assembly in the code_execution sandbox against localhost:8080
 - `wantsProps` (explicit prop keyword) already uncapped to 5/12, and
   `wantsWideProps` (HR/K/anytime-TD) to 999 — this fix only raises the
   parlay-ONLY (generic) path that previously stayed at 3/6.
+
+## Third lever: breadth-vs-depth, and game-breadth must be CAPPED or the model skips props
+
+There turned out to be a THIRD lever in the realOdds assembly (the game-level menu),
+discovered after the fetch-cap + prompt fixes. Two parts, in tension:
+
+1. **Breadth over depth (fixes the leg count / false "only ~10 legs" scarcity).**
+   realOdds is flat-capped at 120 ENTRIES. Each game contributing `mainPicks(≤8) +
+   altSpread(≤8) + altTotal(≤6)` ≈ 18 entries meant only ~6-7 DISTINCT games fit →
+   the model honestly capped tickets at ~10 independent legs. Fix: a `breadthMode`
+   (`bigParlay && !named && !period`) that DROPS the per-game alt ladders, so the
+   120-entry budget spans ~17-30 distinct games. Verified: distinctOddsGames 6-7 → 17,
+   legs 4 → 13-15. This is what actually killed the false-scarcity claim.
+
+2. **But abundant breadth then made the model SKIP the mandated props.** With 17
+   game-level games it filled a 15-leg ask with 15 spreads, 0 props — even though
+   realProps held 44 distinct players AND playerHistory populated (40). Prompt-only
+   "props first" + self-check did NOT move it (model treats props as optional when
+   game-level alone suffices). **Structural fix that worked:** cap DISTINCT
+   game-level games in breadthMode to `requestedLegs - reservedPropSlots` (`continue`
+   the per-game loop once a `breadthGameCount` counter hits the cap). Now game-level
+   can't fill N alone → the model must draw the back of the ticket from the prop pool.
+   Verified: 15-leg ask → distinctOddsGames 11, output 15 picks / 4 props.
+
+**Why (the durable principle):** leg-count and prop-share are SEPARATE failure modes
+with OPPOSITE data needs. Widening the game-level menu fixes count but starves props;
+the prop share only appears when game-level supply is deliberately throttled below N.
+
+**CRITICAL under-fill guard (or you trade one bug for another):** the game cap must
+be ADAPTIVE to real prop availability. A static `N-4` cap under-delivers N on a
+prop-thin slate (game-level throttled below N, but not enough props exist to backfill).
+Pre-count WINDOW-VALID distinct prop players (same `isWithin24h` + `gamePickable`
+filter the realProps build uses — build `eventToStart`/`eventToGame`/`mergedPropsByEvent`
+up-front so the cap can see them) and set `reservedPropSlots = min(4, availablePlayers)`,
+`breadthGameCap = max(8, N - reservedPropSlots)`. With 0 props available the cap relaxes
+to N so game-level fills the whole ticket. Named/period/SGP tickets stay exempt
+(they intentionally lean on one game's depth — don't cap them).
+
+**14-vs-15 is fine:** model output is nondeterministic (saw 10/13/14/15 across runs);
+the goal is "no false ~10 ceiling + a real prop share," not an exact integer.

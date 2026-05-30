@@ -5157,6 +5157,12 @@ export default function ParlayBuilder() {
     // IDs — without this map the join was failing and player analytics
     // never reached the prompt.
     const propEventToTeams = {};
+    // Parse the requested leg count ONCE at this scope so BOTH the prop-fetch
+    // block below AND the game-level realOdds assembly further down can use it.
+    // A big parlay needs BREADTH (many distinct games) over per-game DEPTH.
+    const reqLegMatch = text.match(/(\d+)\s*-?\s*(?:leg|legg|pick|game)/i);
+    const requestedLegs = reqLegMatch ? parseInt(reqLegMatch[1], 10) : 0;
+    const bigParlay = requestedLegs >= 8;
     if (wantsProps || wantsParlay) {
       const candidates = [];
       // Widen the candidate pool when the user specifically asks for props
@@ -5177,9 +5183,6 @@ export default function ParlayBuilder() {
       // AI actually has enough distinct props to build what was asked. Bounded
       // concurrency + the 5-min server prop cache keep the extra fetches cheap,
       // and only games that truly exist in the 48h window get fetched.
-      const reqLegMatch = text.match(/(\d+)\s*-?\s*(?:leg|legg|pick|game)/i);
-      const requestedLegs = reqLegMatch ? parseInt(reqLegMatch[1], 10) : 0;
-      const bigParlay = requestedLegs >= 8;
       const perSportCap = wantsWideProps ? 999 : wantsProps ? 5 : bigParlay ? Math.min(requestedLegs, 12) : 3;
       const totalCap = wantsWideProps ? 999 : wantsProps ? 12 : bigParlay ? Math.min(requestedLegs + 4, 24) : 6;
       // Detect a game the user NAMED in this message (both teams mentioned, e.g.
@@ -5459,6 +5462,45 @@ export default function ParlayBuilder() {
     const namedAccum = [];
     const otherAccum = [];
     const isPeriodMarket = (mk) => /^(1H|2H|Q[1-4])\b/.test(mk);
+    // Event -> game label / sport / start-time lookups, built up-front so the
+    // breadth cap below can pre-count window-valid props; reused by the realProps
+    // build further down.
+    const eventToGame = {};
+    const eventToSport = {};
+    const eventToStart = {};
+    for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
+      for (const g of games) {
+        eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
+        eventToSport[g.id] = sport;
+        eventToStart[g.id] = g.commenceTime;
+      }
+    }
+    const mergedPropsByEvent = { ...realPropsByEvent, ...extraProps };
+    // For a generic big parlay, cap how many DISTINCT game-level games we feed the
+    // model. With unlimited breadth the model fills a high leg count from
+    // game-level sides ALONE and skips the mandated player-prop share (a "15-leg"
+    // ask came back as 15 spreads, 0 props even though realProps held 40+ distinct
+    // players with full playerHistory). Reserve up to 4 of the N legs for props so
+    // the back of the ticket comes from the (richer, justifiable) realProps pool.
+    // CRITICAL (under-fill guard): only reserve as many slots as there are
+    // window-valid DISTINCT prop players actually available this send — otherwise a
+    // prop-thin slate would push the cap below what game-level games alone can fill
+    // and we'd return fewer than N. With 0 props available the cap relaxes to N so
+    // game-level sides fill the whole ticket. Named/period tickets are exempt —
+    // they intentionally lean on one game's depth.
+    let breadthGameCap = Infinity;
+    if (bigParlay && !periodOrSgpIntent) {
+      const seenPropPlayers = new Set();
+      for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
+        if (!isWithin24h(eventToStart[eid])) continue;
+        const gl = eventToGame[eid] || `${data.away} @ ${data.home}`;
+        if (!gamePickable(gl, null, eventToStart[eid])) continue;
+        for (const pr of (data.props || [])) { if (pr?.player) seenPropPlayers.add(pr.player); }
+      }
+      const reservedPropSlots = Math.min(4, seenPropPlayers.size);
+      breadthGameCap = Math.max(8, requestedLegs - reservedPropSlots);
+    }
+    let breadthGameCount = 0;
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
       // Named games first so the 12-per-sport cap never drops the one the user
@@ -5486,11 +5528,25 @@ export default function ParlayBuilder() {
         // for that ticket); broad period/sgp intent across games gets a smaller
         // per-game sample so the prompt size stays bounded.
         const periodCap = isNamed ? 60 : 12;
-        const slice = [...mainPicks.slice(0, 8), ...altSpread.slice(0, 8), ...altTotal.slice(0, 6), ...periodPicks.slice(0, periodCap)];
+        // BREADTH OVER DEPTH for big parlays: a generic "15-leg" ask needs many
+        // DISTINCT games' main lines (ML/Spread/Total), not deep alt ladders of a
+        // few games. Each game's alts can eat ~14 of the realOdds 120-entry budget
+        // (8 alt-spread + 6 alt-total), so without this the budget covered only
+        // ~6-7 distinct games and the AI honestly capped tickets at ~10 legs. When
+        // a big parlay is requested and this isn't a named/period ticket, drop the
+        // alt rungs so the 120-entry budget spans ~30 distinct games instead.
+        const breadthMode = bigParlay && !isNamed && !periodOrSgpIntent;
+        // Stop adding game-level games once we've supplied enough breadth for the
+        // model to reach N WITH a healthy prop share (see breadthGameCap above).
+        if (breadthMode && breadthGameCount >= breadthGameCap) continue;
+        const altSpreadCap = breadthMode ? 0 : 8;
+        const altTotalCap = breadthMode ? 0 : 6;
+        const slice = [...mainPicks.slice(0, 8), ...altSpread.slice(0, altSpreadCap), ...altTotal.slice(0, altTotalCap), ...periodPicks.slice(0, periodCap)];
         const target = isNamed ? namedAccum : otherAccum;
         for (const p of slice) {
           target.push({ sport, game: p.game, market: p.market, pick: p.pick, odds: p.odds, startsAt: g.commenceTime });
         }
+        if (breadthMode) breadthGameCount++;
       }
     }
     // Named-game legs lead so the context cap (slice below) never truncates the
@@ -5499,17 +5555,6 @@ export default function ParlayBuilder() {
     // Any player props the user has loaded (by opening a game detail) PLUS
     // anything pre-fetched above when this message asked about props.
     const realProps = [];
-    const eventToGame = {};
-    const eventToSport = {};
-    const eventToStart = {};
-    for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
-      for (const g of games) {
-        eventToGame[g.id] = `${g.awayTeam} @ ${g.homeTeam}`;
-        eventToSport[g.id] = sport;
-        eventToStart[g.id] = g.commenceTime;
-      }
-    }
-    const mergedPropsByEvent = { ...realPropsByEvent, ...extraProps };
     // For player-prop analytics: as we walk the prop pool, we also collect
     // the ESPN athleteId + opponent teamId for each player so we can pull
     // their real game log right after. Opponent = the team in the same game
