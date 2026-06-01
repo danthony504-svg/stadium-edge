@@ -20,7 +20,7 @@ You ALWAYS use real data from the "Current app context" block when it's present 
 Be concise — 3-6 short paragraphs max. Use bold for key picks. End with a one-line responsible-gambling reminder when discussing actual bets.
 NEVER guarantee outcomes. Frame everything as probability/edge.
 
-PLAYER PERFORMANCE PROJECTIONS — when the user asks what a player WILL or MIGHT do, or "how many points/rebounds/yards do you think" (INCLUDING for a specific QUARTER, HALF, or PERIOD), or "how might he match up", give a reasoned estimate — do NOT refuse and do NOT just repeat the raw numbers. Ground the projection ONLY in the real figures available to you: the player's recent per-game splits in this conversation or context (statmuseFacts, playerHistory, teamPeriodStats, and any line marked "[Real data already shown to the user]"), plus that SPECIFIC opponent's games within those splits when the list contains them (e.g. his first-quarter points in prior meetings vs that team are readable directly from a shown per-game log). State a projected RANGE and a single best estimate using projection wording ("I project ~", "model ~", "lean ~"), and cite the actual per-game numbers you used (his last-N period scoring, his output in prior meetings vs this opponent, home/away skew if visible). HARD ANTI-FABRICATION: never invent the opponent's defensive / "points allowed" numbers, a season average you don't actually have, or any per-game figure not present in the data — if a number you'd want is missing, say so and reason from what you do have. This is analysis, not a guarantee; close with the responsible-gambling reminder.
+PLAYER PERFORMANCE PROJECTIONS — when the user asks what a player WILL or MIGHT do, or "how many points/rebounds/yards do you think" (INCLUDING for a specific QUARTER, HALF, or PERIOD), or "how might he match up", give a reasoned estimate — do NOT refuse and do NOT just repeat the raw numbers. Ground the projection ONLY in the real figures available to you: the player's recent per-game splits in this conversation or context (statmuseFacts, playerHistory, teamPeriodStats, playerVsOpponentCareer, and any line marked "[Real data already shown to the user]"), plus that SPECIFIC opponent's games within those splits when the list contains them (e.g. his first-quarter points in prior meetings vs that team are readable directly from a shown per-game log). State a projected RANGE and a single best estimate using projection wording ("I project ~", "model ~", "lean ~"), and cite the actual per-game numbers you used (his last-N period scoring, his output in prior meetings vs this opponent, home/away skew if visible). HARD ANTI-FABRICATION: never invent the opponent's defensive / "points allowed" numbers, a season average you don't actually have, or any per-game figure not present in the data — if a number you'd want is missing, say so and reason from what you do have. This is analysis, not a guarantee; close with the responsible-gambling reminder.
 
 When the user asks you to BUILD A PARLAY or RECOMMEND PICKS, you MUST include each pick on its own line in this exact format so the app can render it as a card:
 PICK: <Game> | <Market> | <Selection> | <American Odds>
@@ -189,6 +189,8 @@ REST & FATIGUE RULE — USE matchupHistory.homeRest / awayRest: when a matchupHi
 HOME/AWAY SPLITS RULE — USE playerHistory.homeSplit / awaySplit: when a playerHistory entry has homeSplit or awaySplit, each is { games, averages: { <stat>: number } } — REAL per-stat season averages split by where the game was played. When a playerHistory entry has tonightSplit (with tonightVenue "home"/"away"), that is the split ALREADY pre-selected for tonight's venue — use it directly. Otherwise pick the side that matches TONIGHT'S venue for that player (home team's player → homeSplit; road team's player → awaySplit) and compare that stat's average to the posted prop line. A meaningfully better home (or away) average than the player's overall form is a real tilt: cite the specific split number in the edge note ("Judge averaging 1.1 HR-equiv / .619 SLG in 12 home games vs .495 on the road — at home tonight his TB over has real room"). Use it as a tiebreaker stacked on recent form, never as the sole reason. When the relevant split is absent or has 0 games, skip it — do not invent a home/away number.
 
 STATMUSE FACTS RULE — USE context.statmuseFacts (REAL, VERIFIED): when context.statmuseFacts is present it is an array of { q, a } where 'a' is a real natural-language stat answer pulled live from StatMuse (e.g. "The Los Angeles Dodgers have a 38-21 record this season." or "LeBron James is averaging 24.9 points per game this season."). These are REAL numbers. You MAY quote them in an edge note to ground a pick (team form/record, a player's season rate, a streak), and when the user asks a direct stat question you SHOULD answer from the matching fact. Rules: cite the figure exactly as StatMuse reports it; do NOT round it into a different number or extrapolate a NEW stat StatMuse did not state; if no fact matches the pick you are making, fall back to playerHistory / matchupHistory and do NOT invent one. statmuseFacts is supporting evidence only — it never overrides a live bookmaker line. PERIOD GAME-LOG FACTS: some statmuseFacts entries are real per-game PERIOD logs (their 'a' reads like "Victor Wembanyama — first quarter points, last 5 games: 5, 11, 2, 11, 7 (avg 7.2)."). When you build a period player prop (a Q1/Q2/Q3/Q4 or 1H/2H leg) for a player that has a matching period log here, you MUST ground that pick on it: count how many of the listed games cleared the prop's line, cite the actual game-by-game numbers and the hit rate in the edge note, and only take the Over/Under the log actually supports. Never override these real per-game numbers with a season-rate estimate, and never invent period numbers for a player who has no period-log fact — fall back to their full-game playerHistory and say the period split wasn't available.
+
+PLAYER-VS-OPPONENT CAREER RULE — USE context.playerVsOpponentCareer (REAL career-vs-franchise line, StatMuse): when present it is an array of { player, opponent, sport, line } where 'line' is a REAL natural-language CAREER stat line for THIS player against the exact franchise they face tonight (e.g. "LeBron James is averaging 27.8 points, 7.4 rebounds and 7.1 assists in 64 games against the Oklahoma City Thunder."). This is the cross-sport analog of the MLB batter-vs-pitcher factor (it covers NBA / NFL / NHL skaters) — how this exact player has historically performed against this exact opponent, which the season-only splits cannot capture. HOW TO WEIGH IT: a clearly STRONG line (a per-game scoring / yardage / production rate comfortably above the player prop line, over a non-trivial number of games) supports the OVER on that player's matching stat prop; a clearly WEAK line supports the UNDER or skipping that player. It is a CAREER average, so it can run hotter or colder than the player's current form and a small games sample is noisy — ALWAYS read the games count and STACK this with the player recent splits (playerHistory), the opponent team defense (opponentDefense) and pace; never let it override this-season form or outweigh a clearly hot/cold recent stretch. ALWAYS quote the exact figure and the games sample when you use it. When a player has no entry here, skip this factor entirely — never estimate or invent a career-vs-opponent line.
 
 MLB PLATOON RULE — USE mlbPlatoon (lefty/righty): when context.mlbPlatoon is present, it is a map keyed "Player Name#athleteId" (ignore the id suffix) for MLB batters in the prop pool. Each entry has: bats (the batter's hand: Left/Right/Switch), opposingPitcherName, opposingPitcherThrows (the probable starter's hand), platoon ("advantage" = opposite hands, the classic platoon edge; "disadvantage" = same hand; "switch" = switch-hitter, always bats from the favorable side), vsThatHand (the batter's REAL season split line vs the opposing pitcher's hand, e.g. { AVG, OBP, SLG, OPS, HR, ... }), plus vsLeft / vsRight for reference. How to weigh it: platoon "advantage" or "switch" + a strong vsThatHand line (high AVG/SLG/OPS or HR rate vs that hand) supports OVER on that batter's hits / total-bases / HR props; platoon "disadvantage" + a weak vsThatHand line supports UNDER or skipping the batter. ALWAYS cite the real split numbers when you use it ("Soto (L) vs RHP Rodriguez — .290/.560 vs righties this year, clear platoon edge, TB over has room"). Only applies to MLB batter props. When mlbPlatoon has no entry for a batter, or opposingPitcherThrows / vsThatHand is null, skip this rule — never invent handedness or a split line.
 
@@ -1058,6 +1060,121 @@ router.post("/chat", async (req, res): Promise<void> => {
         }
       }
     }
+    // PLAYER-VS-OPPONENT CAREER (cross-sport: NBA / NFL / NHL) — the analog of
+    // MLB batter-vs-pitcher: how this exact player has historically performed
+    // against TONIGHT'S opponent franchise (e.g. "LeBron averages 27.8 pts in 64
+    // games vs the Thunder"). StatMuse answers this for real; ESPN only carries
+    // this-season meetings. We reuse realProps (which carries opponentTeamId per
+    // player) + realGames (whose "Away @ Home" label gives both full team names)
+    // to resolve each player's opponent team NAME, then ask StatMuse for the
+    // career line. Kept only when the answer actually names BOTH the player and
+    // the opponent (entity guard) and carries a real number.
+    const pvtFetches: Array<
+      Promise<{ player: string; opponent: string; sport: string; line: string } | null>
+    > = [];
+    {
+      const PVT_SPORTS = new Set(["nba", "nfl", "nhl"]);
+      const ctx = (lockedContext || parsed.data.context) as {
+        realProps?: Array<{ player?: unknown; athleteId?: unknown; sport?: unknown; game?: unknown; opponentTeamId?: unknown }>;
+        realGames?: Array<{ game?: unknown; homeTeamId?: unknown; awayTeamId?: unknown }>;
+      };
+      const props = Array.isArray(ctx?.realProps) ? ctx.realProps : [];
+      const games = Array.isArray(ctx?.realGames) ? ctx.realGames : [];
+      // Map game label -> { homeId, awayId, homeName, awayName } by parsing the
+      // "Full Away @ Full Home" label (the FULL TEAM NAME RULE guarantees this form).
+      const gameByLabel = new Map<string, { homeId: string | null; awayId: string | null; homeName: string; awayName: string }>();
+      for (const g of games) {
+        const label = typeof g?.game === "string" ? g.game : "";
+        if (!label || !label.includes(" @ ")) continue;
+        const [awayName, homeName] = label.split(" @ ");
+        gameByLabel.set(label, {
+          homeId: g?.homeTeamId != null ? String(g.homeTeamId) : null,
+          awayId: g?.awayTeamId != null ? String(g.awayTeamId) : null,
+          homeName: (homeName || "").trim(),
+          awayName: (awayName || "").trim(),
+        });
+      }
+      const wordReB = (s: string) =>
+        new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+      // Diacritic-insensitive lowercase, dots stripped (so "P.J." matches "PJ").
+      const normTxt = (s: string) =>
+        s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[.]/g, "").toLowerCase();
+      // Meaningful name tokens (drops Jr/Sr/II… and dots) for first+last matching.
+      const nameToks = (full: string) =>
+        normTxt(full).split(/\s+/).filter((t) => t && !/^(jr|sr|ii|iii|iv|v)$/.test(t));
+      const nicknameOf = (team: string) => {
+        const toks = normTxt(team).split(/\s+/).filter(Boolean);
+        return toks[toks.length - 1] || "";
+      };
+      // AMBIGUITY GUARD: StatMuse resolves players by NAME, so it cannot tell two
+      // distinct athletes with the SAME display name apart (e.g. the two Josh
+      // Allens). Map normalized name -> set of distinct athleteIds across the
+      // pool; any name backed by 2+ ids is skipped entirely (honest no-data beats
+      // risking the wrong player's career line).
+      const idsByName = new Map<string, Set<string>>();
+      for (const p of props) {
+        const player = typeof p?.player === "string" ? p.player : "";
+        const sport = typeof p?.sport === "string" ? p.sport : "";
+        if (!player || !PVT_SPORTS.has(sport)) continue;
+        const aid = p?.athleteId != null ? String(p.athleteId) : "";
+        if (!aid) continue;
+        const nk = `${normTxt(player)}#${sport}`;
+        if (!idsByName.has(nk)) idsByName.set(nk, new Set());
+        idsByName.get(nk)!.add(aid);
+      }
+      // One candidate per athlete (keyed by athleteId+sport, falling back to the
+      // normalized name when an id is missing); prefer players NAMED in the message.
+      type Cand = { player: string; sport: string; opponent: string; named: boolean };
+      const byPlayer = new Map<string, Cand>();
+      for (const p of props) {
+        const player = typeof p?.player === "string" ? p.player : "";
+        const sport = typeof p?.sport === "string" ? p.sport : "";
+        if (!player || !PVT_SPORTS.has(sport)) continue;
+        const ambig = idsByName.get(`${normTxt(player)}#${sport}`);
+        if (ambig && ambig.size >= 2) continue; // same-name collision → skip
+        const oppId = p?.opponentTeamId != null ? String(p.opponentTeamId) : "";
+        const label = typeof p?.game === "string" ? p.game : "";
+        const g = gameByLabel.get(label);
+        if (!oppId || !g) continue;
+        const opponent = oppId === g.awayId ? g.awayName : oppId === g.homeId ? g.homeName : "";
+        if (!opponent) continue;
+        const last = player.split(/\s+/).pop() || "";
+        const named = wordReB(player).test(latestUser) || (last.length >= 3 && wordReB(last).test(latestUser));
+        const aid = p?.athleteId != null ? String(p.athleteId) : "";
+        const key = aid ? `id:${aid}#${sport}` : `nm:${normTxt(player)}#${sport}`;
+        const prev = byPlayer.get(key);
+        if (!prev) byPlayer.set(key, { player, sport, opponent, named });
+        else if (named && !prev.named) byPlayer.set(key, { player, sport, opponent, named });
+      }
+      const cands = [...byPlayer.values()];
+      const named = cands.filter((c) => c.named);
+      const chosen = (named.length ? named : cands).slice(0, 6);
+      for (const c of chosen) {
+        pvtFetches.push(
+          askStatMuse(`${c.player} career vs ${c.opponent}`, c.sport).then((r) => {
+            const a = r.answer;
+            if (!a) return null;
+            // ENTITY GUARD: the answer must name BOTH the intended player (FIRST and
+            // LAST name tokens — not just surname, so a same-surname player StatMuse
+            // resolved to is rejected) AND the opponent franchise (nickname on a word
+            // boundary). All matching is diacritic-insensitive. A generic season
+            // average that ignored the opponent filter fails the nickname check.
+            const al = normTxt(a);
+            const toks = nameToks(c.player);
+            const first = toks[0] || "";
+            const plast = toks[toks.length - 1] || "";
+            const oNick = nicknameOf(c.opponent);
+            if (first.length >= 2 && !al.includes(first)) return null;
+            if (plast.length >= 3 && !al.includes(plast)) return null;
+            if (oNick.length >= 3 && !wordReB(oNick).test(al)) return null;
+            // Must carry a real number (a counting/rate stat) — boilerplate is
+            // already nulled by askStatMuse, this drops any stray no-stat reply.
+            if (!/\d/.test(a)) return null;
+            return { player: c.player, opponent: c.opponent, sport: c.sport, line: a };
+          }),
+        );
+      }
+    }
     // Strict enrichment time budget: StatMuse facts are a nice-to-have, never
     // worth delaying the model. If the lookups don't all resolve within the
     // budget we ship what we have / nothing — the in-flight fetches still
@@ -1080,13 +1197,23 @@ router.post("/chat", async (req, res): Promise<void> => {
     // shared deadline pass so enrichment can never add more than the single ~3s
     // budget to the chat. (Awaiting the two phases sequentially could stack to
     // ~6s.) Both deadline timers start together here.
-    const [results, bvpResults] = await Promise.all([
+    const [results, bvpResults, pvtResults] = await Promise.all([
       Promise.all([...teamFetches, questionFetch, ...periodLogFetches].map(withDeadline)),
       Promise.all(
         bvpFetches.map((p) =>
           Promise.race([
             p,
             new Promise<{ batter: string; pitcher: string; line: string; pa: number | null } | null>(
+              (resolve) => setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
+            ),
+          ]),
+        ),
+      ),
+      Promise.all(
+        pvtFetches.map((p) =>
+          Promise.race([
+            p,
+            new Promise<{ player: string; opponent: string; sport: string; line: string } | null>(
               (resolve) => setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
             ),
           ]),
@@ -1104,6 +1231,15 @@ router.post("/chat", async (req, res): Promise<void> => {
       lockedContext = {
         ...(lockedContext as Record<string, unknown>),
         mlbBatterVsPitcher,
+      } as typeof lockedContext;
+    }
+    const playerVsOpponentCareer = pvtResults.filter(
+      (x): x is { player: string; opponent: string; sport: string; line: string } => !!x,
+    );
+    if (playerVsOpponentCareer.length && lockedContext && typeof lockedContext === "object") {
+      lockedContext = {
+        ...(lockedContext as Record<string, unknown>),
+        playerVsOpponentCareer,
       } as typeof lockedContext;
     }
   } catch {

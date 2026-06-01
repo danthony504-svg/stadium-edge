@@ -7301,7 +7301,7 @@ export default function ParlayBuilder() {
           propOppId = pt === teams.home ? teams.away : pt === teams.away ? teams.home : null;
           propIsHome = pt === teams.home ? true : pt === teams.away ? false : null;
         }
-        realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice, alt: pr.alt === true, opponentTeamId: propOppId });
+        realProps.push({ sport, game: gameLabel, startsAt: eventToStart[eid], player: pr.player, athleteId: pr.athleteId ? String(pr.athleteId) : null, market: pr.market, line: pr.line, over: pr.overPrice, under: pr.underPrice, alt: pr.alt === true, opponentTeamId: propOppId });
         if (pr.athleteId && isReqMarket(pr.market)) reqMarketAthletes.add(String(pr.athleteId));
         if (sport && pr.athleteId && propOppId && !seenAthletes.has(pr.athleteId)) {
           seenAthletes.add(pr.athleteId);
