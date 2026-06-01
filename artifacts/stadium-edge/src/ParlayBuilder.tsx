@@ -6161,11 +6161,37 @@ export default function ParlayBuilder() {
       setRealOddsBySport(freshOdds);
     } catch { /* keep cached state on failure */ }
 
-    // Capture history before adding the new user message
+    // Capture history before adding the new user message. Stat/period cards
+    // render with an EMPTY `content` (their data lives in `periodGameLog` /
+    // `statCard`), so without this the AI is blind to the REAL numbers the user
+    // is looking at — which breaks follow-ups like "based on that, how might he
+    // match up against his opponent?". Serialize each card's real figures into
+    // the history text so the AI can reason from them (it must still never
+    // fabricate beyond what's shown — the prompt enforces that).
+    const histText = (m) => {
+      let card = "";
+      const g = m.periodGameLog;
+      if (g && Array.isArray(g.rows) && g.rows.length) {
+        const nums = g.rows.map((r) => parseFloat(r.value)).filter((n) => !isNaN(n));
+        const avg = nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : "n/a";
+        const lines = g.rows.map((r) => `${r.date} ${r.loc || "vs"}${r.opp || "?"} ${r.value}`).join("; ");
+        card = `[Real data already shown to the user] ${g.player} — ${g.period} ${g.stat}${g.statLabel ? ` (${g.statLabel})` : ""}, last ${g.rows.length} games: ${lines} (avg ${avg}). Real per-game ${g.period} splits from StatMuse. The opponent for each game is in each entry, so prior meetings vs a given team can be read directly from this list.`;
+      } else if (m.statCard) {
+        const c = m.statCard;
+        const avgs = c.summary && c.summary.averages
+          ? Object.entries(c.summary.averages).map(([k, v]) => `${k} ${v}`).join(", ")
+          : "";
+        card = `[Real data already shown to the user] ${c.name}${c.team ? ` (${c.team})` : ""} — ${c.season || "current"} season per-game averages: ${avgs || "n/a"}.${c.statmuse ? ` ${c.statmuse}` : ""} Real ESPN${c.bballref ? "/Basketball-Reference" : ""} data (full-game totals).`;
+      }
+      // A card payload normally has empty content, but if a message ever carries
+      // BOTH, keep the real text too rather than silently dropping it.
+      if (card) return m.content ? `${m.content}\n${card}` : card;
+      return m.content;
+    };
     const history = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .slice(-8)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: histText(m) }));
     history.push({ role: "user", content: text });
 
     setMessages((p) => [
