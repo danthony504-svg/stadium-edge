@@ -2394,6 +2394,13 @@ function PlayerStatCard({ data }) {
     recent = [], note, periodRequested, statmuse,
   } = data;
   const sportLabel = String(sport || "").toUpperCase();
+  // Only treat a StatMuse answer as a real period split when its text actually
+  // names a quarter/half/period. StatMuse sometimes answers a period question
+  // with a full-game number — we must never pass that off as a single-period
+  // split, so it falls back to the general complement + honest ESPN note.
+  const statmuseIsPeriod =
+    !!statmuse &&
+    /\b(quarter|qtr|q[1-4]|[1-4]q|half|halves|halftime|h[12]|[12]h|period|inning|innings)\b/i.test(String(statmuse));
   const fmtDate = (iso) => {
     try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
     catch { return ""; }
@@ -2443,8 +2450,25 @@ function PlayerStatCard({ data }) {
         </div>
       </div>
 
-      {/* Honest note when a quarter/half/period split was asked for. */}
-      {periodRequested && (
+      {/* Period split requested AND StatMuse has it: StatMuse CAN answer
+          quarter/half splits, so surface its REAL number prominently here
+          instead of the old "can't do it" note. The full-game ESPN table below
+          stays as supporting context. */}
+      {periodRequested && statmuseIsPeriod && (
+        <div className="px-4 py-3 bg-violet-500/15 border-b border-violet-500/30">
+          <div className="text-[9px] uppercase tracking-widest text-violet-300/80 font-mono mb-1">
+            StatMuse · period split
+          </div>
+          <p className="text-[13px] leading-snug text-violet-50 font-medium">{statmuse}</p>
+          <p className="text-[10px] leading-snug text-slate-400 mt-1.5">
+            The table below is ESPN's <span className="font-semibold">full-game</span> log (no period breakdown) — shown for context.
+          </p>
+        </div>
+      )}
+
+      {/* Period requested but no real period answer from StatMuse — keep the
+          honest note (a full-game StatMuse answer, if any, shows below). */}
+      {periodRequested && !statmuseIsPeriod && (
         <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/25">
           <p className="text-[11px] leading-snug text-amber-200/90">
             ESPN's game log only has <span className="font-semibold">full-game</span> totals — I can't break these down by quarter, half, or period. The numbers below are full-game, not a single-period split.
@@ -2505,7 +2529,9 @@ function PlayerStatCard({ data }) {
             Other seasons available: {availableSeasons.slice(0, 8).join(", ")} — ask for any of them.
           </p>
         )}
-        {statmuse && (
+        {/* General StatMuse complement. Skipped only when the answer is already
+            shown prominently at the top as a verified period split. */}
+        {statmuse && !(periodRequested && statmuseIsPeriod) && (
           <div className="mt-2.5 mx-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2">
             <div className="text-[9px] uppercase tracking-widest text-violet-300/80 font-mono mb-0.5">
               StatMuse

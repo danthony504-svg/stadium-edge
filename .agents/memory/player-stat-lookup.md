@@ -22,8 +22,8 @@ Season summary tiles may ONLY sum/average **counting** stats (HR, PTS, REB…). 
 ## Bare player names must trigger (a real failure mode)
 A bare name with NO stat cue — user just types "Wembanyama" as a follow-up — used to fall through to the AI, which then refused ("no NBA data loaded"). Fix: when there's no cue, treat a short (1–3 token), purely-alphabetic, non-stopword message as a `bareName` lookup. Critical wiring: for `bareName` the handler must search ESPN FIRST and, only if a player resolves, commit (push user msg + show card); if no match, do nothing and fall through to the AI (no "couldn't find" flicker). Explicit-cue queries still show the honest "couldn't find" card. Keep a small stopword set (hi/thanks/ok/help/odds/live/parlay…) just to avoid pointless searches — non-names fall through harmlessly anyway.
 
-## Granularity ceiling
-The card shows per-GAME totals only. Quarter/period splits ("first-quarter points in 2025 & 2026") are NOT in the standard ESPN gamelog — don't promise them; the real game-log card is still the right answer over an AI refusal.
+## Granularity ceiling (ESPN) — but StatMuse fills the period gap
+The ESPN game-log card shows per-GAME totals only; quarter/half/period splits are NOT in the ESPN gamelog. **StatMuse CAN answer those** (e.g. "Wembanyama first quarter points per game this season" → real 5.8). So `parseStatLookup`'s `period` flag no longer means "refuse": the card fetches StatMuse with the raw user text and, when it returns a real period answer, surfaces it in a prominent violet "StatMuse · period split" banner at the TOP of the card (the full-game ESPN table stays below as context). The old amber "I can't break these down by quarter" note ONLY shows now when periodRequested AND StatMuse had no answer. See statmuse-integration.md.
 
 ## Wiring notes
 - Chat `messages` are in-memory only (not persisted) → safe to add a `statCard` field to a message object. Render branch: `m.statCard ? <PlayerStatCard> : renderAssistantMessage(...)`.
