@@ -2318,13 +2318,23 @@ const generateResponse = (text, sports, legs, livePool = null) => {
 };
 
 export default function ParlayBuilder() {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content:
-        "Welcome to Stadium Edge. I'm wired to **live odds** (The Odds API), **live games** (ESPN), and a real AI brain. Flip on **PICK LIVE** to pull real odds and matchups, then ask me anything — I weigh odds value, form, coach tendencies, injuries, and weather.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.",
-    },
-  ]);
+  const [messages, setMessages] = useState(() => {
+    let returning = false;
+    try {
+      returning = typeof localStorage !== "undefined" && localStorage.getItem("se_chat_seen") === "1";
+      if (typeof localStorage !== "undefined") localStorage.setItem("se_chat_seen", "1");
+    } catch { /* localStorage unavailable — treat as first time */ }
+    const firstTime =
+      "Welcome to Stadium Edge — your AI parlay assistant. I'm wired into **live odds** and **live games**, with a real AI brain behind every read. Ask me anything: I weigh odds value, form, coach tendencies, injuries, and weather to find your edge.\n\nTap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size — or just type what you want.";
+    const welcomeBack =
+      "Welcome back to Stadium Edge. I'm live on **odds** and **games** — ready when you are. Tap **3-Leg, 6-Leg, 9-Leg, or 15-Leg** to build a parlay that size, or just type what you want.";
+    return [
+      {
+        role: "assistant",
+        content: returning ? welcomeBack : firstTime,
+      },
+    ];
+  });
   const [input, setInput] = useState("");
   const [activeLegBtn, setActiveLegBtn] = useState(3);
   // When the user taps "Build" on a game we first ASK how many legs they want
@@ -4257,14 +4267,6 @@ export default function ParlayBuilder() {
       return { ...chosen, sport };
     }
     return null;
-  };
-
-  // Analyze the current slip and show the breakdown UNDER the slip (not in chat)
-  const analyzeCurrentSlip = () => {
-    if (parlayLegs.length === 0) return;
-    setSlipAnalysis(analyzeSlip(parlayLegs));
-    setLegsAnalyzed(true);
-    setSlipOpen(true);
   };
 
   // Render the current ticket to a premium dark "AI PICKS" PNG via the canvas
@@ -12097,15 +12099,6 @@ export default function ParlayBuilder() {
                     </div>
                   ))}
                 </div>
-                {slipAnalysis && (
-                  <div className="px-4 py-3 border-t border-slate-800 bg-slate-950">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-300">Analysis</span>
-                      <button onClick={() => setSlipAnalysis(null)} className="text-slate-500 hover:text-slate-300 text-[10px] font-mono uppercase">clear</button>
-                    </div>
-                    <div className="text-xs text-slate-200 whitespace-pre-wrap leading-relaxed">{slipAnalysis}</div>
-                  </div>
-                )}
                 {fixSummary && (
                   <div className="px-3 py-1.5 border-t border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between gap-2 shrink-0">
                     <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-300 truncate">✓ Fixed · {fixSummary}</span>
@@ -12120,10 +12113,10 @@ export default function ParlayBuilder() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={analyzeCurrentSlip}
+                      onClick={() => { if (requirePro("Ticket image download")) downloadTicketImage(); }}
                       className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded-full border border-slate-700 text-slate-300 hover:border-cyan-400 hover:text-cyan-300 transition"
                     >
-                      Analyze
+                      ↓ Download
                     </button>
                     <button
                       onClick={() => { if (requirePro("Fix for best outcome")) { optimizeSlip(); setSlipOpen(true); } }}
@@ -12204,13 +12197,6 @@ export default function ParlayBuilder() {
             className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-rose-400/40 text-rose-400 hover:bg-rose-400/10 transition inline-flex items-center gap-1"
           >
             🔴 Pick Live{(() => { const n = homeLiveGames.filter((g) => g.real).length; return n > 0 ? <span className="bg-rose-400 text-black rounded-full px-1.5 leading-none py-0.5 text-[9px] font-bold">{n}</span> : null; })()}
-          </button>
-          <button
-            onClick={analyzeCurrentSlip}
-            disabled={parlayLegs.length === 0}
-            className="shrink-0 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-full border border-slate-700 text-slate-400 hover:border-cyan-400 hover:text-cyan-400 transition disabled:opacity-30"
-          >
-            <TrendingUp size={10} className="inline mr-1" /> Analyze
           </button>
         </div>
         {attachment && attachment.kind === "image" && (
