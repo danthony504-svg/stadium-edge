@@ -2391,7 +2391,7 @@ function PlayerStatCard({ data }) {
   const {
     name, team, sport, headshot, season, requestedSeason,
     availableSeasons = [], labels = [], summary = { games: 0, averages: {}, totals: {} },
-    recent = [], note, periodRequested, statmuse,
+    recent = [], note, periodRequested, statmuse, bballref,
   } = data;
   const sportLabel = String(sport || "").toUpperCase();
   // Only treat a StatMuse answer as a real period split when its text actually
@@ -2537,6 +2537,33 @@ function PlayerStatCard({ data }) {
               StatMuse
             </div>
             <p className="text-[12px] leading-snug text-violet-100">{statmuse}</p>
+          </div>
+        )}
+        {/* Basketball-Reference: authoritative NBA season per-game averages as a
+            second REAL source (only present for resolved NBA players). */}
+        {bballref && bballref.averages && (
+          <div className="mt-2.5 mx-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2">
+            <div className="text-[9px] uppercase tracking-widest text-sky-300/80 font-mono mb-1">
+              Basketball Reference · {bballref.season}{bballref.team ? ` · ${bballref.team}` : ""}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {[
+                ["PTS", bballref.averages.pts],
+                ["REB", bballref.averages.reb],
+                ["AST", bballref.averages.ast],
+                ["STL", bballref.averages.stl],
+                ["BLK", bballref.averages.blk],
+                ["3PM", bballref.averages.fg3],
+                ["FG%", bballref.averages.fgPct],
+              ]
+                .filter(([, v]) => v != null)
+                .map(([k, v]) => (
+                  <div key={k} className="flex items-baseline gap-1">
+                    <span className="text-[13px] font-semibold text-sky-100">{v}</span>
+                    <span className="text-[9px] uppercase tracking-wide text-sky-300/70">{k}</span>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
         <p className="text-[9px] font-mono text-slate-600 mt-2 px-1 uppercase tracking-widest">
@@ -5844,6 +5871,19 @@ export default function ParlayBuilder() {
             const smj = smr.ok ? await smr.json() : null;
             if (smj && smj.answer) statmuse = smj.answer;
           } catch { /* StatMuse is best-effort */ }
+          // NBA: pull Basketball-Reference's authoritative season per-game
+          // averages as a second REAL source. Best-effort, NBA-only, dropped
+          // silently on a miss (never fabricated).
+          let bballref = null;
+          if (String(top.sport).toLowerCase() === "nba") {
+            try {
+              const br = await fetch(
+                `/api/sports/bballref?name=${encodeURIComponent(top.name)}`,
+              );
+              const brj = br.ok ? await br.json() : null;
+              if (brj && brj.result) bballref = brj.result;
+            } catch { /* Basketball-Reference is best-effort */ }
+          }
           const card = {
             name: top.name,
             team: top.team,
@@ -5858,6 +5898,7 @@ export default function ParlayBuilder() {
             summary: hj.seasonSummary || { games: 0, averages: {}, totals: {} },
             recent: hj.recent || [],
             statmuse,
+            bballref,
             note: others.length
               ? `Also matched: ${others.join(", ")}. Add the sport or full name if you meant someone else.`
               : null,
