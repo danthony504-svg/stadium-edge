@@ -2387,6 +2387,61 @@ function parseStatLookup(raw) {
   return { name, season, period };
 }
 
+// Real game-by-game PERIOD breakdown (e.g. "first quarter points, last 5
+// games"). ESPN game logs only carry full-game totals, so these per-period
+// rows come from StatMuse's results grid. Every value is real; totals/averages
+// are derived from those real values, never fabricated.
+function PeriodGameLogCard({ data }) {
+  const { player, period, stat, rows = [] } = data || {};
+  const nums = rows
+    .map((r) => parseFloat(String(r.value).replace(/[^0-9.\-]/g, "")))
+    .filter((n) => Number.isFinite(n));
+  const total = nums.reduce((a, b) => a + b, 0);
+  const avg = nums.length ? total / nums.length : 0;
+  const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
+  const title = `${cap(period)}${period ? " " : ""}${stat || "points"}`.trim();
+  const fmtDate = (d) => {
+    const m = String(d).match(/^(\d{1,2})\/(\d{1,2})/);
+    return m ? `${m[1]}/${m[2]}` : d;
+  };
+  return (
+    <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4 max-w-full">
+      <span className="text-[10px] uppercase tracking-wider text-violet-300 font-semibold">
+        StatMuse · game by game
+      </span>
+      <h3 className="text-[15px] font-bold text-white mt-0.5">{player || "Player"}</h3>
+      <p className="text-[12px] text-violet-200 mb-3">
+        {title} · last {rows.length} game{rows.length === 1 ? "" : "s"}
+      </p>
+      <div className="divide-y divide-white/5">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center justify-between py-1.5 text-[13px]">
+            <span className="text-slate-400 w-12 shrink-0">{fmtDate(r.date)}</span>
+            <span className="text-slate-300 flex-1 text-center truncate">
+              {r.loc ? `${r.loc} ` : ""}
+              {r.opp}
+            </span>
+            <span className="text-white font-bold tabular-nums w-10 text-right">{r.value}</span>
+          </div>
+        ))}
+      </div>
+      {nums.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-white/10 flex justify-between text-[12px]">
+          <span className="text-violet-200">
+            Total <span className="text-white font-semibold">{total}</span>
+          </span>
+          <span className="text-violet-200">
+            Avg <span className="text-white font-semibold">{avg.toFixed(1)}</span>
+          </span>
+        </div>
+      )}
+      <p className="mt-2 text-[10px] text-slate-500">
+        Real per-game data via StatMuse — period splits aren't in ESPN game logs.
+      </p>
+    </div>
+  );
+}
+
 function PlayerStatCard({ data }) {
   const {
     name, team, sport, headshot, season, requestedSeason,
@@ -5795,6 +5850,38 @@ export default function ParlayBuilder() {
     // resolve the name against ESPN, pull the real game log (current or a
     // requested season), and render a stat card. We never fabricate.
     if (!override) {
+      // Period (quarter/half) game-by-game breakdown. ESPN game logs are
+      // full-game only, so for "first quarter points game by game" style asks we
+      // pull StatMuse's REAL per-game grid and render it. Never fabricated.
+      const lowQ = text.toLowerCase();
+      const notParlay = !/\b(parlay|build|wager|slip|leg|legs|prop bet|bet on|place a bet|moneyline|spread|sgp|same game)\b/.test(lowQ);
+      const periodAsk =
+        /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(lowQ) ||
+        /\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(quarter|half|period|inning)\b/i.test(lowQ);
+      const perGameAsk =
+        /\b(game[ -]?by[ -]?game|each game|each of (?:his|her|their|the)|every game|broken down|individually|game ?log)\b/i.test(lowQ);
+      if (notParlay && periodAsk && perGameAsk) {
+        setInput("");
+        setMessages((p) => [...p, { role: "user", content: text }]);
+        setLoading(true);
+        try {
+          const r = await fetch(`/api/sports/statmuse-gamelog?q=${encodeURIComponent(text)}`);
+          const j = r.ok ? await r.json() : null;
+          if (j && Array.isArray(j.rows) && j.rows.length) {
+            setMessages((p) => [...p, { role: "assistant", content: "", periodGameLog: j }]);
+          } else {
+            setMessages((p) => [...p, {
+              role: "assistant",
+              content: `I couldn't pull a verified game-by-game breakdown for that. Try naming the player, stat, and period clearly — e.g. "Wembanyama first quarter points each of his last 5 games".`,
+            }]);
+          }
+        } catch {
+          setMessages((p) => [...p, { role: "assistant", content: "Something went wrong pulling that breakdown. Try again in a moment." }]);
+        }
+        setLoading(false);
+        return;
+      }
+
       const lookup = parseStatLookup(text);
       if (lookup) {
         // Resolve the name against ESPN BEFORE committing. For a bare name with
@@ -9537,7 +9624,7 @@ export default function ParlayBuilder() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-full w-full text-slate-200">{m.statCard ? <PlayerStatCard data={m.statCard} /> : renderAssistantMessage(m.content, i)}</div>
+              <div className="max-w-full w-full text-slate-200">{m.statCard ? <PlayerStatCard data={m.statCard} /> : m.periodGameLog ? <PeriodGameLogCard data={m.periodGameLog} /> : renderAssistantMessage(m.content, i)}</div>
             )}
           </div>
         ))}
