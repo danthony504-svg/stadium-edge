@@ -2317,6 +2317,23 @@ const BARE_NAME_STOP = new Set([
   "it","its","is","are","was","were","do","does","did","to","of","in","on","for","my","me","you","we",
   "this","that","them","they","love","hate","game","games","team","teams","player","players","parlay","bet",
 ]);
+// Pure-filler tokens that must never be tried as a standalone player name in the
+// span fallback below. A forward-looking question ("how many points will X score
+// Wednesday") leaves auxiliaries/verbs/weekdays next to the real name; searching
+// any of these alone would either miss or, worse, match the wrong player. We
+// keep "will"/"cam"/"may" OUT of the primary strip (they're real names — Will
+// Smith, Cam Thomas), but skip them as *standalone* fallback candidates so the
+// real surname is what resolves.
+const NAME_FALLBACK_SKIP = new Set([
+  ...BARE_NAME_STOP,
+  "will","wont","won","gonna","gon","going","shall","would","should","could","can","may","might","must",
+  "score","scores","scored","scoring","dominate","dominates","explode","explodes","drop","drops","put","puts",
+  "have","has","had","hit","hits","throw","throws","threw","pass","passes","passed","rush","rushes","rushed",
+  "perform","performs","look","looks","looking","think","thinks","thought","believe","believes","expect",
+  "predict","project","guess","reckon","suppose","feel","feels","say","says","against","vs","versus","many",
+  "much","about","over","under","line","first","second","third","fourth","quarter","half","period","inning",
+  "week","tomorrow","yesterday","night","monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+]);
 function parseStatLookup(raw) {
   const t = String(raw || "").trim();
   if (!t) return null;
@@ -2373,6 +2390,14 @@ function parseStatLookup(raw) {
   name = name.replace(/\b(first|second|third|fourth|1st|2nd|3rd|4th|quarters?|qtr|q[1-4]|halves?|half|halftime|h[12]|innings?|periods?)\b/gi, " ");
   // Strip standalone connector / filler words (player names don't contain these).
   name = name.replace(/\b(for|of|about|on|the|in|a|an|me|my|with|vs|versus|against|did|do|many|and|or)\b/gi, " ");
+  // Strip opinion / projection phrasing ("how many points do YOU THINK X WILL
+  // score WEDNESDAY") plus weekday names. Without this, a forward-looking
+  // question wraps filler around the real player name and the leftover
+  // ("you think wembanyama will wednesday") fails the ESPN lookup. NOTE: we do
+  // NOT strip "will"/"cam"/"may" here — those are real player names (Will Smith,
+  // Cam Thomas), and ESPN's search is relevance-ranked, so a trailing auxiliary
+  // like "will" doesn't prevent matching the dominant name token.
+  name = name.replace(/\b(you|we|they|he|she|it|think|thinks|thought|believe|believes|guess|reckon|expect|expects|predict|predicts|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, " ");
   // Drop bare numbers (e.g. "score 20 points") — never part of a name.
   name = name.replace(/\b\d+\b/g, " ");
   name = name.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
@@ -5890,6 +5915,45 @@ export default function ParlayBuilder() {
           sj = sr.ok ? await sr.json() : { results: [] };
           top = (sj.results || [])[0];
         } catch { sj = { results: [] }; }
+        // ESPN's player search needs a clean name — any residual filler
+        // ("wembanyama will", "jokic dominate wednesday") makes it return
+        // nothing. If the full extracted name missed (and this wasn't a bare
+        // chatter guess), retry with contiguous sub-spans of the name, longest
+        // → shortest and left-to-right, skipping pure-filler tokens. The first
+        // real ESPN hit wins. This rescues forward-looking phrasings without
+        // over-stripping real names like "Will Smith".
+        if (!top && !lookup.bareName) {
+          const toks = String(lookup.name)
+            .toLowerCase()
+            .replace(/[^a-z'.\- ]/g, " ")
+            .split(/\s+/)
+            .filter(Boolean);
+          const fullLow = String(lookup.name).toLowerCase().trim();
+          spanSearch:
+          for (let len = Math.min(toks.length, 3); len >= 1; len--) {
+            for (let i = 0; i + len <= toks.length; i++) {
+              const cand = toks.slice(i, i + len).join(" ");
+              if (cand === fullLow || cand.length < 3) continue;
+              if (len === 1 && NAME_FALLBACK_SKIP.has(cand)) continue;
+              try {
+                const fr = await fetch(`/api/sports/player-search?query=${encodeURIComponent(cand)}`);
+                const fj = fr.ok ? await fr.json() : { results: [] };
+                const hit = (fj.results || [])[0];
+                // Guard against ESPN's fuzzy single-token search returning an
+                // unrelated player: the candidate must actually appear in the
+                // resolved name (accent-insensitive), e.g. "wembanyama" ⊂
+                // "Victor Wembanyama". Without this, a stray common token could
+                // silently bind to the wrong athlete.
+                const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                if (hit && hit.name && norm(hit.name).includes(norm(cand))) {
+                  top = hit;
+                  lookup.name = top.name;
+                  break spanSearch;
+                }
+              } catch { /* keep trying spans */ }
+            }
+          }
+        }
         if (lookup.bareName && !top) {
           // Not a recognizable player — fall through to the AI/parlay path.
         } else {
