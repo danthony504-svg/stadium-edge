@@ -57,6 +57,43 @@ issues via `curl https://$REPLIT_DEV_DOMAIN/api/chat -H "Accept-Encoding: gzip"`
   only when `!res.writableEnded` (otherwise it's the normal post-`res.end()` close).
   Pass the AbortController's signal as the 2nd arg to `client.chat.completions.create`.
 
+# Heartbeat must cover MID-STREAM pauses, not just time-to-first-token
+
+A later "asked for 3 HR picks, got 1, and it showed the raw market key
+`batter_home_runs`" report was the SAME proxy-idle-abort class as TTFB, but in a
+DIFFERENT window. The heartbeat used to call `stopHeartbeat()` on the FIRST real
+token ("no more keep-alives needed") — assuming once tokens flow they keep the
+socket warm. False for a reasoning model: gpt-5.4 goes SILENT again mid-stream
+while composing the next leg's EDGE note, so a >~30s gap BETWEEN picks lets the
+proxy kill the connection. The stream is truncated to one PICK line and the
+client never receives the rest.
+
+The raw-key symptom is the tell that it's a TRUNCATION, not a bad answer: the
+client renders a COMPLETE `PICK: … | market | … | +odds` line as a prettified
+card (`friendlyMarketLabel` → "Home Runs"); a line is only shown as raw prose
+text while it's still INCOMPLETE (no trailing price yet). So "user sees raw
+`batter_home_runs` and only 1 leg" == the stream died mid-leg, card-parsing never
+completed. The backend itself returns all 3 picks fine (verify by POSTing the
+same body to localhost:8080 — full 3-pick stream comes back).
+
+**Fix (two parts):**
+- Server: keep the heartbeat running for the WHOLE stream, IDLE-AWARE. Track
+  `lastActivity = Date.now()` updated on every `data:` write; the interval (poll
+  ~5s) emits `: keep-alive` only when `Date.now() - lastActivity >= 10000`. So it
+  fires during real idle gaps (before first token AND between picks) but never
+  interleaves with active token flow. Do NOT `stopHeartbeat()` on first token —
+  only on stream end / error / `res.on("close")`.
+- Client: in the assistant-message prose fallback, `return null` for any line
+  matching `/^\s*\**\s*PICK\s*\**\s*:/i`. Complete PICK lines are already
+  intercepted into cards earlier, so any PICK line reaching the prose path is a
+  half-streamed leg — hiding it stops the raw market key from flashing (or from
+  sticking if a stream stalls mid-leg).
+
+**Why:** streaming only defeats the proxy idle timeout while bytes flow; a
+reasoning model emits zero bytes during BOTH its prefill think and its
+between-output think, so the keep-alive must span the entire response, not stop
+at first token.
+
 # "curl works, browser shows nothing" — proxy buffering + invisible heartbeat
 
 A later "Still nothing" report had a different root cause than TTFB. Server logs

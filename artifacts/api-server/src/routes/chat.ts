@@ -1123,19 +1123,26 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // this padding never affects the rendered answer.
   res.write(`:${" ".repeat(2048)}\n\n`);
 
-  // SSE heartbeat — gpt-5.4 is a reasoning model that can spend 20-40s on
-  // internal reasoning BEFORE emitting its first visible token, especially on
-  // a large single-game context (deep period markets + props). During that
-  // silent window the proxy in front of us sees an idle connection and kills
-  // it (~30s), so the user gets "nothing loaded" even though the model is
-  // still working. We emit an SSE COMMENT line (": ...\n\n") immediately and
-  // every 10s to keep the connection alive. The client ignores any chunk that
-  // doesn't start with "data: ", so heartbeats never corrupt the output. We
-  // stop heartbeating once real content starts and always clean up on
-  // end/error/disconnect.
+  // SSE heartbeat — gpt-5.4 is a reasoning model that goes silent for long
+  // stretches in TWO places: (1) 20-40s of internal reasoning BEFORE the first
+  // visible token, and (2) mid-stream pauses BETWEEN picks while it composes
+  // the next leg's EDGE note. During either silence the proxy in front of us
+  // sees an idle connection and kills it (~30s). Stopping the heartbeat at the
+  // first token (as we used to) only covered case (1) — a mid-stream pause then
+  // dropped the connection and left the user with a single half-rendered PICK
+  // line (the "I asked for 3 HR picks but got 1, showing raw batter_home_runs"
+  // bug: card-parsing never completes on a truncated line). So we keep the
+  // heartbeat running for the WHOLE stream, IDLE-AWARE: it fires a keep-alive
+  // only when nothing has been written for >=10s, so it never interleaves with
+  // active token flow. The client ignores any chunk that doesn't start with
+  // "data: ", so the comment lines never corrupt the output. Always cleaned up
+  // on end/error/disconnect.
+  let lastActivity = Date.now();
   let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
-    try { res.write(`: keep-alive\n\n`); } catch { /* socket gone */ }
-  }, 10000);
+    if (Date.now() - lastActivity >= 10000) {
+      try { res.write(`: keep-alive\n\n`); lastActivity = Date.now(); } catch { /* socket gone */ }
+    }
+  }, 5000);
   res.write(`: keep-alive\n\n`);
   // Emit an early "data:" status event so the stream flushes open promptly
   // during the model's silent time-to-first-token. The client intentionally
@@ -1200,7 +1207,11 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
       if (clientGone) break;
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
-        stopHeartbeat(); // first real token — no more keep-alives needed
+        // Record activity but KEEP the heartbeat running — a mid-stream pause
+        // between picks must still emit keep-alives or the proxy drops the
+        // connection and truncates the ticket. The idle-aware heartbeat only
+        // fires after >=10s of silence, so it never interleaves with this flow.
+        lastActivity = Date.now();
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
     }

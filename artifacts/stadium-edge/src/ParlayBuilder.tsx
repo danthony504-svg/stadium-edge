@@ -7892,7 +7892,12 @@ export default function ParlayBuilder() {
         {lines.map((line, i) => {
           // Accept "PrizePicks line" alongside American prices so DFS legs
           // render with `odds: null` (formatOdds renders that as "PP line").
-          const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/);
+          // Case-insensitive so a complete but non-canonical "pick:" / "Pick:"
+          // line still renders as a card here (matching the slip-parse regex
+          // above). Without the `i` flag such a line would miss the card path,
+          // fall through to the prose fallback, and get hidden by the partial-
+          // PICK suppression below — i.e. silently dropped instead of shown.
+          const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/i);
           if (m) {
             const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
             const mkt = friendlyMarketLabel(m[2].trim());
@@ -8089,6 +8094,16 @@ export default function ParlayBuilder() {
             );
           }
           if (noteLineIdxs.has(i)) return null;
+          // Suppress a raw, still-streaming PICK line. A COMPLETE PICK line
+          // (with a trailing price) is intercepted above and rendered as a
+          // prettified card, so any "PICK:" line reaching this prose fallback is
+          // a half-streamed leg that hasn't received its odds token yet. Without
+          // this guard the user briefly sees the raw market key (e.g.
+          // "PICK: … | batter_home_runs | … ") as plain text before the line
+          // completes and flips to a card — and if the stream stalls mid-leg it
+          // stays stuck as that ugly raw text. Hiding it lets the card appear
+          // cleanly once the line finishes.
+          if (/^\s*\**\s*PICK\s*\**\s*:/i.test(line)) return null;
           // Suppress the AI's "Risk note:" footer line per user request.
           if (/^\s*\**\s*risk note\s*\**\s*:/i.test(line)) return null;
           // Suppress the AI's "bet responsibly" / responsible-gambling reminder line.
