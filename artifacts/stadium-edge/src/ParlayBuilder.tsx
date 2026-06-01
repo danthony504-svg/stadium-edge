@@ -4512,54 +4512,96 @@ export default function ParlayBuilder() {
   const downloadTicketImage = async () => {
     if (parlayLegs.length === 0) return;
     const legs = parlayLegs;
-    const W = 720;
-    const pad = 36;
+    const W = 760;
+    const pad = 30;
+    const colGap = 16;
     const scale = 2; // crisp on retina
+    const innerW = W - pad * 2;
+    const colW = (innerW - colGap) / 2;
 
     // ---- Derived REAL stats -------------------------------------------------
     const legConfs = legs.map((l) => Math.round(calculateConfidence(l)));
-    const avgConf = Math.round(legConfs.reduce((a, b) => a + b, 0) / legs.length);
-    let bestIdx = 0;
-    legConfs.forEach((c, i) => { if (c > legConfs[bestIdx]) bestIdx = i; });
     const teamBets = legs.filter((l) => l.market !== "Player Prop").length;
     const propBets = legs.length - teamBets;
-    const plusLegs = legs.filter((l) => typeof l.odds === "number" && l.odds > 0).length;
-    const oddsLabel = bookLegCount >= 2
-      ? formatOdds(parlayMath.american)
-      : bookLegCount === 1 ? formatOdds(parlayMath.american) : "PP SLIP";
-    const toWin = bookLegCount >= 1 ? `$${payout}` : "DFS";
-    const potReturn = bookLegCount >= 1 ? `$${(parseFloat(payout) + stake).toFixed(2)}` : "DFS";
 
-    // Honest "why" bullets (max 4) — all derived from real slip data.
-    const bullets = [];
-    bullets.push(`Avg leg confidence ${avgConf}% · parlay ${parlayConfidence}%`);
-    bullets.push(`Top leg: ${legs[bestIdx].pick} (${legConfs[bestIdx]}%)`);
-    if (teamBets > 0 && propBets > 0) {
-      bullets.push(`Balanced: ${teamBets} team market${teamBets === 1 ? "" : "s"} + ${propBets} player prop${propBets === 1 ? "" : "s"}`);
-    } else if (propBets > 0) {
-      bullets.push(`${propBets} player prop${propBets === 1 ? "" : "s"} screened on form & matchup`);
-    } else {
-      bullets.push(`${teamBets} team market${teamBets === 1 ? "" : "s"} screened by the model`);
-    }
-    if (bookLegCount >= 2) {
-      bullets.push(`Combined book price ${formatOdds(parlayMath.american)} — $${payout} to win on $${stake}`);
-    } else if (plusLegs > 0) {
-      bullets.push(`Includes ${plusLegs} plus-money value pick${plusLegs === 1 ? "" : "s"}`);
-    }
-    const whyBullets = bullets.slice(0, 4);
+    // ---- Helpers (pure / no ctx) -------------------------------------------
+    const familyOf = (m) => {
+      const x = (m || "").toLowerCase();
+      if (x.includes("prop")) return "PLAYER PROPS";
+      if (x.includes("spread") || x.includes("run line") || x.includes("puck line") || x.includes("handicap")) return "SPREAD";
+      if (x.includes("moneyline") || x === "ml" || x.includes("match result") || x.includes("h2h")) return "MONEYLINE";
+      if (x.includes("total") || x.includes("over") || x.includes("under") || x.includes("goals") || x.includes("btts")) return "TOTAL";
+      return (m || "PICK").toUpperCase();
+    };
+    const leagueLabel = (key) => {
+      const map = { ncaaf: "NCAAF", ncaab: "NCAAB", soccer: "SOCCER", ufc: "UFC" };
+      return map[key] || String(key || "PICKS").toUpperCase();
+    };
+    const comboOdds = (subset) => {
+      const bookable = subset.filter((l) => l.odds != null && Number.isFinite(l.odds));
+      if (!bookable.length) return "DFS";
+      const dec = bookable.reduce((a, l) => a * americanToDecimal(l.odds), 1);
+      return formatOdds(decimalToAmerican(dec));
+    };
 
-    // ---- Layout geometry ----------------------------------------------------
-    const headerH = 164;
-    const heroH = 128;
-    const picksLabelH = 44;
-    const rowH = 96;
-    const payoutH = 132;
-    const whyBodyH = Math.max(whyBullets.length * 30, 124);
-    const whyH = 56 + whyBodyH + 22;
-    const footerH = 84;
-    const GAP = 16;
-    const innerW = W - pad * 2;
-    let H = headerH + GAP + heroH + GAP + picksLabelH + legs.length * rowH + GAP + payoutH + GAP + whyH + GAP + footerH + 12;
+    // Group legs by league, then by market family (REAL slip data only).
+    const byLeague = {};
+    const leagueOrder = [];
+    legs.forEach((l) => {
+      const key = String(l.sport || "other").toLowerCase();
+      if (!byLeague[key]) { byLeague[key] = []; leagueOrder.push(key); }
+      byLeague[key].push(l);
+    });
+    const familyGroups = (ll) => {
+      const fams = {};
+      const order = [];
+      ll.forEach((l) => {
+        const f = familyOf(l.market);
+        if (!fams[f]) { fams[f] = []; order.push(f); }
+        fams[f].push(l);
+      });
+      return { fams, order };
+    };
+
+    // Core (safest) subset = top legs by confidence; Lottery = the full slip.
+    const ranked = legs.map((l, i) => ({ l, c: legConfs[i] })).sort((a, b) => b.c - a.c);
+    const coreCount = Math.min(4, legs.length);
+    const coreLegs = ranked.slice(0, coreCount).map((r) => r.l);
+
+    // ---- Geometry (measure pass) -------------------------------------------
+    const TITLE_BAR = 40, FAM_HEAD = 24, PICK_ROW = 56, PANEL_PAD_B = 12;
+    const panelHeight = (ll) => {
+      const { fams, order } = familyGroups(ll);
+      let h = TITLE_BAR + 6;
+      order.forEach((f) => { h += FAM_HEAD + fams[f].length * PICK_ROW + 6; });
+      return h + PANEL_PAD_B;
+    };
+    const leaguePalette = ["#a855f7", "#38bdf8", "#f59e0b", "#22c55e", "#ef4444", "#ec4899"];
+    const headerH = 196;
+    const ly0 = headerH + 16;
+    const colTops = [ly0, ly0];
+    const placements = [];
+    leagueOrder.forEach((key, idx) => {
+      const ll = byLeague[key];
+      const h = panelHeight(ll);
+      const col = colTops[0] <= colTops[1] ? 0 : 1;
+      const x = pad + col * (colW + colGap);
+      const yy = colTops[col];
+      placements.push({ key, ll, x, y: yy, h, color: leaguePalette[idx % leaguePalette.length] });
+      colTops[col] = yy + h + 14;
+    });
+    const leagueBottom = Math.max(colTops[0], colTops[1]) - 14;
+
+    // Summary panels (Core + Lottery), side by side, equal height.
+    const SUM_TITLE = 46, SUM_ROW = 30, SUM_FOOT = 48;
+    const summaryRows = legs.length;
+    const summaryH = SUM_TITLE + 8 + summaryRows * SUM_ROW + SUM_FOOT + 10;
+    const summaryY = leagueBottom + 18;
+
+    const featuresY = summaryY + summaryH + 18;
+    const featuresH = 78;
+    const disclaimerH = 30;
+    const H = featuresY + featuresH + disclaimerH + 14;
 
     const canvas = document.createElement("canvas");
     canvas.width = W * scale;
@@ -4569,7 +4611,7 @@ export default function ParlayBuilder() {
     ctx.scale(scale, scale);
     ctx.textBaseline = "alphabetic";
 
-    // ---- Helpers ------------------------------------------------------------
+    // ---- ctx helpers --------------------------------------------------------
     const rr = (x, y, w, h, r) => {
       const rad = Math.min(r, w / 2, h / 2);
       ctx.beginPath();
@@ -4586,14 +4628,6 @@ export default function ParlayBuilder() {
       if (ctx.measureText(t).width <= maxW) return t;
       while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
       return t + "…";
-    };
-    const badgeFor = (m) => {
-      const x = (m || "").toLowerCase();
-      if (x.includes("prop")) return { label: "PLAYER PROP", color: "#c084fc" };
-      if (x.includes("spread")) return { label: "SPREAD", color: "#60a5fa" };
-      if (x.includes("moneyline") || x === "ml") return { label: "MONEYLINE", color: "#22d3ee" };
-      if (x.includes("total") || x.includes("over") || x.includes("under")) return { label: "TOTAL", color: "#fbbf24" };
-      return { label: (m || "PICK").toUpperCase(), color: "#94a3b8" };
     };
     const hexA = (hex, a) => {
       const n = parseInt(hex.slice(1), 16);
@@ -4612,191 +4646,246 @@ export default function ParlayBuilder() {
       img.onerror = () => resolve(null);
       img.src = src;
     });
+    const drawStar = (cx, cy, spikes, outerR, innerR, color) => {
+      let rot = (Math.PI / 2) * 3;
+      const step = Math.PI / spikes;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - outerR);
+      for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR); rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR); rot += step;
+      }
+      ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+    };
+    const drawDiamond = (cx, cy, r, color) => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 0.78, cy);
+      ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r * 0.78, cy);
+      ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+    };
 
-    // ---- Background + ambient stadium glows ---------------------------------
+    // ---- Background + stadium light beams ----------------------------------
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#070b16");
-    bg.addColorStop(1, "#0a1122");
+    bg.addColorStop(0, "#060912");
+    bg.addColorStop(0.5, "#070d1a");
+    bg.addColorStop(1, "#05080f");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    const glowL = ctx.createRadialGradient(110, 50, 0, 110, 50, 340);
-    glowL.addColorStop(0, "rgba(34,211,238,0.20)");
-    glowL.addColorStop(1, "rgba(34,211,238,0)");
-    ctx.fillStyle = glowL; ctx.fillRect(0, 0, W, 280);
-    const glowR = ctx.createRadialGradient(W - 110, 50, 0, W - 110, 50, 340);
-    glowR.addColorStop(0, "rgba(34,197,94,0.16)");
-    glowR.addColorStop(1, "rgba(34,197,94,0)");
-    ctx.fillStyle = glowR; ctx.fillRect(0, 0, W, 280);
-
-    // ---- Header (centered brand) -------------------------------------------
-    const logo = await loadImage(stadiumEdgeLogo);
-    if (logo) {
-      const lh = 54, lw = lh * (logo.width / logo.height || 1);
-      ctx.drawImage(logo, W / 2 - lw / 2, 22, lw, lh);
+    // fanning light beams from the top
+    ctx.save();
+    for (let i = 0; i < 6; i++) {
+      const bx = (W / 6) * i + W / 12;
+      const beam = ctx.createLinearGradient(bx, 0, bx, 260);
+      beam.addColorStop(0, "rgba(125,211,252,0.10)");
+      beam.addColorStop(1, "rgba(125,211,252,0)");
+      ctx.fillStyle = beam;
+      ctx.beginPath();
+      ctx.moveTo(bx - 8, 0); ctx.lineTo(bx + 8, 0);
+      ctx.lineTo(bx + 70, 260); ctx.lineTo(bx - 70, 260);
+      ctx.closePath(); ctx.fill();
     }
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#f8fafc";
-    ctx.font = "800 38px sans-serif";
-    ctx.fillText("STADIUM EDGE", W / 2, 110);
-    ctx.fillStyle = "#22d3ee";
-    ctx.font = "700 15px sans-serif";
-    ctx.fillText("• A I   P A R L A Y   P I C K S •", W / 2, 138);
-    ctx.textAlign = "left";
+    ctx.restore();
+    const glowG = ctx.createRadialGradient(W / 2, 70, 0, W / 2, 70, 420);
+    glowG.addColorStop(0, "rgba(34,197,94,0.14)");
+    glowG.addColorStop(1, "rgba(34,197,94,0)");
+    ctx.fillStyle = glowG; ctx.fillRect(0, 0, W, 300);
 
-    // ---- Hero stat panel (3 cells) -----------------------------------------
-    let y = headerH + GAP;
-    ctx.fillStyle = "#0f1729";
-    rr(pad, y, innerW, heroH, 18); ctx.fill();
-    ctx.strokeStyle = "#1e2a44"; ctx.lineWidth = 1; rr(pad, y, innerW, heroH, 18); ctx.stroke();
-    const cellW = innerW / 3;
-    const heroCells = [
-      { label: "COMBINED ODDS", value: oddsLabel, color: "#22d3ee" },
-      { label: "PARLAY CONFIDENCE", value: `${parlayConfidence}%`, color: confColor(parlayConfidence) },
-      { label: legs.length === 1 ? "LEG" : "LEGS", value: String(legs.length), color: "#f8fafc", sub: `${teamBets} team · ${propBets} prop` },
-    ];
-    heroCells.forEach((c, i) => {
-      const cx = pad + cellW * i + cellW / 2;
-      if (i > 0) {
-        ctx.strokeStyle = "#1b263e"; ctx.beginPath();
-        ctx.moveTo(pad + cellW * i, y + 22); ctx.lineTo(pad + cellW * i, y + heroH - 22); ctx.stroke();
-      }
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#7c8aa5"; ctx.font = "700 12px sans-serif";
-      ctx.fillText(c.label, cx, y + 38);
-      ctx.fillStyle = c.color; ctx.font = "800 38px sans-serif";
-      ctx.fillText(fit(c.value, cellW - 24, "800 38px sans-serif"), cx, y + 82);
-      if (c.sub) { ctx.fillStyle = "#64748b"; ctx.font = "600 12px sans-serif"; ctx.fillText(c.sub, cx, y + 104); }
+    // ---- Header -------------------------------------------------------------
+    // Right info box geometry first, so the title can be clamped to its left edge.
+    const boxW = 268;
+    const boxX = pad + innerW - boxW;
+    const boxY = 20;
+    const boxH = 150;
+
+    const logo = await loadImage(stadiumEdgeLogo);
+    let titleX = pad;
+    if (logo) {
+      const lh = 66, lw = lh * (logo.width / logo.height || 1);
+      ctx.drawImage(logo, pad, 24, lw, lh);
+      titleX = pad + lw + 16;
+    }
+    // title (two lines, auto-fit so it never collides with the info box) + subtitle
+    const titleMaxW = boxX - 16 - titleX;
+    ctx.textAlign = "left";
+    let tf = 26;
+    ctx.font = `900 ${tf}px sans-serif`;
+    while (tf > 15 && (ctx.measureText("PARLAY CARD").width > titleMaxW || ctx.measureText("AI PICKS").width > titleMaxW)) {
+      tf -= 1; ctx.font = `900 ${tf}px sans-serif`;
+    }
+    ctx.fillStyle = "#22c55e"; ctx.fillText("AI PICKS", titleX, 50);
+    ctx.fillStyle = "#f8fafc"; ctx.fillText("PARLAY CARD", titleX, 50 + tf + 5);
+    const subY = 50 + tf + 5 + 22;
+    ctx.font = "800 11px sans-serif";
+    const s1 = "DATA. ANALYSIS. ";
+    ctx.fillStyle = "#94a3b8"; ctx.fillText(s1, titleX, subY);
+    const s1w = ctx.measureText(s1).width;
+    ctx.fillStyle = "#22c55e"; ctx.fillText(fit("AN EDGE YOU CAN TRUST.", titleMaxW - s1w, "800 11px sans-serif"), titleX + s1w, subY);
+
+    // right info box
+    ctx.fillStyle = "#0a1322"; rr(boxX, boxY, boxW, boxH, 16); ctx.fill();
+    ctx.strokeStyle = hexA("#22c55e", 0.35); ctx.lineWidth = 1.5; rr(boxX, boxY, boxW, boxH, 16); ctx.stroke();
+    // counts
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#e2e8f0"; ctx.font = "800 13px sans-serif";
+    ctx.fillText(`${legs.length} PICKS  ·  ${teamBets} TEAMS  ·  ${propBets} PROP`, boxX + boxW / 2, boxY + 26);
+    // AI confidence segmented bar
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#7c8aa5"; ctx.font = "800 10px sans-serif";
+    ctx.fillText("AI CONFIDENCE", boxX + 16, boxY + 50);
+    const cells = 12;
+    const cellGap = 3;
+    const barX = boxX + 16, barY = boxY + 56, barW = boxW - 32;
+    const cw = (barW - cellGap * (cells - 1)) / cells;
+    const filled = Math.round((parlayConfidence / 100) * cells);
+    for (let i = 0; i < cells; i++) {
+      ctx.fillStyle = i < filled ? "#22c55e" : "#1e293b";
+      rr(barX + i * (cw + cellGap), barY, cw, 9, 2); ctx.fill();
+    }
+    // tagline
+    ctx.textAlign = "left";
+    ctx.font = "900 17px sans-serif";
+    ctx.fillStyle = "#f8fafc"; ctx.fillText("BUILT BY", boxX + 16, boxY + 92);
+    const bbw = ctx.measureText("BUILT BY ").width;
+    ctx.fillStyle = "#22c55e"; ctx.fillText(" AI.", boxX + 16 + bbw, boxY + 92);
+    ctx.fillStyle = "#f8fafc"; ctx.fillText("BACKED BY", boxX + 16, boxY + 112);
+    const bdw = ctx.measureText("BACKED BY ").width;
+    ctx.fillStyle = "#22c55e"; ctx.fillText(" DATA.", boxX + 16 + bdw, boxY + 112);
+    // 3 mini feature columns
+    const feats = ["ADVANCED\nALGORITHMS", "REAL-TIME\nODDS", "MAX VALUE\nDETECTED"];
+    ctx.textAlign = "center";
+    feats.forEach((f, i) => {
+      const fx = boxX + (boxW / 3) * i + boxW / 6;
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath(); ctx.arc(fx, boxY + 126, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#94a3b8"; ctx.font = "800 7.5px sans-serif";
+      f.split("\n").forEach((ln, li) => ctx.fillText(ln, fx, boxY + 140 + li * 9));
     });
     ctx.textAlign = "left";
 
-    // ---- Picks label --------------------------------------------------------
-    y += heroH + GAP;
-    ctx.fillStyle = "#f8fafc"; ctx.font = "800 16px sans-serif";
-    ctx.fillText("THE PICKS", pad, y + 28);
-    ctx.textAlign = "right";
-    ctx.fillStyle = "#64748b"; ctx.font = "700 13px sans-serif";
-    ctx.fillText(`${legs.length} PICKS · ${teamBets} TEAM · ${propBets} PROP`, W - pad, y + 28);
-    ctx.textAlign = "left";
+    // ---- League panels (two-column masonry) --------------------------------
+    placements.forEach(({ ll, x, y, h, key, color }) => {
+      // panel bg + border + faint league glow
+      ctx.fillStyle = "#0a1120"; rr(x, y, colW, h, 16); ctx.fill();
+      ctx.strokeStyle = hexA(color, 0.45); ctx.lineWidth = 1.5; rr(x, y, colW, h, 16); ctx.stroke();
+      // title bar
+      ctx.fillStyle = hexA(color, 0.14); rr(x, y, colW, TITLE_BAR, 16); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(x + 24, y + TITLE_BAR / 2, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#f8fafc"; ctx.font = "900 15px sans-serif"; ctx.textAlign = "left";
+      ctx.fillText(`${leagueLabel(key)} PICKS`, x + 40, y + TITLE_BAR / 2 + 5);
 
-    // ---- Pick rows ----------------------------------------------------------
-    y += picksLabelH;
-    legs.forEach((leg, i) => {
-      const ry = y + i * rowH;
-      const card = rowH - 12;
-      ctx.fillStyle = "#0e1626"; rr(pad, ry, innerW, card, 14); ctx.fill();
-      ctx.strokeStyle = "#1b2740"; ctx.lineWidth = 1; rr(pad, ry, innerW, card, 14); ctx.stroke();
-      const b = badgeFor(leg.market);
-      // left accent
-      ctx.fillStyle = b.color; rr(pad, ry, 5, card, 3); ctx.fill();
-      // monogram chip
-      const chipX = pad + 20, chipY = ry + card / 2, chipR = 22;
-      ctx.fillStyle = hexA(b.color, 0.16);
-      ctx.beginPath(); ctx.arc(chipX + chipR, chipY, chipR, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = hexA(b.color, 0.5); ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(chipX + chipR, chipY, chipR, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = b.color; ctx.font = "800 16px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText(monogram(leg.pick), chipX + chipR, chipY + 6);
+      const { fams, order } = familyGroups(ll);
+      let cy = y + TITLE_BAR + 6;
+      order.forEach((f) => {
+        ctx.fillStyle = color; ctx.font = "800 10px sans-serif"; ctx.textAlign = "left";
+        ctx.fillText(f, x + 16, cy + 16);
+        cy += FAM_HEAD;
+        fams[f].forEach((leg) => {
+          const idx = legs.indexOf(leg);
+          const c = legConfs[idx] || 0;
+          // monogram circle
+          const cr = 16;
+          const ccx = x + 16 + cr, ccy = cy + PICK_ROW / 2 - 4;
+          ctx.fillStyle = hexA(color, 0.16);
+          ctx.beginPath(); ctx.arc(ccx, ccy, cr, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = hexA(color, 0.55); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(ccx, ccy, cr, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = color; ctx.font = "800 12px sans-serif"; ctx.textAlign = "center";
+          ctx.fillText(monogram(leg.pick), ccx, ccy + 4);
+          // text block
+          const tx = ccx + cr + 12;
+          const rightX = x + colW - 14;
+          const tMax = rightX - 58 - tx;
+          ctx.textAlign = "left";
+          ctx.fillStyle = "#64748b"; ctx.font = "600 10px sans-serif";
+          ctx.fillText(fit(leg.game, tMax, "600 10px sans-serif"), tx, cy + 18);
+          ctx.fillStyle = "#f1f5f9"; ctx.font = "800 15px sans-serif";
+          ctx.fillText(fit(leg.pick, tMax, "800 15px sans-serif"), tx, cy + 40);
+          // odds + confidence right
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#e2e8f0"; ctx.font = "800 15px sans-serif";
+          ctx.fillText(formatOdds(leg.odds), rightX, cy + 22);
+          ctx.fillStyle = confColor(c); ctx.font = "800 11px sans-serif";
+          ctx.fillText(`${c}%`, rightX, cy + 40);
+          ctx.fillStyle = "#475569"; ctx.font = "700 7px sans-serif";
+          ctx.fillText("CONFIDENCE", rightX, cy + 50);
+          ctx.textAlign = "left";
+          cy += PICK_ROW;
+        });
+        cy += 6;
+      });
+    });
+
+    // ---- Summary panels (Core value combo + Full lottery ticket) -----------
+    const summaryPanel = (px, accent, icon, title, sub, rows, projLabel, projOdds, projColor) => {
+      ctx.fillStyle = "#0a1120"; rr(px, summaryY, colW, summaryH, 16); ctx.fill();
+      ctx.strokeStyle = hexA(accent, 0.4); ctx.lineWidth = 1.5; rr(px, summaryY, colW, summaryH, 16); ctx.stroke();
+      // title row with drawn icon
+      if (icon === "diamond") drawDiamond(px + 24, summaryY + 24, 9, accent);
+      else drawStar(px + 24, summaryY + 24, 5, 10, 4.5, accent);
       ctx.textAlign = "left";
-      const textX = chipX + chipR * 2 + 16;
-      const rightColW = 110;
-      const textMaxW = W - pad - rightColW - textX - 12;
-      // badge + game
-      ctx.font = "800 10px sans-serif"; ctx.fillStyle = b.color;
-      const badgeW = ctx.measureText(b.label).width + 16;
-      ctx.fillStyle = hexA(b.color, 0.14); rr(textX, ry + 16, badgeW, 18, 9); ctx.fill();
-      ctx.fillStyle = b.color; ctx.font = "800 10px sans-serif"; ctx.textAlign = "left";
-      ctx.fillText(b.label, textX + 8, ry + 29);
-      ctx.fillStyle = "#64748b"; ctx.font = "600 12px sans-serif";
-      ctx.fillText(fit(leg.game, textMaxW - badgeW - 10, "600 12px sans-serif"), textX + badgeW + 10, ry + 29);
-      // pick
-      ctx.fillStyle = "#f1f5f9"; ctx.font = "800 19px sans-serif";
-      ctx.fillText(fit(leg.pick, textMaxW, "800 19px sans-serif"), textX, ry + 57);
-      // right: odds + confidence
+      ctx.fillStyle = "#f8fafc"; ctx.font = "900 15px sans-serif";
+      ctx.fillText(title, px + 42, summaryY + 22);
+      ctx.fillStyle = accent; ctx.font = "800 9px sans-serif";
+      ctx.fillText(sub, px + 42, summaryY + 36);
+      // rows
+      let ry = summaryY + SUM_TITLE + 4;
+      rows.forEach((leg, i) => {
+        ctx.fillStyle = hexA(accent, 0.85); ctx.font = "800 12px sans-serif"; ctx.textAlign = "left";
+        ctx.fillText(`${i + 1}`, px + 16, ry + 14);
+        ctx.fillStyle = "#cbd5e1"; ctx.font = "700 12px sans-serif";
+        ctx.fillText(fit(leg.pick, colW - 110, "700 12px sans-serif"), px + 34, ry + 14);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#94a3b8"; ctx.font = "800 12px sans-serif";
+        ctx.fillText(formatOdds(leg.odds), px + colW - 16, ry + 14);
+        ctx.textAlign = "left";
+        ry += SUM_ROW;
+      });
+      // projected odds footer
+      const fy = summaryY + summaryH - SUM_FOOT + 8;
+      ctx.fillStyle = hexA(accent, 0.1); rr(px + 12, fy, colW - 24, SUM_FOOT - 16, 10); ctx.fill();
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#7c8aa5"; ctx.font = "800 10px sans-serif";
+      ctx.fillText(projLabel, px + 24, fy + 20);
       ctx.textAlign = "right";
-      ctx.fillStyle = "#e2e8f0"; ctx.font = "800 20px sans-serif";
-      ctx.fillText(formatOdds(leg.odds), W - pad - 16, ry + 34);
-      const c = legConfs[i];
-      ctx.fillStyle = confColor(c); ctx.font = "800 14px sans-serif";
-      ctx.fillText(`${c}%`, W - pad - 16, ry + 58);
-      ctx.fillStyle = "#475569"; ctx.font = "600 10px sans-serif";
-      ctx.fillText("CONFIDENCE", W - pad - 16, ry + 72);
+      ctx.fillStyle = projColor; ctx.font = "900 22px sans-serif";
+      ctx.fillText(projOdds, px + colW - 24, fy + 24);
       ctx.textAlign = "left";
-    });
+    };
+    summaryPanel(
+      pad, "#f59e0b", "diamond",
+      `CORE ${coreCount}-LEG PARLAY`, "BEST VALUE COMBO",
+      coreLegs, "AI PROJECTED ODDS", comboOdds(coreLegs), "#fbbf24",
+    );
+    summaryPanel(
+      pad + colW + colGap, "#a855f7", "star",
+      `FULL ${legs.length}-LEG LOTTERY TICKET`, "MAX UPSIDE PLAY",
+      legs, "AI PROJECTED ODDS", comboOdds(legs), "#c084fc",
+    );
 
-    // ---- Payout panel (3 cells) --------------------------------------------
-    y += legs.length * rowH + GAP;
-    const payGrad = ctx.createLinearGradient(pad, y, pad + innerW, y);
-    payGrad.addColorStop(0, "#0c1a2e");
-    payGrad.addColorStop(1, "#0c241c");
-    ctx.fillStyle = payGrad; rr(pad, y, innerW, payoutH, 18); ctx.fill();
-    ctx.strokeStyle = "#1f3a33"; ctx.lineWidth = 1; rr(pad, y, innerW, payoutH, 18); ctx.stroke();
-    const payCells = [
-      { label: "STAKE", value: `$${stake.toFixed(2)}`, color: "#f8fafc" },
-      { label: bookLegCount >= 1 ? "TO WIN" : "TO WIN", value: toWin, color: "#22c55e" },
-      { label: "POTENTIAL RETURN", value: potReturn, color: "#22c55e" },
+    // ---- Feature badge strip -----------------------------------------------
+    ctx.fillStyle = "#0a1120"; rr(pad, featuresY, innerW, featuresH, 16); ctx.fill();
+    ctx.strokeStyle = "#162033"; ctx.lineWidth = 1; rr(pad, featuresY, innerW, featuresH, 16); ctx.stroke();
+    const badges = [
+      "AI-POWERED\nPICKS", "REAL-TIME\nODDS", "PLAYER PROP\nINSIGHTS",
+      "SMARTER PICKS\nSTRONGER EDGE", "100% SECURE\nBUILT FOR WINNERS",
     ];
-    payCells.forEach((c, i) => {
-      const cx = pad + cellW * i + cellW / 2;
-      if (i > 0) {
-        ctx.strokeStyle = "#1c3a30"; ctx.beginPath();
-        ctx.moveTo(pad + cellW * i, y + 24); ctx.lineTo(pad + cellW * i, y + payoutH - 40); ctx.stroke();
-      }
-      ctx.textAlign = "center";
-      ctx.fillStyle = "#7c8aa5"; ctx.font = "700 12px sans-serif";
-      ctx.fillText(c.label, cx, y + 40);
-      ctx.fillStyle = c.color; ctx.font = "800 34px sans-serif";
-      ctx.fillText(fit(c.value, cellW - 20, "800 34px sans-serif"), cx, y + 80);
-    });
     ctx.textAlign = "center";
-    ctx.fillStyle = "#64748b"; ctx.font = "600 11px sans-serif";
-    const payNote = ppLegCount > 0
-      ? `${bookLegCount} book leg${bookLegCount === 1 ? "" : "s"} priced · ${ppLegCount} PrizePicks leg${ppLegCount === 1 ? "" : "s"} on flat DFS schedule (not in combined odds)`
-      : `Based on a $${stake.toFixed(2)} stake at ${formatOdds(parlayMath.american)} combined odds`;
-    ctx.fillText(fit(payNote, innerW - 24, "600 11px sans-serif"), W / 2, y + payoutH - 16);
-    ctx.textAlign = "left";
-
-    // ---- Why panel (bullets + confidence gauge) ----------------------------
-    y += payoutH + GAP;
-    ctx.fillStyle = "#0f1729"; rr(pad, y, innerW, whyH, 18); ctx.fill();
-    ctx.strokeStyle = "#1e2a44"; ctx.lineWidth = 1; rr(pad, y, innerW, whyH, 18); ctx.stroke();
-    ctx.fillStyle = "#22c55e"; ctx.font = "800 14px sans-serif";
-    ctx.fillText("WHY THE AI LIKES THIS PARLAY", pad + 22, y + 34);
-    const gaugeW = 150;
-    const bulletMaxW = innerW - gaugeW - 64;
-    whyBullets.forEach((t, i) => {
-      const by = y + 64 + i * 30;
-      ctx.fillStyle = "#22c55e"; ctx.font = "800 13px sans-serif";
-      ctx.fillText("✓", pad + 22, by);
-      ctx.fillStyle = "#cbd5e1"; ctx.font = "600 13px sans-serif";
-      ctx.fillText(fit(t, bulletMaxW, "600 13px sans-serif"), pad + 42, by);
+    badges.forEach((bd, i) => {
+      const bx = pad + (innerW / badges.length) * i + innerW / (badges.length * 2);
+      ctx.strokeStyle = hexA("#22c55e", 0.7); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(bx, featuresY + 26, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "#22c55e";
+      ctx.beginPath(); ctx.arc(bx, featuresY + 26, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#cbd5e1"; ctx.font = "800 9px sans-serif";
+      bd.split("\n").forEach((ln, li) => ctx.fillText(ln, bx, featuresY + 50 + li * 11));
     });
-    // half-circle confidence gauge (right)
-    const gx = pad + innerW - gaugeW / 2 - 16;
-    const gy = y + whyH - 40;
-    const gR = 50;
-    ctx.lineCap = "round"; ctx.lineWidth = 12;
-    ctx.strokeStyle = "#1e293b";
-    ctx.beginPath(); ctx.arc(gx, gy, gR, Math.PI, Math.PI * 2); ctx.stroke();
-    const frac = Math.max(0, Math.min(1, parlayConfidence / 100));
-    ctx.strokeStyle = confColor(parlayConfidence);
-    ctx.beginPath(); ctx.arc(gx, gy, gR, Math.PI, Math.PI + Math.PI * frac); ctx.stroke();
-    ctx.textAlign = "center";
-    ctx.fillStyle = confColor(parlayConfidence); ctx.font = "800 26px sans-serif";
-    ctx.fillText(`${parlayConfidence}%`, gx, gy - 6);
-    ctx.fillStyle = "#7c8aa5"; ctx.font = "700 11px sans-serif";
-    ctx.fillText("PARLAY CONFIDENCE", gx, gy + 16);
-    ctx.textAlign = "left";
 
-    // ---- Footer -------------------------------------------------------------
-    y += whyH + GAP;
-    ctx.fillStyle = "#0b1120"; rr(pad, y, innerW, footerH, 16); ctx.fill();
-    ctx.strokeStyle = "#1a2236"; ctx.lineWidth = 1; rr(pad, y, innerW, footerH, 16); ctx.stroke();
-    ctx.fillStyle = "#22d3ee"; ctx.font = "800 14px sans-serif";
-    ctx.fillText("STADIUM EDGE AI", pad + 22, y + 32);
-    ctx.fillStyle = "#94a3b8"; ctx.font = "600 12px sans-serif";
-    ctx.fillText("Make smarter bets. Beat the market.", pad + 22, y + 52);
-    ctx.fillStyle = "#475569"; ctx.font = "600 10px sans-serif";
-    ctx.fillText("Hypothetical only · not a real bet · 21+ · model ranking, not a prediction", pad + 22, y + 70);
+    // ---- Disclaimer ---------------------------------------------------------
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#475569"; ctx.font = "700 10px sans-serif";
+    ctx.fillText("DISCLAIMER: SPORTS BETTING INVOLVES RISK. BET RESPONSIBLY. 21+ ONLY. HYPOTHETICAL — NOT A REAL BET.", W / 2, H - 12);
+    ctx.textAlign = "left";
 
     // ---- Download -----------------------------------------------------------
     canvas.toBlob((blob) => {
