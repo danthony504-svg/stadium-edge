@@ -2410,6 +2410,17 @@ function parseStatLookup(raw) {
     if (o && o.length >= 2) opponent = o;
   }
   let name = t;
+  // The player name always PRECEDES any "vs/against <opp>" clause — everything
+  // from that marker on is opponent + trailing filler ("against the tb rays in
+  // their last few matchups"). Cut it off first so that junk can't bloat the
+  // name past the word-count cap and bail the whole lookup to the AI (the bug:
+  // "...against the tb rays in their last few matchups" left a 7-word name →
+  // null → chat AI invented "no history" instead of pulling the real log).
+  // Only adopt the truncation when it leaves real letters behind — guards the
+  // rare opponent-FIRST phrasing ("against the rays, how many Ks did Ty Madden
+  // have") where the name follows the marker and a blind cut would empty it.
+  const nameTrunc = name.replace(/\b(?:vs\.?|versus|against|@)\s+.*$/i, " ");
+  if (/[a-z]/i.test(nameTrunc)) name = nameTrunc;
   name = name.replace(/\b20\d{2}\b/g, " ");
   // Strip leading question/verb phrasing.
   name = name.replace(

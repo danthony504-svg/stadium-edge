@@ -73,3 +73,17 @@ few games" → "knicks their last few games" (5 words) → null → generic wron
 fallback. Belt-and-braces: in the period branch, if the text has a vs/against marker
 but `lookup.opponent` didn't resolve, show an honest "which team?" note — never fall to
 the generic last-10 query.
+
+**Name EXTRACTION is the THIRD failure of the same bug class (silent fall-through to
+chat-AI fabrication).** `parseStatLookup` bails (returns null) when the cleaned name
+exceeds ~5 words. The opponent+trailing-filler clause bloats the name: MLB "How many
+strikeouts did Ty Madden have against the tb rays in their last few matchups?" left a
+7-word name "Ty madden tb their last few matchups" → null → never resolved the (real,
+ESPN-indexed) player → chat AI hand-waved "no game log". The opponent-token strip only
+removed long tokens (>=3 chars), so "tb" + "their/last/few/matchups" survived. FIX: the
+player name ALWAYS precedes the vs/against clause, so TRUNCATE the name at that marker
+first (`name.replace(/\b(?:vs\.?|versus|against|@)\s+.*$/i, " ")`) before any other
+cleanup — one shot removes opponent + ALL trailing filler regardless of phrasing. Note
+fringe players (minor-league callups like Ty Madden) have tiny ESPN logs (3 games) and
+no StatMuse answer → the honest deterministic outcome is real-recent-log + "0 meetings
+vs <opp>" amber note, which is STILL far better than the AI fabrication it replaced.
