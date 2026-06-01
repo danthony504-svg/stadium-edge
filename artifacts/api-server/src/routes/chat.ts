@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { SendChatMessageBody } from "@workspace/api-zod";
 import { rateLimit } from "../lib/sports.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
+import { MARKETS_BY_SPORT } from "./props.js";
 
 const router: IRouter = Router();
 
@@ -427,7 +428,111 @@ router.post("/chat", async (req, res): Promise<void> => {
         ? lockedMarket.markets.flatMap((m) => periodSuffixList.map((s) => `${m}${s}`))
         : lockedMarket.markets,
     );
-    const filteredProps = (ctx.realProps || []).filter((p) => allowed.has(String(p.market || "")));
+    const ctxFull = ctx as {
+      realProps?: Array<{ market?: string; player?: string; sport?: string; game?: string; line?: number }>;
+      realOdds?: Array<{ sport?: string; game?: string }>;
+      realGames?: Array<{ sport?: string; game?: string; awayTeam?: string; homeTeam?: string }>;
+    } & Record<string, unknown>;
+    let filteredProps = (ctxFull.realProps || []).filter((p) => allowed.has(String(p.market || "")));
+
+    // SERVER-SIDE FRESH-FETCH FALLBACK (non-period market locks): the client's
+    // realProps array is capped at ~400 entries built in nondeterministic worker
+    // order, so a single-market lock ("3 players to hit a home run") can be
+    // starved down to 0-1 entries even when the live book offers many. When the
+    // locked pool has fewer than 5 distinct players, backfill straight from our
+    // own /sports/props endpoint for the context games whose sport carries this
+    // market. Period locks already have their own fallback above, so skip them.
+    if (!periodIntent) {
+      const distinctPlayers = new Set(
+        filteredProps.map((p) => String(p.player || "").toLowerCase()).filter(Boolean),
+      ).size;
+      if (distinctPlayers < 5) {
+        try {
+          // Sports whose props feed actually carries one of the locked markets
+          // (e.g. batter_home_runs → mlb only; player_points → nba+wnba). This
+          // keeps the fan-out tight and avoids 429 bursts on irrelevant sports.
+          const supportSports = new Set<string>();
+          for (const [sp, mkts] of Object.entries(MARKETS_BY_SPORT)) {
+            if (lockedMarket.markets.some((m) => mkts.includes(m))) supportSports.add(sp);
+          }
+          // Game labels present in the context, grouped by their support sport.
+          const gamesBySport = new Map<string, Set<string>>();
+          const addGame = (sport: unknown, label: string) => {
+            const sp = typeof sport === "string" ? sport : "";
+            if (!sp || !label || !supportSports.has(sp)) return;
+            if (!gamesBySport.has(sp)) gamesBySport.set(sp, new Set());
+            gamesBySport.get(sp)!.add(label);
+          };
+          for (const o of (ctxFull.realOdds || [])) addGame(o.sport, String(o.game || ""));
+          for (const g of (ctxFull.realGames || [])) {
+            const label = typeof g.game === "string" && g.game
+              ? g.game
+              : g.awayTeam && g.homeTeam ? `${g.awayTeam} @ ${g.homeTeam}` : "";
+            addGame(g.sport, label);
+          }
+          if (gamesBySport.size > 0) {
+            const selfPort = process.env["PORT"] || "8080";
+            const selfBase = `http://127.0.0.1:${selfPort}`;
+            const freshProps: typeof filteredProps = [];
+            await Promise.all(
+              Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
+                try {
+                  const oddsRes = await fetch(`${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`);
+                  if (!oddsRes.ok) return;
+                  const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string }>;
+                  const idsToFetch: string[] = [];
+                  for (const e of oddsList) {
+                    const label = `${e.awayTeam} @ ${e.homeTeam}`;
+                    if (e.id && gameSet.has(label)) idsToFetch.push(e.id);
+                    if (idsToFetch.length >= 6) break;
+                  }
+                  await Promise.all(
+                    idsToFetch.map(async (eventId) => {
+                      try {
+                        const propsRes = await fetch(`${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`);
+                        if (!propsRes.ok) return;
+                        const data = await propsRes.json() as { home?: string; away?: string; props?: Array<{ player: string; market: string; line: number; overPrice: number; underPrice: number; alt?: boolean; startsAt?: string }> };
+                        const gameLabel = `${data.away} @ ${data.home}`;
+                        for (const pr of (data.props || [])) {
+                          if (!allowed.has(String(pr.market || ""))) continue;
+                          freshProps.push({
+                            sport,
+                            game: gameLabel,
+                            player: pr.player,
+                            market: pr.market,
+                            line: pr.line,
+                            ...(pr.overPrice != null ? { over: pr.overPrice } : {}),
+                            ...(pr.underPrice != null ? { under: pr.underPrice } : {}),
+                            alt: pr.alt === true,
+                            ...(pr.startsAt ? { startsAt: pr.startsAt } : {}),
+                          } as typeof filteredProps[number]);
+                        }
+                      } catch { /* per-event failure is non-fatal */ }
+                    }),
+                  );
+                } catch { /* per-sport failure is non-fatal */ }
+              }),
+            );
+            // Merge fresh props with whatever the client already sent.
+            if (freshProps.length > 0) {
+              // Dedup key includes sport+game so two different players who share
+              // a name (or the same player listed for two games) never collapse.
+              const keyOf = (p: { sport?: string; game?: string; player?: string; market?: string; line?: number; alt?: boolean }) =>
+                `${p.sport || ""}|${p.game || ""}|${String(p.player || "").toLowerCase()}|${p.market}|${p.line}|${p.alt === true}`;
+              const merged = [...filteredProps];
+              const seen = new Set(filteredProps.map((p) => keyOf(p as Parameters<typeof keyOf>[0])));
+              for (const fp of freshProps) {
+                const key = keyOf(fp as Parameters<typeof keyOf>[0]);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                merged.push(fp);
+              }
+              filteredProps = merged;
+            }
+          }
+        } catch { /* fallback is best-effort; honest result if it fails */ }
+      }
+    }
     lockedContext = { ...ctx, realProps: filteredProps };
   } else if (periodIntent && parsed.data.context && Array.isArray((parsed.data.context as { realProps?: unknown[] }).realProps)) {
     // Period intent WITHOUT a specific market keyword (e.g. "4 leg first

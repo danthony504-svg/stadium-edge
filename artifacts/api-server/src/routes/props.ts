@@ -10,7 +10,7 @@ const router: IRouter = Router();
 // is empty" even when HR markets were available upstream.
 router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120 }));
 
-const MARKETS_BY_SPORT: Record<string, string[]> = {
+export const MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   wnba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   ncaab: ["player_points", "player_rebounds", "player_assists"],
