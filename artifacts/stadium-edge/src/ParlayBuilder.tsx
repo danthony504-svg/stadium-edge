@@ -2300,6 +2300,14 @@ const STAT_SUMMARY = {
   wnba: [["PTS", "avg"], ["REB", "avg"], ["AST", "avg"], ["3PM", "avg"]],
   nhl: [["G", "total"], ["A", "total"], ["PTS", "total"], ["SOG", "total"]],
 };
+// MLB has two entirely different stat profiles. A PITCHER's game log carries
+// IP/ER/K/ERA and labels strikeouts "K"; a HITTER's carries AB/AVG/RBI and
+// labels strikeouts "SO". The hitter-shaped STAT_TABLE_COLS above leaves a
+// pitcher showing only the overlapping hitter columns (R/H/HR/BB) and NEVER his
+// strikeouts — so pitchers get their own column/summary set, chosen when the log
+// has an "IP" column. ERA is a per-game rate (shown in the table, never summed).
+const MLB_PITCHER_COLS = ["IP", "H", "R", "ER", "BB", "K", "ERA"];
+const MLB_PITCHER_SUMMARY = [["K", "total"], ["ER", "total"], ["BB", "total"], ["H", "total"]];
 
 // Detect a "look up a player's stats" request and pull out the player name +
 // optional season. Returns null when the message isn't a stat lookup so the
@@ -2465,7 +2473,36 @@ function parseStatLookup(raw) {
   const period =
     /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(low) ||
     /\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(quarter|half|period|inning)\b/i.test(low);
-  return { name, season, period, opponent };
+  // Capture the stat the user actually asked about and map it to its possible
+  // ESPN label codes so the card can FLOAT that column/tile to the front. A stat
+  // can be labeled differently per role (pitcher strikeouts "K" vs hitter "SO"),
+  // so we keep candidates and the card picks whichever the player's real labels
+  // carry. Detected from the original text (before name-stripping ran above).
+  let statCols = null;
+  const sm = low.match(
+    /\b(points?|pts|rebounds?|reb|assists?|ast|blocks?|steals?|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|walks?|saves?|goals?|touchdowns?|tds?|receptions?|catches|yards?|yds)\b/,
+  );
+  if (sm) {
+    const w = sm[1];
+    statCols =
+      /^(points?|pts)$/.test(w) ? ["PTS"] :
+      /^(rebounds?|reb)$/.test(w) ? ["REB"] :
+      /^(assists?|ast)$/.test(w) ? ["AST"] :
+      /^blocks?$/.test(w) ? ["BLK"] :
+      /^steals?$/.test(w) ? ["STL"] :
+      /^hits?$/.test(w) ? ["H"] :
+      /^runs?$/.test(w) ? ["R"] :
+      /^rbis?$/.test(w) ? ["RBI"] :
+      /^(home runs?|homers?|hr)$/.test(w) ? ["HR"] :
+      /^(strikeouts?|ks)$/.test(w) ? ["K", "SO"] :
+      /^walks?$/.test(w) ? ["BB"] :
+      /^saves?$/.test(w) ? ["SV"] :
+      /^goals?$/.test(w) ? ["G"] :
+      /^(touchdowns?|tds?)$/.test(w) ? ["TD"] :
+      /^(receptions?|catches)$/.test(w) ? ["REC"] :
+      /^(yards?|yds)$/.test(w) ? ["YDS"] : null;
+  }
+  return { name, season, period, opponent, statCols };
 }
 
 // Real game-by-game PERIOD breakdown (e.g. "first quarter points, last 5
@@ -2552,14 +2589,33 @@ function PlayerStatCard({ data }) {
   };
   const initials = String(name || "?").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
 
-  // Recent-games table columns.
-  let cols = (STAT_TABLE_COLS[sport] || []).filter((c) => labels.includes(c));
-  if (cols.length < 3) cols = labels.slice(0, 7);
+  // MLB pitchers and hitters have entirely different stat profiles — pick the
+  // pitcher set when the log carries an "IP" column, else the standard set.
+  const isPitcher = String(sport).toLowerCase() === "mlb" && labels.includes("IP");
+  const tableColsSrc = isPitcher ? MLB_PITCHER_COLS : (STAT_TABLE_COLS[sport] || []);
+  const summarySrc = isPitcher ? MLB_PITCHER_SUMMARY : (STAT_SUMMARY[sport] || []);
+  // The stat the user explicitly asked about, restricted to the alias the
+  // player's REAL labels actually carry (pitcher "K" vs hitter "SO").
+  const requestedCols = (data.requestedStatCols || []).filter((c) => labels.includes(c));
 
-  // Season summary tiles.
-  const summaryCfg = (STAT_SUMMARY[sport] || []).filter(
+  // Recent-games table columns — float the requested stat to the FRONT so the
+  // card always surfaces what was asked, even if it's outside the static set.
+  let cols = tableColsSrc.filter((c) => labels.includes(c));
+  if (cols.length < 3) cols = labels.slice(0, 7);
+  if (requestedCols.length) cols = [...requestedCols, ...cols.filter((c) => !requestedCols.includes(c))];
+  cols = cols.slice(0, 8);
+
+  // Season summary tiles — lead with a tile for the requested counting stat when
+  // it isn't already shown and the server computed a real season total for it.
+  let summaryCfg = summarySrc.filter(
     ([k, mode]) => (mode === "total" ? summary.totals : summary.averages)?.[k] != null,
   );
+  for (const c of requestedCols.slice().reverse()) {
+    if (!summaryCfg.some(([k]) => k === c) && summary.totals?.[c] != null) {
+      summaryCfg = [[c, "total"], ...summaryCfg];
+    }
+  }
+  summaryCfg = summaryCfg.slice(0, 4);
   const fmtNum = (v, mode) =>
     mode === "total" ? String(Math.round(Number(v))) : Number(v).toFixed(1);
 
@@ -6359,6 +6415,7 @@ export default function ParlayBuilder() {
             vsOpponent: Array.isArray(hj.vsOpponent) ? hj.vsOpponent : [],
             vsOpponentName: hj.vsOpponentName || null,
             opponentRequested: lookup.opponent || null,
+            requestedStatCols: lookup.statCols || null,
             statmuse,
             bballref,
             note: others.length
