@@ -10030,6 +10030,11 @@ export default function ParlayBuilder() {
                       <span>{s.emoji}</span> {s.label}
                     </button>
                   ))}
+                  {/* Horse Racing — placeholder pill, not in SPORTS (no data feed yet). */}
+                  <div className="shrink-0 flex items-center gap-2 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-500 font-semibold opacity-80 cursor-default select-none" title="Coming soon">
+                    <span>🐎</span> Horse Racing
+                    <span className="ml-1 text-[9px] font-mono uppercase tracking-wider bg-slate-700 text-slate-300 rounded-full px-1.5 py-0.5">Soon</span>
+                  </div>
                 </div>
               </div>
 
@@ -10050,6 +10055,14 @@ export default function ParlayBuilder() {
                       <span className="text-zinc-300 group-hover:text-cyan-400">›</span>
                     </button>
                   ))}
+                  {/* Horse Racing — placeholder row, not wired to any data feed yet. */}
+                  <div className="w-full flex items-center justify-between py-3.5 cursor-default select-none">
+                    <span className="flex items-center gap-3">
+                      <span className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-lg opacity-70">🐎</span>
+                      <span className="text-slate-400 font-semibold">Horse Racing</span>
+                    </span>
+                    <span className="text-[9px] font-mono uppercase tracking-wider bg-slate-700 text-slate-300 rounded-full px-2 py-0.5">Coming Soon</span>
+                  </div>
                 </div>
               </div>
             </>
