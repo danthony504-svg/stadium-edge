@@ -2417,14 +2417,19 @@ function parseStatLookup(raw) {
   if (name.length < 2) return null;
   // A real player name is at most a few words; bail on long sentences.
   if (name.split(" ").length > 5) return null;
-  return { name, season };
+  // Flag in-game period intent ("first quarter", "1H", "3rd period") — ESPN's
+  // game log only carries full-game totals, so the card shows an honest note.
+  const period =
+    /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(low) ||
+    /\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(quarter|half|period|inning)\b/i.test(low);
+  return { name, season, period };
 }
 
 function PlayerStatCard({ data }) {
   const {
     name, team, sport, headshot, season, requestedSeason,
     availableSeasons = [], labels = [], summary = { games: 0, averages: {}, totals: {} },
-    recent = [], note,
+    recent = [], note, periodRequested,
   } = data;
   const sportLabel = String(sport || "").toUpperCase();
   const fmtDate = (iso) => {
@@ -2475,6 +2480,15 @@ function PlayerStatCard({ data }) {
           </div>
         </div>
       </div>
+
+      {/* Honest note when a quarter/half/period split was asked for. */}
+      {periodRequested && (
+        <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/25">
+          <p className="text-[11px] leading-snug text-amber-200/90">
+            ESPN's game log only has <span className="font-semibold">full-game</span> totals — I can't break these down by quarter, half, or period. The numbers below are full-game, not a single-period split.
+          </p>
+        </div>
+      )}
 
       {/* Season summary tiles */}
       {summaryCfg.length > 0 && (
@@ -5724,6 +5738,7 @@ export default function ParlayBuilder() {
             headshot: top.headshot,
             season: hj.season || lookup.season || null,
             requestedSeason: lookup.season || null,
+            periodRequested: !!lookup.period,
             availableSeasons: hj.availableSeasons || [],
             labels: hj.labels || [],
             summary: hj.seasonSummary || { games: 0, averages: {}, totals: {} },
