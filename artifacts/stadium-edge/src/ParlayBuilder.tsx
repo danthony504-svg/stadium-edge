@@ -6709,6 +6709,22 @@ export default function ParlayBuilder() {
       requestedLegs = bareLegCount(text) || wordLegCount(text) || inheritLegCount();
     }
     const bigParlay = requestedLegs >= 8;
+    // "all games (for today)" / "every game" is its OWN sizing intent: ONE pick per
+    // distinct eligible game, NOT an inherited N-leg request. Without this flag a
+    // follow-up like "can you do all games today?" right after a "15-leg" ask
+    // inherits 15 (inheritLegCount), which (a) wrongly unlocks thin-slate period
+    // padding and (b) nudges the model to emit 15 PICK lines while its prose
+    // honestly says "one per game = 11" — the slip badge (counts PICK lines) then
+    // disagrees with the message. Detected here AND on the server so both stay
+    // one-per-game and the count is consistent.
+    // Match "all games", "every game", "all of today's games", "all the matchups",
+    // "each game", "one per game", "one pick from each game". The negative lookahead
+    // rejects market-wide asks like "all game totals" / "all game spreads" (those mean
+    // a market, not an all-games ticket).
+    const allGamesIntent =
+      /\b(?:all|every)\s+(?:of\s+)?(?:today'?s?\s+|the\s+)?(?:games?|matchups?)\b(?!\s+(?:total|spread|line|moneyline|over|under|prop|side))/i.test(text) ||
+      /\b(?:each|from each) (?:of (?:the|today'?s?) )?(?:games?|matchups?)\b/i.test(text) ||
+      /\bone (?:pick|leg)?\s*(?:per|from each|for each) (?:games?|matchups?)\b/i.test(text);
     // Parlay intent is satisfied by the current message OR by an ongoing parlay
     // conversation in which the user is clearly still iterating (a resolved leg
     // count, or words like "more"/"bigger"/"longer"/"full").
@@ -7086,7 +7102,10 @@ export default function ParlayBuilder() {
     // they intentionally lean on one game's depth.
     let breadthGameCap = Infinity;
     let usablePropPlayers = 0;
-    if (bigParlay && !periodOrSgpIntent) {
+    // An all-games ticket wants EVERY pickable game in context — never let the
+    // inherited-count breadth/prop-reserve cap (which assumes a fixed N) truncate the
+    // slate to ~N games. Skip the cap entirely so realOdds spans all eligible games.
+    if (bigParlay && !periodOrSgpIntent && !allGamesIntent) {
       const seenPropPlayers = new Set();
       for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
         if (!isWithin24h(eventToStart[eid])) continue;
@@ -7119,7 +7138,7 @@ export default function ParlayBuilder() {
     // spike per-game depth and let the 120-entry context cap truncate later games,
     // costing cross-game breadth. Only when game-level + props genuinely fall short
     // do we open period windows.
-    const thinBigParlay = bigParlay && !periodOrSgpIntent && (distinctEligibleGames + usablePropPlayers) < requestedLegs;
+    const thinBigParlay = bigParlay && !periodOrSgpIntent && !allGamesIntent && (distinctEligibleGames + usablePropPlayers) < requestedLegs;
     // When periods are unlocked on a thin slate, throttle per-game period depth so the
     // 120-entry budget still spans every eligible game (reserve ~3 full-game entries
     // per game). Few-game slates keep the full 12; a ~14-game boundary slate drops to
