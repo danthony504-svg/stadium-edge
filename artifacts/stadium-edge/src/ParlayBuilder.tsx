@@ -2317,6 +2317,197 @@ const generateResponse = (text, sports, legs, livePool = null) => {
   return { text: intro + pickLines + footer, picks };
 };
 
+// Curated stat columns for the recent-games table, per sport. Falls back to
+// the first few ESPN labels when a sport isn't listed (e.g. NFL, where the
+// stat keys differ by position).
+const STAT_TABLE_COLS = {
+  mlb: ["AB", "R", "H", "HR", "RBI", "BB", "SO", "AVG"],
+  nba: ["MIN", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
+  wnba: ["MIN", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
+  nhl: ["G", "A", "PTS", "+/-", "SOG", "PIM"],
+};
+// Season-summary headline stats. ONLY counting stats here — summing or
+// averaging a counting stat over the game log is exact/real. Rate stats
+// (AVG/OPS/FG%) are intentionally excluded from the summary because a mean of
+// per-game rates is NOT the true season rate; we never show a derived number
+// we can't compute correctly. (The per-game table still shows ESPN's own
+// exact rate values.)
+const STAT_SUMMARY = {
+  mlb: [["HR", "total"], ["RBI", "total"], ["H", "total"], ["R", "total"]],
+  nba: [["PTS", "avg"], ["REB", "avg"], ["AST", "avg"], ["3PM", "avg"]],
+  wnba: [["PTS", "avg"], ["REB", "avg"], ["AST", "avg"], ["3PM", "avg"]],
+  nhl: [["G", "total"], ["A", "total"], ["PTS", "total"], ["SOG", "total"]],
+};
+
+// Detect a "look up a player's stats" request and pull out the player name +
+// optional season. Returns null when the message isn't a stat lookup so the
+// normal parlay/AI path handles it. Deliberately conservative: it will NOT
+// fire on parlay/build/bet requests (those keep their existing behavior).
+const STAT_NOUNS = "points?|pts|yards?|yds|rebounds?|reb|assists?|ast|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|goals?|saves?|touchdowns?|tds?|receptions?|catches|blocks?|steals?";
+function parseStatLookup(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const low = t.toLowerCase();
+  // Never hijack parlay / betting-build requests.
+  if (/\b(parlay|build|wager|slip|leg|legs|prop bet|bet on|place a bet|moneyline|spread|over\/under|pick'?em|sgp|same game)\b/.test(low)) return null;
+  const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
+  // Must carry a stat-lookup cue. Broad on purpose: a stat ask that slips
+  // through here would fall to the AI path, which must never invent numbers.
+  const hasCue =
+    /\b(stat|stats|stat ?line|numbers|game ?log|box ?score|splits?)\b/.test(low) ||
+    /\blast \d+ games?\b/.test(low) ||
+    /\b(last|recent) games?\b/.test(low) ||
+    /\blast game\b/.test(low) ||
+    /\bhow (did|has|have|is|are|many)\b/.test(low) ||
+    /\bhow'?s\b/.test(low) ||
+    /\b(score|scored|scoring)\b/.test(low) ||
+    statNounRe.test(low) ||
+    /\b20\d{2}\b.*\b(season|stats?|numbers)\b/.test(low) ||
+    /\b(season|stats?|numbers)\b.*\b20\d{2}\b/.test(low);
+  if (!hasCue) return null;
+  const season = (low.match(/\b(20\d{2})\b/) || [])[1] || null;
+  let name = t;
+  name = name.replace(/\b20\d{2}\b/g, " ");
+  // Strip leading question/verb phrasing.
+  name = name.replace(
+    /^(show me|show|pull up|pull|get me|get|look up|lookup|what (?:are|is|were|was)|what'?s|how many|how (?:did|has|have|is|are)|how'?s|give me|tell me|find|check|see|display)\s+/i,
+    " ",
+  );
+  // Strip possessives, stat nouns, then trailing stat-cue / filler words.
+  name = name.replace(/'s\b/gi, " ");
+  name = name.replace(new RegExp(`\\b(${STAT_NOUNS})\\b`, "gi"), " ");
+  name = name.replace(
+    /\b(stat ?line|stats|stat|numbers|game ?log|box ?score|recent games?|last \d+ games?|last game|this season|last season|this year|career|splits?|season|score[ds]?|scoring|do|did|does|doing|done|have|had|get|got|record(?:ed)?|put up|throw|threw|pass(?:ed)?|rush(?:ed)?|play(?:ing|ed)?|perform(?:ance|ing|ed)?|look(?:ing)?|regular|playoffs?|games?|tonight|today|yesterday|night)\b/gi,
+    " ",
+  );
+  // Strip standalone connector / filler words (player names don't contain these).
+  name = name.replace(/\b(for|of|about|on|the|in|a|an|me|my|with|vs|versus|against|did|do|many)\b/gi, " ");
+  // Drop bare numbers (e.g. "score 20 points") — never part of a name.
+  name = name.replace(/\b\d+\b/g, " ");
+  name = name.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
+  if (name.length < 2) return null;
+  // A real player name is at most a few words; bail on long sentences.
+  if (name.split(" ").length > 5) return null;
+  return { name, season };
+}
+
+function PlayerStatCard({ data }) {
+  const {
+    name, team, sport, headshot, season, requestedSeason,
+    availableSeasons = [], labels = [], summary = { games: 0, averages: {}, totals: {} },
+    recent = [], note,
+  } = data;
+  const sportLabel = String(sport || "").toUpperCase();
+  const fmtDate = (iso) => {
+    try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }); }
+    catch { return ""; }
+  };
+  const oppShort = (n) => {
+    if (!n) return "";
+    const w = String(n).trim().split(" ");
+    return w[w.length - 1];
+  };
+  const initials = String(name || "?").split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+
+  // Recent-games table columns.
+  let cols = (STAT_TABLE_COLS[sport] || []).filter((c) => labels.includes(c));
+  if (cols.length < 3) cols = labels.slice(0, 7);
+
+  // Season summary tiles.
+  const summaryCfg = (STAT_SUMMARY[sport] || []).filter(
+    ([k, mode]) => (mode === "total" ? summary.totals : summary.averages)?.[k] != null,
+  );
+  const fmtNum = (v, mode) =>
+    mode === "total" ? String(Math.round(Number(v))) : Number(v).toFixed(1);
+
+  return (
+    <div className="rounded-2xl border border-cyan-500/30 bg-slate-800/60 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-cyan-500/15 to-transparent border-b border-slate-700/60">
+        <div className="relative w-14 h-14 shrink-0 rounded-full bg-slate-700 flex items-center justify-center overflow-hidden ring-2 ring-cyan-400/40">
+          <span className="text-sm font-bold text-slate-300">{initials}</span>
+          {headshot && (
+            <img
+              src={headshot}
+              alt={name}
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div className="text-base font-bold text-white truncate">{name}</div>
+          <div className="text-xs text-slate-400 truncate">
+            {[team, sportLabel].filter(Boolean).join(" · ")}
+          </div>
+          <div className="text-[11px] font-mono text-cyan-300 mt-0.5">
+            {season ? `${season} season` : "Current season"}
+            {summary.games ? ` · ${summary.games} GP` : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* Season summary tiles */}
+      {summaryCfg.length > 0 && (
+        <div className="grid grid-cols-4 gap-px bg-slate-700/40">
+          {summaryCfg.map(([k, mode]) => (
+            <div key={k} className="bg-slate-800/80 px-2 py-2.5 text-center">
+              <div className="text-base font-bold text-white tabular-nums">
+                {fmtNum((mode === "total" ? summary.totals : summary.averages)[k], mode)}
+              </div>
+              <div className="text-[9px] uppercase tracking-wide text-slate-400">
+                {k}{mode === "avg" ? "/G" : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Recent games table */}
+      <div className="p-3">
+        <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 px-1">
+          Last {Math.min(recent.length, 10)} games{season ? ` · ${season}` : ""}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px] tabular-nums">
+            <thead>
+              <tr className="text-slate-500">
+                <th className="text-left font-medium py-1 px-1.5 whitespace-nowrap">Date</th>
+                <th className="text-left font-medium py-1 px-1.5 whitespace-nowrap">Opp</th>
+                {cols.map((c) => (
+                  <th key={c} className="text-right font-medium py-1 px-1.5 whitespace-nowrap">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {recent.slice(0, 10).map((g, idx) => (
+                <tr key={g.eventId || idx} className="border-t border-slate-700/40 text-slate-200">
+                  <td className="text-left py-1 px-1.5 whitespace-nowrap text-slate-400">{fmtDate(g.date)}</td>
+                  <td className="text-left py-1 px-1.5 whitespace-nowrap text-slate-300">
+                    {g.isHome === false ? "@ " : g.isHome === true ? "vs " : ""}{oppShort(g.opponentName)}
+                  </td>
+                  {cols.map((c) => (
+                    <td key={c} className="text-right py-1 px-1.5 whitespace-nowrap">{g.stats?.[c] ?? "—"}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {note && <p className="text-[10px] text-slate-500 mt-2 px-1">{note}</p>}
+        {availableSeasons.length > 1 && (
+          <p className="text-[10px] text-slate-500 mt-1.5 px-1">
+            Other seasons available: {availableSeasons.slice(0, 8).join(", ")} — ask for any of them.
+          </p>
+        )}
+        <p className="text-[9px] font-mono text-slate-600 mt-2 px-1 uppercase tracking-widest">
+          Real ESPN game log · No projections
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function ParlayBuilder() {
   const [messages, setMessages] = useState(() => {
     let returning = false;
@@ -5442,6 +5633,79 @@ export default function ParlayBuilder() {
     }
 
     if (!text) return;
+
+    // ── Player stat lookup (deterministic, REAL ESPN data, no AI) ──────────
+    // If the user is asking to SEE a player's past stats — "Aaron Judge
+    // stats", "how did LeBron do last game", "Patrick Mahomes 2022 numbers" —
+    // resolve the name against ESPN, pull the real game log (current or a
+    // requested season), and render a stat card. We never fabricate.
+    if (!override) {
+      const lookup = parseStatLookup(text);
+      if (lookup) {
+        setInput("");
+        setMessages((p) => [...p, { role: "user", content: text }]);
+        setLoading(true);
+        try {
+          const sr = await fetch(`/api/sports/player-search?query=${encodeURIComponent(lookup.name)}`);
+          const sj = sr.ok ? await sr.json() : { results: [] };
+          const top = (sj.results || [])[0];
+          if (!top) {
+            setMessages((p) => [...p, {
+              role: "assistant",
+              content: `I couldn't find a player named "${lookup.name}" in ESPN's database. Try the full name — e.g. "Aaron Judge stats" or "LeBron James 2022 stats". I can pull MLB, NBA, WNBA, NHL, NFL and major college players.`,
+            }]);
+            setLoading(false);
+            return;
+          }
+          const hp = new URLSearchParams({ sport: top.sport, athleteId: String(top.athleteId) });
+          if (lookup.season) hp.set("season", lookup.season);
+          const hr = await fetch(`/api/sports/player-history?${hp.toString()}`);
+          const hj = hr.ok ? await hr.json() : null;
+          if (!hj || !Array.isArray(hj.recent) || hj.recent.length === 0) {
+            const seasonTxt = lookup.season ? ` for the ${lookup.season} season` : "";
+            const seasonsHint = hj && Array.isArray(hj.availableSeasons) && hj.availableSeasons.length
+              ? ` Seasons with data: ${hj.availableSeasons.slice(0, 10).join(", ")}.`
+              : "";
+            setMessages((p) => [...p, {
+              role: "assistant",
+              content: `I found **${top.name}**${top.team ? ` (${top.team})` : ""} but ESPN has no game log${seasonTxt}.${seasonsHint}`,
+            }]);
+            setLoading(false);
+            return;
+          }
+          const others = (sj.results || [])
+            .slice(1)
+            .map((r) => r.name)
+            .filter((n) => n && n !== top.name)
+            .slice(0, 3);
+          const card = {
+            name: top.name,
+            team: top.team,
+            sport: top.sport,
+            league: top.league,
+            headshot: top.headshot,
+            season: hj.season || lookup.season || null,
+            requestedSeason: lookup.season || null,
+            availableSeasons: hj.availableSeasons || [],
+            labels: hj.labels || [],
+            summary: hj.seasonSummary || { games: 0, averages: {}, totals: {} },
+            recent: hj.recent || [],
+            note: others.length
+              ? `Also matched: ${others.join(", ")}. Add the sport or full name if you meant someone else.`
+              : null,
+          };
+          setMessages((p) => [...p, { role: "assistant", content: "", statCard: card }]);
+        } catch {
+          setMessages((p) => [...p, {
+            role: "assistant",
+            content: "Something went wrong pulling those stats. Give it another try in a moment.",
+          }]);
+        }
+        setLoading(false);
+        return;
+      }
+    }
+
     setInput("");
     setLoading(true);
 
@@ -9068,7 +9332,7 @@ export default function ParlayBuilder() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-full w-full text-slate-200">{renderAssistantMessage(m.content, i)}</div>
+              <div className="max-w-full w-full text-slate-200">{m.statCard ? <PlayerStatCard data={m.statCard} /> : renderAssistantMessage(m.content, i)}</div>
             )}
           </div>
         ))}

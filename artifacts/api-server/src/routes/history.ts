@@ -3,6 +3,20 @@ import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
 
 const router: IRouter = Router();
 
+// ESPN search returns a league slug per athlete; map the ones whose game-log
+// shape we support (US major + college) back to our internal sportId so the
+// follow-up /player-history call works. Soccer/tennis/UFC have a different
+// game-log structure, so we intentionally omit them from name-search results.
+const LEAGUE_TO_SPORT: Record<string, string> = {
+  mlb: "mlb",
+  nba: "nba",
+  wnba: "wnba",
+  nhl: "nhl",
+  nfl: "nfl",
+  "college-football": "ncaaf",
+  "mens-college-basketball": "ncaab",
+};
+
 type EspnSchedEvent = {
   id: string;
   date: string;
@@ -243,6 +257,10 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const athleteId = String(req.query.athleteId || "");
   const opponentTeamId = String(req.query.opponentTeamId || "");
+  // Optional season (4-digit year). When present we pull THAT season's game
+  // log instead of the current one, via ESPN's real ?season= param.
+  const seasonReq = String(req.query.season || "").trim();
+  const season = /^\d{4}$/.test(seasonReq) ? seasonReq : "";
   if (!sportId || !athleteId) {
     res.status(400).json({ error: "sport and athleteId required" });
     return;
@@ -253,7 +271,7 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const key = `player-history:${path}:${athleteId}`;
+    const key = `player-history:${path}:${athleteId}:${season || "current"}`;
     type GameLog = {
       events?: Record<string, { id?: string; opponent?: { id?: string; displayName?: string }; gameDate?: string; atVs?: string }>;
       seasonTypes?: Array<{
@@ -264,9 +282,12 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       names?: string[];
       labels?: string[];
       glossary?: Array<{ abbreviation?: string; displayName?: string }>;
+      filters?: Array<{ name?: string; value?: string; options?: Array<{ value?: string; displayValue?: string }> }>;
     };
     const log = await cachedJson<GameLog>(key, 30 * 60 * 1000, async () => {
-      const url = `https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${athleteId}/gamelog`;
+      const url =
+        `https://site.web.api.espn.com/apis/common/v3/sports/${path}/athletes/${athleteId}/gamelog` +
+        (season ? `?season=${season}` : "");
       const r = await fetch(url);
       if (!r.ok) throw new Error(`ESPN gamelog ${r.status}`);
       return (await r.json()) as GameLog;
@@ -332,6 +353,25 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     const awayGames = flat.filter((g) => g.isHome === false);
     const homeSplit = splitAverages(homeGames);
     const awaySplit = splitAverages(awayGames);
+    // Full-season summary: per-game averages AND season totals (sums) for
+    // every numeric stat in the log. Counting stats (HR, PTS) read naturally
+    // as totals; rate stats (AVG) read as the season average. Both are REAL
+    // aggregates of the game log — the card chooses which to show per column.
+    const seasonAvg = splitAverages(flat);
+    const seasonTotals: Record<string, number> = {};
+    for (const g of flat) {
+      for (const [lab, raw] of Object.entries(g.stats)) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) continue;
+        seasonTotals[lab] = Math.round(((seasonTotals[lab] ?? 0) + n) * 100) / 100;
+      }
+    }
+    const seasonSummary = { games: flat.length, averages: seasonAvg.averages, totals: seasonTotals };
+    const seasonFilter = (log.filters ?? []).find((f) => f.name === "season");
+    const resolvedSeason = seasonFilter?.value ?? (season || null);
+    const availableSeasons = (seasonFilter?.options ?? [])
+      .map((o) => o.value)
+      .filter((v): v is string => !!v);
     res.json({
       sport: sportId,
       athleteId,
@@ -340,10 +380,69 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       vsOpponent,
       homeSplit,
       awaySplit,
+      season: resolvedSeason,
+      availableSeasons,
+      seasonSummary,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch player history");
-    res.json({ sport: sportId, athleteId, labels: [], recent: [], vsOpponent: [] });
+    res.json({ sport: sportId, athleteId, labels: [], recent: [], vsOpponent: [], season: null, availableSeasons: [], seasonSummary: { games: 0, averages: {}, totals: {} } });
+  }
+});
+
+// Player name search — resolves a free-text name to real ESPN athletes so the
+// chat can look up anyone, not just players in today's slate. Returns only
+// athletes whose league maps to a sport we can pull a game log for.
+router.get("/sports/player-search", async (req, res): Promise<void> => {
+  const query = String(req.query.query || req.query.name || "").trim();
+  if (query.length < 2) {
+    res.status(400).json({ error: "query (>= 2 chars) required" });
+    return;
+  }
+  type SearchItem = {
+    id?: string;
+    displayName?: string;
+    league?: string;
+    defaultLeagueSlug?: string;
+    isActive?: boolean;
+    isRetired?: boolean;
+    headshot?: { href?: string } | string | null;
+    teamRelationships?: Array<{ displayName?: string }>;
+  };
+  try {
+    const key = `player-search:${query.toLowerCase()}`;
+    const data = await cachedJson<{ items?: SearchItem[] }>(key, 30 * 60 * 1000, async () => {
+      const url =
+        `https://site.web.api.espn.com/apis/common/v3/search?region=us&lang=en&limit=12&type=player&query=` +
+        encodeURIComponent(query);
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`ESPN search ${r.status}`);
+      return (await r.json()) as { items?: SearchItem[] };
+    });
+    const results = [];
+    for (const it of data.items ?? []) {
+      const leagueSlug = String(it.league || it.defaultLeagueSlug || "").toLowerCase();
+      const sport = LEAGUE_TO_SPORT[leagueSlug];
+      if (!sport || !it.id || !it.displayName) continue;
+      const headshot =
+        typeof it.headshot === "string"
+          ? it.headshot
+          : it.headshot?.href ??
+            `https://a.espncdn.com/i/headshots/${leagueSlug}/players/full/${it.id}.png`;
+      results.push({
+        athleteId: it.id,
+        name: it.displayName,
+        sport,
+        league: leagueSlug,
+        team: it.teamRelationships?.[0]?.displayName ?? null,
+        headshot,
+        isActive: it.isActive !== false && it.isRetired !== true,
+      });
+    }
+    res.json({ query, results });
+  } catch (err) {
+    req.log.error({ err }, "Failed player search");
+    res.json({ query, results: [] });
   }
 });
 
