@@ -2372,6 +2372,24 @@ function parseStatLookup(raw) {
     return null;
   }
   const season = (low.match(/\b(20\d{2})\b/) || [])[1] || null;
+  // Capture an explicit opponent ("...against the Lakers", "vs Celtics") so the
+  // caller can surface a player's REAL stat lines from prior meetings this
+  // season. We grab the phrase after vs/versus/against/@, then strip stat words,
+  // season/filler tokens and "the", leaving just the team token(s). A team name
+  // is 1–3 words, so anything longer is treated as not-an-opponent.
+  let opponent = null;
+  const oppM = t.match(/\b(?:vs\.?|versus|against|@)\s+(?:the\s+)?(.+)$/i);
+  if (oppM) {
+    let o = oppM[1];
+    o = o.replace(/\b20\d{2}\b/g, " ");
+    o = o.replace(new RegExp(`\\b(${STAT_NOUNS})\\b`, "gi"), " ");
+    o = o.replace(
+      /\b(this season|last season|this year|career|so far|game ?log|box ?score|stat ?line|stats?|numbers|recent games?|last \d+ games?|last game|tonight|today|yesterday|do|did|does|have|had|get|got|put up|score[ds]?|scoring|rush(?:ed|ing)?|the|a|an|in|on|of|for)\b/gi,
+      " ",
+    );
+    o = o.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
+    if (o && o.length >= 3 && o.split(" ").length <= 3) opponent = o;
+  }
   let name = t;
   name = name.replace(/\b20\d{2}\b/g, " ");
   // Strip leading question/verb phrasing.
@@ -2400,6 +2418,14 @@ function parseStatLookup(raw) {
   name = name.replace(/\b(you|we|they|he|she|it|think|thinks|thought|believe|believes|guess|reckon|expect|expects|predict|predicts|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, " ");
   // Drop bare numbers (e.g. "score 20 points") — never part of a name.
   name = name.replace(/\b\d+\b/g, " ");
+  // Drop the captured opponent's tokens so they don't pollute the player-name
+  // lookup ("lebron celtics" → "lebron"). ESPN's search is fuzzy, so a stray
+  // team token can bind to the wrong athlete.
+  if (opponent) {
+    for (const tok of opponent.split(" ").filter((w) => w.length >= 3)) {
+      name = name.replace(new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ");
+    }
+  }
   name = name.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
   if (name.length < 2) return null;
   // A real player name is at most a few words; bail on long sentences.
@@ -2409,7 +2435,7 @@ function parseStatLookup(raw) {
   const period =
     /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(low) ||
     /\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(quarter|half|period|inning)\b/i.test(low);
-  return { name, season, period };
+  return { name, season, period, opponent };
 }
 
 // Real game-by-game PERIOD breakdown (e.g. "first quarter points, last 5
@@ -2472,6 +2498,7 @@ function PlayerStatCard({ data }) {
     name, team, sport, headshot, season, requestedSeason,
     availableSeasons = [], labels = [], summary = { games: 0, averages: {}, totals: {} },
     recent = [], note, periodRequested, statmuse, bballref,
+    vsOpponent = [], vsOpponentName, opponentRequested,
   } = data;
   const sportLabel = String(sport || "").toUpperCase();
   // Only treat a StatMuse answer as a real period split when its text actually
@@ -2529,6 +2556,53 @@ function PlayerStatCard({ data }) {
           </div>
         </div>
       </div>
+
+      {/* Player vs a specific opponent: real ESPN game-log lines from this
+          season's prior meeting(s). Empty → honest "no meeting found" note. */}
+      {opponentRequested && (
+        vsOpponent.length > 0 ? (
+          <div className="px-4 py-3 bg-cyan-500/10 border-b border-cyan-500/25">
+            <div className="text-[9px] uppercase tracking-widest text-cyan-300/80 font-mono mb-1.5">
+              vs {oppShort(vsOpponentName) || opponentRequested} · {season || "this season"} · {vsOpponent.length} meeting{vsOpponent.length === 1 ? "" : "s"}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px] tabular-nums">
+                <thead>
+                  <tr className="text-slate-500">
+                    <th className="text-left font-medium py-1 px-1.5 whitespace-nowrap">Date</th>
+                    <th className="text-left font-medium py-1 px-1.5 whitespace-nowrap">Site</th>
+                    {cols.map((c) => (
+                      <th key={c} className="text-right font-medium py-1 px-1.5 whitespace-nowrap">{c}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {vsOpponent.map((g, idx) => (
+                    <tr key={g.eventId || idx} className="border-t border-slate-700/40 text-slate-100">
+                      <td className="text-left py-1 px-1.5 whitespace-nowrap text-slate-400">{fmtDate(g.date)}</td>
+                      <td className="text-left py-1 px-1.5 whitespace-nowrap text-slate-300">
+                        {g.isHome === false ? "@ " : g.isHome === true ? "vs " : ""}{oppShort(g.opponentName)}
+                      </td>
+                      {cols.map((c) => (
+                        <td key={c} className="text-right py-1 px-1.5 whitespace-nowrap">{g.stats?.[c] ?? "—"}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              Real ESPN game-log lines from this season's head-to-head — the full game log is below.
+            </p>
+          </div>
+        ) : (
+          <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/25">
+            <p className="text-[11px] leading-snug text-amber-200/90">
+              No game vs <span className="font-semibold">{opponentRequested}</span> in ESPN's {season || "current-season"} log for {name} (they may not have met yet this season). The full game log is below.
+            </p>
+          </div>
+        )
+      )}
 
       {/* Period split requested AND StatMuse has it: StatMuse CAN answer
           quarter/half splits, so surface its REAL number prominently here
@@ -6103,6 +6177,7 @@ export default function ParlayBuilder() {
           }
           const hp = new URLSearchParams({ sport: top.sport, athleteId: String(top.athleteId) });
           if (lookup.season) hp.set("season", lookup.season);
+          if (lookup.opponent) hp.set("opponentName", lookup.opponent);
           const hr = await fetch(`/api/sports/player-history?${hp.toString()}`);
           const hj = hr.ok ? await hr.json() : null;
           if (!hj || !Array.isArray(hj.recent) || hj.recent.length === 0) {
@@ -6159,6 +6234,9 @@ export default function ParlayBuilder() {
             labels: hj.labels || [],
             summary: hj.seasonSummary || { games: 0, averages: {}, totals: {} },
             recent: hj.recent || [],
+            vsOpponent: Array.isArray(hj.vsOpponent) ? hj.vsOpponent : [],
+            vsOpponentName: hj.vsOpponentName || null,
+            opponentRequested: lookup.opponent || null,
             statmuse,
             bballref,
             note: others.length
@@ -6252,7 +6330,25 @@ export default function ParlayBuilder() {
         const avgs = c.summary && c.summary.averages
           ? Object.entries(c.summary.averages).map(([k, v]) => `${k} ${v}`).join(", ")
           : "";
-        card = `[Real data already shown to the user] ${c.name}${c.team ? ` (${c.team})` : ""} — ${c.season || "current"} season per-game averages: ${avgs || "n/a"}.${c.statmuse ? ` ${c.statmuse}` : ""} Real ESPN${c.bballref ? "/Basketball-Reference" : ""} data (full-game totals).`;
+        // Prior-meeting lines vs a named opponent, when the user asked for them —
+        // real per-game stat lines from this season's head-to-head.
+        let vsTxt = "";
+        if (c.opponentRequested && Array.isArray(c.vsOpponent) && c.vsOpponent.length) {
+          const oppNm = c.vsOpponentName || c.opponentRequested;
+          const lines = c.vsOpponent
+            .map((g) => {
+              const site = g.isHome === false ? "@" : "vs";
+              const stat = g.stats
+                ? Object.entries(g.stats).map(([k, v]) => `${k} ${v}`).join(", ")
+                : "";
+              return `${g.date ? new Date(g.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "?"} ${site} ${g.opponentName || oppNm}: ${stat}`;
+            })
+            .join("; ");
+          vsTxt = ` vs ${oppNm} this season (${c.vsOpponent.length} meeting${c.vsOpponent.length === 1 ? "" : "s"}): ${lines}.`;
+        } else if (c.opponentRequested) {
+          vsTxt = ` No game vs ${c.opponentRequested} found in this season's ESPN log.`;
+        }
+        card = `[Real data already shown to the user] ${c.name}${c.team ? ` (${c.team})` : ""} — ${c.season || "current"} season per-game averages: ${avgs || "n/a"}.${vsTxt}${c.statmuse ? ` ${c.statmuse}` : ""} Real ESPN${c.bballref ? "/Basketball-Reference" : ""} data (full-game totals).`;
       }
       // A card payload normally has empty content, but if a message ever carries
       // BOTH, keep the real text too rather than silently dropping it.

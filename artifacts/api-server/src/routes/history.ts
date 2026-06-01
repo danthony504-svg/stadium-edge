@@ -257,6 +257,11 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
   const sportId = String(req.query.sport || "").toLowerCase();
   const athleteId = String(req.query.athleteId || "");
   const opponentTeamId = String(req.query.opponentTeamId || "");
+  // Optional free-text opponent ("lakers", "the celtics") so the chat can
+  // surface a player's REAL stat lines from prior meetings vs that team this
+  // season — matched against the opponent names already in the player's own
+  // game log, so no global team database is needed and nothing is fabricated.
+  const opponentNameQ = String(req.query.opponentName || "").trim();
   // Optional season (4-digit year). When present we pull THAT season's game
   // log instead of the current one, via ESPN's real ?season= param.
   const seasonReq = String(req.query.season || "").trim();
@@ -324,9 +329,69 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       return bd - ad;
     });
     const recent = flat.slice(0, 10);
-    const vsOpponent = opponentTeamId
-      ? flat.filter((g) => g.opponentId === opponentTeamId).slice(0, 5)
-      : [];
+    // Prior meetings vs a specific opponent THIS season. Prefer an exact team-id
+    // match; otherwise fall back to fuzzy-matching a free-text hint ("lakers")
+    // against the opponent display names already in this player's log. Every row
+    // is a real game ESPN recorded — never fabricated.
+    const normTeam = (s: string | null | undefined) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9 ]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    let vsOpponent: typeof flat = [];
+    if (opponentTeamId) {
+      vsOpponent = flat.filter((g) => g.opponentId === opponentTeamId).slice(0, 10);
+    } else if (opponentNameQ) {
+      // Resolve the free-text hint to ONE real opponent the player actually
+      // faced, then filter strictly to it — never a loose substring match (which
+      // mixed teams, e.g. "and" ⊂ "ClevelAND", "new" matching both New York and
+      // New Orleans). We score each UNIQUE opponent on EXACT token hits, weight
+      // the nickname (last word) heavily, and only commit when there's a clear
+      // unique winner — ambiguous hints ("LA") return nothing (honest note).
+      const STOP = new Set(["the", "and", "of", "at", "vs", "fc", "sc", "team", "city", "state"]);
+      const toks = (s: string | null | undefined) =>
+        normTeam(s).split(" ").filter(Boolean);
+      const hintFull = normTeam(opponentNameQ);
+      const hintToks = toks(opponentNameQ).filter((w) => w.length >= 3 && !STOP.has(w));
+      if (hintToks.length) {
+        const byKey = new Map<string, { name: string | null; id: string | null; score: number }>();
+        for (const g of flat) {
+          if (!g.opponentName) continue;
+          const oToks = toks(g.opponentName);
+          if (!oToks.length) continue;
+          const nick = oToks[oToks.length - 1]; // last word ≈ team nickname
+          let score = 0;
+          for (const h of hintToks) {
+            if (h === nick) score += 3;
+            else if (oToks.includes(h)) score += 1;
+          }
+          if (hintFull === oToks.join(" ")) score += 5; // full-name exact match
+          const key = g.opponentId || g.opponentName;
+          const prev = byKey.get(key);
+          if (!prev || score > prev.score) {
+            byKey.set(key, { name: g.opponentName, id: g.opponentId, score });
+          }
+        }
+        const ranked = [...byKey.values()]
+          .filter((c) => c.score > 0)
+          // Score desc, then a stable secondary key (name asc) so equal scores
+          // order deterministically across runtimes — the tie check below must
+          // be reproducible, never dependent on Map/insertion order.
+          .sort((a, b) => b.score - a.score || String(a.name).localeCompare(String(b.name)));
+        const best = ranked[0];
+        // Ambiguous when >1 candidate shares the top score — return nothing.
+        const tie = ranked.filter((c) => c.score === best?.score).length > 1;
+        if (best && !tie) {
+          vsOpponent = flat
+            .filter((g) => (best.id ? g.opponentId === best.id : g.opponentName === best.name))
+            .slice(0, 10);
+        }
+      }
+    }
+    const vsOpponentName = vsOpponent[0]?.opponentName ?? null;
     // Home / away splits — per-stat average over the FULL season log (not
     // just the last 5), split by where the game was played. Only numeric
     // stats are averaged; rate stats (.241) and counting stats both parse.
@@ -378,6 +443,7 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       labels,
       recent,
       vsOpponent,
+      vsOpponentName,
       homeSplit,
       awaySplit,
       season: resolvedSeason,
@@ -386,7 +452,7 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch player history");
-    res.json({ sport: sportId, athleteId, labels: [], recent: [], vsOpponent: [], season: null, availableSeasons: [], seasonSummary: { games: 0, averages: {}, totals: {} } });
+    res.json({ sport: sportId, athleteId, labels: [], recent: [], vsOpponent: [], vsOpponentName: null, season: null, availableSeasons: [], seasonSummary: { games: 0, averages: {}, totals: {} } });
   }
 });
 
