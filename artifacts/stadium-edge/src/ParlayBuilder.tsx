@@ -7085,6 +7085,7 @@ export default function ParlayBuilder() {
     // game-level sides fill the whole ticket. Named/period tickets are exempt —
     // they intentionally lean on one game's depth.
     let breadthGameCap = Infinity;
+    let usablePropPlayers = 0;
     if (bigParlay && !periodOrSgpIntent) {
       const seenPropPlayers = new Set();
       for (const [eid, data] of Object.entries(mergedPropsByEvent)) {
@@ -7093,9 +7094,39 @@ export default function ParlayBuilder() {
         if (!gamePickable(gl, null, eventToStart[eid])) continue;
         for (const pr of (data.props || [])) { if (pr?.player) seenPropPlayers.add(pr.player); }
       }
+      usablePropPlayers = seenPropPlayers.size;
       const reservedPropSlots = Math.min(4, seenPropPlayers.size);
       breadthGameCap = Math.max(8, requestedLegs - reservedPropSlots);
     }
+    // THIN-SLATE PERIOD UNLOCK: a generic big parlay normally emits only full-game
+    // ML/Spread/Total per game (periods are gated to named/period intent). On a thin
+    // same-day slate (e.g. 8 games tonight) that caps the AI's pool at ~3 full-game
+    // markets per game, so after the one-leg-per-game + anti-correlation rules it
+    // honestly stops well short of a 15-leg ask — even though each game's quarter/
+    // half markets settle in DIFFERENT windows and are genuinely independent legs.
+    // When the distinct eligible-game count is fewer than the requested legs, turn
+    // period markets ON for the whole build so the AI can reach N from real period
+    // windows instead of falsely claiming the pool is too thin.
+    let distinctEligibleGames = 0;
+    for (const [, games] of Object.entries(realOddsBySportLocal)) {
+      const cnt = (games || []).filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime)).length;
+      distinctEligibleGames += Math.min(cnt, 12);
+    }
+    // Trigger on EFFECTIVE supply, not raw game count: distinct full-game legs PLUS
+    // the distinct prop players actually available this send. On a near-rich slate
+    // (e.g. 14 games + usable props for a 15-leg ask) the AI can already reach N from
+    // full-game sides + props, so we must NOT unlock periods there — doing so would
+    // spike per-game depth and let the 120-entry context cap truncate later games,
+    // costing cross-game breadth. Only when game-level + props genuinely fall short
+    // do we open period windows.
+    const thinBigParlay = bigParlay && !periodOrSgpIntent && (distinctEligibleGames + usablePropPlayers) < requestedLegs;
+    // When periods are unlocked on a thin slate, throttle per-game period depth so the
+    // 120-entry budget still spans every eligible game (reserve ~3 full-game entries
+    // per game). Few-game slates keep the full 12; a ~14-game boundary slate drops to
+    // ~5 so breadth survives the cap.
+    const thinPeriodCap = thinBigParlay
+      ? Math.max(4, Math.min(12, Math.floor(120 / Math.max(1, distinctEligibleGames)) - 3))
+      : 12;
     let breadthGameCount = 0;
     for (const [sport, games] of Object.entries(realOddsBySportLocal)) {
       const filtered = games.filter((g) => isWithin24h(g.commenceTime) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.commenceTime));
@@ -7109,7 +7140,7 @@ export default function ParlayBuilder() {
       for (const g of filtered.slice(0, 12)) {
         const label = `${g.awayTeam} @ ${g.homeTeam}`;
         const isNamed = namedGameLabelSet.has(label);
-        const includePeriods = isNamed || periodOrSgpIntent;
+        const includePeriods = isNamed || periodOrSgpIntent || thinBigParlay;
         const all = buildPicksFromOdds(g, includePeriods);
         // Send all main-market picks (ML/Spread/Total) PLUS a capped sample
         // of alternate spreads/totals so the AI can recommend a different
@@ -7123,7 +7154,7 @@ export default function ParlayBuilder() {
         // A named single game gets deep period inclusion (it's the whole pool
         // for that ticket); broad period/sgp intent across games gets a smaller
         // per-game sample so the prompt size stays bounded.
-        const periodCap = isNamed ? 60 : 12;
+        const periodCap = isNamed ? 60 : thinPeriodCap;
         // BREADTH OVER DEPTH for big parlays: a generic "15-leg" ask needs many
         // DISTINCT games' main lines (ML/Spread/Total), not deep alt ladders of a
         // few games. Each game's alts can eat ~14 of the realOdds 120-entry budget
