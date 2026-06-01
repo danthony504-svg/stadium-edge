@@ -2380,15 +2380,34 @@ function parseStatLookup(raw) {
   let opponent = null;
   const oppM = t.match(/\b(?:vs\.?|versus|against|@)\s+(?:the\s+)?(.+)$/i);
   if (oppM) {
-    let o = oppM[1];
-    o = o.replace(/\b20\d{2}\b/g, " ");
-    o = o.replace(new RegExp(`\\b(${STAT_NOUNS})\\b`, "gi"), " ");
-    o = o.replace(
-      /\b(this season|last season|this year|career|so far|game ?log|box ?score|stat ?line|stats?|numbers|recent games?|last \d+ games?|last game|tonight|today|yesterday|do|did|does|have|had|get|got|put up|score[ds]?|scoring|rush(?:ed|ing)?|the|a|an|in|on|of|for)\b/gi,
-      " ",
-    );
-    o = o.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
-    if (o && o.length >= 3 && o.split(" ").length <= 3) opponent = o;
+    // Capture ONLY the team phrase right after vs/against. Team names are word
+    // tokens (incl. "golden state", "trail blazers", "oklahoma city"), so take
+    // the leading words and STOP at the first connector / time / stat word
+    // ("in their last few games", "this season", "tonight"). The previous
+    // approach grabbed the whole tail and then length-rejected it, so a normal
+    // phrasing like "vs the knicks in their last few games" became 5 words and
+    // dropped to null — which silently fell back to the player's generic
+    // last-10 period log for the WRONG opponent (the reported bug).
+    const oppStop = new Set([
+      "in", "on", "over", "during", "this", "last", "recent", "lately",
+      "their", "his", "her", "its", "our", "for", "of", "to", "game", "games",
+      "season", "seasons", "year", "years", "tonight", "today", "yesterday",
+      "night", "so", "far", "past", "few", "couple", "several", "matchup",
+      "matchups", "meeting", "meetings", "since", "when", "while", "and", "or",
+      "but", "do", "did", "does", "have", "had", "has", "score", "scored",
+      "scoring",
+    ]);
+    const statRe = new RegExp(`^(?:${STAT_NOUNS})$`, "i");
+    const toks = [];
+    for (const w of oppM[1].replace(/[?.!,]/g, " ").trim().split(/\s+/)) {
+      const lw = w.toLowerCase();
+      if (!lw) continue;
+      if (oppStop.has(lw) || /^\d+$/.test(lw) || statRe.test(lw)) break;
+      toks.push(w);
+      if (toks.length >= 3) break;
+    }
+    const o = toks.join(" ").trim();
+    if (o && o.length >= 2) opponent = o;
   }
   let name = t;
   name = name.replace(/\b20\d{2}\b/g, " ");
@@ -2443,7 +2462,7 @@ function parseStatLookup(raw) {
 // rows come from StatMuse's results grid. Every value is real; totals/averages
 // are derived from those real values, never fabricated.
 function PeriodGameLogCard({ data }) {
-  const { player, period, stat, rows = [] } = data || {};
+  const { player, period, stat, rows = [], vsOpponentName } = data || {};
   const nums = rows
     .map((r) => parseFloat(String(r.value).replace(/[^0-9.\-]/g, "")))
     .filter((n) => Number.isFinite(n));
@@ -2462,7 +2481,10 @@ function PeriodGameLogCard({ data }) {
       </span>
       <h3 className="text-[15px] font-bold text-white mt-0.5">{player || "Player"}</h3>
       <p className="text-[12px] text-violet-200 mb-3">
-        {title} · last {rows.length} game{rows.length === 1 ? "" : "s"}
+        {title}
+        {vsOpponentName
+          ? ` · vs ${vsOpponentName} · ${rows.length} meeting${rows.length === 1 ? "" : "s"}`
+          : ` · last ${rows.length} game${rows.length === 1 ? "" : "s"}`}
       </p>
       <div className="divide-y divide-white/5">
         {rows.map((r, i) => (
@@ -5956,7 +5978,13 @@ export default function ParlayBuilder() {
         /\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(quarter|half|period|inning)\b/i.test(lowQ);
       const perGameAsk =
         /\b(game[ -]?by[ -]?game|each game|each of (?:his|her|their|the)|every game|broken down|individually|game ?log)\b/i.test(lowQ);
-      if (notParlay && periodAsk && perGameAsk) {
+      // An explicit opponent ("vs the Knicks", "against OKC") must NOT use this
+      // raw-text branch: StatMuse ignores opponent filters in this phrasing, so
+      // it would silently show the player's generic recent log as if it were
+      // vs that team. Let it fall through to parseStatLookup, whose period
+      // branch verifies the opponent against ESPN before showing anything.
+      const hasOpponentAsk = /\b(?:vs\.?|versus|against|@)\s+(?:the\s+)?[a-z]/i.test(lowQ);
+      if (notParlay && periodAsk && perGameAsk && !hasOpponentAsk) {
         setInput("");
         setMessages((p) => [...p, { role: "user", content: text }]);
         setLoading(true);
@@ -6090,6 +6118,89 @@ export default function ParlayBuilder() {
                 /\b(blocks?|blk)\b/i.test(lowQ) ? "blocks" :
                 /\b(3[- ]?pointers?|threes?|3pm|3pt|treys?)\b/i.test(lowQ) ? "3-pointers" :
                 "points";
+              // Opponent-scoped period log ("Q1 points vs the Knicks"). StatMuse
+              // ignores opponent filters when "last N games"/"this season" is in
+              // the query, so we phrase it as "against the <opp> game by game"
+              // and verify every returned row against ESPN before showing it.
+              if (lookup.opponent) {
+                // Resolve the opponent to the player's REAL meeting dates this
+                // season (ESPN), then keep only StatMuse period rows whose date
+                // matches one of them. Dates are the one key both sources agree
+                // on — team ABBREVIATIONS diverge (ESPN "NY" vs StatMuse "NYK",
+                // "GS"/"GSW", "WSH"/"WAS"), so matching on those would silently
+                // drop real rows. A ±1-day window absorbs the known ESPN-UTC vs
+                // StatMuse-US-local off-by-one (e.g. ESPN 2026-01-01T00:00Z is
+                // StatMuse's 12/31/2025). This also self-guards against the
+                // prior bug: if StatMuse ignores the opponent and returns a
+                // generic recent log, none of those dates line up with the
+                // meeting dates, so we show the honest note — never wrong-team
+                // data.
+                let vsName = null;
+                let meetingDays = [];
+                const dayIdx = (s) => {
+                  if (!s) return null;
+                  const md = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                  let ms;
+                  if (md) ms = Date.UTC(+md[3], +md[1] - 1, +md[2]);
+                  else { const t = Date.parse(s); if (Number.isNaN(t)) return null; ms = t; }
+                  return Math.floor(ms / 86400000);
+                };
+                try {
+                  const hr = await fetch(
+                    `/api/sports/player-history?sport=${encodeURIComponent(top.sport)}&athleteId=${encodeURIComponent(String(top.athleteId))}&opponentName=${encodeURIComponent(lookup.opponent)}`,
+                  );
+                  const hj = hr.ok ? await hr.json() : null;
+                  vsName = hj?.vsOpponentName || null;
+                  meetingDays = (Array.isArray(hj?.vsOpponent) ? hj.vsOpponent : [])
+                    .map((g) => dayIdx(g.date))
+                    .filter((n) => n != null);
+                } catch { /* fall through to honest note */ }
+                let oppRows = [];
+                let pjMeta = null;
+                if (meetingDays.length) {
+                  try {
+                    const pq = `${top.name} ${periodPhrase} ${statWord} against the ${lookup.opponent} game by game`;
+                    const pr = await fetch(
+                      `/api/sports/statmuse-gamelog?q=${encodeURIComponent(pq)}&league=${encodeURIComponent(top.sport)}`,
+                    );
+                    const pj = pr.ok ? await pr.json() : null;
+                    if (pj && Array.isArray(pj.rows)) {
+                      pjMeta = pj;
+                      oppRows = pj.rows.filter((r) => {
+                        const ri = dayIdx(r.date);
+                        return ri != null && meetingDays.some((md) => Math.abs(md - ri) <= 1);
+                      });
+                    }
+                  } catch { /* fall through to honest note */ }
+                }
+                if (oppRows.length) {
+                  setMessages((p) => [...p, {
+                    role: "assistant",
+                    content: "",
+                    periodGameLog: { ...pjMeta, rows: oppRows, vsOpponentName: vsName },
+                  }]);
+                } else {
+                  const oppDisp = vsName || lookup.opponent;
+                  setMessages((p) => [...p, {
+                    role: "assistant",
+                    content: `I couldn't pull verified ${periodPhrase} ${statWord} for **${top.name}** vs ${oppDisp}. ESPN game logs don't carry period splits, and StatMuse didn't return per-game ${periodPhrase} numbers for their meetings — so I won't guess. I can show ${top.name}'s recent ${periodPhrase} ${statWord}, or full-game numbers vs ${oppDisp}.`,
+                  }]);
+                }
+                setLoading(false);
+                return;
+              }
+              // The user named an opponent ("vs <team>") but parseStatLookup
+              // couldn't resolve it to a team phrase — show an honest note
+              // rather than silently answering with the generic last-10 period
+              // log (which would be the WRONG opponent's data).
+              if (/\b(?:vs\.?|versus|against|@)\s+(?:the\s+)?[a-z]/i.test(text)) {
+                setMessages((p) => [...p, {
+                  role: "assistant",
+                  content: `I couldn't tell which team you meant for **${top.name}**'s ${periodPhrase} ${statWord}. Try a clear team name — e.g. "vs the Knicks" or "against Golden State" — and I'll pull their verified head-to-head ${periodPhrase} numbers.`,
+                }]);
+                setLoading(false);
+                return;
+              }
               try {
                 const pq = `${top.name} ${periodPhrase} ${statWord} last 10 games`;
                 const pr = await fetch(
