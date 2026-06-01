@@ -6024,6 +6024,77 @@ export default function ParlayBuilder() {
                 const pj = pr.ok ? await pr.json() : null;
                 if (pj && Array.isArray(pj.rows) && pj.rows.length) {
                   setMessages((p) => [...p, { role: "assistant", content: "", periodGameLog: pj }]);
+                  // If the user asked a forward-looking PROJECTION ("how many do
+                  // you think he'll score", "will score", "predict") — not just a
+                  // raw "show me his last 10 games" data request — follow the grid
+                  // with a grounded AI projection. Without this the branch used to
+                  // short-circuit on the grid and never answer the actual question.
+                  const wantsProjection =
+                    /\b(think|will|would|predict|projection|project|expect|expecting|going to|gonna|chance|chances|likely|how many|over\/under|o\/u|match\s?up|do against|perform)\b/i.test(lowQ) &&
+                    // ...but not a backward-looking history ask ("how many did he
+                    // score last game", "his previous/last 10 games") — those just
+                    // want the grid, not a forecast.
+                    !/\b(did|last\s+(\d+\s+)?games?|last\s+game|previous\s+game|so\s+far|this\s+season|career)\b/i.test(lowQ);
+                  if (wantsProjection) {
+                    const nums = pj.rows
+                      .map((r: { value: string }) => parseFloat(r.value))
+                      .filter((n: number) => !isNaN(n));
+                    const avg = nums.length
+                      ? (nums.reduce((a: number, b: number) => a + b, 0) / nums.length).toFixed(1)
+                      : "n/a";
+                    const lines = pj.rows
+                      .map((r: { date: string; loc?: string; opp?: string; value: string }) =>
+                        `${r.date} ${r.loc || "vs"}${r.opp || "?"} ${r.value}`)
+                      .join("; ");
+                    const grounded = `[Real data already shown to the user] ${pj.player} — ${pj.period} ${pj.stat}${pj.statLabel ? ` (${pj.statLabel})` : ""}, last ${pj.rows.length} games: ${lines} (avg ${avg}). Real per-game ${pj.period} splits from StatMuse. The opponent for each game is in each entry, so prior meetings vs a given team can be read directly from this list.`;
+                    setMessages((p) => [...p, { role: "assistant", content: "" }]);
+                    let full = "";
+                    try {
+                      const cr = await fetch("/api/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          messages: [{ role: "user", content: `${text}\n\n${grounded}` }],
+                        }),
+                      });
+                      if (cr.ok && cr.body) {
+                        const reader = cr.body.getReader();
+                        const dec = new TextDecoder();
+                        let buf = "";
+                        while (true) {
+                          const { done, value } = await reader.read();
+                          if (done) break;
+                          buf += dec.decode(value, { stream: true });
+                          const chunks = buf.split("\n\n");
+                          buf = chunks.pop() || "";
+                          for (const ch of chunks) {
+                            if (!ch.startsWith("data: ")) continue;
+                            try {
+                              const d = JSON.parse(ch.slice(6));
+                              if (d.content) {
+                                full += d.content;
+                                setMessages((p) => {
+                                  const nx = p.slice();
+                                  nx[nx.length - 1] = { role: "assistant", content: full };
+                                  return nx;
+                                });
+                              }
+                            } catch { /* ignore non-JSON keep-alive frames */ }
+                          }
+                        }
+                      }
+                    } catch { /* fall through to the empty-stream message below */ }
+                    if (!full.trim()) {
+                      setMessages((p) => {
+                        const nx = p.slice();
+                        nx[nx.length - 1] = {
+                          role: "assistant",
+                          content: "That didn't come back in time — tap send to try again.",
+                        };
+                        return nx;
+                      });
+                    }
+                  }
                   setLoading(false);
                   return;
                 }
