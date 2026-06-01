@@ -192,6 +192,8 @@ STATMUSE FACTS RULE — USE context.statmuseFacts (REAL, VERIFIED): when context
 
 MLB PLATOON RULE — USE mlbPlatoon (lefty/righty): when context.mlbPlatoon is present, it is a map keyed "Player Name#athleteId" (ignore the id suffix) for MLB batters in the prop pool. Each entry has: bats (the batter's hand: Left/Right/Switch), opposingPitcherName, opposingPitcherThrows (the probable starter's hand), platoon ("advantage" = opposite hands, the classic platoon edge; "disadvantage" = same hand; "switch" = switch-hitter, always bats from the favorable side), vsThatHand (the batter's REAL season split line vs the opposing pitcher's hand, e.g. { AVG, OBP, SLG, OPS, HR, ... }), plus vsLeft / vsRight for reference. How to weigh it: platoon "advantage" or "switch" + a strong vsThatHand line (high AVG/SLG/OPS or HR rate vs that hand) supports OVER on that batter's hits / total-bases / HR props; platoon "disadvantage" + a weak vsThatHand line supports UNDER or skipping the batter. ALWAYS cite the real split numbers when you use it ("Soto (L) vs RHP Rodriguez — .290/.560 vs righties this year, clear platoon edge, TB over has room"). Only applies to MLB batter props. When mlbPlatoon has no entry for a batter, or opposingPitcherThrows / vsThatHand is null, skip this rule — never invent handedness or a split line.
 
+MLB BATTER-VS-PITCHER RULE — USE context.mlbBatterVsPitcher (REAL career matchup, StatMuse): when present it is an array of { batter, pitcher, line, pa } where 'line' is a REAL natural-language career batting line for THIS batter against TONIGHT'S probable starter (e.g. "Freddie Freeman has a batting average of .340 with a homer and 7 RBIs in 55 plate appearances against Logan Webb in his career.") and 'pa' is the plate-appearance sample size. This is the ONE matchup factor the platoon (hand) split can't capture — how this exact hitter has actually fared against this exact pitcher. HOW TO WEIGH IT BY SAMPLE SIZE (this is critical — small samples lie): pa < ~20 → treat the line as a MINOR anecdotal note only, never the primary reason for a pick, and explicitly call it a small sample ("small sample, 12 PA"). pa >= ~20 with a clearly STRONG line (high AVG/SLG, multiple HR) is a real tilt toward that batter's hits / total-bases / HR OVER; pa >= ~20 with a clearly WEAK line (e.g. 2-for-20, no extra-base hits) supports the UNDER or skipping that batter. ALWAYS quote the exact line and the PA count, and STACK it with platoon + opposing-pitcher tendency + park/weather + recent form — never let a tiny BvP sample outweigh those. When a batter has no entry here, skip this factor entirely — never estimate or invent a batter-vs-pitcher line.
+
 MLB HOME-RUN & STRIKEOUT ENVIRONMENT RULE — USE mlbGameEnv + mlbPlatoon (REAL data only): context.mlbGameEnv, when present, is a map keyed by the game label ("Away @ Home", the same label used in realGames / realProps) carrying REAL environment data for that MLB game:
   - park: { hrIndex (HR park factor where 100 = MLB average; >100 boosts home runs, <100 suppresses), altitudeFt, dome }. hrIndex is a multi-year reference index (a prior), not a live per-game stat — treat it as a tilt, not proof.
   - weather: { tempF, condition, windMph, humidity } — a REAL current ballpark weather reading (a snapshot near now, NOT a precise first-pitch forecast — treat it as the current conditions trend, don't overstate its precision). The whole block is null (and climateControlled may be true) for domes/retractable roofs (treat weather as NEUTRAL and say so) or when unavailable; any individual field may also be null — skip that field, never guess it.
@@ -203,7 +205,7 @@ HOW TO WEIGH IT — HOME-RUN props (batter_home_runs / total_bases). Stack the R
   - Combine with mlbPlatoon (advantage + strong vsThatHand SLG/HR) and playerHistory recent form. The best HR setups STACK: hitter-friendly park (high hrIndex / altitude) + warm temperature + HR-prone opposing starter (high hrPer9 / flyBallPct / oppOPS) + platoon edge (advantage hands + strong vsThatHand SLG/HR) + a hot bat (recent HR/extra-base form). Cite each piece you used; the more of these REAL signals align, the stronger the call.
   - Run environment: a high posted game total and a high implied team total (derive it yourself from the game's total and that team's spread in realOdds — the favored / high-total side projects more runs) lifts HR probability; cite the total.
 HOW TO WEIGH IT — STRIKEOUT props (pitcher_strikeouts): use the PITCHER'S OWN tendency.kPer9 (>= ~9.5 is a strong K arm supporting the OVER; <= ~7 argues UNDER) plus his recent K form in playerHistory; a LOW game total / pitcher-friendly run environment supports the strikeout OVER; a high-strikeout opposing offense (opponentDefense / matchupHistory) supports the OVER while a high-contact, low-K, high-OPS offense argues UNDER. Cite the kPer9 and the total.
-NEVER-FABRICATE CLAUSE (MLB analytics — STRICT): we do NOT have Statcast / Baseball Savant data. There is NO barrel rate, exit velocity, launch angle, hard-hit %, batter fly-ball rate, batter pull rate / spray-direction, pitch-type / pitch-mix (e.g. "throws fastballs 60%"), live pitch count / in-game pitcher fatigue / velocity drop, day-vs-night HR split, or batter-vs-this-specific-pitcher career line anywhere in the context. NEVER cite, estimate, or imply any of those numbers, even if the user lists them as factors they want considered — instead reason from the REAL fields provided (park, weather, pitcher tendency, platoon, recent form, totals) and, if relevant, briefly note that Statcast metrics aren't in this feed. When any field is null/absent, skip it silently. NOTE: tendency.flyBallPct is the PITCHER's batted-ball share from ESPN — it is NOT a Statcast batter metric; use it only to describe the pitcher.
+NEVER-FABRICATE CLAUSE (MLB analytics — STRICT): we do NOT have Statcast / Baseball Savant data. There is NO barrel rate, exit velocity, launch angle, hard-hit %, batter fly-ball rate, batter pull rate / spray-direction, pitch-type / pitch-mix (e.g. "throws fastballs 60%"), live pitch count / in-game pitcher fatigue / velocity drop, or day-vs-night HR split anywhere in the context. NEVER cite, estimate, or imply any of those numbers, even if the user lists them as factors they want considered — instead reason from the REAL fields provided (park, weather, pitcher tendency, platoon, recent form, totals) and, if relevant, briefly note that Statcast metrics aren't in this feed. The ONE exception is batter-vs-specific-pitcher career history: that IS available, but ONLY as the REAL StatMuse lines in context.mlbBatterVsPitcher — cite only the lines actually provided there (weighted by their pa sample size per the MLB BATTER-VS-PITCHER RULE), and never estimate or invent a batter-vs-pitcher line that isn't present. When any field is null/absent, skip it silently. NOTE: tendency.flyBallPct is the PITCHER's batted-ball share from ESPN — it is NOT a Statcast batter metric; use it only to describe the pitcher.
 
 MATCHUP-EDGE → ALT-LINE RULE: when conviction on a side is STRONG, do not always default to the main line at -110 — step to a better-priced alt rung that still respects the HARD BAN on alts priced -1000 or worse. The point is to convert real matchup conviction into BETTER PAYOUT odds (a +money or near pick-em alt rung beats taking the favorite-juice main line). This rule splits cleanly into two cases — apply the right criteria for each, do not cross them:
 
@@ -985,6 +987,77 @@ router.post("/chat", async (req, res): Promise<void> => {
         }
       }
     }
+    // MLB BATTER-VS-PITCHER — pull each batter's REAL career line vs tonight's
+    // probable starter from StatMuse (e.g. "Freeman .340 with a homer in 55 PA
+    // vs Webb"). This is the one matchup factor the platoon (hand) split can't
+    // capture: how this exact hitter has actually done vs this exact pitcher.
+    // We reuse mlbPlatoon (already built client-side) for the batter→opposing-
+    // starter pairing. We KEEP only answers with a real sample (plate
+    // appearances / at-bats); "never faced" / boilerplate answers carry no
+    // signal and are dropped (honest no-data).
+    const bvpFetches: Array<
+      Promise<{ batter: string; pitcher: string; line: string; pa: number | null } | null>
+    > = [];
+    {
+      const ctxPlatoon =
+        ((lockedContext as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon) ||
+        ((parsed.data.context as { mlbPlatoon?: Record<string, unknown> })?.mlbPlatoon);
+      if (ctxPlatoon && typeof ctxPlatoon === "object") {
+        const entries = Object.values(ctxPlatoon).filter(
+          (e): e is { player: string; opposingPitcherName: string } =>
+            !!e &&
+            typeof e === "object" &&
+            typeof (e as { player?: unknown }).player === "string" &&
+            typeof (e as { opposingPitcherName?: unknown }).opposingPitcherName === "string" &&
+            !!(e as { opposingPitcherName?: string }).opposingPitcherName,
+        );
+        const wordReB = (s: string) =>
+          new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+        // Diacritic-insensitive normalize + meaningful surname (drops Jr/Sr/II…)
+        // so the answer-validation below matches "Diaz" against StatMuse's "Díaz".
+        const normTxt = (s: string) =>
+          s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const surnameOf = (full: string) => {
+          const toks = normTxt(full)
+            .replace(/[.]/g, "")
+            .split(/\s+/)
+            .filter((t) => t && !/^(jr|sr|ii|iii|iv|v)$/.test(t));
+          return toks[toks.length - 1] || "";
+        };
+        // Prefer batters the user NAMED; otherwise research the whole pool (capped).
+        const named = entries.filter((e) => {
+          const last = e.player.split(/\s+/).pop() || "";
+          return wordReB(e.player).test(latestUser) || (last.length >= 3 && wordReB(last).test(latestUser));
+        });
+        const seenBvp = new Set<string>();
+        for (const e of named.length ? named : entries) {
+          const key = `${e.player}|${e.opposingPitcherName}`.toLowerCase();
+          if (seenBvp.has(key) || seenBvp.size >= 6) continue;
+          seenBvp.add(key);
+          bvpFetches.push(
+            askStatMuse(`${e.player} career vs ${e.opposingPitcherName}`, "mlb").then((r) => {
+              const a = r.answer;
+              if (!a) return null;
+              // ENTITY GUARD: StatMuse can resolve an ambiguous name to a DIFFERENT
+              // player and still return a counted line. Require the answer to name
+              // BOTH the intended batter and the opposing pitcher (surname match,
+              // diacritic-insensitive) before trusting it as tonight's matchup.
+              const al = normTxt(a);
+              const bLast = surnameOf(e.player);
+              const pLast = surnameOf(e.opposingPitcherName);
+              if (bLast.length >= 3 && !al.includes(bLast)) return null;
+              if (pLast.length >= 3 && !al.includes(pLast)) return null;
+              // Require a real sample (plate appearances / at-bats). "Never faced"
+              // / count-less answers carry no signal → drop.
+              const paM = a.match(/([\d,]+)\s+(?:plate appearances|pa|at[-\s]?bats?|ab)\b/i);
+              const pa = paM ? Number(paM[1].replace(/,/g, "")) : null;
+              if (pa == null) return null;
+              return { batter: e.player, pitcher: e.opposingPitcherName, line: a, pa };
+            }),
+          );
+        }
+      }
+    }
     // Strict enrichment time budget: StatMuse facts are a nice-to-have, never
     // worth delaying the model. If the lookups don't all resolve within the
     // budget we ship what we have / nothing — the in-flight fetches still
@@ -1003,12 +1076,35 @@ router.post("/chat", async (req, res): Promise<void> => {
           setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
         ),
       ]);
-    const results = await Promise.all(
-      [...teamFetches, questionFetch, ...periodLogFetches].map(withDeadline),
-    );
+    // Resolve ALL StatMuse enrichment (facts + batter-vs-pitcher) under ONE
+    // shared deadline pass so enrichment can never add more than the single ~3s
+    // budget to the chat. (Awaiting the two phases sequentially could stack to
+    // ~6s.) Both deadline timers start together here.
+    const [results, bvpResults] = await Promise.all([
+      Promise.all([...teamFetches, questionFetch, ...periodLogFetches].map(withDeadline)),
+      Promise.all(
+        bvpFetches.map((p) =>
+          Promise.race([
+            p,
+            new Promise<{ batter: string; pitcher: string; line: string; pa: number | null } | null>(
+              (resolve) => setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
+            ),
+          ]),
+        ),
+      ),
+    ]);
     const statmuseFacts = results.filter((x): x is { q: string; a: string } => !!x);
     if (statmuseFacts.length && lockedContext && typeof lockedContext === "object") {
       lockedContext = { ...(lockedContext as Record<string, unknown>), statmuseFacts } as typeof lockedContext;
+    }
+    const mlbBatterVsPitcher = bvpResults.filter(
+      (x): x is { batter: string; pitcher: string; line: string; pa: number | null } => !!x,
+    );
+    if (mlbBatterVsPitcher.length && lockedContext && typeof lockedContext === "object") {
+      lockedContext = {
+        ...(lockedContext as Record<string, unknown>),
+        mlbBatterVsPitcher,
+      } as typeof lockedContext;
     }
   } catch {
     // StatMuse is best-effort enrichment — never block a chat on it.
