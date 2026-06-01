@@ -5987,6 +5987,49 @@ export default function ParlayBuilder() {
             setLoading(false);
             return;
           }
+          // Period intent without an explicit "game by game" ask (e.g. "how many
+          // points will Wembanyama score in the FIRST QUARTER"). ESPN game logs
+          // are full-game only, so surface the player's REAL recent per-game
+          // period splits from StatMuse instead of the full-game note. Built from
+          // the resolved clean name + canonical phrasing for a reliable grid;
+          // falls through to the full-game card (with its honest note) on any
+          // miss, so we never fabricate a period number.
+          if (lookup.period) {
+            const periodPhrase =
+              /\b(q1|1q|1st quarter|first quarter)\b/i.test(lowQ) ? "first quarter" :
+              /\b(q2|2q|2nd quarter|second quarter)\b/i.test(lowQ) ? "second quarter" :
+              /\b(q3|3q|3rd quarter|third quarter)\b/i.test(lowQ) ? "third quarter" :
+              /\b(q4|4q|4th quarter|fourth quarter)\b/i.test(lowQ) ? "fourth quarter" :
+              /\b(h1|1h|1st half|first half)\b/i.test(lowQ) ? "first half" :
+              /\b(h2|2h|2nd half|second half)\b/i.test(lowQ) ? "second half" :
+              /\b(1st period|first period)\b/i.test(lowQ) ? "first period" :
+              /\b(2nd period|second period)\b/i.test(lowQ) ? "second period" :
+              /\b(3rd period|third period)\b/i.test(lowQ) ? "third period" :
+              /\bhalf\b/i.test(lowQ) ? "first half" :
+              /\bperiod\b/i.test(lowQ) ? "first period" :
+              /\bquarter\b/i.test(lowQ) ? "first quarter" : "";
+            if (periodPhrase) {
+              const statWord =
+                /\b(rebounds?|reb|boards?)\b/i.test(lowQ) ? "rebounds" :
+                /\b(assists?|ast|dimes?)\b/i.test(lowQ) ? "assists" :
+                /\b(steals?|stl)\b/i.test(lowQ) ? "steals" :
+                /\b(blocks?|blk)\b/i.test(lowQ) ? "blocks" :
+                /\b(3[- ]?pointers?|threes?|3pm|3pt|treys?)\b/i.test(lowQ) ? "3-pointers" :
+                "points";
+              try {
+                const pq = `${top.name} ${periodPhrase} ${statWord} last 10 games`;
+                const pr = await fetch(
+                  `/api/sports/statmuse-gamelog?q=${encodeURIComponent(pq)}&league=${encodeURIComponent(top.sport)}`,
+                );
+                const pj = pr.ok ? await pr.json() : null;
+                if (pj && Array.isArray(pj.rows) && pj.rows.length) {
+                  setMessages((p) => [...p, { role: "assistant", content: "", periodGameLog: pj }]);
+                  setLoading(false);
+                  return;
+                }
+              } catch { /* fall through to full-game card below */ }
+            }
+          }
           const hp = new URLSearchParams({ sport: top.sport, athleteId: String(top.athleteId) });
           if (lookup.season) hp.set("season", lookup.season);
           const hr = await fetch(`/api/sports/player-history?${hp.toString()}`);

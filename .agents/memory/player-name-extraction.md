@@ -39,3 +39,18 @@ in the PRIMARY strip. Instead put `will` in `NAME_FALLBACK_SKIP` only — it's s
 re-introduces the bug; without the Will-Smith carve-out, fixing the bug breaks real names.
 Verify against the LIVE api-server (ESPN behavior can't be mocked) — replicate parseStatLookup
 + fallback in a node script and assert resolved player names.
+
+## Period questions WITHOUT "game by game" → real splits, not the full-game note
+A period ask alone ("how many points will X score in the FIRST QUARTER") used to require
+ALSO matching perGameAsk ("game by game") to hit `/api/sports/statmuse-gamelog`; otherwise it
+fell to the ESPN full-game card + honest "no period splits" note. Now, after the player
+resolves to a real ESPN player (`top`) and BEFORE the full-game history fetch, an
+`if (lookup.period)` branch builds a CANONICAL query `"<top.name> <periodPhrase> <statWord>
+last 10 games"` (period/stat normalized CLIENT-side, not the raw user text) and renders the
+real per-game `PeriodGameLogCard`. On any StatMuse miss it falls THROUGH to the full-game
+card — so it never fabricates a period number.
+**Why canonical client-side query, not raw text:** the raw projection phrasing ("do you
+think … wednesday") contaminates StatMuse's headline player-resolution; feeding the clean
+resolved name + canonical phrasing reliably returns the per-game grid.
+**Scope:** only sports StatMuse has period box scores for (NBA quarters/halves, NHL periods).
+MLB innings aren't mapped by the client period normalizer → skips → full-game fallback. Fine.
