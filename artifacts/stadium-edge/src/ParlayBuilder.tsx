@@ -2407,7 +2407,7 @@ function PeriodGameLogCard({ data }) {
   return (
     <div className="rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4 max-w-full">
       <span className="text-[10px] uppercase tracking-wider text-violet-300 font-semibold">
-        StatMuse · game by game
+        Game by game
       </span>
       <h3 className="text-[15px] font-bold text-white mt-0.5">{player || "Player"}</h3>
       <p className="text-[12px] text-violet-200 mb-3">
@@ -2436,7 +2436,7 @@ function PeriodGameLogCard({ data }) {
         </div>
       )}
       <p className="mt-2 text-[10px] text-slate-500">
-        Real per-game data via StatMuse — period splits aren't in ESPN game logs.
+        Real per-game data — period splits aren't in ESPN game logs.
       </p>
     </div>
   );
@@ -2512,7 +2512,7 @@ function PlayerStatCard({ data }) {
       {periodRequested && statmuseIsPeriod && (
         <div className="px-4 py-3 bg-violet-500/15 border-b border-violet-500/30">
           <div className="text-[9px] uppercase tracking-widest text-violet-300/80 font-mono mb-1">
-            StatMuse · period split
+            Period split
           </div>
           <p className="text-[13px] leading-snug text-violet-50 font-medium">{statmuse}</p>
           <p className="text-[10px] leading-snug text-slate-400 mt-1.5">
@@ -2588,9 +2588,6 @@ function PlayerStatCard({ data }) {
             shown prominently at the top as a verified period split. */}
         {statmuse && !(periodRequested && statmuseIsPeriod) && (
           <div className="mt-2.5 mx-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2">
-            <div className="text-[9px] uppercase tracking-widest text-violet-300/80 font-mono mb-0.5">
-              StatMuse
-            </div>
             <p className="text-[12px] leading-snug text-violet-100">{statmuse}</p>
           </div>
         )}
@@ -5914,7 +5911,7 @@ export default function ParlayBuilder() {
             if (smAnswer) {
               setMessages((p) => [...p, {
                 role: "assistant",
-                content: `**StatMuse:** ${smAnswer}`,
+                content: smAnswer,
               }]);
               setLoading(false);
               return;
