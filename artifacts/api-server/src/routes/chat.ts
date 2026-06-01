@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import OpenAI from "openai";
 import { SendChatMessageBody } from "@workspace/api-zod";
 import { rateLimit } from "../lib/sports.js";
+import { askStatMuse, resolveStatMuseLeague } from "../lib/statmuse.js";
 
 const router: IRouter = Router();
 
@@ -182,6 +183,8 @@ How to weigh it for prop legs:
 REST & FATIGUE RULE — USE matchupHistory.homeRest / awayRest: when a matchupHistory entry has homeRest or awayRest, each is { restDays, backToBack } computed from that team's last COMPLETED game vs tonight's start — REAL data, not a guess. Weigh it (guides, not hard rules): backToBack: true (restDays 0-1) is a fatigue red flag, especially in the NBA and for the road team — lean UNDER on that team's scoring props and give a slight edge to a well-rested opponent's side/total. A clear rest EDGE (one team on 2+ days rest vs an opponent on a back-to-back) is a real tailwind for the rested team. When you use it, cite the actual number ("Lakers on a back-to-back (0 days rest) vs a Suns team on 3 days rest — fade LeBron's points over and lean Suns"). When homeRest/awayRest is absent or null, do NOT state a specific rest-days figure — fall back to soft qualitative schedule reasoning only.
 
 HOME/AWAY SPLITS RULE — USE playerHistory.homeSplit / awaySplit: when a playerHistory entry has homeSplit or awaySplit, each is { games, averages: { <stat>: number } } — REAL per-stat season averages split by where the game was played. When a playerHistory entry has tonightSplit (with tonightVenue "home"/"away"), that is the split ALREADY pre-selected for tonight's venue — use it directly. Otherwise pick the side that matches TONIGHT'S venue for that player (home team's player → homeSplit; road team's player → awaySplit) and compare that stat's average to the posted prop line. A meaningfully better home (or away) average than the player's overall form is a real tilt: cite the specific split number in the edge note ("Judge averaging 1.1 HR-equiv / .619 SLG in 12 home games vs .495 on the road — at home tonight his TB over has real room"). Use it as a tiebreaker stacked on recent form, never as the sole reason. When the relevant split is absent or has 0 games, skip it — do not invent a home/away number.
+
+STATMUSE FACTS RULE — USE context.statmuseFacts (REAL, VERIFIED): when context.statmuseFacts is present it is an array of { q, a } where 'a' is a real natural-language stat answer pulled live from StatMuse (e.g. "The Los Angeles Dodgers have a 38-21 record this season." or "LeBron James is averaging 24.9 points per game this season."). These are REAL numbers. You MAY quote them in an edge note to ground a pick (team form/record, a player's season rate, a streak), and when the user asks a direct stat question you SHOULD answer from the matching fact. Rules: cite the figure exactly as StatMuse reports it; do NOT round it into a different number or extrapolate a NEW stat StatMuse did not state; if no fact matches the pick you are making, fall back to playerHistory / matchupHistory and do NOT invent one. statmuseFacts is supporting evidence only — it never overrides a live bookmaker line.
 
 MLB PLATOON RULE — USE mlbPlatoon (lefty/righty): when context.mlbPlatoon is present, it is a map keyed "Player Name#athleteId" (ignore the id suffix) for MLB batters in the prop pool. Each entry has: bats (the batter's hand: Left/Right/Switch), opposingPitcherName, opposingPitcherThrows (the probable starter's hand), platoon ("advantage" = opposite hands, the classic platoon edge; "disadvantage" = same hand; "switch" = switch-hitter, always bats from the favorable side), vsThatHand (the batter's REAL season split line vs the opposing pitcher's hand, e.g. { AVG, OBP, SLG, OPS, HR, ... }), plus vsLeft / vsRight for reference. How to weigh it: platoon "advantage" or "switch" + a strong vsThatHand line (high AVG/SLG/OPS or HR rate vs that hand) supports OVER on that batter's hits / total-bases / HR props; platoon "disadvantage" + a weak vsThatHand line supports UNDER or skipping the batter. ALWAYS cite the real split numbers when you use it ("Soto (L) vs RHP Rodriguez — .290/.560 vs righties this year, clear platoon edge, TB over has room"). Only applies to MLB batter props. When mlbPlatoon has no entry for a batter, or opposingPitcherThrows / vsThatHand is null, skip this rule — never invent handedness or a split line.
 
@@ -673,6 +676,9 @@ router.post("/chat", async (req, res): Promise<void> => {
   // (generic "build me a parlay"), we leave the full context intact so cross-game
   // variety is preserved. Runs AFTER the lock branches so it composes with them
   // (e.g. a market-locked single-game request stays narrowed on both axes).
+  // Captured inside the trim block below and reused for StatMuse enrichment.
+  const namedGameLabels = new Set<string>();
+  const labelSport = new Map<string, string>();
   if (lockedContext && typeof lockedContext === "object") {
     const ctxAny = lockedContext as Record<string, unknown>;
     const userText = latestUser.toLowerCase();
@@ -716,6 +722,12 @@ router.post("/chat", async (req, res): Promise<void> => {
     for (const p of realProps) { const l = gameOf(p); if (l) allLabels.add(l); }
     for (const g of realGames) { const l = gameOf(g); if (l) allLabels.add(l); }
     const namedLabels = new Set(Array.from(allLabels).filter(labelIsNamed));
+    for (const l of namedLabels) namedGameLabels.add(l);
+    for (const o of [...realOdds, ...realGames]) {
+      const l = gameOf(o);
+      const s = typeof o["sport"] === "string" ? (o["sport"] as string) : "";
+      if (l && s && !labelSport.has(l)) labelSport.set(l, s);
+    }
     // Only trim when the user focused on specific game(s) AND it's a real
     // reduction (some games would be dropped) — never narrow a generic request.
     const trimmedProps = realProps.filter((p) => namedLabels.has(gameOf(p)));
@@ -758,6 +770,60 @@ router.post("/chat", async (req, res): Promise<void> => {
         ...(trimmedMatchup ? { matchupHistory: trimmedMatchup } : {}),
       } as typeof lockedContext;
     }
+  }
+
+  // ---- VERIFIED STATMUSE FACTS (real numbers, anti-fabrication safe) -------
+  // Pull a few REAL stat lines from StatMuse so the model can ground its
+  // rationale in actual numbers. Bounded for latency: team form/record for the
+  // game(s) the user NAMED (focused requests), plus a direct stat question in
+  // the latest message. All lookups are cached + run in parallel; a null answer
+  // (StatMuse didn't understand) is silently dropped so noise never reaches the model.
+  try {
+    const isBuild = /\b(parlay|legs?|build|ticket|slip|bet|picks?)\b/i.test(latestUser);
+    const teamFetches: Array<Promise<{ q: string; a: string } | null>> = [];
+    const seenTeams = new Set<string>();
+    for (const label of namedGameLabels) {
+      const sport = labelSport.get(label);
+      if (!resolveStatMuseLeague(sport)) continue;
+      const mm = label.match(/^(.+?)\s*(?:@|vs\.?|v\.?)\s*(.+)$/i);
+      const teams = mm ? [mm[1].trim(), mm[2].trim()] : [];
+      for (const t of teams) {
+        const key = `${sport}:${t.toLowerCase()}`;
+        if (!t || seenTeams.has(key) || seenTeams.size >= 8) continue;
+        seenTeams.add(key);
+        teamFetches.push(
+          askStatMuse(`${t} record and last 5 games this season`, sport).then(
+            (r) => (r.answer ? { q: t, a: r.answer } : null),
+          ),
+        );
+      }
+    }
+    const firstSport = labelSport.get([...namedGameLabels][0] || "") || null;
+    const statQ =
+      !isBuild &&
+      /\b(stats?|average|averaging|per game|how many|record|points|rebounds|assists|yards|home runs?|era|batting|goals?|saves?|leads?|leader|streak|ranked?|last \d+ games)\b/i.test(
+        latestUser,
+      );
+    const questionFetch: Promise<{ q: string; a: string } | null> = statQ
+      ? askStatMuse(latestUser, firstSport).then((r) => (r.answer ? { q: "Question", a: r.answer } : null))
+      : Promise.resolve(null);
+    // Strict enrichment time budget: StatMuse facts are a nice-to-have, never
+    // worth delaying the model. If the lookups don't all resolve within the
+    // budget we ship what we have / nothing — the in-flight fetches still
+    // populate the 10-min cache for the next request.
+    const STATMUSE_BUDGET_MS = 2500;
+    const results = await Promise.race([
+      Promise.all([...teamFetches, questionFetch]),
+      new Promise<Array<{ q: string; a: string } | null>>((resolve) =>
+        setTimeout(() => resolve([]), STATMUSE_BUDGET_MS),
+      ),
+    ]);
+    const statmuseFacts = results.filter((x): x is { q: string; a: string } => !!x);
+    if (statmuseFacts.length && lockedContext && typeof lockedContext === "object") {
+      lockedContext = { ...(lockedContext as Record<string, unknown>), statmuseFacts } as typeof lockedContext;
+    }
+  } catch {
+    // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
   const contextBlock =

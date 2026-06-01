@@ -11,6 +11,7 @@ import historyRouter from "./history";
 import defenseRouter from "./defense";
 import teamPeriodStatsRouter from "./teamPeriodStats";
 import mlbRouter from "./mlb";
+import statmuseRouter from "./statmuse";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(historyRouter);
 router.use(defenseRouter);
 router.use(teamPeriodStatsRouter);
 router.use(mlbRouter);
+router.use(statmuseRouter);
 
 export default router;

@@ -2391,7 +2391,7 @@ function PlayerStatCard({ data }) {
   const {
     name, team, sport, headshot, season, requestedSeason,
     availableSeasons = [], labels = [], summary = { games: 0, averages: {}, totals: {} },
-    recent = [], note, periodRequested,
+    recent = [], note, periodRequested, statmuse,
   } = data;
   const sportLabel = String(sport || "").toUpperCase();
   const fmtDate = (iso) => {
@@ -2504,6 +2504,14 @@ function PlayerStatCard({ data }) {
           <p className="text-[10px] text-slate-500 mt-1.5 px-1">
             Other seasons available: {availableSeasons.slice(0, 8).join(", ")} — ask for any of them.
           </p>
+        )}
+        {statmuse && (
+          <div className="mt-2.5 mx-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2">
+            <div className="text-[9px] uppercase tracking-widest text-violet-300/80 font-mono mb-0.5">
+              StatMuse
+            </div>
+            <p className="text-[12px] leading-snug text-violet-100">{statmuse}</p>
+          </div>
         )}
         <p className="text-[9px] font-mono text-slate-600 mt-2 px-1 uppercase tracking-widest">
           Real ESPN game log · No projections
@@ -5753,6 +5761,24 @@ export default function ParlayBuilder() {
         setLoading(true);
         try {
           if (!top) {
+            // No ESPN player match — could be a TEAM question ("Dodgers record
+            // this season") or a player ESPN's search missed. Try StatMuse for a
+            // REAL answer before giving up; only fall back to the couldn't-find
+            // note when StatMuse also has nothing.
+            let smAnswer = null;
+            try {
+              const smr = await fetch(`/api/sports/statmuse?q=${encodeURIComponent(text)}`);
+              const smj = smr.ok ? await smr.json() : null;
+              if (smj && smj.answer) smAnswer = smj.answer;
+            } catch { /* StatMuse is best-effort */ }
+            if (smAnswer) {
+              setMessages((p) => [...p, {
+                role: "assistant",
+                content: `**StatMuse:** ${smAnswer}`,
+              }]);
+              setLoading(false);
+              return;
+            }
             setMessages((p) => [...p, {
               role: "assistant",
               content: `I couldn't find a player named "${lookup.name}" in ESPN's database. Try the full name — e.g. "Aaron Judge stats" or "LeBron James 2022 stats". I can pull MLB, NBA, WNBA, NHL, NFL and major college players.`,
@@ -5781,6 +5807,17 @@ export default function ParlayBuilder() {
             .map((r) => r.name)
             .filter((n) => n && n !== top.name)
             .slice(0, 3);
+          // Pull a REAL StatMuse headline answer to complement the ESPN table —
+          // best-effort, scoped to the resolved player's sport. Dropped silently
+          // when StatMuse has no confident answer (never fabricated).
+          let statmuse = null;
+          try {
+            const smr = await fetch(
+              `/api/sports/statmuse?q=${encodeURIComponent(text)}&league=${encodeURIComponent(top.sport)}`,
+            );
+            const smj = smr.ok ? await smr.json() : null;
+            if (smj && smj.answer) statmuse = smj.answer;
+          } catch { /* StatMuse is best-effort */ }
           const card = {
             name: top.name,
             team: top.team,
@@ -5794,6 +5831,7 @@ export default function ParlayBuilder() {
             labels: hj.labels || [],
             summary: hj.seasonSummary || { games: 0, averages: {}, totals: {} },
             recent: hj.recent || [],
+            statmuse,
             note: others.length
               ? `Also matched: ${others.join(", ")}. Add the sport or full name if you meant someone else.`
               : null,
