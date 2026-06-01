@@ -135,7 +135,7 @@ const STAT_WORDS: Array<[RegExp, string]> = [
   [/\b(points?|pts|score[ds]?|scoring)\b/i, "points"],
 ];
 
-function detectStatWord(q: string): string {
+export function detectStatWord(q: string): string {
   for (const [re, w] of STAT_WORDS) if (re.test(q)) return w;
   return "points";
 }
@@ -284,6 +284,34 @@ export async function askStatMuseGameLog(
   const r2 = await fetchStatMuseTable(canonical, slug);
   if (r2 && r2.rows.length >= 2) {
     return { ...r2, player, period, stat, count: r2.rows.length };
+  }
+  return null;
+}
+
+// Faster, single-fetch variant for when the caller ALREADY has a clean player
+// name (e.g. from the live prop pool). It skips the player-resolution step of
+// askStatMuseGameLog and goes straight to the canonical grid query, so it fits
+// inside a tight enrichment budget. Returns null on any miss (never fabricates).
+export async function playerPeriodGameLog(
+  player: string,
+  periodPhrase: string,
+  statWord: string,
+  league?: string | null,
+  count = 5,
+): Promise<StatMuseGameLog | null> {
+  const name = (player || "").trim();
+  const period = (periodPhrase || "").trim();
+  const stat = (statWord || "points").trim();
+  if (!name) return null;
+  const slug = resolveStatMuseLeague(league);
+  const n = Math.min(25, Math.max(2, count));
+  const canonical = `${name} ${period ? `${period} ` : ""}${stat} last ${n} games game by game`;
+  const r = await fetchStatMuseTable(canonical, slug);
+  if (r && r.rows.length >= 2) {
+    // Keep StatMuse's OWN resolved player (from the headline) as authoritative
+    // so the rows are never misattributed to a name StatMuse didn't return; only
+    // fall back to the requested name when StatMuse didn't surface one.
+    return { ...r, player: r.player || name, period: period || null, stat, count: r.rows.length };
   }
   return null;
 }

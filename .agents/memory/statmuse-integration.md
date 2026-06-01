@@ -80,6 +80,39 @@ The fix is to scrape StatMuse's results **table**, not the meta sentence.
 - Verified: user's exact messy Wembanyama Q1 question → [5,11,2,11,7]; "LeBron
   first half points each game" → full season; nonsense → `{rows:[]}`.
 
+### Period log now also feeds the PICK path (not just the display card)
+The same per-game period grid is injected into chat so the AI grounds period
+player props (Q1/1H points etc.) on REAL game-by-game period numbers instead of
+season rates.
+- `playerPeriodGameLog(player, periodPhrase, statWord, league, count=5)`: a FAST
+  single-fetch variant for when the caller ALREADY has a clean player name —
+  skips the two-step player-resolution of `askStatMuseGameLog` and goes straight
+  to the canonical `"<player> <period> <stat> last N games game by game"` grid
+  via `fetchStatMuseTable`. Returns null on miss. **Keeps StatMuse's OWN resolved
+  `r.player`** (`r.player || name`) so rows are never misattributed to a name
+  StatMuse didn't return. `detectStatWord` is exported for the caller.
+- chat.ts (inside the best-effort statmuseFacts block): when `periodIntent`, pick
+  the primary period (q1>h1>q2>q3>q4>h2), `detectStatWord` from the message, and
+  up to 4 candidate players — players NAMED in the message first (full-name OR
+  last-name **whole-word** match, `\b…\b`, ≥3 chars, against the FULL realProps
+  pool), else distinct players in the period-FILTERED realProps (only q1/h1 have
+  per-player props, so q2-q4/h2 yield no candidates and are correctly skipped).
+  Fetch each log in parallel, format `"<player> — <period> <stat>, last N games:
+  v,v,v (avg X)"`.
+- SYSTEM_PROMPT "PERIOD GAME-LOG FACTS" directive: count games clearing the line,
+  cite the game-by-game numbers + hit rate, take only the side the log supports,
+  never override with a season rate, never invent if there's no log fact.
+- **Budget is per-fetch, NOT all-or-nothing**: the enrichment used to wrap
+  `Promise.all([...])` in one `Promise.race` against a single timeout — adding the
+  period fetches made one slow lookup able to drop ALL facts. Now each fetch is
+  individually raced against `STATMUSE_BUDGET_MS` (`withDeadline`) so fast facts
+  still ship; stragglers keep running and warm the cache. Whole block in try/catch.
+- Verified e2e: POST /api/chat with a Wembanyama `player_points_q1` prop → EDGE
+  cited "5, 11, 2, 11, 7 … (2/5 clears, 7.2 avg)" and honestly leaned pass
+  because the log doesn't beat 8.5. SSE delta shape is `data:{"content":"…"}`
+  (NOT OpenAI `choices[].delta`); model stays silent ~30-60s (heartbeat `:` lines)
+  before first token — use a ≥110s curl window when smoke-testing.
+
 ## Verified
 Chat cited exact StatMuse numbers end-to-end (LeBron 20.9 PPG; Mahomes 3,587;
 Dodgers 38-21). api-server has no watcher → restart after edits.

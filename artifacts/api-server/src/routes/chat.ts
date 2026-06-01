@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import OpenAI from "openai";
 import { SendChatMessageBody } from "@workspace/api-zod";
 import { rateLimit } from "../lib/sports.js";
-import { askStatMuse, resolveStatMuseLeague } from "../lib/statmuse.js";
+import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 
 const router: IRouter = Router();
 
@@ -184,7 +184,7 @@ REST & FATIGUE RULE — USE matchupHistory.homeRest / awayRest: when a matchupHi
 
 HOME/AWAY SPLITS RULE — USE playerHistory.homeSplit / awaySplit: when a playerHistory entry has homeSplit or awaySplit, each is { games, averages: { <stat>: number } } — REAL per-stat season averages split by where the game was played. When a playerHistory entry has tonightSplit (with tonightVenue "home"/"away"), that is the split ALREADY pre-selected for tonight's venue — use it directly. Otherwise pick the side that matches TONIGHT'S venue for that player (home team's player → homeSplit; road team's player → awaySplit) and compare that stat's average to the posted prop line. A meaningfully better home (or away) average than the player's overall form is a real tilt: cite the specific split number in the edge note ("Judge averaging 1.1 HR-equiv / .619 SLG in 12 home games vs .495 on the road — at home tonight his TB over has real room"). Use it as a tiebreaker stacked on recent form, never as the sole reason. When the relevant split is absent or has 0 games, skip it — do not invent a home/away number.
 
-STATMUSE FACTS RULE — USE context.statmuseFacts (REAL, VERIFIED): when context.statmuseFacts is present it is an array of { q, a } where 'a' is a real natural-language stat answer pulled live from StatMuse (e.g. "The Los Angeles Dodgers have a 38-21 record this season." or "LeBron James is averaging 24.9 points per game this season."). These are REAL numbers. You MAY quote them in an edge note to ground a pick (team form/record, a player's season rate, a streak), and when the user asks a direct stat question you SHOULD answer from the matching fact. Rules: cite the figure exactly as StatMuse reports it; do NOT round it into a different number or extrapolate a NEW stat StatMuse did not state; if no fact matches the pick you are making, fall back to playerHistory / matchupHistory and do NOT invent one. statmuseFacts is supporting evidence only — it never overrides a live bookmaker line.
+STATMUSE FACTS RULE — USE context.statmuseFacts (REAL, VERIFIED): when context.statmuseFacts is present it is an array of { q, a } where 'a' is a real natural-language stat answer pulled live from StatMuse (e.g. "The Los Angeles Dodgers have a 38-21 record this season." or "LeBron James is averaging 24.9 points per game this season."). These are REAL numbers. You MAY quote them in an edge note to ground a pick (team form/record, a player's season rate, a streak), and when the user asks a direct stat question you SHOULD answer from the matching fact. Rules: cite the figure exactly as StatMuse reports it; do NOT round it into a different number or extrapolate a NEW stat StatMuse did not state; if no fact matches the pick you are making, fall back to playerHistory / matchupHistory and do NOT invent one. statmuseFacts is supporting evidence only — it never overrides a live bookmaker line. PERIOD GAME-LOG FACTS: some statmuseFacts entries are real per-game PERIOD logs (their 'a' reads like "Victor Wembanyama — first quarter points, last 5 games: 5, 11, 2, 11, 7 (avg 7.2)."). When you build a period player prop (a Q1/Q2/Q3/Q4 or 1H/2H leg) for a player that has a matching period log here, you MUST ground that pick on it: count how many of the listed games cleared the prop's line, cite the actual game-by-game numbers and the hit rate in the edge note, and only take the Over/Under the log actually supports. Never override these real per-game numbers with a season-rate estimate, and never invent period numbers for a player who has no period-log fact — fall back to their full-game playerHistory and say the period split wasn't available.
 
 MLB PLATOON RULE — USE mlbPlatoon (lefty/righty): when context.mlbPlatoon is present, it is a map keyed "Player Name#athleteId" (ignore the id suffix) for MLB batters in the prop pool. Each entry has: bats (the batter's hand: Left/Right/Switch), opposingPitcherName, opposingPitcherThrows (the probable starter's hand), platoon ("advantage" = opposite hands, the classic platoon edge; "disadvantage" = same hand; "switch" = switch-hitter, always bats from the favorable side), vsThatHand (the batter's REAL season split line vs the opposing pitcher's hand, e.g. { AVG, OBP, SLG, OPS, HR, ... }), plus vsLeft / vsRight for reference. How to weigh it: platoon "advantage" or "switch" + a strong vsThatHand line (high AVG/SLG/OPS or HR rate vs that hand) supports OVER on that batter's hits / total-bases / HR props; platoon "disadvantage" + a weak vsThatHand line supports UNDER or skipping the batter. ALWAYS cite the real split numbers when you use it ("Soto (L) vs RHP Rodriguez — .290/.560 vs righties this year, clear platoon edge, TB over has room"). Only applies to MLB batter props. When mlbPlatoon has no entry for a batter, or opposingPitcherThrows / vsThatHand is null, skip this rule — never invent handedness or a split line.
 
@@ -807,17 +807,97 @@ router.post("/chat", async (req, res): Promise<void> => {
     const questionFetch: Promise<{ q: string; a: string } | null> = statQ
       ? askStatMuse(latestUser, firstSport).then((r) => (r.answer ? { q: "Question", a: r.answer } : null))
       : Promise.resolve(null);
+    // PERIOD GAME-LOG GROUNDING — when the user asks for a period (Q1/1H/etc)
+    // prop, pull each candidate player's REAL per-game period numbers so the
+    // model grounds period picks on actual game-by-game data instead of season
+    // rates. Single-fetch (clean name → canonical grid) to fit the budget.
+    const periodLogFetches: Array<Promise<{ q: string; a: string } | null>> = [];
+    if (periodIntent) {
+      const PERIOD_PHRASE: Record<string, string> = {
+        q1: "first quarter", q2: "second quarter", q3: "third quarter",
+        q4: "fourth quarter", h1: "first half", h2: "second half",
+      };
+      // Prefer the player-prop-supported windows (q1/h1) as the primary period.
+      const primaryCode = ["q1", "h1", "q2", "q3", "q4", "h2"].find((p) =>
+        periodIntents.has(p as never),
+      );
+      const periodPhrase = primaryCode ? PERIOD_PHRASE[primaryCode] : null;
+      if (periodPhrase) {
+        const statWord = detectStatWord(latestUser);
+        const fullProps = Array.isArray((parsed.data.context as { realProps?: unknown[] })?.realProps)
+          ? ((parsed.data.context as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
+          : [];
+        const filteredProps = Array.isArray((lockedContext as { realProps?: unknown[] })?.realProps)
+          ? ((lockedContext as { realProps?: Array<Record<string, unknown>> }).realProps ?? [])
+          : [];
+        const lowMsg = latestUser.toLowerCase();
+        const seen = new Set<string>();
+        const candidates: Array<{ player: string; sport: string | null }> = [];
+        const pushCand = (player: string, sport: unknown) => {
+          const name = (player || "").trim();
+          const key = name.toLowerCase();
+          if (!name || seen.has(key) || candidates.length >= 4) return;
+          seen.add(key);
+          candidates.push({ player: name, sport: typeof sport === "string" ? sport : null });
+        };
+        // 1) players the user NAMED in the message — match the FULL name or the
+        //    last name as a WHOLE WORD (word boundaries avoid mid-word false
+        //    positives like "Will" inside "willing"). Grounded regardless of
+        //    which period they asked for.
+        const wordRe = (s: string) =>
+          new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+        for (const p of fullProps) {
+          const player = String(p["player"] || "").trim();
+          if (!player) continue;
+          const last = player.split(/\s+/).pop() || "";
+          const named =
+            wordRe(player).test(latestUser) ||
+            (last.length >= 3 && wordRe(last).test(latestUser));
+          if (named) pushCand(player, p["sport"]);
+        }
+        // 2) otherwise ground the actual period-prop candidates the AI will pick
+        //    from (the period-filtered pool — empty for q2-q4/h2, so we skip
+        //    those windows, which have no per-player props anyway).
+        if (candidates.length === 0) {
+          for (const p of filteredProps) pushCand(String(p["player"] || ""), p["sport"]);
+        }
+        for (const c of candidates) {
+          periodLogFetches.push(
+            playerPeriodGameLog(c.player, periodPhrase, statWord, c.sport, 5).then((g) => {
+              if (!g || !g.rows.length) return null;
+              const vals = g.rows.map((r) => r.value);
+              const nums = vals.map(Number).filter((n) => Number.isFinite(n));
+              const avg = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+              const a =
+                `${g.player} — ${periodPhrase} ${statWord}, last ${g.rows.length} games: ` +
+                `${vals.join(", ")}${avg != null ? ` (avg ${avg.toFixed(1)})` : ""}.`;
+              return { q: `${g.player} ${periodPhrase} ${statWord} log`, a };
+            }),
+          );
+        }
+      }
+    }
     // Strict enrichment time budget: StatMuse facts are a nice-to-have, never
     // worth delaying the model. If the lookups don't all resolve within the
     // budget we ship what we have / nothing — the in-flight fetches still
     // populate the 10-min cache for the next request.
-    const STATMUSE_BUDGET_MS = 2500;
-    const results = await Promise.race([
-      Promise.all([...teamFetches, questionFetch]),
-      new Promise<Array<{ q: string; a: string } | null>>((resolve) =>
-        setTimeout(() => resolve([]), STATMUSE_BUDGET_MS),
-      ),
-    ]);
+    const STATMUSE_BUDGET_MS = 3000;
+    // Per-fetch deadline (not an all-or-nothing batch race): a single slow
+    // lookup only drops ITSELF, so the facts that resolved quickly still ship.
+    // Lookups that miss the deadline keep running and warm the 10-min cache for
+    // the next request.
+    const withDeadline = (
+      p: Promise<{ q: string; a: string } | null>,
+    ): Promise<{ q: string; a: string } | null> =>
+      Promise.race([
+        p,
+        new Promise<{ q: string; a: string } | null>((resolve) =>
+          setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
+        ),
+      ]);
+    const results = await Promise.all(
+      [...teamFetches, questionFetch, ...periodLogFetches].map(withDeadline),
+    );
     const statmuseFacts = results.filter((x): x is { q: string; a: string } => !!x);
     if (statmuseFacts.length && lockedContext && typeof lockedContext === "object") {
       lockedContext = { ...(lockedContext as Record<string, unknown>), statmuseFacts } as typeof lockedContext;
