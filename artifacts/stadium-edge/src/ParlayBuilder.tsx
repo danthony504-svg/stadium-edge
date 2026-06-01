@@ -1005,44 +1005,6 @@ const formatOdds = (o) => {
 const clvMatchKey = (market, pick) =>
   `${(market || "").toLowerCase().replace(/\s+/g, " ").trim()}|${(pick || "").toLowerCase().replace(/\s+/g, " ").trim()}`;
 
-// Cross-book line shopping: expandable per-bookmaker price list for a single
-// outcome. `books` is [{book, price, point}] sorted best-first by the API.
-// The headline price is the best one; this shows everyone else so the user
-// can see the real spread between books and where to get the top number.
-const BookCompare = ({ books }) => {
-  const [open, setOpen] = useState(false);
-  if (!books || books.length < 2) return null;
-  const best = books[0]?.price;
-  return (
-    <div className="px-4 pb-2 -mt-1">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="text-[9px] font-mono uppercase tracking-wider text-slate-500 hover:text-cyan-400 transition"
-      >
-        {open ? "▼ Hide books" : `▶ Compare ${books.length} books`}
-      </button>
-      {open && (
-        <div className="mt-1.5 rounded-lg border border-slate-800 bg-slate-950/60 divide-y divide-slate-800/70">
-          {books.map((b, i) => (
-            <div key={`${b.book}-${i}`} className="flex items-center justify-between px-2.5 py-1">
-              <span className="text-[11px] text-slate-300 truncate">{b.book}</span>
-              <span className={`font-mono text-[11px] font-bold ${i === 0 ? "text-emerald-400" : "text-slate-400"}`}>
-                {formatOdds(b.price)}
-                {i === 0 && <span className="ml-1 text-[8px] uppercase tracking-wider text-emerald-500/80">best</span>}
-              </span>
-            </div>
-          ))}
-          <div className="px-2.5 py-1">
-            <span className="text-[8px] font-mono uppercase tracking-wider text-slate-500">
-              Best price ({formatOdds(best)}) is the headline above · prices from US books, updates each refresh
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ----- Display-time team name expansion -----
 // Real live data (Odds API / ESPN) already comes through with full team names
 // like "Boston Celtics". Sample / fallback data and some short-form sources use
@@ -7934,11 +7896,6 @@ export default function ParlayBuilder() {
                     <p className="text-[11px] text-amber-300/90 leading-snug">{vs.keyNote}</p>
                   </div>
                 )}
-                {vs && vs.bestBooks && (
-                  <div className="border-t border-slate-800 pt-1">
-                    <BookCompare books={vs.bestBooks} />
-                  </div>
-                )}
               </div>
             );
           }
@@ -10749,7 +10706,6 @@ export default function ParlayBuilder() {
                   </button>
                 </div>
               </div>
-              <BookCompare books={p.books} />
             </div>
           );
         };
