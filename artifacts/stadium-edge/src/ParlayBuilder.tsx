@@ -2344,6 +2344,17 @@ const STAT_SUMMARY = {
 // normal parlay/AI path handles it. Deliberately conservative: it will NOT
 // fire on parlay/build/bet requests (those keep their existing behavior).
 const STAT_NOUNS = "points?|pts|yards?|yds|rebounds?|reb|assists?|ast|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|goals?|saves?|touchdowns?|tds?|receptions?|catches|blocks?|steals?";
+// Short messages that look name-ish but are conversational, not players. A bare
+// name only commits to a lookup if ESPN actually resolves it, so this list just
+// avoids pointless searches on obvious chatter.
+const BARE_NAME_STOP = new Set([
+  "hi","hey","hello","yo","sup","thanks","thank","thx","ty","ok","okay","k","yes","yeah","yep","yup",
+  "no","nope","nah","cool","nice","great","good","bad","lol","help","stop","wait","what","whats","why",
+  "how","who","when","where","sure","please","pls","more","again","next","back","done","test","testing",
+  "odds","picks","pick","live","today","tonight","now","hmm","idk","maybe","go","got","the","and","but",
+  "it","its","is","are","was","were","do","does","did","to","of","in","on","for","my","me","you","we",
+  "this","that","them","they","love","hate","game","games","team","teams","player","players","parlay","bet",
+]);
 function parseStatLookup(raw) {
   const t = String(raw || "").trim();
   if (!t) return null;
@@ -2364,7 +2375,23 @@ function parseStatLookup(raw) {
     statNounRe.test(low) ||
     /\b20\d{2}\b.*\b(season|stats?|numbers)\b/.test(low) ||
     /\b(season|stats?|numbers)\b.*\b20\d{2}\b/.test(low);
-  if (!hasCue) return null;
+  if (!hasCue) {
+    // Bare player-name fallback: a short, name-like message with no other
+    // intent (e.g. just "Wembanyama"). We only commit if ESPN resolves a real
+    // player — the caller searches first and falls through to the AI on a miss,
+    // so false positives are harmless.
+    const toks = low.replace(/[?.!,]/g, " ").trim().split(/\s+/).filter(Boolean);
+    const looksLikeName =
+      toks.length >= 1 && toks.length <= 3 &&
+      toks.every((w) => /^[a-z][a-z'.-]*$/.test(w)) &&
+      toks.some((w) => w.length >= 3) &&
+      !toks.some((w) => BARE_NAME_STOP.has(w));
+    if (looksLikeName) {
+      const nm = t.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
+      return { name: nm, season: null, bareName: true };
+    }
+    return null;
+  }
   const season = (low.match(/\b(20\d{2})\b/) || [])[1] || null;
   let name = t;
   name = name.replace(/\b20\d{2}\b/g, " ");
@@ -2377,11 +2404,13 @@ function parseStatLookup(raw) {
   name = name.replace(/'s\b/gi, " ");
   name = name.replace(new RegExp(`\\b(${STAT_NOUNS})\\b`, "gi"), " ");
   name = name.replace(
-    /\b(stat ?line|stats|stat|numbers|game ?log|box ?score|recent games?|last \d+ games?|last game|this season|last season|this year|career|splits?|season|score[ds]?|scoring|do|did|does|doing|done|have|had|get|got|record(?:ed)?|put up|throw|threw|pass(?:ed)?|rush(?:ed)?|play(?:ing|ed)?|perform(?:ance|ing|ed)?|look(?:ing)?|regular|playoffs?|games?|tonight|today|yesterday|night)\b/gi,
+    /\b(stat ?line|stats|stat|numbers|game ?log|box ?score|recent games?|last \d+ games?|last game|this season|last season|this year|career|splits?|seasons?|score[ds]?|scoring|do|did|does|doing|done|have|had|get|got|record(?:ed)?|put up|throw|threw|pass(?:ed)?|rush(?:ed)?|play(?:ing|ed)?|perform(?:ance|ing|ed)?|look(?:ing)?|regular|playoffs?|games?|tonight|today|yesterday|night)\b/gi,
     " ",
   );
+  // Strip period / segment qualifiers ("in the first quarter", "1H", "3rd period").
+  name = name.replace(/\b(first|second|third|fourth|1st|2nd|3rd|4th|quarters?|qtr|q[1-4]|halves?|half|halftime|h[12]|innings?|periods?)\b/gi, " ");
   // Strip standalone connector / filler words (player names don't contain these).
-  name = name.replace(/\b(for|of|about|on|the|in|a|an|me|my|with|vs|versus|against|did|do|many)\b/gi, " ");
+  name = name.replace(/\b(for|of|about|on|the|in|a|an|me|my|with|vs|versus|against|did|do|many|and|or)\b/gi, " ");
   // Drop bare numbers (e.g. "score 20 points") — never part of a name.
   name = name.replace(/\b\d+\b/g, " ");
   name = name.replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
@@ -5642,13 +5671,22 @@ export default function ParlayBuilder() {
     if (!override) {
       const lookup = parseStatLookup(text);
       if (lookup) {
+        // Resolve the name against ESPN BEFORE committing. For a bare name with
+        // no real match, do nothing here and let the normal assistant answer.
+        let sj = { results: [] };
+        let top = null;
+        try {
+          const sr = await fetch(`/api/sports/player-search?query=${encodeURIComponent(lookup.name)}`);
+          sj = sr.ok ? await sr.json() : { results: [] };
+          top = (sj.results || [])[0];
+        } catch { sj = { results: [] }; }
+        if (lookup.bareName && !top) {
+          // Not a recognizable player — fall through to the AI/parlay path.
+        } else {
         setInput("");
         setMessages((p) => [...p, { role: "user", content: text }]);
         setLoading(true);
         try {
-          const sr = await fetch(`/api/sports/player-search?query=${encodeURIComponent(lookup.name)}`);
-          const sj = sr.ok ? await sr.json() : { results: [] };
-          const top = (sj.results || [])[0];
           if (!top) {
             setMessages((p) => [...p, {
               role: "assistant",
@@ -5703,6 +5741,7 @@ export default function ParlayBuilder() {
         }
         setLoading(false);
         return;
+        }
       }
     }
 
