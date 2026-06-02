@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
+import stadiumEdgeWordmark from "./assets/stadium-edge-wordmark.png";
 
 // Login temporarily disabled. Flip to `true` to bring back the sign-in/sign-up
 // entry points (and re-enable the /sign-in & /sign-up routes in App.tsx).
@@ -8936,8 +8937,7 @@ export default function ParlayBuilder() {
             >
               <Menu size={22} />
             </button>
-            <div className="w-2 h-2 bg-cyan-400 rounded-full pulse-dot" />
-            <h1 className="font-display text-xl tracking-tight"><span className="text-slate-200">STADIUM</span><span className="text-cyan-400" style={{textShadow:"0 0 10px rgba(34,211,238,0.6)"}}> EDGE</span></h1>
+            <img src={stadiumEdgeWordmark} alt="Stadium Edge" className="h-9 w-auto object-contain" />
           </div>
           <div className="flex items-center gap-2">
           <button
