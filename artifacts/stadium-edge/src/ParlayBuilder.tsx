@@ -1455,6 +1455,75 @@ const parsePropLine = (pickStr) => {
   return { line, stat };
 };
 
+// ESPN gamelog stat labels are uppercase abbreviations ("PTS"/"REB"/"AST"/"REC").
+// We only ground a prop badge in a REAL hit-rate for stats that map to a single,
+// unambiguous label. Football yardage is deliberately omitted: ESPN flattens
+// passing/rushing/receiving yards all under "YDS" in one stats map, so we can't
+// tell them apart without risking a wrong (fabricated-feeling) number — those
+// props honestly stay "MARKET PRICE".
+const ESPN_STAT_LABELS = { pts: ["PTS"], reb: ["REB"], ast: ["AST"], rec: ["REC"] };
+const normPropName = (s) =>
+  String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
+// Empirical hit-rate for a player prop from the player's REAL recent game log
+// (fetched into propLogs when the chat context is built). Counts how many of the
+// last N real games cleared the actual line on the PICKED side — a genuine model
+// read, never the book's price. Returns null (→ honest "MARKET PRICE") when we
+// have no log, too few games, or an unmappable/ambiguous stat. Never fabricates.
+const realPropHitRate = (pick, propLogs) => {
+  if (!propLogs || !pick || typeof pick.pick !== "string") return null;
+  const txt = pick.pick;
+  // Reject combo / multi-stat props (Pts+Reb+Ast, "Rebounds + Assists", PRA …):
+  // parsePropLine only reads the FIRST stat token, so a single-stat hit-rate on a
+  // combo line would be misleading. Strip the "N+" shorthand (digit-then-plus),
+  // and if any "+" survives it's a stat join → bail to honest MARKET PRICE.
+  if (/\+/.test(txt.replace(/\d+(?:\.\d+)?\s*\+/g, ""))) return null;
+  const { line, stat } = parsePropLine(txt);
+  if (!stat) return null;
+  const labels = ESPN_STAT_LABELS[stat];
+  if (!labels) return null;
+  // Player name = everything before the first number / "over" / "under". Handles
+  // BOTH the raw "Player Over 8.5 Rebounds" / "Player Under 8.5 Rebounds" form
+  // AND the friendly "Player 9+ Rebounds" rewrite friendlyPickLabel produces for
+  // countable stats (which drops the over/under token entirely).
+  const nm = txt.match(/^(.*?)(?=\s+(?:\d|over\b|under\b))/i);
+  const player = (nm ? nm[1] : txt).trim();
+  if (!player) return null;
+  const log = propLogs[normPropName(player)];
+  const recent = log && Array.isArray(log.recent) ? log.recent : null;
+  if (!recent || recent.length < 3) return null;
+  // Side + comparator. "N+" means N-or-more, so it clears at >= N (NOT > N).
+  // Decimal Over/Under lines use strict >/< since the half-point can't tie.
+  const plus = txt.match(/(\d+(?:\.\d+)?)\s*\+/);
+  let side;
+  let cmp;
+  if (plus) {
+    const thr = parseFloat(plus[1]);
+    side = "over";
+    cmp = (v) => v >= thr;
+  } else if (/\bunder\b/i.test(txt)) {
+    if (line === null) return null;
+    side = "under";
+    cmp = (v) => v < line;
+  } else {
+    if (line === null) return null;
+    side = "over";
+    cmp = (v) => v > line;
+  }
+  const vals = [];
+  for (const g of recent.slice(0, 10)) {
+    const sm = g && g.stats;
+    if (!sm) continue;
+    let raw = null;
+    for (const lab of labels) { if (sm[lab] != null) { raw = sm[lab]; break; } }
+    if (raw == null) continue;
+    const v = parseFloat(String(raw).replace(/[^0-9.\-]/g, ""));
+    if (Number.isFinite(v)) vals.push(v);
+  }
+  if (vals.length < 3) return null;
+  const hits = vals.filter(cmp).length;
+  return { pct: Math.round((hits / vals.length) * 100), hits, total: vals.length, side };
+};
+
 // SAMPLE weather analysis: outdoor-sport games get plausible conditions (clearly
 // labeled sample, not a real forecast). Returns the DIRECTIONAL effect weather
 // tends to have — never a prediction of a specific result. Indoor sports (NBA)
@@ -2839,6 +2908,10 @@ export default function ParlayBuilder() {
   // count for; cleared once they answer (tap a chip or type a number).
   const [pendingLegBuild, setPendingLegBuild] = useState(null);
   const [attachment, setAttachment] = useState(null); // { dataUrl, name, kind }
+  // Real recent game logs (keyed by normalized player name) captured while
+  // building chat context. Lets a prop card's badge show an empirical hit-rate
+  // from real games when the AI gave no projection, instead of "MARKET PRICE".
+  const [propLogs, setPropLogs] = useState({}); // { normName: { recent: [{stats}] } }
   const fileInputRef = useRef(null);
   // Per-message slip snapshots persist in chat by default. The user can dismiss
   // a specific snapshot card with the X button (we remember the message index
@@ -7372,6 +7445,21 @@ export default function ParlayBuilder() {
         }),
       );
     }
+    // Persist the real game logs so prop cards can show an empirical hit-rate
+    // badge (real games cleared vs the line) instead of falling back to the
+    // book's implied probability ("MARKET PRICE") whenever the AI didn't word
+    // a projection. Keyed by normalized player name to match the rendered pick.
+    if (Object.keys(playerHistory).length) {
+      setPropLogs((prev) => {
+        const next = { ...prev };
+        for (const v of Object.values(playerHistory)) {
+          if (v && v.player && Array.isArray(v.recent) && v.recent.length) {
+            next[normPropName(v.player)] = { recent: v.recent };
+          }
+        }
+        return next;
+      });
+    }
     // Opponent team defense — for each unique (sport, opponentTeamId)
     // pair across the props pool, pull headline points-allowed + the
     // sport-specific defensive-output stats from ESPN. Cached 60min on
@@ -8472,17 +8560,6 @@ export default function ParlayBuilder() {
               noteByPickKey.get(pickKey) ||
               noteByPickKey.get(`${rawPick.game}::${rawPick.pick}`);
             const aiProjForBadge = parseAiProjection(noteForBadge);
-            const conf = aiProjForBadge.proj != null ? aiProjForBadge.proj : calculateConfidence(pick);
-            // Edge vs the market: only meaningful when we have a real AI
-            // projection AND a book price to compare against (PP legs carry none).
-            const impliedForEdge =
-              pick.odds != null && Number.isFinite(pick.odds)
-                ? Math.round(impliedProb(pick.odds) * 100)
-                : null;
-            const edgePts =
-              aiProjForBadge.proj != null && impliedForEdge != null
-                ? aiProjForBadge.proj - impliedForEdge
-                : null;
             // A prop is anything that isn't a recognized game-side market
             // (moneyline / spread / total / run line / puck line, full-game or
             // any period). Player props (Points, Rebounds, Passing Yards, etc.)
@@ -8490,11 +8567,34 @@ export default function ParlayBuilder() {
             const isPropPick = !/^(live\s+)?((1H|2H|Q[1-4])\s+)?(alt\s+)?(spread|total|moneyline|money line|run line|puck line|match result|draw no bet|double chance|both teams to score|btts)$/i.test(
               (pick.market || "").trim(),
             );
-            // When we have no real model projection AND it's a player prop, the
-            // badge number is just the market's implied probability — say so
-            // honestly ("MARKET PRICE") instead of dressing it up as the model's
-            // "COIN-FLIP" read.
-            const badgeIsMarketOnly = aiProjForBadge.proj == null && isPropPick;
+            // When the AI gave no parseable projection for a player prop, try to
+            // ground the badge in the player's REAL recent game log instead of
+            // the book's price: how often the last N real games cleared the line
+            // on the picked side. A genuine model read, never fabricated. Only
+            // single, unambiguous stats qualify; anything we can't map cleanly
+            // stays an honest "MARKET PRICE".
+            const realHit =
+              aiProjForBadge.proj == null && isPropPick ? realPropHitRate(pick, propLogs) : null;
+            const conf =
+              aiProjForBadge.proj != null
+                ? aiProjForBadge.proj
+                : realHit
+                  ? realHit.pct
+                  : calculateConfidence(pick);
+            // Edge vs the market: meaningful when we have a real model read (AI
+            // projection OR real game-log hit-rate) AND a book price to compare
+            // against (PP legs carry none).
+            const impliedForEdge =
+              pick.odds != null && Number.isFinite(pick.odds)
+                ? Math.round(impliedProb(pick.odds) * 100)
+                : null;
+            const projForEdge = aiProjForBadge.proj != null ? aiProjForBadge.proj : realHit ? realHit.pct : null;
+            const edgePts =
+              projForEdge != null && impliedForEdge != null ? projForEdge - impliedForEdge : null;
+            // Badge reads "MARKET PRICE" only when we have NEITHER an AI
+            // projection NOR a real game-log hit-rate — i.e. the number really is
+            // just the book's implied probability from the price.
+            const badgeIsMarketOnly = aiProjForBadge.proj == null && isPropPick && !realHit;
             // Market-inefficiency signals (no-vig fair line, cross-book +EV,
             // football key numbers). Null for props / period legs.
             const vs = valueSignals(pick);
@@ -8515,10 +8615,17 @@ export default function ParlayBuilder() {
                         title={
                           badgeIsMarketOnly
                             ? "No grounded player-projection feed for this prop — this is the book's implied probability from the price, not a model edge."
-                            : undefined
+                            : realHit
+                              ? `Real game log: cleared this line ${realHit.side} in ${realHit.hits} of the last ${realHit.total} games (ESPN). This is the empirical hit-rate, not the book's price.`
+                              : undefined
                         }
                       >
-                        {conf}% · {badgeIsMarketOnly ? "MARKET PRICE" : confidenceLabel(conf)}
+                        {conf}% ·{" "}
+                        {badgeIsMarketOnly
+                          ? "MARKET PRICE"
+                          : realHit
+                            ? `${confidenceLabel(conf)} · L${realHit.total} ${realHit.hits}/${realHit.total}`
+                            : confidenceLabel(conf)}
                       </div>
                       {edgePts != null && (
                         <div

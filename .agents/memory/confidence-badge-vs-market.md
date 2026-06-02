@@ -125,3 +125,28 @@ misclassifies live/soccer game sides as props and mislabels them.
 ## "MARKET PRICE" tag complaint = AI dropping the prop projected hit %
 User reads "60% · MARKET PRICE" on a prop card and asks "why not just show AI confidence %". Do NOT relabel the number — that 60% IS the book's implied prob (badgeIsMarketOnly = no parseable projection + isPropPick), so calling it "AI confidence" would fabricate a model read. The HONEST fix: make the AI actually emit a grounded projected hit % so parseAiProjection surfaces it and the badge shows "<proj>% · LEAN/STRONG" instead of MARKET PRICE.
 **Root cause:** the chat prompt already REQUIRES a projection-worded hit % for props where playerHistory has data (turns prop→model pick), but the AI drops it — it justifies props with the PRICE/ladder ("priced near his upper band", "17.5 under -125") which is the banned price-as-edge AND leaves the badge nothing to read → forced MARKET PRICE. Added a PROP BADGE SELF-CHECK bullet tying the requirement to this exact user-visible symptom. Props with genuinely no game log honestly stay MARKET PRICE — never invent a % to dress one up.
+
+## Prop badge fallback: client-computed REAL hit-rate (not just AI projection)
+Second, independent grounding path for the prop badge, below the AI-projection
+path. When the AI emits no parseable projection for a prop, the client computes an
+EMPIRICAL hit-rate (`realPropHitRate`) from the SAME real game logs it already
+fetched into chat context (`playerHistory.recent[].stats`) but used to discard.
+Persist those logs into a `propLogs` state, then the badge shows
+"<pct>% · <label> · L<N> <hits>/<N>" instead of "MARKET PRICE".
+**Why:** the real per-game numbers were already in hand; only the AI-projection
+hop could surface them, so any prop the AI didn't explicitly project read market.
+**How to apply (gotchas, all bit us):**
+- `friendlyPickLabel` rewrites countable overs "Over 8.5 Rebounds" → "9+ Rebounds"
+  (drops the over/under token). Name extraction must parse "everything before the
+  first number OR over/under" (lookahead), not split on over/under. AND "N+" means
+  N-or-more → compare `>= N`, NOT `> N`; decimal Over/Under keep strict `>`/`<`.
+- Reject combo/multi-stat props (Pts+Reb+Ast, "Rebounds + Assists"): parsePropLine
+  reads only the FIRST stat token, so a single-stat hit-rate on a combo lies. Guard:
+  strip the "N+" shorthand (digit-then-plus) then bail if any `+` survives.
+- Only map UNAMBIGUOUS single ESPN stat labels (PTS/REB/AST/REC). Football YDS is
+  deliberately excluded — passing/rushing/receiving all flatten to one "YDS" key.
+- Verified ESPN WNBA/NBA gamelog stat keys are literally "PTS"/"REB"/"AST" (numeric
+  string values). athleteId only resolves when props.ts is called WITH
+  homeTeamId/awayTeamId (real client passes them; bare curl returns athleteId null).
+- Honesty floor unchanged: <3 real games, no log, or unmappable stat ⇒ null ⇒
+  honest MARKET PRICE. Never fabricate. Client-only change (Vite HMR, no api rebuild).
