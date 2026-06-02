@@ -194,7 +194,7 @@ PLAYER-VS-OPPONENT CAREER RULE — USE context.playerVsOpponentCareer (REAL care
 
 MLB PLATOON RULE — USE mlbPlatoon (lefty/righty): when context.mlbPlatoon is present, it is a map keyed "Player Name#athleteId" (ignore the id suffix) for MLB batters in the prop pool. Each entry has: bats (the batter's hand: Left/Right/Switch), opposingPitcherName, opposingPitcherThrows (the probable starter's hand), platoon ("advantage" = opposite hands, the classic platoon edge; "disadvantage" = same hand; "switch" = switch-hitter, always bats from the favorable side), vsThatHand (the batter's REAL season split line vs the opposing pitcher's hand, e.g. { AVG, OBP, SLG, OPS, HR, ... }), plus vsLeft / vsRight for reference. How to weigh it: platoon "advantage" or "switch" + a strong vsThatHand line (high AVG/SLG/OPS or HR rate vs that hand) supports OVER on that batter's hits / total-bases / HR props; platoon "disadvantage" + a weak vsThatHand line supports UNDER or skipping the batter. ALWAYS cite the real split numbers when you use it ("Soto (L) vs RHP Rodriguez — .290/.560 vs righties this year, clear platoon edge, TB over has room"). Only applies to MLB batter props. When mlbPlatoon has no entry for a batter, or opposingPitcherThrows / vsThatHand is null, skip this rule — never invent handedness or a split line.
 
-MLB BATTER-VS-PITCHER RULE — USE context.mlbBatterVsPitcher (REAL career matchup, StatMuse): when present it is an array of { batter, pitcher, line, pa } where 'line' is a REAL natural-language career batting line for THIS batter against TONIGHT'S probable starter (e.g. "Freddie Freeman has a batting average of .340 with a homer and 7 RBIs in 55 plate appearances against Logan Webb in his career.") and 'pa' is the plate-appearance sample size. This is the ONE matchup factor the platoon (hand) split can't capture — how this exact hitter has actually fared against this exact pitcher. HOW TO WEIGH IT BY SAMPLE SIZE (this is critical — small samples lie): pa < ~20 → treat the line as a MINOR anecdotal note only, never the primary reason for a pick, and explicitly call it a small sample ("small sample, 12 PA"). pa >= ~20 with a clearly STRONG line (high AVG/SLG, multiple HR) is a real tilt toward that batter's hits / total-bases / HR OVER; pa >= ~20 with a clearly WEAK line (e.g. 2-for-20, no extra-base hits) supports the UNDER or skipping that batter. ALWAYS quote the exact line and the PA count, and STACK it with platoon + opposing-pitcher tendency + park/weather + recent form — never let a tiny BvP sample outweigh those. When a batter has no entry here, skip this factor entirely — never estimate or invent a batter-vs-pitcher line.
+MLB BATTER-VS-PITCHER RULE — USE context.mlbBatterVsPitcher (REAL career matchup, StatMuse): when present it is an array of { batter, pitcher, line, pa } where 'line' is a REAL natural-language career batting line for THIS batter against TONIGHT'S probable starter (e.g. "Freddie Freeman has a batting average of .340 with a homer and 7 RBIs in 55 plate appearances against Logan Webb in his career.") and 'pa' is the plate-appearance sample size. This is the ONE matchup factor the platoon (hand) split can't capture — how this exact hitter has actually fared against this exact pitcher. HOW TO WEIGH IT BY SAMPLE SIZE (this is critical — small samples lie): pa < ~20 → treat the line as a MINOR anecdotal note only, never the primary reason for a pick, and explicitly call it a small sample ("small sample, 12 PA"). pa >= ~20 with a clearly STRONG line (high AVG/SLG, multiple HR) is a real tilt toward that batter's hits / total-bases / HR OVER; pa >= ~20 with a clearly WEAK line (e.g. 2-for-20, no extra-base hits) supports the UNDER or skipping that batter. ALWAYS quote the exact line and the PA count, and STACK it with platoon + opposing-pitcher tendency + park/weather + recent form — never let a tiny BvP sample outweigh those. When a batter has no entry here, skip this factor entirely — never estimate or invent a batter-vs-pitcher line. HOME-RUN COUNT (entry.hr): some entries also include an 'hr' number — the REAL count of career home runs this exact batter has hit off THIS exact pitcher (hr 2 = has taken him deep twice; hr 0 = has faced him, per the pa sample, but never homered off him). For a HOME-RUN prop (To Hit a HR / batter_home_runs) this is the single most relevant matchup fact: hr >= 2 — especially in a small PA sample — is a strong tilt toward that batter's HR YES / HR-OVER, while hr 0 over a non-trivial pa sample is a clear lean to SKIP or fade that batter's HR prop. Cite the exact count alongside the pa sample (e.g. "Dingler has taken this starter deep twice in 14 career PA"). Only an entry that actually carries 'hr' has a confirmed count — for a batter with no 'hr' field, never state or imply a HR-vs-pitcher number.
 
 MLB HOME-RUN & STRIKEOUT ENVIRONMENT RULE — USE mlbGameEnv + mlbPlatoon (REAL data only): context.mlbGameEnv, when present, is a map keyed by the game label ("Away @ Home", the same label used in realGames / realProps) carrying REAL environment data for that MLB game:
   - park: { hrIndex (HR park factor where 100 = MLB average; >100 boosts home runs, <100 suppresses), altitudeFt, dome }. hrIndex is a multi-year reference index (a prior), not a live per-game stat — treat it as a tilt, not proof.
@@ -998,7 +998,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     // appearances / at-bats); "never faced" / boilerplate answers carry no
     // signal and are dropped (honest no-data).
     const bvpFetches: Array<
-      Promise<{ batter: string; pitcher: string; line: string; pa: number | null } | null>
+      Promise<{ batter: string; pitcher: string; line: string; pa: number | null; hr?: number } | null>
     > = [];
     {
       const ctxPlatoon =
@@ -1054,7 +1054,20 @@ router.post("/chat", async (req, res): Promise<void> => {
               const paM = a.match(/([\d,]+)\s+(?:plate appearances|pa|at[-\s]?bats?|ab)\b/i);
               const pa = paM ? Number(paM[1].replace(/,/g, "")) : null;
               if (pa == null) return null;
-              return { batter: e.player, pitcher: e.opposingPitcherName, line: a, pa };
+              // HOME-RUN COUNT — the "career vs" line ALREADY states the HR total
+              // for THIS exact matchup ("...with 8 home runs in 46 plate
+              // appearances"), so parse it straight from the SAME guarded,
+              // pa-confirmed line instead of firing a second StatMuse query — the
+              // extra per-batter request was overloading statmuse.com and making
+              // the base line itself time out. Because pa is already confirmed, a
+              // parsed "no/zero home runs" means faced-but-never-homered (a real
+              // skip/fade signal), not never-faced.
+              let hr: number | undefined;
+              const hrM = a.match(/\b(\d+)\s+(?:home runs?|homers?)\b/i);
+              if (hrM) hr = Number(hrM[1]);
+              else if (/\b(?:a|one)\s+(?:home run|homer)\b/i.test(a)) hr = 1;
+              else if (/\b(?:no|zero)\s+(?:home runs?|homers?)\b/i.test(a)) hr = 0;
+              return { batter: e.player, pitcher: e.opposingPitcherName, line: a, pa, ...(hr != null ? { hr } : {}) };
             }),
           );
         }
@@ -1203,7 +1216,7 @@ router.post("/chat", async (req, res): Promise<void> => {
         bvpFetches.map((p) =>
           Promise.race([
             p,
-            new Promise<{ batter: string; pitcher: string; line: string; pa: number | null } | null>(
+            new Promise<{ batter: string; pitcher: string; line: string; pa: number | null; hr?: number } | null>(
               (resolve) => setTimeout(() => resolve(null), STATMUSE_BUDGET_MS),
             ),
           ]),
@@ -1225,7 +1238,7 @@ router.post("/chat", async (req, res): Promise<void> => {
       lockedContext = { ...(lockedContext as Record<string, unknown>), statmuseFacts } as typeof lockedContext;
     }
     const mlbBatterVsPitcher = bvpResults.filter(
-      (x): x is { batter: string; pitcher: string; line: string; pa: number | null } => !!x,
+      (x): x is { batter: string; pitcher: string; line: string; pa: number | null; hr?: number } => !!x,
     );
     if (mlbBatterVsPitcher.length && lockedContext && typeof lockedContext === "object") {
       lockedContext = {
