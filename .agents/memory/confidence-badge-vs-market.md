@@ -121,3 +121,7 @@ include period prefixes (1H/2H/Q1-4), `alt`, a `live` prefix (live picks use
 double chance / both teams to score). Anything else (stat names like Points,
 Rebounds, Home Runs, Anytime TD) is a prop. **Why:** a too-narrow regex
 misclassifies live/soccer game sides as props and mislabels them.
+
+## "MARKET PRICE" tag complaint = AI dropping the prop projected hit %
+User reads "60% · MARKET PRICE" on a prop card and asks "why not just show AI confidence %". Do NOT relabel the number — that 60% IS the book's implied prob (badgeIsMarketOnly = no parseable projection + isPropPick), so calling it "AI confidence" would fabricate a model read. The HONEST fix: make the AI actually emit a grounded projected hit % so parseAiProjection surfaces it and the badge shows "<proj>% · LEAN/STRONG" instead of MARKET PRICE.
+**Root cause:** the chat prompt already REQUIRES a projection-worded hit % for props where playerHistory has data (turns prop→model pick), but the AI drops it — it justifies props with the PRICE/ladder ("priced near his upper band", "17.5 under -125") which is the banned price-as-edge AND leaves the badge nothing to read → forced MARKET PRICE. Added a PROP BADGE SELF-CHECK bullet tying the requirement to this exact user-visible symptom. Props with genuinely no game log honestly stay MARKET PRICE — never invent a % to dress one up.
