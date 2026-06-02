@@ -12127,10 +12127,13 @@ export default function ParlayBuilder() {
         const gameLabel = pl.gameLabel || `${pl.team} game`;
         const sport = selectedPlayer.sport;
         const statKey = propStatKey || Object.keys(pl.stats)[0];
-        const statLabel = {
-          pts: "Points", reb: "Rebounds", ast: "Assists", passYds: "Pass Yds",
-          rushYds: "Rush Yds", recYds: "Rec Yds", rec: "Receptions", hrPerGame: "Home Runs", shots: "Shots",
-        }[statKey] || statKey;
+        const STAT_LBL = {
+          pts: "Points", reb: "Rebounds", ast: "Assists", stl: "Steals", blk: "Blocks",
+          passYds: "Pass Yds", rushYds: "Rush Yds", recYds: "Rec Yds", rec: "Receptions",
+          hrPerGame: "Home Runs", rbiPerGame: "RBIs", runsPerGame: "Runs", avg: "Batting Avg",
+          points: "Points", goals: "Goals", assists: "Assists", shots: "Shots", goalsPerGame: "Goals",
+        };
+        const statLabel = STAT_LBL[statKey] || statKey;
         const avg = pl.stats[statKey] ?? 0;
         const line = propLine ?? Math.round(avg * 0.9 * 2) / 2;
         // Build a sample 5-game log around the average (deterministic)
@@ -12328,7 +12331,7 @@ export default function ParlayBuilder() {
                 <div className="grid grid-flow-col auto-cols-fr divide-x divide-slate-800">
                   {Object.entries(pl.stats).slice(0, 5).map(([k, v]) => (
                     <div key={k} className="py-3 text-center">
-                      <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{k}</div>
+                      <div className="text-[9px] font-mono uppercase text-slate-500 tracking-wider">{STAT_LBL[k] || k}</div>
                       <div className="text-lg font-bold text-slate-100">{v}</div>
                     </div>
                   ))}
@@ -12341,10 +12344,7 @@ export default function ParlayBuilder() {
                 {/* Stat switcher tabs */}
                 <div className="flex gap-2 mb-3 overflow-x-auto scroll-fade -mx-1 px-1">
                   {Object.keys(pl.stats).map((sk) => {
-                    const lbl = {
-                      pts: "Points", reb: "Rebounds", ast: "Assists", passYds: "Pass Yds",
-                      rushYds: "Rush Yds", recYds: "Rec Yds", rec: "Receptions", hrPerGame: "Home Runs", shots: "Shots",
-                    }[sk] || sk;
+                    const lbl = STAT_LBL[sk] || sk;
                     const active = sk === statKey;
                     return (
                       <button
