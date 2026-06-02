@@ -8937,7 +8937,7 @@ export default function ParlayBuilder() {
             >
               <Menu size={22} />
             </button>
-            <img src={stadiumEdgeWordmark} alt="Stadium Edge" className="h-9 w-auto object-contain" />
+            <img src={stadiumEdgeWordmark} alt="Stadium Edge" className="h-14 w-auto object-contain" />
           </div>
           <div className="flex items-center gap-2">
           <button
