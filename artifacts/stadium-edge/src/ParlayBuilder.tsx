@@ -2977,6 +2977,7 @@ export default function ParlayBuilder() {
       batter_home_runs: "Home Runs",
       batter_hits: "Hits",
       batter_total_bases: "Total Bases",
+      batter_stolen_bases: "Stolen Bases",
       pitcher_strikeouts: "Strikeouts",
       player_points: "Points",
       player_rebounds: "Rebounds",
@@ -3926,6 +3927,7 @@ export default function ParlayBuilder() {
         player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
         player_reception_yds_h1: "1H Receiving Yards",
         batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+        batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
         pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
       };
       for (const pr of liveProps.props) {
@@ -7419,6 +7421,7 @@ export default function ParlayBuilder() {
       { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"] },
       { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"] },
       { re: /\breceptions?\b/i, markets: ["player_receptions"] },
+      { re: /\bsacks?\b/i, markets: ["player_sacks"] },
       { re: /\b(pra\b|p\s*\+\s*r\s*\+\s*a|points?\s*\+\s*rebounds?\s*\+\s*assists?|pts?\s*\+\s*reb\s*\+\s*ast)\b/i, markets: ["player_points_rebounds_assists"] },
       { re: /\b(points?\s*\+\s*rebounds?|pts?\s*\+\s*reb|p\s*\+\s*r)\b/i, markets: ["player_points_rebounds"] },
       { re: /\b(points?\s*\+\s*assists?|pts?\s*\+\s*ast|p\s*\+\s*a)\b/i, markets: ["player_points_assists"] },
@@ -7426,6 +7429,8 @@ export default function ParlayBuilder() {
       { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"] },
       { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"] },
       { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"] },
+      // Stolen bases (MLB) before the NBA "steals" entry so "steal a base" maps right.
+      { re: /\b(stolen bases?|steals? a base|sb\b)\b/i, markets: ["batter_stolen_bases"] },
       { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"] },
       { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"] },
       { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"] },
@@ -9849,6 +9854,7 @@ export default function ParlayBuilder() {
                   player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+                  batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
                   pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
                 };
                 const propPool = [];
@@ -11888,6 +11894,7 @@ export default function ParlayBuilder() {
                   player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
+                  batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
                   pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
                 };
                 // Score every live prop and pick the single best edge to
@@ -11902,6 +11909,7 @@ export default function ParlayBuilder() {
                   player_pass_yds: "passYds", player_rush_yds: "rushYds",
                   player_reception_yds: "recYds", player_receptions: "rec",
                   batter_hits: null, batter_total_bases: null, batter_home_runs: "hrPerGame",
+                  batter_stolen_bases: null, player_sacks: null,
                   pitcher_strikeouts: null, player_goals: null, player_shots_on_goal: "shots",
                 };
                 const americanToProb = (odds) => {

@@ -26,6 +26,22 @@ silently half-works:
    combo (PTS+REB, PTS+AST, PRA) counts as a scoring leg for the Total-OVER /
    points-UNDER anti-correlation gate; REB+AST has no points component and is
    exempt like bare rebounds/assists.
+7. **client `ParlayBuilder.tsx` `PROP_MARKET_KEYWORDS`** (~line 7414, SEPARATE from
+   the chat.ts MARKET_KEYWORDS) — drives requested-market playerHistory
+   prioritization / prop ordering. Easy to miss (architect caught it): omit it and
+   "best sacks props" still locks server-side but the client never floats those
+   props, so they fall back to "MARKET PRICE" with no real projection. ORDER MATTERS
+   here too — stolen-bases entry must precede the generic NBA "steals" entry.
+8. **mobile** `lib/api.ts` `PROP_MARKET_LABELS` + `PlayerPropsSheet.tsx`
+   `MARKET_SINGLE` (column abbrevs) — the Expo app has its own label/abbrev maps.
+
+**Markets added (verified real, June 2026):** MLB `batter_stolen_bases` (live on
+~70% of MLB games, 28-44 outcomes) and NFL `player_sacks` (valid key; 0 outcomes
+in offseason but populates in-season — safe because an empty real market does NOT
+422). NBA `player_steals`/`player_blocks` already existed. Skipped `_alternate`
+and `_q1/_h1` variants for both (no ladder/period lines → would all-or-nothing 422).
+These are single-stat markets with no clean ESPN season-stat split, so
+`STAT_KEY_BY_MARKET` = `null` (analytics skipped, never fabricated).
 
 **Why:** the same prop key is referenced in ~6 disconnected places across two
 artifacts; a partial add looks fine in one surface and broken in another.

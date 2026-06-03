@@ -14,9 +14,9 @@ export const MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   wnba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
   ncaab: ["player_points", "player_rebounds", "player_assists"],
-  nfl: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td"],
+  nfl: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td", "player_sacks"],
   ncaaf: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_anytime_td"],
-  mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts"],
+  mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts", "batter_stolen_bases"],
   nhl: ["player_points", "player_goals", "player_assists", "player_shots_on_goal"],
 };
 

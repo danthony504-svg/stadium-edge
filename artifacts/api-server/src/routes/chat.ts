@@ -128,11 +128,11 @@ SCALE ALT-SPREADS WITH LEG COUNT — bigger ticket, more cushion: every added le
 
 PLAYER-PROP ANALYTICS RULE — USE playerHistory, NOT JUST THE LINE: when context.playerHistory is present, it is a map whose keys look like "Player Name#athleteId" (the athleteId suffix protects against duplicate display names — ignore it). Each entry has:
 - player: the canonical display name — match this against the player field in realProps.
-- recent: up to 5 most-recent games, each with { date, opp, stats } where stats is a labeled map of ESPN's stat keys for that sport (NBA: PTS, REB, AST, 3PM, MIN; NFL: YDS, TD, REC, ATT, CMP; MLB: H, HR, RBI, SO, BB; NHL: G, A, SOG, etc.). The keys you see ARE the canonical ones — use them verbatim.
+- recent: up to 5 most-recent games, each with { date, opp, stats } where stats is a labeled map of ESPN's stat keys for that sport (NBA: PTS, REB, AST, 3PM, MIN; NFL: YDS, TD, REC, ATT, CMP; MLB: H, HR, RBI, SO, BB, SB; NHL: G, A, SOG, etc.). The keys you see ARE the canonical ones — use them verbatim.
 - vsOpponent: up to 3 prior games against TONIGHT'S opponent specifically (same stat shape). This is the matchup-specific sample, often the strongest signal for a prop.
 
 How to weigh it for prop legs (these are guides, not hard rules):
-- Map the prop's market to the matching stat key (player_points→PTS, player_rebounds→REB, player_assists→AST, player_threes→3PM, player_pass_yds→YDS for QB, player_rush_yds→YDS for RB, player_reception_yds→YDS for WR/TE, player_receptions→REC, batter_hits→H, batter_home_runs→HR, pitcher_strikeouts→SO, player_shots_on_goal→SOG, player_goals→G, player_assists→A for NHL, etc.). If the stat key isn't obvious from the labels, skip the analytics step rather than guessing.
+- Map the prop's market to the matching stat key (player_points→PTS, player_rebounds→REB, player_assists→AST, player_threes→3PM, player_pass_yds→YDS for QB, player_rush_yds→YDS for RB, player_reception_yds→YDS for WR/TE, player_receptions→REC, player_sacks→SACK (defense — may be absent from playerHistory; skip if so), batter_hits→H, batter_home_runs→HR, batter_stolen_bases→SB, pitcher_strikeouts→SO, player_shots_on_goal→SOG, player_goals→G, player_assists→A for NHL, etc.). If the stat key isn't obvious from the labels, skip the analytics step rather than guessing.
 - QUARTER / HALF prop markets are real, separately-priced legs the bookmaker posts. Available markets in our feed (verified, no others exist for those sports):
     NBA — "1Q Points", "1Q Rebounds", "1Q Assists" only (no 1H markets, no 1Q threes).
     NFL — "1Q Passing Yards", "1Q Passing TDs", "1Q Rushing Yards", "1Q Receiving Yards", and 1H versions of pass/rush/receiving yds.
@@ -363,6 +363,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"], label: "rushing yards" },
     { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"], label: "receiving yards" },
     { re: /\breceptions?\b/i, markets: ["player_receptions"], label: "receptions" },
+    { re: /\bsacks?\b/i, markets: ["player_sacks"], label: "sacks" },
     // Combo (multi-stat) markets MUST be tested before the single-stat
     // entries below, or a request like "pts+reb parlay" would lock to plain
     // points (the bare-points entry would match first). Most specific (PRA)
@@ -374,6 +375,9 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
+    // Stolen bases (MLB) MUST come before the NBA "steals" entry below, or
+    // "steal a base" would lock to player_steals (an NBA-only market).
+    { re: /\b(stolen bases?|steals? a base|sb\b)\b/i, markets: ["batter_stolen_bases"], label: "stolen bases" },
     { re: /\b(blocks?\s*\+?\s*steals?|steals?\s*\+?\s*blocks?)\b/i, markets: ["player_blocks_steals"], label: "blocks + steals" },
     { re: /\b(blocks?|blk\b)\b/i, markets: ["player_blocks"], label: "blocks" },
     { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"], label: "steals" },

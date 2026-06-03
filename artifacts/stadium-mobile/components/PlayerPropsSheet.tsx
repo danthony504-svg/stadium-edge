@@ -55,6 +55,8 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_turnovers: ["TO"],
   batter_hits: ["H"],
   batter_home_runs: ["HR"],
+  batter_stolen_bases: ["SB"],
+  player_sacks: ["SACK", "SACKS"],
   pitcher_strikeouts: ["K", "SO"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
