@@ -42,6 +42,7 @@ function RootLayoutNav() {
     >
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="game/[id]" options={{ presentation: "card" }} />
+      <Stack.Screen name="upcoming" options={{ presentation: "card" }} />
     </Stack>
   );
 }

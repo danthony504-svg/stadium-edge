@@ -99,7 +99,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -611,7 +610,7 @@ export default function HomeScreen() {
           {games.length > 0 ? (
             <Pressable
               hitSlop={8}
-              onPress={() => setShowAllUpcoming((v) => !v)}
+              onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
               <Text
@@ -621,7 +620,7 @@ export default function HomeScreen() {
                   fontSize: 14,
                 }}
               >
-                {showAllUpcoming ? "Show less" : "View all"}
+                View all
               </Text>
             </Pressable>
           ) : null}
@@ -641,20 +640,6 @@ export default function HomeScreen() {
               title="No games in the window"
               subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games are within the next 48 hours. Try another league.`}
             />
-          </View>
-        ) : showAllUpcoming ? (
-          <View style={{ paddingHorizontal: 16, gap: 12 }}>
-            {games.map((g) => {
-              const meta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
-              return (
-                <GameCard
-                  key={g.id}
-                  game={g}
-                  meta={meta}
-                  onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
-                />
-              );
-            })}
           </View>
         ) : (
           <ScrollView
