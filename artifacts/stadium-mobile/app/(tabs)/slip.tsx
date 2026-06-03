@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PickCard } from "@/components/PickCard";
+import { type ParsedPick } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -47,6 +47,62 @@ function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
         </Pressable>
       ) : null}
     </View>
+  );
+}
+
+function AiPickChip({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
+  const added = hasLeg(pick.game, pick.market, pick.pick);
+
+  const onToggle = () => {
+    if (added) {
+      removeLeg(`${pick.game}|${pick.market}|${pick.pick}`.toLowerCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      const ok = addLeg(pick);
+      Haptics.impactAsync(
+        ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+      );
+    }
+  };
+
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingVertical: 7,
+        paddingHorizontal: 10,
+        borderRadius: 999,
+        backgroundColor: added ? "rgba(34,211,238,0.14)" : colors.surface,
+        borderWidth: 1,
+        borderColor: added ? colors.primary : colors.border,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Feather
+        name={added ? "check" : "plus"}
+        size={13}
+        color={added ? colors.primary : colors.mutedForeground}
+      />
+      <Text
+        style={{
+          color: colors.foreground,
+          fontFamily: FONT.semibold,
+          fontSize: 12,
+          maxWidth: 170,
+        }}
+        numberOfLines={1}
+      >
+        {pick.pick}
+      </Text>
+      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 12 }}>
+        {formatAmerican(pick.odds)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -164,9 +220,11 @@ export default function SlipScreen() {
             >
               ★ AI RECOMMENDED
             </Text>
-            {aiPicks.map((p, i) => (
-              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
-            ))}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {aiPicks.map((p, i) => (
+                <AiPickChip key={`${p.game}|${p.pick}|${i}`} pick={p} />
+              ))}
+            </View>
           </View>
         ) : null}
 
