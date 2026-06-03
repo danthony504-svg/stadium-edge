@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
-import { SlipBar } from "@/components/SlipBar";
+import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -246,6 +246,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
 export default function GameDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
   const router = useRouter();
   const { id, sport } = useLocalSearchParams<{ id: string; sport: string }>();
 
@@ -292,7 +293,7 @@ export default function GameDetailScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 14 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 + slipClearance, gap: 14 }}>
           <View style={{ gap: 6 }}>
             <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
               {game.awayTeam}

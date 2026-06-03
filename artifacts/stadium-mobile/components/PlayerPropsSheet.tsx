@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { SlipBar } from "@/components/SlipBar";
+import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -188,6 +188,7 @@ export function PlayerPropsSheet({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
   const { addLeg, hasLeg } = useBetSlip();
 
   const [market, setMarket] = useState<string>(data?.initialMarket ?? "");
@@ -390,7 +391,7 @@ export function PlayerPropsSheet({
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32, gap: 18 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 32 + slipClearance, gap: 18 }}>
           {/* Identity */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
             <View

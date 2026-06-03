@@ -6,7 +6,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameCard, type GameMeta } from "@/components/GameCard";
-import { SlipBar } from "@/components/SlipBar";
+import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getGames, getOdds, isPickable, type EspnGame, type OddsGame } from "@/lib/api";
@@ -36,6 +36,7 @@ function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
 export default function UpcomingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
   const router = useRouter();
   const { sport } = useLocalSearchParams<{ sport: string | string[] }>();
   const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "");
@@ -118,7 +119,7 @@ export default function UpcomingScreen() {
           />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40, gap: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 + slipClearance, gap: 12 }}>
           {games.map((g) => {
             const meta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
             return (

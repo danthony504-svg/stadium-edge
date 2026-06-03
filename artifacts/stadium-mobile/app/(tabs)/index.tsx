@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameCard, type GameMeta } from "@/components/GameCard";
+import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -97,6 +98,7 @@ function FeaturedAvatar({ headshot, name }: { headshot: string | null; name: str
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
   const router = useRouter();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
 
@@ -238,7 +240,7 @@ export default function HomeScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: insets.top,
-          paddingBottom: insets.bottom + 24,
+          paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
           <RefreshControl

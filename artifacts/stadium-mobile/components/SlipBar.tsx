@@ -38,6 +38,18 @@ if (
 // is up so it never covers what the user is typing.
 const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
 
+// Extra bottom padding a scrollable screen should add so its last items can
+// scroll clear of the floating slip bar (summary bar height + its bottom offset
+// + a small gap). Only needed when the slip actually has legs (bar is visible).
+export const SLIP_BAR_CLEARANCE = 76;
+
+// Returns the bottom padding a scroll list should add on top of its normal
+// safe-area padding so content isn't hidden behind the floating SlipBar.
+export function useSlipClearance() {
+  const { legs } = useBetSlip();
+  return legs.length > 0 ? SLIP_BAR_CLEARANCE : 0;
+}
+
 export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();

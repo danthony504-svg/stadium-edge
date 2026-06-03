@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PickCard } from "@/components/PickCard";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
+import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -356,6 +357,7 @@ function PlayerResultRow({
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
   const { aiPicks } = useBetSlip();
   const aiProps = useMemo(() => aiPicks.filter((p) => p.isProp), [aiPicks]);
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
@@ -435,7 +437,7 @@ export default function PropsScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 24,
+          paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
           <RefreshControl
