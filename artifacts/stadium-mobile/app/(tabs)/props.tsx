@@ -450,10 +450,10 @@ export default function PropsScreen() {
         {/* Logo — matches the Home logo's size and position */}
         <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
           <Image
-            source={require("@/assets/images/logo-player-props.png")}
+            source={require("@/assets/images/logo.png")}
             style={{ width: "100%", height: 130, marginTop: -8 }}
             resizeMode="contain"
-            accessibilityLabel="Stadium Edge Player Props"
+            accessibilityLabel="Stadium Edge"
           />
         </View>
 
