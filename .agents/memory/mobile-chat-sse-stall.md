@@ -51,3 +51,18 @@ socket (server sees "request aborted") but the JS promise never rejects.
   false-trip the stall. Tune both together. **Verify through the proxy** with the
   device path — `curl -sN -X POST "$REPLIT_DEV_DOMAIN/api/chat"` and watch ping
   timing; an `identity` curl can mask the device-only hung-read behavior.
+
+**There are THREE hang surfaces, not one — the hung-read fix alone is incomplete:**
+1. The mid-stream `reader.read()` (above).
+2. **The initial `expoFetch` itself** (waiting for response HEADERS) can also hang
+   on a dead native link. Race it against a connect deadline (`CONNECT_MS`, 8000)
+   using the SAME stall sentinel; on timeout `attemptCtrl.abort()` + throw — it
+   lands in the pre-content retry path (safe: `sawContent` still false).
+3. **Every plain GET in `buildChatContext`** (odds/games/props via `getJson`) runs
+   while the spinner is already up, BEFORE the chat starts. A hung GET never
+   rejects, so `Promise.all` deadlocks → spinner freezes with no `/api/chat` ever
+   logged. Fix: `getJson` races both `expoFetch` and `res.json()` against
+   `withTimeout` (REQUEST_TIMEOUT_MS, 12000). Callers already degrade on rejection
+   (`.catch(()=>[])` / try-catch skip), so a timeout just narrows the pool — never
+   fabricates. **When debugging "spinner forever", check the GET fan-out too, not
+   only the SSE stream.**

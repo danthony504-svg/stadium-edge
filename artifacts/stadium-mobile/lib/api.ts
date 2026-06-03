@@ -73,10 +73,35 @@ export type RealGameEntry = {
 
 // ---------- Fetchers ----------
 
+// Max time any single GET (odds / games / props) may take. On native, a dropped
+// socket does NOT reliably reject an in-flight expo/fetch — the promise can hang
+// forever. buildChatContext fan-outs already degrade gracefully on REJECTION
+// (.catch → [] / try-catch → skip), but a silent hang would stall the whole
+// Promise.all and freeze the "Building your parlay…" spinner BEFORE the chat
+// stream is ever reached. So we race every request against a hard timeout that
+// rejects, converting a hung link into the same graceful "narrower pool" path.
+const REQUEST_TIMEOUT_MS = 12000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`request timeout: ${label}`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await expoFetch(`${API_BASE}${path}`, { signal });
+  const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), REQUEST_TIMEOUT_MS, path);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as T;
+  return (await withTimeout(res.json() as Promise<T>, REQUEST_TIMEOUT_MS, `${path} (body)`));
 }
 
 // ---------- Authenticated requests (Clerk Bearer token) ----------
@@ -712,6 +737,7 @@ function abortError(): Error {
 //      cancel) propagates immediately and is never retried.
 export async function streamChat({ messages, context, onToken, signal }: StreamChatArgs): Promise<string> {
   const STALL_MS = 4000; // max gap between chunks before we call the link dead
+  const CONNECT_MS = 8000; // max wait for response HEADERS before we call it dead
   const MAX_ATTEMPTS = 4;
 
   let lastErr: unknown = null;
@@ -733,13 +759,38 @@ export async function streamChat({ messages, context, onToken, signal }: StreamC
     let fullText = "";
     let sawContent = false;
 
+    // Shared "deadline reached" sentinel for both the connect race (waiting for
+    // response headers) and the per-chunk read race below.
+    const STALL = Symbol("stall");
+
     try {
-      const res = await expoFetch(`${API_BASE}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, context }),
-        signal: attemptCtrl.signal,
+      // The fetch promise resolves once response HEADERS arrive. On native a
+      // dead link can hang this promise too (not just reader.read()), so we race
+      // it against a connect deadline. On timeout we abort the attempt (freeing
+      // the socket) and fall through to the retry logic — same recovery path as a
+      // mid-stream stall, and safe because no tokens have streamed yet.
+      let connectTimer: ReturnType<typeof setTimeout> | null = null;
+      const connectStall = new Promise<typeof STALL>((resolve) => {
+        connectTimer = setTimeout(() => resolve(STALL), CONNECT_MS);
       });
+      let res: Response | typeof STALL;
+      try {
+        res = await Promise.race([
+          expoFetch(`${API_BASE}/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages, context }),
+            signal: attemptCtrl.signal,
+          }) as unknown as Promise<Response>,
+          connectStall,
+        ]);
+      } finally {
+        if (connectTimer) clearTimeout(connectTimer);
+      }
+      if (res === STALL) {
+        attemptCtrl.abort(); // free the socket; do NOT await the orphaned fetch
+        throw new Error("connect stalled");
+      }
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
       const reader = res.body.getReader();
@@ -757,7 +808,6 @@ export async function streamChat({ messages, context, onToken, signal }: StreamC
       // read. The server pings ~every 400ms even while the reasoning model is
       // silent before its first token, so a multi-second gap unambiguously means
       // a dropped connection, never a healthy slow start.
-      const STALL = Symbol("stall");
       while (true) {
         let stallTimer: ReturnType<typeof setTimeout> | null = null;
         const stall = new Promise<typeof STALL>((resolve) => {
