@@ -115,15 +115,33 @@ export default function HomeScreen() {
 
   const metaMap = useMemo(() => buildMetaMap(gamesQ.data ?? []), [gamesQ.data]);
 
-  const games: OddsGame[] = useMemo(() => {
-    const list = (oddsQ.data ?? []).filter((g) => isPickable(g.commenceTime));
-    return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data]);
-
   const liveGames = useMemo(
     () => (gamesQ.data ?? []).filter((g) => g.state === "in"),
     [gamesQ.data],
   );
+
+  // Nickname keys (away|home) of games currently in progress, so we can drop them
+  // from Upcoming — a live game already has its own card in the "Live Now" rail.
+  const liveKeySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const g of liveGames) {
+      const home = g.homeTeam || g.homeAbbr || "";
+      const away = g.awayTeam || g.awayAbbr || "";
+      if (!home || !away) continue;
+      s.add(`${nickname(away)}|${nickname(home)}`.toLowerCase());
+    }
+    return s;
+  }, [liveGames]);
+
+  const games: OddsGame[] = useMemo(() => {
+    const list = (oddsQ.data ?? [])
+      .filter((g) => isPickable(g.commenceTime))
+      .filter(
+        (g) =>
+          !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
+      );
+    return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  }, [oddsQ.data, liveKeySet]);
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,

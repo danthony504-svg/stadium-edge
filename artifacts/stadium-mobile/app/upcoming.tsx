@@ -56,10 +56,29 @@ export default function UpcomingScreen() {
 
   const metaMap = useMemo(() => buildMetaMap(gamesQ.data ?? []), [gamesQ.data]);
 
+  // Nickname keys (away|home) of games currently in progress, so live games are
+  // excluded from Upcoming (they live in the home screen's "Live Now" rail).
+  const liveKeySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const g of gamesQ.data ?? []) {
+      if (g.state !== "in") continue;
+      const home = g.homeTeam || g.homeAbbr || "";
+      const away = g.awayTeam || g.awayAbbr || "";
+      if (!home || !away) continue;
+      s.add(`${nickname(away)}|${nickname(home)}`.toLowerCase());
+    }
+    return s;
+  }, [gamesQ.data]);
+
   const games: OddsGame[] = useMemo(() => {
-    const list = (oddsQ.data ?? []).filter((g) => isPickable(g.commenceTime));
+    const list = (oddsQ.data ?? [])
+      .filter((g) => isPickable(g.commenceTime))
+      .filter(
+        (g) =>
+          !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
+      );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data]);
+  }, [oddsQ.data, liveKeySet]);
 
   const sportLabel = SPORTS.find((s) => s.id === sportId)?.label ?? sportId;
 
