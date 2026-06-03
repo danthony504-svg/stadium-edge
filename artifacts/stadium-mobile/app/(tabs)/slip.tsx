@@ -263,7 +263,9 @@ export default function SlipScreen() {
   } = useBetSlip();
 
   const combined = parlayAmerican(legs.map((l) => l.odds));
-  const ret = payout(stake, combined);
+  // "To win" is profit only — the winnings on top of the stake, NOT the total
+  // return. payout() includes the stake, so subtract it back out.
+  const toWin = payout(stake, combined) - stake;
   const implied = parlayImplied(legs.map((l) => l.odds));
 
   return (
@@ -410,7 +412,7 @@ export default function SlipScreen() {
                   To win
                 </Text>
                 <Text style={{ color: colors.success, fontFamily: FONT.display, fontSize: 20 }}>
-                  ${ret.toFixed(2)}
+                  ${toWin.toFixed(2)}
                 </Text>
               </View>
 
