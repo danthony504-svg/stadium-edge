@@ -60,7 +60,28 @@ function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
 function SavedSlipCard({ slip, onDelete }: { slip: SavedSlip; onDelete: () => void }) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
+  const [savingImage, setSavingImage] = useState(false);
   const ret = payout(slip.stake, slip.combinedOdds);
+
+  const onSaveToPhotos = async () => {
+    if (savingImage || slip.legs.length === 0) return;
+    setSavingImage(true);
+    Haptics.selectionAsync();
+    const result = await saveSlipToPhotos(slip.legs, slip.stake);
+    setSavingImage(false);
+    if (result.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved", "Your bet slip was saved to Photos.");
+    } else if (result.reason === "permission") {
+      Alert.alert(
+        "Photos access needed",
+        "Enable photo access for Stadium Edge in Settings to save your slip.",
+      );
+    } else {
+      Alert.alert("Couldn't save", "Something went wrong saving your slip. Try again.");
+    }
+  };
+
   return (
     <View
       style={{
@@ -94,13 +115,39 @@ function SavedSlipCard({ slip, onDelete }: { slip: SavedSlip; onDelete: () => vo
             <LegRow key={l.id} leg={l} />
           ))}
           <Pressable
+            onPress={onSaveToPhotos}
+            disabled={savingImage}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              marginTop: 12,
+              paddingVertical: 10,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+              opacity: savingImage ? 0.6 : pressed ? 0.85 : 1,
+            })}
+          >
+            <Feather
+              name={savingImage ? "loader" : "download"}
+              size={15}
+              color={colors.foreground}
+            />
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+              {savingImage ? "Saving to Photos…" : "Save to Photos"}
+            </Text>
+          </Pressable>
+          <Pressable
             onPress={onDelete}
             style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "center",
               gap: 6,
-              marginTop: 12,
+              marginTop: 10,
               paddingVertical: 10,
               borderRadius: 10,
               borderWidth: 1,
