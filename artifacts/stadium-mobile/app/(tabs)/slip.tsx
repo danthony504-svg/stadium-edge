@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import {
-  Image,
   Pressable,
   ScrollView,
   Text,
@@ -12,7 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type ParsedPick } from "@/components/PickCard";
+import { AiPickCard } from "@/components/AiPickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -51,138 +50,6 @@ function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
   );
 }
 
-// Mirrors the Home screen's "Featured Players" card: a circular avatar with the
-// pick's initials, the selection, its market, and the odds. Tapping toggles the
-// leg in/out of the slip (border turns cyan + a check shows when added).
-function AiPickAvatar({ pick }: { pick: ParsedPick }) {
-  const colors = useColors();
-  // Player props lead with the athlete's name ("Max Meyer Over 5.5 Strikeouts");
-  // game picks lead with the team ("Lakers -3.5"). Either way the leading words
-  // give us the initials, same as the Featured Players avatar.
-  const lead = pick.pick.split(/\s+over\s+|\s+under\s+/i)[0] ?? pick.pick;
-  const initials = lead
-    .split(/\s+/)
-    .filter((w) => /[a-z]/i.test(w))
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-  // Real ESPN imagery: a player headshot for props, the picked team's logo for
-  // game-level legs. Falls back to initials when the feed has neither (e.g. a
-  // game total, which names no single team) OR when the image URL fails to load.
-  const [imgFailed, setImgFailed] = useState(false);
-  const photo = imgFailed ? null : pick.headshot || pick.teamLogo || null;
-  const isLogo = !pick.headshot && !!pick.teamLogo;
-  return (
-    <View
-      style={{
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      {photo ? (
-        <Image
-          source={{ uri: photo }}
-          style={
-            isLogo
-              ? { width: 38, height: 38 }
-              : { width: 56, height: 56 }
-          }
-          resizeMode="contain"
-          onError={() => setImgFailed(true)}
-        />
-      ) : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
-          {initials || "?"}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-function AiPickCard({ pick }: { pick: ParsedPick }) {
-  const colors = useColors();
-  const { addLeg, removeLeg, hasLeg } = useBetSlip();
-  const added = hasLeg(pick.game, pick.market, pick.pick);
-
-  const onToggle = () => {
-    if (added) {
-      removeLeg(`${pick.game}|${pick.market}|${pick.pick}`.toLowerCase());
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } else {
-      const ok = addLeg(pick);
-      Haptics.impactAsync(
-        ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
-      );
-    }
-  };
-
-  return (
-    <Pressable
-      onPress={onToggle}
-      style={({ pressed }) => ({
-        width: 150,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: added ? colors.primary : colors.border,
-        borderRadius: colors.radius,
-        paddingVertical: 16,
-        paddingHorizontal: 12,
-        alignItems: "center",
-        gap: 6,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <AiPickAvatar pick={pick} />
-      <Text
-        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, textAlign: "center" }}
-        numberOfLines={1}
-      >
-        {pick.pick}
-      </Text>
-      <Text
-        style={{
-          color: colors.mutedForeground,
-          fontFamily: FONT.medium,
-          fontSize: 11,
-          letterSpacing: 0.5,
-          textTransform: "uppercase",
-        }}
-        numberOfLines={1}
-      >
-        {pick.teamAbbr ? `${pick.teamAbbr} · ${pick.market}` : pick.market}
-      </Text>
-      <Text
-        style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}
-        numberOfLines={1}
-      >
-        {formatAmerican(pick.odds)}
-      </Text>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
-        <Feather
-          name={added ? "check" : "plus"}
-          size={12}
-          color={added ? colors.primary : colors.mutedForeground}
-        />
-        <Text
-          style={{
-            color: added ? colors.primary : colors.mutedForeground,
-            fontFamily: FONT.semibold,
-            fontSize: 11,
-          }}
-        >
-          {added ? "Added" : "Add"}
-        </Text>
-      </View>
-    </Pressable>
-  );
-}
 
 function SavedSlipCard({ slip, onDelete }: { slip: SavedSlip; onDelete: () => void }) {
   const colors = useColors();

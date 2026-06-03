@@ -37,3 +37,24 @@ the AI. So headshots/logos/abbrs must NEVER be put on `ChatContext`. Instead
   PlayerProp, which is stripped before the AI body.
 - Two distinct `GameMeta` types exist: `@/lib/api` (this one) and
   `@/components/GameCard` (unrelated). No single-file collision; don't merge.
+
+## Shared AiPickCard + game-detail AI picks
+- The compact card lives in `components/AiPickCard.tsx` (shared) — avatar
+  (headshot/logo/initials w/ onError fallback) + a collapsible "AI Edge" pill
+  showing `pick.edge`. slip.tsx imports it; don't reintroduce a local copy.
+- Game detail (`app/game/[id].tsx` → `AiGamePicks`) gets per-game AI picks WITHOUT
+  a backend single-game endpoint: it reuses the chat stream. Naming exactly ONE
+  game in the message (`best bets for <Away @ Home>`) game-locks the model to that
+  matchup. Flow: `buildChatContext([game.sport],[],signal)` → `streamChat` →
+  `parsePicks(full, context.realOdds, propPool, gameMeta)` → filter via exported
+  `sameGame(p.game, gameLabel)`. Fail-closed: empty resolve → honest "no edges"
+  message, never sample data.
+- On-demand (button), NOT on every open — each run is a real billed AI call.
+- Lifecycle: abort prior controller on refresh AND on unmount
+  (`useEffect(()=>()=>abortRef.current?.abort(),[])`); guard every setState with
+  `abortRef.current === controller` so a superseded request can't clobber state.
+
+## Bet Slip "To win" = profit only
+- SlipScreen "To win" must be `payout(stake, combined) - stake` (profit), not the
+  full payout. `payout()` returns total return (stake + profit). SavedSlipCard's
+  `$stake → $total` line is intentionally total return ("you get back"), left as-is.

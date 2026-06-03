@@ -189,7 +189,7 @@ const norm = (s: string) =>
 const gameTokens = (s: string) =>
   new Set(norm(s).split(" ").filter((w) => /[a-z]/.test(w) && w.length > 2));
 
-function sameGame(a: string, b: string): boolean {
+export function sameGame(a: string, b: string): boolean {
   const ta = gameTokens(a);
   const tb = gameTokens(b);
   let hits = 0;
