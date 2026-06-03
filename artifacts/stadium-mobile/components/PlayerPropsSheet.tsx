@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SlipBar } from "@/components/SlipBar";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -877,6 +878,11 @@ export function PlayerPropsSheet({
             bookmaker odds — no projections or simulated results. 21+
           </Text>
         </ScrollView>
+
+        {/* Floating slip popup — this is a fullScreen Modal, so the root-level
+            SlipBar can't show through; render its own instance here. Tapping
+            "Open full slip" closes this sheet first, then navigates. */}
+        <SlipBar onNavigateAway={onClose} />
       </View>
     </Modal>
   );

@@ -36,7 +36,7 @@ if (
 // while the keyboard is up so it never covers what the user is typing.
 const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
 
-export function SlipBar() {
+export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -82,6 +82,7 @@ export function SlipBar() {
   const openSlip = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
+    onNavigateAway?.(); // e.g. close the modal hosting this bar before navigating
     router.navigate("/slip" as any);
   };
 
