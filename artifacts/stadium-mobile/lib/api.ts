@@ -688,40 +688,105 @@ export type StreamChatArgs = {
   signal?: AbortSignal;
 };
 
+function abortError(): Error {
+  const e = new Error("Aborted");
+  e.name = "AbortError";
+  return e;
+}
+
 // Streams the assistant reply token-by-token. Uses expo/fetch so getReader()
 // works on native. Returns the full text once the stream closes.
+//
+// RESILIENCE: the parlay build holds an SSE connection open for ~10-15s while
+// gpt-5.4 reasons. Through the Replit proxy that connection is sometimes dropped
+// a couple of seconds in (before the first real token), and expo/fetch's reader
+// then HANGS forever instead of rejecting — so the UI was stuck on "Building
+// your parlay…" with no way out. We defend with two mechanisms:
+//   1. A per-attempt stall watchdog. The server emits a keep-alive every ~3s of
+//      silence, so if NOTHING arrives for STALL_MS the connection is dead — we
+//      actively abort this attempt (which makes the hung reader reject).
+//   2. Auto-retry. The drop is intermittent and happens before any content has
+//      streamed, so re-POSTing is safe (no duplicated output) and usually
+//      succeeds on a later attempt. Once real tokens have started we never retry
+//      (that would duplicate text); and a real caller abort (unmount / user
+//      cancel) propagates immediately and is never retried.
 export async function streamChat({ messages, context, onToken, signal }: StreamChatArgs): Promise<string> {
-  const res = await expoFetch(`${API_BASE}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, context }),
-    signal,
-  });
-  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+  const STALL_MS = 8000; // max gap between chunks before we call the link dead
+  const MAX_ATTEMPTS = 3;
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let fullText = "";
+  let lastErr: unknown = null;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() || "";
-    for (const chunk of chunks) {
-      if (!chunk.startsWith("data: ")) continue;
-      try {
-        const data = JSON.parse(chunk.slice(6));
-        if (data.content) {
-          fullText += data.content;
-          onToken(fullText);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw abortError();
+
+    // Per-attempt controller so the watchdog can kill THIS attempt without
+    // tearing down the caller's signal. Chained to the external signal so a
+    // genuine unmount / user cancel still aborts everything and stops retries.
+    const attemptCtrl = new AbortController();
+    const onExternalAbort = () => attemptCtrl.abort();
+    if (signal) signal.addEventListener("abort", onExternalAbort, { once: true });
+
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
+    const armWatchdog = () => {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => attemptCtrl.abort(), STALL_MS);
+    };
+    const cleanup = () => {
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = null;
+      if (signal) signal.removeEventListener("abort", onExternalAbort);
+    };
+
+    let fullText = "";
+    let sawContent = false;
+
+    try {
+      const res = await expoFetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, context }),
+        signal: attemptCtrl.signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      armWatchdog();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        armWatchdog(); // any chunk (incl. ": keep-alive") proves the link is alive
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          if (!chunk.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(chunk.slice(6));
+            if (data.content) {
+              fullText += data.content;
+              sawContent = true;
+              onToken(fullText);
+            }
+          } catch {
+            // ignore keep-alive / status frames
+          }
         }
-      } catch {
-        // ignore keep-alive / status frames
       }
+      cleanup();
+      return fullText;
+    } catch (err) {
+      cleanup();
+      // A real caller abort (unmount / user cancel) wins — never retry.
+      if (signal?.aborted) throw abortError();
+      // Tokens already streamed → retrying would duplicate the reply. Propagate.
+      if (sawContent) throw err;
+      // Otherwise the link dropped/stalled before the first token: retry.
+      lastErr = err;
     }
   }
-  return fullText;
+
+  throw lastErr ?? new Error("chat stream failed");
 }

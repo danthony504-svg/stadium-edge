@@ -1,3 +1,4 @@
+- [Mobile chat SSE stall → infinite spinner](mobile-chat-sse-stall.md) — dropped SSE makes expo/fetch reader HANG (not reject) → build spinner forever; fix = client stall-watchdog + pre-token-only retry + chained signal, server keep-alive every ~3s.
 - [api-server scaling (per-user limits + Redis)](api-server-scaling.md) — Replit edge OVERWRITES X-Forwarded-For (so trust proxy:true reads real, non-spoofable IP); limiters key on Clerk userId else IP; lib/store.ts opt-in Redis via REDIS_URL else in-memory, fall-through on error, atomic Lua window, stable `name` scopes.
 - [ParlayBuilder multiple search renders](parlaybuilder-multiple-search-renders.md) — 3 independent homeSearch result blocks (home ~7133, All Sports ~7650, all-upcoming ~8180); a search UX change must hit all of them.
 - [Single-game request lock](single-game-request-lock.md) — naming one game game-locks ALL legs incl props to that game; never widen to other games to hit leg count.

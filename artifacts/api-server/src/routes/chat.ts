@@ -1458,16 +1458,21 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // line (the "I asked for 3 HR picks but got 1, showing raw batter_home_runs"
   // bug: card-parsing never completes on a truncated line). So we keep the
   // heartbeat running for the WHOLE stream, IDLE-AWARE: it fires a keep-alive
-  // only when nothing has been written for >=10s, so it never interleaves with
+  // only when nothing has been written for >=3s, so it rarely interleaves with
   // active token flow. The client ignores any chunk that doesn't start with
-  // "data: ", so the comment lines never corrupt the output. Always cleaned up
-  // on end/error/disconnect.
+  // "data: ", so the comment lines never corrupt the output even if they do.
+  // Always cleaned up on end/error/disconnect.
   let lastActivity = Date.now();
+  // Fire a keep-alive after just >=3s of silence (checked every 1.5s). The
+  // mobile client uses this steady ~3s liveness signal to detect a dropped
+  // connection quickly (an 8s gap = dead link) and abort+retry instead of
+  // hanging forever on a stalled reader. Comment lines are ignored by every
+  // client parser, so the extra cadence is harmless even mid-stream.
   let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
-    if (Date.now() - lastActivity >= 10000) {
+    if (Date.now() - lastActivity >= 3000) {
       try { res.write(`: keep-alive\n\n`); lastActivity = Date.now(); } catch { /* socket gone */ }
     }
-  }, 5000);
+  }, 1500);
   res.write(`: keep-alive\n\n`);
   // Emit an early "data:" status event so the stream flushes open promptly
   // during the model's silent time-to-first-token. The client intentionally
@@ -1535,7 +1540,7 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
         // Record activity but KEEP the heartbeat running — a mid-stream pause
         // between picks must still emit keep-alives or the proxy drops the
         // connection and truncates the ticket. The idle-aware heartbeat only
-        // fires after >=10s of silence, so it never interleaves with this flow.
+        // fires after >=3s of silence; comment frames are ignored client-side.
         lastActivity = Date.now();
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
