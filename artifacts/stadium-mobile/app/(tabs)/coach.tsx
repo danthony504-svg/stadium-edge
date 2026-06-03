@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   ScrollView,
   Text,
@@ -152,6 +153,7 @@ export default function CoachScreen() {
 
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -458,6 +460,28 @@ export default function CoachScreen() {
 
       {/* Composer */}
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
+      {/* Keyboard-dismiss button — only while the keyboard is open */}
+      {inputFocused ? (
+        <View style={{ alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Pressable
+            onPress={() => Keyboard.dismiss()}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.8 : 1,
+            })}
+          >
+            <Feather name="chevron-down" size={22} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: "row",
@@ -474,6 +498,8 @@ export default function CoachScreen() {
         <TextInput
           value={input}
           onChangeText={setInput}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           placeholder="Ask for a parlay, value bet, matchup…"
           placeholderTextColor={colors.mutedForeground}
           multiline
