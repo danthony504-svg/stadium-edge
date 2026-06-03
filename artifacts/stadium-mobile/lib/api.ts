@@ -412,10 +412,15 @@ function buildPropIdMap(games: EspnGame[]): Map<string, PropTeamIds> {
 }
 
 // How many of the soonest prop-capable games to pull props for when assembling
-// chat context. Each is a separate Odds API request (props route allows
-// 120/min, caches 5min); 16 covers a full single-sport slate so an "all games"
-// or big-leg parlay can draw player props from every game, not just a handful.
-const MAX_PROP_CONTEXT_GAMES = 16;
+// chat context. Each game is a SEPARATE live Odds API request fired every chat
+// turn, and the chat can't respond until all of them resolve — so this is a
+// latency + rate-limit ceiling (props route allows 120/min, caches 5min), not a
+// quality limit. 24 comfortably covers a full single-sport slate (MLB tops out
+// ~15) plus multi-sport spillover, so on any realistic night this IS "all games";
+// it only trims the tail on an unusually huge multi-sport board, taking the
+// soonest games first. Going fully unbounded would risk throttling, which
+// silently DROPS games and makes the pool thinner — the opposite of the goal.
+const MAX_PROP_CONTEXT_GAMES = 24;
 // Cap on prop rows the AI sees. MLB games each post 100+ rows, so a small cap
 // taken in fetch-completion order would be filled by the first 2-3 games that
 // resolve — leaving the AI blind to every other game's players (it would report
