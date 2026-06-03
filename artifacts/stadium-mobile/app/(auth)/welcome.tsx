@@ -192,7 +192,7 @@ export default function WelcomeScreen() {
           <Pressable
             onPress={() => router.push("/sign-up")}
             style={({ pressed }) => ({
-              borderRadius: 14,
+              borderRadius: 12,
               overflow: "hidden",
               marginTop: 24,
               opacity: pressed ? 0.9 : 1,

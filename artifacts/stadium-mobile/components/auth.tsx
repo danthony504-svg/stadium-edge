@@ -347,7 +347,7 @@ export function GoogleAuthButton() {
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: 12,
-        paddingVertical: 13,
+        paddingVertical: 15,
         opacity: pressed ? 0.85 : 1,
       })}
     >
