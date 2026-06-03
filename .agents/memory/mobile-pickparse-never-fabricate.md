@@ -95,3 +95,12 @@ chevron) that toggles a per-card `edgeOpen` useState via `LayoutAnimation`
 RN-web treats configureNext as a no-op so it's safe). Still wrapped in
 `pick.edge ? … : null`. **Why:** user wanted compact cards with edge reasoning
 on demand. Don't revert to always-inline edge text.
+
+## Floating pop-up Bet Slip bar (SlipBar)
+`components/SlipBar.tsx` rendered ONCE in (tabs)/_layout (with NavMenu) = a
+bottom floating slip summary (leg count + combinedOdds + "$stake to win $X",
+toWin = payout(stake,combinedOdds)-stake) that expands to a removable leg list +
+"Open full slip". Returns null when legs empty. MUST hide on `/slip` (that page
+IS the full slip) AND `/coach` (its chat composer owns the bottom — overlap
+otherwise). LayoutAnimation needs its own Android guard (don't rely on PickCard
+importing first).

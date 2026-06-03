@@ -3,6 +3,7 @@ import React from "react";
 import { View } from "react-native";
 
 import { NavMenu } from "@/components/NavMenu";
+import { SlipBar } from "@/components/SlipBar";
 
 const DARK_BG = "#0f172a";
 
@@ -21,6 +22,7 @@ export default function TabLayout() {
         <Stack.Screen name="props" />
         <Stack.Screen name="slip" />
       </Stack>
+      <SlipBar />
       <NavMenu />
     </View>
   );
