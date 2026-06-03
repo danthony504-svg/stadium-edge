@@ -94,37 +94,6 @@ function FeaturedAvatar({ headshot, name }: { headshot: string | null; name: str
   );
 }
 
-function NeonButton({
-  source,
-  ratio,
-  height,
-  label,
-  onPress,
-}: {
-  source: number;
-  ratio: number;
-  height: number;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={({ pressed }) => ({
-        height,
-        aspectRatio: ratio,
-        borderRadius: 16,
-        overflow: "hidden",
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <Image source={source} style={{ width: "100%", height: "100%" }} resizeMode="contain" />
-    </Pressable>
-  );
-}
-
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -249,6 +218,12 @@ export default function HomeScreen() {
       params: { prefill: msg, send: "1", ts: String(Date.now()) },
     });
 
+  const quickActions: { label: string; icon: keyof typeof Feather.glyphMap; color: string; msg: string }[] = [
+    { label: "Hot Picks", icon: "zap", color: "#fb923c", msg: "Build me the best parlay" },
+    { label: "Easy Money", icon: "dollar-sign", color: "#34d399", msg: "Build me a safe parlay" },
+    { label: "Lottery Ticket", icon: "target", color: colors.primary, msg: "Build me a lottery ticket" },
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -322,36 +297,58 @@ export default function HomeScreen() {
           Your parlay assistant. Build picks, analyze odds, track your slips.
         </Text>
 
-        {/* Neon action buttons */}
-        <View style={{ alignItems: "center", gap: 14, marginBottom: 24 }}>
-          <NeonButton
-            source={require("@/assets/images/btn-build-parlay.png")}
-            ratio={2.321}
-            height={104}
-            label="Build best parlay"
+        {/* Build best parlay */}
+        <View style={{ alignItems: "center", marginBottom: 18 }}>
+          <Pressable
             onPress={() => askCoach("Build me the best parlay")}
-          />
-          <NeonButton
-            source={require("@/assets/images/btn-hot-picks.png")}
-            ratio={2.073}
-            height={82}
-            label="Hot Picks"
-            onPress={() => askCoach("Build me the best parlay")}
-          />
-          <NeonButton
-            source={require("@/assets/images/btn-easy-money.png")}
-            ratio={2.0}
-            height={82}
-            label="Easy Money"
-            onPress={() => askCoach("Build me a safe parlay")}
-          />
-          <NeonButton
-            source={require("@/assets/images/btn-lottery.png")}
-            ratio={2.046}
-            height={82}
-            label="Lottery Tickets"
-            onPress={() => askCoach("Build me a lottery ticket")}
-          />
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              backgroundColor: colors.primary,
+              borderRadius: 999,
+              paddingHorizontal: 32,
+              paddingVertical: 15,
+              opacity: pressed ? 0.9 : 1,
+            })}
+          >
+            <Text style={{ color: "#020617", fontFamily: FONT.display, fontSize: 17 }}>
+              Build best parlay
+            </Text>
+            <Feather name="arrow-right" size={18} color="#020617" />
+          </Pressable>
+        </View>
+
+        {/* Quick actions */}
+        <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16, marginBottom: 22 }}>
+          {quickActions.map((a) => (
+            <Pressable
+              key={a.label}
+              onPress={() => askCoach(a.msg)}
+              style={({ pressed }) => ({
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 999,
+                paddingVertical: 11,
+                paddingHorizontal: 6,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Feather name={a.icon} size={14} color={a.color} />
+              <Text
+                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}
+                numberOfLines={1}
+              >
+                {a.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         {/* Sport selector */}
