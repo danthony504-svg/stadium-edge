@@ -29,12 +29,27 @@ export type SavedSlip = {
   combinedOdds: number | null;
 };
 
+// The latest picks the AI Coach recommended (from its most recent parlay).
+// Structurally compatible with the parser's ParsedPick so coach output flows in
+// directly. Held in-memory only (never persisted) so finished/stale games don't
+// resurface across app launches. Surfaced on the Player Props + Picks tabs.
+export type AiPick = {
+  game: string;
+  market: string;
+  pick: string;
+  odds: number;
+  sport?: string;
+  edge?: string;
+  isProp?: boolean;
+};
+
 type BetSlipState = {
   legs: Leg[];
   savedSlips: SavedSlip[];
   stake: number;
   combinedOdds: number | null;
   hydrated: boolean;
+  aiPicks: AiPick[];
   addLeg: (leg: Omit<Leg, "id">) => boolean;
   removeLeg: (id: string) => void;
   clearLegs: () => void;
@@ -42,6 +57,7 @@ type BetSlipState = {
   setStake: (n: number) => void;
   saveCurrentSlip: () => boolean;
   deleteSlip: (id: string) => void;
+  setAiPicks: (picks: AiPick[]) => void;
 };
 
 const STORAGE_KEY = "stadium-edge:betslip:v1";
@@ -56,6 +72,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [savedSlips, setSavedSlips] = useState<SavedSlip[]>([]);
   const [stake, setStakeState] = useState(10);
   const [hydrated, setHydrated] = useState(false);
+  const [aiPicks, setAiPicksState] = useState<AiPick[]>([]);
   const loaded = useRef(false);
 
   // Load persisted state once.
@@ -141,6 +158,8 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setSavedSlips((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
+  const setAiPicks = useCallback((picks: AiPick[]) => setAiPicksState(picks), []);
+
   const value = useMemo(
     () => ({
       legs,
@@ -148,6 +167,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       stake,
       combinedOdds,
       hydrated,
+      aiPicks,
       addLeg,
       removeLeg,
       clearLegs,
@@ -155,6 +175,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       setStake,
       saveCurrentSlip,
       deleteSlip,
+      setAiPicks,
     }),
     [
       legs,
@@ -162,6 +183,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       stake,
       combinedOdds,
       hydrated,
+      aiPicks,
       addLeg,
       removeLeg,
       clearLegs,
@@ -169,6 +191,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       setStake,
       saveCurrentSlip,
       deleteSlip,
+      setAiPicks,
     ],
   );
 

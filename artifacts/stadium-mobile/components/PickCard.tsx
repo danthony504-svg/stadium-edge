@@ -5,6 +5,7 @@ import { Pressable, Text, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { formatAmerican } from "@/lib/format";
+import type { PropPoolEntry } from "@/lib/api";
 import { Badge, FONT } from "@/components/ui";
 
 export type ParsedPick = {
@@ -14,6 +15,7 @@ export type ParsedPick = {
   odds: number;
   edge?: string;
   sport?: string;
+  isProp?: boolean;
 };
 
 export function PickCard({ pick }: { pick: ParsedPick }) {
@@ -174,9 +176,69 @@ function selectionMatches(entryPick: string, aiSelection: string): boolean {
   return et.some((t) => at.has(t));
 }
 
-export function parsePicks(text: string, realOdds: ParsedPick[] | RealOddsLike[]): ParsedPick[] {
-  const pool = realOdds as RealOddsLike[];
-  if (!pool || pool.length === 0) return []; // fail-closed: no real data -> no cards
+// Which Over/Under side an AI selection names. Tolerates both full words
+// ("Over 5.5") and the shorthand the model sometimes emits ("o5.5"/"u5.5").
+function sideOf(sel: string): "Over" | "Under" | null {
+  const n = norm(sel);
+  if (/\bunder\b/.test(n) || /\bu\s?\d/.test(n)) return "Under";
+  if (/\bover\b/.test(n) || /\bo\s?\d/.test(n)) return "Over";
+  return null;
+}
+
+// Resolve a prop PICK line ("Skubal Over 5.5 Strikeouts") to a REAL posted prop
+// in the pool. Fail-closed: requires the same game + the player's last name +
+// the exact posted line + a matching Over/Under side (yes/no markets like
+// "Anytime TD" skip the line/side checks). The display label is rebuilt from
+// the real entry in full words so the card never shows the AI's "o5.5"
+// shorthand, and the odds come from the real entry, never the AI text.
+function matchProp(
+  game: string,
+  market: string,
+  selection: string,
+  propPool: PropPoolEntry[],
+): ParsedPick | null {
+  const side = sideOf(selection);
+  const selTokens = new Set(norm(selection).split(" ").filter(Boolean));
+  const mkN = norm(market);
+  let best: PropPoolEntry | null = null;
+  let bestScore = -1;
+  for (const e of propPool) {
+    if (!sameGame(e.game, game)) continue;
+    const ln = norm(e.player).split(" ").filter(Boolean).pop() || "";
+    if (!ln || !selTokens.has(ln)) continue; // player must be named
+    if (e.line != null) {
+      if (!selTokens.has(String(e.line))) continue; // exact posted line
+      if (!side || side !== e.side) continue; // exact Over/Under side
+    }
+    const lbl = norm(e.marketLabel).split(" ").filter(Boolean);
+    const score = lbl.filter((t) => selTokens.has(t) || mkN.includes(t)).length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = e;
+    }
+  }
+  if (!best) return null;
+  const pick =
+    best.line != null
+      ? `${best.player} ${best.side} ${best.line} ${best.marketLabel}`
+      : `${best.player} ${best.marketLabel}`;
+  return {
+    game: best.game,
+    market: best.marketLabel,
+    pick,
+    odds: best.odds,
+    sport: best.sport,
+    isProp: true,
+  };
+}
+
+export function parsePicks(
+  text: string,
+  realOdds: ParsedPick[] | RealOddsLike[],
+  propPool: PropPoolEntry[] = [],
+): ParsedPick[] {
+  const pool = (realOdds as RealOddsLike[]) || [];
+  if (pool.length === 0 && propPool.length === 0) return []; // fail-closed: no real data -> no cards
 
   const lines = text.split("\n");
   const out: ParsedPick[] = [];
@@ -188,42 +250,63 @@ export function parsePicks(text: string, realOdds: ParsedPick[] | RealOddsLike[]
     const parts = m[1].split("|").map((p) => p.trim());
     if (parts.length < 4) continue;
     const [game, market, selection] = parts;
+    const selTokens = new Set(norm(selection).split(" ").filter(Boolean));
 
-    // Resolve to the real odds entry: same game + same market family +
-    // matching real selection.
-    const fam = marketFamily(market);
-    const candidates = pool.filter(
-      (e) => sameGame(e.game, game) && marketFamily(e.market) === fam,
-    );
-    let best: RealOddsLike | null = null;
-    let bestScore = 0;
-    for (const e of candidates) {
-      if (!selectionMatches(e.pick, selection)) continue;
-      const et = norm(e.pick).split(" ").filter(Boolean);
-      const at = new Set(norm(selection).split(" ").filter(Boolean));
-      const score = et.filter((t) => at.has(t)).length / Math.max(1, et.length);
-      if (score > bestScore) {
-        bestScore = score;
-        best = e;
+    // Decide the pool up front. A selection is a PLAYER PROP iff some pooled
+    // prop for this game has its player's last name in the selection. When it
+    // is, resolve ONLY against the prop pool — never the game-level pool — so a
+    // prop like "Over 5.5 Total Bases" or "Over 5.5 Shots" can't collide with a
+    // same-numbered game total (marketFamily lumps both under "total"). Game
+    // totals/spreads/moneylines never carry a player last-name token, so they
+    // fall through to the game-level branch.
+    const isPropSelection = propPool.some((e) => {
+      if (!sameGame(e.game, game)) return false;
+      const ln = norm(e.player).split(" ").filter(Boolean).pop() || "";
+      return !!ln && selTokens.has(ln);
+    });
+
+    let resolved: ParsedPick | null = null;
+
+    if (isPropSelection) {
+      // Player-prop pool only (fail-closed: drop if not a real posted prop).
+      resolved = matchProp(game, market, selection, propPool);
+    } else {
+      // Game-level pool: same game + same market family + matching selection.
+      const fam = marketFamily(market);
+      const candidates = pool.filter(
+        (e) => sameGame(e.game, game) && marketFamily(e.market) === fam,
+      );
+      let best: RealOddsLike | null = null;
+      let bestScore = 0;
+      for (const e of candidates) {
+        if (!selectionMatches(e.pick, selection)) continue;
+        const et = norm(e.pick).split(" ").filter(Boolean);
+        const score = et.filter((t) => selTokens.has(t)).length / Math.max(1, et.length);
+        if (score > bestScore) {
+          bestScore = score;
+          best = e;
+        }
+      }
+      if (best) {
+        resolved = {
+          game: best.game,
+          market: best.market,
+          pick: best.pick,
+          odds: best.odds,
+          sport: best.sport,
+        };
       }
     }
-    if (!best) continue; // selection/price not in the real pool -> drop
 
-    let edge: string | undefined;
+    if (!resolved) continue; // selection/price not in any real pool -> drop
+
     const em = lines[i + 1]?.trim().match(/^EDGE\s*:\s*(.+)$/i);
-    if (em) edge = em[1].trim();
+    if (em) resolved.edge = em[1].trim();
 
     // Canonical, real fields only (real odds, real market, real selection).
-    const id = `${best.game}|${best.market}|${best.pick}`.toLowerCase();
+    const id = `${resolved.game}|${resolved.market}|${resolved.pick}`.toLowerCase();
     if (out.some((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase() === id)) continue;
-    out.push({
-      game: best.game,
-      market: best.market,
-      pick: best.pick,
-      odds: best.odds,
-      sport: best.sport,
-      edge,
-    });
+    out.push(resolved);
   }
   return out;
 }

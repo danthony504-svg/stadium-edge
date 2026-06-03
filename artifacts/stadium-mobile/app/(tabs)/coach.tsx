@@ -24,6 +24,7 @@ import {
   buildChatContext,
   getPlayerHistory,
   getStatmuseGamelog,
+  propPoolFromContext,
   searchPlayer,
   streamChat,
   type ChatMessage,
@@ -123,7 +124,7 @@ const WELCOME_RETURNING =
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { legs } = useBetSlip();
+  const { legs, setAiPicks } = useBetSlip();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
 
@@ -242,12 +243,16 @@ export default function CoachScreen() {
           },
         });
 
-        const picks = parsePicks(full, context.realOdds);
+        const picks = parsePicks(full, context.realOdds, propPoolFromContext(context.realProps));
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = { role: "assistant", content: full, picks };
           return copy;
         });
+        // Surface this parlay's picks on the Player Props + Picks tabs. Only
+        // overwrite when we actually resolved real picks so a plain Q&A reply
+        // doesn't wipe the last recommendation.
+        if (picks.length > 0) setAiPicks(picks);
       } catch (e: any) {
         if (e?.name !== "AbortError") {
           setMessages((prev) => {

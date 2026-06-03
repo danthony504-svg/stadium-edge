@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PickCard } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -124,6 +125,7 @@ export default function SlipScreen() {
     clearLegs,
     saveCurrentSlip,
     deleteSlip,
+    aiPicks,
   } = useBetSlip();
 
   const combined = parlayAmerican(legs.map((l) => l.odds));
@@ -147,6 +149,26 @@ export default function SlipScreen() {
             {legs.length === 0 ? "No legs yet" : `${legs.length}-leg parlay`}
           </Text>
         </View>
+
+        {/* AI-recommended picks (pinned from the AI Coach's latest parlay) */}
+        {aiPicks.length > 0 ? (
+          <View style={{ marginBottom: 20 }}>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.display,
+                fontSize: 13,
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              ★ AI RECOMMENDED
+            </Text>
+            {aiPicks.map((p, i) => (
+              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
+            ))}
+          </View>
+        ) : null}
 
         {legs.length === 0 ? (
           <View

@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PickCard } from "@/components/PickCard";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -355,6 +356,8 @@ function PlayerResultRow({
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { aiPicks } = useBetSlip();
+  const aiProps = useMemo(() => aiPicks.filter((p) => p.isProp), [aiPicks]);
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
   const [sport, setSport] = useState(
     params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
@@ -451,6 +454,26 @@ export default function PropsScreen() {
             Real bookmaker lines across every game.
           </Text>
         </View>
+
+        {/* AI-recommended props (pinned from the AI Coach's latest parlay) */}
+        {aiProps.length > 0 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.display,
+                fontSize: 13,
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              ★ AI RECOMMENDED
+            </Text>
+            {aiProps.map((p, i) => (
+              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
+            ))}
+          </View>
+        ) : null}
 
         {/* Search */}
         <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>

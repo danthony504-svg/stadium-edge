@@ -40,6 +40,38 @@ minus `−–—`→`-`, strips to `[a-z0-9+\-. ]`.
 Heavy abbreviations (e.g. "SF @ MIL") fail the game gate and drop — acceptable;
 the chat prompt instructs the model to echo full game labels from context.
 
-`coach.tsx` calls `parsePicks(full, context.realOdds)`. `buildChatContext()`
-(lib/api.ts) builds `realOdds` mains-only via `buildRealOdds` and gates by
-`isPickable` (now-4h < t < now+48h).
+`coach.tsx` calls `parsePicks(full, context.realOdds, propPoolFromContext(context.realProps))`.
+`buildChatContext()` (lib/api.ts) builds `realOdds` mains-only via `buildRealOdds`
+and gates by `isPickable` (now-4h < t < now+48h).
+
+## Player props (added later — mobile used to send NONE)
+For a long time mobile sent NO `realProps`, so any prop the Coach "recommended"
+was pure fabricated prose (the user's "o5.5 strikeouts" was AI text, never a real
+line). Fix has two halves:
+- **Feed:** `buildChatContext` now fetches props for the soonest ≤10 pickable
+  games across `PROPS_SPORTS` (reusing the already-fetched `oddsAll`/`gamesAll`,
+  mains-only, per-game fail-tolerant, capped ~240) and returns `realProps`
+  (raw-key market shape the api-server prompt already consumes). api-server
+  needed NO data change — it already documents/mandates `context.realProps`.
+- **Resolution:** `propPoolFromContext(realProps)` expands each prop into
+  side-per-row `PropPoolEntry[]` (client-only, NOT sent to API). `matchProp` in
+  parsePicks is fail-closed: sameGame + player last-name token + EXACT posted
+  line token + matching Over/Under side (`sideOf` tolerates both "Over 5.5" and
+  legacy "o5.5"); yes/no markets (line null) skip line/side. Label is REBUILT
+  full-word ("<Player> Over <line> <Market>") and odds come from the real entry —
+  this is also what kills the "o5.5" shorthand on cards (#2).
+
+## Prop-vs-game pool MUST be decided by player-name, NOT marketFamily-first
+`marketFamily("Total Bases")` / `"Shots on Goal"` both collapse to `"total"`, so
+a game-pool-FIRST order let a prop "Over 5.5 Total Bases" mis-resolve to a same-
+numbered game total (real collision: NHL game total 5.5 vs a shots/SOG prop 5.5).
+**Rule:** up front, a selection is a PROP iff some pooled prop for that game has
+its player's last name in the selection → resolve ONLY against the prop pool
+(drop if not real); else game-level. Safe because game totals/spreads/ML never
+carry a player last-name token. Never reintroduce game-pool-first + prop-fallback.
+
+`isProp:true` tags prop ParsedPicks. The latest Coach parlay's picks are pushed
+to an in-memory (NOT persisted) `aiPicks` store on `BetSlipContext` via
+`setAiPicks` (only when picks.length>0, so plain Q&A doesn't wipe it) and pinned
+as "★ AI RECOMMENDED" PickCards atop the Player Props tab (filtered `isProp`) and
+the Picks/slip tab (all aiPicks).

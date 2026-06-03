@@ -324,11 +324,82 @@ export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
   return out;
 }
 
+// ---------- Player-prop chat context ----------
+
+// A real player-prop line sent to the chat AI (matches the web app's
+// context.realProps shape). `market` is the RAW Odds API key so the prompt's
+// stat-mapping (player_points→PTS, pitcher_strikeouts→SO, …) works.
+export type RealPropEntry = {
+  sport: string;
+  game: string;
+  startsAt: string;
+  player: string;
+  market: string;
+  line: number | null;
+  over: number | null;
+  under: number | null;
+  alt: boolean;
+};
+
+// Resolution-shape prop entry (one row per posted side) that the slip parser
+// matches AI prop PICK lines against. Built client-side from realProps — never
+// sent to the API.
+export type PropPoolEntry = {
+  sport?: string;
+  game: string;
+  marketLabel: string;
+  player: string;
+  line: number | null;
+  side: "Over" | "Under";
+  odds: number;
+};
+
+// Expand realProps (over/under prices) into a flat, side-per-row pool the slip
+// parser can resolve prop PICK lines against. marketLabel is the friendly label
+// that renders on the card (e.g. "Strikeouts"), never the raw key.
+export function propPoolFromContext(realProps: RealPropEntry[]): PropPoolEntry[] {
+  const pool: PropPoolEntry[] = [];
+  for (const rp of realProps || []) {
+    const marketLabel = propMarketLabel(rp.market);
+    if (rp.over != null) {
+      pool.push({ sport: rp.sport, game: rp.game, marketLabel, player: rp.player, line: rp.line, side: "Over", odds: rp.over });
+    }
+    if (rp.line != null && rp.under != null) {
+      pool.push({ sport: rp.sport, game: rp.game, marketLabel, player: rp.player, line: rp.line, side: "Under", odds: rp.under });
+    }
+  }
+  return pool;
+}
+
+type PropTeamIds = { homeTeamId: string | null; awayTeamId: string | null };
+
+function buildPropIdMap(games: EspnGame[]): Map<string, PropTeamIds> {
+  const map = new Map<string, PropTeamIds>();
+  for (const g of games) {
+    const home = g.homeTeam || g.homeAbbr || "";
+    const away = g.awayTeam || g.awayAbbr || "";
+    if (!home || !away) continue;
+    map.set(`${nickname(away)}|${nickname(home)}`.toLowerCase(), {
+      homeTeamId: g.homeTeamId ?? null,
+      awayTeamId: g.awayTeamId ?? null,
+    });
+  }
+  return map;
+}
+
+// How many of the soonest prop-capable games to pull props for when assembling
+// chat context. Each is a separate Odds API request (props route allows
+// 120/min, caches 5min); ~10 keeps the chat responsive while giving the AI a
+// real, multi-game prop pool to build prop legs from.
+const MAX_PROP_CONTEXT_GAMES = 10;
+const MAX_PROPS_IN_CONTEXT = 240;
+
 export type ChatContext = {
   selectedSports: string[];
   currentSlip: { game: string; market: string; pick: string; odds: number }[];
   realGames: RealGameEntry[];
   realOdds: RealOddsEntry[];
+  realProps: RealPropEntry[];
 };
 
 // Fetch live odds + games across the selected sports and assemble the real-data
@@ -369,11 +440,66 @@ export async function buildChatContext(
     }
   });
 
+  // Assemble a REAL player-prop pool from the soonest prop-capable games so the
+  // AI can build prop legs (and never fabricate them). PROPS_SPORTS only — the
+  // props route returns nothing for soccer/tennis/ufc. A failed per-game fetch
+  // just narrows the pool; it never invents props.
+  const propCandidates: { sport: string; g: OddsGame; ids: PropTeamIds | null }[] = [];
+  sports.forEach((sport, i) => {
+    if (!PROPS_SPORTS.includes(sport)) return;
+    const idMap = buildPropIdMap(gamesAll[i]);
+    for (const g of oddsAll[i]) {
+      if (!isPickable(g.commenceTime)) continue;
+      if (!g.homeTeam || !g.awayTeam) continue;
+      const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
+      propCandidates.push({ sport, g, ids });
+    }
+  });
+  propCandidates.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
+
+  const realProps: RealPropEntry[] = [];
+  await Promise.all(
+    propCandidates.slice(0, MAX_PROP_CONTEXT_GAMES).map(async ({ sport, g, ids }) => {
+      try {
+        const r = await getProps(
+          {
+            sport,
+            eventId: g.id,
+            home: g.homeTeam,
+            away: g.awayTeam,
+            homeTeamId: ids?.homeTeamId,
+            awayTeamId: ids?.awayTeamId,
+          },
+          signal,
+        );
+        const game = `${g.awayTeam} @ ${g.homeTeam}`;
+        for (const p of r.props ?? []) {
+          if (p.alt) continue; // mains only — alt rungs duplicate each player
+          if (p.overPrice == null && p.underPrice == null) continue;
+          realProps.push({
+            sport,
+            game,
+            startsAt: g.commenceTime,
+            player: p.player,
+            market: p.market,
+            line: p.line,
+            over: p.overPrice,
+            under: p.underPrice,
+            alt: false,
+          });
+        }
+      } catch {
+        // skip this game's props — narrower pool, never fabricated
+      }
+    }),
+  );
+
   return {
     selectedSports: sports,
     currentSlip,
     realGames: realGames.slice(0, 60),
     realOdds: realOdds.slice(0, 120),
+    realProps: realProps.slice(0, MAX_PROPS_IN_CONTEXT),
   };
 }
 
