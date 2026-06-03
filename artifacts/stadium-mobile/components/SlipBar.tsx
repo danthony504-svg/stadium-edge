@@ -34,9 +34,14 @@ if (
 // each screen's own stack — once in (tabs)/_layout (covers every tab) and once
 // inside each root-stack route (game/[id], upcoming) and the fullScreen
 // PlayerPropsSheet Modal. Hidden on the Slip tab itself (that screen IS the full
-// slip). On Coach it lifts above the chat composer and hides while the keyboard
-// is up so it never covers what the user is typing.
+// slip). On Coach it lifts above the chat composer, and while the keyboard is up
+// it rides above the keyboard so the slip stays reachable mid-conversation. On
+// other screens it steps aside while a keyboard (e.g. a search field) is open.
 const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
+// While the keyboard is up on Coach, the composer rides just above the keyboard
+// (via KeyboardStickyView) and the dismiss button sits above that. Lift the slip
+// bar this far above the keyboard so it clears both and stays usable mid-chat.
+const COACH_KB_CLEARANCE = 120;
 
 // Extra bottom padding a scrollable screen should add so its last items can
 // scroll clear of the floating slip bar (summary bar height + its bottom offset
@@ -58,16 +63,23 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
   const { legs, combinedOdds, stake, removeLeg, clearLegs } = useBetSlip();
   const [open, setOpen] = useState(false);
   const [kbVisible, setKbVisible] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
 
-  // Track the soft keyboard so the bar can step aside on the Coach screen while
-  // typing. (No-op on web — these events never fire there.)
+  // Track the soft keyboard so on Coach the bar can ride above it while the user
+  // is typing (instead of being hidden), staying reachable mid-chat. We capture
+  // the keyboard height to position the bar above it. (No-op on web.)
   useEffect(() => {
     if (Platform.OS === "web") return;
+    const show = (e: { endCoordinates?: { height?: number } }) => {
+      setKbVisible(true);
+      setKbHeight(e?.endCoordinates?.height ?? 0);
+    };
+    const hide = () => setKbVisible(false);
     const subs = [
-      Keyboard.addListener("keyboardWillShow", () => setKbVisible(true)),
-      Keyboard.addListener("keyboardDidShow", () => setKbVisible(true)),
-      Keyboard.addListener("keyboardWillHide", () => setKbVisible(false)),
-      Keyboard.addListener("keyboardDidHide", () => setKbVisible(false)),
+      Keyboard.addListener("keyboardWillShow", show),
+      Keyboard.addListener("keyboardDidShow", show),
+      Keyboard.addListener("keyboardWillHide", hide),
+      Keyboard.addListener("keyboardDidHide", hide),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);
@@ -76,10 +88,21 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
   const hiddenRoute = pathname === "/slip" || pathname.startsWith("/slip/");
 
   if (legs.length === 0 || hiddenRoute) return null;
-  // On Coach, the composer (and risen keyboard) own the bottom while typing.
-  if (onCoach && kbVisible) return null;
+  // On any screen OTHER than Coach, the keyboard (e.g. a search field) owns the
+  // bottom while typing — step aside so we never cover what the user is editing.
+  if (!onCoach && kbVisible) return null;
 
   const toWin = payout(stake, combinedOdds) - stake;
+
+  // Bottom offset for the floating bar:
+  //  - Coach + keyboard up: ride above the keyboard and the chat composer so the
+  //    slip stays reachable mid-conversation (the user asked for this).
+  //  - Coach + keyboard down: sit above the idle composer.
+  //  - Everywhere else: a small safe-area gap.
+  const barBottom =
+    onCoach && kbVisible
+      ? kbHeight + COACH_KB_CLEARANCE
+      : insets.bottom + 12 + (onCoach ? COMPOSER_CLEARANCE : 0);
 
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -122,7 +145,7 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
           position: "absolute",
           left: 12,
           right: 12,
-          bottom: insets.bottom + 12 + (onCoach ? COMPOSER_CLEARANCE : 0),
+          bottom: barBottom,
         }}
       >
         {/* Expanded leg list (sits above the summary bar) */}

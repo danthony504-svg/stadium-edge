@@ -34,3 +34,20 @@ scrolls the focused input into view, so it handles short content. If a stake/inp
 fix "doesn't work" after editing a `_layout`/navigation file, suspect a stale
 Metro bundle (Fast Refresh often won't hot-swap layout/navigator changes) —
 restart the expo workflow to push a fresh bundle before assuming the code is wrong.
+
+**Payout-above-input rule (Bet Slip screen):** the keyboard-aware scroll lifts the
+*focused* input to just above the keyboard, so any sibling rendered BELOW that
+input stays hidden behind the keyboard no matter how tall the list is. The Bet
+Slip "To win" amount kept getting covered until it was moved ABOVE the Stake
+`TextInput` (order: odds/implied → To win → Stake → buttons). Rule: put the value
+the user watches while typing *above* the input that drives it, not below.
+
+**Slip bar on Coach while typing:** the floating SlipBar used to `return null` on
+Coach when the keyboard was up — which is most of a chat session, so it felt
+absent ("add bet slip popup in chat"). Now it RIDES above the keyboard on Coach:
+capture keyboard height from `keyboardWillShow/DidShow` `endCoordinates.height` and
+position `bottom = kbHeight + COACH_KB_CLEARANCE(~120)` to clear the keyboard + the
+`KeyboardStickyView` composer + its dismiss button. The clearance is a heuristic
+constant (composer is variable-height with a multiline input), so a grown
+multiline composer could under-clear — bump the constant if overlap appears. On
+NON-Coach screens the bar still hides while a keyboard (search field) is up.

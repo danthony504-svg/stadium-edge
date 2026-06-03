@@ -171,7 +171,7 @@ export default function SlipScreen() {
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 24,
         }}
-        bottomOffset={24}
+        bottomOffset={32}
       >
         <View style={{ marginBottom: 16, paddingLeft: 48 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
@@ -261,6 +261,29 @@ export default function SlipScreen() {
                 </Text>
               </View>
 
+              {/* "To win" sits ABOVE the Stake input on purpose: when the
+                  number-pad opens it scrolls the focused Stake field just above
+                  the keyboard, so anything below it would be hidden. Keeping the
+                  payout above the input means the user always sees the amount
+                  update as they type, no matter how many legs push the slip down. */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  backgroundColor: "rgba(34,197,94,0.12)",
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              >
+                <Text style={{ color: colors.success, fontFamily: FONT.semibold, fontSize: 14 }}>
+                  To win
+                </Text>
+                <Text style={{ color: colors.success, fontFamily: FONT.display, fontSize: 20 }}>
+                  ${toWin.toFixed(2)}
+                </Text>
+              </View>
+
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
                   Stake
@@ -292,24 +315,6 @@ export default function SlipScreen() {
                     }}
                   />
                 </View>
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  backgroundColor: "rgba(34,197,94,0.12)",
-                  borderRadius: 10,
-                  padding: 12,
-                }}
-              >
-                <Text style={{ color: colors.success, fontFamily: FONT.semibold, fontSize: 14 }}>
-                  To win
-                </Text>
-                <Text style={{ color: colors.success, fontFamily: FONT.display, fontSize: 20 }}>
-                  ${toWin.toFixed(2)}
-                </Text>
               </View>
 
               <View style={{ flexDirection: "row", gap: 10 }}>
