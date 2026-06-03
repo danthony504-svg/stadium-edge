@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Pressable, Text, View } from "react-native";
+import { useState } from "react";
+import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "react-native";
 
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -18,10 +19,25 @@ export type ParsedPick = {
   isProp?: boolean;
 };
 
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 export function PickCard({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
+  const [edgeOpen, setEdgeOpen] = useState(false);
+
+  // The AI edge note is collapsed behind a pill so cards stay compact; tapping
+  // the pill animates the reasoning open/closed.
+  const toggleEdge = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setEdgeOpen((v) => !v);
+  };
 
   // Tapping the button toggles the leg in/out of the slip: add when it's not
   // there, remove when it already is. The leg id matches BetSlipContext's
@@ -65,16 +81,54 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
       </Text>
 
       {pick.edge ? (
-        <Text
-          style={{
-            color: colors.mutedForeground,
-            fontFamily: FONT.body,
-            fontSize: 12,
-            lineHeight: 17,
-          }}
-        >
-          {pick.edge}
-        </Text>
+        <View>
+          <Pressable
+            onPress={toggleEdge}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              alignSelf: "flex-start",
+              gap: 5,
+              paddingVertical: 5,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: edgeOpen ? colors.primary : colors.border,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Feather name="zap" size={12} color={colors.accent} />
+            <Text
+              style={{
+                color: edgeOpen ? colors.foreground : colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+              }}
+            >
+              AI Edge
+            </Text>
+            <Feather
+              name={edgeOpen ? "chevron-up" : "chevron-down"}
+              size={13}
+              color={colors.mutedForeground}
+            />
+          </Pressable>
+
+          {edgeOpen ? (
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.body,
+                fontSize: 12,
+                lineHeight: 17,
+                marginTop: 8,
+              }}
+            >
+              {pick.edge}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
 
       <Pressable

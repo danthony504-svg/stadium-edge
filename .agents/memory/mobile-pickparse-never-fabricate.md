@@ -87,3 +87,11 @@ collapses to cards at the end. **Why:** user wanted a clean card-only parlay vie
 PickCard slip button is a TOGGLE (`onToggle`): add when absent, `removeLeg(id)`
 when present (id = `${game}|${market}|${pick}`.toLowerCase() == BetSlipContext
 legKey); label "Added — tap to remove". Not disabled after adding.
+
+## EDGE note is a collapsible "AI Edge" pill, not inline text
+PickCard renders `pick.edge` behind a tappable pill (zap icon + "AI Edge" +
+chevron) that toggles a per-card `edgeOpen` useState via `LayoutAnimation`
+(Android needs the `setLayoutAnimationEnabledExperimental` module-scope guard;
+RN-web treats configureNext as a no-op so it's safe). Still wrapped in
+`pick.edge ? … : null`. **Why:** user wanted compact cards with edge reasoning
+on demand. Don't revert to always-inline edge text.
