@@ -310,6 +310,48 @@ function PropRow({
   );
 }
 
+// Compact search result: one tappable row per player (name + how many markets
+// they have in this game). Tapping opens the full props sheet — we don't dump
+// every prop line inline. Used only while a search query is active.
+function PlayerResultRow({
+  prop,
+  marketCount,
+  onOpen,
+}: {
+  prop: PlayerProp;
+  marketCount: number;
+  onOpen: () => void;
+}) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onOpen}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 12,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Avatar headshot={prop.headshot} name={prop.player} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
+          {prop.player}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 1 }}>
+          {marketCount} market{marketCount === 1 ? "" : "s"} · tap to view
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+    </Pressable>
+  );
+}
+
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -368,6 +410,21 @@ export default function PropsScreen() {
     () => filtered.reduce((n, g) => n + g.props.length, 0),
     [filtered],
   );
+
+  // While searching, collapse each game's matches to one row per player (with a
+  // representative prop to seed the sheet + a market count), instead of listing
+  // every prop line.
+  const playerResults = useMemo(() => {
+    return filtered.map((g) => {
+      const byPlayer = new Map<string, { prop: PlayerProp; count: number }>();
+      for (const p of g.props) {
+        const existing = byPlayer.get(p.player);
+        if (existing) existing.count += 1;
+        else byPlayer.set(p.player, { prop: p, count: 1 });
+      }
+      return { g, players: Array.from(byPlayer.values()) };
+    });
+  }, [filtered]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -455,6 +512,28 @@ export default function PropsScreen() {
                   : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the next 48 hours. Try another league.`
               }
             />
+          ) : query.trim() ? (
+            // Searching → compact: one tappable row per player, not every prop.
+            playerResults.map(({ g, players }, gi) => (
+              <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                    {g.gameLabel}
+                  </Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                    {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                </View>
+                {players.map(({ prop, count }) => (
+                  <PlayerResultRow
+                    key={`${g.gameLabel}-${prop.player}`}
+                    prop={prop}
+                    marketCount={count}
+                    onOpen={() => openSheet(g, prop)}
+                  />
+                ))}
+              </View>
+            ))
           ) : (
             filtered.map((g, gi) => (
               <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>

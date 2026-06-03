@@ -37,3 +37,12 @@ ErrorState — otherwise a total outage masquerades as an honest "no props poste
 ## Sport coverage
 Only sports in MARKETS_BY_SPORT serve props (mlb/wnba/nba/nhl/nfl/ncaaf/ncaab).
 soccer/tennis/ufc return [] upstream, so the props sport selector excludes them.
+
+## Search collapses to one row per player (decided)
+When a search query is active, the props screen shows ONE tappable row per player
+(name + "N markets · tap to view" + chevron), NOT every prop line. Tapping opens
+the existing PlayerPropsSheet with all that player's markets for that game.
+Grouping is per-(game,player) via a `playerResults` memo. Full per-prop PropRow
+list still renders when search is empty.
+**Why:** searching a name was dumping dozens of prop lines per player — unusable;
+the sheet already shows the full breakdown, so search should just locate the player.

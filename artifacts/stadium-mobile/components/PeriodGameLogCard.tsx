@@ -9,7 +9,10 @@ import { FONT } from "@/components/ui";
 // come from StatMuse's results grid. Every value is real; totals/averages are
 // derived from those real values, never fabricated. The card also carries the
 // resolved player name (StatMuse may not echo it).
-export type PeriodGameLogCardData = StatMuseGameLog & { player: string | null };
+export type PeriodGameLogCardData = StatMuseGameLog & {
+  player: string | null;
+  opponent?: string | null;
+};
 
 const cap = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
 
@@ -20,13 +23,22 @@ const fmtDate = (d: string) => {
 
 export function PeriodGameLogCard({ data }: { data: PeriodGameLogCardData }) {
   const colors = useColors();
-  const { player, period, stat, rows = [] } = data || ({} as PeriodGameLogCardData);
+  const { player, period, stat, opponent, rows = [] } = data || ({} as PeriodGameLogCardData);
   const nums = rows
     .map((r) => parseFloat(String(r.value).replace(/[^0-9.\-]/g, "")))
     .filter((n) => Number.isFinite(n));
   const total = nums.reduce((a, b) => a + b, 0);
   const avg = nums.length ? total / nums.length : 0;
   const title = `${cap(period)}${period ? " " : ""}${stat || "points"}`.trim();
+
+  // Only claim an opponent filter when one was requested AND every returned row
+  // shares the same opponent — then label it with the REAL abbreviation from the
+  // rows (e.g. "vs NYK"), never the unverified requested name. If StatMuse came
+  // back with mixed opponents, we don't mislabel it as filtered.
+  const opps = rows.map((r) => (r.opp || "").toUpperCase()).filter(Boolean);
+  const uniformOpp =
+    opps.length > 0 && opps.every((o) => o === opps[0]) ? opps[0] : null;
+  const oppLabel = opponent && uniformOpp ? ` vs ${uniformOpp}` : "";
 
   return (
     <View
@@ -46,6 +58,7 @@ export function PeriodGameLogCard({ data }: { data: PeriodGameLogCardData }) {
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginBottom: 10 }}>
         {title} · last {rows.length} game{rows.length === 1 ? "" : "s"}
+        {oppLabel}
       </Text>
 
       {rows.map((r, i) => (

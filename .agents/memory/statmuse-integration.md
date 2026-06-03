@@ -129,3 +129,18 @@ season rates.
 ## Verified
 Chat cited exact StatMuse numbers end-to-end (LeBron 20.9 PPG; Mahomes 3,587;
 Dodgers 38-21). api-server has no watcher → restart after edits.
+
+## Opponent-scoped period game-log (two-path gotcha)
+askStatMuseGameLog has TWO query paths: (1) raw question (r1), (2) a rebuilt
+canonical `"<player> <period> <stat> last N games game by game"` fallback (r2)
+used when the raw collapses to <2 rows. An explicit opponent ("vs the Knicks")
+must be carried into BOTH or the fallback silently widens to last-N games vs ANY
+team while the UI still claims the opponent. Fix: extractOpponentClause(rawQuery)
+re-injects ` vs the <opp>` into the canonical (raw already has it).
+**Client honesty gate (decided):** PeriodGameLogCard does NOT label the subtitle
+with the *requested* opponent name. It derives the label from the REAL rows — only
+shows ` vs <opp>` when an opponent was requested AND every row's `opp` is uniform,
+using that row abbreviation (e.g. "vs NYK"). Mixed/empty opps → no claim. This
+makes mislabeling impossible even if StatMuse ignores the opponent.
+**Why:** requested name (e.g. "knicks") ≠ row abbreviation ("NYK"), so you can't
+verify the requested name against rows; deriving from rows is the only honest gate.

@@ -62,7 +62,10 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
   // ESPN game logs have no period splits, so this is the only real source.
   if (lookup.period && lookup.periodPhrase) {
     const statWord = lookup.statWord || "points";
-    const q = `${top.name} ${lookup.periodPhrase} ${statWord} last 5 games game by game`;
+    // Honor an explicit opponent ("vs the Knicks") so StatMuse filters the grid
+    // to those matchups instead of returning the last 5 games regardless.
+    const oppPhrase = lookup.opponent ? ` vs the ${lookup.opponent}` : "";
+    const q = `${top.name} ${lookup.periodPhrase} ${statWord}${oppPhrase} last 5 games game by game`;
     try {
       const gl = await getStatmuseGamelog(q, top.sport, signal);
       if (gl?.rows && gl.rows.length >= 1) {
@@ -72,6 +75,7 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
             player: gl.player || top.name,
             period: gl.period || lookup.periodPhrase,
             stat: gl.stat || statWord,
+            opponent: lookup.opponent,
           },
         };
       }

@@ -280,12 +280,27 @@ export async function askStatMuseGameLog(
   }
   if (!player) return null;
 
-  const canonical = `${player} ${period ? `${period} ` : ""}${stat} last ${count} games game by game`;
+  // Preserve an explicit opponent ("vs the Knicks") in the canonical re-query so
+  // the fallback grid stays filtered to those matchups instead of silently
+  // widening to the last N games regardless of opponent.
+  const oppClause = extractOpponentClause(q);
+  const canonical = `${player} ${period ? `${period} ` : ""}${stat}${oppClause} last ${count} games game by game`;
   const r2 = await fetchStatMuseTable(canonical, slug);
   if (r2 && r2.rows.length >= 2) {
     return { ...r2, player, period, stat, count: r2.rows.length };
   }
   return null;
+}
+
+// Pull a " vs the <opponent>" clause out of a raw question so it can be carried
+// into the canonical re-query. Returns "" when no opponent is mentioned.
+function extractOpponentClause(q: string): string {
+  const m =
+    q.match(/\b(?:vs\.?|versus|against)\s+(?:the\s+)?(.+?)\s+(?:last|in|over|during|this|game|games|season)\b/i) ||
+    q.match(/\b(?:vs\.?|versus|against)\s+(?:the\s+)?(.+?)$/i);
+  if (!m) return "";
+  const opp = m[1].replace(/[?.!,]/g, " ").replace(/\s+/g, " ").trim();
+  return opp.length >= 2 ? ` vs the ${opp}` : "";
 }
 
 // Faster, single-fetch variant for when the caller ALREADY has a clean player
