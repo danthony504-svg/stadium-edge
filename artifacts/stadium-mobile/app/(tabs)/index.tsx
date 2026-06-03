@@ -99,6 +99,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -564,17 +565,67 @@ export default function HomeScreen() {
         ) : null}
 
         {/* Upcoming games */}
-        <Text
+        <View
           style={{
-            color: colors.foreground,
-            fontFamily: FONT.display,
-            fontSize: 18,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
             paddingHorizontal: 16,
             marginBottom: 12,
           }}
         >
-          Upcoming
-        </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text
+              style={{
+                color: colors.foreground,
+                fontFamily: FONT.display,
+                fontSize: 18,
+              }}
+            >
+              Upcoming
+            </Text>
+            {games.length > 0 ? (
+              <View
+                style={{
+                  minWidth: 24,
+                  height: 24,
+                  paddingHorizontal: 8,
+                  borderRadius: 12,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.primary,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.primaryForeground,
+                    fontFamily: FONT.display,
+                    fontSize: 13,
+                  }}
+                >
+                  {games.length}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {games.length > 0 ? (
+            <Pressable
+              hitSlop={8}
+              onPress={() => setShowAllUpcoming((v) => !v)}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            >
+              <Text
+                style={{
+                  color: colors.primary,
+                  fontFamily: FONT.display,
+                  fontSize: 14,
+                }}
+              >
+                {showAllUpcoming ? "Show less" : "View all"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
         {oddsQ.isLoading ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
@@ -590,6 +641,20 @@ export default function HomeScreen() {
               title="No games in the window"
               subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games are within the next 48 hours. Try another league.`}
             />
+          </View>
+        ) : showAllUpcoming ? (
+          <View style={{ paddingHorizontal: 16, gap: 12 }}>
+            {games.map((g) => {
+              const meta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+              return (
+                <GameCard
+                  key={g.id}
+                  game={g}
+                  meta={meta}
+                  onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
+                />
+              );
+            })}
           </View>
         ) : (
           <ScrollView
