@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -16,7 +17,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
-import { EmptyState, FONT } from "@/components/ui";
+import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -107,6 +108,14 @@ const QUICK_PROMPTS = [
   "Which favorites are worth backing tonight?",
 ];
 
+const CHAT_SEEN_KEY = "se_chat_seen";
+
+const WELCOME_FIRST_TIME =
+  "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
+
+const WELCOME_RETURNING =
+  "Stadium Edge is locked in. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
+
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -124,6 +133,32 @@ export default function CoachScreen() {
   useEffect(() => {
     if (params.prefill) setInput(String(params.prefill));
   }, [params.prefill]);
+
+  // Seed the first assistant bubble with a first-time or returning welcome.
+  // AsyncStorage is async (unlike web localStorage), so we set state after the
+  // read; the functional update bails if a message already landed (e.g. an
+  // auto-sent prefill that arrived first).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let returning = false;
+      try {
+        returning = (await AsyncStorage.getItem(CHAT_SEEN_KEY)) === "1";
+        await AsyncStorage.setItem(CHAT_SEEN_KEY, "1");
+      } catch {
+        /* storage unavailable — treat as first time */
+      }
+      if (cancelled) return;
+      setMessages((prev) =>
+        prev.length === 0
+          ? [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }]
+          : prev,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const slipForContext = useMemo(
     () => legs.map((l) => ({ game: l.game, market: l.market, pick: l.pick, odds: l.odds })),
@@ -266,41 +301,8 @@ export default function CoachScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
         bottomOffset={12}
       >
-        {messages.length === 0 ? (
-          <View>
-            <EmptyState
-              icon="message-circle"
-              title="Ask your AI Coach anything"
-              subtitle="Parlays, value bets, matchup reads — every suggestion is built only from real, current lines."
-            />
-            <View style={{ gap: 8, marginTop: 4 }}>
-              {QUICK_PROMPTS.map((q) => (
-                <Pressable
-                  key={q}
-                  onPress={() => send(q)}
-                  style={({ pressed }) => ({
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: colors.radius,
-                    padding: 14,
-                    opacity: pressed ? 0.85 : 1,
-                  })}
-                >
-                  <Feather name="zap" size={16} color={colors.accent} />
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}>
-                    {q}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        ) : (
-          <View style={{ gap: 14, paddingTop: 4 }}>
-            {messages.map((m, i) => (
+        <View style={{ gap: 14, paddingTop: 4 }}>
+          {messages.map((m, i) => (
               <View key={i}>
                 {m.statCard ? (
                   <PlayerStatCard data={m.statCard} />
@@ -345,8 +347,34 @@ export default function CoachScreen() {
                 ) : null}
               </View>
             ))}
+
+          {messages.length <= 1 ? (
+            <View style={{ gap: 8, marginTop: 4 }}>
+              {QUICK_PROMPTS.map((q) => (
+                <Pressable
+                  key={q}
+                  onPress={() => send(q)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                    padding: 14,
+                    opacity: pressed ? 0.85 : 1,
+                  })}
+                >
+                  <Feather name="zap" size={16} color={colors.accent} />
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}>
+                    {q}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           </View>
-        )}
       </KeyboardAwareScrollViewCompat>
 
       {/* Composer */}
