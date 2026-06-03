@@ -123,50 +123,75 @@ export default function HomeScreen() {
     [gamesQ.data],
   );
 
-  // Featured players: only for sports the props feed serves, drawn from the
-  // soonest few pickable games.
+  // Featured players: only for sports the props feed serves. IMPORTANT: draw the
+  // game list from the SAME source + ordering the Props tab uses (Odds API odds,
+  // soonest first) so any featured player is guaranteed to also appear when we
+  // deep-link into the Props search. ESPN games only supply team ids/abbrs (for
+  // headshots + team labels), matched by nickname.
   const featuredEnabled = PROPS_SPORTS.includes(sport);
-  const featGames = useMemo(
-    () => (gamesQ.data ?? []).filter((g) => isPickable(g.startsAt)).slice(0, 4),
-    [gamesQ.data],
-  );
+  const featGames = useMemo(() => games.slice(0, 4), [games]);
   const featIdsKey = featGames.map((g) => g.id).join(",");
+
+  const teamInfoMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { homeTeamId: string | null; awayTeamId: string | null; homeAbbr: string | null; awayAbbr: string | null }
+    >();
+    for (const g of gamesQ.data ?? []) {
+      const home = g.homeTeam || g.homeAbbr || "";
+      const away = g.awayTeam || g.awayAbbr || "";
+      if (!home || !away) continue;
+      map.set(`${nickname(away)}|${nickname(home)}`.toLowerCase(), {
+        homeTeamId: g.homeTeamId ?? null,
+        awayTeamId: g.awayTeamId ?? null,
+        homeAbbr: g.homeAbbr ?? null,
+        awayAbbr: g.awayAbbr ?? null,
+      });
+    }
+    return map;
+  }, [gamesQ.data]);
 
   const featuredQ = useQuery({
     queryKey: ["home-featured", sport, featIdsKey],
-    enabled: featuredEnabled && featGames.length > 0,
+    // Wait for ESPN games to SUCCEED (not merely settle) so team ids/headshots are
+    // attached on the first pass; without headshots every prop is filtered out. When
+    // gamesQ flips false->true the query enables and runs.
+    enabled: featuredEnabled && featGames.length > 0 && gamesQ.isSuccess,
     staleTime: 2 * 60_000,
     queryFn: async ({ signal }): Promise<FeaturedPlayer[]> => {
       const settled = await Promise.allSettled(
-        featGames.map((g) =>
-          getProps(
+        featGames.map((g) => {
+          const info = teamInfoMap.get(
+            `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
+          );
+          return getProps(
             {
               sport,
               eventId: g.id,
-              home: g.homeTeam ?? undefined,
-              away: g.awayTeam ?? undefined,
-              homeTeamId: g.homeTeamId,
-              awayTeamId: g.awayTeamId,
+              home: g.homeTeam,
+              away: g.awayTeam,
+              homeTeamId: info?.homeTeamId,
+              awayTeamId: info?.awayTeamId,
             },
             signal,
-          ).then((r) => ({ g, props: r.props ?? [] })),
-        ),
+          ).then((r) => ({ info, props: r.props ?? [] }));
+        }),
       );
       const seen = new Set<string>();
       const out: FeaturedPlayer[] = [];
       for (const s of settled) {
         if (s.status !== "fulfilled") continue;
-        const { g, props } = s.value;
+        const { info, props } = s.value;
         for (const p of props) {
           if (p.alt || !p.headshot || p.overPrice == null || p.line == null) continue;
           const key = p.player.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
           const teamAbbr =
-            p.playerTeamId && g.homeTeamId && p.playerTeamId === g.homeTeamId
-              ? g.homeAbbr ?? null
-              : p.playerTeamId && g.awayTeamId && p.playerTeamId === g.awayTeamId
-                ? g.awayAbbr ?? null
+            p.playerTeamId && info?.homeTeamId && p.playerTeamId === info.homeTeamId
+              ? info.homeAbbr
+              : p.playerTeamId && info?.awayTeamId && p.playerTeamId === info.awayTeamId
+                ? info.awayAbbr
                 : null;
           out.push({
             name: p.player,
