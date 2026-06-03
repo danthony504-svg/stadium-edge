@@ -229,7 +229,7 @@ export default function HomeScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: insets.top,
-          paddingBottom: insets.bottom + 96,
+          paddingBottom: insets.bottom + 24,
         }}
         refreshControl={
           <RefreshControl

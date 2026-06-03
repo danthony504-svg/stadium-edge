@@ -375,7 +375,7 @@ export default function PropsScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 96,
+          paddingBottom: insets.bottom + 24,
         }}
         refreshControl={
           <RefreshControl

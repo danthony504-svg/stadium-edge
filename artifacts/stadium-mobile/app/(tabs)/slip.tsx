@@ -136,7 +136,7 @@ export default function SlipScreen() {
         contentContainerStyle={{
           paddingTop: insets.top + 8,
           paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 96,
+          paddingBottom: insets.bottom + 24,
         }}
       >
         <View style={{ marginBottom: 16 }}>
