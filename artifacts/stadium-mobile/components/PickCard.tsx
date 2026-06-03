@@ -327,6 +327,29 @@ function teamSideFromPick(
   return { logo: meta.awayLogo, abbr: meta.awayAbbr };
 }
 
+// Attach real ESPN team logos/codes to a game-level pick from the per-game meta
+// table. A single-team pick (ML/spread) gets that team's logo; a game total
+// names no team, so BOTH teams' logos/codes ride along for a matchup avatar.
+// Idempotent + non-destructive: a pick that already carries a headshot (prop) or
+// any logo is returned untouched, so re-enriching stored slip picks is safe.
+export function enrichPickMeta(pick: ParsedPick, gameMeta: GameMeta[]): ParsedPick {
+  // Props show a player headshot, never a team logo — leave them alone even when
+  // the headshot is null (feed miss) so we never paint a team logo on a prop.
+  if (pick.isProp) return pick;
+  if (pick.headshot || pick.teamLogo || pick.awayLogo || pick.homeLogo) return pick;
+  const meta = gameMeta.find((gm) => sameGame(gm.game, pick.game));
+  if (!meta) return pick;
+  const side = teamSideFromPick(meta, pick.pick);
+  if (side) return { ...pick, teamLogo: side.logo, teamAbbr: side.abbr };
+  return {
+    ...pick,
+    awayLogo: meta.awayLogo,
+    homeLogo: meta.homeLogo,
+    awayAbbr: meta.awayAbbr,
+    homeAbbr: meta.homeAbbr,
+  };
+}
+
 export function parsePicks(
   text: string,
   realOdds: ParsedPick[] | RealOddsLike[],
@@ -388,29 +411,16 @@ export function parsePicks(
         }
       }
       if (best) {
-        resolved = {
-          game: best.game,
-          market: best.market,
-          pick: best.pick,
-          odds: best.odds,
-          sport: best.sport,
-        };
-        // Attach the picked team's real logo + code (totals name no team → null).
-        const meta = gameMeta.find((gm) => sameGame(gm.game, best!.game));
-        if (meta) {
-          const side = teamSideFromPick(meta, best.pick);
-          if (side) {
-            resolved.teamLogo = side.logo;
-            resolved.teamAbbr = side.abbr;
-          } else {
-            // A game total names no single team — carry BOTH teams' real logos
-            // and codes so the card shows the matchup instead of a bare "U".
-            resolved.awayLogo = meta.awayLogo;
-            resolved.homeLogo = meta.homeLogo;
-            resolved.awayAbbr = meta.awayAbbr;
-            resolved.homeAbbr = meta.homeAbbr;
-          }
-        }
+        resolved = enrichPickMeta(
+          {
+            game: best.game,
+            market: best.market,
+            pick: best.pick,
+            odds: best.odds,
+            sport: best.sport,
+          },
+          gameMeta,
+        );
       }
     }
 

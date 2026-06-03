@@ -65,6 +65,23 @@ the AI. So headshots/logos/abbrs must NEVER be put on `ChatContext`. Instead
   onError → initials); subtitle shows "AWAY @ HOME · TOTAL". Still fail-closed:
   no meta → fields stay null → initials/market-only.
 
+## aiPicks store is stale-prone — enrich at RENDER, not just parse
+- `aiPicks` (BetSlipContext) is an in-memory store written once by coach.tsx. A
+  parser change that adds new fields (e.g. team logos) does NOT retroactively fix
+  already-stored picks — Expo Fast Refresh updates component code but PRESERVES
+  React state, so cards render new UI over stale data (e.g. AI Edge pill shows but
+  logos missing). Symptom: "I added logos but the card STILL shows U".
+- Fix pattern: re-resolve at render. Extracted `enrichPickMeta(pick, gameMeta)`
+  (exported from PickCard.tsx) from parsePicks' game-level branch; slip.tsx fetches
+  games per unique aiPick sport via `useQueries(getGames)`, builds gameMeta with the
+  exported `buildGameMeta(games)` (lib/api.ts, also reused by buildChatContext), and
+  maps aiPicks through enrichPickMeta before rendering.
+- `enrichPickMeta` MUST be non-destructive AND prop-safe: first guard
+  `if (pick.isProp) return pick;` (props show a headshot, never a team logo — and a
+  prop's headshot can be null on a feed miss, so a headshot-truthiness check alone
+  is NOT enough). Then skip if any logo already set (idempotent). Only then resolve
+  team side / total dual-logos. matchProp sets isProp:true on prop legs.
+
 ## SlipBar must live at ROOT, not in (tabs)/_layout
 - The floating bet-slip popup (`components/SlipBar.tsx`) was rendered in
   `app/(tabs)/_layout.tsx`, so it only covered tab screens. `game/[id]` and

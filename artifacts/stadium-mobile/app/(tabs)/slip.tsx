@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
+import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -12,9 +13,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
+import { enrichPickMeta } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import { buildGameMeta, getGames } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
 
 function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
@@ -135,6 +138,30 @@ export default function SlipScreen() {
   const toWin = payout(stake, combined) - stake;
   const implied = parlayImplied(legs.map((l) => l.odds));
 
+  // aiPicks is an in-memory store that can predate the parser that attaches team
+  // logos (e.g. after a code change while the app is open). Re-resolve each
+  // pick's logos/codes here from a fresh ESPN games fetch so cards always show
+  // the real matchup/team art without forcing the user to regenerate. Real data
+  // only — enrichPickMeta is non-destructive and never invents anything.
+  const aiSports = useMemo(
+    () => Array.from(new Set(aiPicks.map((p) => p.sport).filter((s): s is string => !!s))),
+    [aiPicks],
+  );
+  const gamesQueries = useQueries({
+    queries: aiSports.map((sport) => ({
+      queryKey: ["games", sport],
+      queryFn: ({ signal }: { signal?: AbortSignal }) => getGames(sport, signal),
+      staleTime: 60_000,
+    })),
+  });
+  const gamesKey = gamesQueries.map((q) => q.dataUpdatedAt).join("|");
+  const enrichedAiPicks = useMemo(() => {
+    const gameMeta = buildGameMeta(gamesQueries.flatMap((q) => q.data ?? []));
+    if (gameMeta.length === 0) return aiPicks;
+    return aiPicks.map((p) => enrichPickMeta(p, gameMeta));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiPicks, gamesKey]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -154,7 +181,7 @@ export default function SlipScreen() {
         </View>
 
         {/* AI-recommended picks (pinned from the AI Coach's latest parlay) */}
-        {aiPicks.length > 0 ? (
+        {enrichedAiPicks.length > 0 ? (
           <View style={{ marginBottom: 20 }}>
             <Text
               style={{
@@ -172,7 +199,7 @@ export default function SlipScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingRight: 4 }}
             >
-              {aiPicks.map((p, i) => (
+              {enrichedAiPicks.map((p, i) => (
                 <AiPickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
               ))}
             </ScrollView>

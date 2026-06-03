@@ -371,6 +371,30 @@ export type GameMeta = {
   awayLogo: string | null;
 };
 
+// Build the per-game render-only logo/abbr table from ESPN games. Exported so
+// any screen holding stored picks (e.g. the Bet Slip's pinned AI cards) can
+// re-resolve team logos/codes from a fresh games fetch — the in-memory aiPicks
+// store can predate a parser change, so render-time enrichment keeps cards
+// correct without a regeneration. Real ESPN data only; never sent to the AI.
+export function buildGameMeta(games: EspnGame[]): GameMeta[] {
+  const out: GameMeta[] = [];
+  for (const g of games) {
+    const home = g.homeTeam || g.homeAbbr || "";
+    const away = g.awayTeam || g.awayAbbr || "";
+    if (!home || !away) continue;
+    out.push({
+      game: `${away} @ ${home}`,
+      homeTeam: home,
+      awayTeam: away,
+      homeAbbr: g.homeAbbr ?? null,
+      awayAbbr: g.awayAbbr ?? null,
+      homeLogo: g.homeLogo ?? null,
+      awayLogo: g.awayLogo ?? null,
+    });
+  }
+  return out;
+}
+
 type PropTeamIds = { homeTeamId: string | null; awayTeamId: string | null };
 
 function buildPropIdMap(games: EspnGame[]): Map<string, PropTeamIds> {
@@ -433,7 +457,6 @@ export async function buildChatContext(
   // player's team via playerTeamId) and a per-game logo/abbr table (for
   // game-level picks). Real ESPN data only; never sent to the AI.
   const teamMetaById = new Map<string, { abbr: string | null; logo: string | null }>();
-  const gameMeta: GameMeta[] = [];
   for (const list of gamesAll) {
     for (const g of list) {
       if (g.homeTeamId) {
@@ -442,20 +465,9 @@ export async function buildChatContext(
       if (g.awayTeamId) {
         teamMetaById.set(g.awayTeamId, { abbr: g.awayAbbr ?? null, logo: g.awayLogo ?? null });
       }
-      const home = g.homeTeam || g.homeAbbr || "";
-      const away = g.awayTeam || g.awayAbbr || "";
-      if (!home || !away) continue;
-      gameMeta.push({
-        game: `${away} @ ${home}`,
-        homeTeam: home,
-        awayTeam: away,
-        homeAbbr: g.homeAbbr ?? null,
-        awayAbbr: g.awayAbbr ?? null,
-        homeLogo: g.homeLogo ?? null,
-        awayLogo: g.awayLogo ?? null,
-      });
     }
   }
+  const gameMeta = buildGameMeta(gamesAll.flat());
 
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
