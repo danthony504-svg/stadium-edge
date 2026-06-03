@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -198,6 +199,27 @@ export default function CoachScreen() {
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Long-press a message bubble to copy its full text. The bubble text is also
+  // `selectable` for partial copy via the OS menu, so this is a quick "copy all".
+  const copyMessage = useCallback(async (text: string) => {
+    const t = (text || "").trim();
+    if (!t) return;
+    try {
+      await Clipboard.setStringAsync(t);
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard unavailable — silently ignore */
+    }
+  }, []);
+
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -406,7 +428,9 @@ export default function CoachScreen() {
                 ) : m.periodGameLog ? (
                   <PeriodGameLogCard data={m.periodGameLog} />
                 ) : showBubble ? (
-                  <View
+                  <Pressable
+                    onLongPress={isWaiting ? undefined : () => copyMessage(bubbleText)}
+                    delayLongPress={300}
                     style={{
                       alignSelf: m.role === "user" ? "flex-end" : "flex-start",
                       maxWidth: "88%",
@@ -422,6 +446,7 @@ export default function CoachScreen() {
                       <ActivityIndicator color={colors.mutedForeground} size="small" />
                     ) : (
                       <Text
+                        selectable
                         style={{
                           color: m.role === "user" ? colors.primaryForeground : colors.foreground,
                           fontFamily: FONT.body,
@@ -432,7 +457,7 @@ export default function CoachScreen() {
                         {bubbleText}
                       </Text>
                     )}
-                  </View>
+                  </Pressable>
                 ) : null}
 
                 {isBuildingParlay ? (
@@ -503,6 +528,30 @@ export default function CoachScreen() {
           ) : null}
           </View>
       </KeyboardAwareScrollViewCompat>
+
+      {/* Transient "copied" confirmation after a long-press copy. */}
+      {copied ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            bottom: insets.bottom + 96,
+            alignSelf: "center",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            backgroundColor: colors.foreground,
+            borderRadius: 999,
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+          }}
+        >
+          <Feather name="check" size={14} color={colors.background} />
+          <Text style={{ color: colors.background, fontFamily: FONT.medium, fontSize: 13 }}>
+            Copied
+          </Text>
+        </View>
+      ) : null}
 
       {/* Composer */}
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
