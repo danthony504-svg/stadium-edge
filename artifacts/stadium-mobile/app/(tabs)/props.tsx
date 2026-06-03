@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -37,10 +38,15 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 // so a dozen is comfortable and keeps the screen responsive.
 const MAX_GAMES = 12;
 
-type TeamIds = { homeTeamId: string | null; awayTeamId: string | null };
+type TeamInfo = {
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+};
 
-function buildIdMap(games: EspnGame[]): Map<string, TeamIds> {
-  const map = new Map<string, TeamIds>();
+function buildIdMap(games: EspnGame[]): Map<string, TeamInfo> {
+  const map = new Map<string, TeamInfo>();
   for (const g of games) {
     const home = g.homeTeam || g.homeAbbr || "";
     const away = g.awayTeam || g.awayAbbr || "";
@@ -48,6 +54,8 @@ function buildIdMap(games: EspnGame[]): Map<string, TeamIds> {
     map.set(`${nickname(away)}|${nickname(home)}`.toLowerCase(), {
       homeTeamId: g.homeTeamId ?? null,
       awayTeamId: g.awayTeamId ?? null,
+      homeAbbr: g.homeAbbr ?? null,
+      awayAbbr: g.awayAbbr ?? null,
     });
   }
   return map;
@@ -57,7 +65,17 @@ type GameProps = {
   gameLabel: string;
   startsAt: string;
   props: PlayerProp[];
+  teams: TeamInfo | null;
 };
+
+// Resolve a player's team abbreviation from their playerTeamId against the
+// game's home/away team ids. Null when ids don't resolve (honest, no guess).
+function teamAbbrFor(prop: PlayerProp, teams: TeamInfo | null): string | null {
+  if (!teams || !prop.playerTeamId) return null;
+  if (prop.playerTeamId === teams.homeTeamId) return teams.homeAbbr;
+  if (prop.playerTeamId === teams.awayTeamId) return teams.awayAbbr;
+  return null;
+}
 
 // Fetch odds (for the pickable game list + Odds API event ids) and ESPN games
 // (for team ids → headshots), then pull player props per game.
@@ -75,7 +93,7 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
   let failures = 0;
   const results = await Promise.all(
     pickable.map(async (g): Promise<GameProps> => {
-      const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+      const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
       try {
         const r = await getProps(
           {
@@ -90,10 +108,10 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
         );
         // Main lines only — alternate-ladder rungs would duplicate each player.
         const mains = (r.props ?? []).filter((p) => !p.alt && (p.overPrice != null || p.underPrice != null));
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: mains };
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: mains, teams: ids };
       } catch {
         failures += 1;
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: [] };
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: [], teams: ids };
       }
     }),
   );
@@ -216,10 +234,12 @@ function PropRow({
   prop,
   gameLabel,
   sport,
+  onOpen,
 }: {
   prop: PlayerProp;
   gameLabel: string;
   sport: string;
+  onOpen: () => void;
 }) {
   const colors = useColors();
   const { addLeg, hasLeg } = useBetSlip();
@@ -249,7 +269,15 @@ function PropRow({
         gap: 10,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+      <Pressable
+        onPress={onOpen}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
         <Avatar headshot={prop.headshot} name={prop.player} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
@@ -260,7 +288,8 @@ function PropRow({
             {prop.line != null ? ` · ${prop.line}` : ""}
           </Text>
         </View>
-      </View>
+        <Feather name="bar-chart-2" size={16} color={colors.primary} />
+      </Pressable>
       <View style={{ flexDirection: "row", gap: 8 }}>
         <PropChip
           side="Over"
@@ -289,6 +318,24 @@ export default function PropsScreen() {
     params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
   );
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
+  const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
+
+  // Open the player-props detail seeded to the tapped market, gathering every
+  // market that player has in this game (for the metric pills + lines list).
+  const openSheet = (g: GameProps, prop: PlayerProp) => {
+    const playerProps = g.props.filter((p) => p.player === prop.player);
+    setSheet({
+      player: prop.player,
+      athleteId: prop.athleteId ?? null,
+      headshot: prop.headshot ?? null,
+      playerTeamId: prop.playerTeamId ?? null,
+      teamAbbr: teamAbbrFor(prop, g.teams),
+      sport,
+      gameLabel: g.gameLabel,
+      initialMarket: prop.market,
+      props: playerProps,
+    });
+  };
 
   // When navigated to with a player/sport (e.g. from the Home featured row),
   // sync the search + sport selector to that target.
@@ -420,13 +467,20 @@ export default function PropsScreen() {
                   </Text>
                 </View>
                 {g.props.map((p, idx) => (
-                  <PropRow key={`${p.player}-${p.market}-${p.line}-${idx}`} prop={p} gameLabel={g.gameLabel} sport={sport} />
+                  <PropRow
+                    key={`${p.player}-${p.market}-${p.line}-${idx}`}
+                    prop={p}
+                    gameLabel={g.gameLabel}
+                    sport={sport}
+                    onOpen={() => openSheet(g, p)}
+                  />
                 ))}
               </View>
             ))
           )}
         </View>
       </ScrollView>
+      <PlayerPropsSheet data={sheet} onClose={() => setSheet(null)} />
     </View>
   );
 }

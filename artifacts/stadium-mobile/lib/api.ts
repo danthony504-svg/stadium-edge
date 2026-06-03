@@ -136,6 +136,45 @@ export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<Prop
   return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal);
 }
 
+// ---------- Player history (real ESPN game logs + season stats) ----------
+
+export type PlayerGameLogEntry = {
+  eventId: string;
+  date: string | null;
+  opponentName: string | null;
+  isHome: boolean | null;
+  stats: Record<string, string>;
+};
+
+export type PlayerStatSummary = {
+  games: number;
+  averages: Record<string, number>;
+  totals: Record<string, number>;
+};
+
+// Real per-game game log + season aggregates from ESPN (artifacts/api-server
+// /sports/player-history). Everything here is a real recorded stat line — the
+// server fabricates nothing and returns empty buckets when a feed has no data.
+export type PlayerHistory = {
+  sport: string;
+  athleteId: string;
+  labels: string[];
+  recent: PlayerGameLogEntry[];
+  season: string | null;
+  seasonSummary: PlayerStatSummary;
+};
+
+export function getPlayerHistory(
+  sport: string,
+  athleteId: string,
+  signal?: AbortSignal,
+): Promise<PlayerHistory> {
+  return getJson<PlayerHistory>(
+    `/sports/player-history?sport=${encodeURIComponent(sport)}&athleteId=${encodeURIComponent(athleteId)}`,
+    signal,
+  );
+}
+
 // Map a raw Odds API market key to a short human label. Handles the _q1 / _h1
 // period suffixes (and _alternate, though the server already strips it).
 const PROP_MARKET_LABELS: Record<string, string> = {
