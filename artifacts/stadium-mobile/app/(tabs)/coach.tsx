@@ -106,11 +106,12 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
   };
 }
 
-const QUICK_PROMPTS = [
-  "Build me a safe 3-leg parlay for tonight",
-  "What's the best value bet on the board?",
-  "Give me a 5-leg longshot parlay",
-  "Which favorites are worth backing tonight?",
+const QUICK_PROMPTS: { label: string; prompt: string }[] = [
+  { label: "3-Leg parlay", prompt: "Build me a 3-leg parlay for tonight" },
+  { label: "6-Leg parlay", prompt: "Build me a 6-leg parlay for tonight" },
+  { label: "9-Leg parlay", prompt: "Build me a 9-leg parlay for tonight" },
+  { label: "15-Leg longshot", prompt: "Build me a 15-leg longshot parlay for tonight" },
+  { label: "Player props only", prompt: "Build me a player props only parlay for tonight" },
 ];
 
 const CHAT_SEEN_KEY = "se_chat_seen";
@@ -430,8 +431,8 @@ export default function CoachScreen() {
             <View style={{ gap: 8, marginTop: 4 }}>
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
-                  key={q}
-                  onPress={() => send(q)}
+                  key={q.label}
+                  onPress={() => send(q.prompt)}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
@@ -446,7 +447,7 @@ export default function CoachScreen() {
                 >
                   <Feather name="zap" size={16} color={colors.accent} />
                   <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}>
-                    {q}
+                    {q.label}
                   </Text>
                 </Pressable>
               ))}
