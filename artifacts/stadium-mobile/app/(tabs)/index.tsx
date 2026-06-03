@@ -70,7 +70,7 @@ export default function HomeScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 8,
+          paddingTop: insets.top,
           paddingBottom: insets.bottom + 96,
         }}
         refreshControl={
@@ -85,14 +85,14 @@ export default function HomeScreen() {
         }
       >
         {/* Header */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 16, alignItems: "center" }}>
+        <View style={{ paddingHorizontal: 16, marginBottom: 12, alignItems: "center" }}>
           <Image
             source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 150 }}
+            style={{ width: "100%", height: 150, marginTop: -12 }}
             resizeMode="contain"
             accessibilityLabel="Stadium Edge"
           />
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4, textAlign: "center" }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: -4, textAlign: "center" }}>
             Real lines. Real edges. No guesswork.
           </Text>
         </View>
