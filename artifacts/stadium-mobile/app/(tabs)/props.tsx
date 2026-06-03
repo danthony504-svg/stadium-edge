@@ -445,35 +445,15 @@ export default function PropsScreen() {
           />
         }
       >
-        {/* Header */}
-        <View style={{ paddingLeft: 64, paddingRight: 16, marginBottom: 14 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 28 }}>
-            Player <Text style={{ color: colors.primary }}>Props</Text>
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 2 }}>
-            Real bookmaker lines across every game.
-          </Text>
+        {/* Logo */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 10, alignItems: "center" }}>
+          <Image
+            source={require("@/assets/images/logo-player-props.png")}
+            style={{ width: "100%", height: 84 }}
+            resizeMode="contain"
+            accessibilityLabel="Stadium Edge Player Props"
+          />
         </View>
-
-        {/* AI-recommended props (pinned from the AI Coach's latest parlay) */}
-        {aiProps.length > 0 ? (
-          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
-            <Text
-              style={{
-                color: colors.primary,
-                fontFamily: FONT.display,
-                fontSize: 13,
-                letterSpacing: 0.5,
-                marginBottom: 8,
-              }}
-            >
-              ★ AI RECOMMENDED
-            </Text>
-            {aiProps.map((p, i) => (
-              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
-            ))}
-          </View>
-        ) : null}
 
         {/* Search */}
         <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
@@ -507,6 +487,26 @@ export default function PropsScreen() {
             ) : null}
           </View>
         </View>
+
+        {/* AI-recommended props (pinned from the AI Coach's latest parlay) */}
+        {aiProps.length > 0 ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.display,
+                fontSize: 13,
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              ★ AI RECOMMENDED
+            </Text>
+            {aiProps.map((p, i) => (
+              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
+            ))}
+          </View>
+        ) : null}
 
         {/* Sport selector */}
         <ScrollView
