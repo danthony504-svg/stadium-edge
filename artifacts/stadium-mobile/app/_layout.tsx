@@ -28,7 +28,8 @@ import { setAuthTokenGetter } from "@/lib/api";
 
 // Clerk publishable key + proxy URL come from the environment (dev script /
 // build.js). Empty in dev for the proxy (Clerk hits dev FAPI directly), set in
-// prod. Auth is OPTIONAL — the app stays fully usable signed-out.
+// prod. Auth is REQUIRED — the (tabs) layout gates the app behind sign-in, so on
+// first open a signed-out user is sent to the login screen.
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 
