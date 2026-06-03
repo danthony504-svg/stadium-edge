@@ -39,25 +39,56 @@ function AiPickAvatar({ pick }: { pick: ParsedPick }) {
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
   // Real ESPN imagery: a player headshot for props, the picked team's logo for
-  // game-level legs. Falls back to initials when the feed has neither (e.g. a
-  // game total, which names no single team) OR when the image URL fails to load.
+  // game-level legs, OR both teams' logos for a game total (which names no single
+  // team). Falls back to initials when the feed has none OR an image URL fails.
   const [imgFailed, setImgFailed] = useState(false);
+  const [awayFailed, setAwayFailed] = useState(false);
+  const [homeFailed, setHomeFailed] = useState(false);
   const photo = imgFailed ? null : pick.headshot || pick.teamLogo || null;
   const isLogo = !pick.headshot && !!pick.teamLogo;
+  const matchup =
+    !photo && (pick.awayLogo || pick.homeLogo)
+      ? { away: awayFailed ? null : pick.awayLogo, home: homeFailed ? null : pick.homeLogo }
+      : null;
+
+  const wrap = {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    overflow: "hidden" as const,
+  };
+
+  // Game total: render both team logos as a small matchup pair.
+  if (matchup && (matchup.away || matchup.home)) {
+    return (
+      <View style={{ ...wrap, flexDirection: "row", gap: 2 }}>
+        {matchup.away ? (
+          <Image
+            source={{ uri: matchup.away }}
+            style={{ width: 24, height: 24 }}
+            resizeMode="contain"
+            onError={() => setAwayFailed(true)}
+          />
+        ) : null}
+        {matchup.home ? (
+          <Image
+            source={{ uri: matchup.home }}
+            style={{ width: 24, height: 24 }}
+            resizeMode="contain"
+            onError={() => setHomeFailed(true)}
+          />
+        ) : null}
+      </View>
+    );
+  }
+
   return (
-    <View
-      style={{
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
+    <View style={wrap}>
       {photo ? (
         <Image
           source={{ uri: photo }}
@@ -134,7 +165,11 @@ export function AiPickCard({ pick }: { pick: ParsedPick }) {
         }}
         numberOfLines={1}
       >
-        {pick.teamAbbr ? `${pick.teamAbbr} · ${pick.market}` : pick.market}
+        {pick.teamAbbr
+          ? `${pick.teamAbbr} · ${pick.market}`
+          : pick.awayAbbr && pick.homeAbbr
+          ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${pick.market}`
+          : pick.market}
       </Text>
       <Text
         style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}

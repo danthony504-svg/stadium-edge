@@ -22,6 +22,12 @@ export type ParsedPick = {
   headshot?: string | null;
   teamLogo?: string | null;
   teamAbbr?: string | null;
+  // Game totals name no single team, so they carry BOTH teams' real logos/codes
+  // for a matchup-style avatar + subtitle ("NYM @ SEA · TOTAL").
+  awayLogo?: string | null;
+  homeLogo?: string | null;
+  awayAbbr?: string | null;
+  homeAbbr?: string | null;
 };
 
 if (
@@ -396,6 +402,13 @@ export function parsePicks(
           if (side) {
             resolved.teamLogo = side.logo;
             resolved.teamAbbr = side.abbr;
+          } else {
+            // A game total names no single team — carry BOTH teams' real logos
+            // and codes so the card shows the matchup instead of a bare "U".
+            resolved.awayLogo = meta.awayLogo;
+            resolved.homeLogo = meta.homeLogo;
+            resolved.awayAbbr = meta.awayAbbr;
+            resolved.homeAbbr = meta.homeAbbr;
           }
         }
       }

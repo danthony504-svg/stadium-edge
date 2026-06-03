@@ -54,6 +54,28 @@ the AI. So headshots/logos/abbrs must NEVER be put on `ChatContext`. Instead
   (`useEffect(()=>()=>abortRef.current?.abort(),[])`); guard every setState with
   `abortRef.current === controller` so a superseded request can't clobber state.
 
+## Game-total cards: dual-logo matchup (not a bare "U")
+- A TOTAL pick names no single team, so `teamSideFromPick` returns null and the
+  avatar used to fall back to initials ("Under" → "U"). Fix: in parsePicks'
+  game-level branch, the `else` (null side) attaches BOTH teams' real logos+codes
+  (`awayLogo/homeLogo/awayAbbr/homeAbbr`) from `gameMeta`. Same optional fields
+  added to ParsedPick AND BetSlipContext.AiPick (parity so the aiPicks store keeps
+  them — assignment keeps extra props at runtime even though TS optional makes the
+  narrower type assignable). AiPickAvatar renders a dual-logo pair (per-logo
+  onError → initials); subtitle shows "AWAY @ HOME · TOTAL". Still fail-closed:
+  no meta → fields stay null → initials/market-only.
+
+## SlipBar must live at ROOT, not in (tabs)/_layout
+- The floating bet-slip popup (`components/SlipBar.tsx`) was rendered in
+  `app/(tabs)/_layout.tsx`, so it only covered tab screens. `game/[id]` and
+  `upcoming` are ROOT-level routes (siblings of `(tabs)` in `app/_layout.tsx`) —
+  they never got the bar. Fix: render `<SlipBar/>` ONCE in `app/_layout.tsx`
+  (after RootLayoutNav, inside GestureHandlerRootView/KeyboardProvider, within
+  BetSlipProvider+SafeAreaProvider) and remove it from the tabs layout (avoid
+  double-render). It self-hides on `/slip` + `/coach` via usePathname; NavMenu
+  (hamburger) stays in tabs. Any "show X on all pages" overlay must be at root,
+  not the tab group.
+
 ## Bet Slip "To win" = profit only
 - SlipScreen "To win" must be `payout(stake, combined) - stake` (profit), not the
   full payout. `payout()` returns total return (stake + profit). SavedSlipCard's

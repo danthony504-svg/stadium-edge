@@ -28,9 +28,10 @@ if (
 // A floating "pop-up" bet slip pinned to the bottom of the screen. It shows a
 // compact summary bar (leg count + combined odds + projected payout) whenever
 // the slip has legs, and expands into a scrollable list of legs (each removable)
-// with a shortcut to the full Slip tab. Rendered once in (tabs)/_layout so it
-// rides over every browsing screen. Hidden on the Slip tab itself (that screen
-// IS the full slip) and on the Coach tab (its chat composer owns the bottom).
+// with a shortcut to the full Slip tab. Rendered once in the ROOT app/_layout so
+// it rides over EVERY screen — tab screens AND root-level routes like
+// game/[id] and upcoming. Hidden on the Slip tab itself (that screen IS the full
+// slip) and on the Coach tab (its chat composer owns the bottom).
 export function SlipBar() {
   const colors = useColors();
   const insets = useSafeAreaInsets();

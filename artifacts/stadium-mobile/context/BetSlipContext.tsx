@@ -46,6 +46,11 @@ export type AiPick = {
   headshot?: string | null;
   teamLogo?: string | null;
   teamAbbr?: string | null;
+  // Game totals carry BOTH teams' logos/codes for a matchup-style avatar.
+  awayLogo?: string | null;
+  homeLogo?: string | null;
+  awayAbbr?: string | null;
+  homeAbbr?: string | null;
 };
 
 type BetSlipState = {

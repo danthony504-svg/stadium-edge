@@ -21,6 +21,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { SlipBar } from "@/components/SlipBar";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -75,6 +76,7 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <StatusBar style="light" />
                 <RootLayoutNav />
+                <SlipBar />
               </KeyboardProvider>
             </GestureHandlerRootView>
           </BetSlipProvider>
