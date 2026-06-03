@@ -122,14 +122,24 @@ const WELCOME_RETURNING =
   "Stadium Edge is locked in. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
 // What the chat bubble shows for an assistant reply. Once a reply has resolved
-// into pick cards, the bubble is hidden entirely — the lead-in prose, the
-// PICK/EDGE/ALT rows, and the whole trailing block (combined odds, risk note,
-// alternates, extra analysis) are all dropped. Each pick's reasoning is rendered
-// in its card's EDGE note, so the chat shows only the cards. Plain Q&A replies
-// (no picks) show their full text unchanged.
+// into pick cards, the bubble is hidden entirely — each pick's reasoning lives in
+// its card's EDGE note. While a parlay is still STREAMING (picks not parsed yet),
+// we also strip everything from the first PICK/ALT line onward so the user never
+// sees the raw "PICK:/EDGE:/ALT:" scaffolding — only the lead-in prose shows, and
+// a "Building your parlay…" indicator signals the rest is on the way. Plain Q&A
+// replies (no PICK lines) show their full text unchanged.
+// Matches ONLY the pipe-delimited pick scaffold the parser emits
+// ("PICK: game | market | selection | odds" / "ALT: ..."), not a prose line that
+// merely starts with "Pick:" — requires at least two "|" separators after the
+// colon so normal Q&A is never truncated.
+const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
+
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
-  return content.trim();
+  const lines = content.split("\n");
+  const idx = lines.findIndex((l) => PICK_SCAFFOLD_RE.test(l.trim()));
+  if (idx === -1) return content.trim();
+  return lines.slice(0, idx).join("\n").trim();
 }
 
 export default function CoachScreen() {
@@ -325,6 +335,15 @@ export default function CoachScreen() {
           {messages.map((m, i) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
+            // A parlay still mid-stream: PICK lines have arrived in the raw text
+            // but haven't been parsed into cards yet. Show a "Building…" hint
+            // instead of leaving the user staring at stripped/empty text.
+            const isBuildingParlay =
+              m.role === "assistant" &&
+              streaming &&
+              i === messages.length - 1 &&
+              !hasPicks &&
+              m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim()));
             const bubbleText =
               m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
@@ -364,6 +383,35 @@ export default function CoachScreen() {
                         {bubbleText}
                       </Text>
                     )}
+                  </View>
+                ) : null}
+
+                {isBuildingParlay ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      alignSelf: "flex-start",
+                      marginTop: 10,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 999,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                    }}
+                  >
+                    <ActivityIndicator color={colors.accent} size="small" />
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.medium,
+                        fontSize: 13,
+                      }}
+                    >
+                      Building your parlay…
+                    </Text>
                   </View>
                 ) : null}
 

@@ -104,3 +104,12 @@ toWin = payout(stake,combinedOdds)-stake) that expands to a removable leg list +
 IS the full slip) AND `/coach` (its chat composer owns the bottom — overlap
 otherwise). LayoutAnimation needs its own Android guard (don't rely on PickCard
 importing first).
+
+## Mid-stream raw PICK/EDGE scaffold leak
+Picks parse into cards only at STREAM END, so mid-stream the bubble showed raw
+"PICK: g | market | sel | odds / EDGE:" text. Fix: assistantBubbleText truncates
+at the first scaffold line even while !hasPicks, plus an isBuildingParlay
+"Building your parlay…" pill (gated on `streaming` so it self-clears). CRITICAL:
+the detector MUST be the pipe-delimited scaffold shape `/^(?:PICK|ALT)\s*:.*\|.*\|/i`
+(>=2 pipes), NOT `/^(?:PICK|ALT):/` — the loose form truncates normal Q&A prose
+that starts with "Pick: I'd lean…".
