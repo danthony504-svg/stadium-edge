@@ -50,7 +50,43 @@ function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
   );
 }
 
-function AiPickChip({ pick }: { pick: ParsedPick }) {
+// Mirrors the Home screen's "Featured Players" card: a circular avatar with the
+// pick's initials, the selection, its market, and the odds. Tapping toggles the
+// leg in/out of the slip (border turns cyan + a check shows when added).
+function AiPickAvatar({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  // Player props lead with the athlete's name ("Max Meyer Over 5.5 Strikeouts");
+  // game picks lead with the team ("Lakers -3.5"). Either way the leading words
+  // give us the initials, same as the Featured Players avatar.
+  const lead = pick.pick.split(/\s+over\s+|\s+under\s+/i)[0] ?? pick.pick;
+  const initials = lead
+    .split(/\s+/)
+    .filter((w) => /[a-z]/i.test(w))
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+  return (
+    <View
+      style={{
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
+        {initials || "?"}
+      </Text>
+    </View>
+  );
+}
+
+function AiPickCard({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
@@ -71,37 +107,59 @@ function AiPickChip({ pick }: { pick: ParsedPick }) {
     <Pressable
       onPress={onToggle}
       style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        paddingVertical: 7,
-        paddingHorizontal: 10,
-        borderRadius: 999,
-        backgroundColor: added ? "rgba(34,211,238,0.14)" : colors.surface,
+        width: 150,
+        backgroundColor: colors.card,
         borderWidth: 1,
         borderColor: added ? colors.primary : colors.border,
+        borderRadius: colors.radius,
+        paddingVertical: 16,
+        paddingHorizontal: 12,
+        alignItems: "center",
+        gap: 6,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Feather
-        name={added ? "check" : "plus"}
-        size={13}
-        color={added ? colors.primary : colors.mutedForeground}
-      />
+      <AiPickAvatar pick={pick} />
       <Text
-        style={{
-          color: colors.foreground,
-          fontFamily: FONT.semibold,
-          fontSize: 12,
-          maxWidth: 170,
-        }}
+        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, textAlign: "center" }}
         numberOfLines={1}
       >
         {pick.pick}
       </Text>
-      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 12 }}>
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.medium,
+          fontSize: 11,
+          letterSpacing: 0.5,
+          textTransform: "uppercase",
+        }}
+        numberOfLines={1}
+      >
+        {pick.market}
+      </Text>
+      <Text
+        style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}
+        numberOfLines={1}
+      >
         {formatAmerican(pick.odds)}
       </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+        <Feather
+          name={added ? "check" : "plus"}
+          size={12}
+          color={added ? colors.primary : colors.mutedForeground}
+        />
+        <Text
+          style={{
+            color: added ? colors.primary : colors.mutedForeground,
+            fontFamily: FONT.semibold,
+            fontSize: 11,
+          }}
+        >
+          {added ? "Added" : "Add"}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -220,11 +278,15 @@ export default function SlipScreen() {
             >
               ★ AI RECOMMENDED
             </Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12, paddingRight: 4 }}
+            >
               {aiPicks.map((p, i) => (
-                <AiPickChip key={`${p.game}|${p.pick}|${i}`} pick={p} />
+                <AiPickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
               ))}
-            </View>
+            </ScrollView>
           </View>
         ) : null}
 
