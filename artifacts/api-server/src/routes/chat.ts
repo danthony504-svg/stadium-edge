@@ -1458,22 +1458,30 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // line (the "I asked for 3 HR picks but got 1, showing raw batter_home_runs"
   // bug: card-parsing never completes on a truncated line). So we keep the
   // heartbeat running for the WHOLE stream, IDLE-AWARE: it fires a keep-alive
-  // only when nothing has been written for >=3s, so it rarely interleaves with
-  // active token flow. The client ignores any chunk that doesn't start with
-  // "data: ", so the comment lines never corrupt the output even if they do.
+  // only when nothing has been written for >=1s, so it rarely interleaves with
+  // active token flow. The client ignores any frame without a `.content` field,
+  // so ping frames never corrupt the output even if they do.
   // Always cleaned up on end/error/disconnect.
   let lastActivity = Date.now();
-  // Fire a keep-alive after just >=3s of silence (checked every 1.5s). The
-  // mobile client uses this steady ~3s liveness signal to detect a dropped
-  // connection quickly (an 8s gap = dead link) and abort+retry instead of
-  // hanging forever on a stalled reader. Comment lines are ignored by every
-  // client parser, so the extra cadence is harmless even mid-stream.
+  // Fire a keep-alive after just >=1s of silence (checked every 750ms). This is
+  // AGGRESSIVE on purpose: in production the mobile client (expo/fetch through
+  // the Replit proxy) was dropping the connection during the model's silent
+  // 2-4s time-to-first-token window — i.e. BEFORE a lazy 3s heartbeat ever
+  // fired. Keeping at most ~1s between bytes means neither the proxy nor the
+  // device ever sees a 2s+ idle gap, so the link survives until the first real
+  // token. We send the ping as a REAL `data:` frame (not an SSE `: comment`):
+  // the client reads every chunk to re-arm its stall watchdog, and a data frame
+  // is guaranteed to count as on-the-wire activity for any intermediary that a
+  // bare comment line might not. The client ignores any frame without a
+  // `.content` field, so ping frames never pollute the rendered answer or the
+  // PICK-line validation. Always cleaned up on end/error/disconnect.
+  const PING = `data: ${JSON.stringify({ ping: 1 })}\n\n`;
   let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
-    if (Date.now() - lastActivity >= 3000) {
-      try { res.write(`: keep-alive\n\n`); lastActivity = Date.now(); } catch { /* socket gone */ }
+    if (Date.now() - lastActivity >= 1000) {
+      try { res.write(PING); lastActivity = Date.now(); } catch { /* socket gone */ }
     }
-  }, 1500);
-  res.write(`: keep-alive\n\n`);
+  }, 750);
+  res.write(PING);
   // Emit an early "data:" status event so the stream flushes open promptly
   // during the model's silent time-to-first-token. The client intentionally
   // does NOT render this text — it relies on its own animated loading dots for
@@ -1540,7 +1548,7 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
         // Record activity but KEEP the heartbeat running — a mid-stream pause
         // between picks must still emit keep-alives or the proxy drops the
         // connection and truncates the ticket. The idle-aware heartbeat only
-        // fires after >=3s of silence; comment frames are ignored client-side.
+        // fires after >=1s of silence; ping frames are ignored client-side.
         lastActivity = Date.now();
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
