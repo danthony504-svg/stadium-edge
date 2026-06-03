@@ -711,29 +711,22 @@ function abortError(): Error {
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
 export async function streamChat({ messages, context, onToken, signal }: StreamChatArgs): Promise<string> {
-  const STALL_MS = 8000; // max gap between chunks before we call the link dead
-  const MAX_ATTEMPTS = 3;
+  const STALL_MS = 4000; // max gap between chunks before we call the link dead
+  const MAX_ATTEMPTS = 4;
 
   let lastErr: unknown = null;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw abortError();
 
-    // Per-attempt controller so the watchdog can kill THIS attempt without
-    // tearing down the caller's signal. Chained to the external signal so a
-    // genuine unmount / user cancel still aborts everything and stops retries.
+    // Per-attempt controller so a stall can kill THIS attempt without tearing
+    // down the caller's signal. Chained to the external signal so a genuine
+    // unmount / user cancel still aborts everything and stops retries.
     const attemptCtrl = new AbortController();
     const onExternalAbort = () => attemptCtrl.abort();
     if (signal) signal.addEventListener("abort", onExternalAbort, { once: true });
 
-    let watchdog: ReturnType<typeof setTimeout> | null = null;
-    const armWatchdog = () => {
-      if (watchdog) clearTimeout(watchdog);
-      watchdog = setTimeout(() => attemptCtrl.abort(), STALL_MS);
-    };
     const cleanup = () => {
-      if (watchdog) clearTimeout(watchdog);
-      watchdog = null;
       if (signal) signal.removeEventListener("abort", onExternalAbort);
     };
 
@@ -752,12 +745,36 @@ export async function streamChat({ messages, context, onToken, signal }: StreamC
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      armWatchdog();
 
+      // CRITICAL: on native, expo/fetch does NOT reliably reject reader.read()
+      // when the underlying socket is torn down — the promise just HANGS FOREVER.
+      // That is exactly what left the UI stuck on "Building your parlay…" with no
+      // recovery (the server logged "request aborted" while the client's await
+      // never settled). So we NEVER `await reader.read()` directly: we race it
+      // against a stall timer. If no chunk (a real token OR a server keep-alive
+      // ping) arrives within STALL_MS the link is dead — we abort to free the
+      // socket and bail to the retry logic WITHOUT waiting on the (possibly hung)
+      // read. The server pings ~every 400ms even while the reasoning model is
+      // silent before its first token, so a multi-second gap unambiguously means
+      // a dropped connection, never a healthy slow start.
+      const STALL = Symbol("stall");
       while (true) {
-        const { done, value } = await reader.read();
+        let stallTimer: ReturnType<typeof setTimeout> | null = null;
+        const stall = new Promise<typeof STALL>((resolve) => {
+          stallTimer = setTimeout(() => resolve(STALL), STALL_MS);
+        });
+        let result: Awaited<ReturnType<typeof reader.read>> | typeof STALL;
+        try {
+          result = await Promise.race([reader.read(), stall]);
+        } finally {
+          if (stallTimer) clearTimeout(stallTimer);
+        }
+        if (result === STALL) {
+          attemptCtrl.abort(); // free the socket; do NOT await the orphaned read
+          throw new Error("stream stalled");
+        }
+        const { done, value } = result;
         if (done) break;
-        armWatchdog(); // any chunk (incl. ": keep-alive") proves the link is alive
         buffer += decoder.decode(value, { stream: true });
         const chunks = buffer.split("\n\n");
         buffer = chunks.pop() || "";
@@ -771,7 +788,7 @@ export async function streamChat({ messages, context, onToken, signal }: StreamC
               onToken(fullText);
             }
           } catch {
-            // ignore keep-alive / status frames
+            // ignore keep-alive / status / ping frames
           }
         }
       }

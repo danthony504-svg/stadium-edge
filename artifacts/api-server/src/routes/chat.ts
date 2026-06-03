@@ -1477,10 +1477,10 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // PICK-line validation. Always cleaned up on end/error/disconnect.
   const PING = `data: ${JSON.stringify({ ping: 1 })}\n\n`;
   let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
-    if (Date.now() - lastActivity >= 1000) {
+    if (Date.now() - lastActivity >= 400) {
       try { res.write(PING); lastActivity = Date.now(); } catch { /* socket gone */ }
     }
-  }, 750);
+  }, 250);
   res.write(PING);
   // Emit an early "data:" status event so the stream flushes open promptly
   // during the model's silent time-to-first-token. The client intentionally

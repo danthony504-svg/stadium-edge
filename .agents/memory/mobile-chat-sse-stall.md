@@ -8,40 +8,46 @@ description: Why the Expo AI Coach build spinner could hang forever, and the res
 **Symptom:** mobile AI Coach build sticks on the spinner forever (Coach stays
 mounted/visible, so it is NOT a component unmount/abort).
 
-**Root cause:** the build holds an SSE `POST /api/chat` open ~10-15s while the
-reasoning model (gpt-5.4) is silent before its first token. Through the Replit
-proxy that connection is sometimes dropped a couple seconds in, BEFORE any token.
-On native, `expo/fetch`'s `reader.read()` then **hangs forever instead of
-rejecting** — so `streaming` never flips false. The server logs it as "request
-aborted" ~2.3s in; it is intermittent (some builds complete in ~14s).
+**Root cause (TWO independent problems — both must be fixed):**
+1. **Hung read.** The build holds an SSE `POST /api/chat` open ~10-15s while the
+   reasoning model (gpt-5.4) is silent before its first token. Through the Replit
+   proxy that connection is sometimes dropped before any token. On native,
+   `expo/fetch`'s `reader.read()` **hangs forever instead of rejecting** when the
+   socket is torn down. Server logs "request aborted" while the client `await`
+   never settles → `streaming` never flips false → infinite spinner.
+2. **First token loses the race.** Time-to-first-token with the full ~141k-char
+   context EXCEEDS the connection lifetime (drop at ~4-7s). So even a healthy link
+   often dies before the model's first token.
 
-**Why:** a dropped TCP/proxy link does not reliably surface as a reader
-rejection in expo/fetch; without a client-side liveness timeout nothing unwinds
-the await.
+**Why the obvious fix fails:** an `AbortController` watchdog that calls
+`attemptCtrl.abort()` does **NOT** unblock a hung native `reader.read()` — the
+read stays pending, so the watchdog is useless. `abort()` DOES tear down the
+socket (server sees "request aborted") but the JS promise never rejects.
 
 **How to apply (the resilience pattern — keep it):**
-- Client `streamChat` (lib/api.ts): per-attempt `AbortController` + a stall
-  watchdog that calls `attemptCtrl.abort()` if NO chunk (incl. keep-alive
-  comments) arrives within ~8s → forces the hung reader to reject. Auto-retry
-  up to 3x BUT only while `sawContent === false` (retry after real tokens would
-  duplicate output). Chain the caller's external `signal` so a genuine
-  unmount/user-cancel aborts everything and is never retried (throw AbortError,
-  which the coach catch ignores).
-- Server `chat.ts`: the keep-alive must keep the MAX idle gap BELOW the
-  proxy/device drop threshold. The real-world drop happens at ~2.3-2.6s of idle
-  — i.e. DURING the model's silent pre-first-token window, BEFORE a lazy 3s
-  heartbeat ever fires. A >=3s-idle keep-alive was therefore useless and the
-  spinner kept hanging. Fix: fire after >=1s idle, checked every 750ms
-  (steady-state max gap ~1.5s, comfortably under ~2.3s). Drop times vary
-  (2.6/3.6/4.3s) = multi-hop idle enforcement + buffering/scheduling jitter, not
-  a single fixed timeout — so stay well under the MINIMUM, not the average.
+- Client `streamChat` (lib/api.ts): **NEVER `await reader.read()` directly.**
+  Race it against a stall timer: `Promise.race([reader.read(), stall])` where
+  `stall` resolves a sentinel after `STALL_MS` (currently 4000). On stall:
+  `attemptCtrl.abort()` to free the socket, then `throw` WITHOUT awaiting the
+  orphaned read. This converts the infinite hang into a retry. Auto-retry up to
+  `MAX_ATTEMPTS` (4) BUT only while `sawContent === false` (retry after real
+  tokens would duplicate output). Chain the caller's external `signal` so a
+  genuine unmount/user-cancel aborts everything and is never retried.
+  - Orphaned reads are intentionally left unawaited (bounded by MAX_ATTEMPTS).
+  - External cancel during a hung read is observed on the next stall tick (≤4s),
+    not instantly — acceptable.
+- Server `chat.ts`: keep-alive must keep the MAX idle gap WELL BELOW the
+  proxy/device drop threshold AND fire densely enough to survive the silent
+  pre-first-token window. Pings demonstrably EXTEND device connection lifetime
+  (going 3s→1s cadence pushed it 2.6s→6.8s). Current cadence: fire after
+  **>=400ms idle, checked every 250ms** (verified via curl: pings ~every 500ms).
+  Always `res.write(PING)` once immediately to flush the stream open.
 - Send the keep-alive as a REAL `data: {"ping":1}` frame, NOT an SSE `: comment`.
-  A bare comment may be treated as ignorable/no-op by some intermediaries; a data
-  frame reliably counts as on-the-wire activity AND is read by the client to
-  re-arm its watchdog. The client ignores any frame without a `.content` field,
-  so pings never pollute the answer or PICK-line validation.
-- Invariant: client stall window MUST be comfortably larger than the server's
-  max idle keep-alive gap, or healthy silent-reasoning phases false-trip the
-  watchdog. Tune both together. **Verify through the proxy with `Accept-Encoding:
-  gzip`** — an `identity` curl masks the bug (streams fine); gzip clients hit the
-  buffering/idle path the device actually uses.
+  A bare comment may be treated as ignorable by some intermediaries; a data frame
+  reliably counts as on-the-wire activity. The client ignores any frame without a
+  `.content` field, so pings never pollute the answer or PICK-line validation.
+- **Invariant:** client `STALL_MS` MUST be comfortably larger than the server's
+  max idle keep-alive gap (4000 ≫ ~0.65s), or healthy silent-reasoning phases
+  false-trip the stall. Tune both together. **Verify through the proxy** with the
+  device path — `curl -sN -X POST "$REPLIT_DEV_DOMAIN/api/chat"` and watch ping
+  timing; an `identity` curl can mask the device-only hung-read behavior.
