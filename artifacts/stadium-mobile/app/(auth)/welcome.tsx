@@ -199,7 +199,7 @@ export default function WelcomeScreen() {
             })}
           >
             <LinearGradient
-              colors={["#5aa2ff", "#2a74f0"]}
+              colors={[AUTH_ACCENT, AUTH_ACCENT]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={{ paddingVertical: 16, alignItems: "center" }}
