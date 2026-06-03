@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -19,9 +19,53 @@ import { enrichPickMeta } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildGameMeta, getGames } from "@/lib/api";
+import { buildGameMeta, getGames, type EspnGame } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
 import { saveSlipToPhotos } from "@/lib/slipImage";
+
+// A game is considered "over" once it has been live longer than any realistic
+// game runs. Generous so we never clear a slip whose game is still in play.
+const GAME_OVER_BUFFER_MS = 6 * 3600_000;
+
+const teamNick = (s: string) =>
+  (s || "").trim().split(/\s+/).filter(Boolean).pop()?.toLowerCase() || "";
+
+// Split a leg's game label ("Away @ Home" / "Away vs Home") into its two team
+// nicknames so it can be matched against the live ESPN feed.
+function gameTeamNicks(label: string): [string, string] | null {
+  const parts = (label || "").split(/\s+@\s+|\s+vs\.?\s+|\s+at\s+/i);
+  if (parts.length !== 2) return null;
+  return [teamNick(parts[0]), teamNick(parts[1])];
+}
+
+// Build a resolver that classifies a leg's game against the live feed:
+//   "over"    — confirmed finished (Final/post) or started past the buffer
+//   "live"    — found but still upcoming / in progress
+//   "unknown" — couldn't be resolved to exactly one game (don't act on it)
+// Matching is scoped to the leg's own sport and requires a UNIQUE fixture: if
+// zero or multiple games match (cross-sport nickname collision, doubleheader),
+// we return "unknown" so the slip is never deleted on an ambiguous match.
+function legGameStatus(games: EspnGame[]) {
+  return (label: string, sport?: string): "over" | "live" | "unknown" => {
+    const teams = gameTeamNicks(label);
+    if (!teams) return "unknown";
+    const [a, b] = teams;
+    if (!a || !b || a === b) return "unknown";
+    const candidates = games.filter((g) => {
+      if (sport && g.sport && g.sport !== sport) return false;
+      const ga = teamNick(g.awayTeam || "");
+      const gh = teamNick(g.homeTeam || "");
+      return (ga === a && gh === b) || (ga === b && gh === a);
+    });
+    if (candidates.length !== 1) return "unknown";
+    const match = candidates[0];
+    const finished = match.state === "post" || /final/i.test(match.status || "");
+    if (finished) return "over";
+    const t = Date.parse(match.startsAt);
+    if (Number.isFinite(t) && Date.now() > t + GAME_OVER_BUFFER_MS) return "over";
+    return "live";
+  };
+}
 
 function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
   const colors = useColors();
@@ -179,6 +223,7 @@ export default function SlipScreen() {
     clearLegs,
     saveCurrentSlip,
     deleteSlip,
+    deleteSlips,
     aiPicks,
   } = useBetSlip();
   const [savingImage, setSavingImage] = useState(false);
@@ -213,24 +258,54 @@ export default function SlipScreen() {
   // pick's logos/codes here from a fresh ESPN games fetch so cards always show
   // the real matchup/team art without forcing the user to regenerate. Real data
   // only — enrichPickMeta is non-destructive and never invents anything.
-  const aiSports = useMemo(
-    () => Array.from(new Set(aiPicks.map((p) => p.sport).filter((s): s is string => !!s))),
-    [aiPicks],
-  );
+  // Fetch ESPN games for every sport referenced by either the AI picks OR the
+  // saved slips. The same feed powers two things: re-resolving AI pick art, and
+  // detecting which saved slips are fully finished so they can auto-clear.
+  const neededSports = useMemo(() => {
+    const set = new Set<string>();
+    aiPicks.forEach((p) => p.sport && set.add(p.sport));
+    savedSlips.forEach((s) => s.legs.forEach((l) => l.sport && set.add(l.sport)));
+    return Array.from(set);
+  }, [aiPicks, savedSlips]);
   const gamesQueries = useQueries({
-    queries: aiSports.map((sport) => ({
+    queries: neededSports.map((sport) => ({
       queryKey: ["games", sport],
       queryFn: ({ signal }: { signal?: AbortSignal }) => getGames(sport, signal),
       staleTime: 60_000,
     })),
   });
   const gamesKey = gamesQueries.map((q) => q.dataUpdatedAt).join("|");
+  const allGames = useMemo(
+    () => gamesQueries.flatMap((q) => q.data ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gamesKey],
+  );
   const enrichedAiPicks = useMemo(() => {
-    const gameMeta = buildGameMeta(gamesQueries.flatMap((q) => q.data ?? []));
+    const gameMeta = buildGameMeta(allGames);
     if (gameMeta.length === 0) return aiPicks;
     return aiPicks.map((p) => enrichPickMeta(p, gameMeta));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiPicks, gamesKey]);
+
+  // Auto-clear saved slips once every game in them is over. A slip is removed
+  // only when ALL its games are positively confirmed finished (ESPN Final/post,
+  // or started well past a generous game-length buffer). Games we can't resolve
+  // in the live feed are treated as "unknown" and keep the slip — never delete
+  // on missing data. Finished games drop out of ESPN's window after ~a day, so
+  // this clears slips while their results are still visible.
+  useEffect(() => {
+    if (allGames.length === 0 || savedSlips.length === 0) return;
+    const status = legGameStatus(allGames);
+    const toRemove = savedSlips
+      .filter(
+        (s) =>
+          s.legs.length > 0 &&
+          s.legs.every((l) => status(l.game, l.sport) === "over"),
+      )
+      .map((s) => s.id);
+    if (toRemove.length > 0) deleteSlips(toRemove);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamesKey, savedSlips]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

@@ -67,10 +67,15 @@ type BetSlipState = {
   setStake: (n: number) => void;
   saveCurrentSlip: () => boolean;
   deleteSlip: (id: string) => void;
+  deleteSlips: (ids: string[]) => void;
   setAiPicks: (picks: AiPick[]) => void;
 };
 
 const STORAGE_KEY = "stadium-edge:betslip:v1";
+
+// Cap how many slips a user can keep so storage never grows unbounded. Oldest
+// slips fall off the end when a new one is saved (newest are prepended).
+const MAX_SAVED_SLIPS = 25;
 
 const BetSlipContext = createContext<BetSlipState | null>(null);
 
@@ -158,7 +163,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
         stake,
         combinedOdds: parlayAmerican(prev.map((l) => l.odds)),
       };
-      setSavedSlips((s) => [slip, ...s]);
+      setSavedSlips((s) => [slip, ...s].slice(0, MAX_SAVED_SLIPS));
       return [];
     });
     return ok;
@@ -166,6 +171,12 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
 
   const deleteSlip = useCallback((id: string) => {
     setSavedSlips((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const deleteSlips = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const drop = new Set(ids);
+    setSavedSlips((prev) => prev.filter((s) => !drop.has(s.id)));
   }, []);
 
   const setAiPicks = useCallback((picks: AiPick[]) => setAiPicksState(picks), []);
@@ -185,6 +196,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       setStake,
       saveCurrentSlip,
       deleteSlip,
+      deleteSlips,
       setAiPicks,
     }),
     [
@@ -201,6 +213,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       setStake,
       saveCurrentSlip,
       deleteSlip,
+      deleteSlips,
       setAiPicks,
     ],
   );
