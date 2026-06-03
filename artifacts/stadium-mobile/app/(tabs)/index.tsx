@@ -232,10 +232,12 @@ export default function HomeScreen() {
   const featured = featuredQ.data ?? [];
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || featuredQ.isFetching;
 
-  const askCoach = (msg: string) =>
+  // autoSend=false just prefills the Coach input (user taps send themselves);
+  // the default fires the message immediately.
+  const askCoach = (msg: string, autoSend = true) =>
     router.push({
       pathname: "/coach",
-      params: { prefill: msg, send: "1", ts: String(Date.now()) },
+      params: { prefill: msg, ...(autoSend ? { send: "1" } : {}), ts: String(Date.now()) },
     });
 
   const quickActions: { label: string; icon: keyof typeof Feather.glyphMap; color: string; msg: string }[] = [
@@ -320,7 +322,7 @@ export default function HomeScreen() {
         {/* Build best parlay */}
         <View style={{ alignItems: "center", marginBottom: 18 }}>
           <Pressable
-            onPress={() => askCoach("Build me the best parlay")}
+            onPress={() => askCoach("Build me the best parlay", false)}
             style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
