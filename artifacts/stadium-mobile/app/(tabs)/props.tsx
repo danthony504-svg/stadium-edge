@@ -386,7 +386,7 @@ export default function PropsScreen() {
         }
       >
         {/* Header */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+        <View style={{ paddingLeft: 64, paddingRight: 16, marginBottom: 14 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 28 }}>
             Player <Text style={{ color: colors.primary }}>Props</Text>
           </Text>

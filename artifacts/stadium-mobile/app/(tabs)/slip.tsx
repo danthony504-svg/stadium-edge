@@ -139,7 +139,7 @@ export default function SlipScreen() {
           paddingBottom: insets.bottom + 24,
         }}
       >
-        <View style={{ marginBottom: 16 }}>
+        <View style={{ marginBottom: 16, paddingLeft: 48 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
             Bet Slip
           </Text>

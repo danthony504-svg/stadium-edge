@@ -48,7 +48,7 @@ export function NavMenu() {
 
   return (
     <>
-      {/* Floating hamburger button — top right, over every tab screen */}
+      {/* Floating hamburger button — top left, over every tab screen */}
       <Pressable
         onPress={toggle}
         hitSlop={10}
@@ -57,7 +57,7 @@ export function NavMenu() {
         style={({ pressed }) => ({
           position: "absolute",
           top: insets.top + 6,
-          right: 16,
+          left: 16,
           width: 40,
           height: 40,
           borderRadius: 12,
@@ -99,7 +99,7 @@ export function NavMenu() {
             style={{
               position: "absolute",
               top: panelTop,
-              right: 16,
+              left: 16,
               width: 220,
               backgroundColor: colors.card,
               borderRadius: 16,

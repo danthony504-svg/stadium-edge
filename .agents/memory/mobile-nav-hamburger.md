@@ -15,12 +15,18 @@ asked to remove the bottom bar and use a "3-line tab at the top".
   Stack so it floats over ALL four tab screens. No new nav dependency was added
   (`@react-navigation/drawer` is NOT installed — a drawer was avoided).
 - `components/NavMenu.tsx` = a self-contained floating hamburger button
-  (absolute top-right, `insets.top + 6`) + a transparent `Modal` dropdown
-  listing Home `/`, Coach `/coach`, Props `/props`, Slip `/slip`. Active route
-  via `usePathname()` (`/` matches "" and "/index"); navigate via
-  `router.navigate`. Slip leg count shows as a badge on the button and the row.
+  (absolute TOP-LEFT, `insets.top + 6`, `left:16`) + a transparent `Modal`
+  dropdown (also `left:16`) listing Home `/`, Coach `/coach`, Props `/props`,
+  Slip `/slip`. Active route via `usePathname()` (`/` matches "" and "/index");
+  navigate via `router.navigate`. Slip leg count shows as a badge.
 - Rendering NavMenu once in the layout (not per-screen) keeps the four screens'
   own title headers intact — no double header, no per-screen edits.
+- **Left-placement collision gotcha:** because the hamburger floats at top-left,
+  screens whose title sits at the very top-left collide with it. props/coach
+  headers get `paddingLeft:64` and slip's title row `paddingLeft:48` (its
+  container already adds 16) to clear the button → reads as `[≡] Title` app-bar.
+  Home is exempt (logo is centered; top-left is empty). If the menu is ever
+  moved back to the right, revert these indents.
 
 **Gotcha:** the scroll screens (index/props/slip) had
 `paddingBottom: insets.bottom + 96` reserving space for the floating tab bar.

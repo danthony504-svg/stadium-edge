@@ -148,7 +148,7 @@ export default function CoachScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 12 }}>
+      <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
           AI Coach
         </Text>
