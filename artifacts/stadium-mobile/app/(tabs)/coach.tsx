@@ -186,6 +186,84 @@ function assistantBubbleText(content: string, hasPicks: boolean): string {
   return lines.slice(0, idx).join("\n").trim();
 }
 
+// Does the user want the coach's TAKE/projection, not just the raw stat card?
+// A pure lookup ("Wembanyama points last 10 games") is fully answered by the
+// card, but an opinion/projection question ("how many points do you think he'll
+// score tonight?", "is the over a good bet?") wants an actual answer — so we
+// keep showing the real card AND stream a grounded reply.
+const PROJECTION_RE =
+  /\b(do you think|you think|think (?:he|she|they|it)|predict(?:ion)?|project(?:ion|ed|ing)?|expect(?:ed|ing|s)?|forecast|your (?:take|thoughts|opinion|guess|prediction|call)|thoughts on|over or under|over\/under|o\/u|should i|good bet|worth (?:a )?(?:bet|play|shot)|likely to|going to|gonna)\b/i;
+const PROJECTION_WILL_RE =
+  /\bwill\s+[a-z.'’\- ]{2,30}?\s(?:score|get|have|put up|go for|drop|record|tally|hit|reach|exceed)\b/i;
+
+function isProjectionQuestion(text: string): boolean {
+  return PROJECTION_RE.test(text) || PROJECTION_WILL_RE.test(text);
+}
+
+// Build a compact REAL-DATA grounding block from a resolved stat card so the AI
+// answers a projection question using ONLY these numbers. Every value comes
+// straight from the card (ESPN player-history / StatMuse grid) — nothing here is
+// invented, which keeps the never-fabricate rule intact.
+function serializeStatCardForAI(card: StatCardResult): string {
+  if (card.periodGameLog) {
+    const g = card.periodGameLog;
+    const rows = (g.rows || []).slice(0, 10);
+    const nums = rows
+      .map((r) => parseFloat(String(r.value).replace(/[^0-9.\-]/g, "")))
+      .filter((n) => Number.isFinite(n));
+    const avg = nums.length ? (nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(1) : "n/a";
+    const list = rows.map((r) => `${r.date} ${r.loc} ${r.opp}: ${r.value}`.trim()).join("; ");
+    return [
+      "REAL DATA (use ONLY these numbers; do not invent anything):",
+      `${g.player ?? "Player"} — ${g.period ?? ""} ${g.stat} per game over the last ${rows.length} games.`,
+      `Average ${g.stat}: ${avg}.`,
+      list ? `Games: ${list}.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (card.statCard) {
+    const { resolved, history } = card.statCard;
+    const s = history.seasonSummary || { games: 0, averages: {}, totals: {} };
+    const avgs = Object.entries(s.averages || {})
+      .map(([k, v]) => `${k} ${v}`)
+      .join(", ");
+    const recent = (history.recent || []).slice(0, 10);
+    const games = recent
+      .map((entry) => {
+        const loc = entry.isHome == null ? "" : entry.isHome ? "vs" : "@";
+        const stats = Object.entries(entry.stats || {})
+          .map(([k, v]) => `${k} ${v}`)
+          .join(" ");
+        return `${entry.date ?? ""} ${loc} ${entry.opponentName ?? ""}: ${stats}`.trim();
+      })
+      .join("; ");
+    const vsOpp =
+      history.vsOpponentName && history.vsOpponent?.length
+        ? `vs ${history.vsOpponentName}: ${history.vsOpponent
+            .slice(0, 6)
+            .map((entry) => {
+              const stats = Object.entries(entry.stats || {})
+                .map(([k, v]) => `${k} ${v}`)
+                .join(" ");
+              return `${entry.date ?? ""} ${stats}`.trim();
+            })
+            .join("; ")}.`
+        : "";
+    return [
+      "REAL DATA (use ONLY these numbers; do not invent anything):",
+      `${resolved.name} — ${resolved.team} (${String(resolved.sport).toUpperCase()})`,
+      `Season ${history.season ?? ""}: ${s.games} GP.`,
+      avgs ? `Per-game averages: ${avgs}.` : "",
+      vsOpp,
+      games ? `Last ${recent.length} games: ${games}.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -289,6 +367,77 @@ export default function CoachScreen() {
             copy[copy.length - 1] = { role: "assistant", content: "", ...card };
             return copy;
           });
+          scrollToEnd();
+
+          // A pure lookup ("Wembanyama points last 10 games") is fully answered
+          // by the card above. But an opinion/projection question ("how many
+          // points do you think he'll score tonight?") wants the coach's actual
+          // take — so we keep the card AND stream a grounded answer that uses
+          // ONLY the card's real numbers (never fabricated).
+          if (isProjectionQuestion(trimmed)) {
+            setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+            setWaiting(true);
+            scrollToEnd();
+            try {
+              const { context } = await buildChatContext(
+                DEFAULT_SPORTS,
+                slipForContext,
+                controller.signal,
+              );
+              const grounded: ChatMessage[] = history.map((m) => ({
+                role: m.role,
+                content: m.content,
+              }));
+              grounded[grounded.length - 1] = {
+                role: "user",
+                content: `${trimmed}\n\n${serializeStatCardForAI(card)}`,
+              };
+              let first = true;
+              const full = await streamChat({
+                messages: grounded,
+                context,
+                signal: controller.signal,
+                onToken: (sofar) => {
+                  if (first) {
+                    first = false;
+                    setWaiting(false);
+                  }
+                  setMessages((prev) => {
+                    const copy = [...prev];
+                    copy[copy.length - 1] = { role: "assistant", content: sofar };
+                    return copy;
+                  });
+                  scrollToEnd();
+                },
+              });
+              setMessages((prev) => {
+                const copy = [...prev];
+                copy[copy.length - 1] = { role: "assistant", content: full };
+                return copy;
+              });
+            } catch (e: any) {
+              if (e?.name === "AbortError") {
+                // Drop the empty grounded-answer placeholder on cancel.
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const last = copy[copy.length - 1];
+                  if (last && last.role === "assistant" && !last.content) copy.pop();
+                  return copy;
+                });
+              } else {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  copy[copy.length - 1] = {
+                    role: "assistant",
+                    content:
+                      "Those are the real numbers above — I couldn't add my projection just now. Try asking again.",
+                  };
+                  return copy;
+                });
+              }
+            }
+          }
+
           setWaiting(false);
           setStreaming(false);
           abortRef.current = null;
