@@ -87,6 +87,101 @@ export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
 }
 
+// ---------- Player props ----------
+
+// A single bookmaker player-prop line (matches artifacts/api-server props.ts).
+// line is null for yes/no markets (e.g. anytime TD); over/under may be null when
+// only one side is posted. alt=true marks an alternate-ladder rung.
+export type PlayerProp = {
+  player: string;
+  market: string;
+  line: number | null;
+  overPrice: number | null;
+  underPrice: number | null;
+  alt: boolean;
+  headshot: string | null;
+  athleteId: string | null;
+  playerTeamId: string | null;
+};
+
+export type PropsResponse = {
+  home: string | null;
+  away: string | null;
+  bookmaker: string | null;
+  props: PlayerProp[];
+};
+
+// Sports the props endpoint actually serves (MARKETS_BY_SPORT in props.ts).
+// Soccer/tennis/ufc return [] upstream, so we don't offer them in the props UI.
+export const PROPS_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab"];
+
+export type GetPropsArgs = {
+  sport: string;
+  eventId: string;
+  home?: string;
+  away?: string;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
+};
+
+// Per-event player props. Pass home/away names so the server can resolve the
+// real Odds API event id when eventId came from a fallback odds source, and
+// team ids so it can attach real ESPN headshots.
+export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
+  const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
+  if (args.home) q.set("home", args.home);
+  if (args.away) q.set("away", args.away);
+  if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
+  if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
+  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal);
+}
+
+// Map a raw Odds API market key to a short human label. Handles the _q1 / _h1
+// period suffixes (and _alternate, though the server already strips it).
+const PROP_MARKET_LABELS: Record<string, string> = {
+  player_points: "Points",
+  player_rebounds: "Rebounds",
+  player_assists: "Assists",
+  player_threes: "3-Pointers",
+  player_points_rebounds_assists: "Pts+Reb+Ast",
+  player_points_rebounds: "Pts+Reb",
+  player_points_assists: "Pts+Ast",
+  player_rebounds_assists: "Reb+Ast",
+  player_blocks: "Blocks",
+  player_steals: "Steals",
+  player_blocks_steals: "Blocks+Steals",
+  player_turnovers: "Turnovers",
+  player_pass_yds: "Pass Yds",
+  player_pass_tds: "Pass TDs",
+  player_rush_yds: "Rush Yds",
+  player_reception_yds: "Rec Yds",
+  player_receptions: "Receptions",
+  player_anytime_td: "Anytime TD",
+  player_goals: "Goals",
+  player_shots_on_goal: "Shots on Goal",
+  batter_hits: "Hits",
+  batter_total_bases: "Total Bases",
+  batter_home_runs: "Home Runs",
+  pitcher_strikeouts: "Strikeouts",
+};
+
+export function propMarketLabel(key: string): string {
+  let k = key;
+  let suffix = "";
+  if (k.endsWith("_alternate")) k = k.slice(0, -"_alternate".length);
+  if (k.endsWith("_q1")) {
+    suffix = " (Q1)";
+    k = k.slice(0, -3);
+  } else if (k.endsWith("_h1")) {
+    suffix = " (1H)";
+    k = k.slice(0, -3);
+  }
+  const base =
+    PROP_MARKET_LABELS[k] ??
+    k.replace(/^(player_|batter_|pitcher_)/, "").replace(/_/g, " ");
+  return base + suffix;
+}
+
 // ---------- Pickability window ----------
 
 // In progress (started up to 4h ago) OR tips off within the next 48h.

@@ -25,6 +25,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
         <Label>Coach</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="props">
+        <Icon sf={{ default: "person.text.rectangle", selected: "person.text.rectangle.fill" }} />
+        <Label>Props</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="slip">
         <Icon sf={{ default: "list.bullet.rectangle", selected: "list.bullet.rectangle.fill" }} />
         <Label>Slip</Label>
@@ -93,6 +97,18 @@ function ClassicTabLayout() {
               <SymbolView name="sparkles" tintColor={color} size={24} />
             ) : (
               <Feather name="zap" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="props"
+        options={{
+          title: "Props",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="person.text.rectangle" tintColor={color} size={24} />
+            ) : (
+              <Feather name="user" size={22} color={color} />
             ),
         }}
       />
