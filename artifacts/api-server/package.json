@@ -12,6 +12,7 @@
   "dependencies": {
     "@clerk/express": "^2.1.22",
     "@clerk/shared": "^4.14.0",
+    "@napi-rs/canvas": "^1.0.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "cookie-parser": "^1.4.7",

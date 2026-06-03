@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 import {
+  Alert,
   Pressable,
   ScrollView,
   Text,
@@ -20,6 +21,7 @@ import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { buildGameMeta, getGames } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
+import { saveSlipToPhotos } from "@/lib/slipImage";
 
 function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
   const colors = useColors();
@@ -132,6 +134,26 @@ export default function SlipScreen() {
     deleteSlip,
     aiPicks,
   } = useBetSlip();
+  const [savingImage, setSavingImage] = useState(false);
+
+  const onSaveToPhotos = async () => {
+    if (savingImage || legs.length === 0) return;
+    setSavingImage(true);
+    Haptics.selectionAsync();
+    const result = await saveSlipToPhotos(legs, stake);
+    setSavingImage(false);
+    if (result.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved", "Your bet slip was saved to Photos.");
+    } else if (result.reason === "permission") {
+      Alert.alert(
+        "Photos access needed",
+        "Enable photo access for Stadium Edge in Settings to save your slip.",
+      );
+    } else {
+      Alert.alert("Couldn't save", "Something went wrong saving your slip. Try again.");
+    }
+  };
 
   const combined = parlayAmerican(legs.map((l) => l.odds));
   // "To win" is profit only — the winnings on top of the stake, NOT the total
@@ -316,6 +338,33 @@ export default function SlipScreen() {
                   />
                 </View>
               </View>
+
+              <Pressable
+                onPress={onSaveToPhotos}
+                disabled={savingImage}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  paddingVertical: 14,
+                  paddingHorizontal: 18,
+                  borderRadius: colors.radius,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  opacity: savingImage ? 0.6 : pressed ? 0.85 : 1,
+                })}
+              >
+                <Feather
+                  name={savingImage ? "loader" : "download"}
+                  size={16}
+                  color={colors.foreground}
+                />
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                  {savingImage ? "Saving to Photos…" : "Save to Photos"}
+                </Text>
+              </Pressable>
 
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <Pressable

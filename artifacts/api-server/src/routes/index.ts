@@ -13,6 +13,7 @@ import teamPeriodStatsRouter from "./teamPeriodStats";
 import mlbRouter from "./mlb";
 import statmuseRouter from "./statmuse";
 import bballrefRouter from "./bballref";
+import slipImageRouter from "./slipImage";
 
 const router: IRouter = Router();
 
@@ -30,5 +31,6 @@ router.use(teamPeriodStatsRouter);
 router.use(mlbRouter);
 router.use(statmuseRouter);
 router.use(bballrefRouter);
+router.use(slipImageRouter);
 
 export default router;

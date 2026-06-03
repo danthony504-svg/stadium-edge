@@ -3,6 +3,8 @@ import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useEffect, useState } from "react";
 import {
+  Alert,
+  Dimensions,
   Keyboard,
   LayoutAnimation,
   Platform,
@@ -18,6 +20,7 @@ import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican, payout } from "@/lib/format";
+import { saveSlipToPhotos } from "@/lib/slipImage";
 
 if (
   Platform.OS === "android" &&
@@ -64,6 +67,7 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
   const [open, setOpen] = useState(false);
   const [kbVisible, setKbVisible] = useState(false);
   const [kbHeight, setKbHeight] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   // Track the soft keyboard so on Coach the bar can ride above it while the user
   // is typing (instead of being hidden), staying reachable mid-chat. We capture
@@ -130,6 +134,43 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
     setOpen(false);
   };
 
+  const onSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    const result = await saveSlipToPhotos(legs, stake);
+    setSaving(false);
+    if (result.ok) {
+      if (Platform.OS !== "web")
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved", "Your bet slip was saved to Photos.");
+    } else if (result.reason === "permission") {
+      Alert.alert(
+        "Photos access needed",
+        "Enable photo access for Stadium Edge in Settings to save your slip.",
+      );
+    } else {
+      Alert.alert("Couldn't save", "Something went wrong saving your slip. Try again.");
+    }
+  };
+
+  // The expanded leg list scrolls inside a capped area so it never grows past the
+  // visible screen. The cap must shrink when the bar floats high (e.g. above the
+  // keyboard on Coach), otherwise the list + summary bar overflow the top and the
+  // LAST pick gets clipped off-screen with no way to reach it. Budget the space
+  // from the bar's bottom offset up to a top safe margin, reserving room for the
+  // expanded card's own chrome (list header + action row footer) plus the summary
+  // bar and gaps that sit below the list. Critically, the cap must NEVER be forced
+  // above the genuinely-available space — a hard floor taller than what's left is
+  // exactly what pushes the top (and the last pick) off-screen. So we only apply a
+  // comfortable minimum when there's actually room for it; in a truly cramped
+  // layout we let the list shrink to whatever fits and rely on scrolling.
+  const screenH = Dimensions.get("window").height;
+  const RESERVED = 200; // card header + footer + summary bar + gaps
+  const available = Math.max(0, screenH - barBottom - insets.top - RESERVED);
+  const listMaxHeight =
+    available >= 120 ? Math.min(320, available) : available;
+
   return (
     <>
       {/* Tap-away backdrop while expanded */}
@@ -181,7 +222,7 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
               </Pressable>
             </View>
 
-            <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ maxHeight: listMaxHeight }} showsVerticalScrollIndicator={false}>
               {legs.map((leg) => (
                 <View
                   key={leg.id}
@@ -219,22 +260,57 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
               ))}
             </ScrollView>
 
-            <Pressable
-              onPress={openSlip}
-              style={({ pressed }) => ({
+            <View
+              style={{
                 flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                paddingVertical: 12,
-                opacity: pressed ? 0.85 : 1,
-              })}
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+              }}
             >
-              <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>
-                Open full slip
-              </Text>
-              <Feather name="arrow-right" size={14} color={colors.primary} />
-            </Pressable>
+              <Pressable
+                onPress={onSave}
+                disabled={saving}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 12,
+                  opacity: saving ? 0.6 : pressed ? 0.85 : 1,
+                })}
+              >
+                <Feather
+                  name={saving ? "loader" : "download"}
+                  size={14}
+                  color={colors.foreground}
+                />
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+                  {saving ? "Saving…" : "Save to Photos"}
+                </Text>
+              </Pressable>
+
+              <View style={{ width: 1, backgroundColor: colors.border, alignSelf: "stretch" }} />
+
+              <Pressable
+                onPress={openSlip}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 12,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>
+                  Open full slip
+                </Text>
+                <Feather name="arrow-right" size={14} color={colors.primary} />
+              </Pressable>
+            </View>
           </View>
         ) : null}
 

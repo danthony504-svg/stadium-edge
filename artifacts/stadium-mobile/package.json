@@ -56,6 +56,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@expo-google-fonts/bricolage-grotesque": "^0.4.1"
+    "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+    "expo-file-system": "~19.0.23",
+    "expo-media-library": "~18.2.1"
   }
 }
