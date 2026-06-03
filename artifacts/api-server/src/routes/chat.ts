@@ -11,7 +11,7 @@ const router: IRouter = Router();
 // fires multiple chats in quick succession (per-game live parlay builds,
 // re-asks while exploring slips) and the old cap was tripping during
 // normal use, surfacing as a misleading "AI unavailable" message.
-router.use("/chat", rateLimit({ windowMs: 60_000, max: 240 }));
+router.use("/chat", rateLimit({ windowMs: 60_000, max: 240, name: "chat" }));
 
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, WNBA, MLB, NHL, Soccer, NCAAF, NCAAB, UFC, and Tennis. Tennis (e.g. the French Open) is winner-odds (moneyline) only — there are no player props, spreads, totals, or team game-log analytics for it, so never invent any.

@@ -30,7 +30,7 @@ const fromDecimal = (d: number): number =>
 const fmtAmerican = (a: number | null): string =>
   a == null ? "—" : a > 0 ? `+${a}` : `${a}`;
 
-router.use("/slip-image", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/slip-image", rateLimit({ windowMs: 60_000, max: 30, name: "slip-image" }));
 
 router.post("/slip-image", (req, res): void => {
   const body = (req.body ?? {}) as { legs?: unknown; stake?: unknown };

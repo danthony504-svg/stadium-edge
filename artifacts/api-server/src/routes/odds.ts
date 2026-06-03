@@ -5,7 +5,7 @@ import { ODDS_SPORT_KEYS, cachedJson, rateLimit } from "../lib/sports";
 const router: IRouter = Router();
 
 // Paid Odds API — cap at 60 req/min/IP (cache absorbs most).
-router.use("/sports/odds", rateLimit({ windowMs: 60_000, max: 60 }));
+router.use("/sports/odds", rateLimit({ windowMs: 60_000, max: 60, name: "odds" }));
 
 type RawOddsGame = {
   id: string;

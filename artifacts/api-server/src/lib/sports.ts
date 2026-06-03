@@ -1,3 +1,7 @@
+import type { Request, Response, NextFunction } from "express";
+import { getAuth } from "@clerk/express";
+import { cacheGet, cacheSet, rateLimitHit } from "./store.js";
+
 // An app "sport" can map to a single Odds API sport key (most sports) OR to
 // MULTIPLE keys that are fetched and merged under one tab:
 //   - soccer  → several live leagues (the API has no single "all soccer" key)
@@ -37,57 +41,61 @@ export const ESPN_SPORT_PATHS: Record<string, string> = {
   ufc: "mma/ufc",
 };
 
-type CacheEntry = { value: unknown; expiresAt: number };
-const CACHE_MAX = 200;
-const cache = new Map<string, CacheEntry>();
-
+// Cache is backed by the shared store (in-memory by default; Redis when
+// REDIS_URL is set so multiple instances share one cache). cachedJson keeps the
+// fetch-on-miss contract callers already rely on.
 export async function cachedJson<T>(
   key: string,
   ttlMs: number,
   fetcher: () => Promise<T>,
 ): Promise<T> {
-  const now = Date.now();
-  const hit = cache.get(key);
-  if (hit && hit.expiresAt > now) {
-    // refresh LRU ordering
-    cache.delete(key);
-    cache.set(key, hit);
-    return hit.value as T;
-  }
+  const hit = await cacheGet<T>(key);
+  if (hit !== undefined) return hit;
   const value = await fetcher();
-  if (cache.size >= CACHE_MAX) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(key, { value, expiresAt: now + ttlMs });
+  await cacheSet(key, value, ttlMs);
   return value;
 }
 
-// Simple per-IP sliding-window rate limiter for expensive routes.
-// Behind Replit's proxy every request shares one IP, so the bucket key MUST
-// also be scoped per-limiter — otherwise a single global per-IP bucket is
-// shared across ALL limited routes (odds, props, chat, weather, ...) and
-// unrelated traffic throttles the odds fallbacks, falsely thinning the pool.
-const rlBuckets = new Map<string, number[]>();
-const RL_MAX_KEYS = 5000;
-let rlScopeSeq = 0;
-export function rateLimit(opts: { windowMs: number; max: number }) {
-  const scope = `rl${rlScopeSeq++}`;
-  return (req: { ip?: string; socket?: { remoteAddress?: string } }, res: { status: (n: number) => { json: (b: unknown) => void } }, next: () => void) => {
-    const ip = req.ip || req.socket?.remoteAddress || "unknown";
-    const bucketKey = `${scope}:${ip}`;
-    const now = Date.now();
-    const arr = (rlBuckets.get(bucketKey) || []).filter((t) => now - t < opts.windowMs);
-    if (arr.length >= opts.max) {
-      res.status(429).json({ error: "Too many requests" });
-      return;
+// Sliding-window rate limiter for expensive routes.
+//
+// Identity: a signed-in user is keyed by their Clerk user id (stable and
+// unspoofable); anonymous traffic falls back to the real client IP. The real IP
+// is only available because app.ts sets `trust proxy` — otherwise every request
+// behind Replit's proxy shares one socket IP and the limit would be GLOBAL
+// rather than per-user.
+//
+// The bucket key is also scoped per-limiter — otherwise one global per-identity
+// bucket would be shared across ALL limited routes (odds, props, chat, ...) and
+// unrelated traffic would throttle the odds fallbacks, falsely thinning the pool.
+//
+// State lives in the shared store, so the limit holds across instances when
+// Redis is configured. `name` MUST be a stable, unique label per limiter (e.g.
+// "odds", "chat") — it becomes the Redis bucket scope, so every instance and
+// every rollout must agree on it. (Ordinal/auto-generated scopes would diverge
+// across mixed-version deployments and fragment the shared buckets.)
+export function rateLimit(opts: { windowMs: number; max: number; name: string }) {
+  const scope = opts.name;
+  return (req: Request, res: Response, next: NextFunction): void => {
+    let identity = "";
+    try {
+      const auth = getAuth(req);
+      if (auth?.userId) identity = `u:${auth.userId}`;
+    } catch {
+      // getAuth throws if clerkMiddleware hasn't run for this request; ignore
+      // and fall back to IP-based keying.
     }
-    arr.push(now);
-    if (rlBuckets.size >= RL_MAX_KEYS) {
-      const oldest = rlBuckets.keys().next().value;
-      if (oldest !== undefined) rlBuckets.delete(oldest);
+    if (!identity) {
+      identity = `ip:${req.ip || req.socket?.remoteAddress || "unknown"}`;
     }
-    rlBuckets.set(bucketKey, arr);
-    next();
+    const bucketKey = `${scope}:${identity}`;
+    rateLimitHit(bucketKey, opts.windowMs, opts.max)
+      .then((limited) => {
+        if (limited) {
+          res.status(429).json({ error: "Too many requests" });
+          return;
+        }
+        next();
+      })
+      .catch(() => next()); // fail open — never block traffic on store errors
   };
 }

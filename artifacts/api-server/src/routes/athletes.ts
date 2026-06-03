@@ -3,7 +3,7 @@ import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 
 const router: IRouter = Router();
 
-router.use("/sports/athletes", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/sports/athletes", rateLimit({ windowMs: 60_000, max: 30, name: "athletes" }));
 
 const normalizeName = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");

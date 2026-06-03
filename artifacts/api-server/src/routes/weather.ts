@@ -5,7 +5,7 @@ import { cachedJson, rateLimit } from "../lib/sports";
 const router: IRouter = Router();
 
 // Cap to 30/min/IP; cache key uses quantized lat/lon so bucket grows slowly.
-router.use("/weather", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/weather", rateLimit({ windowMs: 60_000, max: 30, name: "weather" }));
 
 type OWMResponse = {
   name?: string;

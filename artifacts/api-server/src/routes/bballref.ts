@@ -4,7 +4,7 @@ import { getBBRefSeason } from "../lib/bballref";
 
 const router: IRouter = Router();
 
-router.use("/sports/bballref", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/sports/bballref", rateLimit({ windowMs: 60_000, max: 30, name: "bballref" }));
 
 // GET /api/sports/bballref?name=<player>
 // Returns the player's most recent REAL NBA season per-game averages parsed

@@ -4,8 +4,8 @@ import { askStatMuse, askStatMuseGameLog } from "../lib/statmuse";
 
 const router: IRouter = Router();
 
-router.use("/sports/statmuse", rateLimit({ windowMs: 60_000, max: 40 }));
-router.use("/sports/statmuse-gamelog", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/sports/statmuse", rateLimit({ windowMs: 60_000, max: 40, name: "statmuse" }));
+router.use("/sports/statmuse-gamelog", rateLimit({ windowMs: 60_000, max: 30, name: "statmuse-gamelog" }));
 
 // GET /api/sports/statmuse?q=<question>&league=<sportId|statmuseSlug>
 // Returns a single real natural-language stat answer from StatMuse, or

@@ -10,6 +10,19 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Optional env: `REDIS_URL` — when set (e.g. an Upstash/Redis Cloud URL), the
+  api-server stores its response cache + rate-limit buckets in Redis so multiple
+  server instances share one view. Leave unset for single-instance (in-memory)
+  deployments; Redis errors fail over to the in-memory store automatically.
+
+## Scaling
+
+- The api-server rate limits are per-user: `app.set("trust proxy", true)` lets
+  Express read the real client IP (Replit's edge proxy overwrites
+  `X-Forwarded-For`, so it can't be spoofed), and limiters key on the Clerk user
+  id when signed in, falling back to that IP.
+- To run more than one api-server instance, set `REDIS_URL`. Without it, cache
+  and limits are per-instance only.
 
 ## Stack
 

@@ -13,6 +13,12 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// The API runs behind Replit's proxy (and any load balancer in a multi-instance
+// deployment), so the real client address arrives in X-Forwarded-For. Trust it
+// so `req.ip` is the actual client IP — this is what makes the per-IP rate
+// limits behave per-user instead of collapsing to one shared proxy IP.
+app.set("trust proxy", true);
+
 app.use(
   pinoHttp({
     logger,

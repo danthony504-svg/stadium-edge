@@ -8,7 +8,7 @@ const router: IRouter = Router();
 // before that easily blew the old 30/min cap, returning silent 429s that
 // left realPropsByEvent empty client-side and made the AI say "realProps
 // is empty" even when HR markets were available upstream.
-router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120 }));
+router.use("/sports/props", rateLimit({ windowMs: 60_000, max: 120, name: "props" }));
 
 export const MARKETS_BY_SPORT: Record<string, string[]> = {
   nba: ["player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals", "player_blocks_steals", "player_turnovers"],
@@ -390,7 +390,7 @@ const PRIZEPICKS_LEAGUE_BY_SPORT: Record<string, number> = {
   nba: 7, nfl: 9, mlb: 2, nhl: 8, ncaaf: 15, ncaab: 20,
 };
 
-router.use("/sports/prizepicks-props", rateLimit({ windowMs: 60_000, max: 30 }));
+router.use("/sports/prizepicks-props", rateLimit({ windowMs: 60_000, max: 30, name: "prizepicks-props" }));
 
 type PPProjection = {
   id: string;
