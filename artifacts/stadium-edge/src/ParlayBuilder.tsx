@@ -6,9 +6,9 @@ import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 import stadiumEdgeWordmark from "./assets/stadium-edge-wordmark.png";
 
-// Login temporarily disabled. Flip to `true` to bring back the sign-in/sign-up
-// entry points (and re-enable the /sign-in & /sign-up routes in App.tsx).
-const AUTH_ENABLED = false;
+// Login enabled — shows the sign-in/sign-up entry points (matched by the
+// AUTH_ENABLED flag and /sign-in & /sign-up routes in App.tsx).
+const AUTH_ENABLED = true;
 
 // Inline SVG icons (no internet needed). Coach = capped figure with whistle;
 // Ref = striped shirt with whistle. Styled to inherit size via props.
