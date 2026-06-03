@@ -35,3 +35,13 @@ line (or rounded recent avg if none posted) and reset on market change via
 the `if (!data) return null` guard. `addPick` builds the pick from
 `selectedProp.line`, so an added leg always uses the real posted line/odds and
 survives slip validation.
+
+## AI Suggested card (in-modal)
+PlayerPropsSheet has an "AI Suggested" card (between Recent Performance and
+Suggested Lines) that recommends a real pick. aiSuggestion useMemo: null unless
+selectedProp+bookLine+bars; overHits=bars.value>=bookLine, pick side with more
+real hits, return null if that side has no posted price (FAIL-CLOSED). pct is the
+empirical hit rate (NOT a projection); tier strong>=70/lean>=57/toss. Add button
+calls addPick(side, price) at the real posted book price; the pick-string in the
+hasLeg check must match addPick's `${player} ${side} ${line} ${label}` form for
+dedupe. Never surface odds away from the book line.

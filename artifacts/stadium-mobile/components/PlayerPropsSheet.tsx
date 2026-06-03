@@ -322,6 +322,25 @@ export function PlayerPropsSheet({
     return null;
   }, [tiers, chartLine]);
 
+  // AI Suggested pick — a REAL, fail-closed read of THIS market at the posted
+  // book line. We count how often the player actually cleared the book line over
+  // the recent log, pick the side that cleared more often, and only surface it
+  // when that side has a real posted price (never an invented number). The hit %
+  // is the empirical clearance rate, not a projection.
+  const aiSuggestion = useMemo(() => {
+    if (!selectedProp || bookLine == null || bars.length === 0) return null;
+    const total = bars.length;
+    const overHits = bars.filter((b) => b.value >= bookLine).length;
+    const underHits = total - overHits;
+    const side: "Over" | "Under" = overHits >= underHits ? "Over" : "Under";
+    const price = side === "Over" ? selectedProp.overPrice ?? null : selectedProp.underPrice ?? null;
+    if (price == null) return null; // no real price → don't suggest
+    const hits = side === "Over" ? overHits : underHits;
+    const pct = Math.round((hits / total) * 100);
+    const tier: "strong" | "lean" | "toss" = pct >= 70 ? "strong" : pct >= 57 ? "lean" : "toss";
+    return { side, price, hits, total, pct, tier, line: bookLine };
+  }, [selectedProp, bookLine, bars]);
+
   if (!data) return null;
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
@@ -578,6 +597,109 @@ export function PlayerPropsSheet({
               </View>
             )}
           </View>
+
+          {/* AI Suggested — real, fail-closed read of this market at the book line */}
+          {aiSuggestion ? (
+            (() => {
+              const tone =
+                aiSuggestion.tier === "strong"
+                  ? colors.success
+                  : aiSuggestion.tier === "lean"
+                    ? colors.primary
+                    : colors.mutedForeground;
+              const tierLabel =
+                aiSuggestion.tier === "strong"
+                  ? "Strong lean"
+                  : aiSuggestion.tier === "lean"
+                    ? "Lean"
+                    : "Toss-up";
+              const added = hasLeg(
+                data.gameLabel,
+                "Player Prop",
+                `${data.player} ${aiSuggestion.side} ${aiSuggestion.line} ${mlabel}`,
+              );
+              return (
+                <View
+                  style={{
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.primary,
+                    borderRadius: colors.radius,
+                    padding: 14,
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Feather name="zap" size={14} color={colors.accent} />
+                    <SectionLabel>AI Suggested</SectionLabel>
+                  </View>
+
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, paddingRight: 10 }}>
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 17 }}>
+                        {aiSuggestion.side} {aiSuggestion.line} {mlabel}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 5 }}>
+                        <View
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 999,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: tone,
+                          }}
+                        >
+                          <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 11 }}>
+                            {tierLabel} · {aiSuggestion.pct}%
+                          </Text>
+                        </View>
+                        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                          {aiSuggestion.side === "Over" ? "cleared" : "stayed under"} {aiSuggestion.hits}/{aiSuggestion.total}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      onPress={() => addPick(aiSuggestion.side, aiSuggestion.price)}
+                      style={({ pressed }) => ({
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        borderRadius: 10,
+                        paddingVertical: 10,
+                        paddingHorizontal: 14,
+                        backgroundColor: added ? colors.surface : colors.primary,
+                        borderWidth: added ? 1 : 0,
+                        borderColor: colors.primary,
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <Feather
+                        name={added ? "check" : "plus"}
+                        size={14}
+                        color={added ? colors.primary : colors.primaryForeground}
+                      />
+                      <Text
+                        style={{
+                          color: added ? colors.primary : colors.primaryForeground,
+                          fontFamily: FONT.bold,
+                          fontSize: 14,
+                        }}
+                      >
+                        {formatAmerican(aiSuggestion.price)}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 14 }}>
+                    Based on how often {data.player.split(" ").pop()} actually cleared {aiSuggestion.line} over the last{" "}
+                    {aiSuggestion.total} games — real hit-rate at the live book price, not a prediction.
+                  </Text>
+                </View>
+              );
+            })()
+          ) : null}
 
           {/* Suggested lines — 3 real risk tiers from the actual game log */}
           {data.athleteId && !historyQ.isLoading && !historyQ.isError && tiers && bars.length > 0 ? (
