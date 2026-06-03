@@ -6,7 +6,7 @@ import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "rea
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { formatAmerican } from "@/lib/format";
-import type { PropPoolEntry } from "@/lib/api";
+import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { Badge, FONT } from "@/components/ui";
 
 export type ParsedPick = {
@@ -17,6 +17,11 @@ export type ParsedPick = {
   edge?: string;
   sport?: string;
   isProp?: boolean;
+  // Render-only (real ESPN data). headshot = player photo for prop legs;
+  // teamLogo/teamAbbr = the picked team for game-level legs.
+  headshot?: string | null;
+  teamLogo?: string | null;
+  teamAbbr?: string | null;
 };
 
 if (
@@ -291,13 +296,36 @@ function matchProp(
     odds: best.odds,
     sport: best.sport,
     isProp: true,
+    headshot: best.headshot ?? null,
+    teamAbbr: best.teamAbbr ?? null,
   };
+}
+
+// Resolve which team a game-level pick is on (logo + abbr) from the game's ESPN
+// metadata. Matches the selection's tokens against each team's name tokens and
+// abbreviation. Totals ("Over 8.5") name no team and return null (no logo).
+function teamSideFromPick(
+  meta: GameMeta,
+  selection: string,
+): { logo: string | null; abbr: string | null } | null {
+  const toks = new Set(norm(selection).split(" ").filter(Boolean));
+  const teamHits = (team: string) =>
+    norm(team)
+      .split(" ")
+      .filter((t) => t.length > 2)
+      .filter((t) => toks.has(t)).length;
+  const homeHit = teamHits(meta.homeTeam) + (meta.homeAbbr && toks.has(norm(meta.homeAbbr)) ? 1 : 0);
+  const awayHit = teamHits(meta.awayTeam) + (meta.awayAbbr && toks.has(norm(meta.awayAbbr)) ? 1 : 0);
+  if (homeHit === 0 && awayHit === 0) return null; // total / no team named
+  if (homeHit >= awayHit) return { logo: meta.homeLogo, abbr: meta.homeAbbr };
+  return { logo: meta.awayLogo, abbr: meta.awayAbbr };
 }
 
 export function parsePicks(
   text: string,
   realOdds: ParsedPick[] | RealOddsLike[],
   propPool: PropPoolEntry[] = [],
+  gameMeta: GameMeta[] = [],
 ): ParsedPick[] {
   const pool = (realOdds as RealOddsLike[]) || [];
   if (pool.length === 0 && propPool.length === 0) return []; // fail-closed: no real data -> no cards
@@ -361,6 +389,15 @@ export function parsePicks(
           odds: best.odds,
           sport: best.sport,
         };
+        // Attach the picked team's real logo + code (totals name no team → null).
+        const meta = gameMeta.find((gm) => sameGame(gm.game, best!.game));
+        if (meta) {
+          const side = teamSideFromPick(meta, best.pick);
+          if (side) {
+            resolved.teamLogo = side.logo;
+            resolved.teamAbbr = side.abbr;
+          }
+        }
       }
     }
 

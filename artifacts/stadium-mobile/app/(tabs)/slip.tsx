@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import {
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -65,6 +66,12 @@ function AiPickAvatar({ pick }: { pick: ParsedPick }) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+  // Real ESPN imagery: a player headshot for props, the picked team's logo for
+  // game-level legs. Falls back to initials when the feed has neither (e.g. a
+  // game total, which names no single team) OR when the image URL fails to load.
+  const [imgFailed, setImgFailed] = useState(false);
+  const photo = imgFailed ? null : pick.headshot || pick.teamLogo || null;
+  const isLogo = !pick.headshot && !!pick.teamLogo;
   return (
     <View
       style={{
@@ -79,9 +86,22 @@ function AiPickAvatar({ pick }: { pick: ParsedPick }) {
         overflow: "hidden",
       }}
     >
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
-        {initials || "?"}
-      </Text>
+      {photo ? (
+        <Image
+          source={{ uri: photo }}
+          style={
+            isLogo
+              ? { width: 38, height: 38 }
+              : { width: 56, height: 56 }
+          }
+          resizeMode="contain"
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
+          {initials || "?"}
+        </Text>
+      )}
     </View>
   );
 }
@@ -136,7 +156,7 @@ function AiPickCard({ pick }: { pick: ParsedPick }) {
         }}
         numberOfLines={1}
       >
-        {pick.market}
+        {pick.teamAbbr ? `${pick.teamAbbr} · ${pick.market}` : pick.market}
       </Text>
       <Text
         style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}

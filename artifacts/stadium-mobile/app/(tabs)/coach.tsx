@@ -25,7 +25,6 @@ import {
   buildChatContext,
   getPlayerHistory,
   getStatmuseGamelog,
-  propPoolFromContext,
   searchPlayer,
   streamChat,
   type ChatMessage,
@@ -242,7 +241,11 @@ export default function CoachScreen() {
       }
 
       try {
-        const context = await buildChatContext(DEFAULT_SPORTS, slipForContext, controller.signal);
+        const { context, propPool, gameMeta } = await buildChatContext(
+          DEFAULT_SPORTS,
+          slipForContext,
+          controller.signal,
+        );
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
           content: m.content,
@@ -267,7 +270,7 @@ export default function CoachScreen() {
           },
         });
 
-        const picks = parsePicks(full, context.realOdds, propPoolFromContext(context.realProps));
+        const picks = parsePicks(full, context.realOdds, propPool, gameMeta);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = { role: "assistant", content: full, picks };

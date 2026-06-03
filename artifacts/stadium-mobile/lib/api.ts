@@ -352,24 +352,24 @@ export type PropPoolEntry = {
   line: number | null;
   side: "Over" | "Under";
   odds: number;
+  // Render-only metadata (real ESPN data, never sent to the AI). headshot is the
+  // player photo; teamAbbr is the player's team code resolved via playerTeamId.
+  headshot?: string | null;
+  teamAbbr?: string | null;
 };
 
-// Expand realProps (over/under prices) into a flat, side-per-row pool the slip
-// parser can resolve prop PICK lines against. marketLabel is the friendly label
-// that renders on the card (e.g. "Strikeouts"), never the raw key.
-export function propPoolFromContext(realProps: RealPropEntry[]): PropPoolEntry[] {
-  const pool: PropPoolEntry[] = [];
-  for (const rp of realProps || []) {
-    const marketLabel = propMarketLabel(rp.market);
-    if (rp.over != null) {
-      pool.push({ sport: rp.sport, game: rp.game, marketLabel, player: rp.player, line: rp.line, side: "Over", odds: rp.over });
-    }
-    if (rp.line != null && rp.under != null) {
-      pool.push({ sport: rp.sport, game: rp.game, marketLabel, player: rp.player, line: rp.line, side: "Under", odds: rp.under });
-    }
-  }
-  return pool;
-}
+// Render-only team metadata for game-level picks (logos + abbreviations). Built
+// from ESPN games, keyed by the "Away @ Home" game string. NEVER sent to the AI
+// — it's used by the card renderer to show the picked team's logo + code.
+export type GameMeta = {
+  game: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+  homeLogo: string | null;
+  awayLogo: string | null;
+};
 
 type PropTeamIds = { homeTeamId: string | null; awayTeamId: string | null };
 
@@ -402,13 +402,23 @@ export type ChatContext = {
   realProps: RealPropEntry[];
 };
 
+// The lean real-data context sent to the AI, PLUS render-only metadata (player
+// headshots, team logos/abbrs) the card renderer uses. The metadata is returned
+// separately so it never bloats the AI request body (streamChat sends `context`
+// only) yet the slip/coach can still show real photos + logos on each pick.
+export type BuiltChatContext = {
+  context: ChatContext;
+  propPool: PropPoolEntry[];
+  gameMeta: GameMeta[];
+};
+
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
 export async function buildChatContext(
   sports: string[],
   currentSlip: { game: string; market: string; pick: string; odds: number }[],
   signal?: AbortSignal,
-): Promise<ChatContext> {
+): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
   const [oddsAll, gamesAll] = await Promise.all([
@@ -418,6 +428,34 @@ export async function buildChatContext(
 
   const realOdds: RealOddsEntry[] = [];
   const realGames: RealGameEntry[] = [];
+
+  // Render-only team metadata: teamId -> {abbr, logo} (for resolving a prop
+  // player's team via playerTeamId) and a per-game logo/abbr table (for
+  // game-level picks). Real ESPN data only; never sent to the AI.
+  const teamMetaById = new Map<string, { abbr: string | null; logo: string | null }>();
+  const gameMeta: GameMeta[] = [];
+  for (const list of gamesAll) {
+    for (const g of list) {
+      if (g.homeTeamId) {
+        teamMetaById.set(g.homeTeamId, { abbr: g.homeAbbr ?? null, logo: g.homeLogo ?? null });
+      }
+      if (g.awayTeamId) {
+        teamMetaById.set(g.awayTeamId, { abbr: g.awayAbbr ?? null, logo: g.awayLogo ?? null });
+      }
+      const home = g.homeTeam || g.homeAbbr || "";
+      const away = g.awayTeam || g.awayAbbr || "";
+      if (!home || !away) continue;
+      gameMeta.push({
+        game: `${away} @ ${home}`,
+        homeTeam: home,
+        awayTeam: away,
+        homeAbbr: g.homeAbbr ?? null,
+        awayAbbr: g.awayAbbr ?? null,
+        homeLogo: g.homeLogo ?? null,
+        awayLogo: g.awayLogo ?? null,
+      });
+    }
+  }
 
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
@@ -458,6 +496,11 @@ export async function buildChatContext(
   propCandidates.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
 
   const realProps: RealPropEntry[] = [];
+  // Render-only prop pool (one row per posted side) enriched with the real ESPN
+  // headshot + team code. Built here from the raw PlayerProp because the
+  // headshot/playerTeamId live on it and are stripped from the lean
+  // RealPropEntry we send to the AI.
+  const propPool: PropPoolEntry[] = [];
   await Promise.all(
     propCandidates.slice(0, MAX_PROP_CONTEXT_GAMES).map(async ({ sport, g, ids }) => {
       try {
@@ -487,6 +530,17 @@ export async function buildChatContext(
             under: p.underPrice,
             alt: false,
           });
+          const headshot = p.headshot ?? null;
+          const teamAbbr = p.playerTeamId
+            ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
+            : null;
+          const marketLabel = propMarketLabel(p.market);
+          if (p.overPrice != null) {
+            propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice, headshot, teamAbbr });
+          }
+          if (p.line != null && p.underPrice != null) {
+            propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice, headshot, teamAbbr });
+          }
         }
       } catch {
         // skip this game's props — narrower pool, never fabricated
@@ -495,11 +549,15 @@ export async function buildChatContext(
   );
 
   return {
-    selectedSports: sports,
-    currentSlip,
-    realGames: realGames.slice(0, 60),
-    realOdds: realOdds.slice(0, 120),
-    realProps: realProps.slice(0, MAX_PROPS_IN_CONTEXT),
+    context: {
+      selectedSports: sports,
+      currentSlip,
+      realGames: realGames.slice(0, 60),
+      realOdds: realOdds.slice(0, 120),
+      realProps: realProps.slice(0, MAX_PROPS_IN_CONTEXT),
+    },
+    propPool,
+    gameMeta,
   };
 }
 

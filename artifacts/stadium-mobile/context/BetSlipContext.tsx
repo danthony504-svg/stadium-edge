@@ -41,6 +41,11 @@ export type AiPick = {
   sport?: string;
   edge?: string;
   isProp?: boolean;
+  // Render-only (real ESPN data): player headshot for props, team logo/code for
+  // game-level picks. Optional so a feed miss just falls back to initials.
+  headshot?: string | null;
+  teamLogo?: string | null;
+  teamAbbr?: string | null;
 };
 
 type BetSlipState = {
