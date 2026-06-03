@@ -51,3 +51,14 @@ position `bottom = kbHeight + COACH_KB_CLEARANCE(~120)` to clear the keyboard + 
 constant (composer is variable-height with a multiline input), so a grown
 multiline composer could under-clear — bump the constant if overlap appears. On
 NON-Coach screens the bar still hides while a keyboard (search field) is up.
+
+**Scroll-clearance behind the floating bar (Coach chat especially):** because the
+SlipBar is an ABSOLUTE overlay, scrollable screens must pad their content by the
+bar's footprint or the last item hides behind it. Generic screens use
+`useSlipClearance()` (= SLIP_BAR_CLEARANCE when legs>0). **Coach is bigger:** the
+bar floats `COMPOSER_CLEARANCE` higher there (sits above the chat composer, which
+is a flex sibling already outside the scroll area), so Coach needs
+`useCoachSlipClearance()` (= COMPOSER_CLEARANCE + SLIP_BAR_CLEARANCE) added to the
+chat list `contentContainerStyle.paddingBottom`. Symptom when missing: "can't see
+the full list in chat" — last AI pick card tucked under the slip bar with no way
+to scroll it clear. Clearance is gated on legs>0 so empty chat gets no dead space.

@@ -58,6 +58,16 @@ export function useSlipClearance() {
   return legs.length > 0 ? SLIP_BAR_CLEARANCE : 0;
 }
 
+// Coach is special: the slip bar floats COMPOSER_CLEARANCE higher than on other
+// screens (it sits above the chat composer), and the chat composer is a flex
+// sibling (already out of the scroll area). So the chat list must pad by the
+// bar's own footprint PLUS that composer lift, or the last pick card hides
+// behind the floating bar. Only when the slip has legs (bar is visible).
+export function useCoachSlipClearance() {
+  const { legs } = useBetSlip();
+  return legs.length > 0 ? COMPOSER_CLEARANCE + SLIP_BAR_CLEARANCE : 0;
+}
+
 export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();

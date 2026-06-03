@@ -19,6 +19,7 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { FONT } from "@/components/ui";
+import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -147,6 +148,7 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs, setAiPicks } = useBetSlip();
+  const slipClearance = useCoachSlipClearance();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
 
@@ -334,7 +336,7 @@ export default function CoachScreen() {
       <KeyboardAwareScrollViewCompat
         ref={scrollRef as any}
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 + slipClearance }}
         bottomOffset={12}
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
