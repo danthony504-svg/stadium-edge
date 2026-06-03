@@ -438,7 +438,7 @@ export default function HomeScreen() {
                       style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}
                       numberOfLines={1}
                     >
-                      o{p.line} {p.label} {formatAmerican(p.overPrice)}
+                      Over {p.line} {p.label} {formatAmerican(p.overPrice)}
                     </Text>
                   </Pressable>
                 ))}
