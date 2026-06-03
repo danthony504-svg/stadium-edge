@@ -307,7 +307,11 @@ export function parsePicks(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    const m = line.match(/^(?:PICK|ALT)\s*:\s*(.+)$/i);
+    // Only PICK lines are real legs. ALT lines are alternate/swap suggestions
+    // for a leg the AI already emitted (e.g. the safe-ticket "alt -3.5 vs laying
+    // -260" rung), NOT additional legs — counting them double-counted a safe
+    // 3-leg ticket as 6 cards. The web app likewise parses PICK lines only.
+    const m = line.match(/^PICK\s*:\s*(.+)$/i);
     if (!m) continue;
     const parts = m[1].split("|").map((p) => p.trim());
     if (parts.length < 4) continue;

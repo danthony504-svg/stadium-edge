@@ -113,3 +113,13 @@ at the first scaffold line even while !hasPicks, plus an isBuildingParlay
 the detector MUST be the pipe-delimited scaffold shape `/^(?:PICK|ALT)\s*:.*\|.*\|/i`
 (>=2 pipes), NOT `/^(?:PICK|ALT):/` — the loose form truncates normal Q&A prose
 that starts with "Pick: I'd lean…".
+
+## ALT lines are NOT legs (safe 3-leg ticket → 6 cards bug)
+`parsePicks()` must match `^PICK\s*:` ONLY — never `(?:PICK|ALT)`. ALT lines are
+alternate/swap rungs for a leg the AI already emitted (the safe-ticket mandate
+adds an alt-spread ALT per ML leg), so counting them double-renders the ticket
+(3 PICK + 3 ALT = 6 add-to-slip cards while prose says "3-leg"). The web app
+(stadium-edge ParlayBuilder) only ever matches PICK lines — mobile was the
+outlier. **Note the asymmetry:** the prose-strip `PICK_SCAFFOLD_RE` in coach.tsx
+SHOULD keep `(?:PICK|ALT)` so ALT scaffolding stays hidden from the bubble; only
+the card-emitting `parsePicks` regex drops ALT.
