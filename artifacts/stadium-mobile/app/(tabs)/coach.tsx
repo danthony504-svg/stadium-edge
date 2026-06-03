@@ -121,6 +121,20 @@ const WELCOME_FIRST_TIME =
 const WELCOME_RETURNING =
   "Stadium Edge is locked in. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
+// What the chat bubble shows for an assistant reply. Once a reply has resolved
+// into pick cards, show ONLY the lead-in text before the first PICK/ALT line —
+// the PICK/EDGE/ALT rows and the whole trailing block after the picks (combined
+// odds, risk note, alternates, extra analysis) are dropped from the bubble,
+// because each pick's reasoning is rendered in its card's EDGE note. With no
+// picks (a plain Q&A reply), the full text is shown unchanged.
+function assistantBubbleText(content: string, hasPicks: boolean): string {
+  if (!hasPicks) return content.trim();
+  const lines = content.split("\n");
+  const idx = lines.findIndex((l) => /^(?:PICK|ALT)\s*:/i.test(l.trim()));
+  if (idx === -1) return content.trim();
+  return lines.slice(0, idx).join("\n").trim();
+}
+
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -311,13 +325,22 @@ export default function CoachScreen() {
         bottomOffset={12}
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
-          {messages.map((m, i) => (
+          {messages.map((m, i) => {
+            const hasPicks = !!(m.picks && m.picks.length > 0);
+            const isWaiting = m.role === "assistant" && m.content === "" && waiting;
+            const bubbleText =
+              m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
+            // Drop the bubble entirely when a pick reply left no lead-in text —
+            // the cards (and their EDGE notes) carry everything.
+            const showBubble =
+              !m.statCard && !m.periodGameLog && (isWaiting || bubbleText.length > 0);
+            return (
               <View key={i}>
                 {m.statCard ? (
                   <PlayerStatCard data={m.statCard} />
                 ) : m.periodGameLog ? (
                   <PeriodGameLogCard data={m.periodGameLog} />
-                ) : (
+                ) : showBubble ? (
                   <View
                     style={{
                       alignSelf: m.role === "user" ? "flex-end" : "flex-start",
@@ -330,7 +353,7 @@ export default function CoachScreen() {
                       paddingVertical: 10,
                     }}
                   >
-                    {m.role === "assistant" && m.content === "" && waiting ? (
+                    {isWaiting ? (
                       <ActivityIndicator color={colors.mutedForeground} size="small" />
                     ) : (
                       <Text
@@ -341,21 +364,22 @@ export default function CoachScreen() {
                           lineHeight: 21,
                         }}
                       >
-                        {m.content}
+                        {bubbleText}
                       </Text>
                     )}
                   </View>
-                )}
+                ) : null}
 
-                {m.picks && m.picks.length > 0 ? (
+                {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.picks.map((p, j) => (
+                    {m.picks!.map((p, j) => (
                       <PickCard key={`${i}-${j}`} pick={p} />
                     ))}
                   </View>
                 ) : null}
               </View>
-            ))}
+            );
+          })}
 
           {messages.length <= 1 ? (
             <View style={{ gap: 8, marginTop: 4 }}>
