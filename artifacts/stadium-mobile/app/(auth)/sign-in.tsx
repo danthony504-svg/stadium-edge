@@ -1,9 +1,11 @@
 import { useSignIn } from "@clerk/expo";
+import { Feather } from "@expo/vector-icons";
 import { type Href, Link, useRouter } from "expo-router";
 import React from "react";
 import { Pressable, Text, View } from "react-native";
 
 import {
+  AUTH_ACCENT,
   AuthDivider,
   AuthField,
   AuthShell,
@@ -14,6 +16,82 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 
 type Mode = "signin" | "resetRequest" | "resetVerify";
+
+type FeatherName = React.ComponentProps<typeof Feather>["name"];
+
+const FEATURES: { icon: FeatherName; title: string; desc: string }[] = [
+  {
+    icon: "refresh-cw",
+    title: "Sync Across Devices",
+    desc: "Access your picks anytime, anywhere",
+  },
+  {
+    icon: "shield",
+    title: "Secure & Private",
+    desc: "Your data is always protected",
+  },
+  {
+    icon: "bar-chart-2",
+    title: "Built for Bettors",
+    desc: "Smarter insights. Better results.",
+  },
+];
+
+function FeatureRow() {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        marginTop: 26,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 16,
+        paddingVertical: 18,
+        paddingHorizontal: 6,
+      }}
+    >
+      {FEATURES.map((f, i) => (
+        <View
+          key={f.title}
+          style={{
+            flex: 1,
+            alignItems: "center",
+            paddingHorizontal: 8,
+            borderLeftWidth: i === 0 ? 0 : 1,
+            borderLeftColor: colors.border,
+          }}
+        >
+          <Feather name={f.icon} size={20} color={AUTH_ACCENT} />
+          <Text
+            style={{
+              fontFamily: FONT.bold,
+              fontSize: 12,
+              color: colors.foreground,
+              textAlign: "center",
+              marginTop: 8,
+            }}
+          >
+            {f.title}
+          </Text>
+          <Text
+            style={{
+              fontFamily: FONT.body,
+              fontSize: 11,
+              color: colors.mutedForeground,
+              textAlign: "center",
+              marginTop: 4,
+              lineHeight: 15,
+            }}
+          >
+            {f.desc}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function SignInScreen() {
   const colors = useColors();
@@ -112,7 +190,7 @@ export default function SignInScreen() {
       style={{ alignSelf: align === "right" ? "flex-end" : "center" }}
       hitSlop={8}
     >
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.primary }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
         {label}
       </Text>
     </Pressable>
@@ -123,6 +201,7 @@ export default function SignInScreen() {
       <AuthShell title="Verify it's you" subtitle="Enter the code we emailed you">
         <AuthField
           label="Verification code"
+          leftIcon="hash"
           value={code}
           onChangeText={setCode}
           placeholder="123456"
@@ -146,6 +225,7 @@ export default function SignInScreen() {
       >
         <AuthField
           label="Email"
+          leftIcon="mail"
           value={emailAddress}
           onChangeText={setEmailAddress}
           placeholder="you@email.com"
@@ -175,6 +255,7 @@ export default function SignInScreen() {
       >
         <AuthField
           label="Reset code"
+          leftIcon="hash"
           value={code}
           onChangeText={setCode}
           placeholder="123456"
@@ -183,6 +264,7 @@ export default function SignInScreen() {
         />
         <AuthField
           label="New password"
+          leftIcon="lock"
           value={newPassword}
           onChangeText={setNewPassword}
           placeholder="Your new password"
@@ -217,9 +299,13 @@ export default function SignInScreen() {
   }
 
   return (
-    <AuthShell title="Welcome back" subtitle="Sign in to sync your slips across devices">
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to sync your slips, track your picks, and stay ahead across all your devices."
+    >
       <AuthField
         label="Email"
+        leftIcon="mail"
         value={emailAddress}
         onChangeText={setEmailAddress}
         placeholder="you@email.com"
@@ -230,6 +316,7 @@ export default function SignInScreen() {
       />
       <AuthField
         label="Password"
+        leftIcon="lock"
         value={password}
         onChangeText={setPassword}
         placeholder="Your password"
@@ -264,11 +351,13 @@ export default function SignInScreen() {
           New here?{" "}
         </Text>
         <Link href="/sign-up" replace>
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.primary }}>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: AUTH_ACCENT }}>
             Create an account
           </Text>
         </Link>
       </View>
+
+      <FeatureRow />
     </AuthShell>
   );
 }
