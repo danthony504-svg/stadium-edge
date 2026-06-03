@@ -13,18 +13,92 @@ import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
+import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { EmptyState, FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, streamChat, type ChatMessage } from "@/lib/api";
+import {
+  buildChatContext,
+  getPlayerHistory,
+  getStatmuseGamelog,
+  searchPlayer,
+  streamChat,
+  type ChatMessage,
+} from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
+import { parseStatLookup } from "@/lib/statLookup";
 
 type UIMessage = {
   role: "user" | "assistant";
   content: string;
   picks?: ParsedPick[];
+  statCard?: PlayerStatCardData;
+  periodGameLog?: PeriodGameLogCardData;
 };
+
+type StatCardResult = { statCard?: PlayerStatCardData; periodGameLog?: PeriodGameLogCardData };
+
+// Resolve a player/stat question into a REAL stat card. Returns null when the
+// message isn't a stat lookup or no real player/data resolves — the caller then
+// falls back to the AI chat path. Throws AbortError if cancelled. Never
+// fabricates: every value comes from ESPN (player-history) or StatMuse's real
+// results grid (statmuse-gamelog).
+async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardResult | null> {
+  const lookup = parseStatLookup(text);
+  if (!lookup) return null;
+
+  const sr = await searchPlayer(lookup.name, signal);
+  const results = sr.results || [];
+  if (!results.length) return null;
+  // ESPN search is relevance-ranked; trust the top hit so historical/retired
+  // queries resolve to the right athlete instead of being overridden by any
+  // active player further down the list.
+  const top = results[0];
+
+  // Period intent ("first quarter points") → StatMuse per-game period grid.
+  // ESPN game logs have no period splits, so this is the only real source.
+  if (lookup.period && lookup.periodPhrase) {
+    const statWord = lookup.statWord || "points";
+    const q = `${top.name} ${lookup.periodPhrase} ${statWord} last 5 games game by game`;
+    try {
+      const gl = await getStatmuseGamelog(q, top.sport, signal);
+      if (gl?.rows && gl.rows.length >= 1) {
+        return {
+          periodGameLog: {
+            ...gl,
+            player: gl.player || top.name,
+            period: gl.period || lookup.periodPhrase,
+            stat: gl.stat || statWord,
+          },
+        };
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError") throw e;
+      // Fall through to the full-game ESPN card (with an honest period note).
+    }
+  }
+
+  const history = await getPlayerHistory(
+    {
+      sport: top.sport,
+      athleteId: top.athleteId,
+      season: lookup.season,
+      opponentName: lookup.opponent,
+    },
+    signal,
+  );
+  return {
+    statCard: {
+      resolved: top,
+      history,
+      requestedStatCols: lookup.statCols,
+      opponentRequested: lookup.opponent,
+      periodRequested: lookup.period,
+    },
+  };
+}
 
 const QUICK_PROMPTS = [
   "Build me a safe 3-leg parlay for tonight",
@@ -74,6 +148,34 @@ export default function CoachScreen() {
 
       const controller = new AbortController();
       abortRef.current = controller;
+
+      // Stat-lookup interception: a player/stat question (e.g. "Wembanyama
+      // points last 10 games") is answered with a REAL ESPN stat card or a
+      // StatMuse period game-log card instead of streamed AI text. Any miss or
+      // error falls through to the normal chat path, which never fabricates.
+      try {
+        const card = await tryStatCard(trimmed, controller.signal);
+        if (card) {
+          setMessages((prev) => {
+            const copy = [...prev];
+            copy[copy.length - 1] = { role: "assistant", content: "", ...card };
+            return copy;
+          });
+          setWaiting(false);
+          setStreaming(false);
+          abortRef.current = null;
+          scrollToEnd();
+          return;
+        }
+      } catch (e: any) {
+        if (e?.name === "AbortError") {
+          setWaiting(false);
+          setStreaming(false);
+          abortRef.current = null;
+          return;
+        }
+        // Non-abort errors: fall through to the AI chat path below.
+      }
 
       try {
         const context = await buildChatContext(DEFAULT_SPORTS, slipForContext, controller.signal);
@@ -200,33 +302,39 @@ export default function CoachScreen() {
           <View style={{ gap: 14, paddingTop: 4 }}>
             {messages.map((m, i) => (
               <View key={i}>
-                <View
-                  style={{
-                    alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                    maxWidth: "88%",
-                    backgroundColor: m.role === "user" ? colors.primary : colors.card,
-                    borderWidth: m.role === "user" ? 0 : 1,
-                    borderColor: colors.border,
-                    borderRadius: 16,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                  }}
-                >
-                  {m.role === "assistant" && m.content === "" && waiting ? (
-                    <ActivityIndicator color={colors.mutedForeground} size="small" />
-                  ) : (
-                    <Text
-                      style={{
-                        color: m.role === "user" ? colors.primaryForeground : colors.foreground,
-                        fontFamily: FONT.body,
-                        fontSize: 14,
-                        lineHeight: 21,
-                      }}
-                    >
-                      {m.content}
-                    </Text>
-                  )}
-                </View>
+                {m.statCard ? (
+                  <PlayerStatCard data={m.statCard} />
+                ) : m.periodGameLog ? (
+                  <PeriodGameLogCard data={m.periodGameLog} />
+                ) : (
+                  <View
+                    style={{
+                      alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+                      maxWidth: "88%",
+                      backgroundColor: m.role === "user" ? colors.primary : colors.card,
+                      borderWidth: m.role === "user" ? 0 : 1,
+                      borderColor: colors.border,
+                      borderRadius: 16,
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    {m.role === "assistant" && m.content === "" && waiting ? (
+                      <ActivityIndicator color={colors.mutedForeground} size="small" />
+                    ) : (
+                      <Text
+                        style={{
+                          color: m.role === "user" ? colors.primaryForeground : colors.foreground,
+                          fontFamily: FONT.body,
+                          fontSize: 14,
+                          lineHeight: 21,
+                        }}
+                      >
+                        {m.content}
+                      </Text>
+                    )}
+                  </View>
+                )}
 
                 {m.picks && m.picks.length > 0 ? (
                   <View style={{ gap: 8, marginTop: 10 }}>

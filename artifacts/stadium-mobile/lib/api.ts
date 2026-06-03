@@ -152,6 +152,25 @@ export type PlayerStatSummary = {
   totals: Record<string, number>;
 };
 
+// A single ESPN search hit (artifacts/api-server /sports/player-search).
+export type PlayerSearchResult = {
+  athleteId: string;
+  name: string;
+  sport: string;
+  league: string;
+  team: string | null;
+  headshot: string | null;
+  isActive: boolean;
+};
+
+// Resolve a free-text name to real ESPN athletes (relevance-ranked).
+export function searchPlayer(
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ query: string; results: PlayerSearchResult[] }> {
+  return getJson(`/sports/player-search?query=${encodeURIComponent(query)}`, signal);
+}
+
 // Real per-game game log + season aggregates from ESPN (artifacts/api-server
 // /sports/player-history). Everything here is a real recorded stat line — the
 // server fabricates nothing and returns empty buckets when a feed has no data.
@@ -160,19 +179,60 @@ export type PlayerHistory = {
   athleteId: string;
   labels: string[];
   recent: PlayerGameLogEntry[];
+  vsOpponent: PlayerGameLogEntry[];
+  vsOpponentName: string | null;
   season: string | null;
+  availableSeasons: string[];
   seasonSummary: PlayerStatSummary;
 };
 
+export type GetPlayerHistoryArgs = {
+  sport: string;
+  athleteId: string;
+  season?: string | null;
+  opponentName?: string | null;
+};
+
 export function getPlayerHistory(
-  sport: string,
-  athleteId: string,
+  args: GetPlayerHistoryArgs,
   signal?: AbortSignal,
 ): Promise<PlayerHistory> {
-  return getJson<PlayerHistory>(
-    `/sports/player-history?sport=${encodeURIComponent(sport)}&athleteId=${encodeURIComponent(athleteId)}`,
-    signal,
-  );
+  const q = new URLSearchParams({ sport: args.sport, athleteId: args.athleteId });
+  if (args.season) q.set("season", args.season);
+  if (args.opponentName) q.set("opponentName", args.opponentName);
+  return getJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
+}
+
+// ---------- StatMuse period game log (real per-game period splits) ----------
+
+// One real per-game period row scraped from StatMuse's results grid.
+export type StatMuseGameRow = {
+  date: string;
+  value: string;
+  team: string;
+  loc: string; // "@" | "vs" | ""
+  opp: string;
+};
+
+export type StatMuseGameLog = {
+  player: string | null;
+  period: string | null;
+  stat: string;
+  count: number;
+  rows: StatMuseGameRow[];
+};
+
+// Real game-by-game PERIOD breakdown (e.g. "first quarter points last 5
+// games"). ESPN game logs only carry full-game totals, so these come from
+// StatMuse's results grid — every value is real. Returns { rows: [] } on a miss.
+export function getStatmuseGamelog(
+  q: string,
+  league?: string | null,
+  signal?: AbortSignal,
+): Promise<StatMuseGameLog> {
+  const params = new URLSearchParams({ q });
+  if (league) params.set("league", league);
+  return getJson<StatMuseGameLog>(`/sports/statmuse-gamelog?${params.toString()}`, signal);
 }
 
 // Map a raw Odds API market key to a short human label. Handles the _q1 / _h1

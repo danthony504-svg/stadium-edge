@@ -206,7 +206,8 @@ export function PlayerPropsSheet({
     queryKey: ["player-history", data?.sport, data?.athleteId],
     enabled: !!data?.athleteId && !!data?.sport,
     staleTime: 10 * 60_000,
-    queryFn: ({ signal }) => getPlayerHistory(data!.sport, data!.athleteId!, signal),
+    queryFn: ({ signal }) =>
+      getPlayerHistory({ sport: data!.sport, athleteId: data!.athleteId! }, signal),
   });
 
   // Labels appearing more than once in the gamelog header are ambiguous after
