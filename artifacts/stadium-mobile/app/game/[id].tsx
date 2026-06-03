@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
+import { SlipBar } from "@/components/SlipBar";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -310,6 +311,9 @@ export default function GameDetailScreen() {
           ))}
         </ScrollView>
       )}
+      {/* Floating slip popup — this is a root-stack screen (outside the tab
+          layout), so render its own instance to overlay this screen. */}
+      <SlipBar />
     </View>
   );
 }

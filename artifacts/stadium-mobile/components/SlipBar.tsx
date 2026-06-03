@@ -29,11 +29,13 @@ if (
 // A floating "pop-up" bet slip pinned to the bottom of the screen. It shows a
 // compact summary bar (leg count + combined odds + projected payout) whenever
 // the slip has legs, and expands into a scrollable list of legs (each removable)
-// with a shortcut to the full Slip tab. Rendered once in the ROOT app/_layout so
-// it rides over EVERY screen — tab screens AND root-level routes like
-// game/[id], upcoming, props and coach. Hidden on the Slip tab itself (that
-// screen IS the full slip). On Coach it lifts above the chat composer and hides
-// while the keyboard is up so it never covers what the user is typing.
+// with a shortcut to the full Slip tab. On iOS a root-level overlay does NOT
+// reliably paint over a nested native stack, so this is rendered as a sibling of
+// each screen's own stack — once in (tabs)/_layout (covers every tab) and once
+// inside each root-stack route (game/[id], upcoming) and the fullScreen
+// PlayerPropsSheet Modal. Hidden on the Slip tab itself (that screen IS the full
+// slip). On Coach it lifts above the chat composer and hides while the keyboard
+// is up so it never covers what the user is typing.
 const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
 
 export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}) {

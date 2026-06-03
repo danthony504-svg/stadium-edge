@@ -6,6 +6,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameCard, type GameMeta } from "@/components/GameCard";
+import { SlipBar } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getGames, getOdds, isPickable, type EspnGame, type OddsGame } from "@/lib/api";
@@ -131,6 +132,8 @@ export default function UpcomingScreen() {
           })}
         </ScrollView>
       )}
+      {/* Floating slip popup — root-stack screen (outside the tab layout). */}
+      <SlipBar />
     </View>
   );
 }
