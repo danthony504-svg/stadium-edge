@@ -100,19 +100,25 @@ function OddsChip({
         borderRadius: 10,
         borderWidth: 1,
         borderColor: added ? colors.primary : colors.border,
-        backgroundColor: added ? "rgba(37,99,235,0.16)" : colors.surface,
+        backgroundColor: added ? "rgba(34,211,238,0.14)" : colors.surface,
         opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
       })}
     >
       <Text
-        style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.medium,
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: 0.6,
+        }}
         numberOfLines={1}
       >
         {top}
       </Text>
       <Text
         style={{
-          color: added ? "#60a5fa" : colors.foreground,
+          color: added ? colors.primary : colors.foreground,
           fontFamily: FONT.bold,
           fontSize: 14,
           marginTop: 2,

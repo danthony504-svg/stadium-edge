@@ -73,7 +73,7 @@ export function Pill({
           borderRadius: 999,
           borderWidth: 1,
           borderColor: active ? colors.primary : colors.border,
-          backgroundColor: active ? colors.primary : colors.card,
+          backgroundColor: active ? "rgba(34,211,238,0.12)" : colors.card,
           opacity: pressed ? 0.85 : 1,
         },
       ]}
@@ -81,8 +81,8 @@ export function Pill({
       {icon}
       <Text
         style={{
-          color: active ? colors.primaryForeground : colors.mutedForeground,
-          fontFamily: active ? FONT.semibold : FONT.medium,
+          color: active ? colors.primary : colors.mutedForeground,
+          fontFamily: active ? FONT.bold : FONT.medium,
           fontSize: 13,
         }}
       >
@@ -102,9 +102,9 @@ export function Badge({
   const colors = useColors();
   const map = {
     muted: { bg: colors.surface, fg: colors.mutedForeground },
-    primary: { bg: "rgba(37,99,235,0.16)", fg: "#60a5fa" },
+    primary: { bg: "rgba(34,211,238,0.16)", fg: colors.primary },
     accent: { bg: "rgba(6,182,212,0.16)", fg: colors.accent },
-    live: { bg: "rgba(239,68,68,0.16)", fg: colors.live },
+    live: { bg: "rgba(244,63,94,0.16)", fg: colors.live },
     success: { bg: "rgba(34,197,94,0.16)", fg: colors.success },
   }[tone];
   return (

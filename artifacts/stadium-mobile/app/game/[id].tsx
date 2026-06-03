@@ -70,7 +70,7 @@ function MarketBlock({ game, market }: { game: OddsGame; market: OddsMarket }) {
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              backgroundColor: added ? "rgba(37,99,235,0.16)" : colors.surface,
+              backgroundColor: added ? "rgba(34,211,238,0.14)" : colors.surface,
               borderWidth: 1,
               borderColor: added ? colors.primary : colors.border,
               borderRadius: 10,
@@ -89,7 +89,7 @@ function MarketBlock({ game, market }: { game: OddsGame; market: OddsMarket }) {
                 </Text>
               ) : null}
             </View>
-            <Text style={{ color: added ? "#60a5fa" : colors.accent, fontFamily: FONT.bold, fontSize: 15 }}>
+            <Text style={{ color: added ? colors.primary : colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
               {formatAmerican(o.price)}
             </Text>
             <Feather

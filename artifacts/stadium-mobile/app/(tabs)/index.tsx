@@ -109,22 +109,22 @@ export default function HomeScreen() {
                 width: 44,
                 height: 44,
                 borderRadius: 22,
-                backgroundColor: "rgba(255,255,255,0.18)",
+                backgroundColor: "rgba(2,6,23,0.14)",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <Feather name="zap" size={22} color="#fff" />
+              <Feather name="zap" size={22} color="#020617" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 16 }}>
+              <Text style={{ color: "#020617", fontFamily: FONT.display, fontSize: 16 }}>
                 Build with AI Coach
               </Text>
-              <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+              <Text style={{ color: "rgba(2,6,23,0.7)", fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
                 Parlays grounded in tonight&apos;s real odds
               </Text>
             </View>
-            <Feather name="arrow-right" size={20} color="#fff" />
+            <Feather name="arrow-right" size={20} color="#020617" />
           </LinearGradient>
         </Pressable>
 
