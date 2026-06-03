@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
@@ -29,7 +30,12 @@ export function NavMenu() {
   const router = useRouter();
   const pathname = usePathname();
   const { legs } = useBetSlip();
+  const { isSignedIn } = useAuth();
   const [open, setOpen] = useState(false);
+
+  const accountRoute = isSignedIn ? "/account" : "/sign-in";
+  const accountLabel = isSignedIn ? "Account" : "Sign in";
+  const accountIcon: FeatherName = isSignedIn ? "user-check" : "log-in";
 
   const toggle = () => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -172,6 +178,45 @@ export function NavMenu() {
                 </Pressable>
               );
             })}
+
+            {/* Account / sign-in — auth is optional, shown at the bottom */}
+            <View
+              style={{
+                height: 1,
+                backgroundColor: colors.border,
+                marginVertical: 6,
+                marginHorizontal: 12,
+              }}
+            />
+            <Pressable
+              onPress={() => go(accountRoute)}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                backgroundColor: pressed ? colors.background : "transparent",
+              })}
+            >
+              <Feather
+                name={accountIcon}
+                size={18}
+                color={isActive(pathname, accountRoute) ? colors.primary : colors.mutedForeground}
+              />
+              <Text
+                style={{
+                  flex: 1,
+                  color: isActive(pathname, accountRoute)
+                    ? colors.foreground
+                    : colors.mutedForeground,
+                  fontFamily: FONT.medium,
+                  fontSize: 15,
+                }}
+              >
+                {accountLabel}
+              </Text>
+            </Pressable>
           </View>
         </Pressable>
       </Modal>

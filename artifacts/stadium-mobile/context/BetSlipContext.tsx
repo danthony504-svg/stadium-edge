@@ -1,3 +1,4 @@
+import { useAuth } from "@clerk/expo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
@@ -10,6 +11,7 @@ import React, {
 } from "react";
 
 import { parlayAmerican } from "@/lib/format";
+import { getSync, putSync } from "@/lib/api";
 
 export type Leg = {
   id: string;
@@ -82,6 +84,19 @@ const BetSlipContext = createContext<BetSlipState | null>(null);
 const legKey = (game: string, market: string, pick: string) =>
   `${game}|${market}|${pick}`.toLowerCase();
 
+// Union two saved-slip lists by id (newest first, capped). Used when a user
+// signs in so slips made on this device merge with slips from another device
+// instead of either side clobbering the other.
+function mergeSlips(a: SavedSlip[], b: SavedSlip[]): SavedSlip[] {
+  const byId = new Map<string, SavedSlip>();
+  for (const s of [...a, ...b]) {
+    if (s && typeof s.id === "string") byId.set(s.id, s);
+  }
+  return Array.from(byId.values())
+    .sort((x, y) => (y.createdAt ?? 0) - (x.createdAt ?? 0))
+    .slice(0, MAX_SAVED_SLIPS);
+}
+
 export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [legs, setLegs] = useState<Leg[]>([]);
   const [savedSlips, setSavedSlips] = useState<SavedSlip[]>([]);
@@ -118,6 +133,71 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       JSON.stringify({ legs, savedSlips, stake }),
     ).catch(() => {});
   }, [legs, savedSlips, stake]);
+
+  // ---------- Cross-device sync (signed-in users only) ----------
+  // Anonymous users are local-only (the effects below no-op). When signed in we
+  // pull the account's saved slips once, merge them with this device's slips,
+  // then debounce-push every change up so other devices stay in step.
+  const { isSignedIn, userId } = useAuth();
+  const syncedUserRef = useRef<string | null>(null);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped to retry the initial pull when the Clerk token isn't ready yet (a
+  // signed-in GET that 401s/errors must NOT be treated as "server empty").
+  const [pullRetry, setPullRetry] = useState(0);
+
+  // Pull-and-merge once per signed-in session. Only a successful authenticated
+  // 2xx response marks the session synced; until then the push effect stays
+  // disabled so empty/stale local state can never clobber the server.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isSignedIn || !userId) {
+      // Signed out — reset so a later sign-in re-pulls. Local slips are kept.
+      syncedUserRef.current = null;
+      if (pullRetry !== 0) setPullRetry(0);
+      return;
+    }
+    if (syncedUserRef.current === userId) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    (async () => {
+      try {
+        const { data } = await getSync<SavedSlip[]>("savedSlips");
+        if (cancelled) return;
+        if (Array.isArray(data) && data.length > 0) {
+          setSavedSlips((local) => mergeSlips(data, local));
+        }
+        // Authenticated read succeeded (server empty or not) — safe to push.
+        syncedUserRef.current = userId;
+      } catch {
+        // Token not ready / transient error — retry a few times with backoff.
+        if (!cancelled && pullRetry < 5) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) setPullRetry((r) => r + 1);
+          }, 1500);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [hydrated, isSignedIn, userId, pullRetry]);
+
+  // Debounced push of saved slips for a signed-in, already-pulled session.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isSignedIn || !userId) return;
+    if (syncedUserRef.current !== userId) return; // wait for initial pull
+
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      putSync("savedSlips", savedSlips).catch(() => {});
+    }, 800);
+    return () => {
+      if (pushTimer.current) clearTimeout(pushTimer.current);
+    };
+  }, [savedSlips, hydrated, isSignedIn, userId]);
 
   const combinedOdds = useMemo(
     () => parlayAmerican(legs.map((l) => l.odds)),

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useUser, useClerk } from "@clerk/react";
+import { useUser, useClerk, useAuth } from "@clerk/react";
 import { useLocation } from "wouter";
 import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
@@ -1860,6 +1860,48 @@ const saveTracker = (entries) => {
   }
 };
 
+// ---------- Cross-device tracker sync (signed-in users) ----------
+// Web auth is cookie-based, so same-origin fetches carry the Clerk session
+// automatically — no Bearer token needed (unlike the mobile app). The server
+// stores one JSON blob per (user, "tracker"); these helpers read/write it.
+// Throws on ANY non-2xx (incl. 401) so the caller can tell a real authenticated
+// read (where `data: null` truly means empty) from a not-ready session — never
+// marking "synced" (and risking an empty-local overwrite) before a good pull.
+const fetchServerTracker = async () => {
+  const r = await fetch(`/api/sync/tracker`, { credentials: "same-origin" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+};
+
+const pushServerTracker = async (data: any) => {
+  const r = await fetch(`/api/sync/tracker`, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+};
+
+// Most recent mutation time for a tracker entry (settle/CLV updates bump it).
+const trackerRecency = (e: any) =>
+  Math.max(Number(e?.resolvedAt) || 0, Number(e?.addedAt) || 0, 0);
+
+// Union two tracker lists by id, keeping the most-recently-updated copy of each
+// (so a settled status from one browser isn't overwritten by a stale pending
+// copy from another). Newest entries first.
+const mergeTrackers = (a: any, b: any) => {
+  const byId = new Map();
+  for (const e of [...(a || []), ...(b || [])]) {
+    if (!e || e.id == null) continue;
+    const cur = byId.get(e.id);
+    if (!cur || trackerRecency(e) >= trackerRecency(cur)) byId.set(e.id, e);
+  }
+  return Array.from(byId.values()).sort(
+    (x, y) => trackerRecency(y) - trackerRecency(x),
+  );
+};
+
 // Aggregate personal record for a specific pick "signature"
 // Signature = market + odds bucket (so similar picks roll up)
 const pickSignature = (pick) => {
@@ -3172,6 +3214,7 @@ export default function ParlayBuilder() {
   // landing; signing in lets a user attach their tracked slips to an account.
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { isSignedIn, userId } = useAuth();
   const [, navigate] = useLocation();
   const handleSignOut = () => {
     signOut();
@@ -4510,6 +4553,65 @@ export default function ParlayBuilder() {
       saveTracker(tracker);
     }
   }, [tracker]);
+
+  // ---------- Cross-device tracker sync (signed-in only) ----------
+  // Anonymous users stay local-only. When signed in we pull the account's
+  // tracker once, merge it with this browser's local tracker, then debounce-push
+  // every change so the same account stays in step across browsers/devices.
+  const trackerSyncedUserRef = useRef<string | null>(null);
+  const trackerPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped to retry the initial pull when the Clerk session cookie isn't ready
+  // yet (a signed-in GET that 401s must NOT be treated as "server empty").
+  const [trackerPullRetry, setTrackerPullRetry] = useState(0);
+
+  // Pull-and-merge once per signed-in session. Only a successful authenticated
+  // 2xx response marks the session synced; the push effect stays disabled until
+  // then so empty/stale local state can never clobber the server.
+  useEffect(() => {
+    if (!isSignedIn || !userId) {
+      trackerSyncedUserRef.current = null; // reset; keep local entries
+      if (trackerPullRetry !== 0) setTrackerPullRetry(0);
+      return;
+    }
+    if (trackerSyncedUserRef.current === userId) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    (async () => {
+      try {
+        const { data } = await fetchServerTracker();
+        if (cancelled) return;
+        if (Array.isArray(data) && data.length > 0) {
+          setTracker((local) => mergeTrackers(data, local));
+        }
+        trackerSyncedUserRef.current = userId;
+      } catch {
+        // Cookie/session not ready or transient — retry a few times.
+        if (!cancelled && trackerPullRetry < 5) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) setTrackerPullRetry((r) => r + 1);
+          }, 1500);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [isSignedIn, userId, trackerPullRetry]);
+
+  // Debounced push for a signed-in, already-pulled session.
+  useEffect(() => {
+    if (!isSignedIn || !userId) return;
+    if (trackerSyncedUserRef.current !== userId) return; // wait for initial pull
+    if (trackerPushTimer.current) clearTimeout(trackerPushTimer.current);
+    trackerPushTimer.current = setTimeout(() => {
+      pushServerTracker(tracker).catch(() => {});
+    }, 800);
+    return () => {
+      if (trackerPushTimer.current) clearTimeout(trackerPushTimer.current);
+    };
+  }, [tracker, isSignedIn, userId]);
 
   // AUTO CLV CAPTURE: as live odds refresh, snapshot the current market
   // price for each tracked book pick. While the game hasn't started we keep

@@ -79,6 +79,73 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
+// ---------- Authenticated requests (Clerk Bearer token) ----------
+
+// On mobile there is no browser cookie jar, so the Clerk session token must be
+// attached explicitly. The root layout registers a getter once the user's auth
+// state is known; until then (or when signed out) it returns null and authed
+// calls go out without a token (the server then replies 401).
+type TokenGetter = () => Promise<string | null>;
+let authTokenGetter: TokenGetter | null = null;
+
+export function setAuthTokenGetter(getter: TokenGetter | null): void {
+  authTokenGetter = getter;
+}
+
+async function authedFetch(
+  path: string,
+  init?: { method?: string; body?: string; headers?: Record<string, string> },
+): Promise<Response> {
+  const headers: Record<string, string> = { ...(init?.headers ?? {}) };
+  let token: string | null = null;
+  try {
+    token = authTokenGetter ? await authTokenGetter() : null;
+  } catch {
+    token = null;
+  }
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return expoFetch(`${API_BASE}${path}`, {
+    method: init?.method ?? "GET",
+    headers,
+    body: init?.body,
+  }) as unknown as Promise<Response>;
+}
+
+// ---------- Cross-device sync (per signed-in user) ----------
+
+// Whitelisted namespaces on the server (routes/sync.ts).
+export type SyncNamespace = "savedSlips" | "tracker";
+
+export type SyncResponse<T> = { data: T | null; updatedAt: string | null };
+
+// Read the signed-in user's stored blob for a namespace. Throws on ANY non-2xx
+// (including 401) so callers can distinguish a real, authenticated read — where
+// `data: null` means the server is genuinely empty — from a not-ready token or
+// transient failure. This prevents marking a session "synced" (and later
+// overwriting server data with empty local state) before a successful pull.
+export async function getSync<T>(
+  namespace: SyncNamespace,
+  signal?: AbortSignal,
+): Promise<SyncResponse<T>> {
+  const res = await authedFetch(`/sync/${namespace}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as SyncResponse<T>;
+}
+
+// Persist the signed-in user's blob for a namespace. Throws on 401 so callers
+// can tell the push didn't happen (e.g. token not ready yet).
+export async function putSync<T>(
+  namespace: SyncNamespace,
+  data: T,
+): Promise<void> {
+  const res = await authedFetch(`/sync/${namespace}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 export function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
   return getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
 }

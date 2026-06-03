@@ -10,6 +10,8 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { ClerkLoaded, ClerkProvider, useAuth } from "@clerk/expo";
+import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -22,6 +24,24 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
+import { setAuthTokenGetter } from "@/lib/api";
+
+// Clerk publishable key + proxy URL come from the environment (dev script /
+// build.js). Empty in dev for the proxy (Clerk hits dev FAPI directly), set in
+// prod. Auth is OPTIONAL — the app stays fully usable signed-out.
+const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
+const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
+
+// Registers the Clerk session-token getter with the API client so authed sync
+// requests carry a Bearer token. Lives inside ClerkProvider so useAuth works.
+function AuthTokenBridge() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setAuthTokenGetter(() => getToken());
+    return () => setAuthTokenGetter(null);
+  }, [getToken]);
+  return null;
+}
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -43,6 +63,8 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="game/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="upcoming" options={{ presentation: "card" }} />
+      <Stack.Screen name="(auth)" options={{ presentation: "card" }} />
+      <Stack.Screen name="account" options={{ presentation: "card" }} />
     </Stack>
   );
 }
@@ -69,16 +91,25 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
-          <BetSlipProvider>
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <RootLayoutNav />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
-          </BetSlipProvider>
-        </QueryClientProvider>
+        <ClerkProvider
+          publishableKey={publishableKey}
+          tokenCache={tokenCache}
+          proxyUrl={proxyUrl}
+        >
+          <ClerkLoaded>
+            <QueryClientProvider client={queryClient}>
+              <AuthTokenBridge />
+              <BetSlipProvider>
+                <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+                  <KeyboardProvider>
+                    <StatusBar style="light" />
+                    <RootLayoutNav />
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </BetSlipProvider>
+            </QueryClientProvider>
+          </ClerkLoaded>
+        </ClerkProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

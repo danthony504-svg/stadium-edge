@@ -35,11 +35,26 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- Cross-device sync: DB table in `lib/db/src/schema/userSync.ts` (`user_sync`),
+  backend in `artifacts/api-server/src/routes/sync.ts`, mobile client in
+  `artifacts/stadium-mobile/lib/api.ts` + saved-slips logic in
+  `context/BetSlipContext.tsx`, web tracker logic in
+  `artifacts/stadium-edge/src/ParlayBuilder.tsx`.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Cross-device sync persists one JSON blob per (Clerk userId, namespace) in the
+  `user_sync` table via `GET/PUT /api/sync/:namespace`. Namespaces are
+  whitelisted (`savedSlips`, `tracker`). Auth is **optional**: signed-out users
+  stay fully local; sync only engages when signed in.
+- Web auth is cookie-based (same-origin fetch carries the Clerk session, no
+  Bearer token). Mobile auth attaches a Clerk Bearer token via `getToken`
+  (wired through `AuthTokenBridge` in mobile `app/_layout.tsx`).
+- Sync uses pull-then-push: on sign-in a client pulls + merges server state by
+  id, then debounce-pushes changes. A session is marked "synced" (which enables
+  pushing) ONLY after a successful authenticated 2xx read, so a not-ready token
+  can never overwrite the server with empty/stale local data; a failed pull
+  retries with backoff.
 
 ## Product
 
@@ -51,7 +66,11 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The api-server has **no file watcher** in dev — restart its workflow after
+  editing routes, or it serves stale compiled code.
+- `getSync`/`fetchServerTracker` throw on ANY non-2xx (including 401) on purpose:
+  callers must distinguish a real authenticated empty read (`data: null`) from a
+  not-ready session. Do not "soften" 401 back to an empty result.
 
 ## Pointers
 
