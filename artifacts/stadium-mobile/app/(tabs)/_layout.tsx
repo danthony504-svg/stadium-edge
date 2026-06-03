@@ -11,10 +11,10 @@ const DARK_BG = "#0f172a";
 export default function TabLayout() {
   // Hard auth gate: the main app requires sign-in. Clerk is already loaded by the
   // time this renders (ClerkLoaded wraps the root), so isSignedIn is reliable and
-  // there is no signed-in flash. Unauthenticated users are sent to the login
-  // screen on first open; signing in returns them here via router.replace("/").
+  // there is no signed-in flash. Unauthenticated users land on the welcome screen
+  // on first open; signing in returns them here via router.replace("/").
   const { isSignedIn } = useAuth();
-  if (!isSignedIn) return <Redirect href="/sign-in" />;
+  if (!isSignedIn) return <Redirect href="/welcome" />;
 
   return (
     <View style={{ flex: 1, backgroundColor: DARK_BG }}>

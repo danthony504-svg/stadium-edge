@@ -6,3 +6,9 @@ id = "kqsBGg03q6PQ4Mi625AQ1"
 uri = "file://artifacts/stadium-mobile/assets/images/icon.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "Awc32CN7ewd7s6OmN_XiE"
+uri = "file://artifacts/stadium-mobile/assets/images/welcome-hero.png"
+type = "image"
+title = "football player hero"
