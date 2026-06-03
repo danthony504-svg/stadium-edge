@@ -85,14 +85,14 @@ export default function HomeScreen() {
         }
       >
         {/* Header */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+        <View style={{ paddingHorizontal: 16, marginBottom: 16, alignItems: "center" }}>
           <Image
             source={require("@/assets/images/logo.png")}
-            style={{ width: 216, height: 86, marginLeft: -6 }}
+            style={{ width: "100%", height: 150 }}
             resizeMode="contain"
             accessibilityLabel="Stadium Edge"
           />
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 2 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4, textAlign: "center" }}>
             Real lines. Real edges. No guesswork.
           </Text>
         </View>
