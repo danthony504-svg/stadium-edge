@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -283,8 +284,18 @@ function PropRow({
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [sport, setSport] = useState(PROPS_SPORTS[0]);
-  const [query, setQuery] = useState("");
+  const params = useLocalSearchParams<{ q?: string; sp?: string }>();
+  const [sport, setSport] = useState(
+    params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
+  );
+  const [query, setQuery] = useState(params.q ? String(params.q) : "");
+
+  // When navigated to with a player/sport (e.g. from the Home featured row),
+  // sync the search + sport selector to that target.
+  useEffect(() => {
+    if (params.sp && PROPS_SPORTS.includes(String(params.sp))) setSport(String(params.sp));
+    if (params.q != null) setQuery(String(params.q));
+  }, [params.q, params.sp]);
 
   const propsSports = useMemo(() => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id)), []);
 

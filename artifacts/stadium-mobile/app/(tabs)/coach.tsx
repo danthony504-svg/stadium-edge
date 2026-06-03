@@ -36,7 +36,8 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs } = useBetSlip();
-  const params = useLocalSearchParams<{ prefill?: string }>();
+  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
+  const autoSentRef = useRef<string | null>(null);
 
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
@@ -125,6 +126,21 @@ export default function CoachScreen() {
     },
     [messages, slipForContext, streaming, scrollToEnd],
   );
+
+  // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
+  // chips). Gated by the per-navigation `ts` token (not the prompt text) so that
+  // tapping different actions that happen to share a prompt still fires each
+  // time, and so the same tab staying mounted doesn't suppress later taps. We
+  // mark sent only once we actually invoke send, and skip while streaming — the
+  // effect re-runs when `streaming` flips false, so the send isn't lost.
+  useEffect(() => {
+    if (params.send !== "1" || !params.prefill) return;
+    const token = String(params.ts ?? params.prefill);
+    if (autoSentRef.current === token) return;
+    if (streaming) return;
+    autoSentRef.current = token;
+    send(String(params.prefill));
+  }, [params.send, params.ts, params.prefill, streaming, send]);
 
   useEffect(() => {
     return () => abortRef.current?.abort();
