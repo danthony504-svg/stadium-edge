@@ -580,6 +580,18 @@ export default function CoachScreen() {
               !hasPicks &&
               (parlayBuildIntent ||
                 m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
+            // Live progress for the build indicator: a full-context parlay can take
+            // ~15s of model time, and since the lead-in prose is hidden the user
+            // would otherwise stare at a static spinner. Counting completed PICK
+            // lines as they stream in gives real "it's working" feedback.
+            const buildingLegCount = isBuildingParlay
+              ? m.content
+                  .split("\n")
+                  // Require 3 pipes (4 fields) so only fully-streamed PICK lines
+                  // count — mirrors parsePicks' parts.length >= 4 so the running
+                  // total never transiently overshoots a half-emitted line.
+                  .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length
+              : 0;
             const bubbleText =
               m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
@@ -654,7 +666,9 @@ export default function CoachScreen() {
                         fontSize: 13,
                       }}
                     >
-                      Building your parlay…
+                      {buildingLegCount > 0
+                        ? `Building your parlay… ${buildingLegCount} leg${buildingLegCount === 1 ? "" : "s"}`
+                        : "Building your parlay…"}
                     </Text>
                   </View>
                 ) : null}

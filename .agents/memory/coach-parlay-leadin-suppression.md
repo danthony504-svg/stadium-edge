@@ -20,3 +20,13 @@ line has arrived. `showBubble` must include `!isBuildingParlay`. Keep the intent
 regex narrow so plain Q&A ("what is a parlay", "is my parlay good") still streams
 its answer. Once `hasPicks`, `assistantBubbleText` already returns "" so the bubble
 stays hidden and cards render.
+
+**Gotcha — hiding prose removes proof-of-life:** a full-context build is slow
+(~14s of model time; logs show contextChars ~142k, responseTime ~14000ms), so once
+the lead-in is suppressed the user stares at a static "Building your parlay…" and
+thinks it's frozen. Fix = surface live progress: count fully-streamed PICK lines and
+render "Building your parlay… N leg(s)". The counter regex must require 3 pipes
+(`/^PICK\s*:.*\|.*\|.*\|/i`) to mirror parsePicks' `parts.length >= 4`, or a
+half-emitted line overshoots; count PICK only (never ALT) since ALTs aren't legs.
+The endpoint itself is healthy (streams + closes with `{done:true}`); the spinner is
+a feedback problem, not a hang.
