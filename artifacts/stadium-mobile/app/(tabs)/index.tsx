@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -85,9 +86,12 @@ export default function HomeScreen() {
       >
         {/* Header */}
         <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 28 }}>
-            Stadium <Text style={{ color: colors.primary }}>Edge</Text>
-          </Text>
+          <Image
+            source={require("@/assets/images/logo.png")}
+            style={{ width: 216, height: 86, marginLeft: -6 }}
+            resizeMode="contain"
+            accessibilityLabel="Stadium Edge"
+          />
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 2 }}>
             Real lines. Real edges. No guesswork.
           </Text>
