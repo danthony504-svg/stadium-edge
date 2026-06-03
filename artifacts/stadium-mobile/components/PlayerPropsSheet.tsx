@@ -29,6 +29,9 @@ export type PlayerSheetData = {
   props: PlayerProp[];
 };
 
+// Line-grid resolution for the hit-rate explorer (half-point, like book lines).
+const STEP = 0.5;
+
 // Markets whose per-game value is the SUM of several ESPN stat columns.
 const MARKET_COMBO: Record<string, string[]> = {
   player_points_rebounds_assists: ["PTS", "REB", "AST"],
@@ -255,19 +258,83 @@ export function PlayerPropsSheet({
     return rows;
   }, [historyQ.data, data, market, ambiguous]);
 
-  const line = selectedProp?.line ?? null;
+  const bookLine = selectedProp?.line ?? null;
+
+  // Real average of the actual recent games shown (never a projection).
+  const recentAvg = useMemo(() => {
+    if (bars.length === 0) return null;
+    const s = bars.reduce((a, b) => a + b.value, 0);
+    return Math.round((s / bars.length) * 10) / 10;
+  }, [bars]);
+
+  // Adjustable hypothetical line for the hit-rate explorer. Seeds to the real
+  // posted book line (or, if none is posted, the player's real recent average so
+  // the chart still has a reference) and is moved by the suggested-line tiers or
+  // the −/+ stepper. The HIT-RATE is always real (counted over the actual game
+  // log); PRICES are only offered at the posted book line — we never estimate.
+  const [chartLine, setChartLine] = useState<number | null>(null);
+  useEffect(() => {
+    const seed = bookLine ?? (recentAvg != null ? Math.round(recentAvg / STEP) * STEP : null);
+    setChartLine(seed != null ? +seed.toFixed(1) : null);
+  }, [selectedProp?.market, bookLine, recentAvg]);
+
   const chartMax = useMemo(() => {
     const vals = bars.map((b) => b.value);
-    if (line != null) vals.push(line);
+    if (chartLine != null) vals.push(chartLine);
     const m = Math.max(0, ...vals);
     return m > 0 ? m * 1.15 : 1;
-  }, [bars, line]);
+  }, [bars, chartLine]);
 
-  const hitCount = line != null ? bars.filter((b) => b.value >= line).length : null;
+  const hitCount = chartLine != null ? bars.filter((b) => b.value >= chartLine).length : null;
+
+  // Three real risk tiers, all OVER lines, derived from the actual game log:
+  // SAFE sits below the floor (cleared often), BALANCED near the recent average,
+  // RISKY above the ceiling (rarely cleared). Each tier's hit-count is empirical.
+  const tiers = useMemo(() => {
+    if (bars.length === 0) return null;
+    const vals = bars.map((b) => b.value);
+    const sorted = [...vals].sort((a, b) => a - b);
+    const minV = sorted[0];
+    const maxV = sorted[sorted.length - 1];
+    const n = vals.length;
+    const hits = (L: number) => vals.filter((v) => v >= L).length;
+    const snap = (x: number) => +(Math.round(x / STEP) * STEP).toFixed(1);
+    let safe = Math.max(0, +(minV - STEP).toFixed(1));
+    let balanced = recentAvg != null ? snap(recentAvg) : snap((minV + maxV) / 2);
+    let risky = +(maxV + STEP).toFixed(1);
+    // Keep the three strictly ordered & distinct even on a flat/short log.
+    if (balanced <= safe) balanced = +(safe + STEP).toFixed(1);
+    if (risky <= balanced) risky = +(balanced + STEP).toFixed(1);
+    return {
+      safe: { value: safe, hits: hits(safe), total: n },
+      balanced: { value: balanced, hits: hits(balanced), total: n },
+      risky: { value: risky, hits: hits(risky), total: n },
+    };
+  }, [bars, recentAvg]);
+
+  const activeTierKey = useMemo<"safe" | "balanced" | "risky" | null>(() => {
+    if (!tiers || chartLine == null) return null;
+    const near = (v: number) => Math.abs(v - chartLine) < 0.01;
+    if (near(tiers.safe.value)) return "safe";
+    if (near(tiers.balanced.value)) return "balanced";
+    if (near(tiers.risky.value)) return "risky";
+    return null;
+  }, [tiers, chartLine]);
 
   if (!data) return null;
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
+
+  // The hit-rate explorer only ever offers a REAL price, and only at the posted
+  // book line. Away from it there is no real number, so we never show odds.
+  const atBookLine =
+    bookLine != null && chartLine != null && Math.abs(bookLine - chartLine) < 0.01;
+  const stepOverPrice = atBookLine ? selectedProp?.overPrice ?? null : null;
+  const stepUnderPrice = atBookLine ? selectedProp?.underPrice ?? null : null;
+  const mlabel = propMarketLabel(market);
+  const stepLineTxt = bookLine != null ? ` ${bookLine}` : "";
+  const overAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Over${stepLineTxt} ${mlabel}`);
+  const underAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Under${stepLineTxt} ${mlabel}`);
 
   const addPick = (side: "Over" | "Under", price: number) => {
     if (!selectedProp) return;
@@ -434,9 +501,9 @@ export function PlayerPropsSheet({
               </ScrollView>
             ) : null}
 
-            {line != null ? (
+            {chartLine != null ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginBottom: 12 }}>
-                Line {line}
+                Line {chartLine}
                 {hitCount != null && bars.length > 0 ? ` · cleared ${hitCount}/${bars.length} of last games` : ""}
               </Text>
             ) : null}
@@ -460,15 +527,15 @@ export function PlayerPropsSheet({
             ) : (
               <View>
                 <View style={{ height: 150, flexDirection: "row", alignItems: "flex-end", gap: 8, position: "relative" }}>
-                  {/* Dashed reference line at the bookmaker line */}
-                  {line != null ? (
+                  {/* Dashed reference line at the currently selected line */}
+                  {chartLine != null ? (
                     <View
                       pointerEvents="none"
                       style={{
                         position: "absolute",
                         left: 0,
                         right: 0,
-                        bottom: (line / chartMax) * 150,
+                        bottom: (chartLine / chartMax) * 150,
                         borderBottomWidth: 1,
                         borderColor: colors.primary,
                         borderStyle: "dashed",
@@ -478,7 +545,7 @@ export function PlayerPropsSheet({
                   ) : null}
                   {bars.map((b, i) => {
                     const h = Math.max(4, (b.value / chartMax) * 150);
-                    const cleared = line != null && b.value >= line;
+                    const cleared = chartLine != null && b.value >= chartLine;
                     return (
                       <View key={i} style={{ flex: 1, alignItems: "center", justifyContent: "flex-end" }}>
                         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 11, marginBottom: 4 }}>
@@ -510,6 +577,176 @@ export function PlayerPropsSheet({
               </View>
             )}
           </View>
+
+          {/* Suggested lines — 3 real risk tiers from the actual game log */}
+          {data.athleteId && !historyQ.isLoading && !historyQ.isError && tiers && bars.length > 0 ? (
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: colors.radius,
+                padding: 14,
+                gap: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <SectionLabel>Suggested Lines</SectionLabel>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 9, letterSpacing: 0.5 }}>
+                  LOW → HIGH RISK
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {([
+                  { key: "safe", label: "Safe", sub: "Low risk", t: tiers.safe },
+                  { key: "balanced", label: "Balanced", sub: "Med risk", t: tiers.balanced },
+                  { key: "risky", label: "Risky", sub: "High risk", t: tiers.risky },
+                ] as const).map(({ key, label, sub, t }) => {
+                  const active = activeTierKey === key;
+                  return (
+                    <Pressable
+                      key={key}
+                      onPress={() => {
+                        setChartLine(t.value);
+                        Haptics.selectionAsync();
+                      }}
+                      style={{
+                        flex: 1,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: active ? colors.primary : colors.border,
+                        backgroundColor: active ? "rgba(34,211,238,0.12)" : colors.surface,
+                        paddingVertical: 10,
+                        paddingHorizontal: 6,
+                        alignItems: "center",
+                        gap: 3,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: active ? colors.primary : colors.foreground,
+                          fontFamily: FONT.bold,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {label}
+                      </Text>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, textTransform: "uppercase" }}>
+                        {sub}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4, marginTop: 2 }}>
+                        <Text style={{ color: active ? colors.primary : colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, textTransform: "uppercase" }}>
+                          Over
+                        </Text>
+                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 17 }}>{t.value}</Text>
+                      </View>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}>
+                        {t.hits}/{t.total} hit
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, textAlign: "center", lineHeight: 14 }}>
+                Tap a tier to move the line · real hit-rate over the last {tiers.safe.total} games, not a prediction
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Set your line — real hit-rate explorer; prices only at the book line */}
+          {data.athleteId && !historyQ.isLoading && !historyQ.isError && chartLine != null && bars.length > 0 ? (
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: colors.radius,
+                padding: 14,
+                gap: 12,
+              }}
+            >
+              <SectionLabel>{mlabel} — Set Your Line</SectionLabel>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Pressable
+                  onPress={() => {
+                    setChartLine(+Math.max(0, chartLine - STEP).toFixed(1));
+                    Haptics.selectionAsync();
+                  }}
+                  hitSlop={6}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="minus" size={22} color={colors.foreground} />
+                </Pressable>
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 34 }}>{chartLine}</Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase" }}>
+                    {mlabel} line
+                  </Text>
+                  {recentAvg != null ? (
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, marginTop: 2 }}>
+                      avg last {bars.length} · {recentAvg}
+                    </Text>
+                  ) : null}
+                  {hitCount != null ? (
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11, marginTop: 2 }}>
+                      cleared {hitCount}/{bars.length} of last games
+                    </Text>
+                  ) : null}
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setChartLine(+(chartLine + STEP).toFixed(1));
+                    Haptics.selectionAsync();
+                  }}
+                  hitSlop={6}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="plus" size={22} color={colors.foreground} />
+                </Pressable>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <SideChip
+                  side="Under"
+                  line={chartLine}
+                  price={stepUnderPrice}
+                  added={underAddedStep}
+                  onPress={() => stepUnderPrice != null && addPick("Under", stepUnderPrice)}
+                />
+                <SideChip
+                  side="Over"
+                  line={chartLine}
+                  price={stepOverPrice}
+                  added={overAddedStep}
+                  onPress={() => stepOverPrice != null && addPick("Over", stepOverPrice)}
+                />
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, textAlign: "center", lineHeight: 14 }}>
+                {atBookLine
+                  ? "Live bookmaker price at this line."
+                  : bookLine != null
+                    ? `Live price is posted only at ${bookLine}. Move the line back to ${bookLine} to add it.`
+                    : "No bookmaker line is posted for this market — explore the hit-rate only."}
+              </Text>
+            </View>
+          ) : null}
 
           {/* Bookmaker lines */}
           <View>
