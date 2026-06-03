@@ -30,6 +30,22 @@ mockup-sandbox ParlayBuilder, except this mobile copy IS live (unlike mockup).
   can't turn into a clean StatMuse query, instead of silently showing full-game
   numbers as if they answered the period question.
 
+## Name-recovery span search (parity gap that bit us)
+- Forward-looking phrasings ("how many points will X score tonight?") leave a
+  stray filler word on the extracted name (e.g. `"Wembanyama will"` — "will" is
+  deliberately NOT stripped because "Will Smith"). ESPN's strict player-search
+  then returns [], so the stat card silently fails and the coach answers from
+  generic chat context only (looked like "no real data for X").
+- **Fix/decision:** mobile `tryStatCard` now mirrors web's span-search fallback —
+  on a first-search miss (and not `bareName`), retry contiguous sub-spans of the
+  name longest→shortest, skip single tokens in `NAME_FALLBACK_SKIP`, accept a hit
+  only if the candidate is contained (accent-insensitive) in the resolved name.
+  `BARE_NAME_STOP` + `NAME_FALLBACK_SKIP` are exported from mobile `statLookup.ts`.
+- **Why it's safe for real names:** "Will Smith" resolves on the FIRST search, so
+  the fallback never runs for it; the containment guard blocks wrong-athlete fuzzy
+  binds. Any future name-recovery change must hit BOTH web ParlayBuilder and
+  mobile coach.
+
 ## Other gotchas
 - Player resolution uses ESPN relevance-first (`results[0]`), NOT "prefer any
   active player" — the active-override returned the wrong athlete for

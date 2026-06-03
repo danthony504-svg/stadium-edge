@@ -36,13 +36,28 @@ export const MLB_PITCHER_SUMMARY: [string, "avg" | "total"][] = [
 const STAT_NOUNS =
   "points?|pts|yards?|yds|rebounds?|reb|assists?|ast|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|goals?|saves?|touchdowns?|tds?|receptions?|catches|blocks?|steals?";
 
-const BARE_NAME_STOP = new Set([
+export const BARE_NAME_STOP = new Set([
   "hi","hey","hello","yo","sup","thanks","thank","thx","ty","ok","okay","k","yes","yeah","yep","yup",
   "no","nope","nah","cool","nice","great","good","bad","lol","help","stop","wait","what","whats","why",
   "how","who","when","where","sure","please","pls","more","again","next","back","done","test","testing",
   "odds","picks","pick","live","today","tonight","now","hmm","idk","maybe","go","got","the","and","but",
   "it","its","is","are","was","were","do","does","did","to","of","in","on","for","my","me","you","we",
   "this","that","them","they","love","hate","game","games","team","teams","player","players","parlay","bet",
+]);
+
+// Single-token words that must NEVER be accepted as a player name on their own
+// during the span-search recovery (below). Without this, a stray verb/adverb
+// left clinging to a name (e.g. "wembanyama will", "jokic dominate wednesday")
+// could fuzzy-match an unrelated athlete. Mirrors the web app's set.
+export const NAME_FALLBACK_SKIP = new Set([
+  ...BARE_NAME_STOP,
+  "will","wont","won","gonna","gon","going","shall","would","should","could","can","may","might","must",
+  "score","scores","scored","scoring","dominate","dominates","explode","explodes","drop","drops","put","puts",
+  "have","has","had","hit","hits","throw","throws","threw","pass","passes","passed","rush","rushes","rushed",
+  "perform","performs","look","looks","looking","think","thinks","thought","believe","believes","expect",
+  "predict","project","guess","reckon","suppose","feel","feels","say","says","against","vs","versus","many",
+  "much","about","over","under","line","first","second","third","fourth","quarter","half","period","inning",
+  "week","tomorrow","yesterday","night","monday","tuesday","wednesday","thursday","friday","saturday","sunday",
 ]);
 
 export type StatLookup = {

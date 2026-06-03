@@ -31,7 +31,7 @@ import {
   type ChatMessage,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { parseStatLookup } from "@/lib/statLookup";
+import { NAME_FALLBACK_SKIP, parseStatLookup } from "@/lib/statLookup";
 
 type UIMessage = {
   role: "user" | "assistant";
@@ -53,12 +53,53 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
   if (!lookup) return null;
 
   const sr = await searchPlayer(lookup.name, signal);
-  const results = sr.results || [];
-  if (!results.length) return null;
   // ESPN search is relevance-ranked; trust the top hit so historical/retired
   // queries resolve to the right athlete instead of being overridden by any
   // active player further down the list.
-  const top = results[0];
+  let top = (sr.results || [])[0] || null;
+
+  // ESPN's player search needs a clean name — any residual filler
+  // ("wembanyama will", "jokic dominate wednesday") makes it return nothing.
+  // If the full extracted name missed (and this wasn't a bare chatter guess),
+  // retry with contiguous sub-spans of the name, longest → shortest and
+  // left-to-right, skipping pure-filler tokens. The first real ESPN hit wins.
+  // This rescues forward-looking phrasings ("how many points will X score
+  // tonight?") without over-stripping real names like "Will Smith" (which
+  // resolve on the first try, so this fallback never runs for them).
+  if (!top && !lookup.bareName) {
+    const toks = String(lookup.name)
+      .toLowerCase()
+      .replace(/[^a-z'.\- ]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+    const fullLow = String(lookup.name).toLowerCase().trim();
+    const norm = (s: string) =>
+      String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    spanSearch: for (let len = Math.min(toks.length, 3); len >= 1; len--) {
+      for (let i = 0; i + len <= toks.length; i++) {
+        const cand = toks.slice(i, i + len).join(" ");
+        if (cand === fullLow || cand.length < 3) continue;
+        if (len === 1 && NAME_FALLBACK_SKIP.has(cand)) continue;
+        try {
+          const fr = await searchPlayer(cand, signal);
+          const hit = (fr.results || [])[0];
+          // Guard against ESPN's fuzzy single-token search returning an
+          // unrelated player: the candidate must actually appear in the
+          // resolved name (accent-insensitive), e.g. "wembanyama" ⊂
+          // "Victor Wembanyama".
+          if (hit && hit.name && norm(hit.name).includes(norm(cand))) {
+            top = hit;
+            lookup.name = hit.name;
+            break spanSearch;
+          }
+        } catch (e: any) {
+          if (e?.name === "AbortError") throw e;
+          // keep trying spans
+        }
+      }
+    }
+  }
+  if (!top) return null;
 
   // Period intent ("first quarter points") → StatMuse per-game period grid.
   // ESPN game logs have no period splits, so this is the only real source.
