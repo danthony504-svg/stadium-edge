@@ -238,15 +238,6 @@ export default function HomeScreen() {
       params: { prefill: msg, send: "1", ts: String(Date.now()) },
     });
 
-  // Like askCoach but only PREFILLS the composer — does not auto-send. Used by
-  // the "Build best parlay" button so the user lands in the chat with the
-  // prompt ready and taps send themselves (no surprise auto-build).
-  const prefillCoach = (msg: string) =>
-    router.push({
-      pathname: "/coach",
-      params: { prefill: msg, ts: String(Date.now()) },
-    });
-
   const quickActions: { label: string; icon: keyof typeof Feather.glyphMap; color: string; msg: string }[] = [
     { label: "Hot Picks", icon: "zap", color: "#fb923c", msg: "Build me the best parlay" },
     { label: "Easy Money", icon: "dollar-sign", color: "#34d399", msg: "Build me a safe parlay" },
@@ -329,7 +320,7 @@ export default function HomeScreen() {
         {/* Build best parlay */}
         <View style={{ alignItems: "center", marginBottom: 18 }}>
           <Pressable
-            onPress={() => prefillCoach("Build me the best parlay")}
+            onPress={() => askCoach("Build me the best parlay")}
             style={({ pressed }) => ({
               flexDirection: "row",
               alignItems: "center",
