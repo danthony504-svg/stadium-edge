@@ -73,7 +73,7 @@ export function Pill({
           borderRadius: 999,
           borderWidth: 1,
           borderColor: active ? colors.primary : colors.border,
-          backgroundColor: active ? "rgba(34,211,238,0.12)" : colors.card,
+          backgroundColor: active ? "rgba(59,130,246,0.12)" : colors.card,
           opacity: pressed ? 0.85 : 1,
         },
       ]}
@@ -102,8 +102,8 @@ export function Badge({
   const colors = useColors();
   const map = {
     muted: { bg: colors.surface, fg: colors.mutedForeground },
-    primary: { bg: "rgba(34,211,238,0.16)", fg: colors.primary },
-    accent: { bg: "rgba(6,182,212,0.16)", fg: colors.accent },
+    primary: { bg: "rgba(59,130,246,0.16)", fg: colors.primary },
+    accent: { bg: "rgba(59,130,246,0.16)", fg: colors.accent },
     live: { bg: "rgba(244,63,94,0.16)", fg: colors.live },
     success: { bg: "rgba(34,197,94,0.16)", fg: colors.success },
   }[tone];

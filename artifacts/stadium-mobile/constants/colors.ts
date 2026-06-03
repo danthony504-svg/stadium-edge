@@ -1,18 +1,18 @@
 /**
  * Semantic design tokens for Stadium Edge mobile.
  *
- * Mirrors the sibling web artifact (artifacts/stadium-edge): a DARK-ONLY,
- * high-contrast dashboard built on navy slate surfaces with a single CYAN
- * accent (cyan-400 #22d3ee) used for every action/active state, dark text
- * sitting ON the cyan (slate-950), darker slate-950 cards, and slate-800
- * hairline borders. Both `light` and `dark` palettes are the same dark values
- * so the brand is identical regardless of the device appearance setting.
+ * A DARK-ONLY, high-contrast dashboard built on navy slate surfaces with a
+ * single BLUE accent (blue-500 #3b82f6) used for every action/active state,
+ * dark text sitting ON the blue (slate-950), darker slate-950 cards, and
+ * slate-800 hairline borders. Both `light` and `dark` palettes are the same
+ * dark values so the brand is identical regardless of the device appearance
+ * setting.
  */
 
 const dark = {
   // Legacy aliases (kept for backward compatibility)
   text: "#f1f5f9",
-  tint: "#22d3ee",
+  tint: "#3b82f6",
 
   // Core surfaces
   background: "#0f172a", // slate-900
@@ -25,9 +25,9 @@ const dark = {
   // A slightly raised surface for nested chips / inputs (sits above the card)
   surface: "#0f172a", // slate-900
 
-  // Primary action color — the brand cyan, with DARK text on top (web uses
-  // bg-cyan-400 text-slate-950 on every button / active state)
-  primary: "#22d3ee", // cyan-400
+  // Primary action color — the brand blue, with DARK text on top, used on
+  // every button / active state across the app.
+  primary: "#3b82f6", // blue-500
   primaryForeground: "#020617", // slate-950
 
   // Secondary / less-emphasis interactive surfaces
@@ -38,9 +38,10 @@ const dark = {
   muted: "#1e293b",
   mutedForeground: "#94a3b8", // slate-400
 
-  // Accent highlights — a deeper cyan for gradients / secondary emphasis
-  accent: "#06b6d4", // cyan-500
-  accentForeground: "#0f172a",
+  // Accent highlights — the same brand blue, used as a bright foreground accent
+  // (icons / highlight text) on dark surfaces.
+  accent: "#3b82f6", // blue-500
+  accentForeground: "#020617", // slate-950
 
   // Destructive actions (delete, error states)
   destructive: "#ef4444",

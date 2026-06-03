@@ -100,7 +100,7 @@ function OddsChip({
         borderRadius: 10,
         borderWidth: 1,
         borderColor: added ? colors.primary : colors.border,
-        backgroundColor: added ? "rgba(34,211,238,0.14)" : colors.surface,
+        backgroundColor: added ? "rgba(59,130,246,0.14)" : colors.surface,
         opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
       })}
     >

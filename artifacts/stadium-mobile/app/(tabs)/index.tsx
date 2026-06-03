@@ -564,7 +564,7 @@ export default function HomeScreen() {
                   <Pressable
                     onPress={() => askCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)}
                     style={({ pressed }) => ({
-                      backgroundColor: "rgba(34,211,238,0.14)",
+                      backgroundColor: "rgba(59,130,246,0.14)",
                       borderWidth: 1,
                       borderColor: colors.primary,
                       borderRadius: 999,
