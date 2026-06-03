@@ -178,6 +178,16 @@ const WELCOME_RETURNING =
 // colon so normal Q&A is never truncated.
 const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 
+// Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
+// merely mentions the word "parlay")? When it does, we suppress the streamed
+// lead-in prose ("Here's a balanced 5-leg ticket…") for the whole build and show
+// only the "Building your parlay…" indicator, so no intro text lands in the chat
+// before the pick cards. Kept conservative (build verbs / leg-count / quick
+// prompts) so questions like "what is a parlay" or "is my parlay good" still
+// stream their answer normally.
+const PARLAY_BUILD_RE =
+  /\bbuild\b[^?]*\bparlay\b|\b\d{1,2}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
   const lines = content.split("\n");
@@ -558,18 +568,29 @@ export default function CoachScreen() {
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
             // instead of leaving the user staring at stripped/empty text.
+            // A parlay BUILD is in flight when either the user explicitly asked to
+            // build one (catches the early stream BEFORE any PICK line, so the
+            // lead-in prose never flashes) or PICK lines have started arriving.
+            const parlayBuildIntent =
+              m.role === "assistant" && PARLAY_BUILD_RE.test(messages[i - 1]?.content || "");
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
               i === messages.length - 1 &&
               !hasPicks &&
-              m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim()));
+              (parlayBuildIntent ||
+                m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
             const bubbleText =
               m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
-            // the cards (and their EDGE notes) carry everything.
+            // the cards (and their EDGE notes) carry everything. Also hide it while
+            // a parlay is building so only the "Building your parlay…" indicator
+            // shows (no intro prose lands in the chat ahead of the cards).
             const showBubble =
-              !m.statCard && !m.periodGameLog && (isWaiting || bubbleText.length > 0);
+              !m.statCard &&
+              !m.periodGameLog &&
+              !isBuildingParlay &&
+              (isWaiting || bubbleText.length > 0);
             return (
               <View key={i}>
                 {m.statCard ? (
