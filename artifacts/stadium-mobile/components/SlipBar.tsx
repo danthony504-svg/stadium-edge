@@ -1,8 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { usePathname, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Keyboard,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -30,8 +31,11 @@ if (
 // the slip has legs, and expands into a scrollable list of legs (each removable)
 // with a shortcut to the full Slip tab. Rendered once in the ROOT app/_layout so
 // it rides over EVERY screen — tab screens AND root-level routes like
-// game/[id] and upcoming. Hidden on the Slip tab itself (that screen IS the full
-// slip) and on the Coach tab (its chat composer owns the bottom).
+// game/[id], upcoming, props and coach. Hidden on the Slip tab itself (that
+// screen IS the full slip). On Coach it lifts above the chat composer and hides
+// while the keyboard is up so it never covers what the user is typing.
+const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
+
 export function SlipBar() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -39,14 +43,27 @@ export function SlipBar() {
   const pathname = usePathname();
   const { legs, combinedOdds, stake, removeLeg, clearLegs } = useBetSlip();
   const [open, setOpen] = useState(false);
+  const [kbVisible, setKbVisible] = useState(false);
 
-  const hiddenRoute =
-    pathname === "/slip" ||
-    pathname.startsWith("/slip/") ||
-    pathname === "/coach" ||
-    pathname.startsWith("/coach/");
+  // Track the soft keyboard so the bar can step aside on the Coach screen while
+  // typing. (No-op on web — these events never fire there.)
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const subs = [
+      Keyboard.addListener("keyboardWillShow", () => setKbVisible(true)),
+      Keyboard.addListener("keyboardDidShow", () => setKbVisible(true)),
+      Keyboard.addListener("keyboardWillHide", () => setKbVisible(false)),
+      Keyboard.addListener("keyboardDidHide", () => setKbVisible(false)),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, []);
+
+  const onCoach = pathname === "/coach" || pathname.startsWith("/coach/");
+  const hiddenRoute = pathname === "/slip" || pathname.startsWith("/slip/");
 
   if (legs.length === 0 || hiddenRoute) return null;
+  // On Coach, the composer (and risen keyboard) own the bottom while typing.
+  if (onCoach && kbVisible) return null;
 
   const toWin = payout(stake, combinedOdds) - stake;
 
@@ -90,7 +107,7 @@ export function SlipBar() {
           position: "absolute",
           left: 12,
           right: 12,
-          bottom: insets.bottom + 12,
+          bottom: insets.bottom + 12 + (onCoach ? COMPOSER_CLEARANCE : 0),
         }}
       >
         {/* Expanded leg list (sits above the summary bar) */}

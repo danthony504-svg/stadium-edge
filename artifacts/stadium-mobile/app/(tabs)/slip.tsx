@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { enrichPickMeta } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
@@ -164,12 +165,13 @@ export default function SlipScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
+      <KeyboardAwareScrollViewCompat
         contentContainerStyle={{
           paddingTop: insets.top + 8,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 24,
         }}
+        bottomOffset={24}
       >
         <View style={{ marginBottom: 16, paddingLeft: 48 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
@@ -357,7 +359,7 @@ export default function SlipScreen() {
             </View>
           </>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollViewCompat>
     </View>
   );
 }
