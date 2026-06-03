@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -241,6 +242,7 @@ export default function CoachScreen() {
       </KeyboardAwareScrollViewCompat>
 
       {/* Composer */}
+      <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
       <View
         style={{
           flexDirection: "row",
@@ -301,6 +303,7 @@ export default function CoachScreen() {
           )}
         </Pressable>
       </View>
+      </KeyboardStickyView>
     </View>
   );
 }

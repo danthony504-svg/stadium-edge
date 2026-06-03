@@ -748,51 +748,6 @@ export function PlayerPropsSheet({
             </View>
           ) : null}
 
-          {/* Bookmaker lines */}
-          <View>
-            <SectionLabel>Bookmaker Lines</SectionLabel>
-            <View style={{ gap: 10 }}>
-              {markets.map((m) => {
-                const p = data.props.find((x) => x.market === m);
-                if (!p) return null;
-                const lineTxt = p.line != null ? ` ${p.line}` : "";
-                const label = propMarketLabel(p.market);
-                const overPick = `${data.player} Over${lineTxt} ${label}`;
-                const underPick = `${data.player} Under${lineTxt} ${label}`;
-                const overAdded = hasLeg(data.gameLabel, "Player Prop", overPick);
-                const underAdded = hasLeg(data.gameLabel, "Player Prop", underPick);
-                const add = (side: "Over" | "Under", price: number | null) => {
-                  if (price == null) return;
-                  const pick = side === "Over" ? overPick : underPick;
-                  const ok = addLeg({ game: data.gameLabel, market: "Player Prop", pick, odds: price, sport: data.sport });
-                  Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
-                };
-                return (
-                  <View
-                    key={m}
-                    style={{
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: colors.radius,
-                      padding: 12,
-                      gap: 10,
-                    }}
-                  >
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-                      {label}
-                      {p.line != null ? ` · ${p.line}` : ""}
-                    </Text>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      <SideChip side="Over" line={p.line} price={p.overPrice} added={overAdded} onPress={() => add("Over", p.overPrice)} />
-                      <SideChip side="Under" line={p.line} price={p.underPrice} added={underAdded} onPress={() => add("Under", p.underPrice)} />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
           {/* Honest data note */}
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, textAlign: "center" }}>
             Season stats &amp; game logs are real ESPN data. Lines and prices are live
