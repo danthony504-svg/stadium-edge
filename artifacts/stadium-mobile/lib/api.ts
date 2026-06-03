@@ -413,10 +413,42 @@ function buildPropIdMap(games: EspnGame[]): Map<string, PropTeamIds> {
 
 // How many of the soonest prop-capable games to pull props for when assembling
 // chat context. Each is a separate Odds API request (props route allows
-// 120/min, caches 5min); ~10 keeps the chat responsive while giving the AI a
-// real, multi-game prop pool to build prop legs from.
-const MAX_PROP_CONTEXT_GAMES = 10;
-const MAX_PROPS_IN_CONTEXT = 240;
+// 120/min, caches 5min); 16 covers a full single-sport slate so an "all games"
+// or big-leg parlay can draw player props from every game, not just a handful.
+const MAX_PROP_CONTEXT_GAMES = 16;
+// Cap on prop rows the AI sees. MLB games each post 100+ rows, so a small cap
+// taken in fetch-completion order would be filled by the first 2-3 games that
+// resolve — leaving the AI blind to every other game's players (it would report
+// "props concentrated in a few games"). We raise the cap AND select breadth-first
+// across games (see balancePropsByGame) so every game is represented.
+const MAX_PROPS_IN_CONTEXT = 400;
+
+// Pick up to `cap` props spread evenly across games instead of taking the first
+// `cap` in arrival order. Round-robins one prop per game per pass so a 12-game
+// slate contributes ~equally and no game is starved by another's deep prop list.
+function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[] {
+  if (props.length <= cap) return props;
+  const byGame = new Map<string, RealPropEntry[]>();
+  for (const p of props) {
+    const arr = byGame.get(p.game);
+    if (arr) arr.push(p);
+    else byGame.set(p.game, [p]);
+  }
+  const buckets = [...byGame.values()];
+  const out: RealPropEntry[] = [];
+  for (let i = 0; out.length < cap; i++) {
+    let pushedAny = false;
+    for (const b of buckets) {
+      if (i < b.length) {
+        out.push(b[i]);
+        pushedAny = true;
+        if (out.length >= cap) break;
+      }
+    }
+    if (!pushedAny) break; // all buckets exhausted
+  }
+  return out;
+}
 
 export type ChatContext = {
   selectedSports: string[];
@@ -566,7 +598,7 @@ export async function buildChatContext(
       currentSlip,
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
-      realProps: realProps.slice(0, MAX_PROPS_IN_CONTEXT),
+      realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT),
     },
     propPool,
     gameMeta,
