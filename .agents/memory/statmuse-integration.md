@@ -99,6 +99,19 @@ season rates.
   per-player props, so q2-q4/h2 yield no candidates and are correctly skipped).
   Fetch each log in parallel, format `"<player> — <period> <stat>, last N games:
   v,v,v (avg X)"`.
+- **OFF-SLATE named players (step "1b")**: the props-pool match above ONLY grounds
+  players whose team plays tonight. A question about a star whose team is idle
+  (e.g. "Wembanyama Q1 vs the Knicks" when SAS isn't on the slate) found ZERO
+  candidates → model fell back to one headline fact and honestly refused. Fix: a
+  second extraction (runs only when `periodIntent` AND `candidates.length < 4`)
+  pulls capitalized name phrases from the raw message via regex, EXCLUDING (a)
+  tonight's team-name tokens from realGames, (b) the named opponent captured via
+  `vs|versus|against (the )?Name`, and (c) a STOP wordlist (common caps, sports,
+  days, months); single-word names must be ≥4 chars. Safe because the candidate
+  only ever feeds `playerPeriodGameLog` → REAL StatMuse grid or null, never an
+  invented number. Verified e2e: returns "5, 11, 2, 11, 7 (7.2 avg)" overall and
+  notes only 1 verified Knicks game — exactly the "last ~5 OVERALL, not
+  opponent-scoped" behavior chosen.
 - SYSTEM_PROMPT "PERIOD GAME-LOG FACTS" directive: count games clearing the line,
   cite the game-by-game numbers + hit rate, take only the side the log supports,
   never override with a season rate, never invent if there's no log fact.

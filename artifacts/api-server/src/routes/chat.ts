@@ -984,6 +984,61 @@ router.post("/chat", async (req, res): Promise<void> => {
             (last.length >= 3 && wordRe(last).test(latestUser));
           if (named) pushCand(player, p["sport"]);
         }
+        // 1b) players the user NAMED who AREN'T in tonight's prop pool (off-slate
+        //     research questions — a star whose team isn't playing today). Extract
+        //     capitalized name phrases from the message, excluding tonight's team
+        //     names and the named OPPONENT ("vs the Knicks"), so we can still pull
+        //     their REAL recent per-game period log from StatMuse. StatMuse resolves
+        //     its own player and the 2-row minimum drops any non-player junk that
+        //     slips through (never fabricates).
+        if (candidates.length < 4) {
+          const ctxGames = Array.isArray((parsed.data.context as { realGames?: unknown[] })?.realGames)
+            ? ((parsed.data.context as { realGames?: Array<Record<string, unknown>> }).realGames ?? [])
+            : [];
+          const exclude = new Set<string>();
+          const addWords = (v: string) => {
+            for (const w of String(v || "").split(/[\s@]+/)) {
+              const t = w.trim().toLowerCase().replace(/[.'’-]/g, "");
+              if (t.length >= 3) exclude.add(t);
+            }
+          };
+          for (const g of ctxGames) {
+            addWords(String((g as Record<string, unknown>)["homeTeam"] || ""));
+            addWords(String((g as Record<string, unknown>)["awayTeam"] || ""));
+            addWords(String((g as Record<string, unknown>)["game"] || ""));
+          }
+          // The named opponent ("vs the Knicks", "against the Lakers") is NOT the
+          // subject of the question — exclude it so we don't fetch the opponent
+          // team's own period log.
+          const oppRe = /\b(?:vs\.?|versus|against)\s+(?:the\s+)?([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){0,2})/gi;
+          let om: RegExpExecArray | null;
+          while ((om = oppRe.exec(latestUser)) !== null) addWords(om[1]);
+          const STOP = new Set([
+            "how","what","when","where","which","who","why","can","could","should","would","will",
+            "build","give","make","show","find","tell","get","put","need","want","does","did","done",
+            "best","good","today","tonight","tomorrow","yesterday","and","for","with","from","the",
+            "this","that","these","those","parlay","ticket","bet","bets","quarter","quarters","half",
+            "halves","point","points","score","scored","scoring","game","games","last","few","many",
+            "first","second","third","fourth","over","under","line","lines","props","prop","pick","picks",
+            "nba","nfl","nhl","mlb","wnba","ncaaf","ncaab","ufc","mls","epl","soccer","tennis",
+            "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+            "january","february","march","april","june","july","august","september","october","november","december",
+          ]);
+          const phraseRe = /\b([A-Z][A-Za-z'’.\-]+(?:\s+[A-Z][A-Za-z'’.\-]+){0,2})\b/g;
+          let pm: RegExpExecArray | null;
+          while ((pm = phraseRe.exec(latestUser)) !== null && candidates.length < 4) {
+            const words = pm[1].trim().split(/\s+/);
+            const kept = words.filter((w) => {
+              const lw = w.toLowerCase().replace(/[.'’-]/g, "");
+              return lw.length >= 2 && !STOP.has(lw) && !exclude.has(lw);
+            });
+            if (kept.length === 0) continue;
+            // single-word names must be distinctive (>=4 chars) to avoid grabbing
+            // stray capitalized words; multi-word "First Last" phrases are accepted.
+            if (kept.length === 1 && kept[0].replace(/[.'’-]/g, "").length < 4) continue;
+            pushCand(kept.join(" "), null);
+          }
+        }
         // 2) otherwise ground the actual period-prop candidates the AI will pick
         //    from (the period-filtered pool — empty for q2-q4/h2, so we skip
         //    those windows, which have no per-player props anyway).
