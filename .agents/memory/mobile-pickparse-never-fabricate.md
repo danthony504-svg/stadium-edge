@@ -75,3 +75,15 @@ to an in-memory (NOT persisted) `aiPicks` store on `BetSlipContext` via
 `setAiPicks` (only when picks.length>0, so plain Q&A doesn't wipe it) and pinned
 as "★ AI RECOMMENDED" PickCards atop the Player Props tab (filtered `isProp`) and
 the Picks/slip tab (all aiPicks).
+
+## Coach chat is CARDS-ONLY for pick replies; cards toggle add/remove
+`assistantBubbleText(content, hasPicks)` returns `""` when a reply resolved into
+pick cards → the whole assistant bubble is hidden (no lead-in prose, no PICK/
+EDGE/ALT rows, no trailing combined-odds/risk/alternates block). All reasoning
+reaches the user ONLY via each card's per-pick EDGE note (`pick.edge`), so never
+drop the EDGE rendering. `showBubble` skips empty bubbles; fail-closed (0 picks)
+still shows full text so nothing is silently hidden; streaming shows text then
+collapses to cards at the end. **Why:** user wanted a clean card-only parlay view.
+PickCard slip button is a TOGGLE (`onToggle`): add when absent, `removeLeg(id)`
+when present (id = `${game}|${market}|${pick}`.toLowerCase() == BetSlipContext
+legKey); label "Added — tap to remove". Not disabled after adding.

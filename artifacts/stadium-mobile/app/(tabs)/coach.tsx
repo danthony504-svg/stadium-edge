@@ -122,17 +122,14 @@ const WELCOME_RETURNING =
   "Stadium Edge is locked in. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
 // What the chat bubble shows for an assistant reply. Once a reply has resolved
-// into pick cards, show ONLY the lead-in text before the first PICK/ALT line —
-// the PICK/EDGE/ALT rows and the whole trailing block after the picks (combined
-// odds, risk note, alternates, extra analysis) are dropped from the bubble,
-// because each pick's reasoning is rendered in its card's EDGE note. With no
-// picks (a plain Q&A reply), the full text is shown unchanged.
+// into pick cards, the bubble is hidden entirely — the lead-in prose, the
+// PICK/EDGE/ALT rows, and the whole trailing block (combined odds, risk note,
+// alternates, extra analysis) are all dropped. Each pick's reasoning is rendered
+// in its card's EDGE note, so the chat shows only the cards. Plain Q&A replies
+// (no picks) show their full text unchanged.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
-  if (!hasPicks) return content.trim();
-  const lines = content.split("\n");
-  const idx = lines.findIndex((l) => /^(?:PICK|ALT)\s*:/i.test(l.trim()));
-  if (idx === -1) return content.trim();
-  return lines.slice(0, idx).join("\n").trim();
+  if (hasPicks) return "";
+  return content.trim();
 }
 
 export default function CoachScreen() {

@@ -20,14 +20,23 @@ export type ParsedPick = {
 
 export function PickCard({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
-  const { addLeg, hasLeg } = useBetSlip();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
 
-  const onAdd = () => {
-    const ok = addLeg(pick);
-    Haptics.impactAsync(
-      ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
-    );
+  // Tapping the button toggles the leg in/out of the slip: add when it's not
+  // there, remove when it already is. The leg id matches BetSlipContext's
+  // legKey(game, market, pick) so removeLeg targets the right entry.
+  const onToggle = () => {
+    if (added) {
+      const id = `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
+      removeLeg(id);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      const ok = addLeg(pick);
+      Haptics.impactAsync(
+        ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+      );
+    }
   };
 
   return (
@@ -69,8 +78,7 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
       ) : null}
 
       <Pressable
-        onPress={onAdd}
-        disabled={added}
+        onPress={onToggle}
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
@@ -86,18 +94,18 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         })}
       >
         <Feather
-          name={added ? "check" : "plus"}
+          name={added ? "x" : "plus"}
           size={15}
-          color={added ? colors.success : colors.primaryForeground}
+          color={added ? colors.mutedForeground : colors.primaryForeground}
         />
         <Text
           style={{
-            color: added ? colors.success : colors.primaryForeground,
+            color: added ? colors.mutedForeground : colors.primaryForeground,
             fontFamily: FONT.bold,
             fontSize: 13,
           }}
         >
-          {added ? "Added to slip" : "Add to slip"}
+          {added ? "Added — tap to remove" : "Add to slip"}
         </Text>
       </Pressable>
     </View>
