@@ -524,10 +524,15 @@ export default function CoachScreen() {
       }
 
       try {
+        // Odds-threshold ask ("10 leg with -300 or less"): parsed once and used
+        // both to steer alt-rung selection in the context and to hard-filter the
+        // resolved legs below.
+        const oddsThreshold = parseOddsThreshold(trimmed);
         const { context, propPool, gameMeta } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
           controller.signal,
+          oddsThreshold,
         );
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
@@ -558,7 +563,6 @@ export default function CoachScreen() {
         // real price breaks the bound so the WHOLE ticket qualifies. The server
         // prompt already steers the model toward qualifying legs; this is the
         // belt-and-braces guarantee on the resolved real odds.
-        const oddsThreshold = parseOddsThreshold(trimmed);
         let thresholdNote = "";
         if (oddsThreshold) {
           const before = picks.length;

@@ -1,4 +1,5 @@
 import { fetch as expoFetch } from "expo/fetch";
+import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
@@ -465,7 +466,7 @@ const impliedProb = (american: number) =>
 
 // Convert an OddsGame into real-odds PICK entries (main markets only — keeps the
 // chat context compact). Same shape the web app sends as context.realOdds.
-export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
+export function buildRealOdds(g: OddsGame, oddsThreshold?: OddsThreshold | null): RealOddsEntry[] {
   if (!g || !g.markets) return [];
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
@@ -492,13 +493,22 @@ export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
   }
 
   // Alternate ladders (alt spreads / alt totals) the server merged in per-event.
-  // Offer ONE rung per side — the one closest to even money — so the AI gets a
-  // usable cushion/value line for each side without bloating the context with the
-  // whole ladder. Skip a rung that equals the main number (not really an alt) or
-  // is priced so short (<= -1000) it adds no real equity. The AI prompt already
-  // documents the "Alt Spread"/"Alt Total" labels, and the slip parser resolves
-  // them via marketFamily (Alt Spread -> spread) plus the exact alt point.
+  // Surface ONE rung per side so the context stays lean. WHICH rung depends on
+  // the request: by default the rung closest to even money (a usable cushion/
+  // value line); but under an odds-threshold ask ("-300 or less" / "+300 or
+  // more") the LEAST-EXTREME rung that satisfies the bound — because that's the
+  // end of the ladder such a ticket is actually built from (buying points to a
+  // heavy favorite, or selling them for a longer payout). Without this, an
+  // even-money rung never qualifies and the threshold ticket starves. Skip a
+  // rung equal to the main number (not really an alt) or priced so short
+  // (<= -1000) it adds no equity. The AI prompt already documents the "Alt
+  // Spread"/"Alt Total" labels; the slip parser resolves them via marketFamily
+  // (Alt Spread -> spread) plus the exact alt point.
   const ALT_MAX_JUICE = -1000;
+  // Lower is "better": distance to the bound under a threshold, else distance
+  // from even money.
+  const rungCost = (o: OddsOutcome) =>
+    oddsThreshold ? Math.abs(o.price - oddsThreshold.signed) : Math.abs(impliedProb(o.price) - 0.5);
   const bestRungPerSide = (
     outcomes: OddsOutcome[],
     sideKey: (o: OddsOutcome) => string,
@@ -509,11 +519,11 @@ export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
     for (const o of outcomes || []) {
       if (o.price == null || o.price <= ALT_MAX_JUICE) continue;
       if (mainPts.has(ptKey(o))) continue; // same number as the main line
+      // Under a threshold, only rungs that actually satisfy the bound are useful.
+      if (oddsThreshold && !oddsSatisfiesThreshold(o.price, oddsThreshold)) continue;
       const sk = sideKey(o);
       const cur = bySide.get(sk);
-      if (!cur || Math.abs(impliedProb(o.price) - 0.5) < Math.abs(impliedProb(cur.price) - 0.5)) {
-        bySide.set(sk, o);
-      }
+      if (!cur || rungCost(o) < rungCost(cur)) bySide.set(sk, o);
     }
     return [...bySide.values()];
   };
@@ -691,6 +701,7 @@ export async function buildChatContext(
   sports: string[],
   currentSlip: { game: string; market: string; pick: string; odds: number }[],
   signal?: AbortSignal,
+  oddsThreshold?: OddsThreshold | null,
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
@@ -721,7 +732,7 @@ export async function buildChatContext(
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
-      realOdds.push(...buildRealOdds(g));
+      realOdds.push(...buildRealOdds(g, oddsThreshold));
     }
     for (const g of gamesAll[i]) {
       if (g.state === "post") continue; // finished
@@ -789,6 +800,14 @@ export async function buildChatContext(
           for (const p of usable) {
             if (!!p.alt !== altPass) continue;
             if (p.alt) {
+              // Under an odds-threshold ask, keep only alt prop rungs that can
+              // satisfy the bound (juiced low lines for "-300 or less", longer
+              // rungs for "+300 or more") so props can join the threshold ticket.
+              if (oddsThreshold) {
+                const overOk = p.overPrice != null && oddsSatisfiesThreshold(p.overPrice, oddsThreshold);
+                const underOk = p.underPrice != null && oddsSatisfiesThreshold(p.underPrice, oddsThreshold);
+                if (!overOk && !underOk) continue;
+              }
               const k = `${p.player}|${p.market}`.toLowerCase();
               const n = altRungs.get(k) ?? 0;
               if (n >= ALT_RUNGS_PER_PROP) continue;

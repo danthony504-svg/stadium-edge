@@ -32,3 +32,19 @@ alt lines/props resolve fail-closed with zero parser edits.
 **Dedup main+alt same family** is enforced by the SHARED server system prompt
 (one-per-(game,market-family) ban) — same mechanism the web app relies on; not
 re-implemented client-side.
+
+**Alt-rung selection must be THRESHOLD-AWARE.** Picking the rung closest to even
+money is the WRONG end of the ladder for an odds-bound ticket: "-300 or less"
+(atMost) is built from JUICED rungs (buy points → heavy favorite), "+300 or
+more" (atLeast) from the LONG end. Even-money-only selection starves these
+tickets (real symptom: "10 leg -300 or less" → 1 leg).
+**Why:** mobile `buildChatContext` is otherwise query-blind; the AI only ever
+sees rungs the context chose to surface, and the post-parse `oddsSatisfiesThreshold`
+filter can only drop, never add, so if no qualifying rung is in context the
+ticket can't fill.
+**How to apply:** thread `parseOddsThreshold(trimmed)` (lib/format.ts:
+atMost→odds<=signed, atLeast→odds>=signed) coach.tsx → `buildChatContext` →
+`buildRealOdds`. Under a threshold, FILTER alt rungs to `oddsSatisfiesThreshold`
+and pick the LEAST-EXTREME qualifying rung per side (cost = |price - signed|),
+not closest-to-even. Same gate on the prop alt-pass (keep rung if over OR under
+qualifies). Still ≤1 rung/side so the realOdds slice(0,120) breadth cap holds.
