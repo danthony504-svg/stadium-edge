@@ -1289,8 +1289,16 @@ function abortError(): Error {
 //      cancel) propagates immediately and is never retried.
 export async function streamChat({ messages, context, onToken, signal, imageDataUrl }: StreamChatArgs): Promise<string> {
   const STALL_MS = 4000; // max gap between chunks before we call the link dead
-  const CONNECT_MS = 8000; // max wait for response HEADERS before we call it dead
-  const MAX_ATTEMPTS = 4;
+  // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
+  // body (the full real-data context — ~120 odds + the prop pool + matchup/fight
+  // analysis runs to tens of KB) AND the server's time-to-first-byte. On a weak
+  // uplink (the reported "couldn't reach the feed" failure was on a 1-bar LTE
+  // device) an 8s ceiling tripped connect-stall on every attempt before the body
+  // had even finished uploading, so the build failed before the model was ever
+  // reached. 12s gives a slow uplink room to land the request; a genuinely dead
+  // link still aborts and retries (just a few seconds later).
+  const CONNECT_MS = 12000;
+  const MAX_ATTEMPTS = 5;
 
   let lastErr: unknown = null;
 
@@ -1404,6 +1412,21 @@ export async function streamChat({ messages, context, onToken, signal, imageData
       if (sawContent) throw err;
       // Otherwise the link dropped/stalled before the first token: retry.
       lastErr = err;
+      // Brief backoff before the next attempt. Without it all attempts fired
+      // back-to-back in a few milliseconds, so a transient blip (a weak-LTE
+      // packet gap, a momentarily overloaded proxy) burned EVERY attempt before
+      // the link had a chance to recover — surfacing as the "couldn't reach the
+      // feed" failure on a connection that was only briefly degraded. Growing
+      // delay (0.4s → 0.8s → 1.6s → capped 2s), abort-aware so a user cancel
+      // still exits immediately, and skipped after the final attempt.
+      if (attempt < MAX_ATTEMPTS - 1) {
+        const backoffMs = Math.min(2000, 400 * 2 ** attempt);
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, backoffMs);
+          if (signal) signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+        });
+        if (signal?.aborted) throw abortError();
+      }
     }
   }
 

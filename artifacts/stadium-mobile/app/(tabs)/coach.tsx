@@ -654,7 +654,7 @@ export default function CoachScreen() {
             const copy = [...prev];
             copy[copy.length - 1] = {
               role: "assistant",
-              content: "Sorry — I couldn't reach the live data feed just now. Please try again.",
+              content: "Sorry — I lost the connection while building your ticket. Check your signal and try again.",
             };
             return copy;
           });
