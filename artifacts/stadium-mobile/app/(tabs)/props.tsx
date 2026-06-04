@@ -66,7 +66,11 @@ function buildIdMap(games: EspnGame[]): Map<string, TeamInfo> {
 type GameProps = {
   gameLabel: string;
   startsAt: string;
+  // Main lines only — one row per (player, market) for the list/search/count.
   props: PlayerProp[];
+  // Mains + alternate-ladder rungs — used by the per-row "alt lines" expander
+  // and passed to the props sheet so it can price any real rung.
+  allProps: PlayerProp[];
   teams: TeamInfo | null;
 };
 
@@ -108,12 +112,15 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
           },
           signal,
         );
-        // Main lines only — alternate-ladder rungs would duplicate each player.
-        const mains = (r.props ?? []).filter((p) => !p.alt && (p.overPrice != null || p.underPrice != null));
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: mains, teams: ids };
+        // Keep every priced line. Mains drive the list rows (one per player +
+        // market); the full set (incl. alternate rungs) feeds the per-row alt
+        // expander and the props sheet.
+        const all = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+        const mains = all.filter((p) => !p.alt);
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: mains, allProps: all, teams: ids };
       } catch {
         failures += 1;
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: [], teams: ids };
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: [], allProps: [], teams: ids };
       }
     }),
   );
@@ -234,17 +241,20 @@ function PropChip({
 
 function PropRow({
   prop,
+  alts,
   gameLabel,
   sport,
   onOpen,
 }: {
   prop: PlayerProp;
+  alts: PlayerProp[];
   gameLabel: string;
   sport: string;
   onOpen: () => void;
 }) {
   const colors = useColors();
   const { addLeg, hasLeg } = useBetSlip();
+  const [showAlts, setShowAlts] = useState(false);
   const label = propMarketLabel(prop.market);
   const lineTxt = prop.line != null ? ` ${prop.line}` : "";
 
@@ -308,6 +318,48 @@ function PropRow({
           onPress={() => prop.underPrice != null && add(underPick, prop.underPrice)}
         />
       </View>
+
+      {/* Alternate ladder — real rungs the book posts at other lines. Collapsed
+          by default so the list stays compact. Every price is live; no estimates. */}
+      {alts.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <Pressable
+            onPress={() => setShowAlts((s) => !s)}
+            hitSlop={6}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <Feather name={showAlts ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>
+              {showAlts ? "Hide" : "Show"} alt lines ({alts.length})
+            </Text>
+          </Pressable>
+          {showAlts
+            ? alts.map((a, i) => {
+                const altLineTxt = a.line != null ? ` ${a.line}` : "";
+                const aOver = `${prop.player} Over${altLineTxt} ${label}`;
+                const aUnder = `${prop.player} Under${altLineTxt} ${label}`;
+                return (
+                  <View key={`${a.line}-${i}`} style={{ flexDirection: "row", gap: 8 }}>
+                    <PropChip
+                      side="Over"
+                      line={a.line}
+                      price={a.overPrice}
+                      added={hasLeg(gameLabel, "Player Prop", aOver)}
+                      onPress={() => a.overPrice != null && add(aOver, a.overPrice)}
+                    />
+                    <PropChip
+                      side="Under"
+                      line={a.line}
+                      price={a.underPrice}
+                      added={hasLeg(gameLabel, "Player Prop", aUnder)}
+                      onPress={() => a.underPrice != null && add(aUnder, a.underPrice)}
+                    />
+                  </View>
+                );
+              })
+            : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -370,7 +422,7 @@ export default function PropsScreen() {
   // Open the player-props detail seeded to the tapped market, gathering every
   // market that player has in this game (for the metric pills + lines list).
   const openSheet = (g: GameProps, prop: PlayerProp) => {
-    const playerProps = g.props.filter((p) => p.player === prop.player);
+    const playerProps = g.allProps.filter((p) => p.player === prop.player);
     setSheet({
       player: prop.player,
       athleteId: prop.athleteId ?? null,
@@ -574,6 +626,9 @@ export default function PropsScreen() {
                   <PropRow
                     key={`${p.player}-${p.market}-${p.line}-${idx}`}
                     prop={p}
+                    alts={g.allProps
+                      .filter((a) => a.alt && a.player === p.player && a.market === p.market)
+                      .sort((a, b) => (a.line ?? 0) - (b.line ?? 0))}
                     gameLabel={g.gameLabel}
                     sport={sport}
                     onOpen={() => openSheet(g, p)}

@@ -238,10 +238,24 @@ export function PlayerPropsSheet({
     return out;
   }, [data]);
 
+  // The reference line for this market is the MAIN (non-alt) posted line; fall
+  // back to whatever rung exists if only alts are posted.
   const selectedProp = useMemo(
-    () => data?.props.find((p) => p.market === market) ?? null,
+    () =>
+      data?.props.find((p) => p.market === market && !p.alt) ??
+      data?.props.find((p) => p.market === market) ??
+      null,
     [data, market],
   );
+
+  // Every real, priced rung for this market (main + alternates), low → high. The
+  // hit-rate explorer prices/adds at ANY of these; never between them.
+  const rungs = useMemo(() => {
+    if (!data) return [] as PlayerProp[];
+    return data.props
+      .filter((p) => p.market === market && p.line != null && (p.overPrice != null || p.underPrice != null))
+      .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+  }, [data, market]);
 
   const grid = useMemo(
     () => (historyQ.data ? buildGrid(data!.sport, historyQ.data.seasonSummary, ambiguous) : null),
@@ -349,21 +363,26 @@ export function PlayerPropsSheet({
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
 
-  // The hit-rate explorer only ever offers a REAL price, and only at the posted
-  // book line. Away from it there is no real number, so we never show odds.
-  const atBookLine =
-    bookLine != null && chartLine != null && Math.abs(bookLine - chartLine) < 0.01;
-  const stepOverPrice = atBookLine ? selectedProp?.overPrice ?? null : null;
-  const stepUnderPrice = atBookLine ? selectedProp?.underPrice ?? null : null;
+  // The hit-rate explorer only ever offers a REAL price, and only AT a posted
+  // rung (main or alternate). The current line matches a rung → show its live
+  // Over/Under prices; between rungs there is no real number, so we show none.
+  const rungAt = useMemo(() => {
+    if (chartLine == null) return null;
+    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
+  }, [rungs, chartLine]);
+  const stepOverPrice = rungAt?.overPrice ?? null;
+  const stepUnderPrice = rungAt?.underPrice ?? null;
   const mlabel = propMarketLabel(market);
-  const stepLineTxt = bookLine != null ? ` ${bookLine}` : "";
+  const stepLineTxt = rungAt?.line != null ? ` ${rungAt.line}` : "";
   const overAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Over${stepLineTxt} ${mlabel}`);
   const underAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Under${stepLineTxt} ${mlabel}`);
 
-  const addPick = (side: "Over" | "Under", price: number) => {
-    if (!selectedProp) return;
-    const lineTxt = selectedProp.line != null ? ` ${selectedProp.line}` : "";
-    const label = propMarketLabel(selectedProp.market);
+  // Add a leg at a specific REAL rung (main or alt). Pick string uses that
+  // rung's own line so it dedupes correctly with Coach legs.
+  const addRung = (rung: PlayerProp | null, side: "Over" | "Under", price: number) => {
+    if (!rung) return;
+    const lineTxt = rung.line != null ? ` ${rung.line}` : "";
+    const label = propMarketLabel(rung.market);
     const pick = `${data.player} ${side}${lineTxt} ${label}`;
     const ok = addLeg({ game: data.gameLabel, market: "Player Prop", pick, odds: price, sport: data.sport });
     Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
@@ -665,7 +684,7 @@ export function PlayerPropsSheet({
                     </View>
 
                     <Pressable
-                      onPress={() => addPick(aiSuggestion.side, aiSuggestion.price)}
+                      onPress={() => addRung(selectedProp, aiSuggestion.side, aiSuggestion.price)}
                       style={({ pressed }) => ({
                         flexDirection: "row",
                         alignItems: "center",
@@ -849,27 +868,65 @@ export function PlayerPropsSheet({
                   <Feather name="plus" size={22} color={colors.foreground} />
                 </Pressable>
               </View>
+
+              {/* Posted lines — every REAL rung (main + alternates) the book
+                  offers, one tap away with its live price. */}
+              {rungs.length > 1 ? (
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase" }}>
+                    Posted lines · tap to price
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                    {rungs.map((r) => {
+                      const active = chartLine != null && r.line != null && Math.abs(r.line - chartLine) < 0.01;
+                      return (
+                        <Pressable
+                          key={`rung-${r.line}`}
+                          onPress={() => {
+                            if (r.line != null) setChartLine(+r.line.toFixed(1));
+                            Haptics.selectionAsync();
+                          }}
+                          hitSlop={4}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 999,
+                            borderWidth: 1,
+                            borderColor: active ? colors.primary : colors.border,
+                            backgroundColor: active ? colors.primary + "22" : "transparent",
+                          }}
+                        >
+                          <Text style={{ color: active ? colors.primary : colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+                            {r.line}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : null}
+
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <SideChip
                   side="Under"
                   line={chartLine}
                   price={stepUnderPrice}
                   added={underAddedStep}
-                  onPress={() => stepUnderPrice != null && addPick("Under", stepUnderPrice)}
+                  onPress={() => stepUnderPrice != null && addRung(rungAt, "Under", stepUnderPrice)}
                 />
                 <SideChip
                   side="Over"
                   line={chartLine}
                   price={stepOverPrice}
                   added={overAddedStep}
-                  onPress={() => stepOverPrice != null && addPick("Over", stepOverPrice)}
+                  onPress={() => stepOverPrice != null && addRung(rungAt, "Over", stepOverPrice)}
                 />
               </View>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, textAlign: "center", lineHeight: 14 }}>
-                {atBookLine
+                {rungAt
                   ? "Live bookmaker price at this line."
-                  : bookLine != null
-                    ? `Live price is posted only at ${bookLine}. Move the line back to ${bookLine} to add it.`
+                  : rungs.length > 0
+                    ? `Live prices posted at ${rungs.map((r) => r.line).join(", ")} — move the line to one to add it.`
                     : "No bookmaker line is posted for this market — explore the hit-rate only."}
               </Text>
             </View>

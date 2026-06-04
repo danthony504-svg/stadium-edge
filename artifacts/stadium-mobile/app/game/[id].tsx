@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -17,30 +17,80 @@ import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
-const MARKET_LABEL: Record<string, string> = {
+const PERIOD_LABEL: Record<string, string> = {
+  h1: "1H",
+  h2: "2H",
+  q1: "Q1",
+  q2: "Q2",
+  q3: "Q3",
+  q4: "Q4",
+};
+
+const BASE_LABEL: Record<"h2h" | "spreads" | "totals", string> = {
   h2h: "Moneyline",
   spreads: "Spread",
   totals: "Total",
 };
 
-function pickLabel(marketKey: string, game: OddsGame, name: string, point?: number | null): { market: string; pick: string } {
-  if (marketKey === "h2h") return { market: "Moneyline", pick: `${nickname(name)} ML` };
-  if (marketKey === "spreads") {
-    const pt = point == null ? "" : ` ${point > 0 ? "+" : ""}${point}`;
-    return { market: "Spread", pick: `${nickname(name)}${pt}` };
+type Decoded = { base: "h2h" | "spreads" | "totals"; period: string; alt: boolean };
+
+// Decode an Odds API market key into its base market, period label, and whether
+// it's an alternate ladder. Returns null for keys we don't render. The feed
+// (api-server odds.ts) sends h2h/spreads/totals, alternate_spreads/_totals, the
+// per-period h2h/spreads/totals (h1/h2/q1–q4), and alternate_*_h1.
+function decodeMarket(key: string): Decoded | null {
+  if (key === "h2h" || key === "spreads" || key === "totals") {
+    return { base: key, period: "", alt: false };
   }
-  if (marketKey === "totals") {
-    const pt = point == null ? "" : ` ${point}`;
-    return { market: "Total", pick: `${name}${pt}`.trim() };
-  }
-  return { market: marketKey, pick: name };
+  if (key === "alternate_spreads") return { base: "spreads", period: "", alt: true };
+  if (key === "alternate_totals") return { base: "totals", period: "", alt: true };
+  let m = key.match(/^alternate_(spreads|totals)_(h1|h2|q1|q2|q3|q4)$/);
+  if (m) return { base: m[1] as "spreads" | "totals", period: PERIOD_LABEL[m[2]], alt: true };
+  m = key.match(/^(h2h|spreads|totals)_(h1|h2|q1|q2|q3|q4)$/);
+  if (m) return { base: m[1] as Decoded["base"], period: PERIOD_LABEL[m[2]], alt: false };
+  return null;
 }
 
-function MarketBlock({ game, market }: { game: OddsGame; market: OddsMarket }) {
+// Title doubles as the slip market string, kept in lockstep with
+// buildPicksFromOdds (api.ts) — e.g. "Alt Spread", "1H Total", "Q2 Moneyline",
+// "1H Alt Spread" — so a leg added here dedupes with the same leg from the Coach.
+function marketTitle(d: Decoded): string {
+  return [d.period, d.alt ? "Alt" : "", BASE_LABEL[d.base]].filter(Boolean).join(" ");
+}
+
+// The pick string depends ONLY on the base market (period/alt don't change it),
+// matching buildPicksFromOdds exactly for slip dedupe parity.
+function pickFor(base: Decoded["base"], name: string, point?: number | null): string {
+  if (base === "h2h") return `${nickname(name)} ML`;
+  if (base === "spreads") {
+    const pt = point == null ? "" : ` ${point > 0 ? "+" : ""}${point}`;
+    return `${nickname(name)}${pt}`;
+  }
+  const pt = point == null ? "" : ` ${point}`;
+  return `${name}${pt}`.trim();
+}
+
+function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMarket; decoded: Decoded }) {
   const colors = useColors();
   const { addLeg, hasLeg } = useBetSlip();
   const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
-  const title = MARKET_LABEL[market.key] ?? market.key;
+  const title = marketTitle(decoded);
+  // Main full-game markets stay expanded; alternate ladders and period markets
+  // collapse (they can carry many rungs) so the screen opens tidy.
+  const collapsible = decoded.alt || decoded.period !== "";
+  const [open, setOpen] = useState(!collapsible);
+
+  // Alt ladders read low→high per side; mains keep the feed's order.
+  const outcomes = useMemo(() => {
+    const list = [...(market.outcomes ?? [])];
+    if (decoded.base === "h2h") return list;
+    return list.sort((a, b) => {
+      const sa = decoded.base === "totals" ? a.name : nickname(a.name);
+      const sb = decoded.base === "totals" ? b.name : nickname(b.name);
+      if (sa !== sb) return sa < sb ? -1 : 1;
+      return (a.point ?? 0) - (b.point ?? 0);
+    });
+  }, [market.outcomes, decoded.base]);
 
   return (
     <View
@@ -53,9 +103,25 @@ function MarketBlock({ game, market }: { game: OddsGame; market: OddsMarket }) {
         gap: 10,
       }}
     >
-      <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15 }}>{title}</Text>
-      {market.outcomes.map((o, idx) => {
-        const { market: mk, pick } = pickLabel(market.key, game, o.name, o.point);
+      <Pressable
+        disabled={!collapsible}
+        onPress={() => collapsible && setOpen((o) => !o)}
+        style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+      >
+        <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15 }}>{title}</Text>
+        {collapsible ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {outcomes.length} line{outcomes.length === 1 ? "" : "s"}
+            </Text>
+            <Feather name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
+          </View>
+        ) : null}
+      </Pressable>
+      {open
+        ? outcomes.map((o, idx) => {
+        const pick = pickFor(decoded.base, o.name, o.point);
+        const mk = title;
         const added = hasLeg(gameLabel, mk, pick);
         const best =
           o.books && o.books.length > 0
@@ -104,7 +170,8 @@ function MarketBlock({ game, market }: { game: OddsGame; market: OddsMarket }) {
             />
           </Pressable>
         );
-      })}
+          })
+        : null}
     </View>
   );
 }
@@ -307,9 +374,18 @@ export default function GameDetailScreen() {
 
           <AiGamePicks game={game} />
 
-          {game.markets.map((m) => (
-            <MarketBlock key={m.key} game={game} market={m} />
-          ))}
+          {(() => {
+            // Decode + drop unrenderable keys, then order: full-game mains first,
+            // full-game alt ladders next, period markets last.
+            const blocks = game.markets
+              .map((m) => ({ m, d: decodeMarket(m.key) }))
+              .filter((x): x is { m: OddsMarket; d: Decoded } => x.d != null);
+            const rank = (d: Decoded) => (d.period === "" && !d.alt ? 0 : d.period === "" ? 1 : 2);
+            blocks.sort((a, b) => rank(a.d) - rank(b.d));
+            return blocks.map(({ m, d }) => (
+              <MarketBlock key={m.key} game={game} market={m} decoded={d} />
+            ));
+          })()}
         </ScrollView>
       )}
       {/* Floating slip popup — this is a root-stack screen (outside the tab
