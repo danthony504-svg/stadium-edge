@@ -466,7 +466,11 @@ const impliedProb = (american: number) =>
 
 // Convert an OddsGame into real-odds PICK entries (main markets only — keeps the
 // chat context compact). Same shape the web app sends as context.realOdds.
-export function buildRealOdds(g: OddsGame, oddsThreshold?: OddsThreshold | null): RealOddsEntry[] {
+export function buildRealOdds(
+  g: OddsGame,
+  oddsThreshold?: OddsThreshold | null,
+  includePeriods = false,
+): RealOddsEntry[] {
   if (!g || !g.markets) return [];
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
@@ -541,6 +545,65 @@ export function buildRealOdds(g: OddsGame, oddsThreshold?: OddsThreshold | null)
     for (const o of bestRungPerSide(altTotals.outcomes || [], (o) => o.name, mainPts, (o) => `${o.name}|${o.point ?? ""}`)) {
       const pt = o.point == null ? "" : ` ${o.point}`;
       out.push({ ...base, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+    }
+  }
+
+  // Game-level PERIOD markets (1H/2H/Q1–Q4) the server merged in per-event. Only
+  // emitted when the user asks for a period/same-game ticket (includePeriods), so
+  // the default multi-game context stays lean. Friendly labels match the shared
+  // chat SYSTEM_PROMPT ("1H Spread", "Q3 Total", "Q2 Moneyline", "1H Alt Spread",
+  // "1H Alt Total") — the slip parser's marketFamily keeps each period distinct
+  // so a "Q3 Moneyline" pick can't resolve to the full-game moneyline.
+  if (includePeriods) {
+    const PERIOD_LABEL: Record<string, string> = {
+      h1: "1H", h2: "2H", q1: "Q1", q2: "Q2", q3: "Q3", q4: "Q4",
+    };
+    for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
+      const pml = g.markets.find((m) => m.key === `h2h_${suffix}`);
+      const psp = g.markets.find((m) => m.key === `spreads_${suffix}`);
+      const ptot = g.markets.find((m) => m.key === `totals_${suffix}`);
+      if (pml) {
+        for (const o of pml.outcomes || []) {
+          if (o.price == null) continue;
+          out.push({ ...base, market: `${plabel} Moneyline`, pick: `${nickname(o.name)} ML`, odds: o.price });
+        }
+      }
+      if (psp) {
+        for (const o of psp.outcomes || []) {
+          if (o.price == null) continue;
+          const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+          out.push({ ...base, market: `${plabel} Spread`, pick: `${nickname(o.name)}${pt}`, odds: o.price });
+        }
+      }
+      if (ptot) {
+        for (const o of ptot.outcomes || []) {
+          if (o.price == null) continue;
+          const pt = o.point == null ? "" : ` ${o.point}`;
+          out.push({ ...base, market: `${plabel} Total`, pick: `${o.name}${pt}`.trim(), odds: o.price });
+        }
+      }
+    }
+    // First-half alternate ladders (only 1H alts are posted by the feed). One
+    // rung per side, threshold-aware via bestRungPerSide (same as full-game alts).
+    const altSpreadH1 = g.markets.find((m) => m.key === "alternate_spreads_h1");
+    const altTotalH1 = g.markets.find((m) => m.key === "alternate_totals_h1");
+    if (altSpreadH1) {
+      const mainPts = new Set(
+        (g.markets.find((m) => m.key === "spreads_h1")?.outcomes ?? []).map((o) => `${nickname(o.name)}|${o.point ?? ""}`),
+      );
+      for (const o of bestRungPerSide(altSpreadH1.outcomes || [], (o) => nickname(o.name), mainPts, (o) => `${nickname(o.name)}|${o.point ?? ""}`)) {
+        const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+        out.push({ ...base, market: "1H Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+      }
+    }
+    if (altTotalH1) {
+      const mainPts = new Set(
+        (g.markets.find((m) => m.key === "totals_h1")?.outcomes ?? []).map((o) => `${o.name}|${o.point ?? ""}`),
+      );
+      for (const o of bestRungPerSide(altTotalH1.outcomes || [], (o) => o.name, mainPts, (o) => `${o.name}|${o.point ?? ""}`)) {
+        const pt = o.point == null ? "" : ` ${o.point}`;
+        out.push({ ...base, market: "1H Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+      }
     }
   }
   return out;
@@ -702,6 +765,7 @@ export async function buildChatContext(
   currentSlip: { game: string; market: string; pick: string; odds: number }[],
   signal?: AbortSignal,
   oddsThreshold?: OddsThreshold | null,
+  includePeriods = false,
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
@@ -732,7 +796,7 @@ export async function buildChatContext(
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
-      realOdds.push(...buildRealOdds(g, oddsThreshold));
+      realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods));
     }
     for (const g of gamesAll[i]) {
       if (g.state === "post") continue; // finished

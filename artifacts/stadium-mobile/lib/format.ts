@@ -114,3 +114,17 @@ export function oddsSatisfiesThreshold(
   if (odds == null || !Number.isFinite(odds)) return false;
   return thr.mode === "atLeast" ? odds >= thr.signed : odds <= thr.signed;
 }
+
+// Does the request want game-level PERIOD markets (1H/2H/Q1–Q4) or a same-game
+// parlay? Those legs are heavy, so the chat context only surfaces them when the
+// user explicitly asks (mirrors the web app's includePeriods gate). Matches the
+// raw suffixes ("2H", "Q3"), the spelled-out forms ("second half", "first
+// quarter"), the bare period words, and same-game/SGP intent.
+export function wantsPeriodMarkets(text: string | null | undefined): boolean {
+  const t = String(text || "").toLowerCase();
+  if (/\b(1h|2h|h1|h2|q1|q2|q3|q4)\b/.test(t)) return true;
+  if (/\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(half|quarter)\b/.test(t)) return true;
+  if (/\b(half|halves|quarter|quarters|period)\b/.test(t)) return true;
+  if (/\bsame[-\s]?game\b/.test(t) || /\bsgp\b/.test(t)) return true;
+  return false;
+}

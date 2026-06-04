@@ -207,10 +207,19 @@ export function sameGame(a: string, b: string): boolean {
 // resolve to a real Spread line (never accidentally to a Moneyline entry).
 function marketFamily(s: string): string {
   const m = norm(s);
-  if (/spread|run ?line|puck ?line/.test(m)) return "spread";
-  if (/total|over|under|o\/u/.test(m)) return "total";
-  if (/money|h2h|\bml\b/.test(m)) return "moneyline";
-  return m;
+  // Period prefix (1H/2H/Q1–Q4). Kept in the family so a period pick can only
+  // resolve to the matching period line — e.g. a "Q3 Moneyline" pick (selection
+  // "Knicks ML") must NOT collapse onto the full-game moneyline, which shares the
+  // identical selection. Full-game markets have no prefix. "h1"/"h2" normalize to
+  // "1h"/"2h"; "h2h" (a moneyline word) has no \b after it so it never matches.
+  const pm = m.match(/\b(1h|2h|h1|h2|q1|q2|q3|q4)\b/);
+  const period = pm ? `${pm[1].replace("h1", "1h").replace("h2", "2h")}:` : "";
+  let fam: string;
+  if (/spread|run ?line|puck ?line/.test(m)) fam = "spread";
+  else if (/total|over|under|o\/u/.test(m)) fam = "total";
+  else if (/money|h2h|\bml\b/.test(m)) fam = "moneyline";
+  else fam = m;
+  return period + fam;
 }
 
 // Generic market words that carry no team/side identity — ignored when checking

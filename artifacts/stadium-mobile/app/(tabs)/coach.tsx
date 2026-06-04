@@ -20,7 +20,7 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
-import { parseOddsThreshold, oddsSatisfiesThreshold } from "@/lib/format";
+import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -528,11 +528,16 @@ export default function CoachScreen() {
         // both to steer alt-rung selection in the context and to hard-filter the
         // resolved legs below.
         const oddsThreshold = parseOddsThreshold(trimmed);
+        // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
+        // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
+        // real period legs to build from instead of honestly refusing.
+        const includePeriods = wantsPeriodMarkets(trimmed);
         const { context, propPool, gameMeta } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
           controller.signal,
           oddsThreshold,
+          includePeriods,
         );
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
