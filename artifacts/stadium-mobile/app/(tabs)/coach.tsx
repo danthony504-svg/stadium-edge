@@ -30,7 +30,6 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   buildChatContext,
-  fetchUpsetSpots,
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
@@ -38,7 +37,6 @@ import {
   searchTeam,
   streamChat,
   type ChatMessage,
-  type UpsetSpot,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { NAME_FALLBACK_SKIP, parseStatLookup } from "@/lib/statLookup";
@@ -360,9 +358,6 @@ export default function CoachScreen() {
   // the vision model.
   const [attachedImage, setAttachedImage] = useState<{ uri: string; dataUrl: string } | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
-  // UPSET WATCH: real upset spots (mlLean on the betting underdog) shown as a
-  // discovery card on the intro screen. Fetched once on mount; real data only.
-  const [upsets, setUpsets] = useState<UpsetSpot[]>([]);
 
   // Long-press a message bubble to copy its full text. The bubble text is also
   // `selectable` for partial copy via the OS menu, so this is a quick "copy all".
@@ -413,22 +408,6 @@ export default function CoachScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // Fetch the real Upset Watch spots once on mount for the intro discovery card.
-  // Same engine + endpoint as the web app (matchup-history → mlLean → dog-lean
-  // detection); never fabricated, hidden when none.
-  useEffect(() => {
-    const controller = new AbortController();
-    (async () => {
-      try {
-        const spots = await fetchUpsetSpots(DEFAULT_SPORTS, controller.signal);
-        setUpsets(spots);
-      } catch {
-        /* network/abort — leave the card hidden */
-      }
-    })();
-    return () => controller.abort();
   }, []);
 
   const slipForContext = useMemo(
@@ -727,88 +706,6 @@ export default function CoachScreen() {
         bottomOffset={12}
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
-          {/* UPSET WATCH — real spots where the app's analytics (mlLean) favor the
-              betting underdog. Shown only on the intro screen (before the user has
-              sent anything), hidden when there are no real upsets. Tap a spot to
-              ask the coach about it. Every number is real (dog ML price + edge). */}
-          {upsets.length > 0 && !messages.some((m) => m.role === "user") ? (
-            <View
-              style={{
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 16,
-                padding: 14,
-                gap: 12,
-              }}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontSize: 16 }}>🐶</Text>
-                <Text
-                  style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 16, flex: 1 }}
-                >
-                  Upset Watch
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                  {upsets.length} spot{upsets.length === 1 ? "" : "s"}
-                </Text>
-              </View>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
-                Games where our analytics lean to the betting underdog.
-              </Text>
-              {upsets.slice(0, 6).map((u, idx) => (
-                <Pressable
-                  key={`${u.game}-${idx}`}
-                  onPress={() =>
-                    send(`Tell me about the upset spot in ${u.game} — why do you like the underdog?`)
-                  }
-                  style={{
-                    backgroundColor: colors.background,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: 12,
-                    padding: 12,
-                    gap: 6,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text
-                      style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}
-                      numberOfLines={1}
-                    >
-                      {u.side}
-                    </Text>
-                    <View
-                      style={{
-                        backgroundColor: colors.accent,
-                        borderRadius: 999,
-                        paddingHorizontal: 8,
-                        paddingVertical: 2,
-                      }}
-                    >
-                      <Text style={{ color: colors.background, fontFamily: FONT.medium, fontSize: 12 }}>
-                        {u.dogOdds > 0 ? `+${u.dogOdds}` : u.dogOdds}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text
-                    style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}
-                    numberOfLines={1}
-                  >
-                    {u.game} · edge {u.edge.toFixed(1)}
-                  </Text>
-                  {u.reasons.length > 0 ? (
-                    <Text
-                      style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
-                      numberOfLines={2}
-                    >
-                      {u.reasons.join(" · ")}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
           {messages.map((m, i) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;

@@ -17,6 +17,7 @@ import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
+  fetchUpsetSpots,
   getGames,
   getOdds,
   getProps,
@@ -25,6 +26,7 @@ import {
   PROPS_SPORTS,
   type EspnGame,
   type OddsGame,
+  type UpsetSpot,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
@@ -230,7 +232,20 @@ export default function HomeScreen() {
   });
 
   const featured = featuredQ.data ?? [];
-  const refreshing = oddsQ.isFetching || gamesQ.isFetching || featuredQ.isFetching;
+
+  // UPSET WATCH: real spots where the app's analytics (mlLean) favor the betting
+  // underdog, scoped to the selected sport. Same engine as the coach used to use
+  // (matchup-history → mlLean → dog-lean detection); every number is real (dog ML
+  // price + edge), section hidden when there are none.
+  const upsetsQ = useQuery({
+    queryKey: ["home-upsets", sport],
+    queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
+    staleTime: 2 * 60_000,
+  });
+  const upsets: UpsetSpot[] = upsetsQ.data ?? [];
+
+  const refreshing =
+    oddsQ.isFetching || gamesQ.isFetching || featuredQ.isFetching || upsetsQ.isFetching;
 
   const askCoach = (msg: string) =>
     router.push({
@@ -258,6 +273,7 @@ export default function HomeScreen() {
               oddsQ.refetch();
               gamesQ.refetch();
               featuredQ.refetch();
+              upsetsQ.refetch();
             }}
             tintColor={colors.mutedForeground}
           />
@@ -451,6 +467,122 @@ export default function HomeScreen() {
                     >
                       Over {p.line} {p.label} {formatAmerican(p.overPrice)}
                     </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
+
+        {/* Upset Watch — real spots where the app's analytics (mlLean) favor the
+            betting underdog. Styled like the other home rails; hidden when there
+            are no real upsets. Tap a spot to ask the coach about it. Every number
+            is real (dog ML price + edge). */}
+        {upsetsQ.isLoading || upsets.length > 0 ? (
+          <View style={{ marginBottom: 22 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                paddingHorizontal: 16,
+                marginBottom: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                <Text style={{ fontSize: 17 }}>🐶</Text>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
+                  Upset Watch
+                </Text>
+              </View>
+              {upsets.length > 0 ? (
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 11,
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {upsets.length} {upsets.length === 1 ? "Spot" : "Spots"}
+                </Text>
+              ) : null}
+            </View>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.body,
+                fontSize: 13,
+                lineHeight: 18,
+                paddingHorizontal: 16,
+                marginBottom: 12,
+              }}
+            >
+              Games where our analytics lean to the betting underdog.
+            </Text>
+            {upsetsQ.isLoading ? (
+              <View style={{ paddingHorizontal: 16 }}>
+                <Loading label="Scanning for upsets…" />
+              </View>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+              >
+                {upsets.slice(0, 8).map((u, idx) => (
+                  <Pressable
+                    key={`${u.game}-${idx}`}
+                    onPress={() =>
+                      askCoach(
+                        `Tell me about the upset spot in ${u.game} — why do you like the underdog?`,
+                      )
+                    }
+                    style={({ pressed }) => ({
+                      width: 270,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: colors.radius,
+                      padding: 14,
+                      gap: 8,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text
+                        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}
+                        numberOfLines={1}
+                      >
+                        {u.side}
+                      </Text>
+                      <View
+                        style={{
+                          backgroundColor: colors.accent,
+                          borderRadius: 999,
+                          paddingHorizontal: 9,
+                          paddingVertical: 3,
+                        }}
+                      >
+                        <Text style={{ color: colors.background, fontFamily: FONT.bold, fontSize: 12 }}>
+                          {u.dogOdds > 0 ? `+${u.dogOdds}` : u.dogOdds}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+                      numberOfLines={1}
+                    >
+                      {u.game} · edge {u.edge.toFixed(1)}
+                    </Text>
+                    {u.reasons.length > 0 ? (
+                      <Text
+                        style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
+                        numberOfLines={3}
+                      >
+                        {u.reasons.join(" · ")}
+                      </Text>
+                    ) : null}
                   </Pressable>
                 ))}
               </ScrollView>
