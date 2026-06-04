@@ -1516,11 +1516,7 @@ ENFORCEMENT:
       ? rawImageDataUrl
       : undefined;
   const imageAnalysisAddendum = imageDataUrl
-    ? `\n\nIMAGE ANALYSIS — the user attached a PHOTO (most likely a bet slip, a sportsbook screen, or a scoreboard). Read it carefully:
-- Identify and list what you can see: each leg/pick, the line and odds, the stake/wager and potential payout, plus any teams, players, dates, or sport.
-- Then give your honest take: which legs you like or dislike and why, the overall risk, and — using the real odds/matchup data already in your context when relevant — whether anything looks like poor value or could be improved.
-- NEVER fabricate a number that isn't legible in the image. If text is cut off, blurry, or ambiguous, say so plainly instead of guessing.
-- If the image is not about sports betting, briefly say what it appears to be and ask how you can help.`
+    ? `\n\nIMAGE ANALYSIS — the user attached a PHOTO (most likely a bet slip, a sportsbook screen, or a scoreboard). Read it, then reply with ONLY a short overall verdict — 2 to 4 sentences. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip is good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in the image; if a key detail is cut off or blurry, note it in a few words rather than guessing. If the image is not about sports betting, say in one line what it appears to be and ask how you can help.`
     : "";
 
   // The image attaches to the most recent user message only.
