@@ -478,19 +478,31 @@ export function buildRealOdds(
   const h2h = g.markets.find((m) => m.key === "h2h");
   const spreads = g.markets.find((m) => m.key === "spreads");
   const totals = g.markets.find((m) => m.key === "totals");
+  // Under an odds-threshold ask ("-200 or less" / "+300 or more") the MAIN
+  // markets must be filtered to the bound too — not just the alt ladders below.
+  // Standard -110 spreads/totals and pick'em moneylines do NOT satisfy a heavy
+  // bound; if we surface them anyway the model picks them, the client threshold
+  // filter strips them (leaving a half-size ticket), AND they burn the realOdds
+  // context cap so the actually-qualifying alt rungs get truncated out. Keeping
+  // only qualifying outcomes leaves a clean, fully-eligible pool.
+  const mainOk = (price: number | null | undefined) =>
+    !oddsThreshold || oddsSatisfiesThreshold(price, oddsThreshold);
   if (h2h) {
     for (const o of h2h.outcomes || []) {
+      if (!mainOk(o.price)) continue;
       out.push({ ...base, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price });
     }
   }
   if (spreads) {
     for (const o of spreads.outcomes || []) {
+      if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
       out.push({ ...base, market: "Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
     }
   }
   if (totals) {
     for (const o of totals.outcomes || []) {
+      if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point}`;
       out.push({ ...base, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
     }
@@ -564,20 +576,20 @@ export function buildRealOdds(
       const ptot = g.markets.find((m) => m.key === `totals_${suffix}`);
       if (pml) {
         for (const o of pml.outcomes || []) {
-          if (o.price == null) continue;
+          if (o.price == null || !mainOk(o.price)) continue;
           out.push({ ...base, market: `${plabel} Moneyline`, pick: `${nickname(o.name)} ML`, odds: o.price });
         }
       }
       if (psp) {
         for (const o of psp.outcomes || []) {
-          if (o.price == null) continue;
+          if (o.price == null || !mainOk(o.price)) continue;
           const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
           out.push({ ...base, market: `${plabel} Spread`, pick: `${nickname(o.name)}${pt}`, odds: o.price });
         }
       }
       if (ptot) {
         for (const o of ptot.outcomes || []) {
-          if (o.price == null) continue;
+          if (o.price == null || !mainOk(o.price)) continue;
           const pt = o.point == null ? "" : ` ${o.point}`;
           out.push({ ...base, market: `${plabel} Total`, pick: `${o.name}${pt}`.trim(), odds: o.price });
         }
@@ -863,15 +875,17 @@ export async function buildChatContext(
         for (const altPass of [false, true]) {
           for (const p of usable) {
             if (!!p.alt !== altPass) continue;
+            // Under an odds-threshold ask, keep only prop SIDES (MAIN or alt)
+            // whose posted price satisfies the bound. Standard -110/-120 main
+            // props don't meet a heavy bound, so surfacing them just lets the
+            // model pick a leg the client threshold filter then strips — leaving
+            // a half-size ticket. Gate at side granularity so the model never
+            // even sees the non-qualifying side. With no threshold both sides
+            // pass (no-op).
+            const overQ = p.overPrice != null && (!oddsThreshold || oddsSatisfiesThreshold(p.overPrice, oddsThreshold));
+            const underQ = p.underPrice != null && (!oddsThreshold || oddsSatisfiesThreshold(p.underPrice, oddsThreshold));
+            if (oddsThreshold && !overQ && !underQ) continue;
             if (p.alt) {
-              // Under an odds-threshold ask, keep only alt prop rungs that can
-              // satisfy the bound (juiced low lines for "-300 or less", longer
-              // rungs for "+300 or more") so props can join the threshold ticket.
-              if (oddsThreshold) {
-                const overOk = p.overPrice != null && oddsSatisfiesThreshold(p.overPrice, oddsThreshold);
-                const underOk = p.underPrice != null && oddsSatisfiesThreshold(p.underPrice, oddsThreshold);
-                if (!overOk && !underOk) continue;
-              }
               const k = `${p.player}|${p.market}`.toLowerCase();
               const n = altRungs.get(k) ?? 0;
               if (n >= ALT_RUNGS_PER_PROP) continue;
@@ -884,8 +898,8 @@ export async function buildChatContext(
               player: p.player,
               market: p.market,
               line: p.line,
-              over: p.overPrice,
-              under: p.underPrice,
+              over: overQ ? p.overPrice : null,
+              under: underQ ? p.underPrice : null,
               alt: !!p.alt,
             });
             const headshot = p.headshot ?? null;
@@ -893,11 +907,11 @@ export async function buildChatContext(
               ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
               : null;
             const marketLabel = propMarketLabel(p.market);
-            if (p.overPrice != null) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice, headshot, teamAbbr });
+            if (overQ) {
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr });
             }
-            if (p.line != null && p.underPrice != null) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice, headshot, teamAbbr });
+            if (p.line != null && underQ) {
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr });
             }
           }
         }

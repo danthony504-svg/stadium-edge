@@ -100,8 +100,39 @@ causes, fixed in the server addendum (`oddsFamilyClause` + `oddsChalkOverride`):
   `atLeast` asks still want value) declares the bound an explicit instruction that
   overrides value-over-chalk for THIS turn.
 
-**Why:** realOdds is NOT capped before serialization, so the data is all there —
-this is a model-reasoning gap, not a pipeline bug; the fix is prompt-only.
+**Why:** the data exists in the feed — but the CONTEXT the model sees was NOT
+clean (see next section); the prompt-only `oddsFamilyClause`/`oddsChalkOverride`
+helped the model COUNT but did not stop it picking non-qualifying legs.
 **How to apply:** before assuming a thin slate on any threshold complaint, first
 replicate the client odds-builder against the live feed and count qualifying legs
 per family — if the pool is deep but the model under-reports, it's this, not data.
+
+## "Only 5 picks" symptom: context surfaced NON-qualifying mains (the real fix)
+The prompt-only fix above was NOT enough — `atMost -200` still returned ~5 cards.
+Root cause is CONTEXT-side in **mobile `lib/api.ts`**, two compounding effects:
+- `buildRealOdds` pushed ALL main `h2h`/`spreads`/`totals` outcomes at EVERY
+  price; only the ALT ladders were threshold-gated. So under "-200 or less" the
+  context was dominated by standard -110 spreads/totals + pick'em MLs. The model
+  picked those (they look valid) → the client post-parse threshold filter
+  (`coach.tsx`) stripped every leg >-200 → half-size ticket.
+- `realOdds.slice(0,120)` cap was then BURNED by ~100 non-qualifying -110 mains
+  (≈6/game × 17 games), TRUNCATING the actually-qualifying alt rungs out of
+  context entirely — so the model couldn't even see enough qualifying legs.
+- Same leak for props: only ALT prop rungs were threshold-gated; main -110 props
+  leaked into `realProps` (cap 400) and got picked → stripped.
+
+**Fix:** under `oddsThreshold`, filter MAIN markets to the bound too, exactly
+like the alts — game-level h2h/spreads/totals (`mainOk(price)` guard), the
+period mains (1H/2H/Q1–Q4) under `includePeriods`, AND main props (hoist the
+over/under threshold check above the `if (p.alt)` so it gates both passes). After
+this the whole `realOdds`/`realProps` pool is fully eligible, the 120/400 caps
+hold only qualifying legs, and the client filter becomes a no-op.
+
+**Verified:** replicating the corrected context for "10 leg -200 or less" → pool
+of ~175 qualifying game legs (realOdds120 = ML:52 Spread:10 Total:6 AltSpread:26
+AltTotal:26, all ≤-200), model emits a FULL 10 PICK lines, all qualify.
+
+**Web parity gap:** stadium-edge `ParlayBuilder.tsx` has its OWN realOdds builder
+with the SAME latent leak (mains not threshold-filtered). Only mobile was fixed
+(the reported surface). If a web user reports the same "half ticket" on a
+threshold ask, apply the identical main-market + main-prop gating there.
