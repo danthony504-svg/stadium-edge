@@ -25,7 +25,14 @@ export const SPORTS: Sport[] = [
   { id: "ncaab", label: "CBB", short: "CBB", icon: "basketball" },
 ];
 
-export const DEFAULT_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer"];
+// The AI Coach pulls its parlay pool from EVERY sport the app surfaces — not a
+// hand-picked subset — so NFL, college football/basketball, UFC and tennis legs
+// are eligible too. This is safe because cost is bounded by the live window, not
+// the raw game count: the context build keeps only in-progress + next-48h games
+// (isPickable), the odds route caps per-event alt/period fetches at 12 within-48h
+// events per sport, and everything is cached ~5 min. Off-season leagues simply
+// come back empty through the same window filter — we never fabricate fixtures.
+export const DEFAULT_SPORTS = SPORTS.map((s) => s.id);
 
 export function sportLabel(id: string): string {
   return SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
