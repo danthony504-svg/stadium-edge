@@ -1478,6 +1478,13 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // wrongly thinks qualify, which the client then filters to zero — leaving
   // confident prose with no cards. Force the prose to match the real count.
   const oddsProseHonesty = `\n- PROSE HONESTY: do NOT open with "Here's a 10-leg" or otherwise claim a full N-leg ticket unless you have actually emitted N qualifying PICK lines from the real pool. If fewer qualify, your FIRST sentence must state exactly how many real legs meet the bound (e.g. "Only 2 legs on the board are -300 or shorter right now"), even if that number is zero. Never imply a full ticket you did not build, and never reframe the bound to "open the board up".`;
+  // Under a price bound the qualifying pool spans EVERY market family, but the
+  // model otherwise (a) counts only moneylines and (b) lets value-over-chalk veto
+  // the juiced favorites the bound explicitly asks for — so it under-reports
+  // ("only 7 qualify" when realOdds actually holds 30+ Alt Spread / Alt Total
+  // rungs at -205/-215/-260). Spell both out so the count reflects the real pool.
+  const oddsFamilyClause = `\n- COUNT EVERY MARKET FAMILY, NOT JUST MONEYLINES: realOdds carries Moneyline, Spread, Total, Alt Spread AND Alt Total entries (plus realProps player props) — a leg from ANY of them qualifies the instant its posted price satisfies the bound, and the board almost always has FAR more qualifying Spread / Alt Spread / Total / Alt Total rungs than moneylines. Scan ALL families before you judge the pool; NEVER report "only N qualify" after checking moneylines alone.`;
+  const oddsChalkOverride = `\n- THE BOUND OVERRIDES VALUE-OVER-CHALK THIS TURN: the user explicitly asked for legs at this price, so a qualifying juiced favorite — a heavy moneyline, or an Alt Spread / Alt Total rung priced e.g. -205 / -215 / -260 — is EXACTLY what they want. Do NOT skip such a leg as "chalk", "no edge", or "negative EV"; value-over-chalk does NOT apply to a price-bounded ticket. Fill the requested count from the qualifying pool and pick the strongest among THOSE, even though they are all favorites.`;
   const oddsThresholdSystemAddendum = !oddsThreshold
     ? ""
     : (oddsThreshold.mode === "atLeast"
@@ -1485,13 +1492,13 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
 The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.signed)} OR LONGER — the American price must be GREATER THAN OR EQUAL TO ${oddsThreshold.signed} (longer odds / bigger payouts). Remember American-odds ordering: +400 is LONGER than +300, +120 is LONGER than -110, and -110 is LONGER than -300. A leg priced SHORTER than ${fmtAmer(oddsThreshold.signed)} (e.g. -200, -150, -110${oddsThreshold.signed > 0 ? `, +120 when the floor is ${fmtAmer(oddsThreshold.signed)}` : ""}) is FORBIDDEN this turn.
 ENFORCEMENT:
 - Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is >= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
-- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.
+- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.${oddsFamilyClause}
 - If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`
       : `\n\n*** ODDS THRESHOLD LOCK FOR THIS TURN ***
 The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.signed)} OR SHORTER — the American price must be LESS THAN OR EQUAL TO ${oddsThreshold.signed} (shorter odds / heavier favorites). Remember American-odds ordering: -500 is SHORTER than -300, -300 is SHORTER than -110, and ANY positive price (+110, +300) is LONGER than every negative price. A leg priced LONGER than ${fmtAmer(oddsThreshold.signed)} (e.g. -130, -150, -110, +120, +300 — none of those are <= ${oddsThreshold.signed}) is FORBIDDEN this turn.
 ENFORCEMENT:
 - Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is <= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
-- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.
+- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.${oddsFamilyClause}${oddsChalkOverride}
 - If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`) + oddsProseHonesty;
 
   const messages = [

@@ -80,3 +80,28 @@ clause just keeps the prose from contradicting the (often empty) card result.
 
 **Not covered:** the web AI-outage fallback (`generateResponse` / `buildParlay`)
 does not thread the threshold; only the live AI path is enforced.
+
+## Under-count symptom: "only N qualify" when the pool is far deeper
+Distinct from the filter/honesty layers above. On an `atMost` ask ("10 legs -200
+or less") the model can REFUSE most of the ticket, reporting e.g. "only 7 legs
+meet the filter" — while the real eligible pool (replicate `buildRealOdds`
+against the live slate to confirm) holds 30+ qualifying legs. Two compounding
+causes, fixed in the server addendum (`oddsFamilyClause` + `oddsChalkOverride`):
+- **Moneyline-only counting.** The reported number tends to equal the *moneyline*
+  count alone — the model overlooks the Spread / Alt Spread / Total / Alt Total
+  rungs (and props) that also clear the bound. The qualifying pool spans EVERY
+  family, and alt-ladder rungs at -205/-215/-260 vastly outnumber the heavy MLs.
+  `oddsFamilyClause` (BOTH branches) forces a scan of all families before judging
+  scarcity.
+- **Value-over-chalk veto.** A price bound like "-200 or less" inherently DEMANDS
+  chalk/juiced favorites, but the VALUE-OVER-CHALK mandate (SYSTEM_PROMPT rule 1a)
+  tells the model to reject exactly those as "no edge / negative EV", so it only
+  counts MLs it has a lean on. `oddsChalkOverride` (atMost branch ONLY — longshot
+  `atLeast` asks still want value) declares the bound an explicit instruction that
+  overrides value-over-chalk for THIS turn.
+
+**Why:** realOdds is NOT capped before serialization, so the data is all there —
+this is a model-reasoning gap, not a pipeline bug; the fix is prompt-only.
+**How to apply:** before assuming a thin slate on any threshold complaint, first
+replicate the client odds-builder against the live feed and count qualifying legs
+per family — if the pool is deep but the model under-reports, it's this, not data.
