@@ -1473,9 +1473,14 @@ ${liveGameCount} game(s) are currently in progress, but the book has no live odd
   // also post-filters resolved picks as a hard guarantee.
   const oddsThreshold = parseOddsThreshold(latestUser);
   const fmtAmer = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+  // Shared anti-over-promise clause: the model tends to keep its old framing
+  // ("here's a 10-leg under -300", "opens the board up") and pad with legs it
+  // wrongly thinks qualify, which the client then filters to zero — leaving
+  // confident prose with no cards. Force the prose to match the real count.
+  const oddsProseHonesty = `\n- PROSE HONESTY: do NOT open with "Here's a 10-leg" or otherwise claim a full N-leg ticket unless you have actually emitted N qualifying PICK lines from the real pool. If fewer qualify, your FIRST sentence must state exactly how many real legs meet the bound (e.g. "Only 2 legs on the board are -300 or shorter right now"), even if that number is zero. Never imply a full ticket you did not build, and never reframe the bound to "open the board up".`;
   const oddsThresholdSystemAddendum = !oddsThreshold
     ? ""
-    : oddsThreshold.mode === "atLeast"
+    : (oddsThreshold.mode === "atLeast"
       ? `\n\n*** ODDS THRESHOLD LOCK FOR THIS TURN ***
 The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.signed)} OR LONGER — the American price must be GREATER THAN OR EQUAL TO ${oddsThreshold.signed} (longer odds / bigger payouts). Remember American-odds ordering: +400 is LONGER than +300, +120 is LONGER than -110, and -110 is LONGER than -300. A leg priced SHORTER than ${fmtAmer(oddsThreshold.signed)} (e.g. -200, -150, -110${oddsThreshold.signed > 0 ? `, +120 when the floor is ${fmtAmer(oddsThreshold.signed)}` : ""}) is FORBIDDEN this turn.
 ENFORCEMENT:
@@ -1487,7 +1492,7 @@ The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.
 ENFORCEMENT:
 - Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is <= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
 - Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.
-- If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`;
+- If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`) + oddsProseHonesty;
 
   const messages = [
     { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum },

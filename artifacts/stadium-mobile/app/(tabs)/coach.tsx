@@ -567,8 +567,11 @@ export default function CoachScreen() {
           // When the bound prunes legs (often to zero — "-300 or shorter" heavy
           // favorites are rare on a real board), the model's prose can still
           // read like a full ticket. Say plainly what actually survived so the
-          // user is never left with confident text and zero cards.
-          if (dropped > 0) {
+          // user is never left with confident text and zero cards. Also fire
+          // when the model emitted PICK lines that NONE resolved to a real odds
+          // entry (dropped stays 0 but there are still zero cards to show).
+          const emittedPickLines = (full.match(/PICK:/gi) || []).length;
+          if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
             const bound =
               (oddsThreshold.signed > 0 ? `+${oddsThreshold.signed}` : `${oddsThreshold.signed}`) +
               (oddsThreshold.mode === "atLeast" ? " or longer" : " or shorter");

@@ -58,11 +58,25 @@ usually yields only a few qualifying legs — that's expected, return fewer.
 ## Confident-prose / zero-cards symptom (mobile)
 When the client filter prunes legs (often to zero under a strict bound), the AI's
 streamed prose can still read like a full ticket → user sees confident text and
-no cards. Mobile `coach.tsx` appends an honest italic note after filtering
-(`dropped = before - after`): "No real legs were priced -300 or shorter…" /
-"Showing the N real legs…; dropped M". **Why:** the model's prose and the
-post-filter card count are independent; without the note a correct filter looks
-like a broken empty reply. Web has the correct filter but no equivalent note yet.
+no cards. Mobile `coach.tsx` appends an honest italic note after filtering:
+"No real legs were priced -300 or shorter…" / "Showing the N real legs…; dropped
+M". **Why:** the model's prose and the post-filter card count are independent;
+without the note a correct filter looks like a broken empty reply. Web has the
+correct filter but no equivalent note yet.
+
+**Note must fire on BOTH zero-card paths**, not just `dropped>0`: (a) resolved
+picks pruned by the bound (`dropped>0`); AND (b) the model emitted PICK lines but
+NONE resolved to a real odds entry (`picks.length===0 && emittedPickLines>0`,
+where `emittedPickLines = full.match(/PICK:/gi).length`). Case (b) keeps `dropped`
+at 0, so a `dropped>0`-only guard silently shows nothing. Don't fire on normal
+chat — gate on the model actually emitting PICK scaffolding.
+
+**Server prose-honesty clause** (shared `oddsProseHonesty`, appended to BOTH
+atLeast/atMost addendum branches): forbids opening with "Here's a 10-leg" or
+reframing the bound to "open the board up", and mandates the first sentence state
+how many real legs meet the bound (even zero). The model's instinct is the JUICE
+reading + over-promising prose; the numeric filter is the hard guarantee, this
+clause just keeps the prose from contradicting the (often empty) card result.
 
 **Not covered:** the web AI-outage fallback (`generateResponse` / `buildParlay`)
 does not thread the threshold; only the live AI path is enforced.
