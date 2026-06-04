@@ -5,7 +5,7 @@ import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "rea
 
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
-import { formatAmerican } from "@/lib/format";
+import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { Badge, FONT } from "@/components/ui";
 
@@ -17,6 +17,9 @@ export type ParsedPick = {
   edge?: string;
   sport?: string;
   isProp?: boolean;
+  // Real ESPN scheduled kickoff/tipoff (ISO). Render-only — shown as a local
+  // date + time on the card so each leg names when its game starts.
+  startsAt?: string | null;
   // Render-only (real ESPN data). headshot = player photo for prop legs;
   // teamLogo/teamAbbr = the picked team for game-level legs.
   headshot?: string | null;
@@ -90,6 +93,14 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
         {pick.game}
       </Text>
+      {formatGameTime(pick.startsAt) ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
+          <Feather name="clock" size={11} color={colors.mutedForeground} />
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+            {formatGameTime(pick.startsAt)}
+          </Text>
+        </View>
+      ) : null}
 
       {pick.edge ? (
         <View>
@@ -434,6 +445,22 @@ export function parsePicks(
     }
 
     if (!resolved) continue; // selection/price not in any real pool -> drop
+
+    // Attach the game's real scheduled start (ESPN) so the card can show its
+    // date/time. resolved.game is already the canonical feed label. sameGame is
+    // token-overlap only, so scope candidates by sport (when known) and require
+    // EXACTLY ONE match before assigning — otherwise an ambiguous label
+    // (same-city cross-sport, a same-teams doubleheader) could borrow the wrong
+    // fixture's time. When ambiguous we leave startsAt unset (card omits time)
+    // rather than show a possibly-wrong start.
+    if (!resolved.startsAt) {
+      const cands = gameMeta.filter(
+        (m) =>
+          sameGame(m.game, resolved!.game) &&
+          (!resolved!.sport || !m.sport || m.sport === resolved!.sport),
+      );
+      if (cands.length === 1 && cands[0].startsAt) resolved.startsAt = cands[0].startsAt;
+    }
 
     const em = lines[i + 1]?.trim().match(/^EDGE\s*:\s*(.+)$/i);
     if (em) resolved.edge = em[1].trim();

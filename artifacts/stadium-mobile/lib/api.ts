@@ -660,12 +660,14 @@ export type PropPoolEntry = {
 // — it's used by the card renderer to show the picked team's logo + code.
 export type GameMeta = {
   game: string;
+  sport: string;
   homeTeam: string;
   awayTeam: string;
   homeAbbr: string | null;
   awayAbbr: string | null;
   homeLogo: string | null;
   awayLogo: string | null;
+  startsAt: string | null;
 };
 
 // Build the per-game render-only logo/abbr table from ESPN games. Exported so
@@ -681,12 +683,14 @@ export function buildGameMeta(games: EspnGame[]): GameMeta[] {
     if (!home || !away) continue;
     out.push({
       game: `${away} @ ${home}`,
+      sport: g.sport,
       homeTeam: home,
       awayTeam: away,
       homeAbbr: g.homeAbbr ?? null,
       awayAbbr: g.awayAbbr ?? null,
       homeLogo: g.homeLogo ?? null,
       awayLogo: g.awayLogo ?? null,
+      startsAt: g.startsAt ?? null,
     });
   }
   return out;

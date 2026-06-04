@@ -6,6 +6,28 @@ export function formatAmerican(odds: number | null | undefined): string {
   return n > 0 ? `+${n}` : `${n}`;
 }
 
+// Format a game's ISO start time as a short local date + time for pick cards,
+// e.g. "Today 7:05 PM", "Tomorrow 1:00 PM", "Sat 1:00 PM", "Jun 12 7:05 PM".
+// Returns "" when the timestamp is missing or unparseable so the card simply
+// omits the line rather than showing a broken date.
+export function formatGameTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return "";
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+  let day: string;
+  if (dayDiff === 0) day = "Today";
+  else if (dayDiff === 1) day = "Tomorrow";
+  else if (dayDiff > 1 && dayDiff < 7)
+    day = d.toLocaleDateString(undefined, { weekday: "short" });
+  else day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${day} ${time}`;
+}
+
 // American odds -> decimal multiplier (e.g. -110 -> 1.909, +150 -> 2.5).
 export function americanToDecimal(odds: number): number {
   if (!Number.isFinite(odds) || odds === 0) return 1;

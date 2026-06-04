@@ -33,3 +33,19 @@ by the future-first ranking).
 COMPLAINT that it wasn't showing, not an instruction to remove it. A terse
 negative sentence + a screenshot of the missing element usually means "this is
 missing, add it" — confirm intent before deleting UI.
+
+## Mobile port (Expo AI Coach)
+
+Mobile shows the same date/time on chat pick cards, but resolves it
+differently than web. The card's `ParsedPick` carries `startsAt`; it is set in
+`parsePicks` by matching the resolved (canonical-feed) game label against the
+per-game `GameMeta` table (built from the same ESPN feed, now carrying `sport`
++ `startsAt`). `formatGameTime()` (lib/format.ts) renders a short local
+"Today/Tomorrow/<weekday>/<Mon D> + time" and returns "" on missing/unparseable
+so the card omits the line.
+
+**Rule:** `sameGame()` is token-overlap only (no sport guard, first-match), so
+the time lookup MUST scope candidates by sport AND require EXACTLY ONE match
+before assigning `startsAt` — otherwise an ambiguous label (same-city
+cross-sport, same-teams doubleheader) borrows the wrong fixture's time. Prefer
+omitting the time over showing a possibly-wrong one.
