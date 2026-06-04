@@ -247,3 +247,6 @@ components:
           type: object
           description: Optional structured context (selected sports, current parlay legs, etc.)
           additionalProperties: true
+        imageDataUrl:
+          type: ["string", "null"]
+          description: Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.

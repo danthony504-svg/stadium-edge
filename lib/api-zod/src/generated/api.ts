@@ -128,7 +128,8 @@ export const SendChatMessageBody = zod.object({
   "role": zod.enum(['system', 'user', 'assistant']),
   "content": zod.string()
 })),
-  "context": zod.record(zod.string(), zod.unknown()).optional().describe('Optional structured context (selected sports, current parlay legs, etc.)')
+  "context": zod.record(zod.string(), zod.unknown()).optional().describe('Optional structured context (selected sports, current parlay legs, etc.)'),
+  "imageDataUrl": zod.string().nullish().describe('Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.')
 })
 
 

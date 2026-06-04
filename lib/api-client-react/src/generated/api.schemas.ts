@@ -129,6 +129,11 @@ export interface ChatInput {
   messages: ChatMessage[];
   /** Optional structured context (selected sports, current parlay legs, etc.) */
   context?: ChatInputContext;
+  /**
+     * Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.
+     * @nullable
+     */
+  imageDataUrl?: string | null;
 }
 
 export type GetOddsParams = {

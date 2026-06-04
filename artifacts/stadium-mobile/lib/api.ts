@@ -941,6 +941,10 @@ export type StreamChatArgs = {
   context: ChatContext;
   onToken: (full: string) => void;
   signal?: AbortSignal;
+  // Optional base64 data URL of a user-attached photo (bet slip / screenshot).
+  // Forwarded to the server, which attaches it to the latest user turn for the
+  // vision model to read.
+  imageDataUrl?: string | null;
 };
 
 function abortError(): Error {
@@ -965,7 +969,7 @@ function abortError(): Error {
 //      succeeds on a later attempt. Once real tokens have started we never retry
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
-export async function streamChat({ messages, context, onToken, signal }: StreamChatArgs): Promise<string> {
+export async function streamChat({ messages, context, onToken, signal, imageDataUrl }: StreamChatArgs): Promise<string> {
   const STALL_MS = 4000; // max gap between chunks before we call the link dead
   const CONNECT_MS = 8000; // max wait for response HEADERS before we call it dead
   const MAX_ATTEMPTS = 4;
@@ -1009,7 +1013,7 @@ export async function streamChat({ messages, context, onToken, signal }: StreamC
           expoFetch(`${API_BASE}/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, context }),
+            body: JSON.stringify({ messages, context, imageDataUrl }),
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
           connectStall,

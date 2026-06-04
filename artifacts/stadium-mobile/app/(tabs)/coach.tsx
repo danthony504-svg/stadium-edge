@@ -1,6 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
+import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -45,6 +48,8 @@ type UIMessage = {
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
+  // Local URI of a user-attached photo, shown in the user bubble.
+  imageUri?: string;
 };
 
 type StatCardResult = {
@@ -348,6 +353,11 @@ export default function CoachScreen() {
   const [waiting, setWaiting] = useState(false);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
+  // sent. `uri` is the local preview; `dataUrl` is the compressed base64 sent to
+  // the vision model.
+  const [attachedImage, setAttachedImage] = useState<{ uri: string; dataUrl: string } | null>(null);
+  const [pickingImage, setPickingImage] = useState(false);
 
   // Long-press a message bubble to copy its full text. The bubble text is also
   // `selectable` for partial copy via the OS menu, so this is a quick "copy all".
@@ -409,13 +419,49 @@ export default function CoachScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, []);
 
+  // Open the photo library and stash the chosen image as a pending attachment.
+  // We downscale to <=1280px wide and JPEG-compress it so a phone screenshot
+  // (often a multi-MB PNG) becomes a small base64 payload, well under the API's
+  // 5MB body cap and fast for the vision model. launchImageLibraryAsync uses the
+  // system photo picker, which needs no runtime permission on modern iOS/Android.
+  const pickImage = useCallback(async () => {
+    if (streaming || pickingImage) return;
+    try {
+      setPickingImage(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      const actions = asset.width && asset.width > 1280 ? [{ resize: { width: 1280 } }] : [];
+      const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+        compress: 0.6,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      });
+      if (!out.base64) return;
+      setAttachedImage({ uri: out.uri, dataUrl: `data:image/jpeg;base64,${out.base64}` });
+    } catch {
+      /* picker/manipulation failed — leave any existing attachment unchanged */
+    } finally {
+      setPickingImage(false);
+    }
+  }, [streaming, pickingImage]);
+
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || streaming) return;
+      const image = attachedImage;
+      if ((!trimmed && !image) || streaming) return;
       setInput("");
+      setAttachedImage(null);
 
-      const history: UIMessage[] = [...messages, { role: "user", content: trimmed }];
+      const history: UIMessage[] = [
+        ...messages,
+        { role: "user", content: trimmed, imageUri: image?.uri },
+      ];
       setMessages([...history, { role: "assistant", content: "" }]);
       setWaiting(true);
       setStreaming(true);
@@ -429,7 +475,9 @@ export default function CoachScreen() {
       // StatMuse period game-log card instead of streamed AI text. Any miss or
       // error falls through to the normal chat path, which never fabricates.
       try {
-        const card = await tryStatCard(trimmed, controller.signal);
+        // A photo attachment goes straight to the vision model — the text-only
+        // stat-card lookup can't read an image, so skip it when one is attached.
+        const card = image ? null : await tryStatCard(trimmed, controller.signal);
         if (card) {
           setMessages((prev) => {
             const copy = [...prev];
@@ -548,6 +596,7 @@ export default function CoachScreen() {
         const full = await streamChat({
           messages: apiMessages,
           context,
+          imageDataUrl: image?.dataUrl,
           signal: controller.signal,
           onToken: (sofar) => {
             if (first) {
@@ -617,7 +666,7 @@ export default function CoachScreen() {
         scrollToEnd();
       }
     },
-    [messages, slipForContext, streaming, scrollToEnd],
+    [messages, slipForContext, streaming, scrollToEnd, attachedImage],
   );
 
   // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
@@ -698,7 +747,7 @@ export default function CoachScreen() {
               !m.periodGameLog &&
               !m.teamCard &&
               !isBuildingParlay &&
-              (isWaiting || bubbleText.length > 0);
+              (isWaiting || bubbleText.length > 0 || !!m.imageUri);
             return (
               <View key={i}>
                 {m.statCard ? (
@@ -722,9 +771,21 @@ export default function CoachScreen() {
                       paddingVertical: 10,
                     }}
                   >
+                    {m.imageUri ? (
+                      <Image
+                        source={{ uri: m.imageUri }}
+                        style={{
+                          width: 200,
+                          height: 200,
+                          borderRadius: 10,
+                          marginBottom: bubbleText.length > 0 ? 8 : 0,
+                        }}
+                        contentFit="cover"
+                      />
+                    ) : null}
                     {isWaiting ? (
                       <ActivityIndicator color={colors.mutedForeground} size="small" />
-                    ) : (
+                    ) : bubbleText.length > 0 ? (
                       <Text
                         selectable
                         style={{
@@ -736,7 +797,7 @@ export default function CoachScreen() {
                       >
                         {bubbleText}
                       </Text>
-                    )}
+                    ) : null}
                   </Pressable>
                 ) : null}
 
@@ -859,6 +920,41 @@ export default function CoachScreen() {
           </Pressable>
         </View>
       ) : null}
+      {/* Attached-photo preview — shown above the input until sent or removed. */}
+      {attachedImage ? (
+        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <View style={{ alignSelf: "flex-start" }}>
+            <Image
+              source={{ uri: attachedImage.uri }}
+              style={{
+                width: 84,
+                height: 84,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+              contentFit="cover"
+            />
+            <Pressable
+              onPress={() => setAttachedImage(null)}
+              hitSlop={8}
+              style={{
+                position: "absolute",
+                top: -8,
+                right: -8,
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: colors.foreground,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Feather name="x" size={14} color={colors.background} />
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: "row",
@@ -872,6 +968,27 @@ export default function CoachScreen() {
           backgroundColor: colors.background,
         }}
       >
+        <Pressable
+          onPress={pickImage}
+          disabled={streaming || pickingImage}
+          style={({ pressed }) => ({
+            width: 44,
+            height: 44,
+            borderRadius: 22,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed || streaming ? 0.6 : 1,
+          })}
+        >
+          {pickingImage ? (
+            <ActivityIndicator color={colors.mutedForeground} size="small" />
+          ) : (
+            <Feather name="image" size={20} color={colors.mutedForeground} />
+          )}
+        </Pressable>
         <TextInput
           value={input}
           onChangeText={setInput}
@@ -897,13 +1014,14 @@ export default function CoachScreen() {
         />
         <Pressable
           onPress={() => send(input)}
-          disabled={!input.trim() || streaming}
+          disabled={(!input.trim() && !attachedImage) || streaming}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
             borderRadius: 22,
-            backgroundColor: !input.trim() || streaming ? colors.card : colors.primary,
-            borderWidth: !input.trim() || streaming ? 1 : 0,
+            backgroundColor:
+              (!input.trim() && !attachedImage) || streaming ? colors.card : colors.primary,
+            borderWidth: (!input.trim() && !attachedImage) || streaming ? 1 : 0,
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
@@ -916,7 +1034,9 @@ export default function CoachScreen() {
             <Feather
               name="arrow-up"
               size={20}
-              color={!input.trim() ? colors.mutedForeground : colors.primaryForeground}
+              color={
+                !input.trim() && !attachedImage ? colors.mutedForeground : colors.primaryForeground
+              }
             />
           )}
         </Pressable>

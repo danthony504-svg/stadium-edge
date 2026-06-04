@@ -1501,12 +1501,48 @@ ENFORCEMENT:
 - Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.${oddsFamilyClause}${oddsChalkOverride}
 - If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`) + oddsProseHonesty;
 
-  const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum },
-    ...parsed.data.messages.map((m) => ({
-      role: m.role as "system" | "user" | "assistant",
-      content: m.content,
-    })),
+  // Optional user-attached photo (bet slip / sportsbook screen / scoreboard).
+  // gpt-5.4 supports image inputs, so we attach it to the LATEST user turn as a
+  // vision content block and steer the model to READ it (never fabricate numbers
+  // that aren't legible in the image).
+  // Only accept a well-formed base64 image data URL within a sane size cap.
+  // Anything else (remote http(s) URLs, oversized blobs, junk) is dropped so we
+  // never forward an untrusted/arbitrary URL into the model's vision input.
+  const rawImageDataUrl = parsed.data.imageDataUrl;
+  const imageDataUrl =
+    typeof rawImageDataUrl === "string" &&
+    /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(rawImageDataUrl) &&
+    rawImageDataUrl.length <= 7_000_000
+      ? rawImageDataUrl
+      : undefined;
+  const imageAnalysisAddendum = imageDataUrl
+    ? `\n\nIMAGE ANALYSIS — the user attached a PHOTO (most likely a bet slip, a sportsbook screen, or a scoreboard). Read it carefully:
+- Identify and list what you can see: each leg/pick, the line and odds, the stake/wager and potential payout, plus any teams, players, dates, or sport.
+- Then give your honest take: which legs you like or dislike and why, the overall risk, and — using the real odds/matchup data already in your context when relevant — whether anything looks like poor value or could be improved.
+- NEVER fabricate a number that isn't legible in the image. If text is cut off, blurry, or ambiguous, say so plainly instead of guessing.
+- If the image is not about sports betting, briefly say what it appears to be and ask how you can help.`
+    : "";
+
+  // The image attaches to the most recent user message only.
+  let lastUserIdx = -1;
+  parsed.data.messages.forEach((m, i) => {
+    if (m.role === "user") lastUserIdx = i;
+  });
+
+  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + imageAnalysisAddendum },
+    ...parsed.data.messages.map((m, i) => {
+      if (imageDataUrl && i === lastUserIdx && m.role === "user") {
+        return {
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: m.content || "Here's a photo — read it and give me your analysis." },
+            { type: "image_url" as const, image_url: { url: imageDataUrl } },
+          ],
+        };
+      }
+      return { role: m.role as "system" | "user" | "assistant", content: m.content };
+    }),
   ];
 
   res.setHeader("Content-Type", "text/event-stream");
