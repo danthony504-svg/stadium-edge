@@ -2135,6 +2135,59 @@ const extractLegCount = (text) => {
   return 3;
 };
 
+// Detect an odds-threshold request ("all -300 or less", "every leg +300 or
+// more"). Mirrors the server helper in api-server chat.ts and the mobile helper
+// in stadium-mobile lib/format.ts — keep the three in sync. Returns the bound
+// { signed, mode } where mode is the direction EVERY leg must satisfy:
+// atLeast → odds >= signed (longer payouts), atMost → odds <= signed (heavier
+// favorites). Requires an odds-sized number (|n| >= 100, ruling out leg counts)
+// AND an explicit comparator so a bare price mention never trips it.
+const parseOddsThreshold = (text) => {
+  const t = String(text || "").toLowerCase().replace(/[\u2212\u2013\u2014]/g, "-");
+  const re = /(^|[^\w.])(\+|-|plus\s+|minus\s+)?(\d{3,4})(\s*\+)?/g;
+  let m;
+  let best = null;
+  while ((m = re.exec(t)) !== null) {
+    const num = parseInt(m[3], 10);
+    if (num < 100) continue;
+    const signTok = (m[2] || "").trim();
+    const trailingPlus = !!m[4];
+    const sign = signTok === "-" || signTok === "minus" ? -1 : 1;
+    const tail = t.slice(m.index + m[0].length, m.index + m[0].length + 28);
+    const head = t.slice(Math.max(0, m.index - 24), m.index);
+    let mode = null;
+    if (
+      /\b(?:or|and)?\s*(?:more|higher|longer|better|greater|bigger|over|up|plus)\b/.test(tail) ||
+      /\b(?:at\s+least|minimum|min|no\s+less\s+than)\b/.test(head)
+    ) mode = "atLeast";
+    else if (
+      /\b(?:or|and)?\s*(?:less|lower|shorter|fewer|under|heavier|down)\b/.test(tail) ||
+      /\b(?:at\s+most|maximum|max|no\s+more\s+than|up\s+to)\b/.test(head)
+    ) mode = "atMost";
+    if (!mode && trailingPlus) mode = "atLeast";
+    if (!mode) continue;
+    // Require an explicit odds cue — a sign token, a "bare" trailing "+" (not
+    // "300+ yards"), or an odds/price word nearby — so a non-odds numeric ask
+    // with a comparator ("at least 100 yards", "300+ passing yards") never
+    // registers as a price bound and silently filters real legs.
+    const hasOddsCue =
+      !!signTok ||
+      (trailingPlus && !/^\s*[a-z]/.test(tail)) ||
+      /\b(?:odds|prices?|lines?|juice|vig|payouts?|american|moneyline)\b/.test(head + " " + tail);
+    if (!hasOddsCue) continue;
+    best = { signed: sign * num, mode };
+  }
+  return best;
+};
+
+// A null price (PrizePicks DFS leg) cannot be verified against an American-odds
+// bound, so it is excluded under a strict threshold.
+const oddsSatisfiesThreshold = (odds, thr) => {
+  if (!thr) return true;
+  if (odds == null || !Number.isFinite(odds)) return false;
+  return thr.mode === "atLeast" ? odds >= thr.signed : odds <= thr.signed;
+};
+
 const buildParlay = (sports, tier, legCount, propsOnly = false, livePool = null) => {
   // Only consider picks for games either currently being played OR starting
   // within the next 24 hours. We allow up to 4 hours in the past so in-progress
@@ -8400,7 +8453,20 @@ export default function ParlayBuilder() {
     // Hallucinations are already blocked at the LIVE slip layer (autoFillSlip
     // + sweep effect), so we don't need this filter to police what the chat
     // shows. Display the picks exactly as the AI wrote them.
-    const messagePicks = rawMessagePicks;
+    //
+    // ODDS-THRESHOLD LOCK: when the message that triggered this reply demanded
+    // every leg clear an American-odds bound ("10 leg with -300 or less"), drop
+    // any leg whose price breaks the bound so the snapshot card never shows an
+    // out-of-bound leg even if the model slipped one in. The server prompt is
+    // the primary lever; this is the hard client-side guarantee.
+    let triggerPrompt = "";
+    for (let k = msgIdx - 1; k >= 0; k--) {
+      if (messages[k]?.role === "user") { triggerPrompt = messages[k].content || ""; break; }
+    }
+    const oddsThreshold = parseOddsThreshold(triggerPrompt);
+    const messagePicks = oddsThreshold
+      ? rawMessagePicks.filter((p) => oddsSatisfiesThreshold(p.odds, oddsThreshold))
+      : rawMessagePicks;
     const messagePickByRaw = new Map();
     for (const rp of rawMessagePicks) {
       const rk = `${rp.game}::${rp.market}::${rp.pick}::${rp.odds}`;
@@ -8625,6 +8691,12 @@ export default function ParlayBuilder() {
           const m = line.match(/PICK:\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*([+-]?\d+|PrizePicks line)/i);
           if (m) {
             const odds = m[4] === "PrizePicks line" ? null : parseInt(m[4]);
+            // ODDS-THRESHOLD LOCK (hard guarantee): if this reply was triggered
+            // by an "X or less / X or more" request, skip rendering any card
+            // whose price breaks the bound. This per-leg card path re-parses
+            // PICK lines independently of the filtered messagePicks above, so
+            // the gate must be repeated here or out-of-bound legs still show.
+            if (!oddsSatisfiesThreshold(odds, oddsThreshold)) return null;
             const mkt = friendlyMarketLabel(m[2].trim());
             const rawPick = {
               game: m[1].trim(),

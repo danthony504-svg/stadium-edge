@@ -13,6 +13,52 @@ const router: IRouter = Router();
 // normal use, surfacing as a misleading "AI unavailable" message.
 router.use("/chat", rateLimit({ windowMs: 60_000, max: 240, name: "chat" }));
 
+// Odds-threshold request detection ("build a 10 leg with -300 or less",
+// "every leg +300 or more"). Mirrors the client helpers in stadium-mobile
+// lib/format.ts and stadium-edge ParlayBuilder.tsx — keep the three in sync.
+// `signed` is the American-odds bound; `mode` is the direction EVERY leg must
+// satisfy: atLeast → odds >= signed (longer payouts), atMost → odds <= signed
+// (heavier favorites). Requires an odds-sized number (|n| >= 100, ruling out
+// leg counts) AND an explicit comparator so a bare price never trips it.
+type OddsThreshold = { signed: number; mode: "atLeast" | "atMost" };
+function parseOddsThreshold(text: string | null | undefined): OddsThreshold | null {
+  const t = String(text || "").toLowerCase().replace(/[\u2212\u2013\u2014]/g, "-");
+  const re = /(^|[^\w.])(\+|-|plus\s+|minus\s+)?(\d{3,4})(\s*\+)?/g;
+  let m: RegExpExecArray | null;
+  let best: OddsThreshold | null = null;
+  while ((m = re.exec(t)) !== null) {
+    const num = parseInt(m[3], 10);
+    if (num < 100) continue;
+    const signTok = (m[2] || "").trim();
+    const trailingPlus = !!m[4];
+    const sign = signTok === "-" || signTok === "minus" ? -1 : 1;
+    const tail = t.slice(m.index + m[0].length, m.index + m[0].length + 28);
+    const head = t.slice(Math.max(0, m.index - 24), m.index);
+    let mode: "atLeast" | "atMost" | null = null;
+    if (
+      /\b(?:or|and)?\s*(?:more|higher|longer|better|greater|bigger|over|up|plus)\b/.test(tail) ||
+      /\b(?:at\s+least|minimum|min|no\s+less\s+than)\b/.test(head)
+    ) mode = "atLeast";
+    else if (
+      /\b(?:or|and)?\s*(?:less|lower|shorter|fewer|under|heavier|down)\b/.test(tail) ||
+      /\b(?:at\s+most|maximum|max|no\s+more\s+than|up\s+to)\b/.test(head)
+    ) mode = "atMost";
+    if (!mode && trailingPlus) mode = "atLeast";
+    if (!mode) continue;
+    // Require an explicit odds cue — a sign token, a "bare" trailing "+" (not
+    // "300+ yards"), or an odds/price word nearby — so a non-odds numeric ask
+    // with a comparator ("at least 100 yards", "300+ passing yards") never
+    // registers as a price bound and silently filters real legs.
+    const hasOddsCue =
+      !!signTok ||
+      (trailingPlus && !/^\s*[a-z]/.test(tail)) ||
+      /\b(?:odds|prices?|lines?|juice|vig|payouts?|american|moneyline)\b/.test(head + " " + tail);
+    if (!hasOddsCue) continue;
+    best = { signed: sign * num, mode };
+  }
+  return best;
+}
+
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, WNBA, MLB, NHL, Soccer, NCAAF, NCAAB, UFC, and Tennis. Tennis (e.g. the French Open) is winner-odds (moneyline) only — there are no player props, spreads, totals, or team game-log analytics for it, so never invent any.
 You weigh: odds value, recent player form, coach tendencies, injury impact, weather (for outdoor sports), pace, matchup edges, key-number value (NFL 3 & 7), estimated-vs-implied probability (true edge), parlay variance math, same-game correlation, rest & fatigue (days-rest / back-to-backs), player home/away splits, MLB batter-vs-pitcher platoon (lefty/righty) edges, venue/altitude factors, and sample-size / regression caution.
@@ -1420,8 +1466,31 @@ The user asked for LIVE / in-progress bets. realGames/realOdds/realProps have be
         : `\n\n*** LIVE BETS REQUESTED — GAMES ARE LIVE BUT NO LIVE LINES RIGHT NOW ***
 ${liveGameCount} game(s) are currently in progress, but the book has no live odds or props posted for them this moment (lines often pull during fast-moving sequences). Do NOT pull in any pre-game/scheduled matchup to fill the gap, and do NOT pretend an upcoming game is live. Tell the user honestly that games are live but no live lines are available right now, name the in-progress matchup(s) from realGames if helpful, and suggest they retry in a moment.`;
 
+  // ODDS-THRESHOLD LOCK — the user demanded every leg clear an American-odds
+  // bound ("10 leg with -300 or less" / "+300 or more"). The model otherwise
+  // fills with the strongest plays regardless of price; spell out the ordering
+  // (American odds are NOT linear) and force per-leg price filtering. The client
+  // also post-filters resolved picks as a hard guarantee.
+  const oddsThreshold = parseOddsThreshold(latestUser);
+  const fmtAmer = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+  const oddsThresholdSystemAddendum = !oddsThreshold
+    ? ""
+    : oddsThreshold.mode === "atLeast"
+      ? `\n\n*** ODDS THRESHOLD LOCK FOR THIS TURN ***
+The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.signed)} OR LONGER — the American price must be GREATER THAN OR EQUAL TO ${oddsThreshold.signed} (longer odds / bigger payouts). Remember American-odds ordering: +400 is LONGER than +300, +120 is LONGER than -110, and -110 is LONGER than -300. A leg priced SHORTER than ${fmtAmer(oddsThreshold.signed)} (e.g. -200, -150, -110${oddsThreshold.signed > 0 ? `, +120 when the floor is ${fmtAmer(oddsThreshold.signed)}` : ""}) is FORBIDDEN this turn.
+ENFORCEMENT:
+- Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is >= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
+- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.
+- If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`
+      : `\n\n*** ODDS THRESHOLD LOCK FOR THIS TURN ***
+The user requires EVERY leg of this ticket to be priced ${fmtAmer(oddsThreshold.signed)} OR SHORTER — the American price must be LESS THAN OR EQUAL TO ${oddsThreshold.signed} (shorter odds / heavier favorites). Remember American-odds ordering: -500 is SHORTER than -300, -300 is SHORTER than -110, and ANY positive price (+110, +300) is LONGER than every negative price. A leg priced LONGER than ${fmtAmer(oddsThreshold.signed)} (e.g. -130, -150, -110, +120, +300 — none of those are <= ${oddsThreshold.signed}) is FORBIDDEN this turn.
+ENFORCEMENT:
+- Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is <= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
+- Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.
+- If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`;
+
   const messages = [
-    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum },
+    { role: "system" as const, content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum },
     ...parsed.data.messages.map((m) => ({
       role: m.role as "system" | "user" | "assistant",
       content: m.content,

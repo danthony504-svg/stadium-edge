@@ -53,3 +53,64 @@ export function parseOdds(token: string): number | null {
   const n = parseInt(m[0], 10);
   return Number.isFinite(n) ? n : null;
 }
+
+// An odds-threshold request ("all -300 or less", "every leg +300 or more").
+// `signed` is the American-odds bound (e.g. -300, +300). `mode` is the
+// direction the user wants EVERY leg to satisfy:
+//   atLeast → odds >= signed  (longer/bigger payouts; "+300 or more")
+//   atMost  → odds <= signed  (shorter/heavier favorites; "-300 or less")
+export type OddsThreshold = { signed: number; mode: "atLeast" | "atMost" };
+
+// Detect an odds-threshold bound in free text. Requires both an odds-sized
+// number (|n| >= 100, which also rules out leg counts like "10 leg") AND an
+// explicit comparator ("or more"/"or less"/…) so a bare price mention never
+// trips it. Returns the LAST bound found (the request's operative one) or null.
+export function parseOddsThreshold(text: string | null | undefined): OddsThreshold | null {
+  const t = String(text || "").toLowerCase().replace(/[−–—]/g, "-");
+  const re = /(^|[^\w.])(\+|-|plus\s+|minus\s+)?(\d{3,4})(\s*\+)?/g;
+  let m: RegExpExecArray | null;
+  let best: OddsThreshold | null = null;
+  while ((m = re.exec(t)) !== null) {
+    const num = parseInt(m[3], 10);
+    if (num < 100) continue;
+    const signTok = (m[2] || "").trim();
+    const trailingPlus = !!m[4];
+    const sign = signTok === "-" || signTok === "minus" ? -1 : 1;
+    const tail = t.slice(m.index + m[0].length, m.index + m[0].length + 28);
+    const head = t.slice(Math.max(0, m.index - 24), m.index);
+    let mode: "atLeast" | "atMost" | null = null;
+    if (
+      /\b(?:or|and)?\s*(?:more|higher|longer|better|greater|bigger|over|up|plus)\b/.test(tail) ||
+      /\b(?:at\s+least|minimum|min|no\s+less\s+than)\b/.test(head)
+    ) mode = "atLeast";
+    else if (
+      /\b(?:or|and)?\s*(?:less|lower|shorter|fewer|under|heavier|down)\b/.test(tail) ||
+      /\b(?:at\s+most|maximum|max|no\s+more\s+than|up\s+to)\b/.test(head)
+    ) mode = "atMost";
+    if (!mode && trailingPlus) mode = "atLeast";
+    if (!mode) continue;
+    // Require an explicit odds cue — a sign token, a "bare" trailing "+" (not
+    // "300+ yards"), or an odds/price word nearby — so a non-odds numeric ask
+    // with a comparator ("at least 100 yards", "300+ passing yards") never
+    // registers as a price bound and silently filters real legs.
+    const hasOddsCue =
+      !!signTok ||
+      (trailingPlus && !/^\s*[a-z]/.test(tail)) ||
+      /\b(?:odds|prices?|lines?|juice|vig|payouts?|american|moneyline)\b/.test(head + " " + tail);
+    if (!hasOddsCue) continue;
+    best = { signed: sign * num, mode };
+  }
+  return best;
+}
+
+// Does a single leg's American price satisfy the bound? A null/NaN price (e.g.
+// a PrizePicks DFS leg with no American odds) CANNOT be verified against an
+// odds bound, so it is excluded under a strict threshold.
+export function oddsSatisfiesThreshold(
+  odds: number | null | undefined,
+  thr: OddsThreshold | null,
+): boolean {
+  if (!thr) return true;
+  if (odds == null || !Number.isFinite(odds)) return false;
+  return thr.mode === "atLeast" ? odds >= thr.signed : odds <= thr.signed;
+}

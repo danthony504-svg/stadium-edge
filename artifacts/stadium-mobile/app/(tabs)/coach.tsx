@@ -20,6 +20,7 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
+import { parseOddsThreshold, oddsSatisfiesThreshold } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -552,7 +553,13 @@ export default function CoachScreen() {
           },
         });
 
-        const picks = parsePicks(full, context.realOdds, propPool, gameMeta);
+        let picks = parsePicks(full, context.realOdds, propPool, gameMeta);
+        // Odds-threshold lock ("10 leg with -300 or less"): drop any leg whose
+        // real price breaks the bound so the WHOLE ticket qualifies. The server
+        // prompt already steers the model toward qualifying legs; this is the
+        // belt-and-braces guarantee on the resolved real odds.
+        const oddsThreshold = parseOddsThreshold(trimmed);
+        if (oddsThreshold) picks = picks.filter((p) => oddsSatisfiesThreshold(p.odds, oddsThreshold));
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = { role: "assistant", content: full, picks };
