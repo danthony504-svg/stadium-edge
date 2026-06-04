@@ -48,3 +48,17 @@ atMost→odds<=signed, atLeast→odds>=signed) coach.tsx → `buildChatContext` 
 and pick the LEAST-EXTREME qualifying rung per side (cost = |price - signed|),
 not closest-to-even. Same gate on the prop alt-pass (keep rung if over OR under
 qualifies). Still ≤1 rung/side so the realOdds slice(0,120) breadth cap holds.
+
+**The context cap must RESERVE slots for alt PROPS or the model never picks them.**
+Alt prop rungs are appended AFTER every game's main lines, so a plain
+breadth-balanced cap (`balancePropsByGame`, 400) exhausts itself on mains and
+drops all alts before the model sees one — symptom: "why doesn't it ever use alt
+props". Fix: make the balancer alt-aware — split per-game into mains vs alts,
+round-robin each across games, reserve ~20% of the cap for alts (bounded by how
+many exist), fill mains up to cap−reserve, then alts up to cap, then backfill
+leftover mains if alts were scarce.
+**Why:** the prompt already teaches cushion/value alt-prop swaps (chat.ts rule
+"(A) PROP-LEVEL alts"), so availability — not prompting — was the blocker; the
+context can only surface, never invent.
+**How to apply:** any future trim/cap on a list that mixes mains + appended alts
+needs the same reserve, or the appended class silently vanishes under load.

@@ -725,29 +725,47 @@ const MAX_PROP_CONTEXT_GAMES = 24;
 // across games (see balancePropsByGame) so every game is represented.
 const MAX_PROPS_IN_CONTEXT = 400;
 
+// Round-robin items one-per-game per pass so a multi-game slate contributes
+// ~equally and no game is starved by another's deep list.
+function flattenRoundRobin(buckets: RealPropEntry[][]): RealPropEntry[] {
+  const out: RealPropEntry[] = [];
+  const max = buckets.reduce((m, b) => Math.max(m, b.length), 0);
+  for (let i = 0; i < max; i++) {
+    for (const b of buckets) if (i < b.length) out.push(b[i]);
+  }
+  return out;
+}
+
 // Pick up to `cap` props spread evenly across games instead of taking the first
-// `cap` in arrival order. Round-robins one prop per game per pass so a 12-game
-// slate contributes ~equally and no game is starved by another's deep prop list.
+// `cap` in arrival order. Crucially this is ALT-AWARE: alt ladder rungs are
+// appended after every game's main lines, so a plain round-robin exhausts the
+// cap on mains and the model never sees an alt rung to choose. We therefore
+// reserve a slice of the cap for alts (round-robined across games too), then
+// backfill any unused reserve with leftover mains. Mains still dominate; alts
+// just get guaranteed representation so cushion/value swaps are actually possible.
 function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[] {
   if (props.length <= cap) return props;
-  const byGame = new Map<string, RealPropEntry[]>();
+  const mainsByGame = new Map<string, RealPropEntry[]>();
+  const altsByGame = new Map<string, RealPropEntry[]>();
   for (const p of props) {
-    const arr = byGame.get(p.game);
+    const map = p.alt ? altsByGame : mainsByGame;
+    const arr = map.get(p.game);
     if (arr) arr.push(p);
-    else byGame.set(p.game, [p]);
+    else map.set(p.game, [p]);
   }
-  const buckets = [...byGame.values()];
-  const out: RealPropEntry[] = [];
-  for (let i = 0; out.length < cap; i++) {
-    let pushedAny = false;
-    for (const b of buckets) {
-      if (i < b.length) {
-        out.push(b[i]);
-        pushedAny = true;
-        if (out.length >= cap) break;
-      }
-    }
-    if (!pushedAny) break; // all buckets exhausted
+  const mainsOrdered = flattenRoundRobin([...mainsByGame.values()]);
+  const altsOrdered = flattenRoundRobin([...altsByGame.values()]);
+  // Reserve up to ~20% of the cap for alt rungs (never more than exist).
+  const altReserve = Math.min(Math.floor(cap * 0.2), altsOrdered.length);
+  const mainsTake = Math.min(mainsOrdered.length, cap - altReserve);
+  const out: RealPropEntry[] = mainsOrdered.slice(0, mainsTake);
+  for (const a of altsOrdered) {
+    if (out.length >= cap) break;
+    out.push(a);
+  }
+  // Alts were scarce — backfill the unused reserve with any leftover mains.
+  for (let i = mainsTake; i < mainsOrdered.length && out.length < cap; i++) {
+    out.push(mainsOrdered[i]);
   }
   return out;
 }
