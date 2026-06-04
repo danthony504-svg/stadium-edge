@@ -458,6 +458,11 @@ export function isPickable(startsAt?: string | null): boolean {
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
+// American odds -> implied win probability. Used to pick the single alt-ladder
+// rung closest to even money for each side. -110 -> ~0.524, +150 -> 0.40.
+const impliedProb = (american: number) =>
+  american < 0 ? -american / (-american + 100) : 100 / (american + 100);
+
 // Convert an OddsGame into real-odds PICK entries (main markets only — keeps the
 // chat context compact). Same shape the web app sends as context.realOdds.
 export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
@@ -483,6 +488,49 @@ export function buildRealOdds(g: OddsGame): RealOddsEntry[] {
     for (const o of totals.outcomes || []) {
       const pt = o.point == null ? "" : ` ${o.point}`;
       out.push({ ...base, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+    }
+  }
+
+  // Alternate ladders (alt spreads / alt totals) the server merged in per-event.
+  // Offer ONE rung per side — the one closest to even money — so the AI gets a
+  // usable cushion/value line for each side without bloating the context with the
+  // whole ladder. Skip a rung that equals the main number (not really an alt) or
+  // is priced so short (<= -1000) it adds no real equity. The AI prompt already
+  // documents the "Alt Spread"/"Alt Total" labels, and the slip parser resolves
+  // them via marketFamily (Alt Spread -> spread) plus the exact alt point.
+  const ALT_MAX_JUICE = -1000;
+  const bestRungPerSide = (
+    outcomes: OddsOutcome[],
+    sideKey: (o: OddsOutcome) => string,
+    mainPts: Set<string>,
+    ptKey: (o: OddsOutcome) => string,
+  ): OddsOutcome[] => {
+    const bySide = new Map<string, OddsOutcome>();
+    for (const o of outcomes || []) {
+      if (o.price == null || o.price <= ALT_MAX_JUICE) continue;
+      if (mainPts.has(ptKey(o))) continue; // same number as the main line
+      const sk = sideKey(o);
+      const cur = bySide.get(sk);
+      if (!cur || Math.abs(impliedProb(o.price) - 0.5) < Math.abs(impliedProb(cur.price) - 0.5)) {
+        bySide.set(sk, o);
+      }
+    }
+    return [...bySide.values()];
+  };
+  const altSpreads = g.markets.find((m) => m.key === "alternate_spreads");
+  const altTotals = g.markets.find((m) => m.key === "alternate_totals");
+  if (altSpreads) {
+    const mainPts = new Set((spreads?.outcomes ?? []).map((o) => `${nickname(o.name)}|${o.point ?? ""}`));
+    for (const o of bestRungPerSide(altSpreads.outcomes || [], (o) => nickname(o.name), mainPts, (o) => `${nickname(o.name)}|${o.point ?? ""}`)) {
+      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+      out.push({ ...base, market: "Alt Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+    }
+  }
+  if (altTotals) {
+    const mainPts = new Set((totals?.outcomes ?? []).map((o) => `${o.name}|${o.point ?? ""}`));
+    for (const o of bestRungPerSide(altTotals.outcomes || [], (o) => o.name, mainPts, (o) => `${o.name}|${o.point ?? ""}`)) {
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      out.push({ ...base, market: "Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
     }
   }
   return out;
@@ -729,30 +777,45 @@ export async function buildChatContext(
           signal,
         );
         const game = `${g.awayTeam} @ ${g.homeTeam}`;
-        for (const p of r.props ?? []) {
-          if (p.alt) continue; // mains only — alt rungs duplicate each player
-          if (p.overPrice == null && p.underPrice == null) continue;
-          realProps.push({
-            sport,
-            game,
-            startsAt: g.commenceTime,
-            player: p.player,
-            market: p.market,
-            line: p.line,
-            over: p.overPrice,
-            under: p.underPrice,
-            alt: false,
-          });
-          const headshot = p.headshot ?? null;
-          const teamAbbr = p.playerTeamId
-            ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
-            : null;
-          const marketLabel = propMarketLabel(p.market);
-          if (p.overPrice != null) {
-            propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice, headshot, teamAbbr });
-          }
-          if (p.line != null && p.underPrice != null) {
-            propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice, headshot, teamAbbr });
+        const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+        // Two passes so MAIN lines are pushed before ALT ladder rungs: the
+        // breadth-balanced context cap (balancePropsByGame) keeps the earlier
+        // rows, so mains must come first. Alt rungs are real bookmaker ladder
+        // values for the SAME player+stat — added as cushion/value options but
+        // capped per player+market so one star's deep ladder can't crowd the pool.
+        const altRungs = new Map<string, number>();
+        const ALT_RUNGS_PER_PROP = 3;
+        for (const altPass of [false, true]) {
+          for (const p of usable) {
+            if (!!p.alt !== altPass) continue;
+            if (p.alt) {
+              const k = `${p.player}|${p.market}`.toLowerCase();
+              const n = altRungs.get(k) ?? 0;
+              if (n >= ALT_RUNGS_PER_PROP) continue;
+              altRungs.set(k, n + 1);
+            }
+            realProps.push({
+              sport,
+              game,
+              startsAt: g.commenceTime,
+              player: p.player,
+              market: p.market,
+              line: p.line,
+              over: p.overPrice,
+              under: p.underPrice,
+              alt: !!p.alt,
+            });
+            const headshot = p.headshot ?? null;
+            const teamAbbr = p.playerTeamId
+              ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
+              : null;
+            const marketLabel = propMarketLabel(p.market);
+            if (p.overPrice != null) {
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice, headshot, teamAbbr });
+            }
+            if (p.line != null && p.underPrice != null) {
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice, headshot, teamAbbr });
+            }
           }
         }
       } catch {
