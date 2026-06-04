@@ -784,6 +784,11 @@ export type ChatContext = {
   // the coach weighs L10/season/venue/streak/H2H (+ mlLean winner & upset) rather
   // than odds alone. Optional: omitted when no pickable game resolved history.
   matchupHistory?: Record<string, MatchupHistoryEntry>;
+  // Real UFC fight breakdowns keyed by "Away @ Home" — fighter records + career
+  // striking/grappling rates + a deterministic stronger-fighter lean (with .upset
+  // when that fighter is also the betting dog). Combat sports only; omitted when
+  // no UFC bout resolved real data.
+  fightAnalysis?: Record<string, FightAnalysis>;
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -797,6 +802,43 @@ export type UpsetSpot = {
   reasons: string[];
   startsAt?: string;
 };
+
+// ---------- UFC fight analysis (real ESPN MMA records + career rates) ----------
+// Mirror of the api-server lib/ufc.ts shapes. Combat sports are moneyline-only,
+// so this is the one analytics layer we can build for them. Every number is real
+// ESPN data; honest-null cells when ESPN carries no value. Boxing is NOT
+// supported (no data source) and is never analysed here.
+export type FightFighterStats = {
+  strikeAccuracy: number | null;
+  strikeLPM: number | null;
+  takedownAccuracy: number | null;
+  takedownAvg: number | null;
+  submissionAvg: number | null;
+  finishPct: number | null;
+  decisionPct: number | null;
+};
+export type FightFighter = {
+  name: string;
+  resolvedName: string | null;
+  athleteId: string | null;
+  weightClass: string | null;
+  record: { wins: number; losses: number; draws: number; winPct: number } | null;
+  stats: FightFighterStats;
+};
+export type FightLean = { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } };
+export type FightAnalysis = { away: FightFighter; home: FightFighter; lean: FightLean | null };
+
+// Fetch the real fight breakdown for one UFC bout (records + striking/grappling
+// rates + a deterministic stronger-fighter lean). Returns null on a failed/empty
+// fetch — the caller treats that as "no data", never fabricates.
+export async function getFightAnalysis(away: string, home: string, signal?: AbortSignal): Promise<FightAnalysis | null> {
+  const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+  try {
+    return await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
+  } catch {
+    return null;
+  }
+}
 
 // Compact matchup-history entry sent to the AI (mirror of the web shape).
 export type MatchupHistoryEntry = {
@@ -1061,6 +1103,44 @@ export async function buildChatContext(
     signal,
   );
 
+  // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
+  // rates + a deterministic stronger-fighter lean for each pickable UFC bout.
+  // Combat sports are moneyline-only — this is the one analytics layer we can
+  // build for them. A fight UPSET = the data-favored fighter (lean.side) is ALSO
+  // the BETTING UNDERDOG (the plus-money side in the real h2h pool); joined
+  // against the raw moneyline outcomes (full fighter names), never fabricated.
+  const fightAnalysis: Record<string, FightAnalysis> = {};
+  const ufcIdx = sports.indexOf("ufc");
+  if (ufcIdx >= 0) {
+    const ufcGames = gamesAll[ufcIdx]
+      .filter((g) => g.state !== "post" && isPickable(g.startsAt) && (g.awayTeam || g.awayAbbr) && (g.homeTeam || g.homeAbbr))
+      .slice(0, 12);
+    const ufcOdds = oddsAll[ufcIdx];
+    await Promise.all(
+      ufcGames.map(async (g) => {
+        const away = g.awayTeam || g.awayAbbr || "";
+        const home = g.homeTeam || g.homeAbbr || "";
+        const gameLabel = `${away} @ ${home}`;
+        const data = await getFightAnalysis(away, home, signal);
+        // Skip honest-empty bouts (neither fighter resolved + no lean).
+        if (!data || (!data.away?.record && !data.home?.record && !data.lean)) return;
+        if (data.lean?.side) {
+          const oddsEntry = ufcOdds.find((o) => o.awayTeam === away && o.homeTeam === home);
+          const h2h = oddsEntry?.markets?.find((m) => m.key === "h2h");
+          // Normalize accents/punctuation/spacing: lean.side is ESPN's canonical
+          // name, the h2h outcome name comes from the odds feed — an exact ===
+          // would silently miss real upsets when the two forms diverge.
+          const nf = (s: any) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+          const out = (h2h?.outcomes || []).find((o) => nf(o.name) === nf(data.lean!.side));
+          if (out && typeof out.price === "number" && out.price >= 100) {
+            data.lean.upset = { dogOdds: out.price };
+          }
+        }
+        fightAnalysis[gameLabel] = data;
+      }),
+    );
+  }
+
   // Assemble a REAL player-prop pool from the soonest prop-capable games so the
   // AI can build prop legs (and never fabricate them). PROPS_SPORTS only — the
   // props route returns nothing for soccer/tennis/ufc. A failed per-game fetch
@@ -1164,6 +1244,7 @@ export async function buildChatContext(
       realOdds: realOdds.slice(0, 120),
       realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
+      ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
     },
     propPool,
     gameMeta,

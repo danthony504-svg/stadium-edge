@@ -3384,6 +3384,13 @@ export default function ParlayBuilder() {
   // generateReasoning() can render the W-L line under "Why this pick?" for
   // moneyline picks without re-fetching.
   const [matchupHistoryByGame, setMatchupHistoryByGame] = useState({}); // { "<gameLabel>": { home, away, h2h } }
+  // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
+  // stats + a deterministic "stronger fighter" lean per bout. Combat sports are
+  // moneyline-only, so this is the one analytics layer for them. Populated by the
+  // chat-send builder (keyed by "<Away> @ <Home>") and reused by the Tale of the
+  // Tape card on the UFC Game Detail. Never fabricated — honest-null on miss.
+  const [fightAnalysisByGame, setFightAnalysisByGame] = useState({}); // { "<gameLabel>": { away, home, lean } }
+  const [gameDetailFight, setGameDetailFight] = useState({ key: null, data: null, loading: false });
   // UPSET WATCH: real upset spots for the home card — games where the app's own
   // analytics lean (mlLean) is on the betting underdog. Populated by a standalone
   // effect (real matchup-history + real moneyline prices); never fabricated.
@@ -3665,6 +3672,54 @@ export default function ParlayBuilder() {
     })();
     return () => { cancelled = true; };
   }, [gameDetail, realGamesBySport]);
+
+  // Fetch the REAL UFC fight breakdown (both fighters' ESPN records + career
+  // striking/grappling rates + the deterministic stronger-fighter lean) for the
+  // open UFC Game Detail, so the "Tale of the Tape" card has real data even when
+  // the chat builder hasn't run. Enrich lean.upset from the real moneyline pool.
+  // Honest empty on miss — the card then shows "fighter data unavailable".
+  useEffect(() => {
+    if (!gameDetail || (gameDetail.sport !== "ufc" && gameDetail.sport !== "mma")) {
+      setGameDetailFight({ key: null, data: null, loading: false });
+      return;
+    }
+    const { game, sport } = gameDetail;
+    const key = `${sport}::${game}`;
+    // Prefer an already-built entry from the chat send (avoids a refetch).
+    if (fightAnalysisByGame[game]) {
+      setGameDetailFight({ key, data: fightAnalysisByGame[game], loading: false });
+      return;
+    }
+    const m = /^(.*?)\s+@\s+(.*)$/.exec(game);
+    if (!m) { setGameDetailFight({ key, data: null, loading: false }); return; }
+    const away = m[1].trim();
+    const home = m[2].trim();
+    let cancelled = false;
+    setGameDetailFight({ key, data: null, loading: true });
+    (async () => {
+      try {
+        const r = await fetch(`/api/sports/fight-analysis?away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`);
+        const data = r.ok ? await r.json() : null;
+        if (data?.lean?.side) {
+          const oddsEntry = (realOddsBySport[sport] || []).find(
+            (o) => o.awayTeam === away && o.homeTeam === home,
+          );
+          const h2h = oddsEntry?.markets?.find((mk) => mk.key === "h2h");
+          // Normalize accents/punctuation/spacing before joining ESPN's lean side
+          // to the odds-feed outcome name, so real upsets aren't missed on === .
+          const nf = (s: any) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+          const out = (h2h?.outcomes || []).find((o) => nf(o.name) === nf(data.lean.side));
+          if (out && typeof out.price === "number" && out.price >= 100) {
+            data.lean.upset = { dogOdds: out.price };
+          }
+        }
+        if (!cancelled) setGameDetailFight({ key, data, loading: false });
+      } catch {
+        if (!cancelled) setGameDetailFight({ key, data: null, loading: false });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [gameDetail, fightAnalysisByGame, realOddsBySport]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7336,6 +7391,51 @@ export default function ParlayBuilder() {
       const lean = (entry as any)?.mlLean;
       if (lean) detectUpset(lean, mlPriceByLabel[label]);
     }
+    // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
+    // rates + a deterministic "stronger fighter" lean for each UFC bout in the
+    // 24h pool. Combat sports are moneyline-only — this is the ONE analytics
+    // layer we can build for them. A fight UPSET = the data-favored fighter
+    // (lean.side) is ALSO the BETTING UNDERDOG (the plus-money side in the real
+    // h2h pool); joined against the raw moneyline outcomes, never fabricated.
+    const fightAnalysis: Record<string, any> = {};
+    const ufcGames = (realGamesBySportLocal["ufc"] || [])
+      .filter((g) => isWithin24h(g.startsAt) && gamePickable(`${g.awayTeam} @ ${g.homeTeam}`, g.status, g.startsAt))
+      .slice(0, 12);
+    if (ufcGames.length > 0) {
+      const ufcOdds = realOddsBySportLocal["ufc"] || [];
+      await Promise.all(
+        ufcGames.map(async (g) => {
+          const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
+          try {
+            const qs = `away=${encodeURIComponent(g.awayTeam)}&home=${encodeURIComponent(g.homeTeam)}`;
+            const r = await fetch(`/api/sports/fight-analysis?${qs}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            // Skip honest-empty bouts (neither fighter resolved + no lean).
+            if (!data || (!data.away?.record && !data.home?.record && !data.lean)) return;
+            if (data.lean?.side) {
+              const oddsEntry = (ufcOdds as any[]).find(
+                (o) => o.awayTeam === g.awayTeam && o.homeTeam === g.homeTeam,
+              );
+              const h2h = oddsEntry?.markets?.find((m: any) => m.key === "h2h");
+              // Diacritic-/punctuation-insensitive join: the lean side is ESPN's
+              // canonical name; the h2h outcome name comes from the odds feed, and
+              // accents/spacing can differ — an exact === would silently miss real
+              // upsets. nf() normalizes both before matching.
+              const nf = (s: any) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+              const out = (h2h?.outcomes || []).find((o: any) => nf(o.name) === nf(data.lean.side));
+              if (out && typeof out.price === "number" && out.price >= 100) {
+                data.lean.upset = { dogOdds: out.price };
+              }
+            }
+            fightAnalysis[gameLabel] = data;
+          } catch { /* honest no-analysis fallback */ }
+        }),
+      );
+      if (Object.keys(fightAnalysis).length > 0) {
+        setFightAnalysisByGame((prev) => ({ ...prev, ...fightAnalysis }));
+      }
+    }
     // Mirror the just-fetched h2h data into client state so the per-pick
     // "Why this pick?" card can show the W-L record for moneyline legs
     // (the user asked for it under Why this pick, not the AI edge note).
@@ -8013,6 +8113,7 @@ export default function ParlayBuilder() {
       realOdds: ctxOdds,
       realProps: ctxProps,
       matchupHistory: Object.keys(matchupHistory).length ? matchupHistory : undefined,
+      fightAnalysis: Object.keys(fightAnalysis).length ? fightAnalysis : undefined,
       playerHistory: Object.keys(playerHistory).length ? playerHistory : undefined,
       opponentDefense: Object.keys(opponentDefense).length ? opponentDefense : undefined,
       teamPeriodStats: Object.keys(teamPeriodStats).length ? teamPeriodStats : undefined,
@@ -11908,6 +12009,9 @@ export default function ParlayBuilder() {
         // price (clearly labelled). Only REAL lines (p.real) are ever read.
         const histForGame = (gameDetailHistory.key === `${sport}::${game}` && gameDetailHistory.data) ? gameDetailHistory.data : null;
         const histLoading = gameDetailHistory.key === `${sport}::${game}` && gameDetailHistory.loading;
+        // UFC "Tale of the Tape": the real fighter breakdown for this bout.
+        const fightForGame = (gameDetailFight.key === `${sport}::${game}` && gameDetailFight.data) ? gameDetailFight.data : null;
+        const fightLoading = gameDetailFight.key === `${sport}::${game}` && gameDetailFight.loading;
         const homeL10 = histForGame?.home?.last10 || null;
         const awayL10 = histForGame?.away?.last10 || null;
         const homeName = realGameForGame?.homeTeam || null;
@@ -12052,11 +12156,100 @@ export default function ParlayBuilder() {
             <div className="flex-1 overflow-y-auto">
               {isIndividual ? (
                 /* Individual matchup — no game lines / team props, just the match markets */
-                picks.length > 0 ? (
-                  <Section title="Match Markets" count={picks.length}>
-                    {picks.map(addable)}
-                  </Section>
-                ) : null
+                <>
+                  {(sport === "ufc" || sport === "mma") && (() => {
+                    if (fightLoading && !fightForGame) {
+                      return (
+                        <Section title="Tale of the Tape" count={0}>
+                          <div className="px-4 py-3 text-xs text-slate-500">Loading fighter data…</div>
+                        </Section>
+                      );
+                    }
+                    if (!fightForGame || (!fightForGame.away?.record && !fightForGame.home?.record)) {
+                      if (fightForGame) {
+                        return (
+                          <Section title="Tale of the Tape" count={0}>
+                            <div className="px-4 py-3 text-xs text-slate-500">Fighter data isn't available for this bout yet.</div>
+                          </Section>
+                        );
+                      }
+                      return null;
+                    }
+                    const fa = fightForGame.away || {};
+                    const fh = fightForGame.home || {};
+                    const lean = fightForGame.lean || null;
+                    const fmtPct = (v) => (typeof v === "number" ? `${v}%` : "—");
+                    const fmtNum = (v) => (typeof v === "number" ? `${v}` : "—");
+                    const recStr = (f) => (f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—");
+                    const rows = [
+                      { label: "Record", a: recStr(fa), h: recStr(fh) },
+                      { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
+                      { label: "Strike Acc.", a: fmtPct(fa.stats?.strikeAccuracy), h: fmtPct(fh.stats?.strikeAccuracy) },
+                      { label: "Sig. Strikes/min", a: fmtNum(fa.stats?.strikeLPM), h: fmtNum(fh.stats?.strikeLPM) },
+                      { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats?.finishPct), h: fmtPct(fh.stats?.finishPct) },
+                      { label: "Takedowns/15min", a: fmtNum(fa.stats?.takedownAvg), h: fmtNum(fh.stats?.takedownAvg) },
+                      { label: "Takedown Acc.", a: fmtPct(fa.stats?.takedownAccuracy), h: fmtPct(fh.stats?.takedownAccuracy) },
+                      { label: "Sub. Attempts/15min", a: fmtNum(fa.stats?.submissionAvg), h: fmtNum(fh.stats?.submissionAvg) },
+                    ];
+                    const aName = fa.resolvedName || awayName || "Away";
+                    const hName = fh.resolvedName || homeName || "Home";
+                    return (
+                      <Section title="Tale of the Tape" count={2}>
+                        <div className="px-4 py-3">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 mb-2 text-center">Real career data · ESPN</div>
+                          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center">
+                            <div className="text-right text-sm font-semibold text-cyan-300 truncate">{aName}</div>
+                            <div className="text-[10px] font-mono uppercase text-slate-600">vs</div>
+                            <div className="text-left text-sm font-semibold text-fuchsia-300 truncate">{hName}</div>
+                          </div>
+                          {(fa.weightClass || fh.weightClass) && (
+                            <div className="text-center text-[10px] font-mono uppercase tracking-wider text-slate-500 mt-0.5">{fa.weightClass || fh.weightClass}</div>
+                          )}
+                          <div className="mt-3 divide-y divide-slate-800/60">
+                            {rows.map((r) => (
+                              <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] gap-x-2 items-center py-1.5">
+                                <div className="text-right text-sm tabular-nums text-slate-200">{r.a}</div>
+                                <div className="text-[9px] font-mono uppercase tracking-wider text-slate-500 text-center whitespace-nowrap px-1">{r.label}</div>
+                                <div className="text-left text-sm tabular-nums text-slate-200">{r.h}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {lean?.side ? (
+                            <div className={`mt-3 rounded-lg border p-3 ${lean.upset ? "border-amber-500/50 bg-amber-500/5" : "border-emerald-500/40 bg-emerald-500/5"}`}>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Data edge</span>
+                                <span className="text-sm font-bold text-white">{lean.side}</span>
+                                {lean.upset && (
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/40 rounded px-1.5 py-0.5">
+                                    🚨 Upset value {lean.upset.dogOdds > 0 ? `+${lean.upset.dogOdds}` : lean.upset.dogOdds}
+                                  </span>
+                                )}
+                              </div>
+                              {Array.isArray(lean.reasons) && lean.reasons.length > 0 && (
+                                <ul className="mt-2 space-y-1">
+                                  {lean.reasons.map((rsn, i) => (
+                                    <li key={i} className="text-[11px] text-slate-300 leading-snug flex gap-1.5">
+                                      <span className="text-emerald-400">›</span>
+                                      <span>{rsn}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="mt-3 text-[11px] text-slate-500 text-center">Too close to call on the available data.</div>
+                          )}
+                        </div>
+                      </Section>
+                    );
+                  })()}
+                  {/* Individual matchup — no game lines / team props, just the match markets */}
+                  {picks.length > 0 ? (
+                    <Section title="Match Markets" count={picks.length}>
+                      {picks.map(addable)}
+                    </Section>
+                  ) : null}
+                </>
               ) : (
                 <>
                   {/* AI's recommended spread & total side (real recent-form analytics, price fallback) */}

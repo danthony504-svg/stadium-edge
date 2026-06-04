@@ -15,6 +15,7 @@ import statmuseRouter from "./statmuse";
 import bballrefRouter from "./bballref";
 import slipImageRouter from "./slipImage";
 import syncRouter from "./sync";
+import ufcRouter from "./ufc";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(statmuseRouter);
 router.use(bballrefRouter);
 router.use(slipImageRouter);
 router.use(syncRouter);
+router.use(ufcRouter);
 
 export default router;

@@ -12,7 +12,7 @@ import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getOdds, streamChat, type OddsGame, type OddsMarket } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getOdds, streamChat, type FightAnalysis, type OddsGame, type OddsMarket } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -310,6 +310,200 @@ function AiGamePicks({ game }: { game: OddsGame }) {
   );
 }
 
+// Real UFC "Tale of the Tape" — both fighters' real ESPN records + career
+// striking/grappling rates, plus the deterministic stronger-fighter lean and an
+// upset badge when that fighter is also the betting dog. Honest-null cells (—)
+// when ESPN carries no value; never fabricated. Renders nothing for non-UFC
+// games or bouts with no resolvable data.
+function FightTaleOfTape({ game }: { game: OddsGame }) {
+  const colors = useColors();
+  const [data, setData] = useState<FightAnalysis | null>(null);
+  const [loading, setLoading] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    getFightAnalysis(game.awayTeam, game.homeTeam, controller.signal)
+      .then((d) => {
+        if (controller.signal.aborted) return;
+        // Enrich the lean with the real betting-dog price from this game's h2h
+        // pool so an upset (data-favored fighter = plus-money side) can be flagged.
+        if (d?.lean?.side) {
+          const h2h = game.markets?.find((m) => m.key === "h2h");
+          // Normalize accents/punctuation/spacing before joining ESPN's lean side
+          // to the odds-feed outcome name, so real upsets aren't missed on === .
+          const nf = (s: any) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+          const out = (h2h?.outcomes || []).find((o) => nf(o.name) === nf(d.lean!.side));
+          if (out && typeof out.price === "number" && out.price >= 100) {
+            d.lean.upset = { dogOdds: out.price };
+          }
+        }
+        setData(d);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setData(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [game.awayTeam, game.homeTeam, game.markets]);
+
+  if (loading) {
+    return (
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderWidth: 1,
+          borderRadius: colors.radius,
+          padding: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <ActivityIndicator color={colors.primary} />
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
+          Loading fighter data…
+        </Text>
+      </View>
+    );
+  }
+
+  if (!data || (!data.away?.record && !data.home?.record)) return null;
+
+  const fa = data.away;
+  const fh = data.home;
+  const lean = data.lean;
+  const aName = fa.resolvedName || game.awayTeam || "Away";
+  const hName = fh.resolvedName || game.homeTeam || "Home";
+  const fmtPct = (v: number | null) => (typeof v === "number" ? `${v}%` : "—");
+  const fmtNum = (v: number | null) => (typeof v === "number" ? `${v}` : "—");
+  const recStr = (f: FightAnalysis["away"]) =>
+    f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—";
+  const rows: { label: string; a: string; h: string }[] = [
+    { label: "Record", a: recStr(fa), h: recStr(fh) },
+    { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
+    { label: "Strike Acc.", a: fmtPct(fa.stats.strikeAccuracy), h: fmtPct(fh.stats.strikeAccuracy) },
+    { label: "Sig. Strikes/min", a: fmtNum(fa.stats.strikeLPM), h: fmtNum(fh.stats.strikeLPM) },
+    { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats.finishPct), h: fmtPct(fh.stats.finishPct) },
+    { label: "Takedowns/15min", a: fmtNum(fa.stats.takedownAvg), h: fmtNum(fh.stats.takedownAvg) },
+    { label: "Takedown Acc.", a: fmtPct(fa.stats.takedownAccuracy), h: fmtPct(fh.stats.takedownAccuracy) },
+    { label: "Sub. Attempts/15min", a: fmtNum(fa.stats.submissionAvg), h: fmtNum(fh.stats.submissionAvg) },
+  ];
+  const weightClass = fa.weightClass || fh.weightClass;
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 12,
+      }}
+    >
+      <View style={{ gap: 2 }}>
+        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+          TALE OF THE TAPE
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+          REAL CAREER DATA · ESPN
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, textAlign: "right" }} numberOfLines={1}>
+          {aName}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, paddingHorizontal: 10 }}>VS</Text>
+        <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
+          {hName}
+        </Text>
+      </View>
+      {weightClass ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, textAlign: "center", marginTop: -6, letterSpacing: 0.5 }}>
+          {weightClass.toUpperCase()}
+        </Text>
+      ) : null}
+
+      <View style={{ gap: 0 }}>
+        {rows.map((r, i) => (
+          <View
+            key={r.label}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              paddingVertical: 7,
+              borderTopWidth: i === 0 ? 0 : 1,
+              borderTopColor: colors.border,
+            }}
+          >
+            <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "right" }}>
+              {r.a}
+            </Text>
+            <Text style={{ width: 132, color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9.5, textAlign: "center", letterSpacing: 0.3 }}>
+              {r.label.toUpperCase()}
+            </Text>
+            <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+              {r.h}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {lean?.side ? (
+        <View
+          style={{
+            backgroundColor: lean.upset ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)",
+            borderColor: lean.upset ? "rgba(245,158,11,0.5)" : "rgba(16,185,129,0.45)",
+            borderWidth: 1,
+            borderRadius: colors.radius,
+            padding: 11,
+            gap: 7,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+              DATA EDGE
+            </Text>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 14 }}>
+              {lean.side}
+            </Text>
+            {lean.upset ? (
+              <View style={{ backgroundColor: "rgba(245,158,11,0.18)", borderColor: "rgba(245,158,11,0.5)", borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                <Text style={{ color: "#f59e0b", fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.3 }}>
+                  🚨 UPSET VALUE {formatAmerican(lean.upset.dogOdds)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {lean.reasons?.length ? (
+            <View style={{ gap: 4 }}>
+              {lean.reasons.map((rsn, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 6 }}>
+                  <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>›</Text>
+                  <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
+                    {rsn}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, textAlign: "center" }}>
+          Too close to call on the available data.
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export default function GameDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -373,6 +567,8 @@ export default function GameDetailScreen() {
           </View>
 
           <AiGamePicks game={game} />
+
+          {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
 
           {(() => {
             // Decode + drop unrenderable keys, then order: full-game mains first,
