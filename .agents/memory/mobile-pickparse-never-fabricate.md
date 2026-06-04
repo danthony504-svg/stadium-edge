@@ -114,6 +114,18 @@ the detector MUST be the pipe-delimited scaffold shape `/^(?:PICK|ALT)\s*:.*\|.*
 (>=2 pipes), NOT `/^(?:PICK|ALT):/` — the loose form truncates normal Q&A prose
 that starts with "Pick: I'd lean…".
 
+## Game-level anti-correlation (both ML sides recommended bug)
+`parsePicks` only dropped EXACT dup `game|market|pick`, so the AI emitting BOTH
+sides of a game-level market for one game (real bug: tennis "Smotritsky ML -250"
+AND "Stargel ML +170" both shown as ★ AI RECOMMENDED on game/[id]) slipped
+through — a contradiction. Fix: a per-(game, marketFamily) `gameLevelSeen` set
+keeps only the FIRST game-level pick per family per game (drops opposite ML,
+opposite spread, over+under). **Excludes props** (`!isPropSelection`) — two
+players' props on one game share a family (marketFamily lumps player+game totals)
+and must NOT collide. Safe for periods because marketFamily embeds the period
+prefix (`1h:total` ≠ `total`). Mirrors the web ai-pick-safety-net; shared by
+coach + game-detail. **Why:** single game = one defensible side per market.
+
 ## ALT lines are NOT legs (safe 3-leg ticket → 6 cards bug)
 `parsePicks()` must match `^PICK\s*:` ONLY — never `(?:PICK|ALT)`. ALT lines are
 alternate/swap rungs for a leg the AI already emitted (the safe-ticket mandate

@@ -486,6 +486,14 @@ export function parsePicks(
 
   const lines = text.split("\n");
   const out: ParsedPick[] = [];
+  // Anti-correlation guard for GAME-LEVEL markets: a single game can have only
+  // ONE defensible moneyline / spread / total side — the AI emitting both sides
+  // (e.g. "Smotritsky ML -250" AND "Stargel ML +170" for the same match) is a
+  // contradiction. Keep the FIRST game-level pick per (game, market-family) and
+  // drop later same-family picks on that game. Player props are EXCLUDED: two
+  // different players' props on the same game legitimately share a family
+  // (marketFamily lumps player + game totals together), so they must not collide.
+  const gameLevelSeen = new Set<string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -565,6 +573,15 @@ export function parsePicks(
     // Canonical, real fields only (real odds, real market, real selection).
     const id = `${resolved.game}|${resolved.market}|${resolved.pick}`.toLowerCase();
     if (out.some((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase() === id)) continue;
+
+    // Game-level anti-correlation: only ONE moneyline/spread/total side per game.
+    // (Props are excluded — different players can share a family on one game.)
+    if (!isPropSelection) {
+      const famKey = `${norm(resolved.game)}|${marketFamily(resolved.market)}`;
+      if (gameLevelSeen.has(famKey)) continue; // contradictory second side -> drop
+      gameLevelSeen.add(famKey);
+    }
+
     out.push(resolved);
   }
   return out;
