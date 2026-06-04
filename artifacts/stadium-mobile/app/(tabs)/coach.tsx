@@ -19,6 +19,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
+import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -27,7 +28,9 @@ import {
   buildChatContext,
   getPlayerHistory,
   getStatmuseGamelog,
+  getTeamHistory,
   searchPlayer,
+  searchTeam,
   streamChat,
   type ChatMessage,
 } from "@/lib/api";
@@ -40,9 +43,14 @@ type UIMessage = {
   picks?: ParsedPick[];
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
+  teamCard?: TeamStatCardData;
 };
 
-type StatCardResult = { statCard?: PlayerStatCardData; periodGameLog?: PeriodGameLogCardData };
+type StatCardResult = {
+  statCard?: PlayerStatCardData;
+  periodGameLog?: PeriodGameLogCardData;
+  teamCard?: TeamStatCardData;
+};
 
 // Resolve a player/stat question into a REAL stat card. Returns null when the
 // message isn't a stat lookup or no real player/data resolves — the caller then
@@ -100,7 +108,24 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
       }
     }
   }
-  if (!top) return null;
+  // No player resolved — try resolving the name to a TEAM instead so team
+  // questions ("Lakers stats", "how are the Celtics doing") get a real card.
+  // Player-first preserves existing behavior; this is a pure fallback. On a team
+  // miss we return null so the caller falls through to the AI (never fabricates).
+  if (!top) {
+    try {
+      const tr = await searchTeam(lookup.name, signal);
+      const team = (tr.results || [])[0] || null;
+      if (team) {
+        const teamHistory = await getTeamHistory(team.sport, team.teamId, signal);
+        return { teamCard: { resolved: team, history: teamHistory } };
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError") throw e;
+      // Fall through to the AI chat path on any non-abort error.
+    }
+    return null;
+  }
 
   // Period intent ("first quarter points") → StatMuse per-game period grid.
   // ESPN game logs have no period splits, so this is the only real source.
@@ -215,6 +240,39 @@ function isProjectionQuestion(text: string): boolean {
 // straight from the card (ESPN player-history / StatMuse grid) — nothing here is
 // invented, which keeps the never-fabricate rule intact.
 function serializeStatCardForAI(card: StatCardResult): string {
+  if (card.teamCard) {
+    const { resolved, history } = card.teamCard;
+    const f = history.last10;
+    const recent = (history.recent || []).slice(0, 10);
+    const games = recent
+      .map((g) => {
+        const loc = g.home ? "vs" : "@";
+        const score = g.pts == null || g.oppPts == null ? "" : ` ${g.pts}-${g.oppPts}`;
+        const wl = g.won === true ? " W" : g.won === false ? " L" : "";
+        return `${g.date ?? ""} ${loc} ${g.opp ?? ""}${score}${wl}`.trim();
+      })
+      .join("; ");
+    return [
+      "REAL DATA (use ONLY these numbers; do not invent anything):",
+      `${history.teamName || resolved.name} (${String(resolved.sport).toUpperCase()})${
+        history.season ? ` — ${history.season} season` : ""
+      }`,
+      history.record.games
+        ? `Record (last ${history.record.games}): ${history.record.wins}-${history.record.losses}.`
+        : "",
+      f.games
+        ? `Last ${f.games}: ${f.wins}-${f.losses}, ${
+            f.ptsFor == null ? "n/a" : f.ptsFor.toFixed(1)
+          } pts for / ${f.ptsAgainst == null ? "n/a" : f.ptsAgainst.toFixed(1)} against (margin ${
+            f.avgMargin == null ? "n/a" : f.avgMargin.toFixed(1)
+          }).`
+        : "",
+      history.streak ? `Streak: ${history.streak.type}${history.streak.count}.` : "",
+      games ? `Recent games: ${games}.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   if (card.periodGameLog) {
     const g = card.periodGameLog;
     const rows = (g.rows || []).slice(0, 10);
@@ -601,6 +659,7 @@ export default function CoachScreen() {
             const showBubble =
               !m.statCard &&
               !m.periodGameLog &&
+              !m.teamCard &&
               !isBuildingParlay &&
               (isWaiting || bubbleText.length > 0);
             return (
@@ -609,6 +668,8 @@ export default function CoachScreen() {
                   <PlayerStatCard data={m.statCard} />
                 ) : m.periodGameLog ? (
                   <PeriodGameLogCard data={m.periodGameLog} />
+                ) : m.teamCard ? (
+                  <TeamStatCard data={m.teamCard} />
                 ) : showBubble ? (
                   <Pressable
                     onLongPress={isWaiting ? undefined : () => copyMessage(bubbleText)}

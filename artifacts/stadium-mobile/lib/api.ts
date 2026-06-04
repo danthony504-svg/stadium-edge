@@ -295,6 +295,76 @@ export function getPlayerHistory(
   return getJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
 }
 
+// ---------- Team stats (real ESPN schedule form) ----------
+
+// A single ESPN team-search hit (artifacts/api-server /sports/team-search).
+export type TeamSearchResult = {
+  teamId: string;
+  name: string;
+  location: string | null;
+  abbrev: string | null;
+  sport: string;
+  league: string;
+  logo: string | null;
+};
+
+// Last-N form pack for a team — every number derived from real ESPN final
+// scores. Counting fields are null when a feed has no decided games.
+export type TeamForm = {
+  games: number;
+  wins: number;
+  losses: number;
+  ptsFor: number | null;
+  ptsAgainst: number | null;
+  avgMargin: number | null;
+};
+
+// One real completed game from a team's schedule (newest first).
+export type TeamRecentGame = {
+  date: string;
+  opp: string | null;
+  home: boolean;
+  pts: number | null;
+  oppPts: number | null;
+  won: boolean | null;
+};
+
+// Real team form + recent results (artifacts/api-server /sports/team-history).
+// `season` is non-null only when we fell back to a prior season (off-season).
+export type TeamHistory = {
+  sport: string;
+  teamId: string;
+  teamName: string | null;
+  season: string | null;
+  last10: TeamForm;
+  last5: TeamForm;
+  homeSplit: TeamForm;
+  awaySplit: TeamForm;
+  streak: { type: "W" | "L"; count: number } | null;
+  record: { games: number; wins: number; losses: number; winPct: number | null };
+  recent: TeamRecentGame[];
+  lastGameDate: string | null;
+};
+
+// Resolve a free-text team name ("Lakers", "the Eagles") to real ESPN teams.
+export function searchTeam(
+  query: string,
+  signal?: AbortSignal,
+): Promise<{ query: string; results: TeamSearchResult[] }> {
+  return getJson(`/sports/team-search?query=${encodeURIComponent(query)}`, signal);
+}
+
+// Real form + recent results for one team. Server falls back to the prior
+// season for off-season sports so the card always shows real, recent games.
+export function getTeamHistory(
+  sport: string,
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<TeamHistory> {
+  const q = new URLSearchParams({ sport, teamId });
+  return getJson<TeamHistory>(`/sports/team-history?${q.toString()}`, signal);
+}
+
 // ---------- StatMuse period game log (real per-game period splits) ----------
 
 // One real per-game period row scraped from StatMuse's results grid.

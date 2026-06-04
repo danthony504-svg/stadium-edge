@@ -46,6 +46,26 @@ mockup-sandbox ParlayBuilder, except this mobile copy IS live (unlike mockup).
   binds. Any future name-recovery change must hit BOTH web ParlayBuilder and
   mobile coach.
 
+## Team stat lookup (mobile-only — web has NO team card)
+- The coach now also answers TEAM questions ("Lakers stats", "how are the Celtics
+  doing") with a real ESPN team card. This is a FALLBACK inside the SAME
+  `tryStatCard`: player search (+ span search) runs first; only on a player MISS
+  (`!top`) do we `searchTeam(lookup.name)` → `getTeamHistory(sport, teamId)`. A
+  team miss returns null → AI fallthrough. Player-first ordering is what prevents
+  a player query from being hijacked to a team.
+- Backend lives in `artifacts/api-server/src/routes/history.ts`: `/sports/team-search`
+  (ESPN `type=team`, league→sport map, ranks pro over college) and
+  `/sports/team-history` (reuses the team-form reducers; **off-season fallback**:
+  if the current schedule has 0 decided games it retries `?season={prevYear}`, so
+  NFL/NCAAF show last season's real results with an honest "no games yet" note).
+- **Sync asymmetry to remember:** unlike player/period lookup, the web
+  ParlayBuilder has NO team-card path — this is mobile-only. Don't assume a web
+  counterpart exists when changing it.
+- `searchTeam`/`getTeamHistory` + their types are in mobile `lib/api.ts`; card UI
+  is `components/TeamStatCard.tsx`; `serializeStatCardForAI` has a teamCard branch
+  so projection questions ("are the Lakers a good bet tonight?") get the real
+  form/streak/recent-scores block, never invented numbers.
+
 ## Other gotchas
 - Player resolution uses ESPN relevance-first (`results[0]`), NOT "prefer any
   active player" — the active-override returned the wrong athlete for
