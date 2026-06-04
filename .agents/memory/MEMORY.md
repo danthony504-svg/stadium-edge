@@ -2,7 +2,8 @@
 - [api-server scaling (per-user limits + Redis)](api-server-scaling.md) — Replit edge OVERWRITES X-Forwarded-For (so trust proxy:true reads real, non-spoofable IP); limiters key on Clerk userId else IP; lib/store.ts opt-in Redis via REDIS_URL else in-memory, fall-through on error, atomic Lua window, stable `name` scopes.
 - [ParlayBuilder multiple search renders](parlaybuilder-multiple-search-renders.md) — 3 independent homeSearch result blocks (home ~7133, All Sports ~7650, all-upcoming ~8180); a search UX change must hit all of them.
 - [Single-game request lock](single-game-request-lock.md) — naming one game game-locks ALL legs incl props to that game; never widen to other games to hit leg count.
-- [Adding pick AI signals](adding-pick-ai-signals.md) — ESPN->api->client->prompt 4-hop flow; career-vs-season stats gotcha; honest-null for weather; build/restart quirks.
+- [Adding pick AI signals](adding-pick-ai-signals.md) — ESPN→api-server→client context→SYSTEM_PROMPT 4-hop flow; JSON.stringify auto-serializes new keys; career-vs-season gotcha; honest-null weather; api-server no watcher; ESPN no def-vs-position.
+- [Underdog Upset Watch](underdog-upset-watch.md) — upset = mlLean(edge≥1) ON the longer plus-money (≥+100) ML side; card+coach on web+mobile; one source of truth (computeMlLean/buildMlPriceByLabel/detectUpset); mobile flat realOdds price-join gotcha; never invent a dog.
 - [ESPN odds fallback](espn-odds-fallback.md) — bulk per-event pickcenter[0] as second-tier real odds when Odds API is down; cache + concurrency notes.
 - [Bovada odds fallback](bovada-odds-fallback.md) — third-tier real odds scrape; soccer multi-container + period-label + side-matching gotchas, no UFC.
 - [Finals suppression belt-and-braces](finals-suppression-belt-and-braces.md) — render-site and source-side finished-game filtering; 4h cutoff + active-status bypass.

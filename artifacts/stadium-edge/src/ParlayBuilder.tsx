@@ -697,6 +697,84 @@ const fetchEspnTeamRecord = async (sportId, teamId) => {
 };
 
 // Convert an /api/sports/odds entry into PICK_POOL-shaped pick objects.
+// Last-token team nickname (module-level mirror of buildPicksFromOdds' local
+// helper) so the moneyline-lean + upset-detection helpers below can match a
+// lean side to an h2h outcome name.
+const mlNick = (full) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
+const _clampLean = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const _streakStr = (s) => (s && s.count > 0 ? (s.type === "W" ? s.count : -s.count) : 0);
+// Deterministic moneyline lean: collapse the SAME real signals the app's own
+// pick-engine (scoreCandidate) uses to rank a straight winner — L10 avg margin,
+// season win%, home/road venue split, current streak, and H2H — into a single
+// signed "home edge" (+ favors home). The chat AI is then FORCED to pick
+// mlLean.side for any moneyline, so the same matchup can't come back as the home
+// team one request and the away team the next. Pure function of the real data →
+// identical side every time (no flip-flop). Module-level so BOTH the chat-context
+// builder and the Upset Watch card compute the lean from one source of truth.
+const computeMlLean = (label, d) => {
+  const parts = (label || "").split(" @ ");
+  const awayNm = (parts[0] || "").trim();
+  const homeNm = (parts[1] || "").trim();
+  if (!awayNm || !homeNm || !d) return null;
+  const h10 = d?.home?.last10, a10 = d?.away?.last10;
+  const hSeas = d?.home?.season, aSeas = d?.away?.season;
+  const hVen = (d?.home?.homeSplit?.games > 0) ? d.home.homeSplit : null;
+  const aVen = (d?.away?.awaySplit?.games > 0) ? d.away.awaySplit : null;
+  const h2h = d?.h2h?.meetings?.length ? d.h2h : null;
+  let edge = 0; let any = false;
+  if (h10?.avgMargin != null && a10?.avgMargin != null) { edge += _clampLean((h10.avgMargin - a10.avgMargin) * 1.2, -10, 10); any = true; }
+  if (hSeas?.winPct != null && aSeas?.winPct != null) { edge += _clampLean((hSeas.winPct - aSeas.winPct) * 15, -8, 8); any = true; }
+  if (hVen?.avgMargin != null && aVen?.avgMargin != null) { edge += _clampLean((hVen.avgMargin - aVen.avgMargin) * 0.9, -6, 6); any = true; }
+  const sd = _streakStr(d?.home?.streak) - _streakStr(d?.away?.streak);
+  if (sd !== 0) { edge += _clampLean(sd * 1.2, -5, 5); any = true; }
+  if (h2h) { edge += _clampLean((h2h.homeWins - h2h.awayWins) * 2, -5, 5); any = true; }
+  if (!any || Math.abs(edge) < 1) return null; // genuinely too close → no forced side
+  const homeFav = edge > 0;
+  const side = homeFav ? homeNm : awayNm;
+  const reasons = [];
+  const favL10 = homeFav ? h10 : a10, oppL10 = homeFav ? a10 : h10;
+  if (favL10?.avgMargin != null) reasons.push(`${side} ${favL10.wins}-${favL10.losses} L10 (${favL10.avgMargin > 0 ? "+" : ""}${favL10.avgMargin} margin)${oppL10?.avgMargin != null ? ` vs ${oppL10.wins}-${oppL10.losses} (${oppL10.avgMargin > 0 ? "+" : ""}${oppL10.avgMargin})` : ""}`);
+  const favSeas = homeFav ? hSeas : aSeas;
+  if (favSeas?.winPct != null) reasons.push(`${favSeas.wins}-${favSeas.losses} season (${Math.round(favSeas.winPct * 100)}% win)`);
+  const favVen = homeFav ? hVen : aVen;
+  if (favVen) reasons.push(`${favVen.wins}-${favVen.losses} ${homeFav ? "at home" : "on the road"} (${favVen.avgMargin > 0 ? "+" : ""}${favVen.avgMargin} margin)`);
+  const favStreak = homeFav ? d?.home?.streak : d?.away?.streak;
+  if (favStreak && favStreak.type === "W" && favStreak.count >= 2) reasons.push(`${favStreak.count}-game win streak`);
+  if (h2h) { const fw = homeFav ? h2h.homeWins : h2h.awayWins, fl = homeFav ? h2h.awayWins : h2h.homeWins; if (fw !== fl) reasons.push(`${fw}-${fl} H2H last ${h2h.meetings.length}`); }
+  if (reasons.length === 0) reasons.push(`${side} holds the edge on combined form, season, venue and streak metrics`);
+  return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
+};
+// Build { "Away @ Home" -> { nickname -> americanPrice } } from a realOddsBySport
+// map so a game's two real moneyline prices can be looked up by team nickname.
+const buildMlPriceByLabel = (oddsBySport) => {
+  const out = {};
+  for (const games of Object.values(oddsBySport || {})) {
+    for (const g of games || []) {
+      const h2h = (g.markets || []).find((m) => m.key === "h2h");
+      if (!h2h) continue;
+      const byNick = {};
+      for (const o of h2h.outcomes || []) { if (o?.name != null && o.price != null) byNick[mlNick(o.name)] = o.price; }
+      if (Object.keys(byNick).length) out[`${g.awayTeam} @ ${g.homeTeam}`] = byNick;
+    }
+  }
+  return out;
+};
+// UPSET DETECTION: given a computed mlLean and a game's two REAL h2h prices
+// (keyed by nickname), mark the lean as an upset when mlLean.side carries the
+// LONGER (numerically greater) American price and it is genuine plus-money
+// (>= +100) — i.e. the analytics favor the betting underdog. Real prices only;
+// mutates + returns the lean. dogOdds is the real American price of that dog.
+const detectUpset = (lean, pricesByNick) => {
+  if (!lean?.side || !pricesByNick) return lean;
+  const sidePrice = pricesByNick[mlNick(lean.side)];
+  if (sidePrice == null) return lean;
+  let oppPrice = null;
+  for (const [nm, pr] of Object.entries(pricesByNick)) { if (nm !== mlNick(lean.side)) { oppPrice = pr; break; } }
+  if (oppPrice == null) return lean;
+  if (sidePrice > oppPrice && sidePrice >= 100) lean.upset = { dogOdds: sidePrice };
+  return lean;
+};
+
 // Real bookmaker odds for moneyline / spread / totals. Safe to pass to addLeg().
 const buildPicksFromOdds = (g, includePeriods = false) => {
   if (!g || !g.markets) return [];
@@ -3306,6 +3384,10 @@ export default function ParlayBuilder() {
   // generateReasoning() can render the W-L line under "Why this pick?" for
   // moneyline picks without re-fetching.
   const [matchupHistoryByGame, setMatchupHistoryByGame] = useState({}); // { "<gameLabel>": { home, away, h2h } }
+  // UPSET WATCH: real upset spots for the home card — games where the app's own
+  // analytics lean (mlLean) is on the betting underdog. Populated by a standalone
+  // effect (real matchup-history + real moneyline prices); never fabricated.
+  const [upsetSpots, setUpsetSpots] = useState([]); // [{ game, sport, side, dogOdds, edge, reasons, startsAt }]
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualForm, setManualForm] = useState({ game: "", market: "Moneyline", pick: "", odds: -110 });
   const [expandedPicks, setExpandedPicks] = useState(new Set());
@@ -3759,7 +3841,13 @@ export default function ParlayBuilder() {
         // Stash abbreviations on each upcoming game (used by popularityScore).
         for (const u of upcoming) {
           const src = (all || []).find((g) => `${g.awayTeam} @ ${g.homeTeam}` === u.game && g.sportId === u.sport);
-          if (src) { u.awayAbbr = src.awayAbbr; u.homeAbbr = src.homeAbbr; u.status = src.status; }
+          if (src) {
+            u.awayAbbr = src.awayAbbr; u.homeAbbr = src.homeAbbr; u.status = src.status;
+            // Stash ESPN team ids so the Upset Watch effect can fetch real
+            // matchup-history (mlLean) for these games without re-resolving ids.
+            u.homeTeamId = src.homeTeamId ? String(src.homeTeamId) : null;
+            u.awayTeamId = src.awayTeamId ? String(src.awayTeamId) : null;
+          }
         }
         upcoming.sort((a, b) => {
           const sa = popularityScore(a), sb = popularityScore(b);
@@ -3792,6 +3880,41 @@ export default function ParlayBuilder() {
       clearInterval(iv);
     };
   }, [selectedSports]);
+
+  // UPSET WATCH effect: for the upcoming slate, fetch REAL matchup-history
+  // (the same /api/sports/matchup-history feed the chat builder uses), compute
+  // the deterministic mlLean, and keep only games where the lean sits on the
+  // betting UNDERDOG (mlLean.upset, set by detectUpset against real ML prices).
+  // Pure join of real analytics + real prices — nothing fabricated. Powers the
+  // home "Upset Watch" card; the chat AI gets the same signal via matchupHistory.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const games = (homeUpcomingGames || []).filter((g) => g.homeTeamId && g.awayTeamId).slice(0, 14);
+        if (games.length === 0) { if (!cancelled) setUpsetSpots([]); return; }
+        const priceByLabel = buildMlPriceByLabel(realOddsBySport);
+        const spots = [];
+        await Promise.all(games.map(async (g) => {
+          try {
+            const r = await fetch(`/api/sports/matchup-history?sport=${encodeURIComponent(g.sport)}&homeTeamId=${encodeURIComponent(g.homeTeamId)}&awayTeamId=${encodeURIComponent(g.awayTeamId)}`);
+            if (!r.ok) return;
+            const data = await r.json();
+            const lean = computeMlLean(g.game, data);
+            if (!lean) return;
+            detectUpset(lean, priceByLabel[g.game]);
+            if (lean.upset) {
+              spots.push({ game: g.game, sport: g.sport, side: lean.side, dogOdds: lean.upset.dogOdds, edge: lean.edge, reasons: lean.reasons || [], startsAt: g.startsAt });
+            }
+          } catch { /* honest skip — no upset entry for this game */ }
+        }));
+        spots.sort((a, b) => b.edge - a.edge);
+        if (!cancelled) setUpsetSpots(spots);
+      } catch { if (!cancelled) setUpsetSpots([]); }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [homeUpcomingGames, realOddsBySport]);
 
   // Parse a leg count (1–15) out of a free-text reply like "5", "5 legs",
   // "give me 4". Returns null if no usable number is present.
@@ -7144,48 +7267,9 @@ export default function ParlayBuilder() {
     // fabricated — and the AI is instructed to treat missing entries as
     // "no extra signal" rather than inventing one.
     const matchupHistory = {};
-    // Deterministic moneyline lean: collapse the SAME real signals the app's
-    // own pick-engine (scoreCandidate) uses to rank a straight winner — L10
-    // avg margin, season win%, home/road venue split, current streak, and H2H
-    // — into a single signed "home edge" (+ favors home). The chat AI is then
-    // FORCED to pick mlLean.side for any moneyline, so the same matchup can't
-    // come back as the home team one request and the away team the next. Pure
-    // function of the real data → identical side every time (no flip-flop).
-    const _clampLean = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-    const _streakStr = (s) => (s && s.count > 0 ? (s.type === "W" ? s.count : -s.count) : 0);
-    const computeMlLean = (label, d) => {
-      const parts = (label || "").split(" @ ");
-      const awayNm = (parts[0] || "").trim();
-      const homeNm = (parts[1] || "").trim();
-      if (!awayNm || !homeNm || !d) return null;
-      const h10 = d?.home?.last10, a10 = d?.away?.last10;
-      const hSeas = d?.home?.season, aSeas = d?.away?.season;
-      const hVen = (d?.home?.homeSplit?.games > 0) ? d.home.homeSplit : null;
-      const aVen = (d?.away?.awaySplit?.games > 0) ? d.away.awaySplit : null;
-      const h2h = d?.h2h?.meetings?.length ? d.h2h : null;
-      let edge = 0; let any = false;
-      if (h10?.avgMargin != null && a10?.avgMargin != null) { edge += _clampLean((h10.avgMargin - a10.avgMargin) * 1.2, -10, 10); any = true; }
-      if (hSeas?.winPct != null && aSeas?.winPct != null) { edge += _clampLean((hSeas.winPct - aSeas.winPct) * 15, -8, 8); any = true; }
-      if (hVen?.avgMargin != null && aVen?.avgMargin != null) { edge += _clampLean((hVen.avgMargin - aVen.avgMargin) * 0.9, -6, 6); any = true; }
-      const sd = _streakStr(d?.home?.streak) - _streakStr(d?.away?.streak);
-      if (sd !== 0) { edge += _clampLean(sd * 1.2, -5, 5); any = true; }
-      if (h2h) { edge += _clampLean((h2h.homeWins - h2h.awayWins) * 2, -5, 5); any = true; }
-      if (!any || Math.abs(edge) < 1) return null; // genuinely too close → no forced side
-      const homeFav = edge > 0;
-      const side = homeFav ? homeNm : awayNm;
-      const reasons = [];
-      const favL10 = homeFav ? h10 : a10, oppL10 = homeFav ? a10 : h10;
-      if (favL10?.avgMargin != null) reasons.push(`${side} ${favL10.wins}-${favL10.losses} L10 (${favL10.avgMargin > 0 ? "+" : ""}${favL10.avgMargin} margin)${oppL10?.avgMargin != null ? ` vs ${oppL10.wins}-${oppL10.losses} (${oppL10.avgMargin > 0 ? "+" : ""}${oppL10.avgMargin})` : ""}`);
-      const favSeas = homeFav ? hSeas : aSeas;
-      if (favSeas?.winPct != null) reasons.push(`${favSeas.wins}-${favSeas.losses} season (${Math.round(favSeas.winPct * 100)}% win)`);
-      const favVen = homeFav ? hVen : aVen;
-      if (favVen) reasons.push(`${favVen.wins}-${favVen.losses} ${homeFav ? "at home" : "on the road"} (${favVen.avgMargin > 0 ? "+" : ""}${favVen.avgMargin} margin)`);
-      const favStreak = homeFav ? d?.home?.streak : d?.away?.streak;
-      if (favStreak && favStreak.type === "W" && favStreak.count >= 2) reasons.push(`${favStreak.count}-game win streak`);
-      if (h2h) { const fw = homeFav ? h2h.homeWins : h2h.awayWins, fl = homeFav ? h2h.awayWins : h2h.homeWins; if (fw !== fl) reasons.push(`${fw}-${fl} H2H last ${h2h.meetings.length}`); }
-      if (reasons.length === 0) reasons.push(`${side} holds the edge on combined form, season, venue and streak metrics`);
-      return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
-    };
+    // Moneyline lean + upset detection now live at module scope (computeMlLean /
+    // detectUpset / buildMlPriceByLabel) so the Upset Watch card reuses the SAME
+    // engine — one source of truth, no drift.
     const targets = historyTargets.slice(0, 16);
     if (targets.length > 0) {
       await Promise.all(
@@ -7240,6 +7324,17 @@ export default function ParlayBuilder() {
           } catch { /* honest no-history fallback */ }
         }),
       );
+    }
+    // UPSET WATCH: flag games where the deterministic analytics lean (mlLean) sits
+    // on the BETTING UNDERDOG — i.e. mlLean.side carries the LONGER (plus-money)
+    // real moneyline price. Pure join of mlLean.side against the real h2h prices in
+    // the odds pool (via the shared detectUpset helper) — never fabricated. Surfaced
+    // to the chat AI as matchupHistory.mlLean.upset so it calls out dogs the model
+    // favors, and reused by the Upset Watch card.
+    const mlPriceByLabel = buildMlPriceByLabel(realOddsBySportLocal);
+    for (const [label, entry] of Object.entries(matchupHistory)) {
+      const lean = (entry as any)?.mlLean;
+      if (lean) detectUpset(lean, mlPriceByLabel[label]);
     }
     // Mirror the just-fetched h2h data into client state so the per-pick
     // "Why this pick?" card can show the W-L record for moneyline legs
@@ -9566,6 +9661,54 @@ export default function ParlayBuilder() {
                     </button>
                   </div>
                 ))}
+                </div>
+              </>
+            )}
+
+            {/* Upset Watch — games where the app's own deterministic analytics
+                lean (mlLean) sits on the BETTING UNDERDOG. Every number is real:
+                the dog price comes from the live odds pool, the reasons are the
+                real L10 margin / season win% / venue / streak / H2H from
+                matchup-history. Section is absent entirely when there are none. */}
+            {upsetSpots.length > 0 && (
+              <>
+                <div className="flex items-center justify-between mb-2 mt-8 px-1">
+                  <h2 className="font-display text-lg text-slate-100 flex items-center gap-2">
+                    <span aria-hidden>⚡</span> UPSET WATCH
+                  </h2>
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">
+                    {`${upsetSpots.length} dog${upsetSpots.length > 1 ? "s" : ""} our model favors`}
+                  </span>
+                </div>
+                <div className="space-y-2.5">
+                  {upsetSpots.map((u, i) => {
+                    const dogPrice = u.dogOdds > 0 ? `+${u.dogOdds}` : `${u.dogOdds}`;
+                    return (
+                      <button
+                        key={`${u.sport}::${u.game}::${i}`}
+                        onClick={() => askLegCountForGame(u.game, u.sport, "game")}
+                        className="w-full text-left border border-amber-500/40 rounded-2xl p-3 bg-amber-500/5 hover:bg-amber-500/10 transition"
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-sm font-semibold text-slate-100 truncate">{u.game}</span>
+                          <span className="text-[9px] font-mono uppercase text-slate-500 shrink-0">{u.sport}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-xs font-semibold text-amber-300">{u.side}</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200">{dogPrice} ML</span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">edge {u.edge}</span>
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400/80">underdog</span>
+                        </div>
+                        {(u.reasons || []).length > 0 && (
+                          <ul className="space-y-0.5">
+                            {u.reasons.slice(0, 3).map((r, ri) => (
+                              <li key={ri} className="text-[11px] text-slate-400 leading-snug">• {r}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </>
             )}

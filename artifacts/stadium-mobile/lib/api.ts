@@ -780,6 +780,38 @@ export type ChatContext = {
   realGames: RealGameEntry[];
   realOdds: RealOddsEntry[];
   realProps: RealPropEntry[];
+  // Real prior-matchup analytics keyed by "Away @ Home" — mirrors the web app so
+  // the coach weighs L10/season/venue/streak/H2H (+ mlLean winner & upset) rather
+  // than odds alone. Optional: omitted when no pickable game resolved history.
+  matchupHistory?: Record<string, MatchupHistoryEntry>;
+};
+
+// One real upset spot — a game where the app's deterministic analytics lean
+// (mlLean) sits on the BETTING UNDERDOG (longer/plus-money real ML price).
+export type UpsetSpot = {
+  game: string;
+  sport: string;
+  side: string;
+  dogOdds: number;
+  edge: number;
+  reasons: string[];
+  startsAt?: string;
+};
+
+// Compact matchup-history entry sent to the AI (mirror of the web shape).
+export type MatchupHistoryEntry = {
+  home: unknown;
+  away: unknown;
+  homeVenueForm: unknown;
+  awayVenueForm: unknown;
+  homeStreak: unknown;
+  awayStreak: unknown;
+  homeSeason: unknown;
+  awaySeason: unknown;
+  homeRest: unknown;
+  awayRest: unknown;
+  h2h: unknown;
+  mlLean: { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } } | null;
 };
 
 // The lean real-data context sent to the AI, PLUS render-only metadata (player
@@ -790,7 +822,170 @@ export type BuiltChatContext = {
   context: ChatContext;
   propPool: PropPoolEntry[];
   gameMeta: GameMeta[];
+  // Real upset spots (mlLean on the betting dog), sorted by edge desc. Powers the
+  // mobile Upset Watch card; the coach gets the same signal via matchupHistory.
+  upsetSpots: UpsetSpot[];
 };
+
+// ---------- Upset Watch / moneyline-lean engine (port of the web app) ----------
+
+// Real matchup-history feed for one game (last-10 form, venue splits, streak,
+// season, H2H). Same endpoint the web Upset Watch + chat builder use.
+async function getMatchupHistory(sport: string, homeTeamId: string, awayTeamId: string, signal?: AbortSignal): Promise<any> {
+  const qs = `sport=${encodeURIComponent(sport)}&homeTeamId=${encodeURIComponent(homeTeamId)}&awayTeamId=${encodeURIComponent(awayTeamId)}`;
+  return getJson<any>(`/sports/matchup-history?${qs}`, signal);
+}
+
+const _clampLean = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const _streakStr = (s: any) => (s && s.count > 0 ? (s.type === "W" ? s.count : -s.count) : 0);
+// Deterministic moneyline lean — VERBATIM port of the web computeMlLean so both
+// platforms produce the identical analytics-favored winner from the same real
+// data (no drift). Pure function of the matchup-history feed.
+const computeMlLean = (label: string, d: any): { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } } | null => {
+  const parts = (label || "").split(" @ ");
+  const awayNm = (parts[0] || "").trim();
+  const homeNm = (parts[1] || "").trim();
+  if (!awayNm || !homeNm || !d) return null;
+  const h10 = d?.home?.last10, a10 = d?.away?.last10;
+  const hSeas = d?.home?.season, aSeas = d?.away?.season;
+  const hVen = (d?.home?.homeSplit?.games > 0) ? d.home.homeSplit : null;
+  const aVen = (d?.away?.awaySplit?.games > 0) ? d.away.awaySplit : null;
+  const h2h = d?.h2h?.meetings?.length ? d.h2h : null;
+  let edge = 0; let any = false;
+  if (h10?.avgMargin != null && a10?.avgMargin != null) { edge += _clampLean((h10.avgMargin - a10.avgMargin) * 1.2, -10, 10); any = true; }
+  if (hSeas?.winPct != null && aSeas?.winPct != null) { edge += _clampLean((hSeas.winPct - aSeas.winPct) * 15, -8, 8); any = true; }
+  if (hVen?.avgMargin != null && aVen?.avgMargin != null) { edge += _clampLean((hVen.avgMargin - aVen.avgMargin) * 0.9, -6, 6); any = true; }
+  const sd = _streakStr(d?.home?.streak) - _streakStr(d?.away?.streak);
+  if (sd !== 0) { edge += _clampLean(sd * 1.2, -5, 5); any = true; }
+  if (h2h) { edge += _clampLean((h2h.homeWins - h2h.awayWins) * 2, -5, 5); any = true; }
+  if (!any || Math.abs(edge) < 1) return null;
+  const homeFav = edge > 0;
+  const side = homeFav ? homeNm : awayNm;
+  const reasons: string[] = [];
+  const favL10 = homeFav ? h10 : a10, oppL10 = homeFav ? a10 : h10;
+  if (favL10?.avgMargin != null) reasons.push(`${side} ${favL10.wins}-${favL10.losses} L10 (${favL10.avgMargin > 0 ? "+" : ""}${favL10.avgMargin} margin)${oppL10?.avgMargin != null ? ` vs ${oppL10.wins}-${oppL10.losses} (${oppL10.avgMargin > 0 ? "+" : ""}${oppL10.avgMargin})` : ""}`);
+  const favSeas = homeFav ? hSeas : aSeas;
+  if (favSeas?.winPct != null) reasons.push(`${favSeas.wins}-${favSeas.losses} season (${Math.round(favSeas.winPct * 100)}% win)`);
+  const favVen = homeFav ? hVen : aVen;
+  if (favVen) reasons.push(`${favVen.wins}-${favVen.losses} ${homeFav ? "at home" : "on the road"} (${favVen.avgMargin > 0 ? "+" : ""}${favVen.avgMargin} margin)`);
+  const favStreak = homeFav ? d?.home?.streak : d?.away?.streak;
+  if (favStreak && favStreak.type === "W" && favStreak.count >= 2) reasons.push(`${favStreak.count}-game win streak`);
+  if (h2h) { const fw = homeFav ? h2h.homeWins : h2h.awayWins, fl = homeFav ? h2h.awayWins : h2h.homeWins; if (fw !== fl) reasons.push(`${fw}-${fl} H2H last ${h2h.meetings.length}`); }
+  if (reasons.length === 0) reasons.push(`${side} holds the edge on combined form, season, venue and streak metrics`);
+  return { side, edge: Math.round(Math.abs(edge) * 10) / 10, reasons };
+};
+
+// Build { "Away @ Home" -> { nickname -> americanPrice } } from the FLAT realOdds
+// rows (mobile stores one row per pick; moneyline rows are "<nick> ML").
+const buildMlPriceByLabel = (realOdds: RealOddsEntry[]): Record<string, Record<string, number>> => {
+  const out: Record<string, Record<string, number>> = {};
+  for (const r of realOdds || []) {
+    if (r.market !== "Moneyline") continue;
+    const nick = (r.pick || "").replace(/\s+ML$/i, "").trim();
+    if (!nick) continue;
+    (out[r.game] ||= {})[nick] = r.odds;
+  }
+  return out;
+};
+
+// Mark a lean as an upset when mlLean.side carries the LONGER (numerically
+// greater) real American price and it is genuine plus-money (>= +100). Mutates
+// + returns the lean. Real prices only — never fabricated.
+const detectUpset = (lean: any, pricesByNick?: Record<string, number>) => {
+  if (!lean?.side || !pricesByNick) return lean;
+  const sidePrice = pricesByNick[nickname(lean.side)];
+  if (sidePrice == null) return lean;
+  let oppPrice: number | null = null;
+  for (const [nm, pr] of Object.entries(pricesByNick)) { if (nm !== nickname(lean.side)) { oppPrice = pr; break; } }
+  if (oppPrice == null) return lean;
+  if (sidePrice > oppPrice && sidePrice >= 100) lean.upset = { dogOdds: sidePrice };
+  return lean;
+};
+
+// Build the matchupHistory map (mirror of the web shape) + the upset-spot list
+// from pickable games (with team ids) and the real ML price map. Caps at 16
+// matchup-history fetches; failures are honest skips (never fabricated).
+async function buildMatchupHistoryAndUpsets(
+  targets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[],
+  mlPriceByLabel: Record<string, Record<string, number>>,
+  signal?: AbortSignal,
+): Promise<{ matchupHistory: Record<string, MatchupHistoryEntry>; upsetSpots: UpsetSpot[] }> {
+  const matchupHistory: Record<string, MatchupHistoryEntry> = {};
+  const upsetSpots: UpsetSpot[] = [];
+  await Promise.all(
+    targets.slice(0, 16).map(async (t) => {
+      try {
+        const data = await getMatchupHistory(t.sport, t.homeTeamId, t.awayTeamId, signal);
+        const home10 = data?.home?.last10;
+        const away10 = data?.away?.last10;
+        const h2h = data?.h2h;
+        if (!home10 && !away10 && !(h2h?.meetings?.length)) return;
+        const gameStart = t.startsAt ? new Date(t.startsAt).getTime() : null;
+        const computeRest = (lastDate: string | null) => {
+          if (!lastDate || gameStart == null) return null;
+          const diffMs = gameStart - new Date(lastDate).getTime();
+          if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+          const restDays = Math.floor(diffMs / 86400000);
+          return { restDays, backToBack: restDays <= 1 };
+        };
+        const splitOf = (s: any) => (s && s.games > 0
+          ? { record: `${s.wins}-${s.losses}`, avgMargin: s.avgMargin, ptsFor: s.ptsFor, ptsAgainst: s.ptsAgainst, games: s.games } : null);
+        const seasonOf = (s: any) => (s && s.games > 0 ? { record: `${s.wins}-${s.losses}`, winPct: s.winPct } : null);
+        const lean = computeMlLean(t.gameLabel, data);
+        if (lean) detectUpset(lean, mlPriceByLabel[t.gameLabel]);
+        matchupHistory[t.gameLabel] = {
+          home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
+          away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
+          homeVenueForm: splitOf(data?.home?.homeSplit),
+          awayVenueForm: splitOf(data?.away?.awaySplit),
+          homeStreak: data?.home?.streak || null,
+          awayStreak: data?.away?.streak || null,
+          homeSeason: seasonOf(data?.home?.season),
+          awaySeason: seasonOf(data?.away?.season),
+          homeRest: computeRest(data?.home?.lastGameDate ?? null),
+          awayRest: computeRest(data?.away?.lastGameDate ?? null),
+          h2h: h2h?.meetings?.length
+            ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m: any) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
+            : null,
+          mlLean: lean,
+        };
+        if (lean?.upset) {
+          upsetSpots.push({ game: t.gameLabel, sport: t.sport, side: lean.side, dogOdds: lean.upset.dogOdds, edge: lean.edge, reasons: lean.reasons || [], startsAt: t.startsAt });
+        }
+      } catch { /* honest no-history skip */ }
+    }),
+  );
+  upsetSpots.sort((a, b) => b.edge - a.edge);
+  return { matchupHistory, upsetSpots };
+}
+
+// Standalone fetch for the Upset Watch card: pulls odds + games for the selected
+// sports, builds the real ML price map + history targets, and returns ONLY the
+// upset spots (decoupled from the heavier buildChatContext). Real data only.
+export async function fetchUpsetSpots(sports: string[], signal?: AbortSignal): Promise<UpsetSpot[]> {
+  const [oddsAll, gamesAll] = await Promise.all([
+    Promise.all(sports.map((s) => getOdds(s, signal).catch(() => [] as OddsGame[]))),
+    Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))),
+  ]);
+  const realOdds: RealOddsEntry[] = [];
+  const targets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[] = [];
+  sports.forEach((sport, i) => {
+    for (const g of oddsAll[i]) {
+      if (!isPickable(g.commenceTime)) continue;
+      realOdds.push(...buildRealOdds(g));
+    }
+    for (const g of gamesAll[i]) {
+      if (g.state === "post") continue;
+      if (!isPickable(g.startsAt)) continue;
+      const away = g.awayTeam || g.awayAbbr || "";
+      const home = g.homeTeam || g.homeAbbr || "";
+      if (!away || !home || !g.homeTeamId || !g.awayTeamId) continue;
+      targets.push({ sport, gameLabel: `${away} @ ${home}`, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId, startsAt: g.startsAt });
+    }
+  });
+  const { upsetSpots } = await buildMatchupHistoryAndUpsets(targets, buildMlPriceByLabel(realOdds), signal);
+  return upsetSpots;
+}
 
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
@@ -827,26 +1022,44 @@ export async function buildChatContext(
   }
   const gameMeta = buildGameMeta(gamesAll.flat());
 
+  // Team-id'd pickable games → targets for the real matchup-history fetch (mlLean
+  // + upset). Capped at 12 per sport, mirroring the web builder's history pool.
+  const historyTargets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[] = [];
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
       realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods));
     }
+    let perSport = 0;
     for (const g of gamesAll[i]) {
       if (g.state === "post") continue; // finished
       if (!isPickable(g.startsAt)) continue;
       const away = g.awayTeam || g.awayAbbr || "";
       const home = g.homeTeam || g.homeAbbr || "";
       if (!away || !home) continue;
+      const gameLabel = `${away} @ ${home}`;
       realGames.push({
         sport,
-        game: `${away} @ ${home}`,
+        game: gameLabel,
         status: g.status,
         startsAt: g.startsAt,
         venue: g.venue ?? null,
       });
+      if (g.homeTeamId && g.awayTeamId && perSport < 12) {
+        historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId, startsAt: g.startsAt });
+        perSport++;
+      }
     }
   });
+
+  // Real prior-matchup analytics (+ mlLean winner & upset) for the pickable pool,
+  // joined against the real moneyline prices in realOdds. Same engine + endpoint
+  // as the web app, so the coach weighs the same signals on both platforms.
+  const { matchupHistory, upsetSpots } = await buildMatchupHistoryAndUpsets(
+    historyTargets,
+    buildMlPriceByLabel(realOdds),
+    signal,
+  );
 
   // Assemble a REAL player-prop pool from the soonest prop-capable games so the
   // AI can build prop legs (and never fabricate them). PROPS_SPORTS only — the
@@ -950,9 +1163,11 @@ export async function buildChatContext(
       realGames: realGames.slice(0, 60),
       realOdds: realOdds.slice(0, 120),
       realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT),
+      ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
     },
     propPool,
     gameMeta,
+    upsetSpots,
   };
 }
 
