@@ -214,6 +214,111 @@ export function sameGame(a: string, b: string): boolean {
   return hits >= 2; // two shared team tokens = same fixture
 }
 
+// A team's nickname = the last alphabetic token of its name ("New York Liberty"
+// -> "liberty", "Toronto Tempo" -> "tempo"). Nicknames are unique per team and
+// consistent across the ESPN + Odds feeds, so they identify a side far more
+// reliably than raw token overlap — which over-matches multi-word city names
+// ("New York" alone is two tokens, so sameGame() treats ANY other game with
+// that team as the same fixture).
+function teamNick(team: string): string {
+  const t = norm(team)
+    .split(" ")
+    .filter((w) => /[a-z]/.test(w));
+  return t[t.length - 1] || "";
+}
+
+const teamTokens = (team: string): Set<string> =>
+  new Set(norm(team).split(" ").filter((w) => /[a-z]/.test(w)));
+
+const tokenOverlap = (a: Set<string>, b: Set<string>): number => {
+  let n = 0;
+  for (const t of a) if (b.has(t)) n++;
+  return n;
+};
+
+// Resolve a pick's "Away @ Home" label to the real scheduled start time from the
+// per-game ESPN meta table. A team is identified by its NICKNAME (last alphabetic
+// token) — unique per team and consistent across the ESPN + Odds feeds — and a
+// fixture matches when BOTH nicknames match (either orientation), scoped by sport.
+// Because college nicknames are NOT unique (many "Tigers"/"Bulldogs"), candidates
+// are ranked by full-token specificity (city + nickname) so the better-identified
+// fixture wins, then exact orientation, then soonest upcoming. The SAME matchup on
+// multiple dates (a playoff series or doubleheader) resolves to the soonest
+// upcoming game. It only fails closed (null) when two DIFFERENT fixtures (distinct
+// team identities, e.g. two different college "Tigers @ Bulldogs" games) tie as
+// equally-good matches — so a card never shows a possibly-wrong time.
+function gameStartFromMeta(
+  pickGame: string,
+  sport: string | undefined,
+  gameMeta: GameMeta[],
+): string | null {
+  const parts = pickGame.split(/\s+@\s+/);
+  if (parts.length !== 2) return null;
+  const pa = teamNick(parts[0]);
+  const ph = teamNick(parts[1]);
+  if (!pa || !ph) return null;
+  const paSet = teamTokens(parts[0]);
+  const phSet = teamTokens(parts[1]);
+
+  const now = Date.now();
+  type Scored = {
+    startsAt: string | null;
+    spec: number;
+    exact: boolean;
+    upcoming: boolean;
+    t: number;
+    idKey: string;
+  };
+  const scored: Scored[] = [];
+  for (const m of gameMeta) {
+    if (sport && m.sport && m.sport !== sport) continue;
+    const ma = teamNick(m.awayTeam);
+    const mh = teamNick(m.homeTeam);
+    if (!ma || !mh) continue;
+    const sameOrient = ma === pa && mh === ph;
+    const flipOrient = ma === ph && mh === pa;
+    if (!sameOrient && !flipOrient) continue;
+    const maSet = teamTokens(m.awayTeam);
+    const mhSet = teamTokens(m.homeTeam);
+    const spec = sameOrient
+      ? tokenOverlap(paSet, maSet) + tokenOverlap(phSet, mhSet)
+      : tokenOverlap(paSet, mhSet) + tokenOverlap(phSet, maSet);
+    const t = m.startsAt ? Date.parse(m.startsAt) : NaN;
+    scored.push({
+      startsAt: m.startsAt ?? null,
+      spec,
+      exact: sameOrient,
+      upcoming: Number.isFinite(t) && t >= now - 4 * 3600 * 1000,
+      t: Number.isFinite(t) ? t : Number.POSITIVE_INFINITY,
+      // Orientation-independent team identity so the SAME matchup on multiple
+      // dates (playoff series / doubleheader) is recognized as one fixture, while
+      // a different team pairing that merely shares nicknames is recognized as a
+      // genuine collision.
+      idKey: [norm(m.awayTeam), norm(m.homeTeam)].sort().join("|"),
+    });
+  }
+  if (scored.length === 0) return null;
+  scored.sort(
+    (a, b) =>
+      b.spec - a.spec ||
+      Number(b.exact) - Number(a.exact) ||
+      Number(b.upcoming) - Number(a.upcoming) ||
+      a.t - b.t,
+  );
+  const top = scored[0];
+  // Fail closed on a true collision: another fixture with a DIFFERENT team
+  // identity matches just as specifically (same spec + orientation). We do NOT
+  // require the same `upcoming` flag here — otherwise a stale in-window live game
+  // (3-4h old) could be silently displaced by a future same-nickname different
+  // fixture and show its wrong time. Same-identity ties (a series/doubleheader)
+  // are fine — the sort above already put the soonest upcoming game first.
+  const collision = scored.some(
+    (s) => s.idKey !== top.idKey && s.spec === top.spec && s.exact === top.exact,
+  );
+  if (collision) return null;
+  return top.startsAt;
+}
+
 // Collapse market wording to a family so an AI "Spread" pick can only ever
 // resolve to a real Spread line (never accidentally to a Moneyline entry).
 function marketFamily(s: string): string {
@@ -447,19 +552,11 @@ export function parsePicks(
     if (!resolved) continue; // selection/price not in any real pool -> drop
 
     // Attach the game's real scheduled start (ESPN) so the card can show its
-    // date/time. resolved.game is already the canonical feed label. sameGame is
-    // token-overlap only, so scope candidates by sport (when known) and require
-    // EXACTLY ONE match before assigning — otherwise an ambiguous label
-    // (same-city cross-sport, a same-teams doubleheader) could borrow the wrong
-    // fixture's time. When ambiguous we leave startsAt unset (card omits time)
-    // rather than show a possibly-wrong start.
+    // date/time. Matched by BOTH team nicknames + sport (see gameStartFromMeta)
+    // — NOT sameGame()'s token overlap, which over-matches multi-word city names.
     if (!resolved.startsAt) {
-      const cands = gameMeta.filter(
-        (m) =>
-          sameGame(m.game, resolved!.game) &&
-          (!resolved!.sport || !m.sport || m.sport === resolved!.sport),
-      );
-      if (cands.length === 1 && cands[0].startsAt) resolved.startsAt = cands[0].startsAt;
+      const start = gameStartFromMeta(resolved.game, resolved.sport ?? undefined, gameMeta);
+      if (start) resolved.startsAt = start;
     }
 
     const em = lines[i + 1]?.trim().match(/^EDGE\s*:\s*(.+)$/i);

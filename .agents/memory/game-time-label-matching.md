@@ -44,8 +44,33 @@ per-game `GameMeta` table (built from the same ESPN feed, now carrying `sport`
 "Today/Tomorrow/<weekday>/<Mon D> + time" and returns "" on missing/unparseable
 so the card omits the line.
 
-**Rule:** `sameGame()` is token-overlap only (no sport guard, first-match), so
-the time lookup MUST scope candidates by sport AND require EXACTLY ONE match
-before assigning `startsAt` — otherwise an ambiguous label (same-city
-cross-sport, same-teams doubleheader) borrows the wrong fixture's time. Prefer
-omitting the time over showing a possibly-wrong one.
+**Rule (critical):** do NOT resolve the time with `sameGame()` (token
+overlap >= 2). A multi-word city like "New York" is itself two tokens, so any
+OTHER game featuring that one team scores 2 hits and falsely matches — "Toronto
+Tempo @ New York Liberty" pulled 6 WNBA candidates, and a require-exactly-one
+guard then drops the time on EVERY multi-word-team game. Match instead on BOTH
+teams' NICKNAMES (last alphabetic token of each side: liberty/tempo/dream),
+which are unique per team and consistent across the ESPN + Odds feeds, in either
+orientation, scoped by sport. For the rare multi-candidate case (home-and-home
+series / same-teams doubleheader) prefer exact orientation then soonest upcoming.
+
+**Why:** the odds feed (prop/game labels) and the ESPN feed (gameMeta) use
+slightly different team-name forms, so an exact label match misses; raw token
+overlap over-matches. Nickname-pair matching threads the needle. Prefer omitting
+the time over showing a possibly-wrong one.
+
+**College collision + playoff series (don't conflate):** nicknames are NOT
+unique in NCAAB/NCAAF (many Tigers/Bulldogs), so nickname-only can mis-assign.
+Rank candidates by full-token specificity (city + nickname) first, so the
+better-identified fixture wins ("LSU Tigers @ Georgia Bulldogs" beats "Auburn
+Tigers @ Miss St Bulldogs"). Then DISTINGUISH two tie cases by an
+orientation-independent identity key (`[norm(away),norm(home)].sort().join("|")`):
+- SAME identity on multiple dates = a playoff series / doubleheader → resolve to
+  the soonest upcoming game (sort upcoming-first then t-asc). Do NOT null these —
+  an early version keyed ambiguity on `startsAt` and wrongly nulled every NHL
+  finals-series pick.
+- DIFFERENT identities tied as equally-good matches = a genuine same-nickname
+  collision → fail closed (null). The collision test compares spec+orientation
+  ONLY, NOT the `upcoming` flag — else a stale in-window live game (the matcher's
+  past window must match `isPickable`, currently 4h) gets silently displaced by a
+  future same-nickname fixture and shows its wrong time.
