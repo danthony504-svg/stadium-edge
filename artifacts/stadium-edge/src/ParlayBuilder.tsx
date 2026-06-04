@@ -2243,6 +2243,14 @@ const parseOddsThreshold = (text) => {
       /\b(?:at\s+most|maximum|max|no\s+more\s+than|up\s+to)\b/.test(head)
     ) mode = "atMost";
     if (!mode && trailingPlus) mode = "atLeast";
+    // Bare SIGNED price with no comparator word ("15 leg -300", "every leg
+    // +300"): the sign tells us which side of the board the user wants, so infer
+    // the direction instead of ignoring the bound entirely. A negative price
+    // (-300) means FAVORITES → odds <= signed (that line or heavier), which keeps
+    // the ticket on chalk and drops longshots. A positive price (+300) means
+    // DOGS → odds >= signed (that line or longer). An UNSIGNED bare number has no
+    // signTok, so it still never trips (no false positives on leg counts/yards).
+    if (!mode && signTok) mode = sign < 0 ? "atMost" : "atLeast";
     if (!mode) continue;
     // Require an explicit odds cue — a sign token, a "bare" trailing "+" (not
     // "300+ yards"), or an odds/price word nearby — so a non-odds numeric ask

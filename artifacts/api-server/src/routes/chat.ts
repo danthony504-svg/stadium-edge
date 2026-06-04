@@ -18,8 +18,10 @@ router.use("/chat", rateLimit({ windowMs: 60_000, max: 240, name: "chat" }));
 // lib/format.ts and stadium-edge ParlayBuilder.tsx — keep the three in sync.
 // `signed` is the American-odds bound; `mode` is the direction EVERY leg must
 // satisfy: atLeast → odds >= signed (longer payouts), atMost → odds <= signed
-// (heavier favorites). Requires an odds-sized number (|n| >= 100, ruling out
-// leg counts) AND an explicit comparator so a bare price never trips it.
+// (heavier favorites). Needs an odds-sized number (|n| >= 100, ruling out leg
+// counts); direction comes from an explicit comparator when present, else a bare
+// SIGNED price infers it from the sign (neg→atMost, pos→atLeast). An unsigned
+// bare number with no comparator never trips.
 type OddsThreshold = { signed: number; mode: "atLeast" | "atMost" };
 function parseOddsThreshold(text: string | null | undefined): OddsThreshold | null {
   const t = String(text || "").toLowerCase().replace(/[\u2212\u2013\u2014]/g, "-");
@@ -44,6 +46,14 @@ function parseOddsThreshold(text: string | null | undefined): OddsThreshold | nu
       /\b(?:at\s+most|maximum|max|no\s+more\s+than|up\s+to)\b/.test(head)
     ) mode = "atMost";
     if (!mode && trailingPlus) mode = "atLeast";
+    // Bare SIGNED price with no comparator word ("15 leg -300", "every leg
+    // +300"): the sign tells us which side of the board the user wants, so infer
+    // the direction instead of ignoring the bound entirely. A negative price
+    // (-300) means FAVORITES → odds <= signed (that line or heavier), which keeps
+    // the ticket on chalk and drops longshots. A positive price (+300) means
+    // DOGS → odds >= signed (that line or longer). An UNSIGNED bare number has no
+    // signTok, so it still never trips (no false positives on leg counts/yards).
+    if (!mode && signTok) mode = sign < 0 ? "atMost" : "atLeast";
     if (!mode) continue;
     // Require an explicit odds cue — a sign token, a "bare" trailing "+" (not
     // "300+ yards"), or an odds/price word nearby — so a non-odds numeric ask

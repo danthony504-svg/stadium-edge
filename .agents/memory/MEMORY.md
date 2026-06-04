@@ -23,6 +23,7 @@
 - [System-prompt template-literal escaping](system-prompt-template-literals.md) — chat.ts SYSTEM_PROMPT is a backtick literal; never write `${...}` inside it (gets interpolated and breaks build). Use "<sport>#<teamId>" style placeholders.
 - [Parlay — no duplicate market×game combos](parlay-no-duplicate-market.md) — once alts ship, AI stacks main+alt on same side; hard-ban one-per-(game,market-family) + ban alts priced -1000 or worse.
 - [Chat intent detection](chat-intent-detection.md) — wantsParlay regex must catch "leg(s)"/"N-leg"; ALSO be conversation-aware: terse follow-ups ("do 15"/"give me the full 15") skip prop-fetch → "only ~10 legs, realProps empty" lie.
+- [Bare-signed odds threshold](odds-threshold-bare-signed.md) — "15 leg -300" (signed, no comparator) must infer a per-leg bound from the SIGN: neg→atMost (favorites), pos→atLeast (dogs); unsigned still null. Sync all 3 parseOddsThreshold copies.
 - [Odds API alt markets endpoint](odds-api-alt-markets.md) — alternate_spreads/alternate_totals are per-event only; bulk /odds returns 422 and kills mains too.
 - [Live props AI pick must be pinned](live-props-ai-pick-pin.md) — multi-book props lists are 200+ rows; per-row highlight gets buried, pin a summary card at the section top.
 - [Tracker pick-string forms / CLV matching](tracker-pick-string-forms.md) — tracker persists pick in whatever form the add-path produced (nickname vs full team name); cross-refs vs buildPicksFromOdds must register/normalize both variants, never exact-match.
