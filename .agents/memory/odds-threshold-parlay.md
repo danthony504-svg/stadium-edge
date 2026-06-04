@@ -48,5 +48,21 @@ three.
 normal parlay and confuses the user, whereas a missed unusual phrasing just
 degrades to current (pre-feature) behavior.
 
+## Interpretation is NUMERIC (user-confirmed)
+"-300 or less" = heavy favorites only, `odds <= -300` (e.g. -350, -500) — NOT a
+"juice cap" (odds >= -300). The model's natural-language reading drifts the other
+way ("opens the board up, skipped the ultra-short chalk"), so the addendum must
+nail the numeric direction explicitly. Heavy favorites are rare, so a 10-leg ask
+usually yields only a few qualifying legs — that's expected, return fewer.
+
+## Confident-prose / zero-cards symptom (mobile)
+When the client filter prunes legs (often to zero under a strict bound), the AI's
+streamed prose can still read like a full ticket → user sees confident text and
+no cards. Mobile `coach.tsx` appends an honest italic note after filtering
+(`dropped = before - after`): "No real legs were priced -300 or shorter…" /
+"Showing the N real legs…; dropped M". **Why:** the model's prose and the
+post-filter card count are independent; without the note a correct filter looks
+like a broken empty reply. Web has the correct filter but no equivalent note yet.
+
 **Not covered:** the web AI-outage fallback (`generateResponse` / `buildParlay`)
 does not thread the threshold; only the live AI path is enforced.

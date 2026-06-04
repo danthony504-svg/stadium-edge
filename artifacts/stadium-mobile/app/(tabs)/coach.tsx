@@ -559,10 +559,28 @@ export default function CoachScreen() {
         // prompt already steers the model toward qualifying legs; this is the
         // belt-and-braces guarantee on the resolved real odds.
         const oddsThreshold = parseOddsThreshold(trimmed);
-        if (oddsThreshold) picks = picks.filter((p) => oddsSatisfiesThreshold(p.odds, oddsThreshold));
+        let thresholdNote = "";
+        if (oddsThreshold) {
+          const before = picks.length;
+          picks = picks.filter((p) => oddsSatisfiesThreshold(p.odds, oddsThreshold));
+          const dropped = before - picks.length;
+          // When the bound prunes legs (often to zero — "-300 or shorter" heavy
+          // favorites are rare on a real board), the model's prose can still
+          // read like a full ticket. Say plainly what actually survived so the
+          // user is never left with confident text and zero cards.
+          if (dropped > 0) {
+            const bound =
+              (oddsThreshold.signed > 0 ? `+${oddsThreshold.signed}` : `${oddsThreshold.signed}`) +
+              (oddsThreshold.mode === "atLeast" ? " or longer" : " or shorter");
+            thresholdNote =
+              picks.length === 0
+                ? `\n\n_No real legs on tonight's board were priced ${bound}, so there's nothing to show for that bound right now — try a looser number or a different market._`
+                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
+          }
+        }
         setMessages((prev) => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: "assistant", content: full, picks };
+          copy[copy.length - 1] = { role: "assistant", content: full + thresholdNote, picks };
           return copy;
         });
         // Surface this parlay's picks on the Player Props + Picks tabs. Only
