@@ -88,6 +88,7 @@ function SignInPage() {
         routing="path"
         path={`${basePath}/sign-in`}
         signUpUrl={`${basePath}/sign-up`}
+        forceRedirectUrl={basePath || "/"}
         fallbackRedirectUrl={basePath || "/"}
       />
     </div>
@@ -101,6 +102,7 @@ function SignUpPage() {
         routing="path"
         path={`${basePath}/sign-up`}
         signInUrl={`${basePath}/sign-in`}
+        forceRedirectUrl={basePath || "/"}
         fallbackRedirectUrl={basePath || "/"}
       />
     </div>
