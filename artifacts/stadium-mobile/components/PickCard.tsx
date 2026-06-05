@@ -554,6 +554,65 @@ export function parsePicks(
           },
           gameMeta,
         );
+      } else {
+        // PERIOD MAIN-LINE SALVAGE. The model loves to "buy a cushion" on a
+        // period leg by emitting an ALT rung — "1H Alt Spread Knicks +4.5",
+        // "1H Alt Total Over 111" — but the feed sends only ONE curated alt rung
+        // per side, so a self-reasoned alt point fails selectionMatches above and
+        // the leg is dropped. On a single-game first-half ask that turns a real
+        // 2-3 leg ticket into a lone moneyline. When a PERIOD game-side pick can't
+        // resolve, snap it to the MAIN posted period line on the SAME side (a real
+        // realOdds entry — never invented, never a side flip): the team named (for
+        // spread/moneyline) or the Over/Under named (for total). Only main (non-
+        // "Alt") period entries are eligible, so the substitute is always a clean,
+        // renderable line. If no such main line exists, fall through and drop.
+        const periodFam = fam.match(/^(1h|2h|q[1-4]):(spread|total|moneyline)$/);
+        if (periodFam) {
+          const base = periodFam[2];
+          const wantSide = base === "total" ? sideOf(selection) : null;
+          const teamToks = [...selTokens].filter(
+            (t) => /[a-z]/.test(t) && !GENERIC_WORDS.has(t),
+          );
+          const mains = pool.filter(
+            (e) =>
+              sameGame(e.game, game) &&
+              marketFamily(e.market) === fam &&
+              !/\balt\b/i.test(e.market),
+          );
+          let salv: RealOddsLike | undefined;
+          if (base === "total") {
+            // Over/Under is unambiguous — snap to the named side's main rung.
+            salv = mains.find((e) => !!wantSide && sideOf(e.pick) === wantSide);
+          } else {
+            // Spread / moneyline: pick the side whose team tokens overlap the AI
+            // selection the MOST, and FAIL CLOSED if two different teams tie — a
+            // naive "any token overlaps" match would side-flip on shared words
+            // ("Michigan State" vs "Ohio State", "LA Lakers" vs "LA Clippers").
+            const teamKey = (toks: string[]) =>
+              toks.filter((t) => /[a-z]/.test(t) && !GENERIC_WORDS.has(t)).sort().join(" ");
+            const scored = mains.map((e) => {
+              const et = norm(e.pick).split(" ").filter(Boolean);
+              return {
+                e,
+                key: teamKey(et),
+                n: et.filter((t) => /[a-z]/.test(t) && !GENERIC_WORDS.has(t) && teamToks.includes(t)).length,
+              };
+            });
+            const maxN = Math.max(0, ...scored.map((s) => s.n));
+            if (maxN > 0) {
+              const top = scored.filter((s) => s.n === maxN);
+              // Every top-scoring candidate must name the SAME team; otherwise the
+              // selection is ambiguous and we drop rather than guess a side.
+              if (new Set(top.map((s) => s.key)).size === 1) salv = top[0].e;
+            }
+          }
+          if (salv) {
+            resolved = enrichPickMeta(
+              { game: salv.game, market: salv.market, pick: salv.pick, odds: salv.odds, sport: salv.sport },
+              gameMeta,
+            );
+          }
+        }
       }
     }
 

@@ -887,7 +887,7 @@ export default function CoachScreen() {
           AI Coach
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          Picks grounded in tonight&apos;s real odds — never invented ✅ build Q1
+          Picks grounded in tonight&apos;s real odds — never invented
         </Text>
       </View>
 
