@@ -464,7 +464,13 @@ router.post("/chat", async (req, res): Promise<void> => {
     // props. MUST come AFTER the specific combo entries above so a named combo
     // ("pra combo", "pts+reb combo") still locks to that one market, and BEFORE
     // the single-stat entries so "combos" never falls through to e.g. points.
-    { re: /\bcombos?\b/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
+    // BUT "combo" is ALSO a plain parlay synonym ("10 leg combo", "combo
+    // parlay/bet/ticket", "parlay combo") — in that sense the user wants a
+    // multi-leg ticket, NOT the combo-prop market. Guard both sides so a
+    // parlay-synonym "combo" does NOT false-lock the pool to combo props (which
+    // are sparse and trigger the "realProps empty → can't build" refusal):
+    // skip when preceded by leg(s)/parlay or followed by parlay/bet/ticket/leg(s).
+    { re: /(?<!\b(?:legs?|parlay)[\s-])\bcombos?\b(?!\s+(?:parlay|bet|ticket|legs?))/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
