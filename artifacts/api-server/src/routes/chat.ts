@@ -450,6 +450,13 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(points?\s*\+\s*rebounds?|pts?\s*\+\s*reb|p\s*\+\s*r)\b/i, markets: ["player_points_rebounds"], label: "pts+reb" },
     { re: /\b(points?\s*\+\s*assists?|pts?\s*\+\s*ast|p\s*\+\s*a)\b/i, markets: ["player_points_assists"], label: "pts+ast" },
     { re: /\b(rebounds?\s*\+\s*assists?|reb\s*\+\s*ast|r\s*\+\s*a)\b/i, markets: ["player_rebounds_assists"], label: "reb+ast" },
+    // Generic "combo(s)" ask (the sportsbook "Combos" tab): lock to ALL the
+    // two/three-stat combo markets at once so the model builds combo legs
+    // (Pts+Reb+Ast, Pts+Reb, Pts+Ast, Reb+Ast) instead of plain single-stat
+    // props. MUST come AFTER the specific combo entries above so a named combo
+    // ("pra combo", "pts+reb combo") still locks to that one market, and BEFORE
+    // the single-stat entries so "combos" never falls through to e.g. points.
+    { re: /\bcombos?\b/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },

@@ -52,3 +52,9 @@ key returns real outcomes (combos verified: `player_points_rebounds`,
 yes/no shape — skipped; `field_goals/frees_made` return 0 outcomes). The Odds API
 rejects the ENTIRE batch on one invalid key (422), so only add verified keys.
 After editing: rebuild client + RESTART api-server (no watcher).
+
+## Generic "combos" intent (vs. specific combo locks)
+The combo O/U markets (player_points_rebounds_assists / _rebounds / _assists, player_rebounds_assists) were ALREADY fully wired — props.ts fetches them for nba/wnba, mobile PROP_LABELS labels them and they flow into realProps + propPool, and chat.ts MARKET_KEYWORDS had SPECIFIC combo locks ("pra", "pts+reb", ...). The miss: a bare "combos" ask (the sportsbook "Combos" tab) had NO keyword, so it fell through to a normal parlay.
+Fix = one MARKET_KEYWORDS entry `/\bcombos?\b/i → [all 4 combo markets]`, placed AFTER the specific combo entries (so "pra combo" still locks PRA only) and BEFORE single-stat entries (so "combos" can't fall through to points). A multi-market lock array works unchanged through the lock filter + server fresh-fetch fallback + addendum (they already flatMap/join the markets[]).
+**Why:** intent routing is the easy thing to forget when the data pipeline is already complete — the lock keyword is the last mile.
+Double-Double / Triple-Double from that tab are yes/no (not O/U) markets, not fetched anywhere — out of scope here.
