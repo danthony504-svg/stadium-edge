@@ -43,6 +43,7 @@ import {
   searchPlayer,
   searchTeam,
   streamChat,
+  type AltSign,
   type ChatMessage,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
@@ -721,6 +722,17 @@ export default function CoachScreen() {
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
         const includePeriods = wantsPeriodMarkets(trimmed);
+        // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
+        // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
+        // forces minus-money rungs (safer cushion). A "-" only counts when it sits
+        // right before "alt" (start- or space-anchored) so "9-leg alt" doesn't read
+        // as a minus ask. An odds-threshold ask already implies the sign, so we
+        // skip this when one is present. Drives BOTH game-level alt rung selection
+        // (via altSign -> buildChatContext) and the prop rung swap (via altRungBias).
+        const wantsPlusAlt = !oddsThreshold && /(?:\+|\bplus\b)\s*alt/i.test(trimmed);
+        const wantsMinusAlt =
+          !oddsThreshold && /(?:(?:^|\s)-|\bminus\b)\s*alt/i.test(trimmed);
+        const altSign: AltSign = wantsPlusAlt ? "plus" : wantsMinusAlt ? "minus" : null;
         const { context, propPool, gameMeta } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
@@ -728,6 +740,7 @@ export default function CoachScreen() {
           oddsThreshold,
           includePeriods,
           trimmed,
+          altSign,
         );
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
@@ -764,8 +777,16 @@ export default function CoachScreen() {
           /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed);
         const wantsValueRungs =
           /\b(?:value|plus[\s-]?money|long\s?shots?|longshots?|underdogs?|upside)\b/i.test(trimmed);
+        // Map the explicit "+ alt" / "- alt" sign onto the prop rung swap so props
+        // honor the same sign as the game-level alts: "+ alt" -> plus-money "value"
+        // rungs, "- alt" -> minus-money "cushion" rungs. With no sign, a bare alt
+        // keeps the cushion default (value only when value/upside words are used).
         const altRungBias: AltRungBias =
-          altMentioned && !oddsThreshold ? (wantsValueRungs ? "value" : "cushion") : null;
+          altMentioned && !oddsThreshold
+            ? altSign === "plus" || (altSign == null && wantsValueRungs)
+              ? "value"
+              : "cushion"
+            : null;
         let picks = parsePicks(full, context.realOdds, propPool, gameMeta, altRungBias);
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
@@ -799,6 +820,27 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        // Explicit "+ alt" / "- alt" sign lock: drop any resolved leg whose real
+        // odds sign doesn't match what the user asked for, so EVERY card is on the
+        // requested sign. The context already steers game-level alts (one rung per
+        // side) and props (value/cushion swap) to the right sign; this is the
+        // belt-and-braces guarantee on the resolved real odds — and it's the only
+        // hard enforcement for props, where the swap is best-effort and can keep a
+        // wrong-sign rung when the player's ladder has none on the asked sign. Only
+        // drops real, resolved legs — never fabricates a substitute.
+        let signNote = "";
+        if (altSign) {
+          const before = picks.length;
+          picks = picks.filter((p) => (altSign === "plus" ? p.odds > 0 : p.odds < 0));
+          const dropped = before - picks.length;
+          if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
+            const word = altSign === "plus" ? "plus-money" : "minus-money";
+            signNote =
+              picks.length === 0
+                ? `\n\n_No real ${word} alt legs were available on tonight's board, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
+                : `\n\n_Showing the ${picks.length} real ${word} alt leg${picks.length === 1 ? "" : "s"}; dropped ${dropped} that landed on the other sign._`;
+          }
+        }
         // Belt-and-braces for the 25-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
         // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
@@ -829,11 +871,12 @@ export default function CoachScreen() {
         // unbacked scaffold and keep only the lead-in prose plus an honest note
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
-        let finalContent = full + thresholdNote;
+        let finalContent = full + thresholdNote + signNote;
         if (picks.length === 0 && emittedPickLines > 0) {
           const lead = assistantBubbleText(full, false);
           const note =
             thresholdNote ||
+            signNote ||
             "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }

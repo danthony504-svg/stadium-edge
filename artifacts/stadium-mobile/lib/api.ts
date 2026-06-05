@@ -469,12 +469,19 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 const impliedProb = (american: number) =>
   american < 0 ? -american / (-american + 100) : 100 / (american + 100);
 
+// Which odds sign an explicit "+ alt" / "- alt" ask should force across every
+// game-level alt rung. "plus" = plus-money rungs only (aggressive upside);
+// "minus" = minus-money rungs only (safer cushion). null = no constraint
+// (closest-to-even default). Mobile emits ONE rung per side, so the sign is set
+// here at context-build time, not by the model.
+export type AltSign = "plus" | "minus" | null;
 // Convert an OddsGame into real-odds PICK entries (main markets only — keeps the
 // chat context compact). Same shape the web app sends as context.realOdds.
 export function buildRealOdds(
   g: OddsGame,
   oddsThreshold?: OddsThreshold | null,
   includePeriods = false,
+  signBias: AltSign = null,
 ): RealOddsEntry[] {
   if (!g || !g.markets) return [];
   const out: RealOddsEntry[] = [];
@@ -542,6 +549,14 @@ export function buildRealOdds(
       if (mainPts.has(ptKey(o))) continue; // same number as the main line
       // Under a threshold, only rungs that actually satisfy the bound are useful.
       if (oddsThreshold && !oddsSatisfiesThreshold(o.price, oddsThreshold)) continue;
+      // Explicit "+ alt" / "- alt" ask: force the rung's odds sign so every
+      // game-level alt leg matches what the user asked for. A threshold already
+      // implies the sign, so it takes precedence. If a side has no rung on the
+      // requested sign it's simply omitted (never fabricated onto the wrong sign).
+      if (signBias && !oddsThreshold) {
+        if (signBias === "plus" && o.price < 0) continue;
+        if (signBias === "minus" && o.price > 0) continue;
+      }
       const sk = sideKey(o);
       const cur = bySide.get(sk);
       if (!cur || rungCost(o) < rungCost(cur)) bySide.set(sk, o);
@@ -1151,6 +1166,7 @@ export async function buildChatContext(
   oddsThreshold?: OddsThreshold | null,
   includePeriods = false,
   focalText?: string | null,
+  altSign: AltSign = null,
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
@@ -1184,7 +1200,7 @@ export async function buildChatContext(
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
-      realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods));
+      realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods, altSign));
     }
     let perSport = 0;
     for (const g of gamesAll[i]) {
