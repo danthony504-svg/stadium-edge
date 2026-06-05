@@ -464,13 +464,17 @@ router.post("/chat", async (req, res): Promise<void> => {
     // props. MUST come AFTER the specific combo entries above so a named combo
     // ("pra combo", "pts+reb combo") still locks to that one market, and BEFORE
     // the single-stat entries so "combos" never falls through to e.g. points.
-    // BUT "combo" is ALSO a plain parlay synonym ("10 leg combo", "combo
-    // parlay/bet/ticket", "parlay combo") — in that sense the user wants a
-    // multi-leg ticket, NOT the combo-prop market. Guard both sides so a
-    // parlay-synonym "combo" does NOT false-lock the pool to combo props (which
-    // are sparse and trigger the "realProps empty → can't build" refusal):
-    // skip when preceded by leg(s)/parlay or followed by parlay/bet/ticket/leg(s).
-    { re: /(?<!\b(?:legs?|parlay)[\s-])\bcombos?\b(?!\s+(?:parlay|bet|ticket|legs?))/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
+    // "combo" can ALSO be a plain parlay synonym, but ONLY in the tight forms
+    // "combo parlay/bet/ticket" and "parlay combo" — there "combo" modifies (or
+    // is modified by) an explicit ticket word and means "combination bet". In
+    // EVERY other phrasing — including "10 leg combo", "combo for tonight",
+    // "give me a combo" — users mean the combo-prop market (this app's "Combos"
+    // tab: Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast), so LOCK to it. We do NOT
+    // exclude a preceding "leg(s)" anymore (a user who wants a plain N-leg ticket
+    // just says "N-leg parlay" without "combo"). If the slate carries no combo
+    // markets the server fresh-fetch fallback + honest-short behavior degrade
+    // gracefully rather than fabricating.
+    { re: /(?<!\bparlay[\s-])\bcombos?\b(?!\s+(?:parlay|bet|ticket))/i, markets: ["player_points_rebounds_assists", "player_points_rebounds", "player_points_assists", "player_rebounds_assists"], label: "combo props (Pts+Reb+Ast / Pts+Reb / Pts+Ast / Reb+Ast)" },
     { re: /\b(rebounds?|reb\b)\b/i, markets: ["player_rebounds"], label: "rebounds" },
     { re: /\b(assists?|ast\b)\b/i, markets: ["player_assists"], label: "assists" },
     { re: /\b(threes|3pm|3-?pointers?)\b/i, markets: ["player_threes"], label: "threes" },
