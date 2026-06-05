@@ -19,12 +19,24 @@ threshold already implies the sign and takes precedence):
    (`bestRungPerSide`, closest-to-even), so the model can't choose the sign. Thread
    `AltSign` through `buildChatContext → buildRealOdds → bestRungPerSide`; skip rungs
    on the wrong sign. A side with no matching-sign rung is simply omitted.
-2. **Props** are best-effort: map `altSign` → `AltRungBias` (`plus`→`value`,
-   `minus`→`cushion`); the matchProp swap maximizes right-sign retention but can keep
-   a wrong-sign rung when the player's ladder has none.
+2. **Props** are best-effort at resolve time: map `altSign` → `AltRungBias`
+   (`plus`→`value`, `minus`→`cushion`); the matchProp swap maximizes right-sign
+   retention but can keep a wrong-sign rung when the player's ladder has none.
 3. **Hard guarantee:** a post-parse filter on resolved `picks` drops ANY leg (prop
    or game) left on the wrong sign — this is the only thing that makes the "EVERY
    leg" promise true. Surface a transparency note when it drops legs / leaves zero.
+
+**Under-fill gotcha (the second bug):** once layer 1 worked, a "- 9 leg alt" came
+back honest-short at 8 even though the slate had 24+ minus alt legs. Cause: prop
+SIDES surfaced to the model in `buildChatContext` were gated only by `oddsThreshold`,
+NOT by `altSign`, so the model kept picking wrong-sign props that layer 3 then
+stripped → short ticket. Fix: gate the prop `over`/`under` side qualification on the
+sign too (same place as the threshold gate: `sideQualifies(price)` checks
+`altSign === "plus" ? price>0 : price<0`), and `continue` when `(oddsThreshold ||
+altSign)` and neither side qualifies. Now the model only ever SEES right-sign prop
+sides, so nothing gets dropped and the ticket fills. **Lesson:** any post-parse
+"drop wrong X" filter must be paired with a context-level filter that hides wrong-X
+options from the model, or it silently under-fills instead of mis-filling.
 
 **Detection gotcha (the real one):** users type the sign at the FRONT of the
 message — "- 9 leg alt" / "+9 leg alt" — NOT next to "alt". So a sign-adjacent-only

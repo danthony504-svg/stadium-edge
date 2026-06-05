@@ -1328,9 +1328,19 @@ export async function buildChatContext(
             // a half-size ticket. Gate at side granularity so the model never
             // even sees the non-qualifying side. With no threshold both sides
             // pass (no-op).
-            const overQ = p.overPrice != null && (!oddsThreshold || oddsSatisfiesThreshold(p.overPrice, oddsThreshold));
-            const underQ = p.underPrice != null && (!oddsThreshold || oddsSatisfiesThreshold(p.underPrice, oddsThreshold));
-            if (oddsThreshold && !overQ && !underQ) continue;
+            // A side must ALSO match an explicit "+ alt" / "- alt" sign ask, so the
+            // model only ever sees prop sides on the requested odds sign. Otherwise
+            // it picks a wrong-sign prop that the post-parse sign filter then strips,
+            // leaving a short ticket (the matchProp cushion/value swap is best-effort
+            // and can't always convert). Sign and threshold never co-apply (altSign
+            // is only set when there's no threshold), but both gate here uniformly.
+            const sideQualifies = (price: number | null | undefined) =>
+              price != null &&
+              (!oddsThreshold || oddsSatisfiesThreshold(price, oddsThreshold)) &&
+              (!altSign || (altSign === "plus" ? price > 0 : price < 0));
+            const overQ = sideQualifies(p.overPrice);
+            const underQ = sideQualifies(p.underPrice);
+            if ((oddsThreshold || altSign) && !overQ && !underQ) continue;
             if (p.alt) {
               const k = `${p.player}|${p.market}`.toLowerCase();
               const n = altRungs.get(k) ?? 0;
