@@ -1425,8 +1425,11 @@ export type StreamChatArgs = {
   signal?: AbortSignal;
   // Optional base64 data URL of a user-attached photo (bet slip / screenshot).
   // Forwarded to the server, which attaches it to the latest user turn for the
-  // vision model to read.
+  // vision model to read. Legacy single-image field.
   imageDataUrl?: string | null;
+  // Optional list (max 3) of base64 data URLs of user-attached photos. Preferred
+  // over the singular imageDataUrl; the server caps and validates these.
+  imageDataUrls?: string[];
 };
 
 function abortError(): Error {
@@ -1451,7 +1454,7 @@ function abortError(): Error {
 //      succeeds on a later attempt. Once real tokens have started we never retry
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
-export async function streamChat({ messages, context, onToken, signal, imageDataUrl }: StreamChatArgs): Promise<string> {
+export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls }: StreamChatArgs): Promise<string> {
   const STALL_MS = 4000; // max gap between chunks before we call the link dead
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body (the full real-data context — ~120 odds + the prop pool + matchup/fight
@@ -1503,7 +1506,7 @@ export async function streamChat({ messages, context, onToken, signal, imageData
           expoFetch(`${API_BASE}/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, context, imageDataUrl }),
+            body: JSON.stringify({ messages, context, imageDataUrl, imageDataUrls }),
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
           connectStall,

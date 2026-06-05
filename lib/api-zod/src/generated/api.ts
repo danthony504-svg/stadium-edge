@@ -123,13 +123,18 @@ Response codegen will be `unknown`; clients must use fetch + ReadableStream, not
 
  * @summary Stream AI assistant reply (Server-Sent Events)
  */
+export const sendChatMessageBodyImageDataUrlsMax = 3;
+
+
+
 export const SendChatMessageBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['system', 'user', 'assistant']),
   "content": zod.string()
 })),
   "context": zod.record(zod.string(), zod.unknown()).optional().describe('Optional structured context (selected sports, current parlay legs, etc.)'),
-  "imageDataUrl": zod.string().nullish().describe('Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.')
+  "imageDataUrl": zod.string().nullish().describe('Optional base64 data URL of a single user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read. Legacy single-image field; prefer imageDataUrls.'),
+  "imageDataUrls": zod.array(zod.string()).max(sendChatMessageBodyImageDataUrlsMax).optional().describe('Optional list (max 3) of base64 data URLs of user-attached photos for the vision model to read. Preferred over the singular imageDataUrl.')
 })
 
 

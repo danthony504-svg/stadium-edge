@@ -1615,18 +1615,31 @@ ENFORCEMENT:
   // gpt-5.4 supports image inputs, so we attach it to the LATEST user turn as a
   // vision content block and steer the model to READ it (never fabricate numbers
   // that aren't legible in the image).
-  // Only accept a well-formed base64 image data URL within a sane size cap.
-  // Anything else (remote http(s) URLs, oversized blobs, junk) is dropped so we
-  // never forward an untrusted/arbitrary URL into the model's vision input.
-  const rawImageDataUrl = parsed.data.imageDataUrl;
-  const imageDataUrl =
-    typeof rawImageDataUrl === "string" &&
-    /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(rawImageDataUrl) &&
-    rawImageDataUrl.length <= 7_000_000
-      ? rawImageDataUrl
-      : undefined;
-  const imageAnalysisAddendum = imageDataUrl
-    ? `\n\nIMAGE ANALYSIS — the user attached a PHOTO (most likely a bet slip, a sportsbook screen, or a scoreboard). Read it, then reply with ONLY a short overall verdict — 2 to 4 sentences. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip is good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in the image; if a key detail is cut off or blurry, note it in a few words rather than guessing. If the image is not about sports betting, say in one line what it appears to be and ask how you can help.`
+  // Collect candidate images from the multi-image field (preferred) plus the
+  // legacy single-image field, then validate each: must be a well-formed base64
+  // image data URL within a sane size cap. Anything else (remote http(s) URLs,
+  // oversized blobs, junk) is dropped so we never forward an untrusted/arbitrary
+  // URL into the model's vision input. Cap at 3 so a flood of images can't blow
+  // the context / cost.
+  const MAX_IMAGES = 3;
+  const rawImageCandidates: unknown[] = [
+    ...(Array.isArray(parsed.data.imageDataUrls) ? parsed.data.imageDataUrls : []),
+    parsed.data.imageDataUrl,
+  ];
+  const imageDataUrls: string[] = [];
+  for (const candidate of rawImageCandidates) {
+    if (imageDataUrls.length >= MAX_IMAGES) break;
+    if (
+      typeof candidate === "string" &&
+      /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(candidate) &&
+      candidate.length <= 7_000_000 &&
+      !imageDataUrls.includes(candidate)
+    ) {
+      imageDataUrls.push(candidate);
+    }
+  }
+  const imageAnalysisAddendum = imageDataUrls.length
+    ? `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`
     : "";
 
   // The image attaches to the most recent user message only.
@@ -1638,12 +1651,22 @@ ENFORCEMENT:
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
-      if (imageDataUrl && i === lastUserIdx && m.role === "user") {
+      if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
           role: "user" as const,
           content: [
-            { type: "text" as const, text: m.content || "Here's a photo — read it and give me your analysis." },
-            { type: "image_url" as const, image_url: { url: imageDataUrl } },
+            {
+              type: "text" as const,
+              text:
+                m.content ||
+                (imageDataUrls.length === 1
+                  ? "Here's a photo — read it and give me your analysis."
+                  : "Here are some photos — read them and give me your analysis."),
+            },
+            ...imageDataUrls.map((url) => ({
+              type: "image_url" as const,
+              image_url: { url },
+            })),
           ],
         };
       }

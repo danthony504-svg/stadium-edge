@@ -11,12 +11,26 @@ small JPEG base64 **data URL** and sent to the vision-capable chat model, which
 reads it and advises. Web client does NOT have this (mobile-only by request).
 
 ## Wiring (the contract, not the diff)
-- Transport key is `imageDataUrl` (optional, base64 data URL) added to the chat
-  request schema in `lib/api-spec/openapi.yaml` → codegen → mobile `streamChat`
-  POST body → server `chat.ts`.
-- Server attaches the image to the **LATEST user message only**, as a multimodal
-  content array `[{type:text},{type:image_url}]`. Every other turn stays a plain
-  string. Wrong placement (system msg, or all user turns) is the classic vision bug.
+- Two transport keys: `imageDataUrls` (preferred, `string[]`, **max 3**) and the
+  legacy `imageDataUrl` (single). Both live in the chat request schema in
+  `lib/api-spec/openapi.yaml` → codegen (`pnpm --filter @workspace/api-spec run codegen`)
+  → mobile `streamChat` POST body → server `chat.ts`. Keep both for back-compat.
+- Server merges `imageDataUrls` + legacy single, validates each, **dedupes exact
+  dupes**, hard-caps at `MAX_IMAGES=3`, attaches ALL as multiple `image_url` blocks
+  to the **LATEST user message only**: `[{type:text}, ...{type:image_url}]`. Every
+  other turn stays a plain string. Wrong placement (system msg, or all user turns)
+  is the classic vision bug. Addendum wording pluralizes on count.
+- **api-zod object strips unknown keys** (not `.strict()` but default zod strips):
+  a new body field MUST be added to the OpenAPI spec + regenerated, or
+  `parsed.data.<field>` is silently `undefined`.
+- Express body limit is **5mb total** (`express.json({limit})`) — fine because the
+  mobile picker downscales (≤1280px, q0.6 JPEG) so 3 images stay well under it.
+
+## Mobile UI (multi-image)
+- `attachedImages` is an **array** (`{uri,dataUrl}[]`); picker uses
+  `allowsMultipleSelection:true` + `selectionLimit: remaining` and appends, slicing
+  to 3. Preview is a wrap row with per-image remove. Picker button disabled at 3.
+  `UIMessage.imageUris?: string[]` renders all thumbnails in the sent bubble.
 
 ## Non-obvious gotchas
 - **Metro must be restarted after installing a new native module.** After adding

@@ -130,10 +130,15 @@ export interface ChatInput {
   /** Optional structured context (selected sports, current parlay legs, etc.) */
   context?: ChatInputContext;
   /**
-     * Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.
+     * Optional base64 data URL of a single user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read. Legacy single-image field; prefer imageDataUrls.
      * @nullable
      */
   imageDataUrl?: string | null;
+  /**
+     * Optional list (max 3) of base64 data URLs of user-attached photos for the vision model to read. Preferred over the singular imageDataUrl.
+     * @maxItems 3
+     */
+  imageDataUrls?: string[];
 }
 
 export type GetOddsParams = {

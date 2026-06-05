@@ -63,8 +63,8 @@ type UIMessage = {
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
-  // Local URI of a user-attached photo, shown in the user bubble.
-  imageUri?: string;
+  // Local URIs of user-attached photos (up to 3), shown in the user bubble.
+  imageUris?: string[];
 };
 
 type StatCardResult = {
@@ -498,7 +498,7 @@ export default function CoachScreen() {
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
   // sent. `uri` is the local preview; `dataUrl` is the compressed base64 sent to
   // the vision model.
-  const [attachedImage, setAttachedImage] = useState<{ uri: string; dataUrl: string } | null>(null);
+  const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
 
   // Long-press a message bubble to copy its full text. The bubble text is also
@@ -566,43 +566,56 @@ export default function CoachScreen() {
   // (often a multi-MB PNG) becomes a small base64 payload, well under the API's
   // 5MB body cap and fast for the vision model. launchImageLibraryAsync uses the
   // system photo picker, which needs no runtime permission on modern iOS/Android.
+  const MAX_IMAGES = 3;
   const pickImage = useCallback(async () => {
     if (streaming || pickingImage) return;
+    const remaining = MAX_IMAGES - attachedImages.length;
+    if (remaining <= 0) return;
     try {
       setPickingImage(true);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        allowsMultipleSelection: false,
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
         quality: 1,
       });
-      if (result.canceled || !result.assets?.[0]?.uri) return;
-      const asset = result.assets[0];
-      const actions = asset.width && asset.width > 1280 ? [{ resize: { width: 1280 } }] : [];
-      const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
-        compress: 0.6,
-        format: ImageManipulator.SaveFormat.JPEG,
-        base64: true,
-      });
-      if (!out.base64) return;
-      setAttachedImage({ uri: out.uri, dataUrl: `data:image/jpeg;base64,${out.base64}` });
+      if (result.canceled || !result.assets?.length) return;
+      // Downscale + JPEG-compress each selection (a screenshot is often a multi-MB
+      // PNG) so the combined base64 payload stays well under the API body cap.
+      const picked = result.assets.slice(0, remaining);
+      const processed: { uri: string; dataUrl: string }[] = [];
+      for (const asset of picked) {
+        if (!asset.uri) continue;
+        const actions = asset.width && asset.width > 1280 ? [{ resize: { width: 1280 } }] : [];
+        const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+          compress: 0.6,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        });
+        if (!out.base64) continue;
+        processed.push({ uri: out.uri, dataUrl: `data:image/jpeg;base64,${out.base64}` });
+      }
+      if (processed.length) {
+        setAttachedImages((prev) => [...prev, ...processed].slice(0, MAX_IMAGES));
+      }
     } catch {
-      /* picker/manipulation failed — leave any existing attachment unchanged */
+      /* picker/manipulation failed — leave any existing attachments unchanged */
     } finally {
       setPickingImage(false);
     }
-  }, [streaming, pickingImage]);
+  }, [streaming, pickingImage, attachedImages.length]);
 
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
-      const image = attachedImage;
-      if ((!trimmed && !image) || streaming) return;
+      const images = attachedImages;
+      if ((!trimmed && !images.length) || streaming) return;
       setInput("");
-      setAttachedImage(null);
+      setAttachedImages([]);
 
       const history: UIMessage[] = [
         ...messages,
-        { role: "user", content: trimmed, imageUri: image?.uri },
+        { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined },
       ];
       setMessages([...history, { role: "assistant", content: "" }]);
       setWaiting(true);
@@ -619,7 +632,7 @@ export default function CoachScreen() {
       try {
         // A photo attachment goes straight to the vision model — the text-only
         // stat-card lookup can't read an image, so skip it when one is attached.
-        const card = image ? null : await tryStatCard(trimmed, controller.signal);
+        const card = images.length ? null : await tryStatCard(trimmed, controller.signal);
         if (card) {
           setMessages((prev) => {
             const copy = [...prev];
@@ -770,7 +783,7 @@ export default function CoachScreen() {
         const full = await streamChat({
           messages: apiMessages,
           context,
-          imageDataUrl: image?.dataUrl,
+          imageDataUrls: images.length ? images.map((im) => im.dataUrl) : undefined,
           signal: controller.signal,
           onToken: (sofar) => {
             if (first) {
@@ -966,7 +979,7 @@ export default function CoachScreen() {
         scrollToEnd();
       }
     },
-    [messages, slipForContext, streaming, scrollToEnd, attachedImage],
+    [messages, slipForContext, streaming, scrollToEnd, attachedImages],
   );
 
   // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
@@ -1047,7 +1060,7 @@ export default function CoachScreen() {
               !m.periodGameLog &&
               !m.teamCard &&
               !isBuildingParlay &&
-              (isWaiting || bubbleText.length > 0 || !!m.imageUri);
+              (isWaiting || bubbleText.length > 0 || !!m.imageUris?.length);
             return (
               <View key={i}>
                 {m.statCard ? (
@@ -1071,17 +1084,28 @@ export default function CoachScreen() {
                       paddingVertical: 10,
                     }}
                   >
-                    {m.imageUri ? (
-                      <Image
-                        source={{ uri: m.imageUri }}
+                    {m.imageUris?.length ? (
+                      <View
                         style={{
-                          width: 200,
-                          height: 200,
-                          borderRadius: 10,
+                          flexDirection: "row",
+                          flexWrap: "wrap",
+                          gap: 6,
                           marginBottom: bubbleText.length > 0 ? 8 : 0,
                         }}
-                        contentFit="cover"
-                      />
+                      >
+                        {m.imageUris.map((uri, idx) => (
+                          <Image
+                            key={`${uri}-${idx}`}
+                            source={{ uri }}
+                            style={{
+                              width: m.imageUris!.length === 1 ? 200 : 120,
+                              height: m.imageUris!.length === 1 ? 200 : 120,
+                              borderRadius: 10,
+                            }}
+                            contentFit="cover"
+                          />
+                        ))}
+                      </View>
                     ) : null}
                     {isWaiting ? (
                       <ActivityIndicator color={colors.mutedForeground} size="small" />
@@ -1241,39 +1265,49 @@ export default function CoachScreen() {
           </Pressable>
         </View>
       ) : null}
-      {/* Attached-photo preview — shown above the input until sent or removed. */}
-      {attachedImage ? (
-        <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          <View style={{ alignSelf: "flex-start" }}>
-            <Image
-              source={{ uri: attachedImage.uri }}
-              style={{
-                width: 84,
-                height: 84,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-              contentFit="cover"
-            />
-            <Pressable
-              onPress={() => setAttachedImage(null)}
-              hitSlop={8}
-              style={{
-                position: "absolute",
-                top: -8,
-                right: -8,
-                width: 24,
-                height: 24,
-                borderRadius: 12,
-                backgroundColor: colors.foreground,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Feather name="x" size={14} color={colors.background} />
-            </Pressable>
-          </View>
+      {/* Attached-photo previews — up to 3, shown above the input until sent or removed. */}
+      {attachedImages.length ? (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 12,
+            paddingHorizontal: 16,
+            paddingBottom: 8,
+          }}
+        >
+          {attachedImages.map((img, idx) => (
+            <View key={`${img.uri}-${idx}`} style={{ alignSelf: "flex-start" }}>
+              <Image
+                source={{ uri: img.uri }}
+                style={{
+                  width: 84,
+                  height: 84,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+                contentFit="cover"
+              />
+              <Pressable
+                onPress={() => setAttachedImages((prev) => prev.filter((_, i) => i !== idx))}
+                hitSlop={8}
+                style={{
+                  position: "absolute",
+                  top: -8,
+                  right: -8,
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: colors.foreground,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name="x" size={14} color={colors.background} />
+              </Pressable>
+            </View>
+          ))}
         </View>
       ) : null}
       <View
@@ -1291,7 +1325,7 @@ export default function CoachScreen() {
       >
         <Pressable
           onPress={pickImage}
-          disabled={streaming || pickingImage}
+          disabled={streaming || pickingImage || attachedImages.length >= MAX_IMAGES}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
@@ -1301,7 +1335,8 @@ export default function CoachScreen() {
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
-            opacity: pressed || streaming ? 0.6 : 1,
+            opacity:
+              pressed || streaming || attachedImages.length >= MAX_IMAGES ? 0.6 : 1,
           })}
         >
           {pickingImage ? (
@@ -1335,14 +1370,14 @@ export default function CoachScreen() {
         />
         <Pressable
           onPress={() => send(input)}
-          disabled={(!input.trim() && !attachedImage) || streaming}
+          disabled={(!input.trim() && !attachedImages.length) || streaming}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
             borderRadius: 22,
             backgroundColor:
-              (!input.trim() && !attachedImage) || streaming ? colors.card : colors.primary,
-            borderWidth: (!input.trim() && !attachedImage) || streaming ? 1 : 0,
+              (!input.trim() && !attachedImages.length) || streaming ? colors.card : colors.primary,
+            borderWidth: (!input.trim() && !attachedImages.length) || streaming ? 1 : 0,
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
@@ -1356,7 +1391,7 @@ export default function CoachScreen() {
               name="arrow-up"
               size={20}
               color={
-                !input.trim() && !attachedImage ? colors.mutedForeground : colors.primaryForeground
+                !input.trim() && !attachedImages.length ? colors.mutedForeground : colors.primaryForeground
               }
             />
           )}

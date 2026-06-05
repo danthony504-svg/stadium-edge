@@ -249,4 +249,9 @@ components:
           additionalProperties: true
         imageDataUrl:
           type: ["string", "null"]
-          description: Optional base64 data URL of a user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read.
+          description: Optional base64 data URL of a single user-attached photo (e.g. a bet slip or sportsbook screenshot) for the vision model to read. Legacy single-image field; prefer imageDataUrls.
+        imageDataUrls:
+          type: array
+          maxItems: 3
+          items: { type: string }
+          description: Optional list (max 3) of base64 data URLs of user-attached photos for the vision model to read. Preferred over the singular imageDataUrl.
