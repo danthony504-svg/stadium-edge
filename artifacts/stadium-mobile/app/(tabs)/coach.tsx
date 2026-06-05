@@ -25,6 +25,7 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import {
   PickCard,
   parsePicks,
+  backfillAltPicks,
   type ParsedPick,
   type AltRungBias,
 } from "@/components/PickCard";
@@ -856,6 +857,27 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real ${word} alt leg${picks.length === 1 ? "" : "s"}; dropped ${dropped} that landed on the other sign._`;
           }
         }
+        // The number of legs the user explicitly asked for (0 when unspecified).
+        const requestedLegs = requestedLegCount(trimmed);
+        // REACH-THE-COUNT backstop for an explicit "+ alt" / "- alt" ticket. The
+        // model reliably ignores the prompt's REACH-N rule — it stops at one Alt
+        // Spread per game and never touches the alt-total ladder — so a "- 9 leg
+        // alt" comes back a leg or two short even when the board carries 20+
+        // sign-matched alt rungs. Prompt-only enforcement has proven insufficient
+        // here, so deterministically fill toward the requested count from the SAME
+        // sign-matched real context (Alt Spreads across distinct games first, then
+        // Alt Totals). Never fabricates — only appends real realOdds alt entries,
+        // and only when the model already grounded at least one leg (picks.length
+        // > 0 means the request resolved to real cards, not an error/empty board).
+        if (altSign && requestedLegs > picks.length && picks.length > 0) {
+          picks = backfillAltPicks(
+            picks,
+            context.realOdds,
+            gameMeta,
+            altSign,
+            Math.min(requestedLegs, MAX_LEGS),
+          );
+        }
         // Belt-and-braces for the 25-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
         // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
@@ -865,12 +887,12 @@ export default function CoachScreen() {
           picks = picks.slice(0, MAX_LEGS);
         }
         // Transparency note. When the user asked for a specific leg count and we
-        // delivered fewer, say why — the lead-in prose is hidden once cards
-        // render (assistantBubbleText returns "" when picks exist), so this is
-        // the ONLY place the user learns the ticket was trimmed. Two reasons:
-        // (1) tickets cap at the 25-leg slip max, or (2) the real board was too
-        // thin to ground that many legs. We never pad with invented legs.
-        const requestedLegs = requestedLegCount(trimmed);
+        // delivered fewer (even after the alt backstop above), say why — the
+        // lead-in prose is hidden once cards render (assistantBubbleText returns
+        // "" when picks exist), so this is the ONLY place the user learns the
+        // ticket was trimmed. Two reasons: (1) tickets cap at the 25-leg slip max,
+        // or (2) the real board was too thin to ground that many legs. We never
+        // pad with invented legs.
         let legNote = "";
         if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =

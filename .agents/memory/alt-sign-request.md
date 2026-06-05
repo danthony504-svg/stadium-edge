@@ -38,6 +38,24 @@ sides, so nothing gets dropped and the ticket fills. **Lesson:** any post-parse
 "drop wrong X" filter must be paired with a context-level filter that hides wrong-X
 options from the model, or it silently under-fills instead of mis-filling.
 
+**Reach-the-count gotcha (the third bug):** even with sign filtering correct, a
+"- 9 leg alt" still came back at 8 — all Alt Spreads, no alt totals, no props —
+though the board had 24+ minus alt legs. The chat.ts prompt ALREADY has an explicit
+"REACH N BEFORE GOING SHORT" rule telling the model to pair a game's Alt Spread +
+Alt Total to reach N, and the model ignores it. Prompt-only reach-N is unreliable
+(same lesson as the AI-pick safety-net). Fix: a deterministic client backstop
+`backfillAltPicks()` (components/PickCard.tsx) that, when an explicit-count alt
+ticket resolves short, appends REAL sign-matched alt rungs from `context.realOdds`
+— breadth-first (all "Alt Spread" one-per-game, THEN "Alt Total") — honoring the
+SAME (game, marketFamily) anti-correlation dedup parsePicks uses, an exact-leg
+dedup, and `target = min(requestedLegs, MAX_LEGS)`. Wired in coach.tsx after the
+post-parse sign filter, before the MAX_LEGS truncation, gated on
+`altSign && requestedLegs > picks.length && picks.length > 0` (requestedLegCount is
+0 when no count → never force-fills a bare "- alt"). Never fabricates — only
+appends entries already in realOdds. **Lesson:** "reach N" promises that depend on
+the model honoring a prompt rule WILL under-fill; pair them with a deterministic
+client backfill from the real pool.
+
 **Detection gotcha (the real one):** users type the sign at the FRONT of the
 message — "- 9 leg alt" / "+9 leg alt" — NOT next to "alt". So a sign-adjacent-only
 regex misses it and the slip silently keeps mixed signs. Detect a LEADING sign

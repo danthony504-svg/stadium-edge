@@ -711,4 +711,71 @@ type RealOddsLike = {
   market: string;
   pick: string;
   odds: number;
+  startsAt?: string | null;
 };
+
+// Reach-the-count backstop for an explicit "+ alt" / "- alt" ticket. The model
+// routinely stops at one "Alt Spread" per game and ignores each game's real
+// "Alt Total" ladder (despite the prompt's REACH-N rule), so a "- 9 leg alt"
+// comes back a leg or two short even when the board carries plenty of
+// sign-matched alt rungs. This DETERMINISTICALLY fills toward the requested
+// count from the SAME sign-matched real context — never fabricating: every
+// added leg is a real "Alt Spread"/"Alt Total" entry already in realOdds.
+// Breadth-first: one Alt Spread per DISTINCT game first, then Alt Totals (which
+// may double a game already carrying a spread — allowed, since Alt Spread and
+// Alt Total are different market families). Honors the SAME (game, market-family)
+// anti-correlation dedup parsePicks uses and the requested odds sign, and never
+// exceeds `target`. Returns the augmented list (unchanged when already at/over
+// target or no eligible rungs remain).
+export function backfillAltPicks(
+  existing: ParsedPick[],
+  realOdds: RealOddsLike[],
+  gameMeta: GameMeta[],
+  altSign: "plus" | "minus",
+  target: number,
+): ParsedPick[] {
+  if (existing.length >= target) return existing;
+  const out = [...existing];
+  // (game, market-family) keys already used by GAME-LEVEL legs, so we never
+  // stack a second spread (or second total) on the same game. Props are excluded
+  // from this set exactly like parsePicks' anti-correlation guard.
+  const famSeen = new Set(
+    out
+      .filter((p) => !p.isProp)
+      .map((p) => `${norm(p.game)}|${marketFamily(p.market)}`),
+  );
+  // Exact-leg keys so a backfill rung can never duplicate an existing card.
+  const legSeen = new Set(
+    out.map((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase()),
+  );
+  const signOk = (odds: number) => (altSign === "plus" ? odds > 0 : odds < 0);
+  // Two breadth-first passes: all Alt Spreads (one per game) THEN all Alt Totals,
+  // so the ticket spreads across distinct games before doubling up a single game.
+  for (const wantMarket of ["Alt Spread", "Alt Total"]) {
+    for (const e of realOdds) {
+      if (out.length >= target) return out;
+      if (e.market !== wantMarket) continue;
+      if (typeof e.odds !== "number" || !signOk(e.odds)) continue;
+      const famKey = `${norm(e.game)}|${marketFamily(e.market)}`;
+      if (famSeen.has(famKey)) continue;
+      const legKey = `${e.game}|${e.market}|${e.pick}`.toLowerCase();
+      if (legSeen.has(legKey)) continue;
+      famSeen.add(famKey);
+      legSeen.add(legKey);
+      out.push(
+        enrichPickMeta(
+          {
+            game: e.game,
+            market: e.market,
+            pick: e.pick,
+            odds: e.odds,
+            sport: e.sport,
+            startsAt: e.startsAt ?? null,
+          },
+          gameMeta,
+        ),
+      );
+    }
+  }
+  return out;
+}
