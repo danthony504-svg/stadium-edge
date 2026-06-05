@@ -47,9 +47,10 @@ type UIMessage = {
   role: "user" | "assistant";
   content: string;
   picks?: ParsedPick[];
-  // Set to the model's pre-truncation leg count when a parlay was clipped to the
-  // 25-leg slip cap, so the UI can tell the user it built the max-size ticket.
-  cappedFrom?: number;
+  // A short transparency line shown above the cards when a parlay delivered
+  // fewer legs than the user asked for — either capped at the 25-leg slip max
+  // or short because the real board was too thin to ground that many.
+  legNote?: string;
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
@@ -228,7 +229,18 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 // prompts) so questions like "what is a parlay" or "is my parlay good" still
 // stream their answer normally.
 const PARLAY_BUILD_RE =
-  /\bbuild\b[^?]*\bparlay\b|\b\d{1,2}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+  /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+
+// Pull a requested leg count out of the user's ask ("build me a 50 leg",
+// "6-leg parlay") so we can be honest when we deliver fewer — capped at the
+// 25-leg slip max, or short because the real board was too thin to ground that
+// many. Allows up to 3 digits so big asks like "100 leg" are captured too.
+function requestedLegCount(text: string): number {
+  const m = text.match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
@@ -771,10 +783,22 @@ export default function CoachScreen() {
         // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
         // can hold — truncate the resolved picks to MAX_LEGS. These are already
         // REAL, resolved entries, so this only ever drops extras, never fabricates.
-        let cappedAt = 0;
         if (picks.length > MAX_LEGS) {
-          cappedAt = picks.length;
           picks = picks.slice(0, MAX_LEGS);
+        }
+        // Transparency note. When the user asked for a specific leg count and we
+        // delivered fewer, say why — the lead-in prose is hidden once cards
+        // render (assistantBubbleText returns "" when picks exist), so this is
+        // the ONLY place the user learns the ticket was trimmed. Two reasons:
+        // (1) tickets cap at the 25-leg slip max, or (2) the real board was too
+        // thin to ground that many legs. We never pad with invented legs.
+        const requestedLegs = requestedLegCount(trimmed);
+        let legNote = "";
+        if (picks.length > 0 && requestedLegs > picks.length) {
+          legNote =
+            requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
+              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
+              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against tonight's real odds — that's the honest ticket, I won't pad it with invented legs.`;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
@@ -804,7 +828,7 @@ export default function CoachScreen() {
             role: "assistant",
             content: finalContent,
             picks,
-            ...(cappedAt > 0 ? { cappedFrom: cappedAt } : {}),
+            ...(legNote ? { legNote } : {}),
           };
           return copy;
         });
@@ -998,7 +1022,7 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.cappedFrom ? (
+                    {m.legNote ? (
                       <Text
                         style={{
                           color: colors.mutedForeground,
@@ -1007,8 +1031,7 @@ export default function CoachScreen() {
                           fontStyle: "italic",
                         }}
                       >
-                        Tickets cap at {MAX_LEGS} legs — built the strongest {MAX_LEGS}-leg
-                        version of your {m.cappedFrom}-leg request.
+                        {m.legNote}
                       </Text>
                     ) : null}
                     {m.picks!.length > 1 ? (
