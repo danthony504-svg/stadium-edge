@@ -704,6 +704,13 @@ export default function CoachScreen() {
         });
 
         let picks = parsePicks(full, context.realOdds, propPool, gameMeta);
+        // How many real PICK scaffold lines the model emitted (whether or not each
+        // resolved to a real odds entry). Counted by the pipe-delimited shape
+        // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
+        // prose that merely contains "PICK:" never trips the empty-bubble note.
+        const emittedPickLines = full
+          .split("\n")
+          .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length;
         // Odds-threshold lock ("10 leg with -300 or less"): drop any leg whose
         // real price breaks the bound so the WHOLE ticket qualifies. The server
         // prompt already steers the model toward qualifying legs; this is the
@@ -719,7 +726,6 @@ export default function CoachScreen() {
           // user is never left with confident text and zero cards. Also fire
           // when the model emitted PICK lines that NONE resolved to a real odds
           // entry (dropped stays 0 but there are still zero cards to show).
-          const emittedPickLines = (full.match(/PICK:/gi) || []).length;
           if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
             const bound =
               (oddsThreshold.signed > 0 ? `+${oddsThreshold.signed}` : `${oddsThreshold.signed}`) +
@@ -730,9 +736,31 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        // Never leave an empty, invisible assistant bubble. A parlay reply renders
+        // blank when the model emitted PICK lines but NONE resolved to a real odds
+        // entry (board thin / between updates): the cards are empty AND
+        // assistantBubbleText() strips the raw PICK scaffold down to nothing — and
+        // any note appended AFTER those PICK lines gets stripped too. So drop the
+        // unbacked scaffold and keep only the lead-in prose plus an honest note
+        // (the threshold note when the ask carried an odds bound), guaranteeing a
+        // successful request never shows as a blank reply.
+        let finalContent = full + thresholdNote;
+        if (picks.length === 0 && emittedPickLines > 0) {
+          const lead = assistantBubbleText(full, false);
+          const note =
+            thresholdNote ||
+            "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
+          finalContent = `${lead}${note}`.trim();
+        }
+        // Absolute backstop for any other blank reply (e.g. an empty stream) so a
+        // 200 with no visible content never lands as a silent dead end.
+        if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
+          finalContent =
+            "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
+        }
         setMessages((prev) => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: "assistant", content: full + thresholdNote, picks };
+          copy[copy.length - 1] = { role: "assistant", content: finalContent, picks };
           return copy;
         });
         // Surface this parlay's picks on the Player Props + Picks tabs. Only
