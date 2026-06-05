@@ -47,3 +47,23 @@ already emits up to 3 alt rungs per player+market (ALT_RUNGS_PER_PROP), so cushi
 are both in context — this is a PROMPT selection fix, not a client emission fix. Rule lives in
 chat.ts SYSTEM_PROMPT, in the PROP-LEVEL alts section right after the CUSHION/VALUE HARD RULES.
 api-server has no watcher — restart the API workflow after editing.
+
+# Bare-alt PROP legs default to VALUE direction, not cushion
+
+After the every-leg-must-be-alt fix, GAME-SIDE legs came back as clean plus-money alt spreads
+(e.g. Yankees -1 -104, Mariners -1 +105) but PLAYER PROP legs still came back as deep-juice
+CUSHION rungs (Diggins-Smith Over 4.5 ast -188, Thomas Over 6.5 ast -244, Luzardo Over 5.5 K -220)
+— even though those ARE alt rungs and the SAME feed carried plus-money VALUE rungs
+(verified live: Diggins-Smith Over 6.5 +187, Thomas Over 8.5 +120, Luzardo Over 7.5 +190).
+
+**Why:** game-side alts have a crisp directional rule ("step to plus money"), but the prop block
+gave the model a cushion-OR-value CHOICE and it reflexively defaulted props to the cushion
+direction (lower Over line at -150 to -300). The general "DON'T CUSHION-BIAS" language wasn't
+forceful enough to flip the prop default. The -350 cap doesn't catch it (those cushions are within
+the cap). User: "Player props also" = give props the same plus-money value treatment the spreads got.
+
+**How to apply:** added a "BARE-ALT PROP DIRECTION" mandate in the same bare-alt block: in a bare-alt
+request, prop legs DEFAULT to the VALUE direction (Over UP / Under DOWN onto the real plus-money
+rung) the same way game-side alts step to plus money, whenever recent form makes the tougher number
+defensible. Still analytics-gated + never-fabricate: drop the leg if form doesn't support the step,
+never invent a rung. Pure PROMPT fix — alt prop rungs already reach realProps. Restart api-server after.
