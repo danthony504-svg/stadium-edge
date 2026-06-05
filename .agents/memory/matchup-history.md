@@ -87,3 +87,15 @@ cleanup — one shot removes opponent + ALL trailing filler regardless of phrasi
 fringe players (minor-league callups like Ty Madden) have tiny ESPN logs (3 games) and
 no StatMuse answer → the honest deterministic outcome is real-recent-log + "0 meetings
 vs <opp>" amber note, which is STILL far better than the AI fabrication it replaced.
+
+**Focal-priority on the global fetch cap (matchupHistory missing for a lone named game):** mobile
+buildChatContext fetches matchup-history per game capped at 16 (one ESPN round-trip each, cost bound)
+and historyTargets were built in plain SPORT ORDER. On a busy multi-sport night (MLB-heavy June) a single
+named NBA game fell past index 16 and was never fetched → the coach's edge note honestly read "no
+matchupHistory posted for this NBA game" and fell back to a soft total projection instead of the
+HARD-MANDATE both-teams combinedPace calc (the prompt already requires it; the data exists). FIX:
+buildMatchupHistoryAndUpsets takes optional focalText and partitions targets FOCAL-FIRST before
+slice(0,16), reusing focalSportsFromText/gameMatchesFocalText; guard focal.length>0 && <targets.length so
+focal==all/empty/no-text fall through. SAME class of bug + same helpers as the realProps focal fix
+(mobile-chat-prop-breadth.md). **Why:** any globally-capped per-game enrichment ordered by sport starves
+a single focal game on a deep off-sport slate; the cap is the scarce resource, the named slate must win it.

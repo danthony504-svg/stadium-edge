@@ -1004,11 +1004,27 @@ async function buildMatchupHistoryAndUpsets(
   targets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[],
   mlPriceByLabel: Record<string, Record<string, number>>,
   signal?: AbortSignal,
+  focalText?: string | null,
 ): Promise<{ matchupHistory: Record<string, MatchupHistoryEntry>; upsetSpots: UpsetSpot[] }> {
   const matchupHistory: Record<string, MatchupHistoryEntry> = {};
   const upsetSpots: UpsetSpot[] = [];
+  // The matchup-history fetch is globally capped (one ESPN round-trip per game) to
+  // bound cost. When the user named a sport/game, give that focal slate the first
+  // slots so a lone focal game (e.g. one NBA game on an MLB-heavy night) is never
+  // sliced off — otherwise the coach sees "no matchupHistory" and gives a thinner
+  // read. Mirrors the focal-priority pass for realProps.
+  let ordered = targets;
+  if (focalText) {
+    const focalSports = focalSportsFromText(focalText);
+    const isFocal = (t: { sport: string; gameLabel: string }) =>
+      gameMatchesFocalText(t.gameLabel, focalText) || focalSports.has(t.sport);
+    const focal = targets.filter(isFocal);
+    if (focal.length > 0 && focal.length < targets.length) {
+      ordered = [...focal, ...targets.filter((t) => !isFocal(t))];
+    }
+  }
   await Promise.all(
-    targets.slice(0, 16).map(async (t) => {
+    ordered.slice(0, 16).map(async (t) => {
       try {
         const data = await getMatchupHistory(t.sport, t.homeTeamId, t.awayTeamId, signal);
         const home10 = data?.home?.last10;
@@ -1199,6 +1215,7 @@ export async function buildChatContext(
     historyTargets,
     buildMlPriceByLabel(realOdds),
     signal,
+    focalText,
   );
 
   // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
