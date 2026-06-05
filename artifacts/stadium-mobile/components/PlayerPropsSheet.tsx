@@ -191,7 +191,7 @@ export function PlayerPropsSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
-  const { addLeg, hasLeg } = useBetSlip();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
 
   const [market, setMarket] = useState<string>(data?.initialMarket ?? "");
 
@@ -377,14 +377,31 @@ export function PlayerPropsSheet({
   const overAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Over${stepLineTxt} ${mlabel}`);
   const underAddedStep = hasLeg(data.gameLabel, "Player Prop", `${data.player} Under${stepLineTxt} ${mlabel}`);
 
-  // Add a leg at a specific REAL rung (main or alt). Pick string uses that
+  // Toggle a leg at a specific REAL rung (main or alt). Pick string uses that
   // rung's own line so it dedupes correctly with Coach legs.
-  const addRung = (rung: PlayerProp | null, side: "Over" | "Under", price: number) => {
+  //  - tapping an already-added side removes it (un-click)
+  //  - adding a side drops the opposite side at the SAME line first, since you
+  //    can't hold both Over and Under the same number
+  const toggleRung = (rung: PlayerProp | null, side: "Over" | "Under", price: number) => {
     if (!rung) return;
     const lineTxt = rung.line != null ? ` ${rung.line}` : "";
     const label = propMarketLabel(rung.market);
-    const pick = `${data.player} ${side}${lineTxt} ${label}`;
-    const ok = addLeg({ game: data.gameLabel, market: "Player Prop", pick, odds: price, sport: data.sport });
+    const game = data.gameLabel;
+    const mkt = "Player Prop";
+    const pickFor = (s: "Over" | "Under") => `${data.player} ${s}${lineTxt} ${label}`;
+    const thisPick = pickFor(side);
+
+    if (hasLeg(game, mkt, thisPick)) {
+      removeLeg(`${game}|${mkt}|${thisPick}`.toLowerCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
+
+    const oppPick = pickFor(side === "Over" ? "Under" : "Over");
+    if (hasLeg(game, mkt, oppPick)) {
+      removeLeg(`${game}|${mkt}|${oppPick}`.toLowerCase());
+    }
+    const ok = addLeg({ game, market: mkt, pick: thisPick, odds: price, sport: data.sport });
     Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -684,7 +701,7 @@ export function PlayerPropsSheet({
                     </View>
 
                     <Pressable
-                      onPress={() => addRung(selectedProp, aiSuggestion.side, aiSuggestion.price)}
+                      onPress={() => toggleRung(selectedProp, aiSuggestion.side, aiSuggestion.price)}
                       style={({ pressed }) => ({
                         flexDirection: "row",
                         alignItems: "center",
@@ -912,14 +929,14 @@ export function PlayerPropsSheet({
                   line={chartLine}
                   price={stepUnderPrice}
                   added={underAddedStep}
-                  onPress={() => stepUnderPrice != null && addRung(rungAt, "Under", stepUnderPrice)}
+                  onPress={() => stepUnderPrice != null && toggleRung(rungAt, "Under", stepUnderPrice)}
                 />
                 <SideChip
                   side="Over"
                   line={chartLine}
                   price={stepOverPrice}
                   added={overAddedStep}
-                  onPress={() => stepOverPrice != null && addRung(rungAt, "Over", stepOverPrice)}
+                  onPress={() => stepOverPrice != null && toggleRung(rungAt, "Over", stepOverPrice)}
                 />
               </View>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, textAlign: "center", lineHeight: 14 }}>
