@@ -87,3 +87,28 @@ if the read supports stepping up; else (2) a real cushion rung WITHIN the -350 c
 rung, NOT "no plus-money rung." Three chat.ts edits enforce this (drop sentence, BARE-ALT PROP
 DIRECTION tail, HONEST SHORT TICKET clause). Deeper than -350 still needs an explicit "safe" ask.
 Watch for drift back to wall-to-wall cushions (the original failure) — the value-lean default must stay.
+
+# THE REAL root cause: the value-step gate mathematically forbids plus-money PROP rungs
+
+After fill-with-cushions shipped, props STILL came back wall-to-wall cushion (-285/-195/-245/-264)
+even when a real plus-money value rung existed (e.g. Alyssa Thomas Over 6.5 -245 picked while her
+Over 8.5 +120 rung sat right there, verified in feed AND verified reaching the model via mobile
+emission — mains-first then up to ALT_RUNGS_PER_PROP=3 alt rungs/player, the +120 rung is in the
+first 3). So it is NOT emission and NOT a "lean harder" nudge problem.
+
+**Why (the contradiction):** the generic VALUE-step rule gates on "step up only when your projection
+clears the line by ~10%". A plus-money Over rung is priced ABOVE the player's average BY DESIGN, so
+it can NEVER satisfy "average clears by 10%". The analytics gate therefore mathematically forces
+every prop down to a cushion. THREE prior prompt iterations failed because they nudged "lean value"
+while leaving in place a gate that forbids the value rung. You cannot nudge past a hard gate.
+
+**How to apply (the fix):** for BARE-ALT requests ONLY, replace the average-clears-by-10% test with a
+REACHABILITY test — take the plus-money value rung when playerHistory.recent shows the player hitting
+that line in ~2-3 of his last 10 games (or his recent high/range touches it) AND nothing strongly
+argues against it, EVEN IF his average sits below the line. The user asked for plus-money value, so
+accept the lower hit-rate; cite the real reachability in the edge note. Fall to a within-cap cushion
+ONLY when the player's recent ceiling can't reach ANY plus-money rung within -350. Still
+never-fabricate: rung real in realProps, reachability real in playerHistory. Bounded against
+all-longshots by the 2-3/10 floor + "nothing argues against" + cushion fallback + -350 cap.
+LESSON: when a "lean X" prompt keeps failing, look for an analytics GATE elsewhere that structurally
+forbids X — fix the gate, don't add another nudge.
