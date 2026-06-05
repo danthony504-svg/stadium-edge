@@ -752,8 +752,27 @@ function flattenRoundRobin(buckets: RealPropEntry[][]): RealPropEntry[] {
 // reserve a slice of the cap for alts (round-robined across games too), then
 // backfill any unused reserve with leftover mains. Mains still dominate; alts
 // just get guaranteed representation so cushion/value swaps are actually possible.
+// Interleave a single game's props by MARKET. Props arrive single-stats-first
+// (points, rebounds, assists, …) with COMBO markets (Pts+Reb+Ast, Pts+Reb,
+// Pts+Ast, Reb+Ast) and blocks/steals LAST, so a game's combo rungs sit at the
+// tail of its block and get sliced off under cap pressure. Rotating markets puts
+// one of each market up front, so combos and tail markets survive truncation.
+function interleaveByMarket(entries: RealPropEntry[]): RealPropEntry[] {
+  const m = new Map<string, RealPropEntry[]>();
+  for (const p of entries) {
+    const arr = m.get(p.market);
+    if (arr) arr.push(p);
+    else m.set(p.market, [p]);
+  }
+  return flattenRoundRobin([...m.values()]);
+}
+
 function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[] {
   if (props.length <= cap) return props;
+  // Two-level interleave: rotate markets WITHIN each game (so combos aren't shoved
+  // to the tail of that game's block), THEN round-robin ACROSS games (so a deep
+  // game doesn't starve the others). The first dimension fixes combo visibility;
+  // the second preserves the per-game breadth guarantee.
   const mainsByGame = new Map<string, RealPropEntry[]>();
   const altsByGame = new Map<string, RealPropEntry[]>();
   for (const p of props) {
@@ -762,8 +781,8 @@ function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[
     if (arr) arr.push(p);
     else map.set(p.game, [p]);
   }
-  const mainsOrdered = flattenRoundRobin([...mainsByGame.values()]);
-  const altsOrdered = flattenRoundRobin([...altsByGame.values()]);
+  const mainsOrdered = flattenRoundRobin([...mainsByGame.values()].map(interleaveByMarket));
+  const altsOrdered = flattenRoundRobin([...altsByGame.values()].map(interleaveByMarket));
   // Reserve up to ~20% of the cap for alt rungs (never more than exist).
   const altReserve = Math.min(Math.floor(cap * 0.2), altsOrdered.length);
   const mainsTake = Math.min(mainsOrdered.length, cap - altReserve);
