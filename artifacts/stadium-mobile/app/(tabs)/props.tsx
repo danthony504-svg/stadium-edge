@@ -618,9 +618,10 @@ export default function PropsScreen() {
         </View>
 
         {/* AI-recommended props — a varied set built from the real props feed,
-            independent of the AI Coach's chat parlay. Hidden while searching. */}
+            independent of the AI Coach's chat parlay. Horizontal swipe list,
+            hidden while searching. */}
         {!query.trim() && recommended.length > 0 ? (
-          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+          <View style={{ marginBottom: 18 }}>
             <Text
               style={{
                 color: colors.primary,
@@ -628,13 +629,22 @@ export default function PropsScreen() {
                 fontSize: 13,
                 letterSpacing: 0.5,
                 marginBottom: 8,
+                paddingHorizontal: 16,
               }}
             >
               ★ AI RECOMMENDED
             </Text>
-            {recommended.map((p, i) => (
-              <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
-            ))}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            >
+              {recommended.map((p, i) => (
+                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
+                  <PickCard pick={p} />
+                </View>
+              ))}
+            </ScrollView>
           </View>
         ) : null}
 
