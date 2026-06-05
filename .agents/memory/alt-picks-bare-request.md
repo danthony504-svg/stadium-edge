@@ -67,3 +67,23 @@ request, prop legs DEFAULT to the VALUE direction (Over UP / Under DOWN onto the
 rung) the same way game-side alts step to plus money, whenever recent form makes the tougher number
 defensible. Still analytics-gated + never-fabricate: drop the leg if form doesn't support the step,
 never invent a rung. Pure PROMPT fix — alt prop rungs already reach realProps. Restart api-server after.
+
+# Value-lean must FILL with within-cap cushions, not DROP legs (over-correction)
+
+The value-lean above immediately over-corrected: a "9 leg alt" came back as only 5 legs (4 game-side
+alts + 1 prop) because the model DROPPED every prop leg it couldn't turn into a clean plus-money
+VALUE rung — even though valid within-cap cushion alts (-200/-300) existed to fill the ticket. User:
+"Why not pick some alt -200 -300 or more?"
+
+**Why:** the drop language ("if no rung clears the read AND escapes the deep-cushion band, DROP") +
+the EVERY-LEG / HONEST-SHORT-TICKET rule made the model treat "no plus-money value rung" as
+"unfillable" → it shrank N down to a handful instead of using a legitimate -200/-300 cushion alt.
+A within-(-350)-cap cushion is a VALID alt leg, not a reason to drop.
+
+**How to apply (the balance):** value-LEAN governs WHICH rung when several qualify; it is NEVER a
+reason to drop a leg or shrink an N-leg ask. Order of preference per leg: (1) plus-money value rung
+if the read supports stepping up; else (2) a real cushion rung WITHIN the -350 cap to fill toward N;
+(3) DROP only when NO real alt rung exists within the -350 cap at all. "Unfillable" = no within-cap
+rung, NOT "no plus-money rung." Three chat.ts edits enforce this (drop sentence, BARE-ALT PROP
+DIRECTION tail, HONEST SHORT TICKET clause). Deeper than -350 still needs an explicit "safe" ask.
+Watch for drift back to wall-to-wall cushions (the original failure) — the value-lean default must stay.
