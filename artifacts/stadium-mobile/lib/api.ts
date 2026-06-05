@@ -767,7 +767,9 @@ function interleaveByMarket(entries: RealPropEntry[]): RealPropEntry[] {
   return flattenRoundRobin([...m.values()]);
 }
 
-function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[] {
+// Core breadth-balancer (no focal awareness — see balancePropsByGame for that).
+function balancePropsCore(props: RealPropEntry[], cap: number): RealPropEntry[] {
+  if (cap <= 0) return [];
   if (props.length <= cap) return props;
   // Two-level interleave: rotate markets WITHIN each game (so combos aren't shoved
   // to the tail of that game's block), THEN round-robin ACROSS games (so a deep
@@ -796,6 +798,33 @@ function balancePropsByGame(props: RealPropEntry[], cap: number): RealPropEntry[
     out.push(mainsOrdered[i]);
   }
   return out;
+}
+
+// Breadth-balance props under `cap`, but when the user named a sport or game
+// (focalText) give that focal slate PRIORITY for the cap. realOdds is already
+// focal-ranked (see rankedOdds); realProps was NOT, so a single prop-rich focal
+// game — e.g. the lone NBA game on an MLB-heavy June night — was diluted to a
+// ~1/N round-robin share across every sport's games. That silently starved
+// N-leg builds: a "10 leg NBA" ask only surfaced ~8 NBA players and honestly
+// stalled at 8 even though that one game posts 19 players + full period ladders.
+// Fix: fill the cap from the focal slate first (still breadth-balanced across
+// focal games + combo-aware within each), then backfill any leftover cap with
+// the rest of the slate so non-focal breadth is preserved when room remains.
+function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: string | null): RealPropEntry[] {
+  if (props.length <= cap) return props;
+  if (focalText) {
+    const focalSports = focalSportsFromText(focalText);
+    const isFocal = (p: RealPropEntry) =>
+      gameMatchesFocalText(p.game, focalText) || focalSports.has(p.sport);
+    const focal = props.filter(isFocal);
+    if (focal.length && focal.length < props.length) {
+      const rest = props.filter((p) => !isFocal(p));
+      const out = balancePropsCore(focal, cap);
+      if (out.length < cap) out.push(...balancePropsCore(rest, cap - out.length));
+      return out.slice(0, cap);
+    }
+  }
+  return balancePropsCore(props, cap);
 }
 
 export type ChatContext = {
@@ -1334,7 +1363,7 @@ export async function buildChatContext(
       currentSlip,
       realGames: realGames.slice(0, 60),
       realOdds: rankedOdds.slice(0, ODDS_CAP),
-      realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT),
+      realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT, focalText),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
     },

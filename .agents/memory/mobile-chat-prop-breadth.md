@@ -38,6 +38,20 @@ crowd out other games) — keep the two levels separate. Pairs with a chat.ts pr
 combo markets as first-class stat families to mix in (points-inclusive combo counts as a scoring leg for
 anti-correlation; combo+single on same player is still one athlete).
 
+**Third dimension — FOCAL priority, not just even breadth (single-game N-leg under-fill):** even
+breadth is WRONG when the user named ONE sport/game. `realOdds` is focal-ranked (`rankedOdds`) but
+`realProps` was NOT — it round-robined evenly across ALL games/sports. On a multi-sport night (e.g.
+MLB-heavy June) a lone focal NBA game posting 19 players / 686 rows got diluted to a ~1/N share, so a
+"10 leg NBA" ask only surfaced ~3-8 NBA players and the model honestly stalled at 8 — looking like a
+thin slate when the one game had ample depth. **Fix:** `balancePropsByGame(props, cap, focalText?)` —
+when `focalText` names a sport/game (reuse `focalSportsFromText` / `gameMatchesFocalText`), fill the cap
+from the FOCAL slate first (still breadth- + combo-balanced via the extracted `balancePropsCore`), then
+backfill leftover cap with the rest. Guard `focal.length < props.length` so focal==all falls through.
+**Why:** even round-robin optimizes cross-game coverage, which is the OPPOSITE of what a single-focus ask
+needs; the cap is the scarce resource and the named slate must win it. **How to apply:** any capped,
+breadth-balanced context list that ALSO serves single-target asks needs a focal-first pass before the
+even-breadth pass — mirrors web `focal-prop-float`.
+
 **Notes:**
 - `propPool` (render/resolution pool used by parsePicks) is uncapped, so only AI *visibility* was the
   constraint — fixing `realProps` selection was sufficient; resolution never needed widening.
