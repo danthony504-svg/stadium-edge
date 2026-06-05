@@ -394,6 +394,7 @@ function matchProp(
   market: string,
   selection: string,
   propPool: PropPoolEntry[],
+  preferPlusMoney = false,
 ): ParsedPick | null {
   const side = sideOf(selection);
   const selTokens = new Set(norm(selection).split(" ").filter(Boolean));
@@ -416,6 +417,32 @@ function matchProp(
     }
   }
   if (!best) return null;
+  // BARE-ALT PLUS-MONEY UPGRADE. The shared chat prompt steers bare-alt props to
+  // their plus-money value rung using playerHistory reachability — but the MOBILE
+  // context carries no per-player game log, so the model has no basis to step up
+  // and defaults every prop to the shorter-priced cushion rung (e.g. Over 6.5
+  // -245 instead of the player's real Over 8.5 +120). For an explicit bare-alt
+  // ask, when the resolved rung is a cushion (priced worse than +100), swap it to
+  // the LEAST-AGGRESSIVE real plus-money rung on the SAME player+market+side — the
+  // closest-to-even upside upgrade, never the deep longshot. Real posted rung +
+  // real odds from the pool, never invented; bounded by picking the smallest
+  // positive price. yes/no markets (best.line == null) are left untouched.
+  if (preferPlusMoney && best.line != null && best.odds < 100) {
+    // Match the FULL resolved player name (not just surname) so a same-surname
+    // teammate in the same game+market+side can't be swapped in by mistake.
+    const bestName = norm(best.player);
+    const bestMkt = norm(best.marketLabel);
+    let up: PropPoolEntry | null = null;
+    for (const e of propPool) {
+      if (e.line == null || e.odds < 100) continue; // plus-money rungs only
+      if (e.side !== best.side) continue; // same Over/Under direction
+      if (!sameGame(e.game, best.game)) continue;
+      if (norm(e.player) !== bestName) continue; // exact same player
+      if (norm(e.marketLabel) !== bestMkt) continue;
+      if (!up || e.odds < up.odds) up = e; // least-aggressive (closest to even)
+    }
+    if (up) best = up;
+  }
   const pick =
     best.line != null
       ? `${best.player} ${best.side} ${best.line} ${best.marketLabel}`
@@ -480,6 +507,7 @@ export function parsePicks(
   realOdds: ParsedPick[] | RealOddsLike[],
   propPool: PropPoolEntry[] = [],
   gameMeta: GameMeta[] = [],
+  preferPlusMoney = false,
 ): ParsedPick[] {
   const pool = (realOdds as RealOddsLike[]) || [];
   if (pool.length === 0 && propPool.length === 0) return []; // fail-closed: no real data -> no cards
@@ -525,7 +553,7 @@ export function parsePicks(
 
     if (isPropSelection) {
       // Player-prop pool only (fail-closed: drop if not a real posted prop).
-      resolved = matchProp(game, market, selection, propPool);
+      resolved = matchProp(game, market, selection, propPool, preferPlusMoney);
     } else {
       // Game-level pool: same game + same market family + matching selection.
       const fam = marketFamily(market);

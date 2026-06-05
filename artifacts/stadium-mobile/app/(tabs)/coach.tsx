@@ -749,7 +749,17 @@ export default function CoachScreen() {
           },
         });
 
-        let picks = parsePicks(full, context.realOdds, propPool, gameMeta);
+        // Bare "alt picks" ask: mobile sends no per-player game-log data, so the
+        // model can't justify stepping a prop up to its plus-money rung and defaults
+        // to the shorter cushion. Flag the request so parsePicks upgrades a resolved
+        // cushion prop to the least-aggressive REAL plus-money rung on the same
+        // player+market+side. Excludes "safe"/"lock" asks and odds-bound asks, which
+        // carry their own rung rules.
+        const bareAltIntent =
+          /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed) &&
+          !/(?:safe|safer|lock)/i.test(trimmed) &&
+          !oddsThreshold;
+        let picks = parsePicks(full, context.realOdds, propPool, gameMeta, bareAltIntent);
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
