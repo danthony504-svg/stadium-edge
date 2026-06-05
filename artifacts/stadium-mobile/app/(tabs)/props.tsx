@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PickCard } from "@/components/PickCard";
+import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -80,6 +80,20 @@ function teamAbbrFor(prop: PlayerProp, teams: TeamInfo | null): string | null {
   if (!teams || !prop.playerTeamId) return null;
   if (prop.playerTeamId === teams.homeTeamId) return teams.homeAbbr;
   if (prop.playerTeamId === teams.awayTeamId) return teams.awayAbbr;
+  return null;
+}
+
+// Pick the side to recommend for a prop from its REAL posted prices only.
+// When both sides are priced, take the higher American number (the shorter-juice
+// / better-return side) — a transparent rule, never a fabricated lean. Yes/no
+// markets (line null) only carry an Over/"Yes" price, so that side is used.
+// Returns null when no real price exists (nothing to honestly recommend).
+function recommendSide(p: PlayerProp): { side: "Over" | "Under"; price: number } | null {
+  const o = p.overPrice;
+  const u = p.underPrice;
+  if (o != null && u != null) return o >= u ? { side: "Over", price: o } : { side: "Under", price: u };
+  if (o != null) return { side: "Over", price: o };
+  if (u != null) return { side: "Under", price: u };
   return null;
 }
 
@@ -410,8 +424,6 @@ export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
-  const { aiPicks } = useBetSlip();
-  const aiProps = useMemo(() => aiPicks.filter((p) => p.isProp), [aiPicks]);
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
   const [sport, setSport] = useState(
     params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
@@ -450,6 +462,69 @@ export default function PropsScreen() {
     queryFn: ({ signal }) => fetchAllProps(sport, signal),
     staleTime: 2 * 60_000,
   });
+
+  // A varied, rotating set of recommended picks built ONLY from the real props
+  // feed for the selected sport — independent of the AI Coach's chat parlay. Each
+  // card uses a real player, real posted line, and a real Over/Under price (side
+  // chosen by recommendSide); no fabricated edge note. Shuffled per data load so
+  // the list refreshes (and re-rolls on pull-to-refresh). Deduped to one main
+  // line per player, spread across games, capped small.
+  const recommended = useMemo<ParsedPick[]>(() => {
+    const data = propsQ.data ?? [];
+    const candidates: { pick: ParsedPick; player: string }[] = [];
+    for (const g of data) {
+      for (const p of g.props) {
+        if (p.alt) continue; // main lines only
+        const sel = recommendSide(p);
+        if (!sel) continue;
+        // Yes/no markets (no line, e.g. anytime goalscorer/TD) are only meaningful
+        // on the Over/"Yes" side, and the canonical pick string drops the side
+        // token — so force the Yes side here and require its price, keeping the
+        // displayed odds consistent with the label (never an ambiguous "Under").
+        let side = sel.side;
+        let price = sel.price;
+        if (p.line == null) {
+          if (p.overPrice == null) continue;
+          side = "Over";
+          price = p.overPrice;
+        }
+        const label = propMarketLabel(p.market);
+        const pick =
+          p.line != null
+            ? `${p.player} ${side} ${p.line} ${label}`
+            : `${p.player} ${label}`;
+        candidates.push({
+          player: p.player,
+          pick: {
+            game: g.gameLabel,
+            market: label,
+            pick,
+            odds: price,
+            sport,
+            isProp: true,
+            startsAt: g.startsAt,
+            headshot: p.headshot ?? null,
+            teamAbbr: teamAbbrFor(p, g.teams),
+          },
+        });
+      }
+    }
+    // Fisher–Yates shuffle for variety.
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const seen = new Set<string>();
+    const out: ParsedPick[] = [];
+    for (const c of candidates) {
+      const key = c.player.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(c.pick);
+      if (out.length >= 6) break;
+    }
+    return out;
+  }, [propsQ.data, sport]);
 
   const filtered = useMemo(() => {
     const data = propsQ.data ?? [];
@@ -542,8 +617,9 @@ export default function PropsScreen() {
           </View>
         </View>
 
-        {/* AI-recommended props (pinned from the AI Coach's latest parlay) */}
-        {aiProps.length > 0 ? (
+        {/* AI-recommended props — a varied set built from the real props feed,
+            independent of the AI Coach's chat parlay. Hidden while searching. */}
+        {!query.trim() && recommended.length > 0 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
             <Text
               style={{
@@ -556,7 +632,7 @@ export default function PropsScreen() {
             >
               ★ AI RECOMMENDED
             </Text>
-            {aiProps.map((p, i) => (
+            {recommended.map((p, i) => (
               <PickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
             ))}
           </View>
