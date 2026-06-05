@@ -112,3 +112,19 @@ never-fabricate: rung real in realProps, reachability real in playerHistory. Bou
 all-longshots by the 2-3/10 floor + "nothing argues against" + cushion fallback + -350 cap.
 LESSON: when a "lean X" prompt keeps failing, look for an analytics GATE elsewhere that structurally
 forbids X — fix the gate, don't add another nudge.
+
+## Reach N: don't stop at one alt leg per game (under-fill cause)
+**Symptom:** "9 leg alt" returns 8 — slip is all "Alt Spread" run lines + a few alt props, ZERO
+"Alt Total" legs, and the model says "only 8 held up, won't pad." Live odds proved it false: the
+slate carried 12 MLB games with BOTH alternate_spreads AND alternate_totals — plenty for 9+ alt legs.
+**Why:** the EVERY-LEG-MUST-BE-ALT rule + the CONVERT-MONEYLINES→Alt-Spread emphasis make the model
+treat each game as ONE alt-spread leg and never reach for the game's real Alt Total (a DIFFERENT,
+allowed market family) or more distinct-player alt props, so it declares a false thin slate.
+**How to apply:** Alt Spread + Alt Total on the SAME game are different families → allowed together
+(one-per-family only bans two spreads or two totals). To reach N: spread legs across as many games as
+possible FIRST (cross-game breadth = less correlation), THEN pair a game's Alt Spread + Alt Total for
+depth, AND add more distinct-player alt props, before ever shortening. Keep anti-correlation (no
+same-game Alt Total OVER + that game's scoring-prop OVER / star points-UNDER). Prompt-only + shared;
+NOT inert on mobile (this is market/leg-count selection, not rung reachability — mobile emits "Alt
+Total" in realOdds and the slip parser resolves it via marketFamily). Verify slate truth via
+/api/sports/odds before trusting an "honest short" claim.
