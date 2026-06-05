@@ -714,31 +714,55 @@ type RealOddsLike = {
   startsAt?: string | null;
 };
 
-// Reach-the-count backstop for an explicit "+ alt" / "- alt" ticket. The model
-// routinely stops at one "Alt Spread" per game and ignores each game's real
-// "Alt Total" ladder (despite the prompt's REACH-N rule), so a "- 9 leg alt"
-// comes back a leg or two short even when the board carries plenty of
-// sign-matched alt rungs. This DETERMINISTICALLY fills toward the requested
-// count from the SAME sign-matched real context — never fabricating: every
-// added leg is a real "Alt Spread"/"Alt Total" entry already in realOdds.
-// Breadth-first: one Alt Spread per DISTINCT game first, then Alt Totals (which
-// may double a game already carrying a spread — allowed, since Alt Spread and
-// Alt Total are different market families). Honors the SAME (game, market-family)
-// anti-correlation dedup parsePicks uses and the requested odds sign, and never
-// exceeds `target`. Returns the augmented list (unchanged when already at/over
-// target or no eligible rungs remain).
-export function backfillAltPicks(
+// Market-matcher passes for an explicit "+ alt" / "- alt" ticket: all full-game
+// Alt Spreads first (one per game), then Alt Totals — so an alt ticket spreads
+// across distinct games before doubling up a single game.
+export const ALT_BACKFILL_ORDER: RegExp[] = [/^Alt Spread$/, /^Alt Total$/];
+
+// Market-matcher passes for a PERIOD / same-game ticket. Honors the user's
+// requested period+alt intent FIRST — the explicit "alt spreads" ask, then the
+// period winners/sides/totals the model most often skips (Q1/1H/2H Moneyline is
+// the usual omission) — only dipping into first-half alt ladders, the full-game
+// alt total, deeper-quarter markets, and finally full-game mains if the ticket is
+// STILL short. Each label resolves to a real `buildRealOdds` entry; marketFamily
+// keeps every period distinct so these never collide with each other.
+export const PERIOD_BACKFILL_ORDER: RegExp[] = [
+  /^Alt Spread$/,
+  /^(1H|2H|Q1) Moneyline$/,
+  /^(1H|2H|Q1) (Spread|Total)$/,
+  /^1H Alt (Spread|Total)$/,
+  /^Alt Total$/,
+  /^(Q2|Q3|Q4) (Moneyline|Spread|Total)$/,
+  /^(Moneyline|Spread|Total)$/,
+];
+
+// Reach-the-count backstop for parlays that resolve SHORT of an explicit leg
+// count. The model routinely under-delivers despite the prompt's REACH-N rule —
+// a "- 9 leg alt" stops at one Alt Spread per game and ignores the alt-total
+// ladder; a single-game "15 leg ... 1 quarter ... half time ... alt spreads"
+// stops at the period spreads/totals and skips the period MONEYLINES and the
+// full-game ALT SPREAD the user explicitly asked for. Prompt-only reach-N is
+// unreliable, so this DETERMINISTICALLY fills toward `target` from the SAME real
+// context — never fabricating: every added leg is a real `realOdds` entry.
+// `order` is an ordered list of market-label matchers (ALT_BACKFILL_ORDER /
+// PERIOD_BACKFILL_ORDER); each pass adds one leg per (game, market-family),
+// honoring the SAME exact-leg + period-scoped anti-correlation dedup parsePicks
+// uses, and — when `altSign` is set — the requested odds sign. Never exceeds
+// `target`; returns the list unchanged when already at/over target or no
+// eligible rungs remain.
+export function backfillPicks(
   existing: ParsedPick[],
   realOdds: RealOddsLike[],
   gameMeta: GameMeta[],
-  altSign: "plus" | "minus",
-  target: number,
+  opts: { target: number; order: RegExp[]; altSign?: "plus" | "minus" | null },
 ): ParsedPick[] {
+  const { target, order, altSign = null } = opts;
   if (existing.length >= target) return existing;
   const out = [...existing];
-  // (game, market-family) keys already used by GAME-LEVEL legs, so we never
-  // stack a second spread (or second total) on the same game. Props are excluded
-  // from this set exactly like parsePicks' anti-correlation guard.
+  // (game, market-family) keys already used by GAME-LEVEL legs, so we never stack
+  // a second same-family side on the same game (marketFamily is period-scoped, so
+  // Q1/1H/2H/full-game spreads stay distinct). Props are excluded, exactly like
+  // parsePicks' anti-correlation guard.
   const famSeen = new Set(
     out
       .filter((p) => !p.isProp)
@@ -748,13 +772,12 @@ export function backfillAltPicks(
   const legSeen = new Set(
     out.map((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase()),
   );
-  const signOk = (odds: number) => (altSign === "plus" ? odds > 0 : odds < 0);
-  // Two breadth-first passes: all Alt Spreads (one per game) THEN all Alt Totals,
-  // so the ticket spreads across distinct games before doubling up a single game.
-  for (const wantMarket of ["Alt Spread", "Alt Total"]) {
+  const signOk = (odds: number) =>
+    altSign == null ? true : altSign === "plus" ? odds > 0 : odds < 0;
+  for (const matcher of order) {
     for (const e of realOdds) {
       if (out.length >= target) return out;
-      if (e.market !== wantMarket) continue;
+      if (!matcher.test(e.market)) continue;
       if (typeof e.odds !== "number" || !signOk(e.odds)) continue;
       const famKey = `${norm(e.game)}|${marketFamily(e.market)}`;
       if (famSeen.has(famKey)) continue;

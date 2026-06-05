@@ -58,6 +58,34 @@ Detect via `/\b(same[-\s]?game|sgp)\b/i` on the latest user text only. This is a
 - Don't infer same-game from a single game being named — require the explicit phrasing. Cross-game 15-leg builds are fine from the normal path; only same-game needs the period lever.
 - Correlation protection is still prompt-only (no server-side pruning). Acceptable, but it's the residual quality risk on long SGPs; the model occasionally still doubles a player's props (one-prop-per-player is prompt-only too).
 
+# Client reach-N backfill (period/same-game under-fill at the count)
+Distinct from "wrong markets leaked" — this is "right markets, too few legs". A
+single-game "15 leg ... 1 quarter ... half time ... alt spreads" came back 13/15:
+the model emitted Q1/1H/2H spread+total + props but SKIPPED the period MONEYLINES
+and the full-game ALT SPREAD the user explicitly asked for, even though `realOdds`
+(includePeriods) carried all of them and the single game had massive real depth
+(alternate_spreads ~146 outcomes, full Q1-Q4/1H/2H). Prompt-only REACH-N fails the
+same way the alt-sign case did.
+**Fix:** generalized the alt-sign reach-N backstop into one deterministic client
+helper `backfillPicks(existing, realOdds, gameMeta, {target, order, altSign?})`
+(mobile components/PickCard.tsx). It appends REAL realOdds entries whose market
+label matches each RegExp in `order`, honoring the SAME exact-leg + period-scoped
+`marketFamily` anti-correlation dedup parsePicks uses (props excluded) and the odds
+sign when set; never exceeds target; never fabricates. Two order lists:
+`ALT_BACKFILL_ORDER` (alt spread→alt total, preserves the +/- alt behavior) and
+`PERIOD_BACKFILL_ORDER` (full-game Alt Spread → 1H/2H/Q1 Moneyline → 1H/2H/Q1
+Spread/Total → 1H alt ladders → full-game Alt Total → Q2-Q4 → full-game mains).
+Wired in coach.tsx after the sign filter, before MAX_LEGS, gated on
+`requestedLegs > picks.length && picks.length > 0 && !oddsThreshold`: altSign→ALT
+order+sign, else includePeriods→PERIOD order.
+**Why this is safe (never-fabricate):** every backfilled leg is already in
+`realOdds`; the gate fires only on an explicit count, a grounded ticket, and no
+threshold lock, so alt-sign / odds-threshold / market-locked / non-period asks are
+untouched. `marketFamily` being period-scoped is load-bearing: Q1/1H/2H/full-game
+spreads are DISTINCT families (none wrongly skipped) while full-game Spread and Alt
+Spread collide (one per game). **Lesson:** every "reach N" promise that leans on a
+prompt rule under-fills — pair it with a deterministic real-pool backfill.
+
 # Smell test
 If the AI returns a "1Q ticket" that includes any game-level spread/total/ML or any full-game player prop, the layering is incomplete. Prompt-only fixes will look like they work on the next test and silently regress on the one after.
 

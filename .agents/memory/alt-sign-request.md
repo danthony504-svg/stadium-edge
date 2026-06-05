@@ -43,9 +43,12 @@ options from the model, or it silently under-fills instead of mis-filling.
 though the board had 24+ minus alt legs. The chat.ts prompt ALREADY has an explicit
 "REACH N BEFORE GOING SHORT" rule telling the model to pair a game's Alt Spread +
 Alt Total to reach N, and the model ignores it. Prompt-only reach-N is unreliable
-(same lesson as the AI-pick safety-net). Fix: a deterministic client backstop
-`backfillAltPicks()` (components/PickCard.tsx) that, when an explicit-count alt
-ticket resolves short, appends REAL sign-matched alt rungs from `context.realOdds`
+(same lesson as the AI-pick safety-net). Fix: a deterministic client backstop —
+now the generalized `backfillPicks(existing, realOdds, gameMeta, {target, order,
+altSign})` with `ALT_BACKFILL_ORDER` (components/PickCard.tsx; also drives the
+period/same-game reach-N case via `PERIOD_BACKFILL_ORDER` — see
+period-intent-enforcement.md) — that, when an explicit-count alt ticket resolves
+short, appends REAL sign-matched alt rungs from `context.realOdds`
 — breadth-first (all "Alt Spread" one-per-game, THEN "Alt Total") — honoring the
 SAME (game, marketFamily) anti-correlation dedup parsePicks uses, an exact-leg
 dedup, and `target = min(requestedLegs, MAX_LEGS)`. Wired in coach.tsx after the

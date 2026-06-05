@@ -25,7 +25,9 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import {
   PickCard,
   parsePicks,
-  backfillAltPicks,
+  backfillPicks,
+  ALT_BACKFILL_ORDER,
+  PERIOD_BACKFILL_ORDER,
   type ParsedPick,
   type AltRungBias,
 } from "@/components/PickCard";
@@ -859,24 +861,33 @@ export default function CoachScreen() {
         }
         // The number of legs the user explicitly asked for (0 when unspecified).
         const requestedLegs = requestedLegCount(trimmed);
-        // REACH-THE-COUNT backstop for an explicit "+ alt" / "- alt" ticket. The
-        // model reliably ignores the prompt's REACH-N rule — it stops at one Alt
-        // Spread per game and never touches the alt-total ladder — so a "- 9 leg
-        // alt" comes back a leg or two short even when the board carries 20+
-        // sign-matched alt rungs. Prompt-only enforcement has proven insufficient
-        // here, so deterministically fill toward the requested count from the SAME
-        // sign-matched real context (Alt Spreads across distinct games first, then
-        // Alt Totals). Never fabricates — only appends real realOdds alt entries,
-        // and only when the model already grounded at least one leg (picks.length
-        // > 0 means the request resolved to real cards, not an error/empty board).
-        if (altSign && requestedLegs > picks.length && picks.length > 0) {
-          picks = backfillAltPicks(
-            picks,
-            context.realOdds,
-            gameMeta,
-            altSign,
-            Math.min(requestedLegs, MAX_LEGS),
-          );
+        // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
+        // REACH-N rule and returns a leg or two short even when the real board has
+        // plenty more — two flavors:
+        //   (1) "+ alt"/"- alt": stops at one Alt Spread per game and never touches
+        //       the alt-total ladder (sign-restricted backfill).
+        //   (2) period / same-game (e.g. "15 leg ... 1 quarter ... half time ...
+        //       alt spreads"): emits the period spreads/totals but skips the period
+        //       MONEYLINES and the full-game ALT SPREAD the user explicitly asked
+        //       for — both already in `realOdds` via includePeriods.
+        // Deterministically fill toward the requested count from the SAME real
+        // context — never fabricating (only appends real realOdds entries), gated
+        // on an explicit count, a grounded ticket (picks.length > 0), and no active
+        // odds-threshold lock (whose own filter must stay authoritative).
+        if (requestedLegs > picks.length && picks.length > 0 && !oddsThreshold) {
+          const target = Math.min(requestedLegs, MAX_LEGS);
+          if (altSign) {
+            picks = backfillPicks(picks, context.realOdds, gameMeta, {
+              target,
+              altSign,
+              order: ALT_BACKFILL_ORDER,
+            });
+          } else if (includePeriods) {
+            picks = backfillPicks(picks, context.realOdds, gameMeta, {
+              target,
+              order: PERIOD_BACKFILL_ORDER,
+            });
+          }
         }
         // Belt-and-braces for the 25-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
