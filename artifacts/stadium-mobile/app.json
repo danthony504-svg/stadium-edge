@@ -14,9 +14,12 @@
       "backgroundColor": "#0f172a"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.stadiumedge.app"
     },
-    "android": {},
+    "android": {
+      "package": "com.stadiumedge.app"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
