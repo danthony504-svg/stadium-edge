@@ -36,9 +36,17 @@ both specific phrases. "goal scorer"/"anytime goal" locks BOTH
 `player_goal_scorer_anytime` (soccer) AND `player_goals` (NHL) — whichever
 sport is in the pool fills the lock.
 
-**Timing:** World Cup starts 2026-06-11. The endpoint works now (curl-able),
-but games only enter the coach pool / props tabs as they reach the client
-windows (mobile 48h, web 24h). Do NOT widen those horizons.
+**Timing / horizons:** World Cup starts 2026-06-11. The props endpoint is real
+and works days ahead (books post WC props ~weeks out; verified 143 real props
+for the opener while ~6 days away). Because WC is a tournament whose matches
+cluster outside the normal pickable window, the MOBILE PROPS TAB
+(`fetchAllProps`) now uses a sport-aware look-ahead: soccer = 14 days, all other
+sports keep 48h. **Why:** with the flat 48h window the Soccer tab showed an
+honest-but-confusing "no props" for days even though real WC props existed.
+Safe because soccer's only prop league is the WC and every WC match carries
+props, so the chronological `slice(0, MAX_GAMES)` fills with prop-positive games
+(no starvation). The coach pool / web 24h window were NOT changed — only the
+mobile Props tab fetch.
 
 **Sync points touched:** sports.ts (add WC key), props.ts
 (MARKETS_BY_SPORT.soccer + multi-key resolver), mobile lib/api.ts

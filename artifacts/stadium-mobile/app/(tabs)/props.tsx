@@ -105,8 +105,19 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
     getGames(sport, signal).catch(() => [] as EspnGame[]),
   ]);
   const idMap = buildIdMap(games);
+  // Soccer (World Cup) is a tournament: books post real player props days before
+  // kickoff, but matches cluster outside the usual 48h pickable window. Widen the
+  // look-ahead for soccer so those real props surface; other sports keep 48h.
+  const HORIZON_H = sport === "soccer" ? 14 * 24 : 48;
+  const now = Date.now();
+  const inWindow = (iso?: string | null): boolean => {
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return false;
+    return t > now - 4 * 3600_000 && t < now + HORIZON_H * 3600_000;
+  };
   const pickable = odds
-    .filter((g) => isPickable(g.commenceTime))
+    .filter((g) => inWindow(g.commenceTime))
     .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime))
     .slice(0, MAX_GAMES);
 
@@ -672,7 +683,7 @@ export default function PropsScreen() {
               subtitle={
                 query
                   ? `No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players match “${query}”.`
-                  : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the next 48 hours. Try another league.`
+                  : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`
               }
             />
           ) : query.trim() ? (
