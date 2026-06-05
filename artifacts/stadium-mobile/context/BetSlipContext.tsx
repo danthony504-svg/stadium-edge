@@ -79,6 +79,12 @@ const STORAGE_KEY = "stadium-edge:betslip:v1";
 // slips fall off the end when a new one is saved (newest are prepended).
 const MAX_SAVED_SLIPS = 25;
 
+// Hard cap on legs in the active slip. A bulk "Add all" of a big parlay (e.g.
+// "25 leg") on top of existing legs used to blow past any sane ticket size and
+// produce absurd payouts; addLeg() now refuses once the slip is full so the slip
+// never exceeds this. Exported so UI can show the limit and disable add controls.
+export const MAX_LEGS = 25;
+
 const BetSlipContext = createContext<BetSlipState | null>(null);
 
 const legKey = (game: string, market: string, pick: string) =>
@@ -215,6 +221,10 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     let added = false;
     setLegs((prev) => {
       if (prev.some((l) => l.id === id)) return prev;
+      // Refuse once the slip is full so it never exceeds MAX_LEGS. Returning the
+      // unchanged list (added stays false) lets every caller treat a full slip
+      // the same as a duplicate — no toggle to "added", no fabricated leg.
+      if (prev.length >= MAX_LEGS) return prev;
       added = true;
       return [...prev, { ...leg, id }];
     });

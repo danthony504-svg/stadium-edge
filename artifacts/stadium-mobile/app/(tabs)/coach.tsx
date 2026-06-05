@@ -9,6 +9,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   Pressable,
   ScrollView,
@@ -27,7 +28,7 @@ import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
-import { useBetSlip } from "@/context/BetSlipContext";
+import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   buildChatContext,
@@ -348,17 +349,20 @@ function serializeStatCardForAI(card: StatCardResult): string {
 // A one-tap add-all / remove-all control above a parlay's pick cards. Picks are
 // already resolved to REAL odds entries by parsePicks, so this never fabricates
 // a leg — it just funnels each card's pick through the same addLeg()/removeLeg()
-// the per-leg button uses. addLeg() only fails on a duplicate (no max-leg cap),
+// the per-leg button uses. addLeg() refuses duplicates AND a full slip (MAX_LEGS),
 // so the in-slip count is purely reactive. Once every leg is in the slip the
 // button flips to a "Remove all" action so the user can pull the whole parlay
-// back out in one tap; a partial mix offers to add the remaining legs.
+// back out in one tap; a partial mix offers to add the remaining legs. When the
+// slip can't fit them all it reports how many actually landed and surfaces the cap.
 function AddAllButton({
   picks,
+  slipCount,
   addLeg,
   removeLeg,
   hasLeg,
 }: {
   picks: ParsedPick[];
+  slipCount: number;
   addLeg: (leg: ParsedPick) => boolean;
   removeLeg: (id: string) => void;
   hasLeg: (game: string, market: string, pick: string) => boolean;
@@ -367,6 +371,10 @@ function AddAllButton({
   const inSlip = picks.filter((p) => hasLeg(p.game, p.market, p.pick)).length;
   const remaining = picks.length - inSlip;
   const allIn = remaining === 0;
+  const slotsLeft = Math.max(0, MAX_LEGS - slipCount);
+  // How many of the not-yet-added legs the slip can actually take right now.
+  const willFit = Math.min(remaining, slotsLeft);
+  const slipFull = !allIn && slotsLeft === 0;
 
   const onPress = () => {
     if (allIn) {
@@ -379,6 +387,11 @@ function AddAllButton({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       return;
     }
+    if (slipFull) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert("Slip full", `Your slip is at the ${MAX_LEGS}-leg max. Remove a leg to add more.`);
+      return;
+    }
     let added = 0;
     for (const p of picks) {
       if (hasLeg(p.game, p.market, p.pick)) continue;
@@ -387,13 +400,27 @@ function AddAllButton({
     Haptics.impactAsync(
       added > 0 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
     );
+    // If the cap stopped us short of every leg, say exactly how many landed so a
+    // partial add never looks like a glitch.
+    if (added < remaining) {
+      Alert.alert(
+        "Slip full",
+        added > 0
+          ? `Added ${added} of ${remaining} — your slip is now at the ${MAX_LEGS}-leg max.`
+          : `Your slip is at the ${MAX_LEGS}-leg max. Remove a leg to add more.`,
+      );
+    }
   };
 
   const label = allIn
     ? `Remove all ${picks.length} from slip`
-    : inSlip > 0
-      ? `Add ${remaining} more to slip`
-      : `Add all ${picks.length} to slip`;
+    : slipFull
+      ? `Slip full · ${MAX_LEGS} max`
+      : willFit < remaining
+        ? `Add ${willFit} (slip max ${MAX_LEGS})`
+        : inSlip > 0
+          ? `Add ${remaining} more to slip`
+          : `Add all ${picks.length} to slip`;
 
   return (
     <Pressable
@@ -405,20 +432,20 @@ function AddAllButton({
         gap: 7,
         paddingVertical: 11,
         borderRadius: 10,
-        backgroundColor: allIn ? colors.card : colors.accent,
-        borderWidth: allIn ? 1 : 0,
+        backgroundColor: allIn || slipFull ? colors.card : colors.accent,
+        borderWidth: allIn || slipFull ? 1 : 0,
         borderColor: colors.border,
         opacity: pressed ? 0.9 : 1,
       })}
     >
       <Feather
-        name={allIn ? "x-circle" : "plus-circle"}
+        name={allIn ? "x-circle" : slipFull ? "alert-circle" : "plus-circle"}
         size={15}
-        color={allIn ? colors.mutedForeground : colors.background}
+        color={allIn || slipFull ? colors.mutedForeground : colors.background}
       />
       <Text
         style={{
-          color: allIn ? colors.foreground : colors.background,
+          color: allIn || slipFull ? colors.foreground : colors.background,
           fontFamily: FONT.bold,
           fontSize: 13,
         }}
@@ -956,6 +983,7 @@ export default function CoachScreen() {
                     {m.picks!.length > 1 ? (
                       <AddAllButton
                         picks={m.picks!}
+                        slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
