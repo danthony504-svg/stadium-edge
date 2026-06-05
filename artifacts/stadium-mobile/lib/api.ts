@@ -1029,6 +1029,50 @@ export async function fetchUpsetSpots(sports: string[], signal?: AbortSignal): P
   return upsetSpots;
 }
 
+// Sport keywords used to focus the chat realOdds context on the league(s) the
+// user named. Only unambiguous terms — "football" is omitted because it spans
+// NFL/CFB (and soccer in much of the world), so it can't resolve to one league.
+const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
+  mlb: ["mlb", "baseball"],
+  wnba: ["wnba"],
+  nba: ["nba"],
+  nhl: ["nhl", "hockey"],
+  soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl"],
+  ufc: ["ufc", "mma"],
+  tennis: ["tennis", "atp", "wta"],
+  nfl: ["nfl"],
+  ncaaf: ["ncaaf", "cfb", "college football"],
+  ncaab: ["ncaab", "cbb", "college basketball"],
+};
+
+function focalSportsFromText(text: string | null | undefined): Set<string> {
+  const out = new Set<string>();
+  const t = String(text || "");
+  if (!t) return out;
+  for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
+    for (const w of words) {
+      if (new RegExp(`\\b${w}\\b`, "i").test(t)) {
+        out.add(id);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// Does this game label reference a team the user named? Matches alphabetic tokens
+// of length >= 5 (skips short city words like "san"/"new"/"los") so a named-game
+// ask ("knicks spurs Q1 ticket") floats that exact game's odds to the front.
+function gameMatchesFocalText(gameLabel: string, text: string | null | undefined): boolean {
+  const t = String(text || "");
+  if (!t) return false;
+  const tokens = gameLabel.toLowerCase().match(/[a-z]{5,}/g) || [];
+  for (const tok of tokens) {
+    if (new RegExp(`\\b${tok}\\b`, "i").test(t)) return true;
+  }
+  return false;
+}
+
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
 export async function buildChatContext(
@@ -1037,6 +1081,7 @@ export async function buildChatContext(
   signal?: AbortSignal,
   oddsThreshold?: OddsThreshold | null,
   includePeriods = false,
+  focalText?: string | null,
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
@@ -1236,12 +1281,35 @@ export async function buildChatContext(
     }),
   );
 
+  // Focus the capped realOdds on the league/game the user actually named so a
+  // single-game or single-sport ask (e.g. a Q1 same-game parlay) doesn't get its
+  // odds truncated out by other sports that iterate first. Without this, the
+  // all-sports pool overflows the cap (MLB's nightly slate alone exceeds it)
+  // before the loop reaches a lone NBA game, so its markets are sliced off and
+  // the model wrongly reports "no posted realOdds" for that game.
+  const focalSports = focalSportsFromText(focalText);
+  const oddsRank = (e: RealOddsEntry): number => {
+    if (!focalText) return 0;
+    if (gameMatchesFocalText(e.game, focalText)) return 2;
+    if (focalSports.has(e.sport)) return 1;
+    return 0;
+  };
+  const rankedOdds = focalText
+    ? realOdds
+        .map((e, i) => ({ e, i, s: oddsRank(e) }))
+        .sort((a, b) => b.s - a.s || a.i - b.i)
+        .map((x) => x.e)
+    : realOdds;
+  // Period/same-game tickets surface many game-level period legs per game, so the
+  // cap is raised when those are included to keep a usable multi-leg pool.
+  const ODDS_CAP = includePeriods ? 400 : 120;
+
   return {
     context: {
       selectedSports: sports,
       currentSlip,
       realGames: realGames.slice(0, 60),
-      realOdds: realOdds.slice(0, 120),
+      realOdds: rankedOdds.slice(0, ODDS_CAP),
       realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),

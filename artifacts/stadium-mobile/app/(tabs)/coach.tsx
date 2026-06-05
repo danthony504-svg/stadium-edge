@@ -633,6 +633,9 @@ export default function CoachScreen() {
                 DEFAULT_SPORTS,
                 slipForContext,
                 controller.signal,
+                undefined,
+                false,
+                trimmed,
               );
               const grounded: ChatMessage[] = history.map((m) => ({
                 role: m.role,
@@ -719,6 +722,7 @@ export default function CoachScreen() {
           controller.signal,
           oddsThreshold,
           includePeriods,
+          trimmed,
         );
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
