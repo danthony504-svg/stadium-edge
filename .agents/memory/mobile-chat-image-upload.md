@@ -47,6 +47,32 @@ reads it and advises. Web client does NOT have this (mobile-only by request).
   ~5MB raw, matching the body limit). Drops remote/junk URLs so we never forward an
   untrusted arbitrary URL into model input.
 
+## "Improve THIS uploaded slip" (same games, same leg count)
+- **An uploaded slip lives ONLY in image pixels.** The turn-1 read uses a
+  verdict-only addendum that forbids listing legs, so there is NO structured record
+  of the slip's games/legs. A follow-up "give me a better one" carries NO image →
+  the model rebuilds a random parlay, and the generic improve addendum even says
+  "DIVERSIFY ACROSS GAMES" (the OPPOSITE of "keep my games").
+- **Fix is two-sided and must move together:**
+  - CLIENT (coach.tsx): remember the last SENT image data URLs in a ref; on an
+    improve-intent message with NO fresh image, silently RE-ATTACH them (sent for
+    re-read, NOT shown again in the bubble). Skip the stat-card path whenever
+    outgoing images exist (fresh OR re-attached), not just fresh.
+  - SERVER (chat.ts): `improveFromSlipImage = imageDataUrls.length>0 && improveIntent`
+    must branch BOTH the image addendum (→ "IMPROVE THIS SLIP FROM THE PHOTO": read
+    slip, keep SAME games + SAME leg count, optimize within those games, real
+    odds/props only, emit PICK lines) AND `improveDiversifyLine` (→ "KEEP SAME
+    GAMES + SAME LEG COUNT", not diversify). Image collection must be computed
+    BEFORE the improve addendum block so the flag is in scope.
+- **Why:** changing only one side leaves a contradiction (server says diversify
+  while user wants same games, or client never re-sends the slip so server can't
+  see the games). The client improve regex is a deliberate MIRROR of the server's
+  `improveWording` (typo-tolerant better/batter, excludes "which is better"
+  comparisons) — keep them in sync.
+- Re-attaching ANY remembered image on improve-intent is acceptable: every image in
+  this Coach is semantically a slip/sportsbook screen, so a stale-ref misattach is
+  low-risk and was intentionally not guarded.
+
 ## Never-fabricate boundary
 - Enforcement for image-read numbers is **prompt-only** (IMAGE-ANALYSIS addendum:
   list what's legible, say "cut off/blurry" instead of guessing). There is no

@@ -1534,7 +1534,48 @@ STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × ga
 HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
     : "";
 
-  const improveDiversifyLine = sameGameIntent
+  // Optional user-attached photo(s) (bet slip / sportsbook screen / scoreboard).
+  // gpt-5.4 supports image inputs, so we attach them to the LATEST user turn as
+  // vision content blocks and steer the model to READ them (never fabricate
+  // numbers that aren't legible). Collect candidates from the multi-image field
+  // (preferred) plus the legacy single-image field, then validate each: must be a
+  // well-formed base64 image data URL within a sane size cap. Anything else
+  // (remote http(s) URLs, oversized blobs, junk) is dropped so we never forward an
+  // untrusted/arbitrary URL into the model's vision input. Cap at 3 so a flood of
+  // images can't blow the context / cost.
+  const MAX_IMAGES = 3;
+  const rawImageCandidates: unknown[] = [
+    ...(Array.isArray(parsed.data.imageDataUrls) ? parsed.data.imageDataUrls : []),
+    parsed.data.imageDataUrl,
+  ];
+  const imageDataUrls: string[] = [];
+  for (const candidate of rawImageCandidates) {
+    if (imageDataUrls.length >= MAX_IMAGES) break;
+    if (
+      typeof candidate === "string" &&
+      /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(candidate) &&
+      candidate.length <= 7_000_000 &&
+      !imageDataUrls.includes(candidate)
+    ) {
+      imageDataUrls.push(candidate);
+    }
+  }
+  // When the user attaches a slip photo AND asks to improve it ("give me a better
+  // one"), they want a BETTER version of THAT SAME slip — the SAME games and the
+  // SAME number of legs — not a fresh unrelated parlay. The slip's exact games and
+  // leg count live only in the image, so the client re-attaches it on the
+  // follow-up and we steer the model to re-read it and optimize WITHIN those exact
+  // games rather than running the verdict-only critique or the diversify path.
+  const improveFromSlipImage = imageDataUrls.length > 0 && improveIntent;
+  const imageAnalysisAddendum = !imageDataUrls.length
+    ? ""
+    : improveFromSlipImage
+      ? `\n\nIMPROVE THIS SLIP FROM THE PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo of their bet slip" : `${imageDataUrls.length} photos of their bet slip`} and wants a BETTER version of THAT SAME slip. First READ the slip and note to yourself the EXACT games on it and the EXACT number of legs. Then build an improved ticket under these HARD constraints: (1) KEEP THE SAME GAMES — every leg must be on a game that appears on the uploaded slip; do NOT add a game that isn't on the slip and do NOT drop games. (2) KEEP THE SAME NUMBER OF LEGS / props as the slip, UNLESS the user explicitly asked for a different count this turn. (3) IMPROVE THE PICKS within those games: swap weak, over-juiced, or over-correlated legs for stronger, less-correlated markets ON THE SAME GAMES (e.g. replace a duplicate second leg on one player with a different player or a different stat family in that same game, or move off a bad number to a better real line), while still obeying every HARD BAN (at most one leg per family×period×game, no anti-correlated or directionally-contradictory legs, no duplicate same-player exposure). (4) Every leg MUST be a REAL entry from realOdds / realProps — never invent a game, market, or price; if a game legible on the slip has no posted odds in the pool, keep the closest real market for it and note that one honestly. Open with ONE short line naming what you upgraded vs the uploaded slip, then the PICK lines. If a key detail on the slip is cut off or blurry, say so in a few words rather than guessing.`
+      : `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`;
+
+  const improveDiversifyLine = improveFromSlipImage
+    ? `- KEEP THE SAME GAMES AND THE SAME LEG COUNT as the uploaded slip (read them from the attached photo): do NOT swap in new games and do NOT change the number of legs — improve the picks WITHIN those exact games only.`
+    : sameGameIntent
     ? `- KEEP IT SAME-GAME (the user wants a same-game ticket): improve WITHIN that one game — cut the correlated / duplicate legs and replace them with genuinely independent markets and period windows from the SAME game; do NOT spread to other games.`
     : `- DIVERSIFY ACROSS GAMES: if the current slip stacks many legs from ONE game, spread the new legs across multiple DIFFERENT games to cut correlation — this is usually the single biggest improvement.`;
   const improveSystemAddendum = improveIntent
@@ -1610,37 +1651,6 @@ ENFORCEMENT:
 - Read the posted price on EACH candidate in realOdds / realProps and emit a PICK line ONLY if that exact price is <= ${oddsThreshold.signed}. For a two-sided market you MAY take whichever side carries a qualifying price, but NEVER invent, round, or shade a price to make it fit; if neither posted side qualifies, skip that market.
 - Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.${oddsFamilyClause}${oddsChalkOverride}
 - If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`) + oddsProseHonesty;
-
-  // Optional user-attached photo (bet slip / sportsbook screen / scoreboard).
-  // gpt-5.4 supports image inputs, so we attach it to the LATEST user turn as a
-  // vision content block and steer the model to READ it (never fabricate numbers
-  // that aren't legible in the image).
-  // Collect candidate images from the multi-image field (preferred) plus the
-  // legacy single-image field, then validate each: must be a well-formed base64
-  // image data URL within a sane size cap. Anything else (remote http(s) URLs,
-  // oversized blobs, junk) is dropped so we never forward an untrusted/arbitrary
-  // URL into the model's vision input. Cap at 3 so a flood of images can't blow
-  // the context / cost.
-  const MAX_IMAGES = 3;
-  const rawImageCandidates: unknown[] = [
-    ...(Array.isArray(parsed.data.imageDataUrls) ? parsed.data.imageDataUrls : []),
-    parsed.data.imageDataUrl,
-  ];
-  const imageDataUrls: string[] = [];
-  for (const candidate of rawImageCandidates) {
-    if (imageDataUrls.length >= MAX_IMAGES) break;
-    if (
-      typeof candidate === "string" &&
-      /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(candidate) &&
-      candidate.length <= 7_000_000 &&
-      !imageDataUrls.includes(candidate)
-    ) {
-      imageDataUrls.push(candidate);
-    }
-  }
-  const imageAnalysisAddendum = imageDataUrls.length
-    ? `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`
-    : "";
 
   // The image attaches to the most recent user message only.
   let lastUserIdx = -1;

@@ -240,6 +240,21 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 const PARLAY_BUILD_RE =
   /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
 
+// "Improve THIS slip" intent (mirror of the server's improveWording in chat.ts).
+// When the user uploaded a bet-slip photo and then asks for "a better one", they
+// want a BETTER version of THAT SAME slip — same games, same leg count. The slip
+// lives only in the image, so on this follow-up (which carries no fresh image) we
+// silently re-attach the last uploaded slip photo so the model can re-read it.
+// Excludes comparison interrogatives ("which is better?") which are a different
+// flow. Typo-tolerant ("batter one" = "better one"), same as the server.
+const IMPROVE_SLIP_RE =
+  /\b(?:bett?er|batter)\s+(?:one|ticket|slip|version|card|option|parlay)\b|\bmake (?:it|this|that|the (?:ticket|slip|parlay|card|bet)) (?:better|stronger|cleaner|safer|tighter|less correlated)\b|\bimprove\b[^\n]{0,18}\b(?:this|that|it|ticket|slip|parlay|card|legs?)\b|\b(?:fix|tighten|trim|diversif\w*|de-?correlate|clean up)\b[^\n]{0,18}\b(?:this|that|it|ticket|slip|parlay|card|legs?)\b/i;
+const IMPROVE_COMPARISON_RE =
+  /\b(?:which|what(?:'s| is| are)?|compare|versus|\bvs\.?\b|rank)\b[^\n]{0,40}\bbett?er\b/i;
+function wantsImproveSlip(text: string): boolean {
+  return IMPROVE_SLIP_RE.test(text) && !IMPROVE_COMPARISON_RE.test(text);
+}
+
 // Pull a requested leg count out of the user's ask ("build me a 50 leg",
 // "6-leg parlay") so we can be honest when we deliver fewer — capped at the
 // 25-leg slip max, or short because the real board was too thin to ground that
@@ -500,6 +515,11 @@ export default function CoachScreen() {
   // the vision model.
   const [attachedImages, setAttachedImages] = useState<{ uri: string; dataUrl: string }[]>([]);
   const [pickingImage, setPickingImage] = useState(false);
+  // The most recently SENT slip photo(s), kept so a follow-up "give me a better
+  // one" (which carries no fresh image) can silently re-attach them — the model
+  // needs to re-read the slip to keep the SAME games / SAME leg count. Cleared
+  // only when a new image is sent (it becomes the new remembered slip).
+  const lastSlipImagesRef = useRef<string[]>([]);
 
   // Long-press a message bubble to copy its full text. The bubble text is also
   // `selectable` for partial copy via the OS menu, so this is a quick "copy all".
@@ -613,6 +633,21 @@ export default function CoachScreen() {
       setInput("");
       setAttachedImages([]);
 
+      // Resolve the image(s) actually SENT to the vision model. A FRESH
+      // attachment is sent as-is and remembered as the current slip. With NO
+      // fresh image, an "improve this slip" follow-up ("give me a better one")
+      // silently RE-ATTACHES the last uploaded slip so the model can re-read it
+      // and keep the SAME games / SAME leg count — these are sent for context but
+      // NOT shown again in the chat bubble (the user didn't re-attach anything).
+      let outgoingImageDataUrls: string[] | undefined;
+      if (images.length) {
+        outgoingImageDataUrls = images.map((im) => im.dataUrl);
+        lastSlipImagesRef.current = outgoingImageDataUrls;
+      } else if (wantsImproveSlip(trimmed) && lastSlipImagesRef.current.length) {
+        outgoingImageDataUrls = lastSlipImagesRef.current;
+      }
+      const hasOutgoingImages = !!outgoingImageDataUrls?.length;
+
       const history: UIMessage[] = [
         ...messages,
         { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined },
@@ -632,7 +667,7 @@ export default function CoachScreen() {
       try {
         // A photo attachment goes straight to the vision model — the text-only
         // stat-card lookup can't read an image, so skip it when one is attached.
-        const card = images.length ? null : await tryStatCard(trimmed, controller.signal);
+        const card = hasOutgoingImages ? null : await tryStatCard(trimmed, controller.signal);
         if (card) {
           setMessages((prev) => {
             const copy = [...prev];
@@ -783,7 +818,7 @@ export default function CoachScreen() {
         const full = await streamChat({
           messages: apiMessages,
           context,
-          imageDataUrls: images.length ? images.map((im) => im.dataUrl) : undefined,
+          imageDataUrls: outgoingImageDataUrls,
           signal: controller.signal,
           onToken: (sofar) => {
             if (first) {
