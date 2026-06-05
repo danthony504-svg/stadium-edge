@@ -54,3 +54,25 @@ think … wednesday") contaminates StatMuse's headline player-resolution; feedin
 resolved name + canonical phrasing reliably returns the per-game grid.
 **Scope:** only sports StatMuse has period box scores for (NBA quarters/halves, NHL periods).
 MLB innings aren't mapped by the client period normalizer → skips → full-game fallback. Fine.
+
+## Meta/capability questions wrongly fired a stat card (the "Severino" leak)
+A conversational question addressed to the assistant — "Have you ever predicted
+a home run?" — rendered Luis Severino's pitcher card. Three compounding causes:
+1. `hasCue` fires on the stat noun ("home run"), so the message enters the
+   name-extraction path even though it names no player.
+2. Extraction left a residual: `\bpredict\b` does NOT match "predicted", and
+   "ever" was never stripped → name became "ever predicted".
+3. Span-search containment used substring `.includes()`, so "ever" matched
+   inside "s**ever**ino" and bound to Luis Severino.
+**Fix (web ParlayBuilder + mobile statLookup/coach — keep in parity):**
+- Strip a leading assistant-addressed opener `^\s*(can|could|would|do|does|did|
+  have|has|had|will|are|is|was|should|shall)\s+you\b` so the whole "<aux> you …?"
+  family reduces toward empty → `parseStatLookup` returns null → AI answers
+  conversationally. ("Will you" is safe — real names are "Will <surname>".)
+- Add `ever|never|predicted|guessed|expected` to the projection/opinion strip.
+- Span-search containment must require a WHOLE-WORD token match (candidate tokens
+  ⊆ resolved-name tokens), NOT substring. Keeps the real rescue ("wembanyama" ⊂
+  ["victor","wembanyama"]) while killing short-fragment fuzzy binds.
+**Note:** the FIRST search (full extracted name) still trusts ESPN's top hit with
+no containment guard — fine because the name is clean by then; the guard only
+matters for the fuzzy single-token span fallback.

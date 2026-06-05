@@ -148,6 +148,12 @@ export function parseStatLookup(raw: string): StatLookup | null {
   let name = t;
   const nameTrunc = name.replace(/\b(?:vs\.?|versus|against|@)\s+.*$/i, " ");
   if (/[a-z]/i.test(nameTrunc)) name = nameTrunc;
+  // Strip a leading assistant-addressed opener ("Can you ...", "Have you ...",
+  // "Do you ...", "Will you ..."). The "<aux> you" head can never be a player
+  // name, so removing it stops meta/capability questions ("Have you ever
+  // predicted a home run?") from leaving a stray token that fuzzy-binds to a
+  // real athlete. "Will you" is safe to strip — real names are "Will <surname>".
+  name = name.replace(/^\s*(can|could|would|do|does|did|have|has|had|will|are|is|was|should|shall)\s+you\b/i, " ");
   name = name.replace(/\b20\d{2}\b/g, " ");
   name = name.replace(
     /^(show me|show|pull up|pull|get me|get|look up|lookup|what (?:are|is|were|was)|what'?s|how many|how (?:did|has|have|is|are)|how'?s|give me|tell me|find|check|see|display)\s+/i,
@@ -165,7 +171,7 @@ export function parseStatLookup(raw: string): StatLookup | null {
   );
   name = name.replace(/\b(for|of|about|on|the|in|a|an|me|my|with|vs|versus|against|did|do|many|and|or)\b/gi, " ");
   name = name.replace(
-    /\b(you|we|they|he|she|it|think|thinks|thought|believe|believes|guess|reckon|expect|expects|predict|predicts|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,
+    /\b(you|we|they|he|she|it|ever|never|think|thinks|thought|believe|believes|guess|guessed|reckon|expect|expects|expected|predict|predicts|predicted|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,
     " ",
   );
   name = name.replace(/\b\d+\b/g, " ");

@@ -2680,6 +2680,12 @@ function parseStatLookup(raw) {
   // have") where the name follows the marker and a blind cut would empty it.
   const nameTrunc = name.replace(/\b(?:vs\.?|versus|against|@)\s+.*$/i, " ");
   if (/[a-z]/i.test(nameTrunc)) name = nameTrunc;
+  // Strip a leading assistant-addressed opener ("Can you ...", "Have you ...",
+  // "Do you ...", "Will you ..."). The "<aux> you" head can never be a player
+  // name, so removing it stops meta/capability questions ("Have you ever
+  // predicted a home run?") from leaving a stray token that fuzzy-binds to a
+  // real athlete. "Will you" is safe to strip — real names are "Will <surname>".
+  name = name.replace(/^\s*(can|could|would|do|does|did|have|has|had|will|are|is|was|should|shall)\s+you\b/i, " ");
   name = name.replace(/\b20\d{2}\b/g, " ");
   // Strip leading question/verb phrasing.
   name = name.replace(
@@ -2704,7 +2710,7 @@ function parseStatLookup(raw) {
   // NOT strip "will"/"cam"/"may" here — those are real player names (Will Smith,
   // Cam Thomas), and ESPN's search is relevance-ranked, so a trailing auxiliary
   // like "will" doesn't prevent matching the dominant name token.
-  name = name.replace(/\b(you|we|they|he|she|it|think|thinks|thought|believe|believes|guess|reckon|expect|expects|predict|predicts|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, " ");
+  name = name.replace(/\b(you|we|they|he|she|it|ever|never|think|thinks|thought|believe|believes|guess|guessed|reckon|expect|expects|expected|predict|predicts|predicted|projecte?d?|suppose|feel|feels|say|says|gonna|going|would|should|could|shall|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi, " ");
   // Drop bare numbers (e.g. "score 20 points") — never part of a name.
   name = name.replace(/\b\d+\b/g, " ");
   // Drop the captured opponent's tokens so they don't pollute the player-name
@@ -6531,7 +6537,13 @@ export default function ParlayBuilder() {
                 // "Victor Wembanyama". Without this, a stray common token could
                 // silently bind to the wrong athlete.
                 const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                if (hit && hit.name && norm(hit.name).includes(norm(cand))) {
+                // The candidate must match a WHOLE WORD in the resolved name —
+                // not merely be a substring. A substring check let "ever" bind
+                // to "sEVERino", so "Have you ever predicted a home run?"
+                // answered with Luis Severino's card.
+                const nameToks = norm(hit?.name || "").split(/\s+/).filter(Boolean);
+                const candWhole = norm(cand).split(/\s+/).filter(Boolean).every((c) => nameToks.includes(c));
+                if (hit && hit.name && candWhole) {
                   top = hit;
                   lookup.name = top.name;
                   break spanSearch;

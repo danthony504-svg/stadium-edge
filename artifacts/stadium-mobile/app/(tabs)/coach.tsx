@@ -99,10 +99,16 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
           const fr = await searchPlayer(cand, signal);
           const hit = (fr.results || [])[0];
           // Guard against ESPN's fuzzy single-token search returning an
-          // unrelated player: the candidate must actually appear in the
-          // resolved name (accent-insensitive), e.g. "wembanyama" ⊂
-          // "Victor Wembanyama".
-          if (hit && hit.name && norm(hit.name).includes(norm(cand))) {
+          // unrelated player: the candidate must match a WHOLE WORD in the
+          // resolved name (accent-insensitive) — not merely be a substring. A
+          // substring check let "ever" bind to
+          // "sEVERino", so "Have you ever predicted a home run?" answered with
+          // Luis Severino's card. Whole-word matching keeps the real rescue
+          // cases ("wembanyama" ⊂ ["victor","wembanyama"]) and kills the leak.
+          const nameToks = norm(hit?.name || "").split(/\s+/).filter(Boolean);
+          const candWhole =
+            norm(cand).split(/\s+/).filter(Boolean).every((c) => nameToks.includes(c));
+          if (hit && hit.name && candWhole) {
             top = hit;
             lookup.name = hit.name;
             break spanSearch;
