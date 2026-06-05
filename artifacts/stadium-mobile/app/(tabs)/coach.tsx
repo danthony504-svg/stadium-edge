@@ -22,7 +22,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
-import { PickCard, parsePicks, type ParsedPick } from "@/components/PickCard";
+import {
+  PickCard,
+  parsePicks,
+  type ParsedPick,
+  type AltRungBias,
+} from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
@@ -749,17 +754,19 @@ export default function CoachScreen() {
           },
         });
 
-        // Bare "alt picks" ask: mobile sends no per-player game-log data, so the
-        // model can't justify stepping a prop up to its plus-money rung and defaults
-        // to the shorter cushion. Flag the request so parsePicks upgrades a resolved
-        // cushion prop to the least-aggressive REAL plus-money rung on the same
-        // player+market+side. Excludes "safe"/"lock" asks and odds-bound asks, which
-        // carry their own rung rules.
-        const bareAltIntent =
-          /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed) &&
-          !/(?:safe|safer|lock)/i.test(trimmed) &&
-          !oddsThreshold;
-        let picks = parsePicks(full, context.realOdds, propPool, gameMeta, bareAltIntent);
+        // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
+        // the model can't reason about which alt rung to take. Snap resolved props
+        // to the rung the user wants. DEFAULT for a bare alt is "cushion" — safe
+        // deep-juice rungs in the -200..-500 band (what the user asked for). An
+        // explicit value/plus-money/longshot ask flips to "value" (plus-money
+        // upside). Odds-bound asks ("-300 or less") keep their own filter.
+        const altMentioned =
+          /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed);
+        const wantsValueRungs =
+          /\b(?:value|plus[\s-]?money|long\s?shots?|longshots?|underdogs?|upside)\b/i.test(trimmed);
+        const altRungBias: AltRungBias =
+          altMentioned && !oddsThreshold ? (wantsValueRungs ? "value" : "cushion") : null;
+        let picks = parsePicks(full, context.realOdds, propPool, gameMeta, altRungBias);
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so

@@ -389,12 +389,19 @@ function sideOf(sel: string): "Over" | "Under" | null {
 // "Anytime TD" skip the line/side checks). The display label is rebuilt from
 // the real entry in full words so the card never shows the AI's "o5.5"
 // shorthand, and the odds come from the real entry, never the AI text.
+// Which rung an explicit "alt" request should resolve to. "cushion" = safe
+// deep-juice rungs (-200..-500); "value" = least-aggressive plus-money rung.
+export type AltRungBias = "value" | "cushion" | null;
+// Deepest (safest) cushion we'll snap an alt prop to — keeps legs in the
+// -200..-500 band the user asks for without burying them in no-payout juice.
+const CUSHION_FLOOR = -550;
+
 function matchProp(
   game: string,
   market: string,
   selection: string,
   propPool: PropPoolEntry[],
-  preferPlusMoney = false,
+  altRungBias: AltRungBias = null,
 ): ParsedPick | null {
   const side = sideOf(selection);
   const selTokens = new Set(norm(selection).split(" ").filter(Boolean));
@@ -427,19 +434,43 @@ function matchProp(
   // closest-to-even upside upgrade, never the deep longshot. Real posted rung +
   // real odds from the pool, never invented; bounded by picking the smallest
   // positive price. yes/no markets (best.line == null) are left untouched.
-  if (preferPlusMoney && best.line != null && best.odds < 100) {
-    // Match the FULL resolved player name (not just surname) so a same-surname
-    // teammate in the same game+market+side can't be swapped in by mistake.
+  // ALT RUNG BIAS (deterministic, mobile only). Mobile sends no per-player
+  // game-log data, so the model can't reason about which alt rung to pick and
+  // lands on whatever it first emits. For an explicit "alt" ask we snap the
+  // resolved prop to the rung the user wants — chosen from REAL posted rungs on
+  // the SAME game + EXACT player (full name, so a same-surname teammate can't be
+  // swapped in) + market + side, with their REAL odds (never invented):
+  //   "cushion" (default for a bare alt): the SAFEST deep-juice rung — the
+  //     most-negative price still no worse than CUSHION_FLOOR (-550), so legs land
+  //     in the -200..-500 band. Each player's ladder differs, so this naturally
+  //     spreads the legs across that band.
+  //   "value": the LEAST-aggressive plus-money rung (smallest odds >= +100) — the
+  //     closest-to-even upside, never a deep longshot. Only when the resolved rung
+  //     is itself a cushion (odds < +100).
+  // yes/no markets (line == null) are left untouched.
+  if (altRungBias && best.line != null) {
     const bestName = norm(best.player);
     const bestMkt = norm(best.marketLabel);
+    const bestSide = best.side;
+    const bestGame = best.game;
+    const bestOdds = best.odds;
+    const eligible = (e: PropPoolEntry) =>
+      e.line != null &&
+      e.side === bestSide &&
+      sameGame(e.game, bestGame) &&
+      norm(e.player) === bestName &&
+      norm(e.marketLabel) === bestMkt;
     let up: PropPoolEntry | null = null;
-    for (const e of propPool) {
-      if (e.line == null || e.odds < 100) continue; // plus-money rungs only
-      if (e.side !== best.side) continue; // same Over/Under direction
-      if (!sameGame(e.game, best.game)) continue;
-      if (norm(e.player) !== bestName) continue; // exact same player
-      if (norm(e.marketLabel) !== bestMkt) continue;
-      if (!up || e.odds < up.odds) up = e; // least-aggressive (closest to even)
+    if (altRungBias === "value" && bestOdds < 100) {
+      for (const e of propPool) {
+        if (!eligible(e) || e.odds < 100) continue; // plus-money rungs only
+        if (!up || e.odds < up.odds) up = e; // least-aggressive (closest to even)
+      }
+    } else if (altRungBias === "cushion") {
+      for (const e of propPool) {
+        if (!eligible(e) || e.odds >= 0 || e.odds < CUSHION_FLOOR) continue; // safe rungs within floor
+        if (!up || e.odds < up.odds) up = e; // deepest (safest) within floor
+      }
     }
     if (up) best = up;
   }
@@ -507,7 +538,7 @@ export function parsePicks(
   realOdds: ParsedPick[] | RealOddsLike[],
   propPool: PropPoolEntry[] = [],
   gameMeta: GameMeta[] = [],
-  preferPlusMoney = false,
+  altRungBias: AltRungBias = null,
 ): ParsedPick[] {
   const pool = (realOdds as RealOddsLike[]) || [];
   if (pool.length === 0 && propPool.length === 0) return []; // fail-closed: no real data -> no cards
@@ -553,7 +584,7 @@ export function parsePicks(
 
     if (isPropSelection) {
       // Player-prop pool only (fail-closed: drop if not a real posted prop).
-      resolved = matchProp(game, market, selection, propPool, preferPlusMoney);
+      resolved = matchProp(game, market, selection, propPool, altRungBias);
     } else {
       // Game-level pool: same game + same market family + matching selection.
       const fam = marketFamily(market);
