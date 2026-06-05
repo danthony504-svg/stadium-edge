@@ -33,6 +33,12 @@
       "expo-font",
       "expo-web-browser",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Stadium Edge to access your photos so you can upload a bet slip for the AI Coach to analyze."
+        }
+      ],
+      [
         "expo-media-library",
         {
           "photosPermission": "Allow Stadium Edge to save your bet slip to Photos.",
