@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -344,10 +345,83 @@ function serializeStatCardForAI(card: StatCardResult): string {
   return "";
 }
 
+// A one-tap "Add all" control above a parlay's pick cards. Picks are already
+// resolved to REAL odds entries by parsePicks, so this never fabricates a leg —
+// it just funnels each card's pick through the same addLeg() the per-leg button
+// uses. addLeg() only fails on a duplicate (no max-leg cap), so the in-slip
+// count is purely reactive: once every leg is in the slip the button flips to a
+// confirmed state, and a partial mix shows how many remain.
+function AddAllButton({
+  picks,
+  addLeg,
+  hasLeg,
+}: {
+  picks: ParsedPick[];
+  addLeg: (leg: ParsedPick) => boolean;
+  hasLeg: (game: string, market: string, pick: string) => boolean;
+}) {
+  const colors = useColors();
+  const inSlip = picks.filter((p) => hasLeg(p.game, p.market, p.pick)).length;
+  const remaining = picks.length - inSlip;
+  const allIn = remaining === 0;
+
+  const onAddAll = () => {
+    if (allIn) return;
+    let added = 0;
+    for (const p of picks) {
+      if (hasLeg(p.game, p.market, p.pick)) continue;
+      if (addLeg(p)) added++;
+    }
+    Haptics.impactAsync(
+      added > 0 ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+    );
+  };
+
+  const label = allIn
+    ? `All ${picks.length} legs in slip`
+    : inSlip > 0
+      ? `Add ${remaining} more to slip`
+      : `Add all ${picks.length} to slip`;
+
+  return (
+    <Pressable
+      onPress={onAddAll}
+      disabled={allIn}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 7,
+        paddingVertical: 11,
+        borderRadius: 10,
+        backgroundColor: allIn ? colors.card : colors.accent,
+        borderWidth: allIn ? 1 : 0,
+        borderColor: colors.border,
+        opacity: pressed ? 0.9 : 1,
+      })}
+    >
+      <Feather
+        name={allIn ? "check" : "plus-circle"}
+        size={15}
+        color={allIn ? colors.accent : colors.background}
+      />
+      <Text
+        style={{
+          color: allIn ? colors.foreground : colors.background,
+          fontFamily: FONT.bold,
+          fontSize: 13,
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { legs, setAiPicks } = useBetSlip();
+  const { legs, setAiPicks, addLeg, hasLeg } = useBetSlip();
   const slipClearance = useCoachSlipClearance();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
@@ -840,6 +914,9 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
+                    {m.picks!.length > 1 ? (
+                      <AddAllButton picks={m.picks!} addLeg={addLeg} hasLeg={hasLeg} />
+                    ) : null}
                     {m.picks!.map((p, j) => (
                       <PickCard key={`${i}-${j}`} pick={p} />
                     ))}
