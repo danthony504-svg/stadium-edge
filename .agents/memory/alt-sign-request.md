@@ -26,6 +26,10 @@ threshold already implies the sign and takes precedence):
    or game) left on the wrong sign — this is the only thing that makes the "EVERY
    leg" promise true. Surface a transparency note when it drops legs / leaves zero.
 
-**Detection gotcha:** the "-" in `- alt` must be start/space-anchored
-(`/(?:(?:^|\s)-|\bminus\b)\s*alt/i`) so `9-leg alt` does NOT read as a minus ask;
-plus is `/(?:\+|\bplus\b)\s*alt/i`.
+**Detection gotcha (the real one):** users type the sign at the FRONT of the
+message — "- 9 leg alt" / "+9 leg alt" — NOT next to "alt". So a sign-adjacent-only
+regex misses it and the slip silently keeps mixed signs. Detect a LEADING sign
+(`/^\s*-(?=\s|\d)/`, `/^\s*\+(?=\s|\d)/`) OR a sign next to "alt" OR the words
+plus/minus, all gated on `altMentioned`. The leading "-" needs a space/digit after
+it and the alt-adjacent "-" must be start/space-anchored, so a compound hyphen like
+`9-leg alt` never reads as minus (and `- 9 leg parlay` with no "alt" → no sign).

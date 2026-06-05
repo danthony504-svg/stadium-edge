@@ -724,14 +724,30 @@ export default function CoachScreen() {
         const includePeriods = wantsPeriodMarkets(trimmed);
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
-        // forces minus-money rungs (safer cushion). A "-" only counts when it sits
-        // right before "alt" (start- or space-anchored) so "9-leg alt" doesn't read
-        // as a minus ask. An odds-threshold ask already implies the sign, so we
-        // skip this when one is present. Drives BOTH game-level alt rung selection
-        // (via altSign -> buildChatContext) and the prop rung swap (via altRungBias).
-        const wantsPlusAlt = !oddsThreshold && /(?:\+|\bplus\b)\s*alt/i.test(trimmed);
+        // forces minus-money rungs (safer cushion). The sign is recognised three
+        // ways: (a) a LEADING sign on the whole message ("- 9 leg alt", "+9 leg
+        // alt") — how users actually type it; (b) a sign right next to "alt" ("9 leg
+        // +alt", "9 leg - alt"); (c) the words plus/minus. A leading sign must be
+        // followed by a space or digit, and a "-" next to "alt" must be start- or
+        // space-anchored, so a compound hyphen like "9-leg alt" never reads as a
+        // minus ask. Only applies to an actual alt ask (altMentioned) and never
+        // under an odds-threshold ask (that already implies the sign). Drives BOTH
+        // game-level alt rung selection (altSign -> buildChatContext) and the prop
+        // rung swap (altRungBias below).
+        const altMentioned =
+          /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed);
+        const plusCue =
+          /^\s*\+(?=\s|\d)/.test(trimmed) ||
+          /(?:\+|\bplus\b)\s*alt/i.test(trimmed) ||
+          /\bplus\b/i.test(trimmed);
+        const minusCue =
+          /^\s*-(?=\s|\d)/.test(trimmed) ||
+          /(?:(?:^|\s)-|\bminus\b)\s*alt/i.test(trimmed) ||
+          /\bminus\b/i.test(trimmed);
+        const wantsPlusAlt =
+          !oddsThreshold && altMentioned && plusCue && !minusCue;
         const wantsMinusAlt =
-          !oddsThreshold && /(?:(?:^|\s)-|\bminus\b)\s*alt/i.test(trimmed);
+          !oddsThreshold && altMentioned && minusCue && !plusCue;
         const altSign: AltSign = wantsPlusAlt ? "plus" : wantsMinusAlt ? "minus" : null;
         const { context, propPool, gameMeta } = await buildChatContext(
           DEFAULT_SPORTS,
@@ -773,8 +789,7 @@ export default function CoachScreen() {
         // deep-juice rungs in the -200..-500 band (what the user asked for). An
         // explicit value/plus-money/longshot ask flips to "value" (plus-money
         // upside). Odds-bound asks ("-300 or less") keep their own filter.
-        const altMentioned =
-          /\balt(?:s|ernate|ernates|ernative|ernatives)?\b/i.test(trimmed);
+        // (altMentioned is computed above alongside the +/- sign detection.)
         const wantsValueRungs =
           /\b(?:value|plus[\s-]?money|long\s?shots?|longshots?|underdogs?|upside)\b/i.test(trimmed);
         // Map the explicit "+ alt" / "- alt" sign onto the prop rung swap so props
