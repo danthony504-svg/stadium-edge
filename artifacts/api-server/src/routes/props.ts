@@ -18,6 +18,12 @@ export const MARKETS_BY_SPORT: Record<string, string[]> = {
   ncaaf: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_anytime_td"],
   mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts", "batter_stolen_bases"],
   nhl: ["player_points", "player_goals", "player_assists", "player_shots_on_goal"],
+  // Soccer: only the FIFA World Cup currently carries player props on our feed
+  // (anytime goalscorer is a YES/NO market like anytime TD; shots / shots on
+  // target are over/under). Club leagues post no player props in any region, so
+  // those events simply return [] honestly. Soccer is MULTI-KEY, so the handler
+  // resolves the event's real league before fetching (see below).
+  soccer: ["player_goal_scorer_anytime", "player_shots_on_target", "player_shots"],
 };
 
 // Quarter / half player markets — fetched as a SEPARATE Odds API call so a
@@ -145,10 +151,6 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Unsupported sport: ${sport}` });
     return;
   }
-  // Player props are only configured for single-key sports; the multi-key
-  // sports (soccer/tennis) have no MARKETS_BY_SPORT entry and return [] below,
-  // so collapsing to the first key here is safe (it's never used for them).
-  const oddsKey = Array.isArray(oddsKeyRaw) ? oddsKeyRaw[0] : oddsKeyRaw;
   const markets = MARKETS_BY_SPORT[sport];
   if (!markets) {
     res.json({ home: null, away: null, props: [] });
@@ -162,58 +164,117 @@ router.get("/sports/props", async (req, res): Promise<void> => {
 
   try {
     // The Odds API per-event props endpoint only accepts an Odds API event id
-    // (32-char hex). When the client's eventId came from a fallback odds source
-    // it's an ESPN/Bovada id (numeric / different shape) and would 404. If we
-    // have the team names, resolve the REAL Odds API id from the free events
-    // endpoint (0 quota credits) by matching nicknames. The events list shares a
-    // 5-min cache so repeat lookups don't re-hit upstream.
+    // (32-char hex) under the event's OWN league key. Two things can be off:
+    //   1. the eventId came from an ESPN/Bovada fallback source (wrong shape), or
+    //   2. the sport is MULTI-KEY (soccer) and we don't yet know the league.
+    // Both are resolved below from the free per-league events endpoint (0 quota),
+    // which is cached 5 min so repeat lookups don't re-hit upstream.
     const looksLikeOddsApiId = /^[a-f0-9]{32}$/i.test(eventId);
     let effectiveEventId = eventId;
-    if (!looksLikeOddsApiId && homeName && awayName) {
-      try {
-        const events = await cachedJson<Array<{ id: string; home_team: string; away_team: string }>>(
-          `odds-events:${oddsKey}`,
-          5 * 60 * 1000,
-          async () => {
-            const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events?apiKey=${apiKey}&dateFormat=iso`;
-            const r = await fetch(url);
-            if (!r.ok) throw new Error(`events ${r.status}`);
-            return (await r.json()) as Array<{ id: string; home_team: string; away_team: string }>;
-          },
-        );
-        // Prefer a FULL-name match (normalized alnum). Fall back to nickname
-        // (last alpha word) ONLY when it uniquely identifies one event. Both
-        // comparisons are orientation-agnostic (ESPN/Bovada home/away can be
-        // flipped vs the Odds API). Critically we FAIL CLOSED: if the nickname
-        // is ambiguous (collision sports — NCAAB/NCAAF "Tigers", "Wildcats")
-        // we resolve NOTHING rather than risk returning a DIFFERENT game's
-        // props, which would be fabrication. Empty props is the honest outcome.
-        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-        const nick = (s: string) => (s.toLowerCase().match(/[a-z]+/g) || []).pop() || "";
-        const wantHomeFull = norm(homeName);
-        const wantAwayFull = norm(awayName);
-        const fullMatches = events.filter((e) => {
-          const eh = norm(e.home_team);
-          const ea = norm(e.away_team);
-          return (eh === wantHomeFull && ea === wantAwayFull) || (eh === wantAwayFull && ea === wantHomeFull);
+
+    // Shared helpers for resolving an Odds API event from a league's free,
+    // 5-min-cached events list (0 quota credits).
+    const fetchEvents = (key: string) =>
+      cachedJson<Array<{ id: string; home_team: string; away_team: string }>>(
+        `odds-events:${key}`,
+        5 * 60 * 1000,
+        async () => {
+          const url = `https://api.the-odds-api.com/v4/sports/${key}/events?apiKey=${apiKey}&dateFormat=iso`;
+          const r = await fetch(url);
+          if (!r.ok) throw new Error(`events ${r.status}`);
+          return (await r.json()) as Array<{ id: string; home_team: string; away_team: string }>;
+        },
+      );
+    // Prefer an EXACT Odds API id match (when the client already has a real one).
+    // Otherwise prefer a FULL-name match (normalized alnum), then nickname (last
+    // alpha word) ONLY when it uniquely identifies one event. Name comparisons
+    // are orientation-agnostic (ESPN/Bovada home/away can be flipped vs the Odds
+    // API). We FAIL CLOSED: an ambiguous nickname (collision sports — NCAAB/NCAAF
+    // "Tigers", "Wildcats") resolves NOTHING rather than risk a DIFFERENT game's
+    // props (fabrication). Empty props is the honest outcome.
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const nick = (s: string) => (s.toLowerCase().match(/[a-z]+/g) || []).pop() || "";
+    const matchEvent = (
+      events: Array<{ id: string; home_team: string; away_team: string }>,
+    ): { id: string } | undefined => {
+      if (looksLikeOddsApiId) {
+        const byId = events.find((e) => e.id === eventId);
+        if (byId) return byId;
+      }
+      if (!homeName || !awayName) return undefined;
+      const wantHomeFull = norm(homeName);
+      const wantAwayFull = norm(awayName);
+      const fullMatches = events.filter((e) => {
+        const eh = norm(e.home_team);
+        const ea = norm(e.away_team);
+        return (eh === wantHomeFull && ea === wantAwayFull) || (eh === wantAwayFull && ea === wantHomeFull);
+      });
+      if (fullMatches.length === 1) return fullMatches[0];
+      if (fullMatches.length === 0) {
+        const wantHomeNick = nick(homeName);
+        const wantAwayNick = nick(awayName);
+        const nickMatches = events.filter((e) => {
+          const eh = nick(e.home_team);
+          const ea = nick(e.away_team);
+          return (eh === wantHomeNick && ea === wantAwayNick) || (eh === wantAwayNick && ea === wantHomeNick);
         });
-        let chosen: { id: string } | undefined;
-        if (fullMatches.length === 1) {
-          chosen = fullMatches[0];
-        } else if (fullMatches.length === 0) {
-          const wantHomeNick = nick(homeName);
-          const wantAwayNick = nick(awayName);
-          const nickMatches = events.filter((e) => {
-            const eh = nick(e.home_team);
-            const ea = nick(e.away_team);
-            return (eh === wantHomeNick && ea === wantAwayNick) || (eh === wantAwayNick && ea === wantHomeNick);
-          });
-          if (nickMatches.length === 1) chosen = nickMatches[0];
+        if (nickMatches.length === 1) return nickMatches[0];
+      }
+      return undefined;
+    };
+
+    let oddsKey: string;
+    if (Array.isArray(oddsKeyRaw)) {
+      // MULTI-KEY sport (soccer): the event lives in exactly ONE league, but the
+      // client only says sport=soccer. The per-event props endpoint 404s under
+      // the wrong league key, so locate the league whose events list claims this
+      // event — by exact Odds API id when we have one, else by team name. FAIL
+      // CLOSED to empty props if no league claims it (better than a wrong-game
+      // 404). Lists are fetched in parallel; the array order decides ties.
+      const lists = await Promise.all(
+        oddsKeyRaw.map(async (key) => {
+          try {
+            return { key, events: await fetchEvents(key) };
+          } catch {
+            return { key, events: [] as Array<{ id: string; home_team: string; away_team: string }> };
+          }
+        }),
+      );
+      let resolvedKey: string | undefined;
+      for (const { key, events } of lists) {
+        const m = matchEvent(events);
+        if (m) {
+          resolvedKey = key;
+          effectiveEventId = m.id;
+          break;
         }
-        if (chosen?.id) effectiveEventId = chosen.id;
-        else req.log.warn({ sport, homeName, awayName }, "Odds API event-id resolution ambiguous/not-found; using client eventId (props may be empty)");
-      } catch (err) {
-        req.log.warn({ err, sport, homeName, awayName }, "Odds API event-id resolution failed; using client eventId");
+      }
+      if (!resolvedKey) {
+        req.log.warn(
+          { sport, eventId, homeName, awayName },
+          "multi-key league resolution failed; returning empty props",
+        );
+        res.json({ home: null, away: null, props: [] });
+        return;
+      }
+      oddsKey = resolvedKey;
+    } else {
+      // SINGLE-KEY sport: the per-event endpoint only accepts an Odds API id. If
+      // the client's eventId came from an ESPN/Bovada fallback source it's a
+      // different shape and would 404, so resolve the real id by name when we can.
+      oddsKey = oddsKeyRaw;
+      if (!looksLikeOddsApiId && homeName && awayName) {
+        try {
+          const m = matchEvent(await fetchEvents(oddsKey));
+          if (m?.id) effectiveEventId = m.id;
+          else
+            req.log.warn(
+              { sport, homeName, awayName },
+              "Odds API event-id resolution ambiguous/not-found; using client eventId (props may be empty)",
+            );
+        } catch (err) {
+          req.log.warn({ err, sport, homeName, awayName }, "Odds API event-id resolution failed; using client eventId");
+        }
       }
     }
 

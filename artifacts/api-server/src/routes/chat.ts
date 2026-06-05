@@ -435,8 +435,16 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"], label: "pitcher strikeouts" },
     { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"], label: "home runs" },
     { re: /\b(anytime td|anytime touchdown|touchdowns?)\b/i, markets: ["player_anytime_td"], label: "anytime TD" },
-    { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goals"], label: "goal scorer" },
+    // "goal scorer" / "anytime goal" spans soccer (World Cup) AND hockey, so
+    // lock BOTH goal markets — whichever sport's games are in the pool fills it.
+    { re: /\b(goal scorer|first goal|anytime goal)\b/i, markets: ["player_goal_scorer_anytime", "player_goals"], label: "goal scorer (anytime)" },
+    // Soccer shots-on-target MUST precede the NHL shots-on-goal entry's no-op
+    // overlap and the bare "shots" entry below.
+    { re: /\b(shots on target|sot\b)\b/i, markets: ["player_shots_on_target"], label: "shots on target" },
     { re: /\b(shots on goal|sog\b)\b/i, markets: ["player_shots_on_goal"], label: "shots on goal" },
+    // Bare "shots" → soccer total shots. MUST stay AFTER the two specific
+    // "shots on …" entries because \bshots\b also matches inside those phrases.
+    { re: /\bshots?\b/i, markets: ["player_shots"], label: "shots" },
     { re: /\b(passing yards?|pass yds?)\b/i, markets: ["player_pass_yds"], label: "passing yards" },
     { re: /\b(rushing yards?|rush yds?)\b/i, markets: ["player_rush_yds"], label: "rushing yards" },
     { re: /\b(receiving yards?|rec yds?)\b/i, markets: ["player_reception_yds"], label: "receiving yards" },

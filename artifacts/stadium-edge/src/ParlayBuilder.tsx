@@ -3150,6 +3150,9 @@ export default function ParlayBuilder() {
       player_reception_yds_h1: "1H Receiving Yards",
       player_goals: "Goals",
       player_shots_on_goal: "Shots on Goal",
+      player_goal_scorer_anytime: "Anytime Goal",
+      player_shots_on_target: "Shots on Target",
+      player_shots: "Shots",
       player_sacks: "Sacks",
       player_tackles: "Tackles",
       player_tackles_assists: "Tackles + Assists",
@@ -3190,7 +3193,7 @@ export default function ParlayBuilder() {
     const mk = String(marketTxt || "").toLowerCase();
     const isHR = /home.?run|batter_home_runs/.test(mk) || /\bhome runs?\b/i.test(t) || /\bHR\b/.test(t);
     const isTD = /anytime.?td|player_anytime_td|touchdown/.test(mk) || /\banytime td\b|\btouchdowns?\b/i.test(t);
-    const isGoal = /anytime.?goal|player_goals|^goals?$/.test(mk) || /\banytime goal\b/i.test(t);
+    const isGoal = /anytime.?goal|player_goal_scorer_anytime|player_goals|^goals?$/.test(mk) || /\banytime goal\b/i.test(t);
     // Replace "<anything> Over 0.5 <optional market word>" → "<player> <friendly>"
     const apply = (friendly) => {
       // Try with trailing market word first, then without.
@@ -3205,7 +3208,7 @@ export default function ParlayBuilder() {
     // display "Over 0.5 Hits" as "1+ Hits", "Over 1.5 Hits" as "2+ Hits".
     // Yardage stats are excluded because their half-point lines really
     // ARE decimal cutoffs (Over 245.5 ≠ "246+").
-    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|pts\+reb|pts\+ast|reb\+ast|receptions?|shots on goal|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?|sacks?|tackles?|tackles \+ assists?|solo tackles?|interceptions?|pass ints? thrown|pass completions?|pass attempts?|rush attempts?|field goals? made|kicking points?|blocks?|steals?|turnovers?|blocks \+ steals?)\b/i;
+    const COUNTABLE_MARKET = /\b(hits?|strikeouts?|points?|rebounds?|assists?|3-?pointers?|threes|pts\+reb\+ast|pts\+reb|pts\+ast|reb\+ast|receptions?|shots on target|shots on goal|shots|sog|goals?|saves?|stolen bases?|walks?|rbis?|runs?|home runs?|sacks?|tackles?|tackles \+ assists?|solo tackles?|interceptions?|pass ints? thrown|pass completions?|pass attempts?|rush attempts?|field goals? made|kicking points?|blocks?|steals?|turnovers?|blocks \+ steals?)\b/i;
     if (COUNTABLE_MARKET.test(t)) {
       // Match "<player> Over N.5 <market>" where N is a non-negative int.
       const cm = t.match(/^(.*?)\s*Over\s+(\d+)\.5\s+(.+)$/i);
@@ -4173,7 +4176,7 @@ export default function ParlayBuilder() {
         player_reception_yds_h1: "1H Receiving Yards",
         batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
         batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
-        pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+        pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
       };
       for (const pr of liveProps.props) {
         if (pr.overPrice == null) continue;
@@ -4186,8 +4189,11 @@ export default function ParlayBuilder() {
           batter_home_runs: "To Hit a HR",
           player_anytime_td: "Anytime TD",
           player_goals: "Anytime Goal",
+          player_goal_scorer_anytime: "Anytime Goal",
         };
-        const friendlyLabel = pr.line === 0.5 && YES_NO_LABEL[pr.market];
+        // Anytime-goalscorer is a true yes/no market (no point), so its line is
+        // null rather than the 0.5 convention used for HR / anytime-TD.
+        const friendlyLabel = (pr.line === 0.5 || pr.market === "player_goal_scorer_anytime") && YES_NO_LABEL[pr.market];
         const pickTxt = friendlyLabel
           ? `${pr.player} ${friendlyLabel}`
           : `${pr.player} Over${lineTxt} ${label}`;
@@ -10191,7 +10197,7 @@ export default function ParlayBuilder() {
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
                   batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
-                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
                 };
                 const propPool = [];
                 for (const [eid, data] of Object.entries(realPropsByEvent)) {
@@ -12323,7 +12329,7 @@ export default function ParlayBuilder() {
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
                   batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
-                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal",
+                  pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
                 };
                 // Score every live prop and pick the single best edge to
                 // highlight as "AI PICK". Edge = no-vig fair implied prob

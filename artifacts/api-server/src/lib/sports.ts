@@ -16,6 +16,7 @@ export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
   mlb: "baseball_mlb",
   nhl: "icehockey_nhl",
   soccer: [
+    "soccer_fifa_world_cup",
     "soccer_uefa_champs_league",
     "soccer_france_ligue_one",
     "soccer_brazil_campeonato",

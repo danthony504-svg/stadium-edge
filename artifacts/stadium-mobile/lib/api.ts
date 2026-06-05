@@ -205,8 +205,10 @@ export type PropsResponse = {
 };
 
 // Sports the props endpoint actually serves (MARKETS_BY_SPORT in props.ts).
-// Soccer/tennis/ufc return [] upstream, so we don't offer them in the props UI.
-export const PROPS_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab"];
+// Tennis/ufc return [] upstream. Soccer serves props ONLY for the FIFA World Cup
+// (anytime goalscorer / shots / shots on target); club-league soccer games come
+// back empty and just narrow the pool — never fabricated.
+export const PROPS_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab", "soccer"];
 
 export type GetPropsArgs = {
   sport: string;
@@ -421,6 +423,9 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   player_anytime_td: "Anytime TD",
   player_goals: "Goals",
   player_shots_on_goal: "Shots on Goal",
+  player_goal_scorer_anytime: "Anytime Goal",
+  player_shots_on_target: "Shots on Target",
+  player_shots: "Shots",
   batter_hits: "Hits",
   batter_total_bases: "Total Bases",
   batter_home_runs: "Home Runs",
