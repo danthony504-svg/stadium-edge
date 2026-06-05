@@ -540,6 +540,43 @@ router.post("/chat", async (req, res): Promise<void> => {
   // ladders, so without harvesting these a same-game ticket is capped at a
   // few side legs + one-prop-per-player. We append them to realOdds below.
   const sameGameIntent = /\b(same[-\s]?game|sgp)\b/i.test(latestUser);
+  // IMPROVE-THE-TICKET intent: the user is responding to a ticket they are
+  // already discussing (the current slip / one you just critiqued) and asking
+  // for a BETTER version of it — "give me a better one", "a better ticket",
+  // "make it better", "improve/fix this", etc. TYPO-TOLERANT: a user reported
+  // typing "give me a batter one?" (meaning "better") and the Coach reading
+  // "batter" literally as MLB batters, returning a baseball hits parlay. So
+  // "batter <one|ticket|slip|...>" is treated as the word "better" here. The
+  // adjacency to a ticket-pronoun noun (one/ticket/slip/version/card) is what
+  // disambiguates this from a real baseball request (which says "batter
+  // props" / "hits parlay" / "home run parlay", never "a batter one"). Only
+  // meaningful when there is an actual ticket to improve, so gate on a
+  // non-empty currentSlip or a prior assistant turn in the conversation.
+  // Comparison interrogatives ("which is the better one?", "what's better
+  // here?", "compare these", "A vs B") are extraSlips compare/rank flows, NOT
+  // an improve-this-ticket ask — exclude them so they don't get rewritten.
+  const comparisonAsk = /\b(which|what(?:'s| is| are)?|compare|versus|\bvs\.?\b|rank)\b[^\n]{0,40}\bbett?er\b/i.test(latestUser);
+  const improveWording =
+    (!comparisonAsk && /\b(?:bett?er|batter)\s+(one|ticket|slip|version|card|option|parlay)\b/i.test(latestUser)) ||
+    /\bmake (?:it|this|that|the (?:ticket|slip|parlay|card|bet)) (?:better|stronger|cleaner|safer|tighter|less correlated)\b/i.test(latestUser) ||
+    // "improve" / "fix" etc. must point at the slip — require a slip-deictic or
+    // slip noun nearby so generic asks ("improve my bankroll management") don't
+    // trigger.
+    /\bimprove\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser) ||
+    /\b(?:fix|tighten|trim|diversif\w*|de-?correlate|clean up)\b[^\n]{0,18}\b(this|that|it|ticket|slip|parlay|card|legs?)\b/i.test(latestUser);
+  const improveCurrentSlipLen = Array.isArray(
+    (parsed.data.context as { currentSlip?: unknown[] } | undefined)?.currentSlip
+  )
+    ? (parsed.data.context as { currentSlip?: unknown[] }).currentSlip!.length
+    : 0;
+  // Fallback gate: a prior assistant turn that actually talked about a ticket
+  // (built or critiqued one) — not just any assistant message — so "give me a
+  // better one" only routes to improve when there's a ticket to improve.
+  const lastAssistantContent =
+    [...parsed.data.messages].reverse().find((m) => m.role === "assistant")?.content || "";
+  const priorAssistantAboutSlip =
+    /\b(slip|ticket|parlay|legs?|correlat\w*|moneyline|spread|over|under|prop)\b/i.test(lastAssistantContent);
+  const improveIntent = improveWording && (improveCurrentSlipLen > 0 || priorAssistantAboutSlip);
   // Per-player markets only exist for q1 / h1 on Odds API — q2/q3/q4/h2 are
   // game-level only. We still build suffix list for ALL requested periods so
   // any future per-player support flows through unchanged, but in practice
@@ -1497,6 +1534,20 @@ STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × ga
 HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
     : "";
 
+  const improveDiversifyLine = sameGameIntent
+    ? `- KEEP IT SAME-GAME (the user wants a same-game ticket): improve WITHIN that one game — cut the correlated / duplicate legs and replace them with genuinely independent markets and period windows from the SAME game; do NOT spread to other games.`
+    : `- DIVERSIFY ACROSS GAMES: if the current slip stacks many legs from ONE game, spread the new legs across multiple DIFFERENT games to cut correlation — this is usually the single biggest improvement.`;
+  const improveSystemAddendum = improveIntent
+    ? `\n\n*** IMPROVE-THE-TICKET REQUEST FOR THIS TURN ***
+The user is asking for a BETTER VERSION of the ticket they are currently discussing (the slip in context.currentSlip / the one you just critiqued) — NOT a brand-new unrelated parlay. Read "better" / "a better one" / "a better ticket" as the word "better". This is TYPO-TOLERANT: "batter one" / "batter ticket" / "batter version" means "BETTER" — do NOT interpret "batter" as MLB batters, and do NOT lock the ticket to hits / total-bases / home-runs or any baseball market, UNLESS the user SEPARATELY and explicitly named a baseball market this turn.
+Build the improved ticket by FIXING the specific weaknesses of the current slip (and the critique you just gave it):
+${improveDiversifyLine}
+- DROP correlated / anti-correlated legs and any DUPLICATE exposure on the SAME player or the same game-script.
+- KEEP only genuinely independent, defensible legs; trim toward the strongest 4-6 legs unless the user named a specific count.
+- PRESERVE the spirit and the sport(s) of what the user was building — do NOT switch sports on them. Every leg MUST come from realOdds / realProps (never fabricate, obey every HARD BAN).
+Open with ONE short line naming what you changed vs the original (e.g. "Spread across 5 games and cut the duplicate Wembanyama / Vassell legs").`
+    : "";
+
   // LIVE-BETS LOCK — the client sets context.liveOnly when the user explicitly
   // asks for live / in-play bets, and pre-filters realGames/realOdds/realProps to
   // games CURRENTLY in progress (each marked live:true with the real score/period)
@@ -1585,7 +1636,7 @@ ENFORCEMENT:
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrl && i === lastUserIdx && m.role === "user") {
         return {
