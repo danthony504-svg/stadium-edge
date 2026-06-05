@@ -345,19 +345,22 @@ function serializeStatCardForAI(card: StatCardResult): string {
   return "";
 }
 
-// A one-tap "Add all" control above a parlay's pick cards. Picks are already
-// resolved to REAL odds entries by parsePicks, so this never fabricates a leg —
-// it just funnels each card's pick through the same addLeg() the per-leg button
-// uses. addLeg() only fails on a duplicate (no max-leg cap), so the in-slip
-// count is purely reactive: once every leg is in the slip the button flips to a
-// confirmed state, and a partial mix shows how many remain.
+// A one-tap add-all / remove-all control above a parlay's pick cards. Picks are
+// already resolved to REAL odds entries by parsePicks, so this never fabricates
+// a leg — it just funnels each card's pick through the same addLeg()/removeLeg()
+// the per-leg button uses. addLeg() only fails on a duplicate (no max-leg cap),
+// so the in-slip count is purely reactive. Once every leg is in the slip the
+// button flips to a "Remove all" action so the user can pull the whole parlay
+// back out in one tap; a partial mix offers to add the remaining legs.
 function AddAllButton({
   picks,
   addLeg,
+  removeLeg,
   hasLeg,
 }: {
   picks: ParsedPick[];
   addLeg: (leg: ParsedPick) => boolean;
+  removeLeg: (id: string) => void;
   hasLeg: (game: string, market: string, pick: string) => boolean;
 }) {
   const colors = useColors();
@@ -365,8 +368,17 @@ function AddAllButton({
   const remaining = picks.length - inSlip;
   const allIn = remaining === 0;
 
-  const onAddAll = () => {
-    if (allIn) return;
+  const onPress = () => {
+    if (allIn) {
+      // Remove every leg of this parlay from the slip in one tap. The id matches
+      // BetSlipContext's legKey(game, market, pick) so removeLeg targets the
+      // right entry.
+      for (const p of picks) {
+        removeLeg(`${p.game}|${p.market}|${p.pick}`.toLowerCase());
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
     let added = 0;
     for (const p of picks) {
       if (hasLeg(p.game, p.market, p.pick)) continue;
@@ -378,15 +390,14 @@ function AddAllButton({
   };
 
   const label = allIn
-    ? `All ${picks.length} legs in slip`
+    ? `Remove all ${picks.length} from slip`
     : inSlip > 0
       ? `Add ${remaining} more to slip`
       : `Add all ${picks.length} to slip`;
 
   return (
     <Pressable
-      onPress={onAddAll}
-      disabled={allIn}
+      onPress={onPress}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
@@ -401,9 +412,9 @@ function AddAllButton({
       })}
     >
       <Feather
-        name={allIn ? "check" : "plus-circle"}
+        name={allIn ? "x-circle" : "plus-circle"}
         size={15}
-        color={allIn ? colors.accent : colors.background}
+        color={allIn ? colors.mutedForeground : colors.background}
       />
       <Text
         style={{
@@ -421,7 +432,7 @@ function AddAllButton({
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { legs, setAiPicks, addLeg, hasLeg } = useBetSlip();
+  const { legs, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
   const slipClearance = useCoachSlipClearance();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
@@ -915,7 +926,12 @@ export default function CoachScreen() {
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {m.picks!.length > 1 ? (
-                      <AddAllButton picks={m.picks!} addLeg={addLeg} hasLeg={hasLeg} />
+                      <AddAllButton
+                        picks={m.picks!}
+                        addLeg={addLeg}
+                        removeLeg={removeLeg}
+                        hasLeg={hasLeg}
+                      />
                     ) : null}
                     {m.picks!.map((p, j) => (
                       <PickCard key={`${i}-${j}`} pick={p} />
