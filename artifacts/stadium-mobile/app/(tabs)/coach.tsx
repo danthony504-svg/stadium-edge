@@ -47,6 +47,9 @@ type UIMessage = {
   role: "user" | "assistant";
   content: string;
   picks?: ParsedPick[];
+  // Set to the model's pre-truncation leg count when a parlay was clipped to the
+  // 25-leg slip cap, so the UI can tell the user it built the max-size ticket.
+  cappedFrom?: number;
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
@@ -763,6 +766,16 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        // Belt-and-braces for the 25-leg slip cap: the server prompt already tells
+        // the model never to build more than MAX_LEGS legs, but if it ever drifts
+        // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
+        // can hold — truncate the resolved picks to MAX_LEGS. These are already
+        // REAL, resolved entries, so this only ever drops extras, never fabricates.
+        let cappedAt = 0;
+        if (picks.length > MAX_LEGS) {
+          cappedAt = picks.length;
+          picks = picks.slice(0, MAX_LEGS);
+        }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
@@ -787,7 +800,12 @@ export default function CoachScreen() {
         }
         setMessages((prev) => {
           const copy = [...prev];
-          copy[copy.length - 1] = { role: "assistant", content: finalContent, picks };
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: finalContent,
+            picks,
+            ...(cappedAt > 0 ? { cappedFrom: cappedAt } : {}),
+          };
           return copy;
         });
         // Surface this parlay's picks on the Player Props + Picks tabs. Only
@@ -980,6 +998,19 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
+                    {m.cappedFrom ? (
+                      <Text
+                        style={{
+                          color: colors.mutedForeground,
+                          fontFamily: FONT.medium,
+                          fontSize: 12,
+                          fontStyle: "italic",
+                        }}
+                      >
+                        Tickets cap at {MAX_LEGS} legs — built the strongest {MAX_LEGS}-leg
+                        version of your {m.cappedFrom}-leg request.
+                      </Text>
+                    ) : null}
                     {m.picks!.length > 1 ? (
                       <AddAllButton
                         picks={m.picks!}
