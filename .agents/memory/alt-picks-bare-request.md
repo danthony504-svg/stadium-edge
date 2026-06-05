@@ -15,7 +15,32 @@ Over 2.5 ast -329). Those rungs add almost no payout over the main line, defeati
 an alt. User confirmed the desired behavior is "a varied mix — mostly plus-money value, with a cap
 so no leg is brutally juiced (no -500 unless I ask for safe)."
 
-**How to apply:** The -350 cap is SCOPED to the bare-alt request type only. The global HARD BAN
+# STRICT alt mode — every leg must be a real alternate line
+
+A bare "alt picks" / "N-leg alt" request is STRICT: EVERY leg must be a real alternate-ladder
+rung — no straight Moneylines, no main Spread/Total, no main posted prop line.
+- Prop legs: only rungs flagged `alt:true` in realProps.
+- Game-side legs: only "Alt Spread"/"Alt Total" (or period rungs like "1H Alt Spread") copied
+  verbatim from realOdds.
+- CONVERT MONEYLINES: express a "team wins" read as that SAME team's real Alt Spread rung (e.g.
+  baseball Mariners ML → Mariners alt run-line rung). If no Alt Spread exists for that team, DROP
+  the leg — never fall back to the moneyline.
+- HONEST SHORT TICKET: if only K of N requested legs can be filled with real alt rungs, return K
+  and say so; NEVER backfill an alt ticket with moneylines/main lines to hit the count.
+
+**Why:** user reported a "9 leg alt" ticket came back as straight Moneylines (Mariners/Pirates/
+Royals ML) + main Assists props, only 1 of 7 an actual Alt Spread. User explicitly chose strict:
+"Every leg must be a real alternate line… convert moneylines to same-side alt spreads, and if
+there aren't enough real alts tonight, give me a shorter honest ticket." The cushion-vs-value cap
+fix alone did NOT prevent main-line / moneyline filler — needed a separate every-leg-must-be-alt rule.
+
+**How to apply (strict mode):** lives in the same chat.ts SYSTEM_PROMPT bare-alt block (EVERY LEG
+MUST BE A REAL ALTERNATE LINE clause + DROP-not-stay fallback). Moneyline conversion changes only
+the MARKET/RUNG, never the side — does NOT conflict with the mlLean winner-side rule. Client already
+emits alt spreads/totals (mobile buildRealOdds: one rung/side) + alt prop rungs (ALT_RUNGS_PER_PROP),
+so the model HAS alts to pick — purely a prompt selection fix.
+
+**How to apply (juice cap):** The -350 cap is SCOPED to the bare-alt request type only. The global HARD BAN
 stays -1000; explicit "safe"/"safer"/"lock" asks still prefer cushion rungs; odds-bound asks
 ("-300 or less") still follow the oddsChalkOverride path (which WANTS juiced favorites). The client
 already emits up to 3 alt rungs per player+market (ALT_RUNGS_PER_PROP), so cushion AND value rungs
