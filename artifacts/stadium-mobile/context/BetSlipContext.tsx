@@ -83,7 +83,7 @@ const MAX_SAVED_SLIPS = 25;
 // "25 leg") on top of existing legs used to blow past any sane ticket size and
 // produce absurd payouts; addLeg() now refuses once the slip is full so the slip
 // never exceeds this. Exported so UI can show the limit and disable add controls.
-export const MAX_LEGS = 25;
+export const MAX_LEGS = 15;
 
 const BetSlipContext = createContext<BetSlipState | null>(null);
 

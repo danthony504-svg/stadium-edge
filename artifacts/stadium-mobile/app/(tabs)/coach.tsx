@@ -60,7 +60,7 @@ type UIMessage = {
   content: string;
   picks?: ParsedPick[];
   // A short transparency line shown above the cards when a parlay delivered
-  // fewer legs than the user asked for — either capped at the 25-leg slip max
+  // fewer legs than the user asked for — either capped at the 15-leg slip max
   // or short because the real board was too thin to ground that many.
   legNote?: string;
   statCard?: PlayerStatCardData;
@@ -260,7 +260,7 @@ function wantsImproveSlip(text: string): boolean {
 
 // Pull a requested leg count out of the user's ask ("build me a 50 leg",
 // "6-leg parlay") so we can be honest when we deliver fewer — capped at the
-// 25-leg slip max, or short because the real board was too thin to ground that
+// 15-leg slip max, or short because the real board was too thin to ground that
 // many. Allows up to 3 digits so big asks like "100 leg" are captured too.
 function requestedLegCount(text: string): number {
   const m = text.match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
@@ -980,7 +980,7 @@ export default function CoachScreen() {
             }
           }
         }
-        // Belt-and-braces for the 25-leg slip cap: the server prompt already tells
+        // Belt-and-braces for the 15-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
         // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
         // can hold — truncate the resolved picks to MAX_LEGS. These are already
@@ -992,7 +992,7 @@ export default function CoachScreen() {
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
         // "" when picks exist), so this is the ONLY place the user learns the
-        // ticket was trimmed. Two reasons: (1) tickets cap at the 25-leg slip max,
+        // ticket was trimmed. Two reasons: (1) tickets cap at the 15-leg slip max,
         // or (2) the real board was too thin to ground that many legs. We never
         // pad with invented legs.
         let legNote = "";
