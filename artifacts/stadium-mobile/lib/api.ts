@@ -1262,19 +1262,49 @@ export async function buildChatContext(
   // Team-id'd pickable games → targets for the real matchup-history fetch (mlLean
   // + upset). Capped at 12 per sport, mirroring the web builder's history pool.
   const historyTargets: { sport: string; gameLabel: string; homeTeamId: string; awayTeamId: string; startsAt?: string }[] = [];
+  // Normally only the 48h betting window (isPickable) is in context. But a
+  // playoff-series lookahead question ("what did we learn in game 2 for game 3")
+  // is about the NEXT game, which can be a few days out — past isPickable and
+  // often with no posted odds yet (so isPickable + the odds pool both drop it,
+  // and the coach truthfully says "that matchup isn't loaded"). So when the user
+  // NAMES a sport/game, allow that focal sport's upcoming games a wider horizon
+  // into the matchup-history pool, BOUNDED per sport so a non-focal or broad ask
+  // never pulls a week of slates and bloats the context.
+  const focalSportsHist = focalSportsFromText(focalText);
+  const withinFocalHorizon = (startsAt?: string | null) => {
+    if (!startsAt) return false;
+    const t = Date.parse(startsAt);
+    if (!Number.isFinite(t)) return false;
+    const now = Date.now();
+    return t > now - 4 * 3600_000 && t < now + 8 * 24 * 3600_000;
+  };
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
       realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods, altSign));
     }
+    const sportFocal = focalSportsHist.has(sport);
     let perSport = 0;
+    let focalExtra = 0;
     for (const g of gamesAll[i]) {
       if (g.state === "post") continue; // finished
-      if (!isPickable(g.startsAt)) continue;
       const away = g.awayTeam || g.awayAbbr || "";
       const home = g.homeTeam || g.homeAbbr || "";
       if (!away || !home) continue;
       const gameLabel = `${away} @ ${home}`;
+      let included = isPickable(g.startsAt);
+      if (!included) {
+        // Series-lookahead widening: only for the named sport/game, only a few
+        // games out, capped (focalExtra) so a focal MLB ask can't drag in a
+        // week of baseball. These extra games carry no odds — they exist purely
+        // so the coach can do the matchup / last-meeting read for them.
+        const isFocalGame = sportFocal || gameMatchesFocalText(gameLabel, focalText);
+        if (isFocalGame && withinFocalHorizon(g.startsAt) && focalExtra < 6) {
+          included = true;
+          focalExtra++;
+        }
+      }
+      if (!included) continue;
       realGames.push({
         sport,
         game: gameLabel,
