@@ -24,8 +24,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { LockScreen } from "@/components/LockScreen";
-import { AppLockProvider, useAppLock } from "@/context/AppLockContext";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import {
@@ -98,31 +96,6 @@ function RootLayoutNav() {
   );
 }
 
-// Renders the biometric lock overlay above the whole app while engaged.
-// Fails closed: until the provider has loaded the persisted setting + checked
-// hardware (`ready`), it covers the app with an opaque navy screen so protected
-// content can never flash before the lock can engage on cold start.
-function AppLockGate() {
-  const { ready, locked, enabled, supported } = useAppLock();
-  if (!ready) {
-    return (
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: DARK_BG,
-          zIndex: 9999,
-        }}
-      />
-    );
-  }
-  if (!locked || !enabled || !supported) return null;
-  return <LockScreen />;
-}
-
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
@@ -154,17 +127,14 @@ export default function RootLayout() {
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />
-              <AppLockProvider>
-                <BetSlipProvider>
-                  <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-                    <KeyboardProvider>
-                      <StatusBar style="light" />
-                      <RootLayoutNav />
-                      <AppLockGate />
-                    </KeyboardProvider>
-                  </GestureHandlerRootView>
-                </BetSlipProvider>
-              </AppLockProvider>
+              <BetSlipProvider>
+                <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+                  <KeyboardProvider>
+                    <StatusBar style="light" />
+                    <RootLayoutNav />
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </BetSlipProvider>
             </QueryClientProvider>
           </ClerkLoaded>
         </ClerkProvider>
