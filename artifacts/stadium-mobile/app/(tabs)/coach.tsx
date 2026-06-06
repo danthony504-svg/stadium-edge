@@ -26,8 +26,11 @@ import {
   PickCard,
   parsePicks,
   backfillPicks,
+  norm,
+  marketFamily,
   ALT_BACKFILL_ORDER,
   PERIOD_BACKFILL_ORDER,
+  GENERIC_BACKFILL_ORDER,
   type ParsedPick,
   type AltRungBias,
 } from "@/components/PickCard";
@@ -935,6 +938,46 @@ export default function CoachScreen() {
               target,
               order: PERIOD_BACKFILL_ORDER,
             });
+          } else {
+            // PLAIN N-leg parlay (no alt / period / threshold lock). The model
+            // routinely returns a leg or two short even when the board has plenty
+            // more real games — a "4 leg" ask coming back with 3 is the reported
+            // failure. Deterministically fill toward N from real FULL-GAME mains
+            // (one per distinct unused game), never fabricating. Derive the
+            // constraints from the model's OWN resolved legs so we never widen a
+            // locked ask: (a) skip entirely when every resolved leg is a player
+            // prop (props-only / prop-market intent — a game-level main would be
+            // off-intent); (b) when every game-level leg sits on ONE game (a
+            // single-game lock), restrict the fill to that same game so we don't
+            // pull in other matchups.
+            const allProps = picks.every((p) => p.isProp);
+            if (!allProps) {
+              const gameLegs = picks.filter((p) => !p.isProp);
+              const gameLegGames = new Set(gameLegs.map((p) => norm(p.game)));
+              const lockedGame =
+                gameLegGames.size === 1 ? [...gameLegGames][0] : null;
+              const pool = lockedGame
+                ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
+                : context.realOdds;
+              // Infer an implicit MARKET lock from the model's own resolved
+              // legs: if every game-level leg sits in ONE full-game family
+              // (e.g. a "spread parlay" or "moneyline parlay" that came back
+              // all spreads / all MLs), constrain the fill to that same family
+              // so we never widen the ticket into other markets. Otherwise fill
+              // from full-game mains across all three families.
+              const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
+              const FAMILY_ORDER: Record<string, RegExp[]> = {
+                moneyline: [/^Moneyline$/],
+                spread: [/^Spread$/],
+                total: [/^Total$/],
+              };
+              const lockedFam = fams.size === 1 ? [...fams][0] : null;
+              const order =
+                lockedFam && FAMILY_ORDER[lockedFam]
+                  ? FAMILY_ORDER[lockedFam]
+                  : GENERIC_BACKFILL_ORDER;
+              picks = backfillPicks(picks, pool, gameMeta, { target, order });
+            }
           }
         }
         // Belt-and-braces for the 25-leg slip cap: the server prompt already tells

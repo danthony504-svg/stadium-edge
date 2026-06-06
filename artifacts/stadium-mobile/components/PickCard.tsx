@@ -195,7 +195,7 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
 //   - game not in the pool                -> dropped
 //   - selection that matches no real line -> dropped
 //   - the odds value is taken from the REAL entry, never from the AI text
-const norm = (s: string) =>
+export const norm = (s: string) =>
   (s || "")
     .toLowerCase()
     .replace(/[−–—]/g, "-")
@@ -321,7 +321,7 @@ function gameStartFromMeta(
 
 // Collapse market wording to a family so an AI "Spread" pick can only ever
 // resolve to a real Spread line (never accidentally to a Moneyline entry).
-function marketFamily(s: string): string {
+export function marketFamily(s: string): string {
   const m = norm(s);
   // Period prefix (1H/2H/Q1–Q4). Kept in the family so a period pick can only
   // resolve to the matching period line — e.g. a "Q3 Moneyline" pick (selection
@@ -718,6 +718,16 @@ type RealOddsLike = {
 // Alt Spreads first (one per game), then Alt Totals — so an alt ticket spreads
 // across distinct games before doubling up a single game.
 export const ALT_BACKFILL_ORDER: RegExp[] = [/^Alt Spread$/, /^Alt Total$/];
+
+// Market-matcher passes for a PLAIN N-leg parlay that resolves short. Real
+// FULL-GAME mains only (no alts, no period slices), Moneyline first so each
+// added leg lands on a DISTINCT unused game before the fill ever doubles a game
+// up with its spread/total. Each label resolves to a real `buildRealOdds` entry.
+export const GENERIC_BACKFILL_ORDER: RegExp[] = [
+  /^Moneyline$/,
+  /^Spread$/,
+  /^Total$/,
+];
 
 // Market-matcher passes for a PERIOD / same-game ticket. Honors the user's
 // requested period+alt intent FIRST — the explicit "alt spreads" ask, then the
