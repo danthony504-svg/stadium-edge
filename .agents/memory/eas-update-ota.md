@@ -27,3 +27,6 @@ so every production build shares runtime "1.0.0" and all receive the same OTA st
   config-plugin, permissions). OTA JS must never cross an incompatible native boundary on the
   same runtime version.
 - OTA cannot change native code/permissions/icons — those always need a full build.
+
+## Crash symptom: "Something went wrong / Try Again" on a PRODUCTION build right after an OTA
+If the installed app is a production build (tell: the ErrorFallback's __DEV__-only debug button is ABSENT in the screenshot) and it worked, then crashed into the error boundary immediately after an `update:ios` OTA — suspect a NATIVE-MODULE MISMATCH, not the feature code. OTA ships JS only; with `runtimeVersion.policy = appVersion` pinned at an unchanged version (e.g. stuck "1.0.0" while expo-notifications / expo-image-picker / expo-local-authentication / expo-clipboard etc. were added over time), Expo still delivers the JS to the old binary, and the JS references native modules the binary lacks → throws at startup. A dev Metro restart does NOTHING for this (prod phone isn't connected to dev Metro). RECOVERY = a fresh NATIVE build installed via TestFlight (`run release:ios` = eas build --auto-submit), NOT another OTA. DURABLE FIX = bump `expo.version` whenever native deps change so OTAs only reach a matching new binary.
