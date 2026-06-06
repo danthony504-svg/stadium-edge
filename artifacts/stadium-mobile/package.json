@@ -9,6 +9,7 @@
     "serve": "node server/serve.js",
     "build:ios": "eas build --platform ios --profile production",
     "submit:ios": "eas submit --platform ios --profile production",
+    "release:ios": "eas build --platform ios --profile production --auto-submit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
