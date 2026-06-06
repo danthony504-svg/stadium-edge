@@ -59,6 +59,9 @@ export const NAME_FALLBACK_SKIP = new Set([
   "likely","most","mostly","anybody","anyone","someone","everybody","everyone","best",
   "much","about","over","under","line","first","second","third","fourth","quarter","half","period","inning",
   "week","tomorrow","yesterday","night","monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+  // Generic position/role words — a CLASS of players, never a standalone name.
+  "pitcher","pitchers","hitter","hitters","batter","batters","catcher","catchers",
+  "quarterback","quarterbacks","qb","qbs","goalie","goalies","goaltender","goaltenders","kicker","kickers",
 ]);
 
 export type StatLookup = {
@@ -91,6 +94,21 @@ export function parseStatLookup(raw: string): StatLookup | null {
   // (the reported bug: "most likely to hit a home run" → NFL TE Isaiah Likely).
   if (/\bmost likely\b/.test(low)) return null;
   if (/^\s*(who|who'?s|whos|which)\b/.test(low)) return null;
+  // ROLE/POSITION SUBJECT guard: a message that LEADS with a generic role word
+  // ("pitcher strikeouts for the Brewers", "best hitters tonight", "batters to
+  // hit a HR") names a CLASS of players, not a single player — it's a
+  // pool/market question for the AI/parlay path, never a one-player stat card.
+  // Without this, the stat words get stripped and the leftover role word
+  // resolves to a real athlete with that surname (the reported bug: "pitcher
+  // strikeouts for brewers and cardinals" → NCAAF player Calvin Pitcher).
+  // Anchored at the start (after generic qualifiers) so a real player whose
+  // surname is a role word ("Calvin Pitcher stats") is NOT swallowed.
+  if (
+    /^(?:\s*(?:the|a|an|any|all|best|top|good|great|some|which|what|list|show|give|me|need|tonight|today|todays)\s+)*(?:pitchers?|hitters?|batters?|catchers?|quarterbacks?|qbs?|goalies?|goaltenders?|kickers?)\b/.test(
+      low,
+    )
+  )
+    return null;
   const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
   const hasCue =
     /\b(stat|stats|stat ?line|numbers|game ?log|box ?score|splits?)\b/.test(low) ||
