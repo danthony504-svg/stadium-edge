@@ -980,6 +980,11 @@ export type MatchupHistoryEntry = {
   homeRest: unknown;
   awayRest: unknown;
   h2h: unknown;
+  // Real box score of the two teams' most recent completed meeting (ESPN team
+  // totals + statistical leaders) so the coach can answer "what did we learn
+  // last game / how do we adjust" with real numbers. Null when they haven't met
+  // or ESPN has no box detail.
+  lastMeeting: unknown;
   mlLean: { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } } | null;
 };
 
@@ -1132,6 +1137,7 @@ async function buildMatchupHistoryAndUpsets(
           h2h: h2h?.meetings?.length
             ? { homeWins: h2h.homeWins, awayWins: h2h.awayWins, meetings: h2h.meetings.slice(0, 3).map((m: any) => ({ date: m.date, homeScore: m.homeTeamScore, awayScore: m.awayTeamScore, homeMargin: m.homeTeamWonByMargin })) }
             : null,
+          lastMeeting: data?.lastMeeting ?? null,
           mlLean: lean,
         };
         if (lean?.upset) {

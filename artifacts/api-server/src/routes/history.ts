@@ -106,6 +106,82 @@ async function fetchTeamHistory(path: string, teamId: string, season?: string) {
   return { teamName: data.team?.displayName ?? null, results };
 }
 
+// ESPN game-summary shape (only the parts we read). Box totals live under
+// boxscore.teams[].statistics; the real statistical leaders under leaders[].
+type EspnSummary = {
+  boxscore?: {
+    teams?: Array<{
+      team?: { id?: string; displayName?: string; abbreviation?: string };
+      statistics?: Array<{ name?: string; label?: string; displayValue?: string }>;
+    }>;
+  };
+  leaders?: Array<{
+    team?: { id?: string };
+    leaders?: Array<{
+      name?: string;
+      displayName?: string;
+      leaders?: Array<{ displayValue?: string; athlete?: { displayName?: string } }>;
+    }>;
+  }>;
+};
+
+// Fetch the REAL box score of one completed game from ESPN's summary feed and
+// reduce it to a compact, honest pack: each team's real box totals (shooting,
+// rebounds, turnovers, pace, etc. — exactly as ESPN labels them) plus the real
+// statistical leaders (points/rebounds/assists/etc.). Returns null on any
+// failure or empty feed — the caller treats that as "no box-score detail" and
+// never fabricates. Used to ground the AI Coach's "what did we learn from the
+// last meeting" answers.
+async function fetchGameBoxScore(
+  path: string,
+  eventId: string,
+  homeTeamId: string,
+  awayTeamId: string,
+): Promise<{
+  homeTeamStats: Array<{ label: string; value: string }>;
+  awayTeamStats: Array<{ label: string; value: string }>;
+  homeLeaders: Array<{ cat: string; player: string; line: string }>;
+  awayLeaders: Array<{ cat: string; player: string; line: string }>;
+} | null> {
+  try {
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${eventId}`;
+    // Bounded so a slow/hung ESPN summary can never inflate matchup-history
+    // latency; on timeout the AbortError falls through to the catch → null.
+    const r = await fetch(url, { signal: AbortSignal.timeout(3500) });
+    if (!r.ok) return null;
+    const data = (await r.json()) as EspnSummary;
+    const teamStatsFor = (teamId: string) => {
+      const t = data.boxscore?.teams?.find((x) => x.team?.id === teamId);
+      return (t?.statistics ?? [])
+        .filter((s) => s.label && s.displayValue)
+        .slice(0, 12)
+        .map((s) => ({ label: String(s.label), value: String(s.displayValue) }));
+    };
+    const leadersFor = (teamId: string) => {
+      const block = data.leaders?.find((x) => x.team?.id === teamId);
+      const out: Array<{ cat: string; player: string; line: string }> = [];
+      for (const cat of block?.leaders ?? []) {
+        const top = cat.leaders?.[0];
+        if (!top?.athlete?.displayName || !top.displayValue) continue;
+        out.push({ cat: String(cat.displayName || cat.name || ""), player: String(top.athlete.displayName), line: String(top.displayValue) });
+        if (out.length >= 4) break;
+      }
+      return out;
+    };
+    const homeTeamStats = teamStatsFor(homeTeamId);
+    const awayTeamStats = teamStatsFor(awayTeamId);
+    const homeLeaders = leadersFor(homeTeamId);
+    const awayLeaders = leadersFor(awayTeamId);
+    // Honest null: if ESPN gave us nothing usable, don't return an empty shell.
+    if (!homeTeamStats.length && !awayTeamStats.length && !homeLeaders.length && !awayLeaders.length) {
+      return null;
+    }
+    return { homeTeamStats, awayTeamStats, homeLeaders, awayLeaders };
+  } catch {
+    return null;
+  }
+}
+
 // Summarize a list of results into a compact form pack: last N record,
 // points for/against averages, average margin. All numbers are derived
 // directly from real final scores — nothing fabricated.
@@ -202,6 +278,33 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
       }));
       const homeWinsInH2H = h2h.filter((m) => (m.homeTeamWonByMargin ?? 0) > 0).length;
       const awayWinsInH2H = h2h.filter((m) => (m.homeTeamWonByMargin ?? 0) < 0).length;
+      // Real box score of the MOST RECENT meeting (only when these two teams
+      // have actually met before) so the coach can give grounded "what carried
+      // over from the last meeting" takeaways. Honest null when ESPN has no box
+      // detail; bounded — only one extra fetch, and only for repeat opponents.
+      const mostRecent = h2hRaw[0];
+      let lastMeeting:
+        | ({
+            date: string;
+            homeTeamScore: number | null;
+            awayTeamScore: number | null;
+            homeTeamWonByMargin: number | null;
+            playedAtHomeVenue: boolean;
+          } & NonNullable<Awaited<ReturnType<typeof fetchGameBoxScore>>>)
+        | null = null;
+      if (mostRecent?.eventId) {
+        const box = await fetchGameBoxScore(path, mostRecent.eventId, homeTeamId, awayTeamId);
+        if (box) {
+          lastMeeting = {
+            date: mostRecent.date,
+            homeTeamScore: mostRecent.teamScore,
+            awayTeamScore: mostRecent.oppScore,
+            homeTeamWonByMargin: mostRecent.won == null ? null : (mostRecent.won ? Math.abs(mostRecent.margin ?? 0) : -Math.abs(mostRecent.margin ?? 0)),
+            playedAtHomeVenue: mostRecent.isHome,
+            ...box,
+          };
+        }
+      }
       return {
         sport: sportId,
         home: {
@@ -241,6 +344,9 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           homeWins: homeWinsInH2H,
           awayWins: awayWinsInH2H,
         },
+        // Real most-recent-meeting box score (real ESPN team totals + leaders),
+        // or null when these teams haven't met or ESPN has no box detail.
+        lastMeeting,
       };
     });
     res.json(out);
