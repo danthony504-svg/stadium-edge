@@ -57,6 +57,12 @@
           "savePhotosPermission": "Allow Stadium Edge to save your bet slip to Photos.",
           "isAccessMediaLocationEnabled": false
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Stadium Edge to use Face ID to unlock the app."
+        }
       ]
     ],
     "experiments": {

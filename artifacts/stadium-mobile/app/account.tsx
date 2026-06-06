@@ -2,10 +2,11 @@ import { useAuth, useUser } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { Redirect, useRouter } from "expo-router";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { useAppLock } from "@/context/AppLockContext";
 import { useColors } from "@/hooks/useColors";
 
 export default function AccountScreen() {
@@ -14,6 +15,29 @@ export default function AccountScreen() {
   const router = useRouter();
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
+  const {
+    enabled: lockEnabled,
+    supported: lockSupported,
+    biometricLabel,
+    setEnabled: setLockEnabled,
+  } = useAppLock();
+
+  const onToggleLock = async (next: boolean) => {
+    if (next && !lockSupported) {
+      Alert.alert(
+        `${biometricLabel} unavailable`,
+        "Set up Face ID or Touch ID in your device Settings, then try again.",
+      );
+      return;
+    }
+    const ok = await setLockEnabled(next);
+    if (next && !ok) {
+      Alert.alert(
+        "Couldn't turn on lock",
+        `We couldn't confirm your ${biometricLabel}. Please try again.`,
+      );
+    }
+  };
 
   // Only relevant when signed in; otherwise send them to sign-in.
   if (!isSignedIn) return <Redirect href="/sign-in" />;
@@ -121,6 +145,48 @@ export default function AccountScreen() {
             Saved slips are backed up to your account and restored automatically when you
             sign in on another device.
           </Text>
+        </View>
+
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: colors.radius,
+            padding: 16,
+          }}
+        >
+          <Feather name="lock" size={18} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text
+              style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}
+            >
+              Require {biometricLabel} to unlock
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 13,
+                color: colors.mutedForeground,
+                marginTop: 2,
+              }}
+            >
+              {lockSupported
+                ? `Ask for ${biometricLabel} every time you open Stadium Edge.`
+                : "Set up Face ID or Touch ID on your device to use this."}
+            </Text>
+          </View>
+          <Switch
+            value={lockEnabled}
+            onValueChange={onToggleLock}
+            disabled={!lockSupported}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor="#ffffff"
+            ios_backgroundColor={colors.border}
+          />
         </View>
 
         <Pressable
