@@ -716,6 +716,10 @@ export type RealPropEntry = {
   game: string;
   startsAt: string;
   player: string;
+  // ESPN athlete id (when the book line carried one) — lets the server join this
+  // prop to its playerHistory / mlbPlatoon entry and dedupe same-display-name
+  // players. Null when the feed didn't supply it.
+  athleteId?: string | null;
   market: string;
   line: number | null;
   over: number | null;
@@ -922,6 +926,19 @@ export type ChatContext = {
   // when that fighter is also the betting dog). Combat sports only; omitted when
   // no UFC bout resolved real data.
   fightAnalysis?: Record<string, FightAnalysis>;
+  // Real ESPN per-player game logs keyed by "Player Name#athleteId" — recent
+  // form + vs-opponent + home/away & venue-correct split — so the coach defends
+  // a prop with real numbers, not the book price. Omitted when none resolved.
+  playerHistory?: Record<string, unknown>;
+  // MLB batter handedness vs the opposing probable starter (platoon edge + the
+  // batter's real vs-LHP/RHP split + the starter's real season tendency), keyed
+  // "Player#athleteId". The server auto-builds the batter-vs-pitcher career line
+  // from this. Omitted when no MLB batter resolved a split.
+  mlbPlatoon?: Record<string, unknown>;
+  // Per-MLB-game ballpark environment keyed by "Away @ Home": real park HR
+  // factor + altitude, real ballpark weather (null for domes), and both probable
+  // starters' real tendency. Omitted when no MLB game resolved data.
+  mlbGameEnv?: Record<string, unknown>;
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -1396,6 +1413,18 @@ export async function buildChatContext(
   // headshot/playerTeamId live on it and are stripped from the lean
   // RealPropEntry we send to the AI.
   const propPool: PropPoolEntry[] = [];
+  // Unique prop players to pull real ESPN game logs for (recent form +
+  // vs-opponent + home/away split) so the coach can defend a prop with real
+  // numbers. opponentTeamId / isHome are resolved per prop from the game's team
+  // ids so the server can return the vs-opponent + venue-correct split.
+  const playerTargets: {
+    sport: string;
+    player: string;
+    athleteId: string;
+    opponentTeamId: string | null;
+    isHome: boolean | null;
+  }[] = [];
+  const seenAthletes = new Set<string>();
   await Promise.all(
     propCandidates.slice(0, MAX_PROP_CONTEXT_GAMES).map(async ({ sport, g, ids }) => {
       try {
@@ -1453,12 +1482,28 @@ export async function buildChatContext(
               game,
               startsAt: g.commenceTime,
               player: p.player,
+              athleteId: p.athleteId ?? null,
               market: p.market,
               line: p.line,
               over: overQ ? p.overPrice : null,
               under: underQ ? p.underPrice : null,
               alt: !!p.alt,
             });
+            // Collect each unique player once for the game-log / platoon fetch.
+            // opponentTeamId + isHome come from the player's team vs the game's
+            // home/away ids (null when the mapping is unavailable — the server
+            // then skips the vs-opponent / venue split rather than inventing one).
+            if (p.athleteId && !seenAthletes.has(p.athleteId)) {
+              seenAthletes.add(p.athleteId);
+              let oppId: string | null = null;
+              let isHome: boolean | null = null;
+              if (p.playerTeamId && ids) {
+                const pt = String(p.playerTeamId);
+                oppId = pt === ids.homeTeamId ? ids.awayTeamId : pt === ids.awayTeamId ? ids.homeTeamId : null;
+                isHome = pt === ids.homeTeamId ? true : pt === ids.awayTeamId ? false : null;
+              }
+              playerTargets.push({ sport, player: p.player, athleteId: String(p.athleteId), opponentTeamId: oppId, isHome });
+            }
             const headshot = p.headshot ?? null;
             const teamAbbr = p.playerTeamId
               ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
@@ -1501,6 +1546,138 @@ export async function buildChatContext(
   // cap is raised when those are included to keep a usable multi-leg pool.
   const ODDS_CAP = includePeriods ? 400 : 120;
 
+  // ---------- Real player game logs + MLB platoon / ballpark signals ----------
+  // Mirror of the web ParlayBuilder build: pull each unique prop player's REAL
+  // ESPN game log (recent form + vs-opponent + home/away & venue split) so the
+  // coach defends a prop with real numbers, not the book price. For MLB we ALSO
+  // pull batter handedness vs the opposing probable starter (platoon edge + the
+  // batter's real vs-LHP/RHP split), the starter's real season tendency, and the
+  // ballpark HR environment. The server auto-builds the batter-vs-pitcher career
+  // line from mlbPlatoon.opposingPitcherName. Every field is real feed data —
+  // missing pieces stay honest nulls and absent maps are simply omitted.
+  const playerHistory: Record<string, unknown> = {};
+  // MLB platoon coverage is the point of this feature, so float MLB players to
+  // the front before the 40-player cap (a busy all-sports slate could otherwise
+  // crowd them out of the log fetch). Stable within each group.
+  const phSource = [...playerTargets].sort(
+    (a, b) => (a.sport === "mlb" ? 0 : 1) - (b.sport === "mlb" ? 0 : 1),
+  );
+  const phTargets = phSource.slice(0, 40);
+  if (phTargets.length > 0) {
+    type HistResp = {
+      recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
+      vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
+      homeSplit?: { games?: number } | null;
+      awaySplit?: { games?: number } | null;
+    };
+    await Promise.all(
+      phTargets.map(async (t) => {
+        try {
+          const q = new URLSearchParams({ sport: t.sport, athleteId: t.athleteId });
+          if (t.opponentTeamId) q.set("opponentTeamId", t.opponentTeamId);
+          const data = await getJson<HistResp>(`/sports/player-history?${q.toString()}`, signal);
+          const recent = Array.isArray(data?.recent) ? data.recent.slice(0, 5) : [];
+          const vsOpp = Array.isArray(data?.vsOpponent) ? data.vsOpponent.slice(0, 3) : [];
+          if (!recent.length && !vsOpp.length) return;
+          const homeSplit = data?.homeSplit && (data.homeSplit.games ?? 0) > 0 ? data.homeSplit : null;
+          const awaySplit = data?.awaySplit && (data.awaySplit.games ?? 0) > 0 ? data.awaySplit : null;
+          const venue = t.isHome === true ? "home" : t.isHome === false ? "away" : null;
+          const tonightSplit = venue === "home" ? homeSplit : venue === "away" ? awaySplit : null;
+          playerHistory[`${t.player}#${t.athleteId}`] = {
+            player: t.player,
+            recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
+            vsOpponent: vsOpp.map((g) => ({ date: g.date, stats: g.stats })),
+            ...(homeSplit ? { homeSplit } : {}),
+            ...(awaySplit ? { awaySplit } : {}),
+            ...(tonightSplit ? { tonightVenue: venue, tonightSplit } : {}),
+          };
+        } catch {
+          /* honest no-history fallback */
+        }
+      }),
+    );
+  }
+
+  // MLB platoon (batter hand vs opposing probable starter) + per-game ballpark
+  // environment. One /mlb-probables fetch (park + weather + each starter's real
+  // tendency) plus a per-batter vs-LHP/RHP split fetch. Same maps + keys as web.
+  const mlbPlatoon: Record<string, unknown> = {};
+  const mlbGameEnv: Record<string, unknown> = {};
+  const mlbTargets = phTargets.filter((t) => t.sport === "mlb");
+  if (mlbTargets.length > 0) {
+    type Probable = { name?: string; throws?: string | null; tendency?: unknown };
+    type ProbGame = {
+      venue?: string | null;
+      park?: { hrIndex?: number; altitudeFt?: number; dome?: boolean } | null;
+      weather?: unknown;
+    };
+    let probables: Record<string, Probable> = {};
+    let probablesGames: Record<string, ProbGame> = {};
+    try {
+      const pdata = await getJson<{ probables?: Record<string, Probable>; games?: Record<string, ProbGame> }>(
+        `/sports/mlb-probables`,
+        signal,
+      );
+      probables = pdata?.probables ?? {};
+      probablesGames = pdata?.games ?? {};
+    } catch {
+      /* honest no-probables fallback */
+    }
+    await Promise.all(
+      mlbTargets.map(async (t) => {
+        try {
+          const data = await getJson<{ bats?: string | null; vsLeft?: unknown; vsRight?: unknown }>(
+            `/sports/mlb-batter-splits?athleteId=${encodeURIComponent(t.athleteId)}`,
+            signal,
+          );
+          const bats = data?.bats || null;
+          const oppPitcher = (t.opponentTeamId ? probables[t.opponentTeamId] : null) || null;
+          const oppThrows = oppPitcher?.throws || null;
+          let platoon: string | null = null;
+          if (bats === "Switch") platoon = "switch";
+          else if (bats && oppThrows) platoon = bats !== oppThrows ? "advantage" : "disadvantage";
+          const vsThatHand = oppThrows === "Left" ? data?.vsLeft : oppThrows === "Right" ? data?.vsRight : null;
+          if (!bats && !oppThrows && !data?.vsLeft && !data?.vsRight) return;
+          mlbPlatoon[`${t.player}#${t.athleteId}`] = {
+            player: t.player,
+            bats,
+            opposingPitcherName: oppPitcher?.name || null,
+            opposingPitcherThrows: oppThrows,
+            opposingPitcherTendency: oppPitcher?.tendency || null,
+            platoon,
+            vsThatHand: vsThatHand || null,
+            vsLeft: data?.vsLeft || null,
+            vsRight: data?.vsRight || null,
+          };
+        } catch {
+          /* honest no-platoon fallback */
+        }
+      }),
+    );
+    // Per-game ballpark environment for every MLB game in the pool. Built from
+    // the ESPN games list (which carries the team ids realGames omits), keyed by
+    // the same "Away @ Home" label as realProps so the model can join them.
+    for (let i = 0; i < sports.length; i++) {
+      if (sports[i] !== "mlb") continue;
+      for (const g of gamesAll[i]) {
+        if (!g.homeTeamId || !g.homeTeam || !g.awayTeam) continue;
+        const env = probablesGames[g.homeTeamId] ?? null;
+        const home = probables[g.homeTeamId] ?? null;
+        const away = g.awayTeamId ? (probables[g.awayTeamId] ?? null) : null;
+        if (!env && !home && !away) continue;
+        const dome = env?.park?.dome === true;
+        mlbGameEnv[`${g.awayTeam} @ ${g.homeTeam}`] = {
+          venue: env?.venue ?? g.venue ?? null,
+          park: env?.park ?? null,
+          weather: dome ? null : (env?.weather ?? null),
+          ...(dome ? { climateControlled: true } : {}),
+          homePitcher: home ? { name: home.name ?? null, throws: home.throws ?? null, tendency: home.tendency ?? null } : null,
+          awayPitcher: away ? { name: away.name ?? null, throws: away.throws ?? null, tendency: away.tendency ?? null } : null,
+        };
+      }
+    }
+  }
+
   return {
     context: {
       selectedSports: sports,
@@ -1510,6 +1687,9 @@ export async function buildChatContext(
       realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT, focalText),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
+      ...(Object.keys(playerHistory).length ? { playerHistory } : {}),
+      ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
+      ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),
     },
     propPool,
     gameMeta,

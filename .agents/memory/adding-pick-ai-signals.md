@@ -34,5 +34,14 @@ Chat picks are only SUGGESTED; the user must click "+ Add all N legs to ticket" 
 ## ESPN athlete stats: career vs season (MLB pitcher tendency)
 In an ESPN athlete `/statistics` category, `category.totals` is the player's **CAREER** line; the per-season rows live in `category.statistics[]` keyed by `season.year` and aligned to `category.labels`. For a "current form / season tendency" signal pick the latest `statistics[]` row and **never fall back to `totals`** — a career number mislabeled as season tendency silently violates never-fabricate. No season row => return null (honest), let the field stay null. The `season=` query param is ignored by ESPN.
 
+## Mobile Coach now ships the same player/MLB signals (not web-only)
+`artifacts/stadium-mobile/lib/api.ts` `buildChatContext` now also sends `playerHistory` (all sports), `mlbPlatoon`, and `mlbGameEnv` — same keys/shapes the web `ParlayBuilder` builds and the same `chat.ts` rules consume. Auto-serialize shortcut applies (context is JSON.stringify'd), so no server change was needed; sending `mlbPlatoon.opposingPitcherName` is enough for the server to auto-build batter-vs-pitcher.
+**Why:** the mobile coach was citing ballparks/pitchers generically with no data; the feature is MLB-centric.
+**How to apply / gotchas:**
+- Mobile `RealGameEntry` has NO team ids — build `mlbGameEnv` from the ESPN games list (`gamesAll[i]`, parallel to `sports`), NOT from `realGames`. Key by `${g.awayTeam} @ ${g.homeTeam}` to match `realProps`/`realGames`.
+- Players are floated MLB-first before a 40-player game-log cap (platoon is the point). Accepted tradeoff: a huge mixed slate can starve non-MLB `playerHistory`. Don't "fix" by removing the float — switch to a per-sport quota only if cross-sport parity is actually requested.
+- `playerTargets` are collected inside the realProps build loop; add `athleteId` to `RealPropEntry` so the server can join + dedupe same-display-name players. Same `seenAthletes` first-wins dedup as web.
+- Endpoints used (all public, no auth): `/sports/player-history?sport=&athleteId=&opponentTeamId=`, `/sports/mlb-probables` (once), `/sports/mlb-batter-splits?athleteId=`. Mobile `getJson` THROWS on !ok — wrap each in try/catch and omit empty maps (honest null), don't let one miss break the context.
+
 ## Honest-null for external feed fields (weather etc.)
 When mapping an external API (OpenWeather), do NOT coerce missing fields with `?? 0` / `?? "Clear"` — that fabricates a reading. Make each field nullable and emit null when absent; the model's rule text must say "skip null fields, never guess". Also: OpenWeather `/data/2.5/weather` is a **current snapshot, not a first-pitch forecast** — label it as such in the prompt so the model doesn't overstate precision. Domes/retractables => whole weather block null (climateControlled), treat as NEUTRAL.

@@ -503,7 +503,50 @@ router.post("/chat", async (req, res): Promise<void> => {
     { re: /\bhits?\b/i, markets: ["batter_hits"], label: "hits" },
     { re: /\btotal bases?\b/i, markets: ["batter_total_bases"], label: "total bases" },
   ];
-  const lockedMarket = MARKET_KEYWORDS.find((k) => k.re.test(latestUser));
+  // Detect EVERY distinct prop market the user named — not just the first.
+  // A request like "mixed parlay of hits and hr" names TWO markets; a plain
+  // first-match .find() lets the earlier keyword (home runs) win and the pool
+  // is hard-locked to HR only, stripping the hits props so the model can't
+  // build the mix and (honestly) refuses. We collect ALL matching keywords
+  // while PRESERVING the ordered first-match precedence the overlapping
+  // regexes rely on: (1) blank each matched span before testing
+  // lower-precedence keywords, so the bare "shots" inside "shots on target"
+  // can't re-match but a SEPARATE mention elsewhere still can; (2) drop any
+  // later keyword whose markets overlap an already-kept one, so "pts+reb
+  // combo" still locks to pts+reb alone rather than pts+reb PLUS the generic
+  // combo set. A single match behaves exactly as the old .find(); 2+ matches
+  // become a union lock so the model can legally mix the named markets.
+  const matchedMarketKeywords: typeof MARKET_KEYWORDS = [];
+  {
+    let scan = latestUser;
+    for (const k of MARKET_KEYWORDS) {
+      const m = k.re.exec(scan);
+      if (!m) continue;
+      const overlapsKept = matchedMarketKeywords.some((kept) =>
+        kept.markets.some((mk) => k.markets.includes(mk)),
+      );
+      if (!overlapsKept) matchedMarketKeywords.push(k);
+      // Blank the matched span so an overlapping lower-precedence keyword
+      // can't re-match THIS text (a separate mention elsewhere still can).
+      scan =
+        scan.slice(0, m.index) +
+        " ".repeat(m[0].length) +
+        scan.slice(m.index + m[0].length);
+    }
+  }
+  const multiMarketLock = matchedMarketKeywords.length > 1;
+  const lockedMarket =
+    matchedMarketKeywords.length === 0
+      ? undefined
+      : !multiMarketLock
+        ? matchedMarketKeywords[0]
+        : {
+            re: /(?:)/,
+            markets: Array.from(
+              new Set(matchedMarketKeywords.flatMap((k) => k.markets)),
+            ),
+            label: matchedMarketKeywords.map((k) => k.label).join(" + "),
+          };
 
   // Detect explicit period intent (1Q / 1H) in the same user message. When
   // present, the MARKET LOCK switches its market allow-list to the
@@ -624,7 +667,21 @@ router.post("/chat", async (req, res): Promise<void> => {
       const distinctPlayers = new Set(
         filteredProps.map((p) => String(p.player || "").toLowerCase()).filter(Boolean),
       ).size;
-      if (distinctPlayers < 5) {
+      // Per-market thinness: a multi-market lock (e.g. "hits and hr") can have
+      // one market well-populated in the client pool and another empty, so the
+      // aggregate count passes while a named market is starved. Trigger the
+      // backfill if the TOTAL is thin OR any single locked market has < 2
+      // distinct players, so every named market actually gets filled.
+      const perMarketThin = lockedMarket.markets.some((mk) => {
+        const n = new Set(
+          filteredProps
+            .filter((p) => String(p.market || "") === mk)
+            .map((p) => String(p.player || "").toLowerCase())
+            .filter(Boolean),
+        ).size;
+        return n < 2;
+      });
+      if (distinctPlayers < 5 || perMarketThin) {
         try {
           // Sports whose props feed actually carries one of the locked markets
           // (e.g. batter_home_runs → mlb only; player_points → nba+wnba). This
@@ -1522,7 +1579,7 @@ router.post("/chat", async (req, res): Promise<void> => {
     : "";
   const lockedSystemAddendum = lockedMarket
     ? `\n\n*** HARD MARKET LOCK FOR THIS TURN ***
-The user asked for "${periodLabel ? `${periodLabel} ` : ""}${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY that market (${allowedMarketsForAddendum}). EVERY PICK line you return MUST be drawn from that filtered realProps array — same market, different players. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.${periodIntent ? `\nPERIOD LOCK: every leg must use a market ending in "${periodSuffix}". Full-game variants of the same stat (e.g. ${lockedMarket.markets.join(", ")}) are FORBIDDEN for this turn — the user explicitly asked for ${periodLabel} only. If the filtered realProps has fewer ${periodSuffix} entries than the requested leg count, return a SHORTER ticket and say so honestly; do NOT pad with full-game props.` : ""}
+The user asked for "${periodLabel ? `${periodLabel} ` : ""}${lockedMarket.label}" props. realProps in the context above has been pre-filtered to ONLY ${multiMarketLock ? "those markets" : "that market"} (${allowedMarketsForAddendum}). EVERY PICK line you return MUST be drawn from that filtered realProps array${multiMarketLock ? " — the user asked for a MIX, so spread the legs across the listed markets (e.g. some home-run legs AND some hits legs), each leg a different player" : " — same market, different players"}. DO NOT return moneylines, spreads, totals, or any other prop market this turn — your prior response (if any) was wrong if it did so; disregard it.${periodIntent ? `\nPERIOD LOCK: every leg must use a market ending in "${periodSuffix}". Full-game variants of the same stat (e.g. ${lockedMarket.markets.join(", ")}) are FORBIDDEN for this turn — the user explicitly asked for ${periodLabel} only. If the filtered realProps has fewer ${periodSuffix} entries than the requested leg count, return a SHORTER ticket and say so honestly; do NOT pad with full-game props.` : ""}
 
 *** PICK THE BEST, NOT THE FIRST ***
 The realProps array is NOT pre-ranked — do NOT just take the first N entries. For each candidate player in the filtered list, build a quick score using ALL the data available to you:
