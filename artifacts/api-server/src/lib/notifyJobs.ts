@@ -26,6 +26,7 @@ export type Prefs = {
   betResults: boolean;
   oddsMovement: boolean;
   gameReminders: boolean;
+  upsetAlerts: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {
@@ -34,6 +35,7 @@ export const DEFAULT_PREFS: Prefs = {
   betResults: true,
   oddsMovement: true,
   gameReminders: true,
+  upsetAlerts: true,
 };
 
 type Leg = {
@@ -60,6 +62,8 @@ type GameRow = {
   homeTeam: string | null;
   awayTeam: string | null;
   state: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
 };
 
 type OddsOutcome = { name: string; price: number; point: number | null };
@@ -250,6 +254,206 @@ function detectMove(
   return { text: parts.join(", "), sig: sigParts.join("_") };
 }
 
+// ---- Upset Watch engine (server port of the mobile/web Upset Watch) ---------
+// Surfaces real, model-backed underdogs: games where the app's OWN deterministic
+// analytics lean (L10 margin + season win% + venue split + streak + H2H) is on
+// the BETTING UNDERDOG (the side carrying the longer, plus-money real moneyline).
+// Pure ports of computeMlLean / detectUpset so the notification matches what the
+// Upset Watch card and the Coach already show. Real data only — never fabricated.
+
+// Team sports where the moneyline-lean engine works (team L10/season/venue/streak
+// + a two-way moneyline). Soccer (3-way ML / draws), UFC and tennis are excluded
+// because the team-form engine doesn't model them.
+const UPSET_SPORTS = ["nba", "wnba", "mlb", "nhl", "nfl", "ncaaf", "ncaab"];
+// Cap matchup-history round-trips per daily scan so the ESPN fan-out stays bounded.
+const UPSET_FETCH_CAP = 24;
+// Only consider games tipping off within this window (pregame upsets only).
+const UPSET_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+type UpsetSpot = {
+  game: string;
+  sport: string;
+  side: string;
+  dogOdds: number;
+  edge: number;
+};
+
+const nickname = (full: string) =>
+  (full || "").split(/\s+/).filter(Boolean).pop() || full;
+const clampLean = (v: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, v));
+const streakStr = (s: { type?: string; count?: number } | null | undefined) =>
+  s && (s.count ?? 0) > 0 ? (s.type === "W" ? s.count! : -s.count!) : 0;
+
+// Verbatim port of the client computeMlLean: deterministic moneyline lean from
+// the matchup-history feed. Returns null when the signal is too thin to call.
+function computeMlLean(
+  label: string,
+  d: any,
+): { side: string; edge: number } | null {
+  const parts = (label || "").split(" @ ");
+  const awayNm = (parts[0] || "").trim();
+  const homeNm = (parts[1] || "").trim();
+  if (!awayNm || !homeNm || !d) return null;
+  const h10 = d?.home?.last10,
+    a10 = d?.away?.last10;
+  const hSeas = d?.home?.season,
+    aSeas = d?.away?.season;
+  const hVen = d?.home?.homeSplit?.games > 0 ? d.home.homeSplit : null;
+  const aVen = d?.away?.awaySplit?.games > 0 ? d.away.awaySplit : null;
+  const h2h = d?.h2h?.meetings?.length ? d.h2h : null;
+  let edge = 0;
+  let any = false;
+  if (h10?.avgMargin != null && a10?.avgMargin != null) {
+    edge += clampLean((h10.avgMargin - a10.avgMargin) * 1.2, -10, 10);
+    any = true;
+  }
+  if (hSeas?.winPct != null && aSeas?.winPct != null) {
+    edge += clampLean((hSeas.winPct - aSeas.winPct) * 15, -8, 8);
+    any = true;
+  }
+  if (hVen?.avgMargin != null && aVen?.avgMargin != null) {
+    edge += clampLean((hVen.avgMargin - aVen.avgMargin) * 0.9, -6, 6);
+    any = true;
+  }
+  const sd = streakStr(d?.home?.streak) - streakStr(d?.away?.streak);
+  if (sd !== 0) {
+    edge += clampLean(sd * 1.2, -5, 5);
+    any = true;
+  }
+  if (h2h) {
+    edge += clampLean((h2h.homeWins - h2h.awayWins) * 2, -5, 5);
+    any = true;
+  }
+  if (!any || Math.abs(edge) < 1) return null;
+  const homeFav = edge > 0;
+  return {
+    side: homeFav ? homeNm : awayNm,
+    edge: Math.round(Math.abs(edge) * 10) / 10,
+  };
+}
+
+// Build { "<sport>|Away @ Home" -> { nickname -> americanPrice } } from the bulk
+// odds rows' two-way moneyline (h2h) outcomes. The key is sport-namespaced so two
+// different sports that happen to share a game label (e.g. the same school in
+// NCAAF and NCAAB) can never overwrite each other's prices.
+function priceKey(sport: string, label: string): string {
+  return `${sport}|${label}`;
+}
+function buildMlPriceByLabel(
+  rows: OddsRow[],
+): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const g of rows) {
+    const h2h = g.markets.find((m) => m.key === "h2h");
+    if (!h2h) continue;
+    const key = priceKey(g.sport, `${g.awayTeam} @ ${g.homeTeam}`);
+    const byNick: Record<string, number> = {};
+    for (const o of h2h.outcomes) byNick[nickname(o.name)] = o.price;
+    if (Object.keys(byNick).length) out[key] = byNick;
+  }
+  return out;
+}
+
+// An upset = the lean's side carries the LONGER (numerically greater) real
+// American price AND it is genuine plus-money (>= +100). Real prices only.
+function dogOddsForLean(
+  side: string,
+  pricesByNick: Record<string, number> | undefined,
+): number | null {
+  if (!pricesByNick) return null;
+  const sidePrice = pricesByNick[nickname(side)];
+  if (sidePrice == null) return null;
+  let oppPrice: number | null = null;
+  for (const [nm, pr] of Object.entries(pricesByNick)) {
+    if (nm !== nickname(side)) {
+      oppPrice = pr;
+      break;
+    }
+  }
+  if (oppPrice == null) return null;
+  if (sidePrice > oppPrice && sidePrice >= 100) return sidePrice;
+  return null;
+}
+
+// Scan the slate for real model-backed underdogs. Fetches games + odds for the
+// supported team sports, then matchup-history per pregame game (bounded), and
+// keeps only the games where the analytics lean is on the betting dog. Returns
+// the spots sorted by edge desc — or [] when there are none (honest, never
+// fabricated). Bounded ESPN fan-out via UPSET_FETCH_CAP.
+async function computeDailyUpsets(): Promise<UpsetSpot[]> {
+  const now = Date.now();
+  const [gamesBySport, oddsBySport] = await Promise.all([
+    Promise.all(
+      UPSET_SPORTS.map((sp) =>
+        fetchJson<GameRow[]>(`/sports/games?sport=${sp}`).then((r) => r ?? []),
+      ),
+    ),
+    Promise.all(
+      UPSET_SPORTS.map((sp) =>
+        fetchJson<OddsRow[]>(`/sports/odds?sport=${sp}`).then((r) => r ?? []),
+      ),
+    ),
+  ]);
+
+  const mlPriceByLabel: Record<string, Record<string, number>> = {};
+  const targets: {
+    sport: string;
+    label: string;
+    homeTeamId: string;
+    awayTeamId: string;
+  }[] = [];
+  UPSET_SPORTS.forEach((sport, i) => {
+    Object.assign(mlPriceByLabel, buildMlPriceByLabel(oddsBySport[i] ?? []));
+    for (const g of gamesBySport[i] ?? []) {
+      if (g.state === "post") continue;
+      if (!g.homeTeam || !g.awayTeam || !g.homeTeamId || !g.awayTeamId) continue;
+      const start = new Date(g.startsAt).getTime();
+      if (isNaN(start) || start <= now || start - now > UPSET_WINDOW_MS) continue;
+      targets.push({
+        sport,
+        label: `${g.awayTeam} @ ${g.homeTeam}`,
+        homeTeamId: g.homeTeamId,
+        awayTeamId: g.awayTeamId,
+      });
+    }
+  });
+
+  // Prefer games that actually have a posted moneyline (so an upset can resolve)
+  // before applying the fetch cap.
+  targets.sort((a, b) => {
+    const aHas = mlPriceByLabel[priceKey(a.sport, a.label)] ? 0 : 1;
+    const bHas = mlPriceByLabel[priceKey(b.sport, b.label)] ? 0 : 1;
+    return aHas - bHas;
+  });
+
+  const spots: UpsetSpot[] = [];
+  await Promise.all(
+    targets.slice(0, UPSET_FETCH_CAP).map(async (t) => {
+      const data = await fetchJson<any>(
+        `/sports/matchup-history?sport=${encodeURIComponent(t.sport)}&homeTeamId=${encodeURIComponent(t.homeTeamId)}&awayTeamId=${encodeURIComponent(t.awayTeamId)}`,
+      );
+      if (!data) return;
+      const lean = computeMlLean(t.label, data);
+      if (!lean) return;
+      const dogOdds = dogOddsForLean(
+        lean.side,
+        mlPriceByLabel[priceKey(t.sport, t.label)],
+      );
+      if (dogOdds == null) return;
+      spots.push({
+        game: t.label,
+        sport: t.sport,
+        side: lean.side,
+        dogOdds,
+        edge: lean.edge,
+      });
+    }),
+  );
+  spots.sort((a, b) => b.edge - a.edge);
+  return spots;
+}
+
 type QueuedItem = {
   userId: string;
   dedupeKey: string;
@@ -265,6 +469,7 @@ export async function runNotificationJobs(): Promise<{
     results: 0,
     daily: 0,
     oddsMoves: 0,
+    upsets: 0,
     sent: 0,
   };
 
@@ -464,6 +669,52 @@ export async function runNotificationJobs(): Promise<{
     }
   }
 
+  // ---- Underdog watch — once-a-day, model-backed underdogs ----------------
+  // GLOBAL (not slip-driven): scan the whole slate for real upset spots once per
+  // day. The expensive ESPN/odds fan-out runs ONCE and is cached in KV for the
+  // day so repeated cron ticks reuse it; per-user dedupe (notif_log) still keeps
+  // each user to one send. Fail-CLOSED: if there are no real model-backed dogs we
+  // store an empty result and send nothing rather than manufacture one.
+  const wantUpset = users.some((u) => u.prefs.upsetAlerts);
+  if (wantUpset && new Date().getUTCHours() >= DAILY_HOUR_UTC) {
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = `upsetdaily:${today}`;
+    let spots = await kvGet<UpsetSpot[]>(cacheKey);
+    if (spots === undefined) {
+      try {
+        spots = await computeDailyUpsets();
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error)?.message },
+          "notify: upset scan failed",
+        );
+        spots = [];
+      }
+      await kvSet(cacheKey, spots);
+    }
+    if (spots && spots.length > 0) {
+      const top = spots[0]!;
+      const more = spots.length - 1;
+      const body =
+        `Our model likes ${top.side} (${fmtAm(top.dogOdds)}) as a live underdog today` +
+        (more > 0
+          ? ` — plus ${more} more upset spot${more > 1 ? "s" : ""}. Open Upset Watch.`
+          : `. Open Upset Watch for the full read.`);
+      for (const { uid, prefs } of users) {
+        if (!prefs.upsetAlerts) continue;
+        queue.push({
+          userId: uid,
+          dedupeKey: `upset:${today}`,
+          msg: {
+            title: "🐶 Underdog watch",
+            body,
+            data: { type: "upsetAlert" },
+          },
+        });
+      }
+    }
+  }
+
   // ---- Claim (dedupe) then expand to device tokens and send --------------
   const messages: PushMessage[] = [];
   for (const item of queue) {
@@ -483,6 +734,7 @@ export async function runNotificationJobs(): Promise<{
     else if (type === "result") summary.results++;
     else if (type === "dailyPicks") summary.daily++;
     else if (type === "oddsMovement") summary.oddsMoves++;
+    else if (type === "upsetAlert") summary.upsets++;
     for (const tok of tokensByUser.get(item.userId) ?? [])
       messages.push({ to: tok, ...item.msg });
   }

@@ -100,7 +100,7 @@ export function addNotificationResponseListener(
       | { type?: string }
       | undefined;
     // Must mirror the `data.type` values the backend sends (see notifyJobs.ts):
-    // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "test".
+    // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "upsetAlert" | "test".
     switch (data?.type) {
       case "dailyPicks":
         navigate("/props");
@@ -109,6 +109,10 @@ export function addNotificationResponseListener(
       case "reminder":
       case "oddsMovement":
         navigate("/slip");
+        break;
+      case "upsetAlert":
+        // Upset Watch card lives on the home screen.
+        navigate("/");
         break;
       default:
         navigate("/");

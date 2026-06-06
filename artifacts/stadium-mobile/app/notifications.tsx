@@ -32,6 +32,7 @@ const DEFAULT_PREFS: NotifPrefs = {
   betResults: true,
   oddsMovement: true,
   gameReminders: true,
+  upsetAlerts: true,
 };
 
 type CategoryKey = keyof Omit<NotifPrefs, "master">;
@@ -60,6 +61,12 @@ const CATEGORIES: { key: CategoryKey; icon: FeatherName; title: string; subtitle
     icon: "trending-up",
     title: "Line movement",
     subtitle: "Big odds swings on games in your saved slips.",
+  },
+  {
+    key: "upsetAlerts",
+    icon: "target",
+    title: "Underdog watch",
+    subtitle: "A daily heads-up when our model likes a live underdog.",
   },
 ];
 

@@ -182,6 +182,7 @@ export type NotifPrefs = {
   betResults: boolean;
   oddsMovement: boolean;
   gameReminders: boolean;
+  upsetAlerts: boolean;
 };
 
 // Register this device's Expo push token with the signed-in user's account.
