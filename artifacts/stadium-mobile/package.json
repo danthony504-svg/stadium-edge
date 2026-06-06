@@ -10,6 +10,7 @@
     "build:ios": "eas build --platform ios --profile production",
     "submit:ios": "eas submit --platform ios --profile production",
     "release:ios": "eas build --platform ios --profile production --auto-submit",
+    "update:ios": "eas update --branch production",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
