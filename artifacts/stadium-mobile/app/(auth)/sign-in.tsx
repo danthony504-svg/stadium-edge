@@ -1,8 +1,8 @@
 import { useSignIn } from "@clerk/expo";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { type Href, Link, useRouter } from "expo-router";
 import React from "react";
-import { Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
 import {
   AUTH_ACCENT,
@@ -14,10 +14,34 @@ import {
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import {
+  clearBiometricLogin,
+  getBiometricCapability,
+  getSavedLoginEmail,
+  loadSavedLogin,
+  runBiometricGate,
+  saveBiometricLogin,
+} from "@/lib/biometricLogin";
 
 type Mode = "signin" | "resetRequest" | "resetVerify";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
+
+// Clerk error codes that mean the stored email/password is genuinely wrong
+// (e.g. the password was changed elsewhere). Only these justify forgetting the
+// saved biometric login — transient/network/rate-limit errors must not.
+const CREDENTIAL_ERROR_CODES = new Set([
+  "form_password_incorrect",
+  "form_identifier_not_found",
+  "form_param_format_invalid",
+  "strategy_for_user_invalid",
+]);
+
+function isCredentialError(error: unknown): boolean {
+  const errs = (error as { errors?: { code?: string }[] } | null)?.errors;
+  if (!Array.isArray(errs)) return false;
+  return errs.some((e) => !!e.code && CREDENTIAL_ERROR_CODES.has(e.code));
+}
 
 const FEATURES: { icon: FeatherName; title: string; desc: string }[] = [
   {
@@ -104,6 +128,27 @@ export default function SignInScreen() {
   const [code, setCode] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
   const [formError, setFormError] = React.useState("");
+  const [bioSupported, setBioSupported] = React.useState(false);
+  const [bioLabel, setBioLabel] = React.useState("Face ID");
+  const [savedEmail, setSavedEmail] = React.useState<string | null>(null);
+  const [bioBusy, setBioBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [cap, saved] = await Promise.all([
+        getBiometricCapability(),
+        getSavedLoginEmail(),
+      ]);
+      if (cancelled) return;
+      setBioSupported(cap.supported);
+      setBioLabel(cap.label);
+      setSavedEmail(saved);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goHome = ({
     session,
@@ -116,11 +161,41 @@ export default function SignInScreen() {
     router.replace(decorateUrl("/") as Href);
   };
 
+  // After a successful password sign-in, offer to remember the credentials
+  // behind Face ID / Touch ID so next time is one tap. Resolves once the user
+  // has answered so the caller can then finalize + navigate.
+  const offerBiometricEnroll = (email: string, pw: string) =>
+    new Promise<void>((resolve) => {
+      // Skip if biometrics aren't available, or this exact account is already
+      // saved. A different account still gets offered (so it can overwrite).
+      if (!bioSupported || savedEmail === email) {
+        resolve();
+        return;
+      }
+      Alert.alert(
+        `Enable ${bioLabel} sign-in?`,
+        `Next time, sign in instantly with ${bioLabel} instead of typing your password.`,
+        [
+          { text: "Not now", style: "cancel", onPress: () => resolve() },
+          {
+            text: "Enable",
+            onPress: async () => {
+              const ok = await saveBiometricLogin(email, pw);
+              if (ok) setSavedEmail(email);
+              resolve();
+            },
+          },
+        ],
+        { cancelable: false },
+      );
+    });
+
   const handleSubmit = async () => {
     const { error } = await signIn.password({ emailAddress, password });
     if (error) return;
 
     if (signIn.status === "complete") {
+      await offerBiometricEnroll(emailAddress, password);
       await signIn.finalize({ navigate: goHome });
     } else if (signIn.status === "needs_second_factor") {
       const emailCodeFactor = signIn.supportedSecondFactors?.find(
@@ -133,7 +208,65 @@ export default function SignInScreen() {
   const handleVerify = async () => {
     await signIn.mfa.verifyEmailCode({ code });
     if (signIn.status === "complete") {
+      await offerBiometricEnroll(emailAddress, password);
       await signIn.finalize({ navigate: goHome });
+    }
+  };
+
+  // One-tap sign-in: verify Face ID / Touch ID, pull the stored credentials,
+  // and run the normal Clerk password sign-in with them.
+  const handleBiometricSignIn = async () => {
+    if (bioBusy) return;
+    setFormError("");
+    setBioBusy(true);
+    try {
+      // Face ID / Touch ID prompt. A cancelled or failed prompt is a no-op —
+      // don't show an error or forget the saved login.
+      const passed = await runBiometricGate(`Sign in with ${bioLabel}`);
+      if (!passed) return;
+
+      const creds = await loadSavedLogin();
+      if (!creds) {
+        // Biometric passed but the keychain secret is gone/corrupt. Clear the
+        // stale email mirror so the broken button disappears.
+        await clearBiometricLogin();
+        setSavedEmail(null);
+        setFormError(
+          `${bioLabel} sign-in isn't set up anymore. Please sign in with your password.`,
+        );
+        return;
+      }
+
+      const { error } = await signIn.password({
+        emailAddress: creds.email,
+        password: creds.password,
+      });
+      if (error) {
+        setEmailAddress(creds.email);
+        if (isCredentialError(error)) {
+          // Stored password is genuinely wrong (e.g. changed elsewhere). Forget
+          // it so we stop offering a broken shortcut.
+          await clearBiometricLogin();
+          setSavedEmail(null);
+          setFormError(
+            `${bioLabel} sign-in didn't work — your password may have changed. Please sign in with your password.`,
+          );
+        } else {
+          // Transient/network error: keep the saved login, just ask to retry.
+          setFormError("Something went wrong signing in. Please try again.");
+        }
+        return;
+      }
+      if (signIn.status === "complete") {
+        await signIn.finalize({ navigate: goHome });
+      } else if (signIn.status === "needs_second_factor") {
+        const emailCodeFactor = signIn.supportedSecondFactors?.find(
+          (f) => f.strategy === "email_code",
+        );
+        if (emailCodeFactor) await signIn.mfa.sendEmailCode();
+      }
+    } finally {
+      setBioBusy(false);
     }
   };
 
@@ -303,6 +436,65 @@ export default function SignInScreen() {
       title="Welcome back"
       subtitle="Sign in to sync your slips, track your picks, and stay ahead across all your devices."
     >
+      {savedEmail && bioSupported ? (
+        <>
+          <Pressable
+            onPress={handleBiometricSignIn}
+            disabled={bioBusy}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: AUTH_ACCENT,
+              borderRadius: 12,
+              paddingVertical: 15,
+              opacity: pressed || bioBusy ? 0.85 : 1,
+            })}
+          >
+            {bioBusy ? (
+              <ActivityIndicator color={AUTH_ACCENT} />
+            ) : (
+              <MaterialCommunityIcons
+                name={bioLabel === "Face ID" ? "face-recognition" : "fingerprint"}
+                size={24}
+                color={AUTH_ACCENT}
+              />
+            )}
+            <View>
+              <Text
+                style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}
+              >
+                Sign in with {bioLabel}
+              </Text>
+              <Text
+                style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground }}
+                numberOfLines={1}
+              >
+                {savedEmail}
+              </Text>
+            </View>
+          </Pressable>
+          <AuthDivider />
+        </>
+      ) : null}
+
+      {formError ? (
+        <Text
+          style={{
+            fontFamily: FONT.body,
+            fontSize: 13,
+            color: colors.destructive,
+            textAlign: "center",
+            marginBottom: 12,
+          }}
+        >
+          {formError}
+        </Text>
+      ) : null}
+
       <AuthField
         label="Email"
         leftIcon="mail"

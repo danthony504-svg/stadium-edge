@@ -8,6 +8,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useAppLock } from "@/context/AppLockContext";
 import { useColors } from "@/hooks/useColors";
+import {
+  clearBiometricLogin,
+  getBiometricCapability,
+  getSavedLoginEmail,
+} from "@/lib/biometricLogin";
 
 export default function AccountScreen() {
   const colors = useColors();
@@ -21,6 +26,42 @@ export default function AccountScreen() {
     biometricLabel,
     setEnabled: setLockEnabled,
   } = useAppLock();
+
+  const [bioLoginEmail, setBioLoginEmail] = React.useState<string | null>(null);
+  const [bioCap, setBioCap] = React.useState({
+    supported: false,
+    label: "Face ID",
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [cap, savedEmail] = await Promise.all([
+        getBiometricCapability(),
+        getSavedLoginEmail(),
+      ]);
+      if (cancelled) return;
+      setBioCap(cap);
+      setBioLoginEmail(savedEmail);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onToggleBioLogin = async (next: boolean) => {
+    if (!next) {
+      await clearBiometricLogin();
+      setBioLoginEmail(null);
+      return;
+    }
+    // We can only store credentials at sign-in time (the password isn't
+    // available while already signed in), so guide the user there.
+    Alert.alert(
+      `Turn on ${bioCap.label} sign-in`,
+      `Sign out, then sign back in once with your password — we'll offer to remember it for ${bioCap.label}.`,
+    );
+  };
 
   const onToggleLock = async (next: boolean) => {
     if (next && !lockSupported) {
@@ -188,6 +229,50 @@ export default function AccountScreen() {
             ios_backgroundColor={colors.border}
           />
         </View>
+
+        {bioCap.supported || bioLoginEmail ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 16,
+            }}
+          >
+            <Feather name="user-check" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}
+              >
+                Sign in with {bioCap.label}
+              </Text>
+              <Text
+                style={{
+                  fontFamily: FONT.body,
+                  fontSize: 13,
+                  color: colors.mutedForeground,
+                  marginTop: 2,
+                }}
+                numberOfLines={2}
+              >
+                {bioLoginEmail
+                  ? `On — tap ${bioCap.label} on the sign-in screen instead of typing your password.`
+                  : `Use ${bioCap.label} to sign in without typing your password.`}
+              </Text>
+            </View>
+            <Switch
+              value={!!bioLoginEmail}
+              onValueChange={onToggleBioLogin}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#ffffff"
+              ios_backgroundColor={colors.border}
+            />
+          </View>
+        ) : null}
 
         <Pressable
           onPress={async () => {

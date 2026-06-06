@@ -73,7 +73,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow Stadium Edge to use Face ID to unlock the app."
+          "faceIDPermission": "Allow Stadium Edge to use Face ID to unlock the app and sign you in."
         }
       ]
     ],
