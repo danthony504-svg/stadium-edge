@@ -74,9 +74,28 @@ export async function cachedJson<T>(
 // "odds", "chat") — it becomes the Redis bucket scope, so every instance and
 // every rollout must agree on it. (Ordinal/auto-generated scopes would diverge
 // across mixed-version deployments and fragment the shared buckets.)
+const isLoopback = (addr?: string | null): boolean =>
+  addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+
 export function rateLimit(opts: { windowMs: number; max: number; name: string }) {
   const scope = opts.name;
   return (req: Request, res: Response, next: NextFunction): void => {
+    // Internal server-to-server fallback self-calls (e.g. /sports/odds falling
+    // back to /sports/odds-espn during an Odds API credit outage) originate
+    // from loopback and must NOT share the per-IP user buckets: under an
+    // outage EVERY user request fans out through one loopback IP, which would
+    // 429-collapse the fallback right back to the empty result we are trying
+    // to avoid. Loopback can't be spoofed from outside — the Replit edge
+    // overwrites X-Forwarded-For with the real client IP — and the marker
+    // header is only ever set by our own self-calls, so this can never exempt
+    // real user traffic.
+    if (
+      req.headers["x-internal-call"] === "1" &&
+      isLoopback(req.socket?.remoteAddress)
+    ) {
+      next();
+      return;
+    }
     let identity = "";
     try {
       const auth = getAuth(req);

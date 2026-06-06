@@ -219,6 +219,40 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       };
     });
 
+    // ── Real-odds fallback chain ─────────────────────────────────────────
+    // When The Odds API returns nothing usable (out of monthly credits / 401
+    // OUT_OF_USAGE_CREDITS / upstream error), every odds-driven surface — the
+    // home "Upcoming" rail, the parlay builder, the chat Coach — would go
+    // empty even though real games are on today. Fall back to ESPN pickcenter
+    // lines, then Bovada; BOTH expose real bookmaker odds in this exact shape
+    // (mains only — alt/period ladders are unavailable during the outage,
+    // which is acceptable). Done SERVER-side so the web app AND the already-
+    // installed mobile app recover transparently without a client release.
+    // Sports outside the fallbacks' coverage (e.g. tennis) just stay empty.
+    if (out.length === 0) {
+      const selfPort = process.env["PORT"] || "8080";
+      const selfBase = `http://127.0.0.1:${selfPort}`;
+      const tryFallback = async (pathname: string): Promise<unknown[] | null> => {
+        try {
+          const r = await fetch(`${selfBase}${pathname}?sport=${encodeURIComponent(sportId)}`, {
+            headers: { "x-internal-call": "1" },
+          });
+          if (!r.ok) return null;
+          const list = (await r.json()) as unknown[];
+          return Array.isArray(list) && list.length > 0 ? list : null;
+        } catch {
+          return null;
+        }
+      };
+      const fallback =
+        (await tryFallback("/api/sports/odds-espn")) ??
+        (await tryFallback("/api/sports/odds-bovada"));
+      if (fallback) {
+        res.json(GetOddsResponse.parse(fallback));
+        return;
+      }
+    }
+
     res.json(GetOddsResponse.parse(out));
   } catch (err) {
     req.log.error({ err }, "Failed to fetch odds");
