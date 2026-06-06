@@ -21,3 +21,17 @@ ladder when the user explicitly asked for "alts"/"safer"/"value".
 **How to apply:** never-fabricate still wins — only list rungs that exist in
 realProps (no invented line/price, nothing worse than -1000); show only the
 direction(s) that really exist; omit the note entirely if no alt ladder exists.
+
+**MOBILE GOTCHA — prose alone is invisible on Expo.** The mobile Coach's
+`assistantBubbleText(content, hasPicks)` returns `""` whenever pick cards render,
+so ALL AI prose (the "Alt options:" line included) is stripped on mobile — the
+prose-only approach only ever surfaces on WEB. Mobile must render the alt rungs
+PER-CARD from real data: `matchProp` (components/PickCard.tsx) computes
+`pick.altOptions {cushion,value}` from the SAME propPool ladder it resolves the
+main rung from — cushion = nearest SAFER rung (odds < best, within CUSHION_FLOOR
+-550), value = nearest HIGHER-PAYOUT rung (odds > best), restricted to same
+fixture + exact player + exact marketLabel + same side + line != null/!= best.
+Rendered as display-only `AltRungChip`s (NOT add buttons, never parsed as legs).
+yes/no markets (line==null) and deep-cushion bests (no safer rung) just omit.
+**Why:** user reported "I don't see the alt options" on TestFlight — they're on
+mobile, where the server prose never shows.

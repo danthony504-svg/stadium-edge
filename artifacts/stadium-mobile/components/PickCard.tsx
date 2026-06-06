@@ -31,6 +31,14 @@ export type ParsedPick = {
   homeLogo?: string | null;
   awayAbbr?: string | null;
   homeAbbr?: string | null;
+  // Real alternate rungs for a prop leg (same player+market+side, REAL posted
+  // lines + odds from the pool — never invented). cushion = the nearest SAFER
+  // rung (more juice), value = the nearest HIGHER-PAYOUT rung. Display-only:
+  // shown alongside the main pick so the user can see a safer / longer option.
+  altOptions?: {
+    cushion?: { side: string; line: number; odds: number };
+    value?: { side: string; line: number; odds: number };
+  };
 };
 
 if (
@@ -38,6 +46,49 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// A compact, display-only chip for an alternate prop rung (safer cushion or
+// higher-payout value). Shows the REAL posted side+line and REAL odds.
+function AltRungChip({
+  tone,
+  rung,
+}: {
+  tone: "cushion" | "value";
+  rung: { side: string; line: number; odds: number };
+}) {
+  const colors = useColors();
+  const s = rung.side === "Over" ? "O" : rung.side === "Under" ? "U" : rung.side;
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 5,
+        paddingVertical: 4,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Feather
+        name={tone === "cushion" ? "shield" : "trending-up"}
+        size={11}
+        color={colors.mutedForeground}
+      />
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+        {tone === "cushion" ? "Safer" : "Value"}
+      </Text>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
+        {`${s} ${rung.line}`}
+      </Text>
+      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 11 }}>
+        {formatAmerican(rung.odds)}
+      </Text>
+    </View>
+  );
 }
 
 export function PickCard({ pick }: { pick: ParsedPick }) {
@@ -99,6 +150,17 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
             {formatGameTime(pick.startsAt)}
           </Text>
+        </View>
+      ) : null}
+
+      {pick.altOptions && (pick.altOptions.cushion || pick.altOptions.value) ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {pick.altOptions.cushion ? (
+            <AltRungChip tone="cushion" rung={pick.altOptions.cushion} />
+          ) : null}
+          {pick.altOptions.value ? (
+            <AltRungChip tone="value" rung={pick.altOptions.value} />
+          ) : null}
         </View>
       ) : null}
 
@@ -474,6 +536,47 @@ function matchProp(
     }
     if (up) best = up;
   }
+  // ALT OPTIONS (display-only, deterministic). From the SAME real ladder
+  // (same game + EXACT player + market + side), surface the two nearest rungs to
+  // the chosen one so the user can see a safer / longer alternative at a glance:
+  //   cushion = nearest SAFER rung (odds < best, within CUSHION_FLOOR juice)
+  //   value   = nearest HIGHER-PAYOUT rung (odds > best)
+  // Real posted line + real odds from the pool, never invented. yes/no markets
+  // (best.line == null) have no ladder, so no alt options.
+  let altOptions: ParsedPick["altOptions"];
+  if (best.line != null) {
+    const bn = norm(best.player);
+    const bm = norm(best.marketLabel);
+    const bs = best.side;
+    const bg = best.game;
+    const bestLine = best.line;
+    const bestOdds = best.odds;
+    let cushion: PropPoolEntry | null = null;
+    let value: PropPoolEntry | null = null;
+    for (const e of propPool) {
+      if (
+        e.line == null ||
+        e.line === bestLine ||
+        e.side !== bs ||
+        norm(e.player) !== bn ||
+        norm(e.marketLabel) !== bm ||
+        !sameGame(e.game, bg)
+      )
+        continue;
+      if (e.odds < bestOdds && e.odds >= CUSHION_FLOOR) {
+        if (!cushion || e.odds > cushion.odds) cushion = e; // nearest safer rung
+      } else if (e.odds > bestOdds) {
+        if (!value || e.odds < value.odds) value = e; // nearest higher-payout rung
+      }
+    }
+    if (cushion || value) {
+      altOptions = {};
+      if (cushion)
+        altOptions.cushion = { side: cushion.side, line: cushion.line as number, odds: cushion.odds };
+      if (value)
+        altOptions.value = { side: value.side, line: value.line as number, odds: value.odds };
+    }
+  }
   const pick =
     best.line != null
       ? `${best.player} ${best.side} ${best.line} ${best.marketLabel}`
@@ -487,6 +590,7 @@ function matchProp(
     isProp: true,
     headshot: best.headshot ?? null,
     teamAbbr: best.teamAbbr ?? null,
+    altOptions,
   };
 }
 
