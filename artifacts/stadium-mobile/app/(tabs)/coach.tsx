@@ -953,9 +953,17 @@ export default function CoachScreen() {
             const allProps = picks.every((p) => p.isProp);
             if (!allProps) {
               const gameLegs = picks.filter((p) => !p.isProp);
-              const gameLegGames = new Set(gameLegs.map((p) => norm(p.game)));
+              // SINGLE-GAME LOCK — only when EVERY resolved leg (props INCLUDED)
+              // sits on the SAME one game, i.e. a genuine single-game parlay. The
+              // old check looked only at game-level legs, so a ticket of 2 props
+              // from different WNBA games + 1 lone MLB ML wrongly locked the fill
+              // pool to that one MLB game and starved the backfill (→ "only 3 held
+              // up" on a 6-game board). Counting ALL legs' games fixes that: when
+              // the props come from other matchups the set is >1 and we fill from
+              // the whole board.
+              const allGames = new Set(picks.map((p) => norm(p.game)));
               const lockedGame =
-                gameLegGames.size === 1 ? [...gameLegGames][0] : null;
+                allGames.size === 1 ? [...allGames][0] : null;
               const pool = lockedGame
                 ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
                 : context.realOdds;
@@ -971,7 +979,14 @@ export default function CoachScreen() {
                 spread: [/^Spread$/],
                 total: [/^Total$/],
               };
-              const lockedFam = fams.size === 1 ? [...fams][0] : null;
+              // IMPLICIT MARKET-FAMILY LOCK — only infer a "spread/ML/total
+              // parlay" when the model resolved AT LEAST TWO game-level legs all in
+              // ONE family. A single leaked game leg (e.g. one Phillies ML beside
+              // two props) does NOT establish a market-lock intent, so it must fall
+              // through to the generic mains order and fill across all three
+              // families — not stay stuck on that lone leg's family.
+              const lockedFam =
+                gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
               const order =
                 lockedFam && FAMILY_ORDER[lockedFam]
                   ? FAMILY_ORDER[lockedFam]

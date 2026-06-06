@@ -36,3 +36,16 @@ shape of what already resolved:
 - The honest legNote still fires if the real board genuinely can't reach N.
 - The lock heuristics relax toward FILLING (the user's intent) on the rare
   one-leaked-leg case; that's the deliberate conservative direction.
+
+**The one-leaked-game-leg false-lock (fixed):** the single-game lock must be
+computed from ALL resolved picks' games (props INCLUDED), not just the game-level
+legs. Symptom: a 6-leg ask resolved to 2 props (different WNBA games) + 1 lone
+MLB ML; the old check saw `gameLegGames.size===1` (just the MLB game) → locked
+the fill pool to that one MLB game → backfill added nothing → "only 3 held up"
+on a 6-game board. Likewise the implicit market-family lock must require
+`gameLegs.length >= 2` in one family — a SINGLE leaked game leg never establishes
+a "spread/ML/total parlay" intent, so it falls through to the generic mains order
+and fills across all three families. Genuine single-game SGPs (every leg, props
+included, on one game) and true ≥2-leg market locks are still respected.
+**Why:** these were the conditions that let a healthy slate still report a short,
+honest-looking ticket — the most-reported Coach failure.
