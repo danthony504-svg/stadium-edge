@@ -16,6 +16,7 @@ import bballrefRouter from "./bballref";
 import slipImageRouter from "./slipImage";
 import syncRouter from "./sync";
 import ufcRouter from "./ufc";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -36,5 +37,6 @@ router.use(bballrefRouter);
 router.use(slipImageRouter);
 router.use(syncRouter);
 router.use(ufcRouter);
+router.use(notificationsRouter);
 
 export default router;

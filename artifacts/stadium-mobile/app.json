@@ -45,6 +45,12 @@
       "expo-font",
       "expo-web-browser",
       [
+        "expo-notifications",
+        {
+          "color": "#3b82f6"
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Allow Stadium Edge to access your photos so you can upload a bet slip for the AI Coach to analyze."

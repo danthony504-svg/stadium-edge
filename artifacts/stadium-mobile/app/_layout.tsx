@@ -13,7 +13,7 @@ import {
 import { ClerkLoaded, ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
@@ -28,6 +28,10 @@ import { LockScreen } from "@/components/LockScreen";
 import { AppLockProvider, useAppLock } from "@/context/AppLockContext";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
+import {
+  addNotificationResponseListener,
+  registerForPushAsync,
+} from "@/lib/notifications";
 
 // Clerk publishable key + proxy URL come from the environment (dev script /
 // build.js). Empty in dev for the proxy (Clerk hits dev FAPI directly), set in
@@ -44,6 +48,26 @@ function AuthTokenBridge() {
     setAuthTokenGetter(() => getToken());
     return () => setAuthTokenGetter(null);
   }, [getToken]);
+  return null;
+}
+
+// Registers this device for push once Clerk reports a signed-in session (the
+// register call is authed), and wires a tap listener that deep-links to the
+// relevant screen. No-op while signed out; the tap listener is always active.
+function PushNotificationsBridge() {
+  const { isSignedIn } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    registerForPushAsync().catch(() => {});
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    const sub = addNotificationResponseListener((path) => router.navigate(path as never));
+    return () => sub.remove();
+  }, [router]);
+
   return null;
 }
 
@@ -69,6 +93,7 @@ function RootLayoutNav() {
       <Stack.Screen name="upcoming" options={{ presentation: "card" }} />
       <Stack.Screen name="(auth)" options={{ presentation: "card" }} />
       <Stack.Screen name="account" options={{ presentation: "card" }} />
+      <Stack.Screen name="notifications" options={{ presentation: "card" }} />
     </Stack>
   );
 }
@@ -128,6 +153,7 @@ export default function RootLayout() {
           <ClerkLoaded>
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
+              <PushNotificationsBridge />
               <AppLockProvider>
                 <BetSlipProvider>
                   <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>

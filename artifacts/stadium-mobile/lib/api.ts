@@ -172,6 +172,65 @@ export async function putSync<T>(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+// ---------- Push notifications (Clerk-authed; routes/notifications.ts) ----------
+
+// Per-user notification preferences. All default true; when `master` is false
+// the server sends nothing regardless of the category flags.
+export type NotifPrefs = {
+  master: boolean;
+  dailyPicks: boolean;
+  betResults: boolean;
+  oddsMovement: boolean;
+  gameReminders: boolean;
+};
+
+// Register this device's Expo push token with the signed-in user's account.
+export async function registerPushToken(token: string, platform?: string): Promise<void> {
+  const res = await authedFetch("/notifications/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, platform }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// Remove this device's Expo push token from the account (e.g. on sign-out).
+export async function unregisterPushToken(token: string): Promise<void> {
+  const res = await authedFetch("/notifications/unregister", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// Read the signed-in user's notification prefs.
+export async function getNotifPrefs(): Promise<NotifPrefs> {
+  const res = await authedFetch("/notifications/prefs");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { prefs: NotifPrefs };
+  return body.prefs;
+}
+
+// Persist a partial prefs update; returns the merged prefs from the server.
+export async function putNotifPrefs(prefs: Partial<NotifPrefs>): Promise<NotifPrefs> {
+  const res = await authedFetch("/notifications/prefs", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prefs }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { prefs: NotifPrefs };
+  return body.prefs;
+}
+
+// Send a test push to all of the caller's registered devices.
+export async function sendTestPush(): Promise<{ ok: boolean; sent: number }> {
+  const res = await authedFetch("/notifications/test", { method: "POST" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as { ok: boolean; sent: number };
+}
+
 export function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
   return getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
 }

@@ -45,3 +45,8 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+NOTIFY_CRON_KEY = "jE3zNGsvX8LtjurLorKH3YH8XIpJCwJd"

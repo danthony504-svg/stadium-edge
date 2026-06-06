@@ -188,6 +188,37 @@ export function NavMenu() {
                 marginHorizontal: 12,
               }}
             />
+            {isSignedIn ? (
+              <Pressable
+                onPress={() => go("/notifications")}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  backgroundColor: pressed ? colors.background : "transparent",
+                })}
+              >
+                <Feather
+                  name="bell"
+                  size={18}
+                  color={isActive(pathname, "/notifications") ? colors.primary : colors.mutedForeground}
+                />
+                <Text
+                  style={{
+                    flex: 1,
+                    color: isActive(pathname, "/notifications")
+                      ? colors.foreground
+                      : colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 15,
+                  }}
+                >
+                  Notifications
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={() => go(accountRoute)}
               style={({ pressed }) => ({

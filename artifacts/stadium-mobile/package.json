@@ -63,9 +63,11 @@
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
     "expo-clipboard": "~8.0.8",
+    "expo-device": "~8.0.10",
     "expo-file-system": "~19.0.23",
     "expo-image-manipulator": "~14.0.8",
     "expo-local-authentication": "~17.0.8",
-    "expo-media-library": "~18.2.1"
+    "expo-media-library": "~18.2.1",
+    "expo-notifications": "~0.32.17"
   }
 }
