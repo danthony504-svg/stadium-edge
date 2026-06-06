@@ -33,11 +33,12 @@ export type ParsedPick = {
   homeAbbr?: string | null;
   // Real alternate rungs for a prop leg (same player+market+side, REAL posted
   // lines + odds from the pool — never invented). cushion = the nearest SAFER
-  // rung (more juice), value = the nearest HIGHER-PAYOUT rung. Display-only:
-  // shown alongside the main pick so the user can see a safer / longer option.
+  // rung (more juice), value = the nearest HIGHER-PAYOUT rung. Tappable: each
+  // chip adds/removes that exact rung as its own slip leg. `pick` is the full
+  // slip pick-string for the rung (same format as the main leg, line swapped).
   altOptions?: {
-    cushion?: { side: string; line: number; odds: number };
-    value?: { side: string; line: number; odds: number };
+    cushion?: { side: string; line: number; odds: number; pick: string };
+    value?: { side: string; line: number; odds: number; pick: string };
   };
 };
 
@@ -48,46 +49,75 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// A compact, display-only chip for an alternate prop rung (safer cushion or
-// higher-payout value). Shows the REAL posted side+line and REAL odds.
+// A compact, TAPPABLE chip for an alternate prop rung (safer cushion or
+// higher-payout value). Shows the REAL posted side+line and REAL odds, and
+// adds/removes that exact rung as its own slip leg on tap. The rung is a real
+// posted line from the same player+market+side ladder — never invented — so it
+// flows through addLeg() exactly like the main pick. It's a DISTINCT leg from
+// the main (different line), so the user can keep the main or swap to a rung.
 function AltRungChip({
   tone,
   rung,
+  parent,
 }: {
   tone: "cushion" | "value";
-  rung: { side: string; line: number; odds: number };
+  rung: { side: string; line: number; odds: number; pick: string };
+  parent: ParsedPick;
 }) {
   const colors = useColors();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
+  const added = hasLeg(parent.game, parent.market, rung.pick);
   const s = rung.side === "Over" ? "O" : rung.side === "Under" ? "U" : rung.side;
+  const fg = added ? colors.primaryForeground : undefined;
+  const onPress = () => {
+    if (added) {
+      removeLeg(`${parent.game}|${parent.market}|${rung.pick}`.toLowerCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else {
+      const ok = addLeg({
+        game: parent.game,
+        market: parent.market,
+        pick: rung.pick,
+        odds: rung.odds,
+        sport: parent.sport,
+      });
+      Haptics.impactAsync(
+        ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+      );
+    }
+  };
   return (
-    <View
-      style={{
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
         paddingVertical: 4,
         paddingHorizontal: 8,
         borderRadius: 8,
-        backgroundColor: colors.card,
+        backgroundColor: added ? colors.primary : colors.card,
         borderWidth: 1,
-        borderColor: colors.border,
-      }}
+        borderColor: added ? colors.primary : colors.border,
+        opacity: pressed ? 0.85 : 1,
+      })}
     >
       <Feather
-        name={tone === "cushion" ? "shield" : "trending-up"}
+        name={added ? "check" : tone === "cushion" ? "shield" : "trending-up"}
         size={11}
-        color={colors.mutedForeground}
+        color={fg ?? colors.mutedForeground}
       />
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+      <Text style={{ color: fg ?? colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
         {tone === "cushion" ? "Safer" : "Value"}
       </Text>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
+      <Text style={{ color: fg ?? colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
         {`${s} ${rung.line}`}
       </Text>
-      <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 11 }}>
+      <Text style={{ color: fg ?? colors.accent, fontFamily: FONT.bold, fontSize: 11 }}>
         {formatAmerican(rung.odds)}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -156,10 +186,10 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
       {pick.altOptions && (pick.altOptions.cushion || pick.altOptions.value) ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           {pick.altOptions.cushion ? (
-            <AltRungChip tone="cushion" rung={pick.altOptions.cushion} />
+            <AltRungChip tone="cushion" rung={pick.altOptions.cushion} parent={pick} />
           ) : null}
           {pick.altOptions.value ? (
-            <AltRungChip tone="value" rung={pick.altOptions.value} />
+            <AltRungChip tone="value" rung={pick.altOptions.value} parent={pick} />
           ) : null}
         </View>
       ) : null}
@@ -569,12 +599,17 @@ function matchProp(
         if (!value || e.odds < value.odds) value = e; // nearest higher-payout rung
       }
     }
+    // Full slip pick-string for a rung — same format as the main leg
+    // (`player side line marketLabel`) with only the line swapped, so the slip
+    // dedupe / AI parity keyed on game|market|pick stays consistent.
+    const rungPick = (e: PropPoolEntry) =>
+      `${e.player} ${e.side} ${e.line} ${e.marketLabel}`;
     if (cushion || value) {
       altOptions = {};
       if (cushion)
-        altOptions.cushion = { side: cushion.side, line: cushion.line as number, odds: cushion.odds };
+        altOptions.cushion = { side: cushion.side, line: cushion.line as number, odds: cushion.odds, pick: rungPick(cushion) };
       if (value)
-        altOptions.value = { side: value.side, line: value.line as number, odds: value.odds };
+        altOptions.value = { side: value.side, line: value.line as number, odds: value.odds, pick: rungPick(value) };
     }
   }
   const pick =

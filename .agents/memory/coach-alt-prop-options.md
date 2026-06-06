@@ -31,7 +31,16 @@ PER-CARD from real data: `matchProp` (components/PickCard.tsx) computes
 main rung from — cushion = nearest SAFER rung (odds < best, within CUSHION_FLOOR
 -550), value = nearest HIGHER-PAYOUT rung (odds > best), restricted to same
 fixture + exact player + exact marketLabel + same side + line != null/!= best.
-Rendered as display-only `AltRungChip`s (NOT add buttons, never parsed as legs).
 yes/no markets (line==null) and deep-cushion bests (no safer rung) just omit.
 **Why:** user reported "I don't see the alt options" on TestFlight — they're on
 mobile, where the server prose never shows.
+
+**TAPPABLE rungs (later ask):** `AltRungChip` is now a Pressable that toggles
+that exact rung into the slip (was display-only). Each rung carries a full slip
+`pick` string (`player side line marketLabel`, built in matchProp from the SAME
+pool entry, only the line swapped) so the leg flows through `addLeg` exactly like
+the main pick. added-state = `hasLeg(parent.game, parent.market, rung.pick)`;
+toggle passes ONLY slip-`Leg` fields {game,market,pick,odds,sport} (no headshot/
+teamAbbr — not in Leg). A rung is a DISTINCT leg from the main (different line),
+so main + rung can coexist; MAX_LEGS refusal handled via addLeg's boolean return.
+**Why:** user asked to "click the safer and value picks and add to ticket".
