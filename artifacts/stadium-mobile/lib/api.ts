@@ -1,5 +1,6 @@
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
+import { NAME_FALLBACK_SKIP } from "./statLookup";
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
@@ -1245,6 +1246,41 @@ export function gameMatchesFocalText(gameLabel: string, text: string | null | un
   return false;
 }
 
+// Filler/request words stripped from a free-text form question so what remains
+// is just the player name(s). DELIBERATELY excludes real first-name words like
+// "will"/"may"/"cam" (see player-name-extraction memory) so they never get
+// stripped out of a real name. Single-token candidates are additionally gated by
+// NAME_FALLBACK_SKIP, and every candidate is resolved against a real ESPN search
+// with a whole-word guard, so an over-broad leftover simply fails to resolve.
+const NAME_REQUEST_FILLER =
+  /\b(?:do|you|i|we|like|likes|liking|want|wanna|need|rate|back|backing|think|thinks|thought|feel|feels|love|loves|how|hows|what|whats|whos|about|thoughts|read|reads|reading|look|looking|lookup|get|show|tell|give|pull|up|of|on|to|too|for|in|with|my|me|some|any|good|great|best|top|hot|cold|the|a|an|and|or|but|that|these|those|this|guy|guys|player|players|hitter|hitters|batter|batters|home|homer|homers|hr|hrs|run|runs|hit|hits|hitting|form|recent|recently|lately|last|game|games|gamelog|boxscore|tonight|today|tomorrow|night|season|seasons|career|over|under|line|lines|prop|props|odds|stat|stats|statline|number|numbers|split|splits|projection|project|projecting|going|deep|xbh|slug|slugging|streak|streaks|vs|versus|against|are|is|am|was|were|does|did|would|should|could)\b/gi;
+
+// Pull candidate player-NAME phrases out of a free-text form question. Splits on
+// list delimiters (commas, "and", "&", "/", "vs", newlines) so a multi-name ask
+// ("Seager, Pederson and Nimmo") yields one candidate per hitter, then strips
+// request verbs / stat words / filler from each so what's left is just the name.
+function extractNamedCandidates(text: string): string[] {
+  const segs = String(text || "")
+    .replace(/[?!.;:]/g, " ")
+    .split(/,|\/|&|\n|\bvs\.?\b|\bversus\b|\band\b/gi);
+  const out: string[] = [];
+  const seenStr = new Set<string>();
+  for (const seg of segs) {
+    let s = ` ${seg.toLowerCase()} `;
+    s = s.replace(NAME_REQUEST_FILLER, " ");
+    s = s.replace(/[^a-z'.\- ]/g, " ").replace(/\s+/g, " ").trim();
+    if (!s) continue;
+    const toks = s.split(" ").filter((w) => w.length >= 2);
+    if (toks.length < 1 || toks.length > 3) continue;
+    if (toks.length === 1 && NAME_FALLBACK_SKIP.has(toks[0])) continue;
+    const cand = toks.join(" ");
+    if (seenStr.has(cand)) continue;
+    seenStr.add(cand);
+    out.push(cand);
+  }
+  return out;
+}
+
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
 export async function buildChatContext(
@@ -1596,6 +1632,81 @@ export async function buildChatContext(
         }
       }),
     );
+  }
+
+  // Named off-pool player enrichment (recent-form-only reads). When the user
+  // NAMES players for a form/HR read ("do you like Seager, Pederson, Nimmo to
+  // homer", "how's Soto hitting lately") and they're NOT in tonight's prop pool,
+  // the chat path would otherwise have no real data and either refuse or risk
+  // fabricating. Resolve each named player against ESPN and inject their REAL
+  // recent game log so the model can give a grounded recent-form-only read. The
+  // SINGLE-player case is already handled upstream by the stat-card path; this
+  // covers MULTIPLE named players (the card path extracts only one name). Gated
+  // to non-build form questions; each name is resolved against a real ESPN search
+  // (whole-word guarded) so junk tokens never bind to an athlete.
+  if (focalText && focalText.trim()) {
+    const ftLow = focalText.toLowerCase();
+    const isBuild =
+      /\b(parlay|build|wager|slip|legs?|sgp|same game|alt|alternate|alternates|pick'?em|moneyline|spread)\b/.test(
+        ftLow,
+      ) || /\b\d+\s*[- ]?legs?\b/.test(ftLow);
+    const hasFormCue =
+      /\b(home runs?|homers?|homer|hr|hitting|hits|form|recent|lately|last \d+ games?|game ?log|projection|project|going deep|xbh|slug|slugging|streak|do you (?:like|rate|think)|thoughts on|read on)\b/.test(
+        ftLow,
+      );
+    if (!isBuild && hasFormCue) {
+      const existingIds = new Set(
+        Object.keys(playerHistory)
+          .map((k) => k.split("#")[1])
+          .filter(Boolean),
+      );
+      const candidates = extractNamedCandidates(focalText).slice(0, 6);
+      const norm = (s: string) =>
+        String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const seenIds = new Set<string>();
+      type EnrichResp = {
+        recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
+      };
+      await Promise.all(
+        candidates.map(async (cand) => {
+          try {
+            const sr = await searchPlayer(cand, signal);
+            const hit = (sr.results || [])[0];
+            if (!hit?.athleteId || !hit.name) return;
+            // Whole-word guard: every candidate token must be a WHOLE word in the
+            // resolved name (accent-insensitive) so a fuzzy ESPN hit can't bind an
+            // unrelated player to a stray token.
+            const nameToks = norm(hit.name).split(/\s+/).filter(Boolean);
+            const candToks = norm(cand).split(/\s+/).filter(Boolean);
+            if (!candToks.length || !candToks.every((c) => nameToks.includes(c))) return;
+            // Single-token (surname-only) candidates are the highest misbinding
+            // risk — many athletes share a surname/first name. Accept one only
+            // when the player is ACTIVE and the token IS their first or last name
+            // (not a middle-name accident or a retired namesake). Multi-token
+            // (first + last) candidates are already specific enough to trust.
+            if (candToks.length === 1) {
+              const isFirstOrLast =
+                candToks[0] === nameToks[0] || candToks[0] === nameToks[nameToks.length - 1];
+              if (!hit.isActive || !isFirstOrLast) return;
+            }
+            const id = String(hit.athleteId);
+            if (existingIds.has(id) || seenIds.has(id)) return;
+            seenIds.add(id);
+            const q = new URLSearchParams({ sport: hit.sport, athleteId: id });
+            const data = await getJson<EnrichResp>(`/sports/player-history?${q.toString()}`, signal);
+            const recent = Array.isArray(data?.recent) ? data.recent.slice(0, 5) : [];
+            if (!recent.length) return;
+            playerHistory[`${hit.name}#${id}`] = {
+              player: hit.name,
+              recentFormOnly: true,
+              recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
+            };
+          } catch {
+            /* honest no-history fallback — skip this name */
+          }
+        }),
+      );
+    }
   }
 
   // MLB platoon (batter hand vs opposing probable starter) + per-game ballpark

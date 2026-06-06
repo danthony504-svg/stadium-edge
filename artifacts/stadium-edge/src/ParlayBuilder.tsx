@@ -2603,6 +2603,12 @@ function parseStatLookup(raw) {
   const low = t.toLowerCase();
   // Never hijack parlay / betting-build requests.
   if (/\b(parlay|build|wager|slip|leg|legs|prop bet|bet on|place a bet|moneyline|spread|over\/under|pick'?em|sgp|same game)\b/.test(low)) return null;
+  // Plays / picks / bets requests ("best hr plays for tomorrow", "top plays
+  // today", "give me some picks") ask the model to PICK from tonight's pool —
+  // they never NAME a single player to look up. Without this the leftover words
+  // fuzzy-bind to a real athlete (reported bug: "best hr plays for tomorrow" →
+  // NCAAF player Jadon Best).
+  if (/\b(plays|picks|bets)\b/.test(low)) return null;
   // Superlative / pool questions ("who is most likely to hit a HR", "which
   // player will go off tonight", "who's the best bet to score") ask the model
   // to PICK a player from tonight's pool — they never NAME the player to look
@@ -2690,6 +2696,18 @@ function parseStatLookup(raw) {
     const o = toks.join(" ").trim();
     if (o && o.length >= 2) opponent = o;
   }
+  // "vs pitch mix" / "vs pitches" isn't an opponent TEAM — it's a request to
+  // weigh the opposing pitcher's repertoire (Statcast pitch-type data we don't
+  // have). Treating it as a team renders a misleading "no game vs pitch mix
+  // (they may not have met yet)" note (reported bug). Drop it so the card just
+  // shows the player's real recent game log.
+  if (
+    opponent &&
+    /^(?:pitch(?:es|ing)?(?:\s*-?\s*(?:mix(?:es)?|types?))?|arsenal|repertoire|velo(?:city)?|spin(?:\s*rate)?|movement|stuff|offspeed|fastballs?|sinkers?|sliders?|curveballs?|changeups?|cutters?|splitters?|breaking\s*balls?)$/i.test(
+      opponent.replace(/\s+/g, " ").trim(),
+    )
+  )
+    opponent = null;
   let name = t;
   // The player name always PRECEDES any "vs/against <opp>" clause — everything
   // from that marker on is opponent + trailing filler ("against the tb rays in
