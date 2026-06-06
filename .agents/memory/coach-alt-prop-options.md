@@ -41,6 +41,16 @@ that exact rung into the slip (was display-only). Each rung carries a full slip
 pool entry, only the line swapped) so the leg flows through `addLeg` exactly like
 the main pick. added-state = `hasLeg(parent.game, parent.market, rung.pick)`;
 toggle passes ONLY slip-`Leg` fields {game,market,pick,odds,sport} (no headshot/
-teamAbbr — not in Leg). A rung is a DISTINCT leg from the main (different line),
-so main + rung can coexist; MAX_LEGS refusal handled via addLeg's boolean return.
+teamAbbr — not in Leg). MAX_LEGS refusal handled via addLeg's boolean return.
 **Why:** user asked to "click the safer and value picks and add to ticket".
+
+**ONE LEG PER CARD (mutual exclusion, later fix):** the main pick + cushion +
+value are the SAME bet at different lines (alternatives), NOT independent legs —
+letting them coexist put two legs of one bet on the slip. `siblingLegKeys(parent,
+keepPick)` returns the legKeys for the card's OTHER two options; BOTH add paths
+(main button onToggle + AltRungChip onPress) `removeLeg()` the siblings before
+`addLeg()`, so selecting any one option clears the other two. Tapping an
+already-added option still toggles it off. Remove-before-add nets zero so a swap
+never trips MAX_LEGS; game-level cards have no altOptions so siblings=[] (no-op).
+**Why:** user added main AND a rung and got duplicate same-bet legs — "should be
+able to only click one or the other and add 1 to the ticket".

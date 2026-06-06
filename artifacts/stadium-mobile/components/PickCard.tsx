@@ -49,6 +49,21 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// The main pick and its alternate rungs (cushion / value) are the SAME bet at
+// different lines — alternatives, not independent legs. Selecting any one must
+// clear the others so a single card only ever contributes ONE leg to the slip.
+// Returns the slip legKeys for this card's OTHER options (everything but the one
+// being kept), so the caller can removeLeg() them before adding the chosen line.
+function siblingLegKeys(parent: ParsedPick, keepPick: string): string[] {
+  return [
+    parent.pick,
+    parent.altOptions?.cushion?.pick,
+    parent.altOptions?.value?.pick,
+  ]
+    .filter((p): p is string => !!p && p !== keepPick)
+    .map((p) => `${parent.game}|${parent.market}|${p}`.toLowerCase());
+}
+
 // A compact, TAPPABLE chip for an alternate prop rung (safer cushion or
 // higher-payout value). Shows the REAL posted side+line and REAL odds, and
 // adds/removes that exact rung as its own slip leg on tap. The rung is a real
@@ -74,6 +89,9 @@ function AltRungChip({
       removeLeg(`${parent.game}|${parent.market}|${rung.pick}`.toLowerCase());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
+      // Mutually exclusive with the main pick + the other rung — selecting this
+      // line clears any sibling line already on the slip (one leg per card).
+      for (const k of siblingLegKeys(parent, rung.pick)) removeLeg(k);
       const ok = addLeg({
         game: parent.game,
         market: parent.market,
@@ -143,6 +161,9 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
       removeLeg(id);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
+      // Selecting the main line clears any alternate rung (cushion/value) for the
+      // same bet so a card only ever contributes ONE leg.
+      for (const k of siblingLegKeys(pick, pick.pick)) removeLeg(k);
       const ok = addLeg(pick);
       Haptics.impactAsync(
         ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
