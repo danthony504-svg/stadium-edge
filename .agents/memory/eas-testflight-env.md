@@ -50,3 +50,22 @@ directly (respects .easignore/.gitignore) instead of using git. Also use
 `--non-interactive` (EXPO_TOKEN secret authenticates; iOS credentials already
 stored remotely on EAS) and `--no-wait` so the command returns a build URL
 instead of blocking ~25 min.
+
+## Non-interactive auto-submit needs ascAppId in eas.json
+`eas build --auto-submit --non-interactive` (and `release:ios`) FAILS the submit
+step with "Set ascAppId in the submit profile (eas.json) or re-run ... in
+interactive mode" if `submit.production.ios.ascAppId` is missing — and the
+failure happens AFTER the build is queued, so the build runs but nothing
+auto-submits (an orphan). Fix: set `submit.production.ios.ascAppId` =
+`6776024127` (Stadium Edge's App Store Connect Apple ID; bundle
+com.stadiumedge.app). The ASC API key for submission is already stored on EAS
+servers ("[Expo] EAS Submit ...", key id AF2872CMVS), so ascAppId is the only
+piece the profile needs.
+**Recover the ascAppId without the user / without interactive:** query EAS
+GraphQL for prior submissions —
+`POST https://api.expo.dev/graphql` (Bearer EXPO_TOKEN),
+`query{app{byId(appId:"<projectId>"){submissions(filter:{platform:IOS},offset:0,limit:5){id status iosConfig{ascAppIdentifier}}}}}`.
+projectId is app.json → expo.extra.eas.projectId.
+**If a build was queued before ascAppId was set:** cancel the orphan
+(`eas build:cancel <id> --non-interactive`) then re-run the build so auto-submit
+is attached server-side and runs hands-off when the build finishes.
