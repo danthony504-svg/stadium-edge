@@ -1856,7 +1856,35 @@ export type StreamChatArgs = {
   // Optional list (max 3) of base64 data URLs of user-attached photos. Preferred
   // over the singular imageDataUrl; the server caps and validates these.
   imageDataUrls?: string[];
+  // Optional callback fired with the EXACT player-prop pool the server fed the
+  // model (the post-filter / post-backfill realProps). The client's own prop pool
+  // is capped to the soonest games and can miss late-starting games (or drop them
+  // on a burst-429), so the model can correctly pick a real prop the client never
+  // fetched. Merging this server pool into the client propPool lets parsePicks
+  // resolve those legs instead of fail-closing the whole ticket. Real bookmaker
+  // data only — never fabricated.
+  onProps?: (props: RealPropEntry[]) => void;
 };
+
+// Convert the server's realProps (one row per player+market with both posted
+// sides) into resolution-shape PropPoolEntry rows (one per posted side) so they
+// can be merged into the client propPool the slip parser matches against. Render
+// metadata (headshot/teamAbbr) is unavailable for server-only rows, so the card
+// just renders without a photo — never fabricated. Used to backfill late-game /
+// dropped props the client never fetched (see streamChat onProps).
+export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
+  const out: PropPoolEntry[] = [];
+  for (const p of props) {
+    const marketLabel = propMarketLabel(p.market);
+    if (p.over != null) {
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over });
+    }
+    if (p.line != null && p.under != null) {
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under });
+    }
+  }
+  return out;
+}
 
 function abortError(): Error {
   const e = new Error("Aborted");
@@ -1880,7 +1908,7 @@ function abortError(): Error {
 //      succeeds on a later attempt. Once real tokens have started we never retry
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
-export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls }: StreamChatArgs): Promise<string> {
+export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls, onProps }: StreamChatArgs): Promise<string> {
   const STALL_MS = 4000; // max gap between chunks before we call the link dead
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body (the full real-data context — ~120 odds + the prop pool + matchup/fight
@@ -1989,6 +2017,11 @@ export async function streamChat({ messages, context, onToken, signal, imageData
               fullText += data.content;
               sawContent = true;
               onToken(fullText);
+            } else if (Array.isArray(data.props) && onProps) {
+              // The server's resolved prop pool (post-filter / post-backfill).
+              // Arrives BEFORE the first content token so the caller can merge it
+              // into its propPool before parsePicks runs on the streamed text.
+              try { onProps(data.props as RealPropEntry[]); } catch { /* never break the stream on a merge error */ }
             }
           } catch {
             // ignore keep-alive / status / ping frames

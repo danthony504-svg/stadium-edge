@@ -47,11 +47,14 @@ import {
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
+  propPoolFromRealProps,
   searchPlayer,
   searchTeam,
   streamChat,
   type AltSign,
   type ChatMessage,
+  type PropPoolEntry,
+  type RealPropEntry,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { NAME_FALLBACK_SKIP, parseStatLookup } from "@/lib/statLookup";
@@ -819,11 +822,21 @@ export default function CoachScreen() {
         }));
 
         let first = true;
+        // The server streams back the EXACT prop pool the model saw (post
+        // market-lock filter + fresh-fetch backfill). The local propPool is capped
+        // to the soonest games and can miss late-starting games, so without this
+        // the matcher fail-closes a perfectly real later-game prop ticket. Merge
+        // the server rows in (dedup by game|player|line|side|market) before
+        // parsePicks runs. Real bookmaker rows only — never fabricated.
+        const serverPropPool: PropPoolEntry[] = [];
         const full = await streamChat({
           messages: apiMessages,
           context,
           imageDataUrls: outgoingImageDataUrls,
           signal: controller.signal,
+          onProps: (rows: RealPropEntry[]) => {
+            serverPropPool.push(...propPoolFromRealProps(rows));
+          },
           onToken: (sofar) => {
             if (first) {
               first = false;
@@ -837,6 +850,16 @@ export default function CoachScreen() {
             scrollToEnd();
           },
         });
+        // Merge server rows the client pool is missing (the client pool wins on
+        // collision so its render metadata — headshot/teamAbbr — is preserved).
+        const mergedPropPool: PropPoolEntry[] = (() => {
+          if (serverPropPool.length === 0) return propPool;
+          const key = (e: PropPoolEntry) =>
+            `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
+          const seen = new Set(propPool.map(key));
+          const extra = serverPropPool.filter((e) => !seen.has(key(e)));
+          return extra.length ? [...propPool, ...extra] : propPool;
+        })();
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -857,7 +880,7 @@ export default function CoachScreen() {
               ? "value"
               : "cushion"
             : null;
-        let picks = parsePicks(full, context.realOdds, propPool, gameMeta, altRungBias);
+        let picks = parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so

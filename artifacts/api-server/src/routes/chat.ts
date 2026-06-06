@@ -1567,6 +1567,19 @@ router.post("/chat", async (req, res): Promise<void> => {
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
       : "";
 
+  // The EXACT player-prop pool the model is about to see (post market-lock filter
+  // and post fresh-fetch backfill). The mobile client's own prop pool is capped to
+  // the soonest games and can miss late-starting games (or drop them on a burst
+  // 429), so the model can correctly pick a real prop the client never fetched —
+  // which the client matcher then fail-closes, killing the whole ticket ("I
+  // couldn't ground any of those legs"). Streaming this pool back lets the client
+  // merge it before resolving picks. Real bookmaker rows only — never fabricated.
+  const aiRealProps: unknown[] = Array.isArray(
+    (lockedContext as { realProps?: unknown[] })?.realProps,
+  )
+    ? ((lockedContext as { realProps?: unknown[] }).realProps ?? [])
+    : [];
+
   try {
     const lc = (lockedContext ?? {}) as Record<string, unknown>;
     const cnt = (v: unknown) =>
@@ -1828,6 +1841,14 @@ ENFORCEMENT:
   // feedback — so the status never pollutes the final answer or the
   // client-side PICK-line validation (which reads only the streamed content).
   res.write(`data: ${JSON.stringify({ status: "Pulling real odds & matchup data, then building your ticket\u2026" })}\n\n`);
+  // Stream the resolved prop pool BEFORE the model's first token so the client can
+  // merge it into its own propPool before resolving PICK lines. The client ignores
+  // any frame without a `.content` field, so this never pollutes the rendered
+  // answer or the PICK-line validation. Older clients simply drop the unknown
+  // frame — backward-compatible. Only when there's something to send.
+  if (aiRealProps.length > 0) {
+    try { res.write(`data: ${JSON.stringify({ props: aiRealProps })}\n\n`); } catch { /* socket gone */ }
+  }
   const stopHeartbeat = () => {
     if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
   };
