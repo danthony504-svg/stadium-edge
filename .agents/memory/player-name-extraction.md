@@ -76,3 +76,22 @@ a home run?" — rendered Luis Severino's pitcher card. Three compounding causes
 **Note:** the FIRST search (full extracted name) still trusts ESPN's top hit with
 no containment guard — fine because the name is clean by then; the guard only
 matters for the fuzzy single-token span fallback.
+
+## Superlative / pool questions wrongly fired a stat card (the "Isaiah Likely" leak)
+"Who is most likely to hit a home run tonight?" rendered NFL TE Isaiah Likely's
+card (alongside the CORRECT home-run-pool prose answer). Same class as Severino:
+`hasCue` fired on the stat noun ("home run"), name stripped to "Who is most likely
+to", and the span-search tried single tokens — **"likely"** (not skipped) is a
+whole word in "Isaiah Likely", so it passed the whole-word containment guard and
+bound. The deep insight: a "who/which … most likely/best …?" question asks the
+model to PICK a player from tonight's pool and NEVER names the player to look up —
+so it must never enter the stat-lookup path at all.
+**Fix (web ParlayBuilder + mobile statLookup — parity):** early in `parseStatLookup`,
+right after the parlay guard, bail to `null` on `\bmost likely\b` OR a leading
+`^\s*(who|who's|whos|which)\b`. Plus defense-in-depth: add
+`likely/most/mostly/anybody/anyone/someone/everybody/everyone/best` to
+`NAME_FALLBACK_SKIP` so a stray superlative adverb can't standalone-resolve even if
+a future phrasing slips the cue.
+**Why a hard bail, not just skip-set:** the skip-set alone is whack-a-mole (the next
+synonym leaks); the leading-interrogative bail kills the whole class because a real
+stat lookup ALWAYS names the player up front — "who/which …?" by definition doesn't.

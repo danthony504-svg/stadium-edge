@@ -56,6 +56,7 @@ export const NAME_FALLBACK_SKIP = new Set([
   "have","has","had","hit","hits","throw","throws","threw","pass","passes","passed","rush","rushes","rushed",
   "perform","performs","look","looks","looking","think","thinks","thought","believe","believes","expect",
   "predict","project","guess","reckon","suppose","feel","feels","say","says","against","vs","versus","many",
+  "likely","most","mostly","anybody","anyone","someone","everybody","everyone","best",
   "much","about","over","under","line","first","second","third","fourth","quarter","half","period","inning",
   "week","tomorrow","yesterday","night","monday","tuesday","wednesday","thursday","friday","saturday","sunday",
 ]);
@@ -82,6 +83,14 @@ export function parseStatLookup(raw: string): StatLookup | null {
     )
   )
     return null;
+  // Superlative / pool questions ("who is most likely to hit a HR", "which
+  // player will go off tonight", "who's the best bet to score") ask the model
+  // to PICK a player from tonight's pool — they never NAME the player to look
+  // up. Treat them as AI/pool questions, never a single-player stat lookup.
+  // Otherwise a stray adverb like "likely" fuzzy-binds to an unrelated athlete
+  // (the reported bug: "most likely to hit a home run" → NFL TE Isaiah Likely).
+  if (/\bmost likely\b/.test(low)) return null;
+  if (/^\s*(who|who'?s|whos|which)\b/.test(low)) return null;
   const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
   const hasCue =
     /\b(stat|stats|stat ?line|numbers|game ?log|box ?score|splits?)\b/.test(low) ||

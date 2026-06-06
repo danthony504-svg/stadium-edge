@@ -2590,6 +2590,7 @@ const NAME_FALLBACK_SKIP = new Set([
   "have","has","had","hit","hits","throw","throws","threw","pass","passes","passed","rush","rushes","rushed",
   "perform","performs","look","looks","looking","think","thinks","thought","believe","believes","expect",
   "predict","project","guess","reckon","suppose","feel","feels","say","says","against","vs","versus","many",
+  "likely","most","mostly","anybody","anyone","someone","everybody","everyone","best",
   "much","about","over","under","line","first","second","third","fourth","quarter","half","period","inning",
   "week","tomorrow","yesterday","night","monday","tuesday","wednesday","thursday","friday","saturday","sunday",
 ]);
@@ -2599,6 +2600,14 @@ function parseStatLookup(raw) {
   const low = t.toLowerCase();
   // Never hijack parlay / betting-build requests.
   if (/\b(parlay|build|wager|slip|leg|legs|prop bet|bet on|place a bet|moneyline|spread|over\/under|pick'?em|sgp|same game)\b/.test(low)) return null;
+  // Superlative / pool questions ("who is most likely to hit a HR", "which
+  // player will go off tonight", "who's the best bet to score") ask the model
+  // to PICK a player from tonight's pool — they never NAME the player to look
+  // up. Treat them as AI/pool questions, never a single-player stat lookup.
+  // Otherwise a stray adverb like "likely" fuzzy-binds to an unrelated athlete
+  // (the reported bug: "most likely to hit a home run" → NFL TE Isaiah Likely).
+  if (/\bmost likely\b/.test(low)) return null;
+  if (/^\s*(who|who'?s|whos|which)\b/.test(low)) return null;
   const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
   // Must carry a stat-lookup cue. Broad on purpose: a stat ask that slips
   // through here would fall to the AI path, which must never invent numbers.
