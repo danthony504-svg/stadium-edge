@@ -703,6 +703,40 @@ export function buildRealOdds(
         out.push({ ...base, market: "1H Alt Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
       }
     }
+    // Baseball INNINGS markets (game-level only — no per-player inning props).
+    // F5 = first five innings. Labels mirror the web buildPicksFromOdds + chat
+    // SYSTEM_PROMPT; PickCard marketFamily keeps each innings period distinct.
+    const f5ml = g.markets.find((m) => m.key === "h2h_1st_5_innings");
+    const f5sp = g.markets.find((m) => m.key === "spreads_1st_5_innings");
+    const f5tot = g.markets.find((m) => m.key === "totals_1st_5_innings");
+    const i1tot = g.markets.find((m) => m.key === "totals_1st_1_innings");
+    if (f5ml) {
+      for (const o of f5ml.outcomes || []) {
+        if (o.price == null || !mainOk(o.price)) continue;
+        out.push({ ...base, market: "F5 Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price });
+      }
+    }
+    if (f5sp) {
+      for (const o of f5sp.outcomes || []) {
+        if (o.price == null || !mainOk(o.price)) continue;
+        const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+        out.push({ ...base, market: "F5 Run Line", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+      }
+    }
+    if (f5tot) {
+      for (const o of f5tot.outcomes || []) {
+        if (o.price == null || !mainOk(o.price)) continue;
+        const pt = o.point == null ? "" : ` ${o.point}`;
+        out.push({ ...base, market: "F5 Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+      }
+    }
+    if (i1tot) {
+      for (const o of i1tot.outcomes || []) {
+        if (o.price == null || !mainOk(o.price)) continue;
+        const pt = o.point == null ? "" : ` ${o.point}`;
+        out.push({ ...base, market: "1st Inning Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+      }
+    }
   }
   return out;
 }

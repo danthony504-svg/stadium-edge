@@ -441,8 +441,11 @@ export function marketFamily(s: string): string {
   // "Knicks ML") must NOT collapse onto the full-game moneyline, which shares the
   // identical selection. Full-game markets have no prefix. "h1"/"h2" normalize to
   // "1h"/"2h"; "h2h" (a moneyline word) has no \b after it so it never matches.
-  const pm = m.match(/\b(1h|2h|h1|h2|q1|q2|q3|q4)\b/);
-  const period = pm ? `${pm[1].replace("h1", "1h").replace("h2", "2h")}:` : "";
+  const pm = m.match(/\b(1h|2h|h1|h2|q1|q2|q3|q4|f5)\b/);
+  // Baseball innings periods: "F5 …" (first five innings) and "1st Inning …".
+  // Kept in the family so an "F5 Total" can't collapse onto the full-game total.
+  let period = pm ? `${pm[1].replace("h1", "1h").replace("h2", "2h")}:` : "";
+  if (!period && /\b1st inning\b/.test(m)) period = "1i:";
   let fam: string;
   if (/spread|run ?line|puck ?line/.test(m)) fam = "spread";
   else if (/total|over|under|o\/u/.test(m)) fam = "total";

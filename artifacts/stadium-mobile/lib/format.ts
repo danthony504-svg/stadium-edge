@@ -157,6 +157,9 @@ export function wantsPeriodMarkets(text: string | null | undefined): boolean {
   if (/\b(1h|2h|h1|h2|q1|q2|q3|q4)\b/.test(t)) return true;
   if (/\b(first|second|third|fourth|1st|2nd|3rd|4th)\s+(half|quarter)\b/.test(t)) return true;
   if (/\b(half|halves|quarter|quarters|period)\b/.test(t)) return true;
+  // Baseball innings markets (F5 = first five innings, 1st-inning total).
+  if (/\bf5\b/.test(t) || /\b(?:first|1st)\s+(?:5|five)\s+innings?\b/.test(t)) return true;
+  if (/\b(?:first|1st)\s+inning\b/.test(t)) return true;
   if (/\bsame[-\s]?game\b/.test(t) || /\bsgp\b/.test(t)) return true;
   return false;
 }

@@ -103,7 +103,13 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     // sports — the API ignores unsupported keys per sport, no global reject
     // since these are all "valid" keys (only the per-player Q2+/H2 set is
     // invalid, and that's handled in props.ts).
-    const PERIOD_GAME_MARKETS = [
+    // Period markets are SPORT-AWARE: basketball/football trade in
+    // halves/quarters; baseball trades in INNINGS (First 5 Innings "F5" plus
+    // the 1st-inning total). The Odds API uses entirely different keys for
+    // each, so we pick the right set per game by its sport_key — requesting
+    // quarter keys for an MLB game (or inning keys for an NBA game) just
+    // returns nothing and wastes the per-event credit.
+    const PERIOD_MARKETS_DEFAULT = [
       "alternate_spreads", "alternate_totals",
       "spreads_h1", "totals_h1", "h2h_h1",
       "spreads_h2", "totals_h2", "h2h_h2",
@@ -113,19 +119,29 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       "spreads_q4", "totals_q4", "h2h_q4",
       "alternate_spreads_h1", "alternate_totals_h1",
     ];
+    const PERIOD_MARKETS_BASEBALL = [
+      "alternate_spreads", "alternate_totals",
+      "h2h_1st_5_innings", "spreads_1st_5_innings", "totals_1st_5_innings",
+      "totals_1st_1_innings",
+    ];
+    const periodMarketsFor = (sportKey: string) =>
+      sportKey.startsWith("baseball") ? PERIOD_MARKETS_BASEBALL : PERIOD_MARKETS_DEFAULT;
     type Outcome = { name: string; price: number; point: number | null };
     const altByEvent = new Map<string, Map<string, Map<string, Outcome>>>();
     await Promise.all(
       upcoming.map(async (g) => {
         try {
+          const gamePeriodMarkets = periodMarketsFor(g.sport_key);
           const evGame = await cachedJson(
             // Key the per-event alt/period fetch by the event's OWN sport_key
             // (which league/tour it belongs to) so merged multi-key sports hit
-            // the correct endpoint and cache bucket.
-            `odds:${g.sport_key}:alt:${g.id}:v2`,
+            // the correct endpoint and cache bucket. v3: baseball now requests
+            // innings markets instead of the (empty) quarter/half set, so the
+            // cache bucket is bumped to avoid serving stale empty v2 entries.
+            `odds:${g.sport_key}:alt:${g.id}:v3`,
             10 * 60 * 1000,
             async () => {
-              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${PERIOD_GAME_MARKETS.join(",")}&oddsFormat=american`;
+              const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;
               const r = await fetch(url);
               if (!r.ok) return null;
               return (await r.json()) as RawOddsGame;
@@ -138,7 +154,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
           const byMarket = new Map<string, Map<string, Outcome>>();
           for (const b of evGame.bookmakers ?? []) {
             for (const m of b.markets ?? []) {
-              if (!PERIOD_GAME_MARKETS.includes(m.key)) continue;
+              if (!gamePeriodMarkets.includes(m.key)) continue;
               let bucket = byMarket.get(m.key);
               if (!bucket) { bucket = new Map(); byMarket.set(m.key, bucket); }
               for (const o of m.outcomes ?? []) {
@@ -204,7 +220,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       if (alt) {
         // Emit each period/alt market in a stable order so downstream
         // consumers (and the chat AI) see them grouped predictably.
-        for (const key of PERIOD_GAME_MARKETS) {
+        for (const key of periodMarketsFor(g.sport_key)) {
           const bucket = alt.get(key);
           if (bucket?.size) altMarkets.push({ key, outcomes: Array.from(bucket.values()) });
         }

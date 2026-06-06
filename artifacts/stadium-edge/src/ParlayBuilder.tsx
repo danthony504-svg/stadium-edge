@@ -930,6 +930,36 @@ const buildPicksFromOdds = (g, includePeriods = false) => {
         picks.push({ game, sport, market: "1H Alt Total", pick: `${best.name}${pt}`.trim(), odds: best.price, tier: 3, real: true, point: best.point });
       }
     }
+    // Baseball INNINGS markets (game-level only — no per-player inning props
+    // exist). F5 = first five innings. Labels match the chat SYSTEM_PROMPT and
+    // PickCard marketFamily period detection ("F5 …" / "1st Inning Total").
+    const f5ml = g.markets.find((m) => m.key === "h2h_1st_5_innings");
+    const f5sp = g.markets.find((m) => m.key === "spreads_1st_5_innings");
+    const f5tot = g.markets.find((m) => m.key === "totals_1st_5_innings");
+    const i1tot = g.markets.find((m) => m.key === "totals_1st_1_innings");
+    if (f5ml) {
+      for (const o of f5ml.outcomes || []) {
+        picks.push({ game, sport, market: "F5 Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+      }
+    }
+    if (f5sp) {
+      for (const o of f5sp.outcomes || []) {
+        const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+        picks.push({ game, sport, market: "F5 Run Line", pick: `${nickname(o.name)}${pt}`, odds: o.price, tier: 2, real: true, teamFull: o.name });
+      }
+    }
+    if (f5tot) {
+      for (const o of f5tot.outcomes || []) {
+        const pt = o.point == null ? "" : ` ${o.point}`;
+        picks.push({ game, sport, market: "F5 Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+      }
+    }
+    if (i1tot) {
+      for (const o of i1tot.outcomes || []) {
+        const pt = o.point == null ? "" : ` ${o.point}`;
+        picks.push({ game, sport, market: "1st Inning Total", pick: `${o.name}${pt}`.trim(), odds: o.price, tier: 2, real: true });
+      }
+    }
   }
   return picks;
 };
@@ -7559,7 +7589,7 @@ export default function ParlayBuilder() {
     // only, as before). Without period markets a single-game request collapses
     // to ~1-2 independent legs because a game's full-game ML/Spread/Total are
     // correlated/duplicate-banned among themselves.
-    const periodOrSgpIntent = /first quarter|1q\b|1st quarter|\bq[1-4]\b|first half|1h\b|1st half|\bh1\b|2nd half|2h\b|second half|same.?game|\bsgp\b/i.test(text || "");
+    const periodOrSgpIntent = /first quarter|1q\b|1st quarter|\bq[1-4]\b|first half|1h\b|1st half|\bh1\b|2nd half|2h\b|second half|\bf5\b|first 5 innings|first five innings|1st 5 innings|1st inning|first inning|same.?game|\bsgp\b/i.test(text || "");
     const namedGameLabelSet = new Set();
     {
       const lt = (text || "").toLowerCase();
@@ -7574,7 +7604,7 @@ export default function ParlayBuilder() {
     const realOdds = [];
     const namedAccum = [];
     const otherAccum = [];
-    const isPeriodMarket = (mk) => /^(1H|2H|Q[1-4])\b/.test(mk);
+    const isPeriodMarket = (mk) => /^(1H|2H|Q[1-4]|F5|1st Inning)\b/i.test(mk);
     // Event -> game label / sport / start-time lookups, built up-front so the
     // breadth cap below can pre-count window-valid props; reused by the realProps
     // build further down.
@@ -8406,13 +8436,18 @@ export default function ParlayBuilder() {
       // transparent note instead of silently shipping a contradictory ticket.
       {
         const periodOf = (mkt) => {
-          const mm = String(mkt || "").match(/^(1H|2H|Q[1-4])\b/i);
+          const mm = String(mkt || "").match(/^(1H|2H|Q[1-4]|F5|1st Inning)\b/i);
           return mm ? mm[1].toUpperCase() : "FG";
         };
         const familyOf = (mkt) => {
-          const bare = String(mkt || "").replace(/^(1H|2H|Q[1-4])\s+/i, "").trim();
+          // Baseball "F5 Run Line" / "1st Inning Total" are innings periods —
+          // strip the period prefix AND treat "Run Line" as a spread so they
+          // dedup/anti-correlate the same as quarter/half sides.
+          const bare = String(mkt || "")
+            .replace(/^(1H|2H|Q[1-4]|F5|1st Inning)\s+/i, "")
+            .trim();
           if (/^Moneyline$/i.test(bare)) return "ML";
-          if (/^(Alt\s+)?Spread$/i.test(bare)) return "SPREAD";
+          if (/^(Alt\s+)?(Spread|Run Line)$/i.test(bare)) return "SPREAD";
           if (/^(Alt\s+)?Total$/i.test(bare)) return "TOTAL";
           return null; // props / other — don't dedup against sides
         };
