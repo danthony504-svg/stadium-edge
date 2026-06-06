@@ -331,6 +331,107 @@ export async function playerPeriodGameLog(
   return null;
 }
 
+// ── Soccer player game-by-game log ──────────────────────────────────────────
+// ESPN exposes no usable soccer game-log endpoint (its v3 gamelog/stats routes
+// error out for soccer athletes), so soccer player recent form comes from
+// StatMuse's "fc" per-game grid. A single query returns every column we surface
+// as a real player prop: G (goals), SH (shots), SOT (shots on target), plus A
+// (assists) and MIN (minutes). Every value is parsed off the page; we return
+// null on any miss and never fabricate.
+
+export type SoccerGameRow = {
+  date: string;
+  opponentName: string | null;
+  isHome: boolean | null;
+  stats: Record<string, string>;
+};
+
+// Columns kept from the StatMuse fc grid — restricted to clean counting stats so
+// a season "total" read stays meaningful (Rating/xG are rate/advanced and would
+// be nonsense when summed).
+const SOCCER_STAT_COLS = new Set(["G", "SH", "SOT", "A", "MIN"]);
+
+export async function soccerPlayerGameLog(
+  player: string,
+): Promise<SoccerGameRow[] | null> {
+  const name = (player || "").trim();
+  if (!name) return null;
+  const q = `${name} goals and shots and shots on target this season game by game`;
+  return cachedJson<SoccerGameRow[] | null>(
+    `statmuse-soccer-log:${name.toLowerCase()}`,
+    10 * 60 * 1000,
+    async () => {
+      const url = `https://www.statmuse.com/fc/ask?q=${encodeURIComponent(q)}`;
+      let html = "";
+      try {
+        const r = await fetch(url, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            Accept: "text/html",
+          },
+          signal: AbortSignal.timeout(12_000),
+        });
+        if (!r.ok) return null;
+        html = await r.text();
+      } catch {
+        return null;
+      }
+      const am =
+        html.match(/<meta name="description" content="([^"]*)"/i) ||
+        html.match(/<meta property="og:description" content="([^"]*)"/i);
+      const answer = am ? decodeEntities(am[1]).trim() : null;
+      if (!answer || isGeneric(answer)) return null;
+
+      const tbl = (html.match(/<table[\s\S]*?<\/table>/i) || [])[0];
+      if (!tbl) return null;
+      const trs = tbl.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+      if (trs.length < 2) return null;
+      // IMPORTANT: do NOT drop empty cells. The fc grid aligns its header row
+      // and data rows positionally (the home/away column has an EMPTY header),
+      // so index alignment is what lets us read each column correctly.
+      const cellsOf = (tr: string): string[] =>
+        (tr.match(/<t[hd][\s\S]*?<\/t[hd]>/gi) || []).map(stripTags);
+
+      const header = cellsOf(trs[0] ?? "").map((h) => h.toUpperCase());
+      const dateIdx = header.indexOf("DATE");
+      if (dateIdx < 0) return null;
+      const colIdx = new Map<string, number>();
+      header.forEach((h, i) => {
+        if (SOCCER_STAT_COLS.has(h)) colIdx.set(h, i);
+      });
+      if (colIdx.size === 0) return null;
+
+      const dateRe = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+      const locRe = /^(@|vs\.?|v)$/i;
+      const rows: SoccerGameRow[] = [];
+      for (let i = 1; i < trs.length; i++) {
+        const cells = cellsOf(trs[i]);
+        const date = cells[dateIdx];
+        if (!date || !dateRe.test(date)) continue;
+        // Home/away marker ("@"/"vs") sits in a column with an empty header,
+        // between CLUB and OPP — locate it per-row, then OPP is the next cell.
+        const li = cells.findIndex((c) => locRe.test(c));
+        let isHome: boolean | null = null;
+        let opponentName: string | null = null;
+        if (li >= 0) {
+          const loc = cells[li].replace(/\.$/, "").toLowerCase();
+          isHome = loc === "vs" || loc === "v" ? true : loc === "@" ? false : null;
+          opponentName = cells[li + 1] || null;
+        }
+        const stats: Record<string, string> = {};
+        for (const [label, idx] of colIdx) {
+          const v = cells[idx];
+          if (v != null && /^[-+]?\d[\d.]*$/.test(v)) stats[label] = v;
+        }
+        if (Object.keys(stats).length === 0) continue;
+        rows.push({ date, opponentName, isHome, stats });
+      }
+      return rows.length ? rows : null;
+    },
+  );
+}
+
 export async function askStatMuse(
   query: string,
   league?: string | null,

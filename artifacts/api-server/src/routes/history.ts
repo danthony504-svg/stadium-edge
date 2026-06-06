@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
+import { soccerPlayerGameLog } from "../lib/statmuse";
 
 const router: IRouter = Router();
 
@@ -526,8 +527,98 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
   // log instead of the current one, via ESPN's real ?season= param.
   const seasonReq = String(req.query.season || "").trim();
   const season = /^\d{4}$/.test(seasonReq) ? seasonReq : "";
-  if (!sportId || !athleteId) {
-    res.status(400).json({ error: "sport and athleteId required" });
+  // Soccer is name-keyed (StatMuse), not athleteId-keyed — see the soccer branch.
+  const nameQ = String(req.query.name || "").trim();
+  if (!sportId) {
+    res.status(400).json({ error: "sport required" });
+    return;
+  }
+
+  // SOCCER: ESPN has no usable soccer game-log endpoint, so recent form + season
+  // aggregates come from StatMuse's per-game grid, keyed by the player's NAME
+  // (the ESPN athleteId is meaningless to StatMuse). We build the exact same
+  // response shape as the ESPN path so the client renders it identically, and
+  // we honestly return empty buckets — never fabricated numbers — on any miss.
+  if (sportId === "soccer") {
+    const emptySoccer = {
+      sport: sportId,
+      athleteId,
+      labels: [] as string[],
+      recent: [] as unknown[],
+      vsOpponent: [] as unknown[],
+      vsOpponentName: null,
+      homeSplit: { games: 0, averages: {} as Record<string, number> },
+      awaySplit: { games: 0, averages: {} as Record<string, number> },
+      season: null,
+      availableSeasons: [] as string[],
+      seasonSummary: { games: 0, averages: {} as Record<string, number>, totals: {} as Record<string, number> },
+    };
+    if (!nameQ) {
+      res.json(emptySoccer);
+      return;
+    }
+    try {
+      const rows = await soccerPlayerGameLog(nameQ);
+      if (!rows || !rows.length) {
+        res.json(emptySoccer);
+        return;
+      }
+      const SOCCER_LABEL_ORDER = ["G", "SH", "SOT", "A", "MIN"];
+      const present = new Set<string>();
+      for (const g of rows) for (const k of Object.keys(g.stats)) present.add(k);
+      const labels = SOCCER_LABEL_ORDER.filter((l) => present.has(l));
+      const recent = rows.slice(0, 10).map((g, i) => ({
+        eventId: g.date || `soccer-${i}`,
+        date: g.date || null,
+        opponentId: null,
+        opponentName: g.opponentName,
+        isHome: g.isHome,
+        stats: g.stats,
+      }));
+      const aggregate = (games: typeof rows) => {
+        const sums: Record<string, number> = {};
+        const counts: Record<string, number> = {};
+        for (const g of games) {
+          for (const [lab, raw] of Object.entries(g.stats)) {
+            const n = Number(raw);
+            if (!Number.isFinite(n)) continue;
+            sums[lab] = (sums[lab] ?? 0) + n;
+            counts[lab] = (counts[lab] ?? 0) + 1;
+          }
+        }
+        const averages: Record<string, number> = {};
+        const totals: Record<string, number> = {};
+        for (const lab of Object.keys(sums)) {
+          averages[lab] = Math.round((sums[lab] / counts[lab]) * 100) / 100;
+          totals[lab] = Math.round(sums[lab] * 100) / 100;
+        }
+        return { averages, totals, games: games.length };
+      };
+      const all = aggregate(rows);
+      const home = aggregate(rows.filter((g) => g.isHome === true));
+      const away = aggregate(rows.filter((g) => g.isHome === false));
+      res.json({
+        sport: sportId,
+        athleteId,
+        labels,
+        recent,
+        vsOpponent: [],
+        vsOpponentName: null,
+        homeSplit: { games: home.games, averages: home.averages },
+        awaySplit: { games: away.games, averages: away.averages },
+        season: null,
+        availableSeasons: [],
+        seasonSummary: { games: all.games, averages: all.averages, totals: all.totals },
+      });
+    } catch (err) {
+      req.log.error({ err }, "Failed to fetch soccer player history");
+      res.json(emptySoccer);
+    }
+    return;
+  }
+
+  if (!athleteId) {
+    res.status(400).json({ error: "athleteId required" });
     return;
   }
   const path = ESPN_SPORT_PATHS[sportId];

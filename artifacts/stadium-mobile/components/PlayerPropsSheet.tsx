@@ -60,6 +60,10 @@ const MARKET_SINGLE: Record<string, string[]> = {
   pitcher_strikeouts: ["K", "SO"],
   player_goals: ["G"],
   player_shots_on_goal: ["S", "SOG", "SHOTS"],
+  // Soccer (StatMuse fc grid columns).
+  player_goal_scorer_anytime: ["G"],
+  player_shots: ["SH"],
+  player_shots_on_target: ["SOT"],
 };
 
 function num(stats: Record<string, string>, label: string): number | null {
@@ -124,6 +128,7 @@ const GRID_BY_SPORT: Record<string, { mode: "avg" | "total"; labels: string[] }>
   mlb: { mode: "total", labels: ["HR", "RBI", "H", "R", "BB"] },
   nfl: { mode: "total", labels: ["YDS", "TD", "REC", "INT"] },
   ncaaf: { mode: "total", labels: ["YDS", "TD", "REC", "INT"] },
+  soccer: { mode: "total", labels: ["G", "SH", "SOT", "A"] },
 };
 
 type GridCell = { label: string; value: number };
@@ -206,12 +211,22 @@ export function PlayerPropsSheet({
 
   const sportLabel = data ? SPORTS.find((s) => s.id === data.sport)?.label ?? data.sport.toUpperCase() : "";
 
+  // Soccer has no ESPN game log — its history is fetched by player NAME from
+  // StatMuse (see api-server /sports/player-history), so enable on the name and
+  // include it in the cache key.
+  const isSoccer = data?.sport === "soccer";
+  // Soccer history is name-keyed (no athleteId), so the stats/log sections must
+  // unlock on the soccer-name source too — not just a present athleteId.
+  const hasHistorySource = !!data?.athleteId || (isSoccer && !!data?.player);
   const historyQ = useQuery({
-    queryKey: ["player-history", data?.sport, data?.athleteId],
-    enabled: !!data?.athleteId && !!data?.sport,
+    queryKey: ["player-history", data?.sport, data?.athleteId, isSoccer ? data?.player : null],
+    enabled: !!data?.sport && (!!data?.athleteId || (isSoccer && !!data?.player)),
     staleTime: 10 * 60_000,
     queryFn: ({ signal }) =>
-      getPlayerHistory({ sport: data!.sport, athleteId: data!.athleteId! }, signal),
+      getPlayerHistory(
+        { sport: data!.sport, athleteId: data!.athleteId, name: isSoccer ? data!.player : null },
+        signal,
+      ),
   });
 
   // Labels appearing more than once in the gamelog header are ambiguous after
@@ -480,7 +495,7 @@ export function PlayerPropsSheet({
               {grid?.mode === "total" ? "Season Totals" : "Season Per-Game"}
               {historyQ.data?.season ? ` · ${historyQ.data.season}` : ""}
             </SectionLabel>
-            {!data.athleteId ? (
+            {!hasHistorySource ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
                 Detailed stats aren&apos;t available for this player.
               </Text>
@@ -568,7 +583,7 @@ export function PlayerPropsSheet({
               </Text>
             ) : null}
 
-            {!data.athleteId ? (
+            {!hasHistorySource ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
                 Per-game logs aren&apos;t available for this player.
               </Text>
@@ -742,7 +757,7 @@ export function PlayerPropsSheet({
           ) : null}
 
           {/* Suggested lines — 3 real risk tiers from the actual game log */}
-          {data.athleteId && !historyQ.isLoading && !historyQ.isError && tiers && bars.length > 0 ? (
+          {hasHistorySource && !historyQ.isLoading && !historyQ.isError && tiers && bars.length > 0 ? (
             <View
               style={{
                 backgroundColor: colors.card,
@@ -819,7 +834,7 @@ export function PlayerPropsSheet({
           ) : null}
 
           {/* Set your line — real hit-rate explorer; prices only at the book line */}
-          {data.athleteId && !historyQ.isLoading && !historyQ.isError && chartLine != null && bars.length > 0 ? (
+          {hasHistorySource && !historyQ.isLoading && !historyQ.isError && chartLine != null && bars.length > 0 ? (
             <View
               style={{
                 backgroundColor: colors.card,

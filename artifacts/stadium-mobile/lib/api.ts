@@ -343,7 +343,10 @@ export type PlayerHistory = {
 
 export type GetPlayerHistoryArgs = {
   sport: string;
-  athleteId: string;
+  athleteId: string | null;
+  // Soccer is fetched by player NAME (StatMuse), not athleteId (ESPN has no
+  // soccer game log). Ignored by the ESPN-backed sports.
+  name?: string | null;
   season?: string | null;
   opponentName?: string | null;
 };
@@ -352,7 +355,9 @@ export function getPlayerHistory(
   args: GetPlayerHistoryArgs,
   signal?: AbortSignal,
 ): Promise<PlayerHistory> {
-  const q = new URLSearchParams({ sport: args.sport, athleteId: args.athleteId });
+  const q = new URLSearchParams({ sport: args.sport });
+  if (args.athleteId) q.set("athleteId", args.athleteId);
+  if (args.name) q.set("name", args.name);
   if (args.season) q.set("season", args.season);
   if (args.opponentName) q.set("opponentName", args.opponentName);
   return getJson<PlayerHistory>(`/sports/player-history?${q.toString()}`, signal);
