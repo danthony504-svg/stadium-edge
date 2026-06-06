@@ -63,3 +63,14 @@ generic fills with game mains; mixed unchanged.
 **Why:** the client has no server-side market-lock signal, so intent must be
 re-derived from the user text — keying off the model's all-prop OUTPUT conflated
 "user wanted props" with "model chose props".
+
+**Backfilled legs need an honest edge note ("Missing ai edge", fixed):** the card
+only renders the "AI Edge" pill when `pick.edge` is set (from the AI reply's
+`EDGE:` line). `backfillPicks` pushes deterministic real-line legs with no EDGE,
+so backfilled game mains (e.g. plain "Over 9"/"Over 8.5" totals) showed NO pill
+while AI-emitted props did. Fix: `backfillPicks` attaches a STATIC honest note to
+every leg it adds — says the leg is a real posted line added to round out the
+requested ticket size, explicitly "not a separate model edge". Honesty-safe (no
+fabricated analytical read), covers all 3 callers (ALT/PERIOD/GENERIC) at once,
+survives `enrichPickMeta` (spreads ...pick), and can't overwrite a real AI edge
+(backfill only PUSHES new legs, never mutates existing).

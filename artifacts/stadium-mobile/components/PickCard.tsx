@@ -943,6 +943,11 @@ export function backfillPicks(
             odds: e.odds,
             sport: e.sport,
             startsAt: e.startsAt ?? null,
+            // Honest note: a backfilled leg is a real posted line added to reach
+            // the requested ticket size — NOT a model read. We never fabricate an
+            // analytical edge it doesn't have; we just say why it's on the slip.
+            edge:
+              "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
           },
           gameMeta,
         ),
