@@ -72,7 +72,7 @@ function pickFor(base: Decoded["base"], name: string, point?: number | null): st
 
 function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMarket; decoded: Decoded }) {
   const colors = useColors();
-  const { addLeg, hasLeg } = useBetSlip();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
   const title = marketTitle(decoded);
   // Main full-game markets stay expanded; alternate ladders and period markets
@@ -131,6 +131,22 @@ function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMa
           <Pressable
             key={`${market.key}-${idx}`}
             onPress={() => {
+              const id = `${gameLabel}|${mk}|${pick}`.toLowerCase();
+              if (added) {
+                // Tap an already-added line to unclick it.
+                removeLeg(id);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                return;
+              }
+              // One pick per market section: the rungs/sides in this block are
+              // alternatives of the same bet (a game has ONE moneyline / spread /
+              // total), so drop any other line already selected here before adding.
+              for (let j = 0; j < outcomes.length; j++) {
+                if (j === idx) continue;
+                const oo = outcomes[j];
+                const sibPick = pickFor(decoded.base, oo.name, oo.point);
+                removeLeg(`${gameLabel}|${mk}|${sibPick}`.toLowerCase());
+              }
               const ok = addLeg({ game: gameLabel, market: mk, pick, odds: o.price, sport: game.sport });
               Haptics.impactAsync(
                 ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
