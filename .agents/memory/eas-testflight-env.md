@@ -41,3 +41,12 @@ build. Fixing one does not fix the other.
 
 **After editing eas.json:** the binary must be rebuilt + resubmitted — env can't
 be patched into an existing build. `eas.json` changes need no workflow restart.
+
+## EAS build in the Replit sandbox needs EAS_NO_VCS=1
+`eas build` defaults to git/VCS to archive the project; in the Replit main-agent
+sandbox that hits `.git/index.lock` and is blocked ("Destructive git operations
+are not allowed"). Run with `EAS_NO_VCS=1` so EAS archives the working dir
+directly (respects .easignore/.gitignore) instead of using git. Also use
+`--non-interactive` (EXPO_TOKEN secret authenticates; iOS credentials already
+stored remotely on EAS) and `--no-wait` so the command returns a build URL
+instead of blocking ~25 min.
