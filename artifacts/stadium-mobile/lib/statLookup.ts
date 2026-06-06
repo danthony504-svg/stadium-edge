@@ -115,6 +115,23 @@ export function parseStatLookup(raw: string): StatLookup | null {
     )
   )
     return null;
+  // GAME / MATCHUP POOL guard: a stat asked about a specific MATCHUP — "<stat>
+  // in the <team> and <team> game" or "game between <team> and <team>" — is a
+  // whole-GAME pool question, not one player. Without this a team-nickname token
+  // ("Blue" from "Blue Jays") fuzzy-binds to a real athlete via the span-search
+  // fallback (reported bug: "home runs in the orioles and blue jays game today"
+  // -> NFL RB Jaydon Blue). Anchored to a preposition (in/for/during/from) or
+  // "between" so combined-stat single-player lookups ("lebron points and
+  // rebounds game log") and "vs"/"against" opponent asks are NOT swallowed.
+  if (
+    /\b(?:in|for|during|from)\s+(?:the\s+)?[a-z][\w'.-]*\s+(?:and|&)\s+(?:the\s+)?[a-z][\w'.-]*(?:\s+[a-z][\w'.-]*){0,2}\s+(?:game|matchup)\b/.test(
+      low,
+    ) ||
+    /\b(?:game|matchup)s?\s+between\s+(?:the\s+)?[a-z][\w'.-]*\s+(?:and|&)\s+(?:the\s+)?[a-z]/.test(
+      low,
+    )
+  )
+    return null;
   const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
   const hasCue =
     /\b(stat|stats|stat ?line|numbers|game ?log|box ?score|splits?)\b/.test(low) ||

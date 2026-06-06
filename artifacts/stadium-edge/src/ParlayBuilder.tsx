@@ -2627,6 +2627,15 @@ function parseStatLookup(raw) {
   // Anchored at the start (after generic qualifiers) so a real player whose
   // surname is a role word ("Calvin Pitcher stats") is NOT swallowed.
   if (/^(?:\s*(?:the|a|an|any|all|best|top|good|great|some|which|what|list|show|give|me|need|tonight|today|todays)\s+)*(?:pitchers?|hitters?|batters?|catchers?|quarterbacks?|qbs?|goalies?|goaltenders?|kickers?)\b/.test(low)) return null;
+  // GAME / MATCHUP POOL guard: a stat asked about a specific MATCHUP — "<stat>
+  // in the <team> and <team> game" or "game between <team> and <team>" — is a
+  // whole-GAME pool question, not one player. Without it a team-nickname token
+  // ("Blue" from "Blue Jays") fuzzy-binds to a real athlete via span search
+  // (reported bug: "home runs in the orioles and blue jays game today" -> NFL RB
+  // Jaydon Blue). Anchored to a preposition (in/for/during/from) or "between" so
+  // combined-stat lookups ("points and rebounds game log") and "vs" opponent
+  // asks are NOT swallowed.
+  if (/\b(?:in|for|during|from)\s+(?:the\s+)?[a-z][\w'.-]*\s+(?:and|&)\s+(?:the\s+)?[a-z][\w'.-]*(?:\s+[a-z][\w'.-]*){0,2}\s+(?:game|matchup)\b/.test(low) || /\b(?:game|matchup)s?\s+between\s+(?:the\s+)?[a-z][\w'.-]*\s+(?:and|&)\s+(?:the\s+)?[a-z]/.test(low)) return null;
   const statNounRe = new RegExp(`\\b(${STAT_NOUNS})\\b`);
   // Must carry a stat-lookup cue. Broad on purpose: a stat ask that slips
   // through here would fall to the AI path, which must never invent numbers.
