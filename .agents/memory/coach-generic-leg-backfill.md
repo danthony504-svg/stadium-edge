@@ -49,3 +49,17 @@ and fills across all three families. Genuine single-game SGPs (every leg, props
 included, on one game) and true ≥2-leg market locks are still respected.
 **Why:** these were the conditions that let a healthy slate still report a short,
 honest-looking ticket — the most-reported Coach failure.
+
+**The all-props skip false-positive (fixed):** the generic branch originally
+skipped entirely whenever EVERY resolved leg was a prop (`if (!allProps)`). But a
+GENERIC ask ("Build me a 6-leg parlay for tonight") that the model merely HAPPENED
+to fill with all props (e.g. 2 WNBA props from different games, no game leg) then
+got no game-main backfill → "only 2 held up" on a full board. Fix: the all-props
+skip must be gated on actual USER prop intent, not on what the model returned. Add
+a client `mentionsProps` regex (props-only phrasings + the prop-market stat words,
+loosely mirroring server chat.ts MARKET_KEYWORDS) and backfill when
+`!allProps || !mentionsProps`. So all-props + prop-intent stays props; all-props +
+generic fills with game mains; mixed unchanged.
+**Why:** the client has no server-side market-lock signal, so intent must be
+re-derived from the user text — keying off the model's all-prop OUTPUT conflated
+"user wanted props" with "model chose props".

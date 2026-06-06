@@ -945,13 +945,30 @@ export default function CoachScreen() {
             // failure. Deterministically fill toward N from real FULL-GAME mains
             // (one per distinct unused game), never fabricating. Derive the
             // constraints from the model's OWN resolved legs so we never widen a
-            // locked ask: (a) skip entirely when every resolved leg is a player
-            // prop (props-only / prop-market intent — a game-level main would be
-            // off-intent); (b) when every game-level leg sits on ONE game (a
+            // locked ask: (a) skip the game-main fill ONLY when the user actually
+            // asked for props (props-only / a specific prop market) AND every
+            // resolved leg is a prop — a game-level main would be off-intent
+            // there; (b) when every game-level leg sits on ONE game (a
             // single-game lock), restrict the fill to that same game so we don't
             // pull in other matchups.
             const allProps = picks.every((p) => p.isProp);
-            if (!allProps) {
+            // Did the USER express prop intent? A GENERIC "6-leg parlay for
+            // tonight" carries none of these words, so when the model merely
+            // HAPPENS to return all props we must still backfill toward N with
+            // real game mains — otherwise "6-leg parlay" → 2 props → "only 2
+            // held up" on a full board (the reported bug). Mirrors (loosely) the
+            // server's MARKET_KEYWORDS so a real props-only / prop-market lock
+            // ("player props only", "6 home run hitters", "strikeout parlay")
+            // still skips the game-main fill and stays in props.
+            const mentionsProps =
+              /\b(props?|prop bets?|player props?)\b/i.test(trimmed) ||
+              /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
+                trimmed,
+              ) ||
+              /\b(points?|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points?|pts)\b/i.test(
+                trimmed,
+              );
+            if (!allProps || !mentionsProps) {
               const gameLegs = picks.filter((p) => !p.isProp);
               // SINGLE-GAME LOCK — only when EVERY resolved leg (props INCLUDED)
               // sits on the SAME one game, i.e. a genuine single-game parlay. The
