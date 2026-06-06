@@ -1218,7 +1218,7 @@ function focalSportsFromText(text: string | null | undefined): Set<string> {
 // Does this game label reference a team the user named? Matches alphabetic tokens
 // of length >= 5 (skips short city words like "san"/"new"/"los") so a named-game
 // ask ("knicks spurs Q1 ticket") floats that exact game's odds to the front.
-function gameMatchesFocalText(gameLabel: string, text: string | null | undefined): boolean {
+export function gameMatchesFocalText(gameLabel: string, text: string | null | undefined): boolean {
   const t = String(text || "");
   if (!t) return false;
   const tokens = gameLabel.toLowerCase().match(/[a-z]{5,}/g) || [];

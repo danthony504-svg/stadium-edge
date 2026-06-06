@@ -50,6 +50,17 @@ included, on one game) and true ≥2-leg market locks are still respected.
 **Why:** these were the conditions that let a healthy slate still report a short,
 honest-looking ticket — the most-reported Coach failure.
 
+**The LONE-resolved-leg false-lock (fixed):** even after counting ALL picks'
+games, a generic ask that grounded only ONE leg (e.g. "Build me a 3-leg parlay
+for tonight" → 1 Caitlin Clark prop on Fever@Liberty) trivially has
+`games.size===1`, so the single-game lock fired and restricted the backfill to
+that one (thin) game → ticket stayed at 1 ("only 1 held up") on a full board. A
+single resolved leg can NEVER establish single-game intent. Gate the lock on
+`picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed)` — i.e. lock
+only for a genuine ≥2-leg SGP OR when the user actually NAMED that game; else fill
+from the whole board. `gameMatchesFocalText` is exported from lib/api.ts for this
+(focalText === the user's `trimmed` message).
+
 **The all-props skip false-positive (fixed):** the generic branch originally
 skipped entirely whenever EVERY resolved leg was a prop (`if (!allProps)`). But a
 GENERIC ask ("Build me a 6-leg parlay for tonight") that the model merely HAPPENED

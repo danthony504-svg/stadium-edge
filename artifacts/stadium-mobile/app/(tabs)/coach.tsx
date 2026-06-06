@@ -43,6 +43,7 @@ import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   buildChatContext,
+  gameMatchesFocalText,
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
@@ -978,9 +979,25 @@ export default function CoachScreen() {
               // up" on a 6-game board). Counting ALL legs' games fixes that: when
               // the props come from other matchups the set is >1 and we fill from
               // the whole board.
-              const allGames = new Set(picks.map((p) => norm(p.game)));
+              // A genuine SINGLE-GAME parlay locks the fill to that one game.
+              // But a lone resolved leg also trivially has one distinct game, so
+              // gating on `size === 1` alone wrongly locked a GENERIC "3-leg
+              // parlay for tonight" that happened to ground just one prop to that
+              // prop's game — then that game's mains were thin and the ticket
+              // stayed at 1 leg (the reported bug). Only lock when the intent is
+              // truly single-game: either the model resolved 2+ legs all on that
+              // SAME game, OR the user actually NAMED that game in their ask.
+              // Otherwise fill from the whole board so a generic N-leg ask reaches
+              // its count across other matchups.
+              const onlyGameLabel =
+                new Set(picks.map((p) => norm(p.game))).size === 1
+                  ? picks[0].game
+                  : null;
               const lockedGame =
-                allGames.size === 1 ? [...allGames][0] : null;
+                onlyGameLabel &&
+                (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
+                  ? norm(onlyGameLabel)
+                  : null;
               const pool = lockedGame
                 ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
                 : context.realOdds;
