@@ -23,8 +23,14 @@ preference was superseded.)
   (game-detail). It takes a `grid?: boolean`: `PickCard` passes `grid` → bordered
   stat cells; `AiPickCard` passes nothing → original pill chips.
 - To unify a surface, swap `<AiPickCard pick={p}/>` for a `<View style={{width:290}}><PickCard pick={p}/></View>` in a horizontal ScrollView (see props.tsx / slip.tsx).
-- "Safety" descriptor = relabeled `deriveVariance` (Low→Safe, Medium→Balanced,
-  High→Aggressive); same signal, friendlier word. Not fabricated.
+- **Readout = three signals only** (per user): `AI Grade` (letter), `Confidence`
+  (x/10), `Edge` (%). Model%/Implied%/Safety were removed from the render.
+- All three derive from the model's OWN stated edge (`parseEdgeStats.edge`, kept
+  one-decimal — `pct()` must NOT round or a subtraction-derived edge distorts):
+  `deriveConfidenceScore(gap,variance)`=0–10 (5.5 base + ~0.45/pt, ±0.6 variance,
+  clamp 1.0–9.9), `deriveGrade(score)`=letter. NO independent invented numbers.
+- Gate is `gap === null` → honest "Market price" chip/cell, no grade/confidence
+  (was `projected === null`). A leg with no stated edge can't be graded.
 - Everything on the card is REAL/derived from `ParsedPick` (real `altOptions`
   rungs, `parseEdgeStats` numbers, `startsAt`) or hidden — never invented.
 - Market pill icon (`marketIcon`) and Away/Home colors are DECORATIVE only.

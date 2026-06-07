@@ -295,10 +295,13 @@ export function parseEdgeStats(edge?: string): {
   const empty = { projected: null, implied: null, edge: null };
   if (!edge) return empty;
   const s = edge.replace(/[−–—]/g, "-");
+  // Preserve the model's stated decimal precision — rounding happens only at
+  // display time (toFixed). Rounding here would distort a subtraction-derived
+  // edge (66.1% vs 52.4% must stay +13.7, not +14).
   const pct = (m: RegExpMatchArray | null): number | null => {
     if (!m) return null;
     const n = parseFloat(m[1]);
-    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n) : null;
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
   };
   // The gap between the projection word and its percent must NOT cross a sign
   // ([+-]) or another digit — otherwise "Model edge is +14% edge" would skip to
@@ -313,7 +316,7 @@ export function parseEdgeStats(edge?: string): {
   const em = s.match(/([+-])\s*(\d{1,3}(?:\.\d+)?)\s*%?\s*edge\b/i);
   if (em) {
     const n = parseFloat(em[2]);
-    if (Number.isFinite(n)) edgeGap = em[1] === "-" ? -Math.round(n) : Math.round(n);
+    if (Number.isFinite(n)) edgeGap = em[1] === "-" ? -n : n;
   }
   // No explicit "+N% edge" token but both percentages are present → derive the
   // gap by subtraction. This is pure arithmetic on the model's OWN numbers.
@@ -323,19 +326,39 @@ export function parseEdgeStats(edge?: string): {
   return { projected, implied, edge: edgeGap };
 }
 
-// Confidence is a plain-English label for HOW MUCH edge the model claimed on
-// this leg — it is derived purely from the edge gap the model itself stated, so
-// it never asserts more certainty than the model's own numbers. No projection =
-// no confidence (the leg is a market-price play with nothing to grade).
-function deriveConfidence(
+// Confidence is a 0–10 score for HOW MUCH edge the model claimed on this leg —
+// derived purely from the edge gap the model itself stated (nudged by the bet's
+// variance), so it never asserts more certainty than the model's own numbers.
+// No stated edge = no score (the leg is a market-price play with nothing to
+// grade). Centered at 5.5 with ~0.45 pt per point of edge, clamped to 1.0–9.9 so
+// nothing ever reads as a false certainty.
+function deriveConfidenceScore(
   gap: number | null,
-  projected: number | null,
-): "High" | "Medium" | "Low" | null {
-  if (projected === null) return null;
-  if (gap === null) return "Medium";
-  if (gap >= 8) return "High";
-  if (gap >= 3) return "Medium";
-  return "Low";
+  variance: "High" | "Medium" | "Low",
+): number | null {
+  if (gap === null) return null;
+  let score = 5.5 + gap * 0.45;
+  if (variance === "High") score -= 0.6;
+  else if (variance === "Low") score += 0.6;
+  score = Math.max(1, Math.min(9.9, score));
+  return Math.round(score * 10) / 10;
+}
+
+// AI Grade is just the confidence score re-expressed as a familiar letter — same
+// underlying signal, no new data. Null score (no edge) means no grade.
+function deriveGrade(score: number | null): string | null {
+  if (score === null) return null;
+  if (score >= 9.0) return "A+";
+  if (score >= 8.5) return "A";
+  if (score >= 8.0) return "A-";
+  if (score >= 7.5) return "B+";
+  if (score >= 7.0) return "B";
+  if (score >= 6.5) return "B-";
+  if (score >= 6.0) return "C+";
+  if (score >= 5.5) return "C";
+  if (score >= 5.0) return "C-";
+  if (score >= 4.0) return "D";
+  return "F";
 }
 
 // Variance is how much the OUTCOME swings, independent of edge: player props and
@@ -370,27 +393,23 @@ export function EdgeReadout({
   grid?: boolean;
 }) {
   const colors = useColors();
-  const { projected, implied, edge: gap } = parseEdgeStats(edge);
-  const confidence = deriveConfidence(gap, projected);
+  const { edge: gap } = parseEdgeStats(edge);
   const variance = deriveVariance(odds, isProp);
-  // Re-express the bet's outcome swing as a plain Safety Rating: steady favorites
-  // read "Safe", boom-or-bust props/longshots read "Aggressive", the rest are
-  // "Balanced". Same underlying signal as variance, friendlier wording.
-  const safety = variance === "High" ? "Aggressive" : variance === "Low" ? "Safe" : "Balanced";
-  const confColor =
-    confidence === "High"
-      ? colors.success
-      : confidence === "Medium"
-        ? colors.primary
-        : colors.mutedForeground;
-  const varColor =
-    variance === "High"
-      ? colors.destructive
-      : variance === "Low"
-        ? colors.success
-        : colors.mutedForeground;
+  // AI Grade + Confidence are one derived rating of the model's OWN stated edge
+  // (nudged by the bet's variance), re-expressed as a 0–10 score and a letter.
+  const score = deriveConfidenceScore(gap, variance);
+  const grade = deriveGrade(score);
+  const edgeText = gap === null ? null : `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%`;
   const gapColor =
     gap === null ? colors.mutedForeground : gap >= 0 ? colors.success : colors.destructive;
+  const gradeColor =
+    score === null
+      ? colors.mutedForeground
+      : score >= 7
+        ? colors.success
+        : score >= 5.5
+          ? colors.primary
+          : colors.mutedForeground;
 
   // CHAT (grid) layout: one bordered metric cell per signal — a small icon + an
   // uppercase label over its value. Every value is a REAL parsed number (or the
@@ -436,21 +455,18 @@ export function EdgeReadout({
         </View>
       </View>
     );
-    if (projected === null) {
+    if (gap === null) {
       return (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           {cell("info", "Pricing", "Market price", colors.mutedForeground)}
-          {cell("activity", "Safety", safety, varColor)}
         </View>
       );
     }
     return (
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {cell("pie-chart", "Model", `${projected}%`, colors.primary)}
-        {implied !== null ? cell("bar-chart-2", "Implied", `${implied}%`, colors.mutedForeground) : null}
-        {gap !== null ? cell("trending-up", "Edge", `${gap >= 0 ? "+" : ""}${gap}%`, gapColor) : null}
-        {confidence ? cell("shield", "Confidence", confidence, confColor) : null}
-        {cell("activity", "Safety", safety, varColor)}
+        {cell("award", "AI Grade", grade ?? "—", gradeColor)}
+        {cell("shield", "Confidence", `${(score ?? 0).toFixed(1)}/10`, gradeColor)}
+        {cell("trending-up", "Edge", edgeText ?? "—", gapColor)}
       </View>
     );
   }
@@ -472,21 +488,18 @@ export function EdgeReadout({
       <Text style={{ color: fg, fontFamily: FONT.bold, fontSize: 11 }}>{label}</Text>
     </View>
   );
-  if (projected === null) {
+  if (gap === null) {
     return (
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
         {chip("Market price", colors.mutedForeground, colors.border)}
-        {chip(`Safety Rating: ${safety}`, varColor, colors.border)}
       </View>
     );
   }
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-      {chip(`Model ${projected}%`, colors.primary, colors.primary)}
-      {implied !== null ? chip(`${implied}% implied`, colors.mutedForeground, colors.border) : null}
-      {gap !== null ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor) : null}
-      {confidence ? chip(`Confidence: ${confidence}`, confColor, colors.border) : null}
-      {chip(`Safety Rating: ${safety}`, varColor, colors.border)}
+      {chip(`AI Grade: ${grade ?? "—"}`, gradeColor, gradeColor)}
+      {chip(`Confidence: ${(score ?? 0).toFixed(1)}/10`, gradeColor, colors.border)}
+      {chip(`Edge: ${edgeText ?? "—"}`, gapColor, gapColor)}
     </View>
   );
 }
