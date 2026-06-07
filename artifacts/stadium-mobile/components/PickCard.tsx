@@ -470,7 +470,11 @@ export function EdgeReadout({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
           <Feather name={icon} size={12} color={valueColor} />
           <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
             style={{
+              flexShrink: 1,
               color: colors.mutedForeground,
               fontFamily: FONT.medium,
               fontSize: 9.5,

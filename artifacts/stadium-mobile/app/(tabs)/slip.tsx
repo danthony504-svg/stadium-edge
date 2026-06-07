@@ -476,7 +476,7 @@ export default function SlipScreen() {
               contentContainerStyle={{ gap: 12, paddingRight: 4 }}
             >
               {enrichedAiPicks.map((p, i) => (
-                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
+                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 336 }}>
                   <PickCard pick={p} />
                 </View>
               ))}
