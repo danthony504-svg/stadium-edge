@@ -109,7 +109,15 @@ function AiPickAvatar({ pick }: { pick: ParsedPick }) {
 // reasoning note behind a collapsible pill). Shared by the Bet Slip's "AI
 // RECOMMENDED" row and a game's detail page. Tapping the body toggles the leg
 // in/out of the slip; tapping the "AI Edge" pill expands the reasoning.
-export function AiPickCard({ pick }: { pick: ParsedPick }) {
+export function AiPickCard({
+  pick,
+  onPressBreakdown,
+}: {
+  pick: ParsedPick;
+  // When set, a "Team breakdown" affordance is shown for team (non-prop) picks
+  // that opens a real-stats detail page. Tapping it does NOT toggle the slip.
+  onPressBreakdown?: () => void;
+}) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
@@ -249,6 +257,34 @@ export function AiPickCard({ pick }: { pick: ParsedPick }) {
           {added ? "Added" : "Add"}
         </Text>
       </View>
+
+      {/* Team breakdown link — opens a real-stats detail page. Its own Pressable
+          captures the tap so it never toggles the slip. */}
+      {onPressBreakdown ? (
+        <Pressable
+          onPress={onPressBreakdown}
+          hitSlop={6}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            marginTop: 4,
+            paddingVertical: 5,
+            paddingHorizontal: 10,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Feather name="bar-chart-2" size={11} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 10 }}>
+            Team breakdown
+          </Text>
+          <Feather name="chevron-right" size={12} color={colors.primary} />
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }

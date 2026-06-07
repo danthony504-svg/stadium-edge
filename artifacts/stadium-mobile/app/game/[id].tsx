@@ -192,6 +192,33 @@ function MarketBlock({ game, market, decoded }: { game: OddsGame; market: OddsMa
   );
 }
 
+// Resolve which side of THIS game a team pick is on, so its breakdown page can
+// fetch that team's real history. Returns null for props and totals (which name
+// no single team). The spread number (if any) is parsed off the pick text.
+function pickedTeam(
+  pick: ParsedPick,
+  game: OddsGame,
+): { name: string; opp: string; isHome: boolean; line: number | null } | null {
+  if (pick.isProp) return null;
+  const text = pick.pick.toLowerCase();
+  if (/\b(over|under)\b/.test(text)) return null; // total — no single team
+  const homeNick = (game.homeTeam.split(/\s+/).pop() ?? game.homeTeam).toLowerCase();
+  const awayNick = (game.awayTeam.split(/\s+/).pop() ?? game.awayTeam).toLowerCase();
+  const matchHome =
+    text.includes(game.homeTeam.toLowerCase()) || (homeNick.length > 2 && text.includes(homeNick));
+  const matchAway =
+    text.includes(game.awayTeam.toLowerCase()) || (awayNick.length > 2 && text.includes(awayNick));
+  if (!matchHome && !matchAway) return null;
+  // Spread line like "-4.5" / "+3.5"; absent for moneyline.
+  const m = pick.pick.match(/([+-]\d+(?:\.\d+)?)/);
+  const line = m ? Number(m[1]) : null;
+  if (matchHome && !matchAway)
+    return { name: game.homeTeam, opp: game.awayTeam, isHome: true, line };
+  if (matchAway && !matchHome)
+    return { name: game.awayTeam, opp: game.homeTeam, isHome: false, line };
+  return null; // ambiguous (both names present) — skip rather than guess
+}
+
 // AI-recommended picks scoped to THIS game. On demand (not on every open — each
 // run is a real streaming AI call), it builds the same real-data context the
 // Coach uses, asks for this one game's best bets (which game-locks the model to
@@ -301,9 +328,36 @@ function AiGamePicks({ game }: { game: OddsGame }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ gap: 12, paddingRight: 4 }}
         >
-          {picks.map((p, i) => (
-            <AiPickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
-          ))}
+          {picks.map((p, i) => {
+            const team = pickedTeam(p, game);
+            return (
+              <AiPickCard
+                key={`${p.game}|${p.pick}|${i}`}
+                pick={p}
+                onPressBreakdown={
+                  team
+                    ? () =>
+                        router.push({
+                          pathname: "/team-pick/[id]",
+                          params: {
+                            id: team.name,
+                            team: team.name,
+                            opp: team.opp,
+                            isHome: team.isHome ? "1" : "0",
+                            sport: game.sport,
+                            market: p.market,
+                            line: team.line != null ? String(team.line) : "",
+                            odds: String(p.odds),
+                            game: gameLabel,
+                            startsAt: game.commenceTime ?? "",
+                            pick: p.pick,
+                          },
+                        })
+                    : undefined
+                }
+              />
+            );
+          })}
         </ScrollView>
       )}
 
