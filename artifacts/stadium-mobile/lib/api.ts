@@ -6,6 +6,7 @@ import {
   gameMatchesFocalText,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority";
+import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
 export { gameMatchesFocalText };
@@ -1089,6 +1090,13 @@ export type ChatContext = {
   // ones, but it's advisory only and never overrides real matchup analytics.
   // Omitted when not enough has settled to say anything honest.
   modelStrengths?: string[];
+  // Real ESPN injury report distilled per pickable game, keyed by "Away @ Home"
+  // (matching realGames/realOdds). Each side lists the key players actually out
+  // (with a friendly status + a high/med impact tier) plus per-position-group
+  // counts, and a deterministic injury EDGE (the less-banged-up side). Impact is
+  // a transparent guide from real severity × position — NOT a fabricated player
+  // rating. Omitted when no pickable game had a betting-relevant injury.
+  matchupInjuries?: Record<string, GameInjuryReport>;
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -1399,13 +1407,21 @@ export async function buildChatContext(
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
-  const [oddsAll, gamesAll] = await Promise.all([
+  const [oddsAll, gamesAll, injuriesAll] = await Promise.all([
     Promise.all(sports.map((s) => getOdds(s, signal).catch(() => [] as OddsGame[]))),
     Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))),
+    // Real ESPN injury report per sport (for the per-game injury read the coach
+    // factors into picks). A failed/unsupported sport just yields [] — never
+    // fabricated; sports without a report (tennis/ufc) simply contribute none.
+    Promise.all(sports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[]))),
   ]);
 
   const realOdds: RealOddsEntry[] = [];
   const realGames: RealGameEntry[] = [];
+  // Real per-game injury report keyed by "Away @ Home" (matches realGames). Only
+  // games with a betting-relevant injury get an entry (buildGameInjuryReport
+  // returns null otherwise), so this stays compact and noise-free.
+  const matchupInjuries: Record<string, GameInjuryReport> = {};
 
   // Render-only team metadata: teamId -> {abbr, logo} (for resolving a prop
   // player's team via playerTeamId) and a per-game logo/abbr table (for
@@ -1476,6 +1492,11 @@ export async function buildChatContext(
         startsAt: g.startsAt,
         venue: g.venue ?? null,
       });
+      // Real injury read for this matchup (key players out + deterministic edge),
+      // joined from the per-sport ESPN report. Null when neither side has a
+      // betting-relevant injury, so it never adds noise to the context.
+      const injReport = buildGameInjuryReport(sport, injuriesAll[i], away, home);
+      if (injReport) matchupInjuries[gameLabel] = injReport;
       if (g.homeTeamId && g.awayTeamId && perSport < 12) {
         historyTargets.push({ sport, gameLabel, homeTeamId: g.homeTeamId, awayTeamId: g.awayTeamId, startsAt: g.startsAt });
         perSport++;
@@ -1909,6 +1930,7 @@ export async function buildChatContext(
       ...(Object.keys(playerHistory).length ? { playerHistory } : {}),
       ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
       ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),
+      ...(Object.keys(matchupInjuries).length ? { matchupInjuries } : {}),
     },
     propPool,
     gameMeta,

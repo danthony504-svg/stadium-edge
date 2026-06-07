@@ -233,3 +233,70 @@ export function injuryEdge(summaries: TeamInjurySummary[]): InjuryEdge {
   const hurt = diff > 0 ? a : b;
   return { kind: "advantage", team: healthy.team, opp: hurt.team, margin: Math.abs(diff) };
 }
+
+// ---------- Compact per-game injury report for the chat coach ----------
+//
+// Distils the REAL ESPN report for ONE matchup into the smallest honest payload
+// the AI needs: which key players are actually out (high/med impact only — the
+// betting-relevant ones), the per-position-group counts, and the deterministic
+// injury edge. Mirrors exactly what the team-pick card shows so the coach and
+// the card never disagree. Real data only — never a fabricated player or status.
+
+// One side of a matchup's injury picture, sent to the AI.
+export type GameInjurySide = {
+  team: string;
+  // The players actually OUT / questionable who matter most (high or med
+  // impact), most-impactful first, capped so a long report stays compact.
+  keyPlayers: {
+    player: string;
+    position: string | null;
+    status: string; // friendly label ("Out", "Out Long-Term", "Questionable")
+    impact: "high" | "med";
+  }[];
+  // Real per-position-group counts of EVERYONE on this team's report.
+  groups: { group: string; count: number }[];
+};
+
+// The injury report for one game, keyed in context by "Away @ Home".
+export type GameInjuryReport = {
+  // Plain-English read of which side is less banged up (or "Even …"). A
+  // deterministic guide from real severity × position — NOT a power rating.
+  edge: string;
+  sides: GameInjurySide[];
+};
+
+// Build the compact report for a single matchup. Returns null when fewer than
+// two teams resolve in the report OR when neither side has a key (high/med)
+// injury — in that case there's nothing betting-relevant to tell the coach, so
+// we omit the game rather than feed it day-to-day reliever noise.
+export function buildGameInjuryReport(
+  sport: string,
+  teams: InjuryTeam[] | undefined,
+  away: string,
+  home: string,
+): GameInjuryReport | null {
+  const injTeams = injuriesForMatchup(teams, [away, home]);
+  if (injTeams.length !== 2) return null;
+  const summaries = injTeams.map((t) => summarizeTeamInjuries(sport, t));
+  const edge = injuryEdge(summaries);
+  const sides: GameInjurySide[] = injTeams.map((t, idx) => {
+    const keyPlayers = t.entries
+      .map((e) => ({ e, imp: injuryImpact(sport, e) }))
+      .filter((x) => x.imp.tier === "high" || x.imp.tier === "med")
+      .sort((a, b) => b.imp.score - a.imp.score)
+      .slice(0, 6)
+      .map((x) => ({
+        player: x.e.player,
+        position: x.e.position,
+        status: friendlyInjury(x.e.status).label,
+        impact: x.imp.tier as "high" | "med",
+      }));
+    return { team: t.team, keyPlayers, groups: summaries[idx].groups };
+  });
+  if (!sides.some((s) => s.keyPlayers.length > 0)) return null;
+  const edgeStr =
+    edge.kind === "even"
+      ? "Even — neither side is meaningfully more banged up"
+      : `Edge: ${edge.team} (${edge.opp} carries more injury impact)`;
+  return { edge: edgeStr, sides };
+}

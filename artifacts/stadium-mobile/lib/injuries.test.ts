@@ -7,6 +7,7 @@ import {
   positionGroup,
   summarizeTeamInjuries,
   injuryEdge,
+  buildGameInjuryReport,
 } from "./injuries.ts";
 import type { InjuryTeam } from "./api.ts";
 
@@ -106,4 +107,41 @@ test("injuryEdge returns even when impact is comparable", () => {
     summarizeTeamInjuries("mlb", t),
   );
   assert.equal(injuryEdge(summaries).kind, "even");
+});
+
+test("buildGameInjuryReport surfaces key players + the edge for a matchup", () => {
+  const rep = buildGameInjuryReport(
+    "mlb",
+    [hurt, healthy],
+    "Arizona Diamondbacks",
+    "Washington Nationals",
+  );
+  assert.ok(rep, "report should be built when a side has a high-impact injury");
+  assert.match(rep!.edge, /Edge: Washington Nationals/);
+  const hurtSide = rep!.sides.find((s) => s.team === "Arizona Diamondbacks")!;
+  // Both SPs are high-impact and surface; the bereavement reliever is low and omitted.
+  assert.equal(hurtSide.keyPlayers.length, 2);
+  assert.ok(hurtSide.keyPlayers.every((p) => p.impact === "high"));
+  assert.equal(hurtSide.groups.find((g) => g.group === "SP")?.count, 2);
+});
+
+test("buildGameInjuryReport returns null when neither side has a key injury", () => {
+  const minor: InjuryTeam = {
+    team: "Team A",
+    teamAbbr: "AAA",
+    entries: [entry("R1", "RP", "Day-To-Day")],
+  };
+  const minor2: InjuryTeam = {
+    team: "Team B",
+    teamAbbr: "BBB",
+    entries: [entry("R2", "RP", "Day-To-Day")],
+  };
+  assert.equal(buildGameInjuryReport("mlb", [minor, minor2], "Team A", "Team B"), null);
+});
+
+test("buildGameInjuryReport returns null when only one team resolves", () => {
+  assert.equal(
+    buildGameInjuryReport("mlb", [hurt], "Arizona Diamondbacks", "Washington Nationals"),
+    null,
+  );
 });
