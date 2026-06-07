@@ -258,7 +258,14 @@ const IMPROVE_SLIP_RE =
   /\b(?:bett?er|batter)\s+(?:one|ticket|slip|version|card|option|parlay)\b|\bmake (?:it|this|that|the (?:ticket|slip|parlay|card|bet)) (?:better|stronger|cleaner|safer|tighter|less correlated)\b|\bimprove\b[^\n]{0,18}\b(?:this|that|it|ticket|slip|parlay|card|legs?)\b|\b(?:fix|tighten|trim|diversif\w*|de-?correlate|clean up)\b[^\n]{0,18}\b(?:this|that|it|ticket|slip|parlay|card|legs?)\b/i;
 const IMPROVE_COMPARISON_RE =
   /\b(?:which|what(?:'s| is| are)?|compare|versus|\bvs\.?\b|rank)\b[^\n]{0,40}\bbett?er\b/i;
+// "do better" / "can you do better" / "how can you do better" / "do any better"
+// is an unambiguous ask to improve the thing under discussion — a comparison
+// ("which is better") never uses the verb "do", so this bypasses the comparison
+// exclusion below and reliably re-attaches the last slip photo.
+const DO_BETTER_RE =
+  /\b(?:do|doing|does|did)\s+(?:any\s+|it\s+|this\s+|that\s+)?bett?er\b/i;
 function wantsImproveSlip(text: string): boolean {
+  if (DO_BETTER_RE.test(text)) return true;
   return IMPROVE_SLIP_RE.test(text) && !IMPROVE_COMPARISON_RE.test(text);
 }
 

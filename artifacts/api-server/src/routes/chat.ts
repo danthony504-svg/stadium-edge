@@ -626,7 +626,13 @@ router.post("/chat", async (req, res): Promise<void> => {
   // here?", "compare these", "A vs B") are extraSlips compare/rank flows, NOT
   // an improve-this-ticket ask — exclude them so they don't get rewritten.
   const comparisonAsk = /\b(which|what(?:'s| is| are)?|compare|versus|\bvs\.?\b|rank)\b[^\n]{0,40}\bbett?er\b/i.test(latestUser);
+  // "do better" / "can you do better" / "how can you do better" / "do any
+  // better" is an unambiguous improve-this ask — a comparison never phrases it
+  // with the verb "do", so it bypasses the comparisonAsk exclusion.
+  const doBetterAsk =
+    /\b(?:do|doing|does|did)\s+(?:any\s+|it\s+|this\s+|that\s+)?bett?er\b/i.test(latestUser);
   const improveWording =
+    doBetterAsk ||
     (!comparisonAsk && /\b(?:bett?er|batter)\s+(one|ticket|slip|version|card|option|parlay)\b/i.test(latestUser)) ||
     /\bmake (?:it|this|that|the (?:ticket|slip|parlay|card|bet)) (?:better|stronger|cleaner|safer|tighter|less correlated)\b/i.test(latestUser) ||
     // "improve" / "fix" etc. must point at the slip — require a slip-deictic or
