@@ -1,0 +1,43 @@
+# EAS archive ignore list. NOTE: when present, EAS uses THIS file INSTEAD of
+# .gitignore when archiving the project for a cloud build, so it must re-list
+# everything .gitignore would have excluded (node_modules, caches, build output)
+# PLUS heavy directories that aren't part of the mobile build. Keep workspace
+# packages (artifacts/*, lib/*) and all manifests so pnpm can resolve the
+# workspace on EAS.
+
+# Dependencies — EAS installs its own from the lockfile
+node_modules
+
+# Large non-app assets not bundled by the mobile binary (hundreds of MB) —
+# excluding these is the whole point of this file (the upload was timing out)
+attached_assets
+
+# VCS, agent, and Replit/workspace internals (not needed to build the app)
+.git
+.agents
+.local
+.cache
+.config
+.replit
+.replitignore
+
+# Build output / caches
+dist
+out-tsc
+web-build
+*.tsbuildinfo
+.expo
+.expo-shared
+
+# Generated native projects (EAS prebuild regenerates them)
+artifacts/stadium-mobile/ios
+artifacts/stadium-mobile/android
+
+# Editor / OS cruft
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
