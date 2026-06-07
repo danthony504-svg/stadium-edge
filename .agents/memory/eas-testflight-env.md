@@ -69,3 +69,9 @@ projectId is app.json → expo.extra.eas.projectId.
 **If a build was queued before ascAppId was set:** cancel the orphan
 (`eas build:cancel <id> --non-interactive`) then re-run the build so auto-submit
 is attached server-side and runs hands-off when the build finishes.
+
+## Detached `eas build` dies silently after the banner — run in FOREGROUND
+- Backgrounding the build (`nohup … eas build … --no-wait &`) prints only the version banner then the process vanishes — no "Compressing project files", no error in the redirected log, and NO build is queued. `pgrep -f "eas build"` gives FALSE positives because it also matches your own `eas build:list` poll commands, so it looks "still running" when nothing is.
+- **Fix:** run `eas build … --auto-submit --non-interactive --no-wait` in the FOREGROUND. With `--no-wait` it returns in ~1–2 min after the upload + fingerprint + submission scheduling, well within a single command timeout. It prints the build URL, build number, and "Scheduled iOS submission" with a submission URL.
+- Archive size: with `attached_assets` (336 MB) removed from the workspace the upload was only **8.5 MB** and instant. The slow/never-finishing uploads earlier were the dead detached process, not bandwidth. `.easignore` at the monorepo root is still good hygiene, but the decisive lever was the foreground run + small archive.
+- attached_assets is referenced ONLY by `artifacts/stadium-edge/vite.config.ts` (`@assets` alias) — safe to stash to /tmp during a mobile build, but RESTORE it immediately after.
