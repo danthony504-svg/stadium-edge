@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -89,6 +89,9 @@ function buildIdMap(games: EspnGame[]): Map<string, TeamInfo> {
 type GameProps = {
   gameLabel: string;
   startsAt: string;
+  // Which league this game belongs to — lets cross-sport search route a tapped
+  // result to the right sport's sheets even when it isn't the selected pill.
+  sport: string;
   // Main lines only — one row per (player, market) for the list/search/count.
   props: PlayerProp[];
   // Mains + alternate-ladder rungs — used by the per-row "alt lines" expander
@@ -165,10 +168,10 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
         // expander and the props sheet.
         const all = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
         const mains = all.filter((p) => !p.alt);
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: mains, allProps: all, teams: ids };
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, sport, props: mains, allProps: all, teams: ids };
       } catch {
         failures += 1;
-        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, props: [], allProps: [], teams: ids };
+        return { gameLabel: `${g.awayTeam} @ ${g.homeTeam}`, startsAt: g.commenceTime, sport, props: [], allProps: [], teams: ids };
       }
     }),
   );
@@ -553,7 +556,7 @@ export default function PropsScreen() {
       headshot: prop.headshot ?? null,
       playerTeamId: prop.playerTeamId ?? null,
       teamAbbr: teamAbbrFor(prop, g.teams),
-      sport,
+      sport: g.sport,
       gameLabel: g.gameLabel,
       startsAt: g.startsAt,
       initialMarket: prop.market,
@@ -563,12 +566,19 @@ export default function PropsScreen() {
 
   // Open the team-props sheet from a team search hit. We carry only the team
   // names + game context; the sheet fetches everything it shows from real feeds.
-  const openTeam = (t: { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }) => {
+  const openTeam = (t: {
+    team: string;
+    opp: string;
+    isHome: boolean;
+    sport: string;
+    gameLabel: string;
+    startsAt: string;
+  }) => {
     setTeamSheet({
       team: t.team,
       opp: t.opp,
       isHome: t.isHome,
-      sport,
+      sport: t.sport,
       gameLabel: t.gameLabel,
       startsAt: t.startsAt,
     });
@@ -607,11 +617,45 @@ export default function PropsScreen() {
 
   const propsSports = useMemo(() => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id)), []);
 
-  const propsQ = useQuery({
-    queryKey: ["props-all", sport],
-    queryFn: ({ signal }) => fetchAllProps(sport, signal),
-    staleTime: 2 * 60_000,
+  const searching = query.trim().length > 0;
+
+  // Debounced gate for the cross-sport FETCH only (not the view, which switches
+  // instantly). Without this, every transient keystroke would fan out a fetch to
+  // all props sports; we wait until typing settles (~250ms) before loading the
+  // non-selected leagues.
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(id);
+  }, [query]);
+  const fetchAllSports = debouncedQuery.trim().length > 0;
+
+  // One query per props sport. The selected sport always loads (it drives the
+  // browse list + the AI rail); the rest load only once the user starts a search
+  // — so search spans EVERY league at once, not just the selected pill. Per-sport
+  // keys share React Query's cache, so flipping pills never refetches fresh data.
+  const sportQueries = useQueries({
+    queries: propsSports.map((s) => ({
+      queryKey: ["props-all", s.id],
+      queryFn: ({ signal }: { signal?: AbortSignal }) => fetchAllProps(s.id, signal),
+      staleTime: 2 * 60_000,
+      enabled: s.id === sport || fetchAllSports,
+    })),
   });
+
+  // The selected sport's query drives the browse view, the AI rail, and refresh.
+  const selIdx = Math.max(0, propsSports.findIndex((s) => s.id === sport));
+  const propsQ = sportQueries[selIdx]!;
+
+  // Every loaded game across all leagues, each tagged with its own sport. Search
+  // reads this pool so a player/team match in ANY league surfaces at once.
+  const dataStamp = sportQueries.map((q) => q.dataUpdatedAt).join(",");
+  const searchPool = useMemo(
+    () => sportQueries.flatMap((q) => q.data ?? []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dataStamp],
+  );
+  const searchBusy = sportQueries.some((q) => q.isFetching);
 
   // Candidate pool for the AI RECOMMENDED rail — built ONLY from the real props
   // feed: a real player, real posted line, and the value side (recommendSide).
@@ -863,12 +907,19 @@ export default function PropsScreen() {
   // team (deduped), each carrying its game context so the team sheet can fetch
   // real history + posted markets. Players and teams are searched together.
   const teamResults = useMemo(() => {
+    type TeamHit = {
+      team: string;
+      opp: string;
+      isHome: boolean;
+      sport: string;
+      gameLabel: string;
+      startsAt: string;
+    };
     const q = query.trim().toLowerCase();
-    if (!q) return [] as { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }[];
-    const data = propsQ.data ?? [];
+    if (!q) return [] as TeamHit[];
     const seen = new Set<string>();
-    const out: { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }[] = [];
-    for (const g of data) {
+    const out: TeamHit[] = [];
+    for (const g of searchPool) {
       const [away, home] = g.gameLabel.split(" @ ");
       if (!away || !home) continue;
       const sides = [
@@ -877,29 +928,40 @@ export default function PropsScreen() {
       ];
       for (const s of sides) {
         if (!s.team.toLowerCase().includes(q)) continue;
-        const k = s.team.toLowerCase();
+        const k = `${g.sport}|${s.team.toLowerCase()}`;
         if (seen.has(k)) continue;
         seen.add(k);
-        out.push({ ...s, gameLabel: g.gameLabel, startsAt: g.startsAt });
+        out.push({ ...s, sport: g.sport, gameLabel: g.gameLabel, startsAt: g.startsAt });
       }
     }
     return out;
-  }, [propsQ.data, query]);
+  }, [searchPool, query]);
 
   // While searching, collapse each game's matches to one row per player (with a
   // representative prop to seed the sheet + a market count), instead of listing
   // every prop line.
   const playerResults = useMemo(() => {
-    return filtered.map((g) => {
-      const byPlayer = new Map<string, { prop: PlayerProp; count: number }>();
-      for (const p of g.props) {
-        const existing = byPlayer.get(p.player);
-        if (existing) existing.count += 1;
-        else byPlayer.set(p.player, { prop: p, count: 1 });
-      }
-      return { g, players: Array.from(byPlayer.values()) };
-    });
-  }, [filtered]);
+    type PlayerGroup = { g: GameProps; players: { prop: PlayerProp; count: number }[] };
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as PlayerGroup[];
+    return searchPool
+      .map((g) => {
+        const byPlayer = new Map<string, { prop: PlayerProp; count: number }>();
+        for (const p of g.props) {
+          if (!p.player.toLowerCase().includes(q)) continue;
+          const existing = byPlayer.get(p.player);
+          if (existing) existing.count += 1;
+          else byPlayer.set(p.player, { prop: p, count: 1 });
+        }
+        return { g, players: Array.from(byPlayer.values()) };
+      })
+      .filter((r) => r.players.length > 0);
+  }, [searchPool, query]);
+
+  const totalPlayerMatches = useMemo(
+    () => playerResults.reduce((n, r) => n + r.players.length, 0),
+    [playerResults],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -1008,19 +1070,24 @@ export default function PropsScreen() {
 
         {/* Props list */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
-          {propsQ.isLoading ? (
+          {!searching && propsQ.isLoading ? (
             <Loading label="Loading player props…" />
-          ) : propsQ.isError ? (
+          ) : !searching && propsQ.isError ? (
             <ErrorState onRetry={() => propsQ.refetch()} />
-          ) : query.trim() ? (
-            // Searching → players AND teams. Show a TEAMS section (if any team
-            // name matches) above one compact tappable row per matching player.
-            totalProps === 0 && teamResults.length === 0 ? (
-              <EmptyState
-                icon="search"
-                title="No matches"
-                subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players or teams match “${query}”.`}
-              />
+          ) : searching ? (
+            // Searching → players AND teams across EVERY league at once. Show a
+            // TEAMS section (if any team name matches) above one compact tappable
+            // row per matching player.
+            totalPlayerMatches === 0 && teamResults.length === 0 ? (
+              searchBusy ? (
+                <Loading label="Searching all leagues…" />
+              ) : (
+                <EmptyState
+                  icon="search"
+                  title="No matches"
+                  subtitle={`No players or teams match “${query.trim()}”.`}
+                />
+              )
             ) : (
               <>
                 {teamResults.length > 0 ? (
@@ -1028,7 +1095,7 @@ export default function PropsScreen() {
                     <SearchSectionLabel>Teams</SearchSectionLabel>
                     {teamResults.map((t) => (
                       <TeamResultRow
-                        key={`team-${t.team}`}
+                        key={`team-${t.sport}-${t.team}`}
                         team={t.team}
                         opp={t.opp}
                         isHome={t.isHome}
