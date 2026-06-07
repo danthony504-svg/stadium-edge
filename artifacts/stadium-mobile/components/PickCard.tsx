@@ -36,9 +36,12 @@ export type ParsedPick = {
   // rung (more juice), value = the nearest HIGHER-PAYOUT rung. Tappable: each
   // chip adds/removes that exact rung as its own slip leg. `pick` is the full
   // slip pick-string for the rung (same format as the main leg, line swapped).
+  // `market` lets a rung carry its OWN market label (e.g. a game leg's "Best" is
+  // a "Spread" while its "Safe" rung is an "Alt Spread") so the slip leg key and
+  // dedupe stay correct. Omitted for prop rungs, which share the parent's market.
   altOptions?: {
-    cushion?: { side: string; line: number; odds: number; pick: string };
-    value?: { side: string; line: number; odds: number; pick: string };
+    cushion?: { side: string; line: number; odds: number; pick: string; market?: string };
+    value?: { side: string; line: number; odds: number; pick: string; market?: string };
   };
 };
 
@@ -54,56 +57,89 @@ if (
 // clear the others so a single card only ever contributes ONE leg to the slip.
 // Returns the slip legKeys for this card's OTHER options (everything but the one
 // being kept), so the caller can removeLeg() them before adding the chosen line.
-function siblingLegKeys(parent: ParsedPick, keepPick: string): string[] {
-  return [
-    parent.pick,
-    parent.altOptions?.cushion?.pick,
-    parent.altOptions?.value?.pick,
-  ]
-    .filter((p): p is string => !!p && p !== keepPick)
-    .map((p) => `${parent.game}|${parent.market}|${p}`.toLowerCase());
+// Every slip-able line on a card: the main pick plus its Safe/Value rungs. Each
+// carries its OWN market label (a rung may differ from the main, e.g. "Alt
+// Spread" vs "Spread") so leg keys match what addLeg() actually stored.
+function cardLegs(parent: ParsedPick): { market: string; pick: string }[] {
+  const legs: { market: string; pick: string }[] = [
+    { market: parent.market, pick: parent.pick },
+  ];
+  const c = parent.altOptions?.cushion;
+  const v = parent.altOptions?.value;
+  if (c) legs.push({ market: c.market ?? parent.market, pick: c.pick });
+  if (v) legs.push({ market: v.market ?? parent.market, pick: v.pick });
+  return legs;
 }
 
-// A compact, TAPPABLE chip for an alternate prop rung (safer cushion or
-// higher-payout value). Shows the REAL posted side+line and REAL odds, and
-// adds/removes that exact rung as its own slip leg on tap. The rung is a real
-// posted line from the same player+market+side ladder — never invented — so it
-// flows through addLeg() exactly like the main pick. It's a DISTINCT leg from
-// the main (different line), so the user can keep the main or swap to a rung.
-function AltRungChip({
+function siblingLegKeys(parent: ParsedPick, keepPick: string): string[] {
+  return cardLegs(parent)
+    .filter((l) => l.pick !== keepPick)
+    .map((l) => `${parent.game}|${l.market}|${l.pick}`.toLowerCase());
+}
+
+// A short line label for a tier chip: Over/Under + number for a total/prop
+// ("O 5.5"), or the signed handicap for a spread ("-3.5"). Moneyline and yes/no
+// markets carry no number, so they return null and the chip shows odds only.
+function compactLine(pick: string): string | null {
+  const n = norm(pick);
+  const side = sideOf(pick);
+  const m = n.match(/[+-]?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  if (side) return `${side === "Over" ? "O" : "U"} ${m[0].replace(/^\+/, "")}`;
+  const v = m[0];
+  if (v.startsWith("+") || v.startsWith("-")) return v;
+  return parseFloat(v) > 0 ? `+${v}` : v;
+}
+
+// One tappable tier in the SAFE / BEST / VALUE ladder. BEST is the model's
+// recommended line; SAFE (cushion) and VALUE are the nearest REAL alternate
+// rungs. Each tier adds/removes its EXACT line as the card's single slip leg —
+// selecting one clears the siblings (one leg per card). The line + odds are the
+// REAL posted numbers, never invented.
+function LineTierChip({
   tone,
-  rung,
+  label,
+  game,
+  market,
+  pick,
+  odds,
+  sport,
+  lineLabel,
   parent,
 }: {
-  tone: "cushion" | "value";
-  rung: { side: string; line: number; odds: number; pick: string };
+  tone: "safe" | "best" | "value";
+  label: string;
+  game: string;
+  market: string;
+  pick: string;
+  odds: number;
+  sport?: string;
+  lineLabel: string | null;
   parent: ParsedPick;
 }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
-  const added = hasLeg(parent.game, parent.market, rung.pick);
-  const s = rung.side === "Over" ? "O" : rung.side === "Under" ? "U" : rung.side;
-  const fg = added ? colors.primaryForeground : undefined;
+  const added = hasLeg(game, market, pick);
+  const isBest = tone === "best";
   const onPress = () => {
     if (added) {
-      removeLeg(`${parent.game}|${parent.market}|${rung.pick}`.toLowerCase());
+      removeLeg(`${game}|${market}|${pick}`.toLowerCase());
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
-      // Mutually exclusive with the main pick + the other rung — selecting this
-      // line clears any sibling line already on the slip (one leg per card).
-      for (const k of siblingLegKeys(parent, rung.pick)) removeLeg(k);
-      const ok = addLeg({
-        game: parent.game,
-        market: parent.market,
-        pick: rung.pick,
-        odds: rung.odds,
-        sport: parent.sport,
-      });
+      // Mutually exclusive with the other tiers — selecting this line clears any
+      // sibling line already on the slip (one leg per card).
+      for (const k of siblingLegKeys(parent, pick)) removeLeg(k);
+      const ok = addLeg({ game, market, pick, odds, sport });
       Haptics.impactAsync(
         ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
       );
     }
   };
+  const icon = tone === "safe" ? "shield" : tone === "value" ? "trending-up" : "star";
+  const fg = added ? colors.primaryForeground : undefined;
+  // BEST reads as the emphasized tier (primary outline) even before it's added.
+  const idleBorder = isBest ? colors.primary : colors.border;
+  const idleAccent = isBest ? colors.primary : colors.mutedForeground;
   return (
     <Pressable
       onPress={onPress}
@@ -112,30 +148,101 @@ function AltRungChip({
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
-        paddingVertical: 4,
-        paddingHorizontal: 8,
-        borderRadius: 8,
+        paddingVertical: 5,
+        paddingHorizontal: 9,
+        borderRadius: 9,
         backgroundColor: added ? colors.primary : colors.card,
         borderWidth: 1,
-        borderColor: added ? colors.primary : colors.border,
+        borderColor: added ? colors.primary : idleBorder,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Feather
-        name={added ? "check" : tone === "cushion" ? "shield" : "trending-up"}
-        size={11}
-        color={fg ?? colors.mutedForeground}
-      />
-      <Text style={{ color: fg ?? colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-        {tone === "cushion" ? "Safer" : "Value"}
+      <Feather name={added ? "check" : (icon as never)} size={11} color={fg ?? idleAccent} />
+      <Text
+        style={{
+          color: fg ?? (isBest ? colors.foreground : colors.mutedForeground),
+          fontFamily: FONT.bold,
+          fontSize: 11,
+        }}
+      >
+        {label}
       </Text>
-      <Text style={{ color: fg ?? colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
-        {`${s} ${rung.line}`}
-      </Text>
+      {lineLabel ? (
+        <Text style={{ color: fg ?? colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
+          {lineLabel}
+        </Text>
+      ) : null}
       <Text style={{ color: fg ?? colors.accent, fontFamily: FONT.bold, fontSize: 11 }}>
-        {formatAmerican(rung.odds)}
+        {formatAmerican(odds)}
       </Text>
     </Pressable>
+  );
+}
+
+// The SAFE / BEST / VALUE line ladder shown on every pick card. BEST is the
+// model's recommended line (always present). SAFE (cushion) and VALUE
+// (higher-payout) are the nearest REAL alternate rungs from the same ladder when
+// the book posts them — moneyline and yes/no props have no alternate line, so
+// those cards honestly show BEST only. Every tier is tappable + mutually
+// exclusive.
+function LineLadder({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const cushion = pick.altOptions?.cushion;
+  const value = pick.altOptions?.value;
+  const hasAlts = !!(cushion || value);
+  return (
+    <View style={{ gap: 5 }}>
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.bold,
+          fontSize: 9,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+        }}
+      >
+        {hasAlts ? "Safe · Best · Value" : "Best line"}
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {cushion ? (
+          <LineTierChip
+            tone="safe"
+            label="Safe"
+            game={pick.game}
+            market={cushion.market ?? pick.market}
+            pick={cushion.pick}
+            odds={cushion.odds}
+            sport={pick.sport}
+            lineLabel={compactLine(cushion.pick)}
+            parent={pick}
+          />
+        ) : null}
+        <LineTierChip
+          tone="best"
+          label="Best"
+          game={pick.game}
+          market={pick.market}
+          pick={pick.pick}
+          odds={pick.odds}
+          sport={pick.sport}
+          lineLabel={compactLine(pick.pick)}
+          parent={pick}
+        />
+        {value ? (
+          <LineTierChip
+            tone="value"
+            label="Value"
+            game={pick.game}
+            market={value.market ?? pick.market}
+            pick={value.pick}
+            odds={value.odds}
+            sport={pick.sport}
+            lineLabel={compactLine(value.pick)}
+            parent={pick}
+          />
+        ) : null}
+      </View>
+    </View>
   );
 }
 
@@ -342,16 +449,7 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         </View>
       ) : null}
 
-      {pick.altOptions && (pick.altOptions.cushion || pick.altOptions.value) ? (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-          {pick.altOptions.cushion ? (
-            <AltRungChip tone="cushion" rung={pick.altOptions.cushion} parent={pick} />
-          ) : null}
-          {pick.altOptions.value ? (
-            <AltRungChip tone="value" rung={pick.altOptions.value} parent={pick} />
-          ) : null}
-        </View>
-      ) : null}
+      <LineLadder pick={pick} />
 
       <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} />
 
@@ -793,6 +891,89 @@ function matchProp(
   };
 }
 
+// The numeric line of a pick string ("Knicks -3.5" -> -3.5, "Over 8.5" -> 8.5).
+// null when no number is present (moneyline / yes-no markets).
+function numLine(pick: string): number | null {
+  const m = norm(pick).match(/[+-]?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+// Team-identity tokens of a game pick (non-generic alpha words) so two spread
+// rungs can be confirmed to name the SAME side ("Knicks -3.5" vs "Knicks +1.5").
+function teamIdToks(pick: string): Set<string> {
+  return new Set(
+    norm(pick)
+      .split(" ")
+      .filter((t) => /[a-z]/.test(t) && !GENERIC_WORDS.has(t)),
+  );
+}
+
+// Same team? One token set must be a non-empty subset of the other so a full
+// name ("New York Knicks") still matches its nickname-only rung ("Knicks") while
+// two different teams ("LA Lakers" vs "LA Clippers") never collide.
+function sameTeam(a: Set<string>, b: Set<string>): boolean {
+  if (a.size === 0 || b.size === 0) return false;
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  for (const t of small) if (!big.has(t)) return false;
+  return true;
+}
+
+// Build the SAFE (cushion) / VALUE rungs for a GAME-level spread or total pick
+// from the real odds pool, mirroring matchProp's prop ladder. Scans the SAME
+// game + market family + side (the team for a spread, Over/Under for a total),
+// REAL posted rungs only — including the feed's "Alt Spread"/"Alt Total" entries
+// — never invented. cushion = nearest SAFER rung (lower odds, within
+// CUSHION_FLOOR juice); value = nearest HIGHER-PAYOUT rung. Moneyline / yes-no
+// have no alternate line, so they get no rungs (the card shows BEST only).
+function gameAltOptions(
+  best: RealOddsLike,
+  pool: RealOddsLike[],
+): ParsedPick["altOptions"] | undefined {
+  const fam = marketFamily(best.market);
+  const isTotal = fam.endsWith("total");
+  const isSpread = fam.endsWith("spread");
+  if (!isTotal && !isSpread) return undefined; // moneyline: no alternate line
+  const bestLine = numLine(best.pick);
+  if (bestLine == null) return undefined;
+  const bestSide = isTotal ? sideOf(best.pick) : null;
+  if (isTotal && !bestSide) return undefined;
+  const bestTeam = isTotal ? null : teamIdToks(best.pick);
+  if (bestTeam && bestTeam.size === 0) return undefined;
+  const bestOdds = best.odds;
+  let cushion: RealOddsLike | null = null;
+  let value: RealOddsLike | null = null;
+  for (const e of pool) {
+    if (e === best) continue;
+    if (typeof e.odds !== "number") continue;
+    if (!sameGame(e.game, best.game)) continue;
+    if (marketFamily(e.market) !== fam) continue;
+    const ln = numLine(e.pick);
+    if (ln == null || ln === bestLine) continue;
+    if (isTotal) {
+      if (sideOf(e.pick) !== bestSide) continue;
+    } else if (!sameTeam(bestTeam as Set<string>, teamIdToks(e.pick))) {
+      continue;
+    }
+    if (e.odds < bestOdds && e.odds >= CUSHION_FLOOR) {
+      if (!cushion || e.odds > cushion.odds) cushion = e; // nearest safer rung
+    } else if (e.odds > bestOdds) {
+      if (!value || e.odds < value.odds) value = e; // nearest higher-payout rung
+    }
+  }
+  if (!cushion && !value) return undefined;
+  const rung = (e: RealOddsLike) => ({
+    side: isTotal ? sideOf(e.pick) ?? "" : "",
+    line: numLine(e.pick) ?? 0,
+    odds: e.odds,
+    pick: e.pick,
+    market: e.market,
+  });
+  const out: ParsedPick["altOptions"] = {};
+  if (cushion) out.cushion = rung(cushion);
+  if (value) out.value = rung(value);
+  return out;
+}
+
 // Resolve which team a game-level pick is on (logo + abbr) from the game's ESPN
 // metadata. Matches the selection's tokens against each team's name tokens and
 // abbreviation. Totals ("Over 8.5") name no team and return null (no logo).
@@ -913,6 +1094,9 @@ export function parsePicks(
             pick: best.pick,
             odds: best.odds,
             sport: best.sport,
+            // SAFE / VALUE rungs for a game spread/total from the real pool's
+            // alt lines (BEST is this pick). Moneyline -> undefined (BEST only).
+            altOptions: gameAltOptions(best, pool),
           },
           gameMeta,
         );
