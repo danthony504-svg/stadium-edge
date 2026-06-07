@@ -13,9 +13,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AiPickCard } from "@/components/AiPickCard";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { enrichPickMeta } from "@/components/PickCard";
+import { enrichPickMeta, PickCard } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import {
   useBetSlip,
@@ -477,7 +476,9 @@ export default function SlipScreen() {
               contentContainerStyle={{ gap: 12, paddingRight: 4 }}
             >
               {enrichedAiPicks.map((p, i) => (
-                <AiPickCard key={`${p.game}|${p.pick}|${i}`} pick={p} />
+                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
+                  <PickCard pick={p} />
+                </View>
               ))}
             </ScrollView>
           </View>
