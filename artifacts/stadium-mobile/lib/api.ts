@@ -1,6 +1,14 @@
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
+import {
+  focalSportsFromText,
+  gameMatchesFocalText,
+  prioritizePlayerHistoryTargets,
+} from "./chatContextPriority";
+
+// Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
+export { gameMatchesFocalText };
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
@@ -1290,50 +1298,6 @@ export async function fetchUpsetSpots(sports: string[], signal?: AbortSignal): P
   return upsetSpots;
 }
 
-// Sport keywords used to focus the chat realOdds context on the league(s) the
-// user named. Only unambiguous terms — "football" is omitted because it spans
-// NFL/CFB (and soccer in much of the world), so it can't resolve to one league.
-const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
-  mlb: ["mlb", "baseball"],
-  wnba: ["wnba"],
-  nba: ["nba"],
-  nhl: ["nhl", "hockey"],
-  soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl"],
-  ufc: ["ufc", "mma"],
-  tennis: ["tennis", "atp", "wta"],
-  nfl: ["nfl"],
-  ncaaf: ["ncaaf", "cfb", "college football"],
-  ncaab: ["ncaab", "cbb", "college basketball"],
-};
-
-function focalSportsFromText(text: string | null | undefined): Set<string> {
-  const out = new Set<string>();
-  const t = String(text || "");
-  if (!t) return out;
-  for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
-    for (const w of words) {
-      if (new RegExp(`\\b${w}\\b`, "i").test(t)) {
-        out.add(id);
-        break;
-      }
-    }
-  }
-  return out;
-}
-
-// Does this game label reference a team the user named? Matches alphabetic tokens
-// of length >= 5 (skips short city words like "san"/"new"/"los") so a named-game
-// ask ("knicks spurs Q1 ticket") floats that exact game's odds to the front.
-export function gameMatchesFocalText(gameLabel: string, text: string | null | undefined): boolean {
-  const t = String(text || "");
-  if (!t) return false;
-  const tokens = gameLabel.toLowerCase().match(/[a-z]{5,}/g) || [];
-  for (const tok of tokens) {
-    if (new RegExp(`\\b${tok}\\b`, "i").test(t)) return true;
-  }
-  return false;
-}
-
 // Filler/request words stripped from a free-text form question so what remains
 // is just the player name(s). DELIBERATELY excludes real first-name words like
 // "will"/"may"/"cam" (see player-name-extraction memory) so they never get
@@ -1682,25 +1646,14 @@ export async function buildChatContext(
   // missing pieces stay honest nulls and absent maps are simply omitted.
   const playerHistory: Record<string, unknown> = {};
   // The 40-player cap on game-log fetches can starve the players the user
-  // actually asked about. Float the FOCAL game/sport's players to the front
-  // first, then MLB (so batter-vs-pitcher platoon coverage stays intact when
-  // there's no focal pull), then everyone else. Without the focal float a busy
-  // in-season MLB slate fills all 40 slots and an NBA/NFL game the user named
-  // gets no recent logs — the coach then truthfully says "no recent log
-  // available" even though the server has it. Stable within each tier.
-  const phFocalSports = focalSportsFromText(focalText);
-  const phRank = (t: { sport: string; game: string }): number => {
-    if (focalText) {
-      if (gameMatchesFocalText(t.game, focalText)) return 3;
-      if (phFocalSports.has(t.sport)) return 2;
-    }
-    return t.sport === "mlb" ? 1 : 0;
-  };
-  const phSource = [...playerTargets]
-    .map((t, i) => ({ t, i }))
-    .sort((a, b) => phRank(b.t) - phRank(a.t) || a.i - b.i)
-    .map((x) => x.t);
-  const phTargets = phSource.slice(0, 40);
+  // actually asked about. prioritizePlayerHistoryTargets floats the FOCAL
+  // game/sport's players to the front first, then MLB (so batter-vs-pitcher
+  // platoon coverage stays intact when there's no focal pull), then everyone
+  // else, before trimming to the cap. Without the focal float a busy in-season
+  // MLB slate fills all 40 slots and an NBA/NFL game the user named gets no
+  // recent logs — the coach then truthfully says "no recent log available" even
+  // though the server has it. See chatContextPriority.ts (unit-tested).
+  const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, 40);
   if (phTargets.length > 0) {
     type HistResp = {
       recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];

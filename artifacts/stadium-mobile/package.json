@@ -11,7 +11,8 @@
     "submit:ios": "eas submit --platform ios --profile production",
     "release:ios": "eas build --platform ios --profile production --auto-submit",
     "update:ios": "eas update --branch production",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test 'lib/**/*.test.ts'"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
