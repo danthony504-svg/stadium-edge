@@ -1543,6 +1543,7 @@ export async function buildChatContext(
   // ids so the server can return the vs-opponent + venue-correct split.
   const playerTargets: {
     sport: string;
+    game: string;
     player: string;
     athleteId: string;
     opponentTeamId: string | null;
@@ -1626,7 +1627,7 @@ export async function buildChatContext(
                 oppId = pt === ids.homeTeamId ? ids.awayTeamId : pt === ids.awayTeamId ? ids.homeTeamId : null;
                 isHome = pt === ids.homeTeamId ? true : pt === ids.awayTeamId ? false : null;
               }
-              playerTargets.push({ sport, player: p.player, athleteId: String(p.athleteId), opponentTeamId: oppId, isHome });
+              playerTargets.push({ sport, game, player: p.player, athleteId: String(p.athleteId), opponentTeamId: oppId, isHome });
             }
             const headshot = p.headshot ?? null;
             const teamAbbr = p.playerTeamId
@@ -1680,12 +1681,25 @@ export async function buildChatContext(
   // line from mlbPlatoon.opposingPitcherName. Every field is real feed data —
   // missing pieces stay honest nulls and absent maps are simply omitted.
   const playerHistory: Record<string, unknown> = {};
-  // MLB platoon coverage is the point of this feature, so float MLB players to
-  // the front before the 40-player cap (a busy all-sports slate could otherwise
-  // crowd them out of the log fetch). Stable within each group.
-  const phSource = [...playerTargets].sort(
-    (a, b) => (a.sport === "mlb" ? 0 : 1) - (b.sport === "mlb" ? 0 : 1),
-  );
+  // The 40-player cap on game-log fetches can starve the players the user
+  // actually asked about. Float the FOCAL game/sport's players to the front
+  // first, then MLB (so batter-vs-pitcher platoon coverage stays intact when
+  // there's no focal pull), then everyone else. Without the focal float a busy
+  // in-season MLB slate fills all 40 slots and an NBA/NFL game the user named
+  // gets no recent logs — the coach then truthfully says "no recent log
+  // available" even though the server has it. Stable within each tier.
+  const phFocalSports = focalSportsFromText(focalText);
+  const phRank = (t: { sport: string; game: string }): number => {
+    if (focalText) {
+      if (gameMatchesFocalText(t.game, focalText)) return 3;
+      if (phFocalSports.has(t.sport)) return 2;
+    }
+    return t.sport === "mlb" ? 1 : 0;
+  };
+  const phSource = [...playerTargets]
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => phRank(b.t) - phRank(a.t) || a.i - b.i)
+    .map((x) => x.t);
   const phTargets = phSource.slice(0, 40);
   if (phTargets.length > 0) {
     type HistResp = {
