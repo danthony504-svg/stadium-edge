@@ -15,18 +15,6 @@ import { getTeamHistory, searchTeam, type TeamForm } from "@/lib/api";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
-// Premium signals the mockup shows that we have NO real data feed for. We list
-// them honestly rather than fabricate a number for any of them.
-const FEED_LOCKED = [
-  "AI grade, edge % and confidence score",
-  "Model projected spread & value vs the market",
-  "Against-the-spread (cover) record vs closing lines",
-  "Public betting % (tickets / money)",
-  "Line movement history",
-  "Injury report & availability",
-  "Multi-book line comparison (DraftKings / FanDuel / BetMGM)",
-];
-
 const fmt1 = (v: number | null | undefined) =>
   v == null ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`;
 const rec = (f: TeamForm | null | undefined) =>
@@ -385,23 +373,6 @@ export default function TeamPickDetailScreen() {
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
                   Bars are real scoring margins. Green = the team {beatCaption}
                   {line != null ? " that game" : ""} — vs varied opponents, not this game's line.
-                </Text>
-              </View>
-            </Section>
-
-            {/* Honest disclosure of what we can't show */}
-            <Section title="NOT SHOWN — NO DATA FEED">
-              <View style={{ gap: 7 }}>
-                {FEED_LOCKED.map((f) => (
-                  <View key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Feather name="lock" size={12} color={colors.mutedForeground} />
-                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}>
-                      {f}
-                    </Text>
-                  </View>
-                ))}
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
-                  We only show numbers we can verify from real game results. These would need a paid sportsbook data feed — we won't fake them.
                 </Text>
               </View>
             </Section>

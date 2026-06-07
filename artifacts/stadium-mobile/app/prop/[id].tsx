@@ -19,16 +19,6 @@ import { SPORTS } from "@/lib/sports";
 // How many of the most-recent real games we read for the projection / hit-rate.
 const WINDOW = 10;
 
-// Premium signals the mockup shows that the app has NO real data feed for. We
-// list them honestly rather than fabricate a number for any of them.
-const FEED_LOCKED = [
-  "Matchup rating vs the opponent's defense",
-  "Injury & usage impact",
-  "Public betting % (tickets / money)",
-  "Line movement history",
-  "Multi-book line comparison (DraftKings / FanDuel / BetMGM)",
-];
-
 function MatchupLine({ game }: { game: string }) {
   const colors = useColors();
   const parts = game.split(/\s+@\s+/);
@@ -384,23 +374,6 @@ export default function PropDetailScreen() {
                     Bars are real per-game {marketLabel.toLowerCase()}. Green = the game cleared {lineLabel}.
                   </Text>
                 ) : null}
-              </View>
-            </Section>
-
-            {/* Honest disclosure of what we can't show */}
-            <Section title="NOT SHOWN — NO DATA FEED">
-              <View style={{ gap: 7 }}>
-                {FEED_LOCKED.map((f) => (
-                  <View key={f} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Feather name="lock" size={12} color={colors.mutedForeground} />
-                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}>
-                      {f}
-                    </Text>
-                  </View>
-                ))}
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
-                  We only show numbers we can verify from real game logs. These would need a paid sportsbook data feed — we won't fake them.
-                </Text>
               </View>
             </Section>
           </>
