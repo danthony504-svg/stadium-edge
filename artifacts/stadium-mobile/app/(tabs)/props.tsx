@@ -1,8 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -545,6 +545,15 @@ export default function PropsScreen() {
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
   const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
+  // When the player sheet sends the user to the full-breakdown route we HIDE it
+  // (keep its state) rather than closing it, then restore it whenever this
+  // screen regains focus — so pressing back on the breakdown lands on the sheet.
+  const [sheetHidden, setSheetHidden] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setSheetHidden(false);
+    }, []),
+  );
 
   // Open the player-props detail seeded to the tapped market, gathering every
   // market that player has in this game (for the metric pills + lines list).
@@ -1163,7 +1172,15 @@ export default function PropsScreen() {
           )}
         </View>
       </ScrollView>
-      <PlayerPropsSheet data={sheet} onClose={() => setSheet(null)} />
+      <PlayerPropsSheet
+        data={sheet}
+        active={!sheetHidden}
+        onHide={() => setSheetHidden(true)}
+        onClose={() => {
+          setSheet(null);
+          setSheetHidden(false);
+        }}
+      />
       <TeamPropsSheet data={teamSheet} onClose={() => setTeamSheet(null)} />
     </View>
   );

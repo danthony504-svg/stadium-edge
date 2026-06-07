@@ -107,9 +107,18 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 export function PlayerPropsSheet({
   data,
   onClose,
+  active = true,
+  onHide,
 }: {
   data: PlayerSheetData | null;
   onClose: () => void;
+  // When false, the modal is hidden but its state is kept alive — used so the
+  // sheet temporarily steps aside while a pushed route (the full breakdown) is
+  // on top, then reappears when the user navigates back to it.
+  active?: boolean;
+  // Called right before navigating to the breakdown so the parent can hide this
+  // sheet (instead of destroying it) — pressing back then returns here.
+  onHide?: () => void;
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -337,7 +346,7 @@ export function PlayerPropsSheet({
   };
 
   return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal visible={active} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         {/* Header */}
         <View
@@ -587,10 +596,11 @@ export function PlayerPropsSheet({
               const pickStr = `${data.player} ${aiSuggestion.side} ${aiSuggestion.line} ${mlabel}`;
               const added = hasLeg(data.gameLabel, "Player Prop", pickStr);
               // Tap the card body → full prop breakdown page (real game-log
-              // projection, hit-rate, injury & matchup defense). Close the
-              // sheet first so the pushed route isn't hidden under this Modal.
+              // projection, hit-rate, injury & matchup defense). Hide (don't
+              // destroy) the sheet so it's not on top of the pushed route AND so
+              // pressing back on the breakdown returns the user right here.
               const openStats = () => {
-                onClose();
+                onHide?.();
                 router.push({
                   pathname: "/prop/[id]",
                   params: {
