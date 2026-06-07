@@ -43,6 +43,14 @@ export type ParsedPick = {
     cushion?: { side: string; line: number; odds: number; pick: string; market?: string };
     value?: { side: string; line: number; odds: number; pick: string; market?: string };
   };
+  // Render-only prop metadata used to open the prop detail page. Carried on
+  // AI-recommended prop cards so a tap can fetch the player's REAL game log and
+  // show the line/side. Never affects the slip leg key (game/market/pick do).
+  athleteId?: string | null;
+  player?: string;
+  propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
+  propLine?: number | null;
+  propSide?: string; // "Over" | "Under" | "Yes"
 };
 
 if (
@@ -573,7 +581,20 @@ export function EdgeReadout({
   );
 }
 
-export function PickCard({ pick }: { pick: ParsedPick }) {
+export function PickCard({
+  pick,
+  onPress,
+  hideReadout,
+}: {
+  pick: ParsedPick;
+  // When set, the card's header/info area becomes tappable (e.g. to open the
+  // prop detail page). Inner controls (line ladder, AI-edge pill, add button)
+  // keep their own taps — RN gives the touched child the responder.
+  onPress?: () => void;
+  // Hide the AI Edge / market-price readout tile (used on the Props tab, where
+  // the full breakdown lives on the detail page instead).
+  hideReadout?: boolean;
+}) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
@@ -616,63 +637,80 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         gap: 8,
       }}
     >
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-        }}
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        style={({ pressed }) => ({ gap: 8, opacity: pressed && onPress ? 0.7 : 1 })}
       >
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 5,
-            paddingVertical: 4,
-            paddingHorizontal: 9,
-            borderRadius: 999,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
+            justifyContent: "space-between",
+            gap: 8,
           }}
         >
-          <Feather name={marketIcon(pick)} size={12} color={colors.accent} />
-          <Text
+          <View
             style={{
-              color: colors.accent,
-              fontFamily: FONT.bold,
-              fontSize: 11,
-              letterSpacing: 0.4,
-              textTransform: "uppercase",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 5,
+              paddingVertical: 4,
+              paddingHorizontal: 9,
+              borderRadius: 999,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
             }}
           >
-            {pick.market}
+            <Feather name={marketIcon(pick)} size={12} color={colors.accent} />
+            <Text
+              style={{
+                color: colors.accent,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+                letterSpacing: 0.4,
+                textTransform: "uppercase",
+              }}
+            >
+              {pick.market}
+            </Text>
+          </View>
+          <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
+            {formatAmerican(pick.odds)}
           </Text>
         </View>
-        <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
-          {formatAmerican(pick.odds)}
-        </Text>
-      </View>
 
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-        {pick.pick}
-      </Text>
-      <MatchupLine game={pick.game} />
-      {formatGameTime(pick.startsAt) ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
-          <Feather name="clock" size={11} color={colors.mutedForeground} />
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-            {formatGameTime(pick.startsAt)}
-          </Text>
-        </View>
-      ) : null}
+        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
+          {pick.pick}
+        </Text>
+        <MatchupLine game={pick.game} />
+        {formatGameTime(pick.startsAt) ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
+            <Feather name="clock" size={11} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {formatGameTime(pick.startsAt)}
+            </Text>
+          </View>
+        ) : null}
+        {onPress ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }}>
+            <Feather name="bar-chart-2" size={12} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
+              View AI breakdown
+            </Text>
+            <Feather name="chevron-right" size={13} color={colors.primary} />
+          </View>
+        ) : null}
+      </Pressable>
 
       <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
 
       <LineLadder pick={pick} />
 
-      <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
+      {hideReadout ? null : (
+        <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
+      )}
 
       {pick.edge ? (
         <View>

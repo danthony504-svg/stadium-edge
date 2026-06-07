@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Image,
@@ -435,6 +435,7 @@ export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
+  const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
   const [sport, setSport] = useState(
     params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
@@ -456,6 +457,30 @@ export default function PropsScreen() {
       gameLabel: g.gameLabel,
       initialMarket: prop.market,
       props: playerProps,
+    });
+  };
+
+  // Open the full AI breakdown / stats page for a recommended prop. Everything
+  // the page shows is fetched from the player's REAL game log — we pass only the
+  // identifiers + the posted line/side/odds so it can ground its numbers.
+  const openPropDetail = (p: ParsedPick) => {
+    router.push({
+      pathname: "/prop/[id]",
+      params: {
+        id: p.athleteId ?? p.player ?? "prop",
+        player: p.player ?? "",
+        marketKey: p.propMarketKey ?? "",
+        marketLabel: p.market,
+        line: p.propLine != null ? String(p.propLine) : "",
+        side: p.propSide ?? "",
+        odds: String(p.odds),
+        game: p.game,
+        sport: p.sport ?? sport,
+        athleteId: p.athleteId ?? "",
+        headshot: p.headshot ?? "",
+        startsAt: p.startsAt ?? "",
+        pick: p.pick,
+      },
     });
   };
 
@@ -516,6 +541,11 @@ export default function PropsScreen() {
             startsAt: g.startsAt,
             headshot: p.headshot ?? null,
             teamAbbr: teamAbbrFor(p, g.teams),
+            athleteId: p.athleteId ?? null,
+            player: p.player,
+            propMarketKey: p.market,
+            propLine: p.line ?? null,
+            propSide: side,
           },
         });
       }
@@ -652,7 +682,7 @@ export default function PropsScreen() {
             >
               {recommended.map((p, i) => (
                 <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
-                  <PickCard pick={p} />
+                  <PickCard pick={p} hideReadout onPress={() => openPropDetail(p)} />
                 </View>
               ))}
             </ScrollView>
