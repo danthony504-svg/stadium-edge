@@ -7,7 +7,7 @@ import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
-import { Badge, FONT } from "@/components/ui";
+import { FONT } from "@/components/ui";
 
 export type ParsedPick = {
   game: string;
@@ -91,6 +91,38 @@ function compactLine(pick: string): string | null {
   return parseFloat(v) > 0 ? `+${v}` : v;
 }
 
+// Decorative market icon for the card's market pill. Purely visual — never
+// asserts any data — so a missing mapping just falls back to a neutral glyph.
+function marketIcon(pick: ParsedPick): keyof typeof Feather.glyphMap {
+  if (pick.isProp) return "user";
+  const m = (pick.market || "").toLowerCase();
+  if (m.includes("total") || m.includes("over") || m.includes("under")) return "bar-chart-2";
+  if (m.includes("moneyline") || m.includes("ml")) return "dollar-sign";
+  return "flag";
+}
+
+// "Away @ Home" with the away side in blue and the home side in red so the
+// fixture reads at a glance. Falls back to a plain muted line when the label
+// isn't a clean two-team matchup (e.g. a futures or oddly-formatted game).
+function MatchupLine({ game }: { game: string }) {
+  const colors = useColors();
+  const parts = game.split(/\s+@\s+/);
+  if (parts.length !== 2) {
+    return (
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+        {game}
+      </Text>
+    );
+  }
+  return (
+    <Text style={{ fontFamily: FONT.semibold, fontSize: 13 }}>
+      <Text style={{ color: colors.primary }}>{parts[0]}</Text>
+      <Text style={{ color: colors.mutedForeground }}> @ </Text>
+      <Text style={{ color: colors.destructive }}>{parts[1]}</Text>
+    </Text>
+  );
+}
+
 // One tappable tier in the SAFE / BEST / VALUE ladder. BEST is the model's
 // recommended line; SAFE (cushion) and VALUE are the nearest REAL alternate
 // rungs. Each tier adds/removes its EXACT line as the card's single slip leg —
@@ -145,36 +177,39 @@ function LineTierChip({
       onPress={onPress}
       hitSlop={6}
       style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 5,
-        paddingVertical: 5,
+        flex: 1,
+        gap: 4,
+        paddingVertical: 8,
         paddingHorizontal: 9,
-        borderRadius: 9,
+        borderRadius: 11,
         backgroundColor: added ? colors.primary : colors.card,
         borderWidth: 1,
         borderColor: added ? colors.primary : idleBorder,
         opacity: pressed ? 0.85 : 1,
       })}
     >
-      <Feather name={added ? "check" : (icon as never)} size={11} color={fg ?? idleAccent} />
-      <Text
-        style={{
-          color: fg ?? (isBest ? colors.foreground : colors.mutedForeground),
-          fontFamily: FONT.bold,
-          fontSize: 11,
-        }}
-      >
-        {label}
-      </Text>
-      {lineLabel ? (
-        <Text style={{ color: fg ?? colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
-          {lineLabel}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Feather name={added ? "check" : (icon as never)} size={11} color={fg ?? idleAccent} />
+        <Text
+          style={{
+            color: fg ?? (isBest ? colors.foreground : colors.mutedForeground),
+            fontFamily: FONT.bold,
+            fontSize: 11,
+          }}
+        >
+          {label}
         </Text>
-      ) : null}
-      <Text style={{ color: fg ?? colors.accent, fontFamily: FONT.bold, fontSize: 11 }}>
-        {formatAmerican(odds)}
-      </Text>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 5 }}>
+        {lineLabel ? (
+          <Text style={{ color: fg ?? colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+            {lineLabel}
+          </Text>
+        ) : null}
+        <Text style={{ color: fg ?? colors.accent, fontFamily: FONT.bold, fontSize: 12 }}>
+          {formatAmerican(odds)}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -203,7 +238,7 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
       >
         {hasAlts ? "Safe · Best · Value" : "Best line"}
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      <View style={{ flexDirection: "row", gap: 6, alignItems: "stretch" }}>
         {cushion ? (
           <LineTierChip
             tone="safe"
@@ -325,10 +360,14 @@ export function EdgeReadout({
   edge,
   odds,
   isProp,
+  grid,
 }: {
   edge?: string;
   odds?: number;
   isProp?: boolean;
+  // Chat pick cards opt into the richer bordered stat grid; the slip + game-detail
+  // surfaces leave this off and keep the original compact pill row.
+  grid?: boolean;
 }) {
   const colors = useColors();
   const { projected, implied, edge: gap } = parseEdgeStats(edge);
@@ -350,6 +389,74 @@ export function EdgeReadout({
       : variance === "Low"
         ? colors.success
         : colors.mutedForeground;
+  const gapColor =
+    gap === null ? colors.mutedForeground : gap >= 0 ? colors.success : colors.destructive;
+
+  // CHAT (grid) layout: one bordered metric cell per signal — a small icon + an
+  // uppercase label over its value. Every value is a REAL parsed number (or the
+  // derived descriptor); cells with no backing data are simply not rendered.
+  if (grid) {
+    const cell = (
+      icon: keyof typeof Feather.glyphMap,
+      label: string,
+      value: string,
+      valueColor: string,
+    ) => (
+      <View
+        key={label}
+        style={{
+          flexGrow: 1,
+          flexBasis: "30%",
+          minWidth: 96,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 7,
+          paddingVertical: 7,
+          paddingHorizontal: 9,
+          borderRadius: 11,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Feather name={icon} size={14} color={valueColor} />
+        <View style={{ gap: 1 }}>
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 9,
+              letterSpacing: 0.3,
+              textTransform: "uppercase",
+            }}
+          >
+            {label}
+          </Text>
+          <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 13 }}>{value}</Text>
+        </View>
+      </View>
+    );
+    if (projected === null) {
+      return (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {cell("info", "Pricing", "Market price", colors.mutedForeground)}
+          {cell("activity", "Safety", safety, varColor)}
+        </View>
+      );
+    }
+    return (
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {cell("pie-chart", "Model", `${projected}%`, colors.primary)}
+        {implied !== null ? cell("bar-chart-2", "Implied", `${implied}%`, colors.mutedForeground) : null}
+        {gap !== null ? cell("trending-up", "Edge", `${gap >= 0 ? "+" : ""}${gap}%`, gapColor) : null}
+        {confidence ? cell("shield", "Confidence", confidence, confColor) : null}
+        {cell("activity", "Safety", safety, varColor)}
+      </View>
+    );
+  }
+
+  // DEFAULT (pill) layout: compact rounded chips, used on the slip + game-detail
+  // surfaces so only the chat cards get the richer grid.
   const chip = (label: string, fg: string, border: string) => (
     <View
       key={label}
@@ -373,15 +480,11 @@ export function EdgeReadout({
       </View>
     );
   }
-  const gapColor =
-    gap === null ? colors.mutedForeground : gap >= 0 ? colors.success : colors.destructive;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {chip(`Model ${projected}%`, colors.primary, colors.primary)}
       {implied !== null ? chip(`${implied}% implied`, colors.mutedForeground, colors.border) : null}
-      {gap !== null
-        ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor)
-        : null}
+      {gap !== null ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor) : null}
       {confidence ? chip(`Confidence: ${confidence}`, confColor, colors.border) : null}
       {chip(`Safety Rating: ${safety}`, varColor, colors.border)}
     </View>
@@ -431,19 +534,49 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         gap: 8,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <Badge label={pick.market} tone="primary" />
-        <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 15 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 5,
+            paddingVertical: 4,
+            paddingHorizontal: 9,
+            borderRadius: 999,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <Feather name={marketIcon(pick)} size={12} color={colors.accent} />
+          <Text
+            style={{
+              color: colors.accent,
+              fontFamily: FONT.bold,
+              fontSize: 11,
+              letterSpacing: 0.4,
+              textTransform: "uppercase",
+            }}
+          >
+            {pick.market}
+          </Text>
+        </View>
+        <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
           {formatAmerican(pick.odds)}
         </Text>
       </View>
 
-      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
         {pick.pick}
       </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
-        {pick.game}
-      </Text>
+      <MatchupLine game={pick.game} />
       {formatGameTime(pick.startsAt) ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
           <Feather name="clock" size={11} color={colors.mutedForeground} />
@@ -453,9 +586,11 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         </View>
       ) : null}
 
+      <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
+
       <LineLadder pick={pick} />
 
-      <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} />
+      <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
 
       {pick.edge ? (
         <View>
