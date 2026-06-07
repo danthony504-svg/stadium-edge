@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { enrichPickMeta, PickCard } from "@/components/PickCard";
+import { enrichPickMeta, gameSideFromPick, PickCard, type ParsedPick } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
 import {
   useBetSlip,
@@ -313,6 +313,52 @@ export default function SlipScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiPicks, gamesKey]);
 
+  // Tapping an AI-recommended card opens its full stats sheet: the player's REAL
+  // game-log breakdown for a prop leg, or the picked team's stats sheet for a
+  // game-level side. Totals (no single team) and ambiguous picks have no single
+  // subject, so they stay non-tappable (gameSideFromPick returns null).
+  const openAiPick = (p: ParsedPick) => {
+    if (p.isProp) {
+      router.push({
+        pathname: "/prop/[id]",
+        params: {
+          id: p.athleteId ?? p.player ?? "prop",
+          player: p.player ?? "",
+          marketKey: p.propMarketKey ?? "",
+          marketLabel: p.market,
+          line: p.propLine != null ? String(p.propLine) : "",
+          side: p.propSide ?? "",
+          odds: String(p.odds),
+          game: p.game,
+          sport: p.sport ?? "",
+          athleteId: p.athleteId ?? "",
+          headshot: p.headshot ?? "",
+          startsAt: p.startsAt ?? "",
+          pick: p.pick,
+        },
+      });
+      return;
+    }
+    const side = gameSideFromPick(p);
+    if (!side) return;
+    router.push({
+      pathname: "/team-pick/[id]",
+      params: {
+        id: side.name,
+        team: side.name,
+        opp: side.opp,
+        isHome: side.isHome ? "1" : "0",
+        sport: p.sport ?? "",
+        market: p.market,
+        line: side.line != null ? String(side.line) : "",
+        odds: String(p.odds),
+        game: p.game,
+        startsAt: p.startsAt ?? "",
+        pick: p.pick,
+      },
+    });
+  };
+
   // Grade-then-archive finished saved slips. When ALL of a slip's games are
   // confirmed over (ESPN Final/post, or started past a generous buffer), we send
   // its legs to the server grader, archive the real W/L/push outcomes into the
@@ -475,11 +521,18 @@ export default function SlipScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ gap: 12, paddingRight: 4 }}
             >
-              {enrichedAiPicks.map((p, i) => (
-                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 336 }}>
-                  <PickCard pick={p} />
-                </View>
-              ))}
+              {enrichedAiPicks.map((p, i) => {
+                const openable = p.isProp || (!!p.sport && gameSideFromPick(p) != null);
+                return (
+                  <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
+                    <PickCard
+                      pick={p}
+                      hideReadout
+                      onPress={openable ? () => openAiPick(p) : undefined}
+                    />
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         ) : null}
