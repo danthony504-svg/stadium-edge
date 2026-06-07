@@ -334,6 +334,10 @@ export function EdgeReadout({
   const { projected, implied, edge: gap } = parseEdgeStats(edge);
   const confidence = deriveConfidence(gap, projected);
   const variance = deriveVariance(odds, isProp);
+  // Re-express the bet's outcome swing as a plain Safety Rating: steady favorites
+  // read "Safe", boom-or-bust props/longshots read "Aggressive", the rest are
+  // "Balanced". Same underlying signal as variance, friendlier wording.
+  const safety = variance === "High" ? "Aggressive" : variance === "Low" ? "Safe" : "Balanced";
   const confColor =
     confidence === "High"
       ? colors.success
@@ -365,7 +369,7 @@ export function EdgeReadout({
     return (
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
         {chip("Market price", colors.mutedForeground, colors.border)}
-        {chip(`Variance: ${variance}`, varColor, colors.border)}
+        {chip(`Safety Rating: ${safety}`, varColor, colors.border)}
       </View>
     );
   }
@@ -379,7 +383,7 @@ export function EdgeReadout({
         ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor)
         : null}
       {confidence ? chip(`Confidence: ${confidence}`, confColor, colors.border) : null}
-      {chip(`Variance: ${variance}`, varColor, colors.border)}
+      {chip(`Safety Rating: ${safety}`, varColor, colors.border)}
     </View>
   );
 }
