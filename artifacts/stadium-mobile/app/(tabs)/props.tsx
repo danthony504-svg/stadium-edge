@@ -1,9 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
-  FlatList,
   Image,
   Pressable,
   RefreshControl,
@@ -16,19 +16,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
-import { PropCard } from "@/components/PropCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   getGames,
   getOdds,
   getProps,
+  isPickable,
   propMarketLabel,
   PROPS_SPORTS,
   type EspnGame,
   type PlayerProp,
 } from "@/lib/api";
+import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -185,6 +187,204 @@ function Avatar({ headshot, name }: { headshot: string | null; name: string }) {
           {initials || "?"}
         </Text>
       )}
+    </View>
+  );
+}
+
+function PropChip({
+  side,
+  line,
+  price,
+  added,
+  onPress,
+}: {
+  side: "Over" | "Under";
+  line: number | null;
+  price: number | null;
+  added: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  if (price == null) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          paddingVertical: 10,
+          alignItems: "center",
+          opacity: 0.4,
+        }}
+      >
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>—</Text>
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flex: 1,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: added ? colors.primary : colors.border,
+        backgroundColor: added ? "rgba(59,130,246,0.14)" : colors.surface,
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        alignItems: "center",
+        gap: 1,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Text
+        style={{
+          color: added ? colors.primary : colors.mutedForeground,
+          fontFamily: FONT.bold,
+          fontSize: 10,
+          letterSpacing: 0.5,
+          textTransform: "uppercase",
+        }}
+      >
+        {side}
+        {line != null ? ` ${line}` : ""}
+      </Text>
+      <Text
+        style={{
+          color: added ? colors.primary : colors.foreground,
+          fontFamily: FONT.bold,
+          fontSize: 14,
+        }}
+      >
+        {formatAmerican(price)}
+      </Text>
+    </Pressable>
+  );
+}
+
+function PropRow({
+  prop,
+  alts,
+  gameLabel,
+  sport,
+  onOpen,
+}: {
+  prop: PlayerProp;
+  alts: PlayerProp[];
+  gameLabel: string;
+  sport: string;
+  onOpen: () => void;
+}) {
+  const colors = useColors();
+  const { addLeg, hasLeg } = useBetSlip();
+  const [showAlts, setShowAlts] = useState(false);
+  const label = propMarketLabel(prop.market);
+  const lineTxt = prop.line != null ? ` ${prop.line}` : "";
+
+  // Always include the side token (matches the web app's pick format), even for
+  // yes/no markets with no line (e.g. Anytime TD) — lineTxt is "" in that case.
+  const overPick = `${prop.player} Over${lineTxt} ${label}`;
+  const underPick = `${prop.player} Under${lineTxt} ${label}`;
+  const overAdded = hasLeg(gameLabel, "Player Prop", overPick);
+  const underAdded = hasLeg(gameLabel, "Player Prop", underPick);
+
+  const add = (pick: string, price: number) => {
+    const ok = addLeg({ game: gameLabel, market: "Player Prop", pick, odds: price, sport });
+    Haptics.impactAsync(ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 12,
+        gap: 10,
+      }}
+    >
+      <Pressable
+        onPress={onOpen}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          opacity: pressed ? 0.7 : 1,
+        })}
+      >
+        <Avatar headshot={prop.headshot} name={prop.player} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
+            {prop.player}
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 1 }}>
+            {label}
+            {prop.line != null ? ` · ${prop.line}` : ""}
+          </Text>
+        </View>
+        <Feather name="bar-chart-2" size={16} color={colors.primary} />
+      </Pressable>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <PropChip
+          side="Over"
+          line={prop.line}
+          price={prop.overPrice}
+          added={overAdded}
+          onPress={() => prop.overPrice != null && add(overPick, prop.overPrice)}
+        />
+        <PropChip
+          side="Under"
+          line={prop.line}
+          price={prop.underPrice}
+          added={underAdded}
+          onPress={() => prop.underPrice != null && add(underPick, prop.underPrice)}
+        />
+      </View>
+
+      {/* Alternate ladder — real rungs the book posts at other lines. Collapsed
+          by default so the list stays compact. Every price is live; no estimates. */}
+      {alts.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <Pressable
+            onPress={() => setShowAlts((s) => !s)}
+            hitSlop={6}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <Feather name={showAlts ? "chevron-up" : "chevron-down"} size={14} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>
+              {showAlts ? "Hide" : "Show"} alt lines ({alts.length})
+            </Text>
+          </Pressable>
+          {showAlts
+            ? alts.map((a, i) => {
+                const altLineTxt = a.line != null ? ` ${a.line}` : "";
+                const aOver = `${prop.player} Over${altLineTxt} ${label}`;
+                const aUnder = `${prop.player} Under${altLineTxt} ${label}`;
+                return (
+                  <View key={`${a.line}-${i}`} style={{ flexDirection: "row", gap: 8 }}>
+                    <PropChip
+                      side="Over"
+                      line={a.line}
+                      price={a.overPrice}
+                      added={hasLeg(gameLabel, "Player Prop", aOver)}
+                      onPress={() => a.overPrice != null && add(aOver, a.overPrice)}
+                    />
+                    <PropChip
+                      side="Under"
+                      line={a.line}
+                      price={a.underPrice}
+                      added={hasLeg(gameLabel, "Player Prop", aUnder)}
+                      onPress={() => a.underPrice != null && add(aUnder, a.underPrice)}
+                    />
+                  </View>
+                );
+              })
+            : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -369,217 +569,14 @@ export default function PropsScreen() {
     });
   }, [filtered]);
 
-  // Flatten the grouped props into a single virtualized list. Each game becomes
-  // a header row followed by its cards (or compact player rows while searching).
-  // Virtualizing matters here: every PropCard fetches the player's real game
-  // log, so only mounting the on-screen cards keeps those fetches bounded.
-  type ListRow =
-    | { kind: "gameHeader"; id: string; gameLabel: string; startsAt: string }
-    | { kind: "card"; id: string; g: GameProps; prop: PlayerProp; alts: PlayerProp[] }
-    | { kind: "searchPlayer"; id: string; g: GameProps; prop: PlayerProp; count: number };
-
-  const listData = useMemo<ListRow[]>(() => {
-    const rows: ListRow[] = [];
-    const searching = !!query.trim();
-    if (searching) {
-      for (const { g, players } of playerResults) {
-        if (players.length === 0) continue;
-        // Key on startsAt too: same-label rematches/doubleheaders must not collide.
-        rows.push({ kind: "gameHeader", id: `h-${g.gameLabel}-${g.startsAt}`, gameLabel: g.gameLabel, startsAt: g.startsAt });
-        for (const { prop, count } of players) {
-          rows.push({ kind: "searchPlayer", id: `s-${g.gameLabel}-${g.startsAt}-${prop.player}`, g, prop, count });
-        }
-      }
-    } else {
-      for (const g of filtered) {
-        rows.push({ kind: "gameHeader", id: `h-${g.gameLabel}-${g.startsAt}`, gameLabel: g.gameLabel, startsAt: g.startsAt });
-        g.props.forEach((p, idx) => {
-          const alts = g.allProps
-            .filter((a) => a.alt && a.player === p.player && a.market === p.market)
-            .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
-          rows.push({ kind: "card", id: `c-${g.gameLabel}-${g.startsAt}-${p.player}-${p.market}-${p.line}-${idx}`, g, prop: p, alts });
-        });
-      }
-    }
-    return rows;
-  }, [query, playerResults, filtered]);
-
-  // Header chrome (logo, search, recommended, sport pills) rendered ABOVE the
-  // list. Passed as an element (not an inline component) so the search TextInput
-  // doesn't remount/lose focus on each keystroke.
-  const header = (
-    <View>
-      {/* Logo — matches the Home logo's size and position */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
-        <Image
-          source={require("@/assets/images/logo.png")}
-          style={{ width: "100%", height: 130, marginTop: -8 }}
-          resizeMode="contain"
-          accessibilityLabel="Stadium Edge"
-        />
-      </View>
-
-      {/* Search */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 999,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-          }}
-        >
-          <Feather name="search" size={16} color={colors.mutedForeground} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search players"
-            placeholderTextColor={colors.mutedForeground}
-            style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          {query.length > 0 ? (
-            <Pressable onPress={() => setQuery("")} hitSlop={8}>
-              <Feather name="x" size={16} color={colors.mutedForeground} />
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-
-      {/* AI-recommended props — a varied set built from the real props feed,
-          independent of the AI Coach's chat parlay. Horizontal swipe list,
-          hidden while searching. */}
-      {!query.trim() && recommended.length > 0 ? (
-        <View style={{ marginBottom: 18 }}>
-          <Text
-            style={{
-              color: colors.primary,
-              fontFamily: FONT.display,
-              fontSize: 13,
-              letterSpacing: 0.5,
-              marginBottom: 8,
-              paddingHorizontal: 16,
-            }}
-          >
-            ★ AI RECOMMENDED
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-          >
-            {recommended.map((p, i) => (
-              <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
-                <PickCard pick={p} />
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
-
-      {/* Sport selector */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
-      >
-        {propsSports.map((s) => (
-          <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-        ))}
-      </ScrollView>
-    </View>
-  );
-
-  const empty = propsQ.isLoading ? (
-    <View style={{ paddingHorizontal: 16 }}>
-      <Loading label="Loading player props…" />
-    </View>
-  ) : propsQ.isError ? (
-    <View style={{ paddingHorizontal: 16 }}>
-      <ErrorState onRetry={() => propsQ.refetch()} />
-    </View>
-  ) : (
-    <View style={{ paddingHorizontal: 16 }}>
-      <EmptyState
-        icon={query ? "search" : "user"}
-        title={query ? "No matching players" : "No props in the window"}
-        subtitle={
-          query
-            ? `No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players match “${query}”.`
-            : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`
-        }
-      />
-    </View>
-  );
-
-  const renderItem = ({ item }: { item: ListRow }) => {
-    if (item.kind === "gameHeader") {
-      return (
-        <View
-          style={{
-            paddingHorizontal: 16,
-            marginTop: 14,
-            marginBottom: 8,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
-            {item.gameLabel}
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-            {new Date(item.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
-          </Text>
-        </View>
-      );
-    }
-    if (item.kind === "searchPlayer") {
-      return (
-        <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
-          <PlayerResultRow prop={item.prop} marketCount={item.count} onOpen={() => openSheet(item.g, item.prop)} />
-        </View>
-      );
-    }
-    return (
-      <View style={{ paddingHorizontal: 16, marginBottom: 12 }}>
-        <PropCard
-          prop={item.prop}
-          alts={item.alts}
-          gameLabel={item.g.gameLabel}
-          startsAt={item.g.startsAt}
-          sport={sport}
-          onOpen={() => openSheet(item.g, item.prop)}
-        />
-      </View>
-    );
-  };
-
-  const showList = !propsQ.isLoading && !propsQ.isError && totalProps > 0;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <FlatList
-        data={showList ? listData : []}
-        keyExtractor={(it) => it.id}
-        renderItem={renderItem}
-        ListHeaderComponent={header}
-        ListEmptyComponent={empty}
+      <ScrollView
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           paddingTop: insets.top + 8,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
-        initialNumToRender={6}
-        maxToRenderPerBatch={6}
-        windowSize={7}
-        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={propsQ.isFetching}
@@ -587,7 +584,158 @@ export default function PropsScreen() {
             tintColor={colors.mutedForeground}
           />
         }
-      />
+      >
+        {/* Logo — matches the Home logo's size and position */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
+          <Image
+            source={require("@/assets/images/logo.png")}
+            style={{ width: "100%", height: 130, marginTop: -8 }}
+            resizeMode="contain"
+            accessibilityLabel="Stadium Edge"
+          />
+        </View>
+
+        {/* Search */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 999,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+            }}
+          >
+            <Feather name="search" size={16} color={colors.mutedForeground} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search players"
+              placeholderTextColor={colors.mutedForeground}
+              style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
+              autoCorrect={false}
+              autoCapitalize="none"
+            />
+            {query.length > 0 ? (
+              <Pressable onPress={() => setQuery("")} hitSlop={8}>
+                <Feather name="x" size={16} color={colors.mutedForeground} />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+
+        {/* AI-recommended props — a varied set built from the real props feed,
+            independent of the AI Coach's chat parlay. Horizontal swipe list,
+            hidden while searching. */}
+        {!query.trim() && recommended.length > 0 ? (
+          <View style={{ marginBottom: 18 }}>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.display,
+                fontSize: 13,
+                letterSpacing: 0.5,
+                marginBottom: 8,
+                paddingHorizontal: 16,
+              }}
+            >
+              ★ AI RECOMMENDED
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            >
+              {recommended.map((p, i) => (
+                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
+                  <PickCard pick={p} />
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* Sport selector */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
+        >
+          {propsSports.map((s) => (
+            <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
+          ))}
+        </ScrollView>
+
+        {/* Props list */}
+        <View style={{ paddingHorizontal: 16, gap: 16 }}>
+          {propsQ.isLoading ? (
+            <Loading label="Loading player props…" />
+          ) : propsQ.isError ? (
+            <ErrorState onRetry={() => propsQ.refetch()} />
+          ) : totalProps === 0 ? (
+            <EmptyState
+              icon={query ? "search" : "user"}
+              title={query ? "No matching players" : "No props in the window"}
+              subtitle={
+                query
+                  ? `No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players match “${query}”.`
+                  : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`
+              }
+            />
+          ) : query.trim() ? (
+            // Searching → compact: one tappable row per player, not every prop.
+            playerResults.map(({ g, players }, gi) => (
+              <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                    {g.gameLabel}
+                  </Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                    {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                </View>
+                {players.map(({ prop, count }) => (
+                  <PlayerResultRow
+                    key={`${g.gameLabel}-${prop.player}`}
+                    prop={prop}
+                    marketCount={count}
+                    onOpen={() => openSheet(g, prop)}
+                  />
+                ))}
+              </View>
+            ))
+          ) : (
+            filtered.map((g, gi) => (
+              <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                    {g.gameLabel}
+                  </Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                    {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
+                  </Text>
+                </View>
+                {g.props.map((p, idx) => (
+                  <PropRow
+                    key={`${p.player}-${p.market}-${p.line}-${idx}`}
+                    prop={p}
+                    alts={g.allProps
+                      .filter((a) => a.alt && a.player === p.player && a.market === p.market)
+                      .sort((a, b) => (a.line ?? 0) - (b.line ?? 0))}
+                    gameLabel={g.gameLabel}
+                    sport={sport}
+                    onOpen={() => openSheet(g, p)}
+                  />
+                ))}
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
       <PlayerPropsSheet data={sheet} onClose={() => setSheet(null)} />
     </View>
   );

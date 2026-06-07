@@ -16,7 +16,6 @@ import {
   type PlayerStatSummary,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { STEP, gameValueForMarket } from "@/lib/propAnalytics";
 import { SPORTS } from "@/lib/sports";
 
 export type PlayerSheetData = {
@@ -30,6 +29,94 @@ export type PlayerSheetData = {
   initialMarket: string;
   props: PlayerProp[];
 };
+
+// Line-grid resolution for the hit-rate explorer (half-point, like book lines).
+const STEP = 0.5;
+
+// Markets whose per-game value is the SUM of several ESPN stat columns.
+const MARKET_COMBO: Record<string, string[]> = {
+  player_points_rebounds_assists: ["PTS", "REB", "AST"],
+  player_points_rebounds: ["PTS", "REB"],
+  player_points_assists: ["PTS", "AST"],
+  player_rebounds_assists: ["REB", "AST"],
+  player_blocks_steals: ["BLK", "STL"],
+};
+
+// Markets that map to a single ESPN stat column. The array is a fallback list —
+// the first present (and unambiguous) label wins, since column names differ by
+// sport (e.g. assists is "AST" in the NBA log but "A" in the NHL log; shots on
+// goal is "S" in the NHL log).
+const MARKET_SINGLE: Record<string, string[]> = {
+  player_points: ["PTS"],
+  player_rebounds: ["REB"],
+  player_assists: ["AST", "A"],
+  player_blocks: ["BLK"],
+  player_steals: ["STL"],
+  player_turnovers: ["TO"],
+  batter_hits: ["H"],
+  batter_home_runs: ["HR"],
+  batter_stolen_bases: ["SB"],
+  player_sacks: ["SACK", "SACKS"],
+  pitcher_strikeouts: ["K", "SO"],
+  player_goals: ["G"],
+  player_shots_on_goal: ["S", "SOG", "SHOTS"],
+  // Soccer (StatMuse fc grid columns).
+  player_goal_scorer_anytime: ["G"],
+  player_shots: ["SH"],
+  player_shots_on_target: ["SOT"],
+};
+
+function num(stats: Record<string, string>, label: string): number | null {
+  const n = Number(stats[label]);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Real per-game value for a market from one game's stat line. Returns null when
+// the feed doesn't carry the needed column(s) — we never invent a number.
+//
+// `ambiguous` is the set of labels that appear MORE THAN ONCE in the ESPN
+// gamelog header (e.g. football's passing + rushing "YDS"/"TD"). The server
+// flattens stats into a label-keyed object, so a duplicated label collides and
+// can't be trusted to mean one thing — we treat those as unavailable rather
+// than risk showing rushing yards under a passing-yards prop.
+function gameValueForMarket(
+  market: string,
+  stats: Record<string, string>,
+  ambiguous: Set<string>,
+): number | null {
+  // Total bases isn't a single ESPN column — it's an exact identity from real
+  // columns: TB = H + 2B + 2*(3B) + 3*(HR). All four are unambiguous in the MLB
+  // batting log, so this is a real computation, not an estimate.
+  if (market === "batter_total_bases") {
+    const h = num(stats, "H");
+    const d = num(stats, "2B");
+    const t = num(stats, "3B");
+    const hr = num(stats, "HR");
+    if (h == null || d == null || t == null || hr == null) return null;
+    return h + d + 2 * t + 3 * hr;
+  }
+
+  const combo = MARKET_COMBO[market];
+  if (combo) {
+    let sum = 0;
+    for (const lab of combo) {
+      if (ambiguous.has(lab)) return null;
+      const n = num(stats, lab);
+      if (n == null) return null;
+      sum += n;
+    }
+    return sum;
+  }
+  const singles = MARKET_SINGLE[market];
+  if (singles) {
+    for (const lab of singles) {
+      if (ambiguous.has(lab)) continue;
+      const n = num(stats, lab);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
 
 // Season-stats grid config per sport: which columns to surface and whether the
 // natural read is a per-game average (basketball) or a season total (the rest).
