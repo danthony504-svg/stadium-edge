@@ -1337,13 +1337,17 @@ router.post("/chat", async (req, res): Promise<void> => {
             .filter((t) => t && !/^(jr|sr|ii|iii|iv|v)$/.test(t));
           return toks[toks.length - 1] || "";
         };
-        // Prefer batters the user NAMED; otherwise research the whole pool (capped).
+        // Only research batters the user NAMED. The old fallback (research the
+        // whole pool when nobody is named) fired up to 6 speculative StatMuse
+        // lookups on a generic ticket build that never asked about a batter —
+        // pure latency the user opted to drop. A named-batter request still
+        // enriches; a generic build skips this entirely (empty array → instant).
         const named = entries.filter((e) => {
           const last = e.player.split(/\s+/).pop() || "";
           return wordReB(e.player).test(latestUser) || (last.length >= 3 && wordReB(last).test(latestUser));
         });
         const seenBvp = new Set<string>();
-        for (const e of named.length ? named : entries) {
+        for (const e of named) {
           const key = `${e.player}|${e.opposingPitcherName}`.toLowerCase();
           if (seenBvp.has(key) || seenBvp.size >= 6) continue;
           seenBvp.add(key);
@@ -1472,7 +1476,11 @@ router.post("/chat", async (req, res): Promise<void> => {
       }
       const cands = [...byPlayer.values()];
       const named = cands.filter((c) => c.named);
-      const chosen = (named.length ? named : cands).slice(0, 6);
+      // Only research players the user NAMED. The old fallback (first 6 of the
+      // pool when nobody is named) fired speculative career-vs-opponent lookups
+      // on a generic ticket build — latency the user opted to drop. Named asks
+      // still enrich; a generic build skips this (empty array → instant).
+      const chosen = named.slice(0, 6);
       for (const c of chosen) {
         pvtFetches.push(
           askStatMuse(`${c.player} career vs ${c.opponent}`, c.sport).then((r) => {
@@ -1502,8 +1510,12 @@ router.post("/chat", async (req, res): Promise<void> => {
     // Strict enrichment time budget: StatMuse facts are a nice-to-have, never
     // worth delaying the model. If the lookups don't all resolve within the
     // budget we ship what we have / nothing — the in-flight fetches still
-    // populate the 10-min cache for the next request.
-    const STATMUSE_BUDGET_MS = 3000;
+    // populate the 10-min cache for the next request. Trimmed from 3000ms to
+    // 1800ms to cut time-to-first-token on stat-heavy chats: a lookup that
+    // misses 1.8s still warms the cache so the follow-up turn shows it. Anything
+    // that genuinely needs the data (a NAMED player/game) is still fetched; we
+    // only gave up the long tail of the wait, not the data source.
+    const STATMUSE_BUDGET_MS = 1800;
     // Per-fetch deadline (not an all-or-nothing batch race): a single slow
     // lookup only drops ITSELF, so the facts that resolved quickly still ship.
     // Lookups that miss the deadline keep running and warm the 10-min cache for
@@ -1518,9 +1530,9 @@ router.post("/chat", async (req, res): Promise<void> => {
         ),
       ]);
     // Resolve ALL StatMuse enrichment (facts + batter-vs-pitcher) under ONE
-    // shared deadline pass so enrichment can never add more than the single ~3s
-    // budget to the chat. (Awaiting the two phases sequentially could stack to
-    // ~6s.) Both deadline timers start together here.
+    // shared deadline pass so enrichment can never add more than the single
+    // ~1.8s budget to the chat. (Awaiting the two phases sequentially could
+    // stack to ~3.6s.) Both deadline timers start together here.
     const [results, bvpResults, pvtResults] = await Promise.all([
       Promise.all([...teamFetches, questionFetch, ...periodLogFetches].map(withDeadline)),
       Promise.all(

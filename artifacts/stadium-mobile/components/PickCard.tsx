@@ -496,48 +496,7 @@ export function EdgeReadout({
         </Text>
       </View>
     );
-    if (gap === null) {
-      return (
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <View
-            style={{
-              flex: 1,
-              paddingVertical: 12,
-              paddingHorizontal: 11,
-              borderRadius: 14,
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-              <Feather name="info" size={12} color={colors.mutedForeground} />
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.medium,
-                  fontSize: 9.5,
-                  letterSpacing: 0.3,
-                  textTransform: "uppercase",
-                }}
-              >
-                Pricing
-              </Text>
-            </View>
-            <Text
-              style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16, marginTop: 8 }}
-            >
-              Market price
-            </Text>
-            <Text
-              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10.5, marginTop: 4 }}
-            >
-              No model edge
-            </Text>
-          </View>
-        </View>
-      );
-    }
+    if (gap === null) return null;
     const s = score ?? 0;
     return (
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -565,13 +524,7 @@ export function EdgeReadout({
       <Text style={{ color: fg, fontFamily: FONT.bold, fontSize: 11 }}>{label}</Text>
     </View>
   );
-  if (gap === null) {
-    return (
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-        {chip("Market price", colors.mutedForeground, colors.border)}
-      </View>
-    );
-  }
+  if (gap === null) return null;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {chip(`AI Grade: ${grade ?? "—"}`, gradeColor, gradeColor)}
