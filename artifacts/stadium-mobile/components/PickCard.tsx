@@ -585,6 +585,7 @@ export function PickCard({
   pick,
   onPress,
   hideReadout,
+  badge,
 }: {
   pick: ParsedPick;
   // When set, the card's header/info area becomes tappable (e.g. to open the
@@ -594,6 +595,11 @@ export function PickCard({
   // Hide the AI Edge / market-price readout tile (used on the Props tab, where
   // the full breakdown lives on the detail page instead).
   hideReadout?: boolean;
+  // Optional ranking badge shown at the very top of the card. `tone` picks the
+  // accent: "grade" for a real hit-rate letter grade, "upset" for a model-lean
+  // underdog. The caption states what the badge MEANS in plain English so it
+  // never reads as a fabricated rating.
+  badge?: { text: string; caption?: string; tone: "grade" | "upset" } | null;
 }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
@@ -637,6 +643,37 @@ export function PickCard({
         gap: 8,
       }}
     >
+      {badge ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <View
+            style={{
+              paddingVertical: 3,
+              paddingHorizontal: 8,
+              borderRadius: 999,
+              backgroundColor: badge.tone === "grade" ? colors.success : colors.accent,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.background,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+                letterSpacing: 0.4,
+              }}
+            >
+              {badge.text}
+            </Text>
+          </View>
+          {badge.caption ? (
+            <Text
+              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, flex: 1 }}
+              numberOfLines={1}
+            >
+              {badge.caption}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       <Pressable
         onPress={onPress}
         disabled={!onPress}

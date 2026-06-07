@@ -21,8 +21,10 @@ import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
+  fetchUpsetSpots,
   getGames,
   getOdds,
+  getPlayerHistory,
   getProps,
   isPickable,
   propMarketLabel,
@@ -31,6 +33,7 @@ import {
   type PlayerProp,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
+import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -39,6 +42,25 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 // separate Odds API request; the props route allows 120/min and caches 5min,
 // so a dozen is comfortable and keeps the screen responsive.
 const MAX_GAMES = 12;
+
+// AI RECOMMENDED grading. The "AI grade" is NOT a fabricated model rating (the
+// app has no edge/confidence feed) — it's a transparent letter derived ONLY from
+// how often the player has cleared THIS posted line in their real recent games.
+const GRADE_WINDOW = 10; // most-recent real games read for the hit-rate
+const GRADE_MIN_SAMPLE = 5; // need at least this many real games to grade at all
+const GRADE_POOL = 12; // candidate players we pull game logs for per sport
+const REC_CAP = 6; // cards shown in the rail
+
+type Grade = "A+" | "A" | "A-";
+// Map a real hit-rate (cleared / sample) to a letter. Below A- we don't grade.
+function gradeFromHitPct(pct: number): Grade | null {
+  if (pct >= 80) return "A+";
+  if (pct >= 70) return "A";
+  if (pct >= 60) return "A-";
+  return null;
+}
+
+type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
 type TeamInfo = {
   homeTeamId: string | null;
@@ -499,15 +521,23 @@ export default function PropsScreen() {
     staleTime: 2 * 60_000,
   });
 
-  // A varied, rotating set of recommended picks built ONLY from the real props
-  // feed for the selected sport — independent of the AI Coach's chat parlay. Each
-  // card uses a real player, real posted line, and a real Over/Under price (side
-  // chosen by recommendSide); no fabricated edge note. Shuffled per data load so
-  // the list refreshes (and re-rolls on pull-to-refresh). Deduped to one main
-  // line per player, spread across games, capped small.
-  const recommended = useMemo<ParsedPick[]>(() => {
+  // Candidate pool for the AI RECOMMENDED rail — built ONLY from the real props
+  // feed: a real player, real posted line, and the value side (recommendSide).
+  // Deduped to one main line per player, in feed order, capped at GRADE_POOL so
+  // we only pull game logs for a bounded set. Each entry keeps the raw
+  // market/line/side so the grader can read the player's real hit-rate.
+  type Cand = {
+    pick: ParsedPick;
+    player: string;
+    athleteId: string | null;
+    marketKey: string;
+    line: number | null;
+    side: "Over" | "Under";
+  };
+  const gradeCandidates = useMemo<Cand[]>(() => {
     const data = propsQ.data ?? [];
-    const candidates: { pick: ParsedPick; player: string }[] = [];
+    const out: Cand[] = [];
+    const seen = new Set<string>();
     for (const g of data) {
       for (const p of g.props) {
         if (p.alt) continue; // main lines only
@@ -515,8 +545,7 @@ export default function PropsScreen() {
         if (!sel) continue;
         // Yes/no markets (no line, e.g. anytime goalscorer/TD) are only meaningful
         // on the Over/"Yes" side, and the canonical pick string drops the side
-        // token — so force the Yes side here and require its price, keeping the
-        // displayed odds consistent with the label (never an ambiguous "Under").
+        // token — so force the Yes side here and require its price.
         let side = sel.side;
         let price = sel.price;
         if (p.line == null) {
@@ -524,13 +553,20 @@ export default function PropsScreen() {
           side = "Over";
           price = p.overPrice;
         }
+        const key = p.player.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
         const label = propMarketLabel(p.market);
         const pick =
           p.line != null
             ? `${p.player} ${side} ${p.line} ${label}`
             : `${p.player} ${label}`;
-        candidates.push({
+        out.push({
           player: p.player,
+          athleteId: p.athleteId ?? null,
+          marketKey: p.market,
+          line: p.line,
+          side,
           pick: {
             game: g.gameLabel,
             market: label,
@@ -548,24 +584,163 @@ export default function PropsScreen() {
             propSide: side,
           },
         });
+        if (out.length >= GRADE_POOL) return out;
       }
-    }
-    // Fisher–Yates shuffle for variety.
-    for (let i = candidates.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-    }
-    const seen = new Set<string>();
-    const out: ParsedPick[] = [];
-    for (const c of candidates) {
-      const key = c.player.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(c.pick);
-      if (out.length >= 6) break;
     }
     return out;
   }, [propsQ.data, sport]);
+
+  // Real hit-rate grade per candidate. For each player we pull their REAL game
+  // log and count how often they cleared THIS posted line over their last
+  // GRADE_WINDOW games. Players with too few real games (or no game-log feed,
+  // e.g. tennis/ufc) are simply not graded — never given a fabricated grade.
+  const isSoccer = sport === "soccer";
+  const gradeKey = gradeCandidates
+    .map((c) => `${c.player}|${c.marketKey}|${c.line}|${c.side}`)
+    .join(",");
+  const gradesQ = useQuery({
+    queryKey: ["prop-grades", sport, gradeKey],
+    enabled: gradeCandidates.length > 0,
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      const results = new Map<string, { grade: Grade; hits: number; n: number }>();
+      const queue = [...gradeCandidates];
+      // Bounded concurrency so we don't fan out a dozen requests at once.
+      const worker = async () => {
+        for (;;) {
+          const c = queue.shift();
+          if (!c) return;
+          if (!c.athleteId && !(isSoccer && c.player)) continue;
+          try {
+            const h = await getPlayerHistory(
+              { sport, athleteId: c.athleteId, name: isSoccer ? c.player : null },
+              signal,
+            );
+            const ambiguous = computeAmbiguous(h.labels);
+            const vals = (h.recent ?? [])
+              .map((g) => gameValueForMarket(c.marketKey, g.stats, ambiguous))
+              .filter((v): v is number => v != null)
+              .slice(0, GRADE_WINDOW);
+            const n = vals.length;
+            if (n < GRADE_MIN_SAMPLE) continue;
+            const threshold = c.line != null ? c.line : 0.5;
+            const isUnder = c.side === "Under";
+            const hits = vals.filter((v) => (isUnder ? v < threshold : v >= threshold)).length;
+            const grade = gradeFromHitPct((hits / n) * 100);
+            if (grade) results.set(`${c.pick.game}|${c.pick.pick}`, { grade, hits, n });
+          } catch {
+            // No game log / fetch error — skip this player, never fabricate.
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      return results;
+    },
+  });
+
+  // Model-backed confident upsets for this sport (same real mlLean engine the
+  // Home tab uses) — surfaced here as recommendations too.
+  const upsetsQ = useQuery({
+    queryKey: ["props-upsets", sport],
+    queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
+    staleTime: 5 * 60_000,
+  });
+
+  // The rail: A-tier graded props + confident upsets first (the only picks that
+  // earn a badge). If NOTHING qualifies, fall back to the best real value picks
+  // labelled honestly (no grade) so the section is never empty. Upset items
+  // carry the canonical team identity (resolved here, where we still have the
+  // full UpsetSpot) so navigation never has to guess the side later.
+  type RecItem = {
+    pick: ParsedPick;
+    badge: RecBadge | null;
+    upset?: { team: string; opp: string; isHome: boolean };
+  };
+  const recommended = useMemo<RecItem[]>(() => {
+    const grades = gradesQ.data;
+    const aTier: { item: RecItem; rank: number }[] = [];
+    if (grades) {
+      for (const c of gradeCandidates) {
+        const g = grades.get(`${c.pick.game}|${c.pick.pick}`);
+        if (!g) continue;
+        const order = g.grade === "A+" ? 3 : g.grade === "A" ? 2 : 1;
+        aTier.push({
+          item: {
+            pick: c.pick,
+            badge: { text: g.grade, caption: `Hit ${g.hits}/${g.n} recent games`, tone: "grade" },
+          },
+          rank: order * 100 + (g.hits / g.n) * 10,
+        });
+      }
+      aTier.sort((a, b) => b.rank - a.rank);
+    }
+
+    const upsets: RecItem[] = (upsetsQ.data ?? []).map((u) => {
+      // u.side is EXACTLY the away or home substring of u.game ("Away @ Home"),
+      // both produced from the same split in computeMlLean — so an exact match is
+      // deterministic and immune to shared trailing tokens (e.g. soccer FC/SC).
+      const [awayFull = "", homeFull = ""] = u.game.split(" @ ");
+      const isHome = u.side === homeFull;
+      const team = u.side;
+      const opp = isHome ? awayFull : homeFull;
+      return {
+        pick: {
+          game: u.game,
+          market: "Moneyline",
+          pick: `${nickname(u.side)} ML`,
+          odds: u.dogOdds,
+          sport: u.sport,
+          isProp: false,
+          startsAt: u.startsAt ?? null,
+        } as ParsedPick,
+        badge: {
+          text: "CONFIDENT UPSET",
+          caption: u.reasons[0] ?? `Model lean on the dog (${formatAmerican(u.dogOdds)})`,
+          tone: "upset",
+        },
+        upset: { team, opp, isHome },
+      };
+    });
+
+    const strong = [...aTier.map((a) => a.item), ...upsets];
+    if (strong.length > 0) return strong.slice(0, REC_CAP);
+
+    // Honest fallback: real value picks ranked by the longest (most plus-money)
+    // posted price — the side the market itself prices as the better value — NO
+    // grade badge. Deterministic so the rail is stable between renders.
+    return [...gradeCandidates]
+      .sort((a, b) => b.pick.odds - a.pick.odds)
+      .slice(0, REC_CAP)
+      .map((c) => ({ pick: c.pick, badge: null }));
+  }, [gradeCandidates, gradesQ.data, upsetsQ.data]);
+
+  // Open the right detail page for a recommended card: prop breakdown for player
+  // props, the team breakdown page for an upset (team moneyline) pick. The upset
+  // side is resolved upstream (RecItem.upset), so we navigate with real params.
+  const openRecommended = (item: RecItem) => {
+    const p = item.pick;
+    if (p.isProp || !item.upset) {
+      openPropDetail(p);
+      return;
+    }
+    const { team: teamFull, opp: oppFull, isHome } = item.upset;
+    router.push({
+      pathname: "/team-pick/[id]",
+      params: {
+        id: teamFull,
+        team: teamFull,
+        opp: oppFull,
+        isHome: isHome ? "1" : "0",
+        sport: p.sport ?? sport,
+        market: "Moneyline",
+        line: "",
+        odds: String(p.odds),
+        game: p.game,
+        startsAt: p.startsAt ?? "",
+        pick: p.pick,
+      },
+    });
+  };
 
   const filtered = useMemo(() => {
     const data = propsQ.data ?? [];
@@ -669,20 +844,36 @@ export default function PropsScreen() {
                 fontFamily: FONT.display,
                 fontSize: 13,
                 letterSpacing: 0.5,
-                marginBottom: 8,
+                marginBottom: 2,
                 paddingHorizontal: 16,
               }}
             >
               ★ AI RECOMMENDED
+            </Text>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 11,
+                marginBottom: 8,
+                paddingHorizontal: 16,
+              }}
+            >
+              A-grades = high real hit-rate on this line · upsets = model lean
             </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
             >
-              {recommended.map((p, i) => (
-                <View key={`${p.game}|${p.pick}|${i}`} style={{ width: 290 }}>
-                  <PickCard pick={p} hideReadout onPress={() => openPropDetail(p)} />
+              {recommended.map((item, i) => (
+                <View key={`${item.pick.game}|${item.pick.pick}|${i}`} style={{ width: 290 }}>
+                  <PickCard
+                    pick={item.pick}
+                    badge={item.badge}
+                    hideReadout
+                    onPress={() => openRecommended(item)}
+                  />
                 </View>
               ))}
             </ScrollView>
