@@ -627,6 +627,19 @@ export function propMarketLabel(key: string): string {
   return base + suffix;
 }
 
+// Reverse of propMarketLabel for the base (non-period) labels: resolve a human
+// market label ("Strikeouts") back to its raw Odds API key ("pitcher_strikeouts")
+// so a stored bet-slip leg — which keeps only the label — can open the right
+// market on the prop stats page. Returns null for labels we don't recognize
+// (e.g. period-suffixed ones), so callers fail closed instead of guessing.
+const PROP_LABEL_TO_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(PROP_MARKET_LABELS).map(([k, v]) => [v.toLowerCase(), k]),
+);
+
+export function propMarketKeyForLabel(label: string): string | null {
+  return PROP_LABEL_TO_KEY[label.trim().toLowerCase()] ?? null;
+}
+
 // ---------- Pickability window ----------
 
 // In progress (started up to 4h ago) OR tips off within the next 48h.

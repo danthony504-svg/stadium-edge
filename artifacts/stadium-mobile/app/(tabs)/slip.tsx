@@ -28,10 +28,13 @@ import {
   buildGameMeta,
   getGames,
   gradeBets,
+  propMarketKeyForLabel,
+  searchPlayer,
   type EspnGame,
   type GradeLegInput,
 } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
+import { isGameLevelMarket, parsePropLeg } from "@/lib/propLegParse";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 
 // A game is considered "over" once it has been live longer than any realistic
@@ -55,6 +58,24 @@ function gameTeamNicks(label: string): [string, string] | null {
   const parts = (label || "").split(/\s+@\s+|\s+vs\.?\s+|\s+at\s+/i);
   if (parts.length !== 2) return null;
   return [teamNick(parts[0]), teamNick(parts[1])];
+}
+
+// Whether tapping a leg can open a stats sheet: props need a parseable player
+// (and a sport); game-level legs need to name a single team (gameSideFromPick is
+// null for totals / ambiguous picks). Mirrors the AI-recommended card rule.
+function legOpenable(leg: Leg): boolean {
+  const sport = leg.sport ?? "";
+  if (!sport) return false;
+  if (!isGameLevelMarket(leg.market)) return parsePropLeg(leg) != null;
+  return (
+    gameSideFromPick({
+      game: leg.game,
+      market: leg.market,
+      pick: leg.pick,
+      odds: leg.odds,
+      sport,
+    }) != null
+  );
 }
 
 // Build a resolver that classifies a leg's game against the live feed:
@@ -93,19 +114,26 @@ function legGameStatus(games: EspnGame[]) {
   };
 }
 
-function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
+function LegRow({
+  leg,
+  onRemove,
+  onPress,
+}: {
+  leg: Leg;
+  onRemove?: () => void;
+  onPress?: () => void;
+}) {
   const colors = useColors();
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-      }}
-    >
+  const rowStyle = {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  };
+  const inner = (
+    <>
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
           {leg.pick}
@@ -117,17 +145,36 @@ function LegRow({ leg, onRemove }: { leg: Leg; onRemove?: () => void }) {
       <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 14 }}>
         {formatAmerican(leg.odds)}
       </Text>
+      {onPress ? (
+        <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+      ) : null}
       {onRemove ? (
         <Pressable onPress={onRemove} hitSlop={8} style={{ padding: 4 }}>
           <Feather name="x" size={18} color={colors.mutedForeground} />
         </Pressable>
       ) : null}
-    </View>
+    </>
   );
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => ({ ...rowStyle, opacity: pressed ? 0.6 : 1 })}>
+        {inner}
+      </Pressable>
+    );
+  }
+  return <View style={rowStyle}>{inner}</View>;
 }
 
 
-function SavedSlipCard({ slip, onDelete }: { slip: SavedSlip; onDelete: () => void }) {
+function SavedSlipCard({
+  slip,
+  onDelete,
+  onOpenLeg,
+}: {
+  slip: SavedSlip;
+  onDelete: () => void;
+  onOpenLeg?: (leg: Leg) => void;
+}) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
@@ -182,7 +229,11 @@ function SavedSlipCard({ slip, onDelete }: { slip: SavedSlip; onDelete: () => vo
       {open ? (
         <View style={{ marginTop: 8 }}>
           {slip.legs.map((l) => (
-            <LegRow key={l.id} leg={l} />
+            <LegRow
+              key={l.id}
+              leg={l}
+              onPress={onOpenLeg && legOpenable(l) ? () => onOpenLeg(l) : undefined}
+            />
           ))}
           <Pressable
             onPress={onSaveToPhotos}
@@ -355,6 +406,87 @@ export default function SlipScreen() {
         game: p.game,
         startsAt: p.startsAt ?? "",
         pick: p.pick,
+      },
+    });
+  };
+
+  // Tapping a slip leg opens its full stats sheet. A slip Leg keeps only text
+  // (game/market/pick/odds/sport), so we reconstruct the subject here: game-level
+  // legs route straight to the named team's sheet (resolved by name on that page),
+  // while prop legs first resolve the player to a REAL ESPN athlete so the sheet
+  // can pull their actual game log. Everything stays fail-closed — a leg we can't
+  // resolve to real data simply doesn't navigate (legOpenable already gated the tap).
+  const openingLegRef = useRef(false);
+  const openLeg = async (leg: Leg) => {
+    if (openingLegRef.current) return;
+    const sport = leg.sport ?? "";
+    if (!sport) return;
+
+    if (!isGameLevelMarket(leg.market)) {
+      const parsed = parsePropLeg(leg);
+      if (!parsed) return;
+      const isSoccer = sport === "soccer";
+      let athleteId = "";
+      let headshot = "";
+      if (!isSoccer) {
+        openingLegRef.current = true;
+        try {
+          const r = await searchPlayer(parsed.player);
+          // Fail closed: only open a same-sport match. Falling back to another
+          // sport's result would attribute this leg's stats to the wrong athlete.
+          const hit = r.results.find((x) => x.sport === sport);
+          if (!hit) return; // no real same-sport athlete to show
+          athleteId = hit.athleteId;
+          headshot = hit.headshot ?? "";
+        } catch {
+          return;
+        } finally {
+          openingLegRef.current = false;
+        }
+      }
+      router.push({
+        pathname: "/prop/[id]",
+        params: {
+          id: athleteId || parsed.player,
+          player: parsed.player,
+          marketKey: propMarketKeyForLabel(leg.market) ?? "",
+          marketLabel: leg.market,
+          line: parsed.line != null ? String(parsed.line) : "",
+          side: parsed.side,
+          odds: String(leg.odds),
+          game: leg.game,
+          sport,
+          athleteId,
+          headshot,
+          startsAt: "",
+          pick: leg.pick,
+        },
+      });
+      return;
+    }
+
+    const side = gameSideFromPick({
+      game: leg.game,
+      market: leg.market,
+      pick: leg.pick,
+      odds: leg.odds,
+      sport,
+    });
+    if (!side) return;
+    router.push({
+      pathname: "/team-pick/[id]",
+      params: {
+        id: side.name,
+        team: side.name,
+        opp: side.opp,
+        isHome: side.isHome ? "1" : "0",
+        sport,
+        market: leg.market,
+        line: side.line != null ? String(side.line) : "",
+        odds: String(leg.odds),
+        game: leg.game,
+        startsAt: "",
+        pick: leg.pick,
       },
     });
   };
@@ -568,7 +700,12 @@ export default function SlipScreen() {
             }}
           >
             {legs.map((l) => (
-              <LegRow key={l.id} leg={l} onRemove={() => removeLeg(l.id)} />
+              <LegRow
+                key={l.id}
+                leg={l}
+                onRemove={() => removeLeg(l.id)}
+                onPress={legOpenable(l) ? () => openLeg(l) : undefined}
+              />
             ))}
 
             {/* Stake + payout */}
@@ -715,7 +852,12 @@ export default function SlipScreen() {
             <SectionHeader title="Saved Slips" />
             <View style={{ gap: 12 }}>
               {savedSlips.map((s) => (
-                <SavedSlipCard key={s.id} slip={s} onDelete={() => deleteSlip(s.id)} />
+                <SavedSlipCard
+                  key={s.id}
+                  slip={s}
+                  onDelete={() => deleteSlip(s.id)}
+                  onOpenLeg={openLeg}
+                />
               ))}
             </View>
           </>

@@ -113,8 +113,14 @@ export default function TeamPickDetailScreen() {
     staleTime: 30 * 60_000,
     queryFn: async ({ signal }) => {
       const r = await searchTeam(team, signal);
+      // Fail closed: only resolve a same-sport team whose name actually matches.
+      // Falling back to another sport's (or a non-matching) result would attribute
+      // this leg's stats to the wrong team.
+      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
       const hit =
-        r.results.find((t) => (t.sport ?? "") === sport) ?? r.results[0] ?? null;
+        sportHits.find((t) => teamNameMatches(t.name, team)) ??
+        sportHits[0] ??
+        null;
       return hit;
     },
   });
