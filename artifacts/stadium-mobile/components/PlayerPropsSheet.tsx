@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,6 +28,7 @@ export type PlayerSheetData = {
   teamAbbr: string | null;
   sport: string;
   gameLabel: string;
+  startsAt: string | null;
   initialMarket: string;
   props: PlayerProp[];
 };
@@ -112,6 +114,7 @@ export function PlayerPropsSheet({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
+  const router = useRouter();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
 
   const [market, setMarket] = useState<string>(data?.initialMarket ?? "");
@@ -581,11 +584,32 @@ export function PlayerPropsSheet({
                   : aiSuggestion.tier === "lean"
                     ? "Lean"
                     : "Toss-up";
-              const added = hasLeg(
-                data.gameLabel,
-                "Player Prop",
-                `${data.player} ${aiSuggestion.side} ${aiSuggestion.line} ${mlabel}`,
-              );
+              const pickStr = `${data.player} ${aiSuggestion.side} ${aiSuggestion.line} ${mlabel}`;
+              const added = hasLeg(data.gameLabel, "Player Prop", pickStr);
+              // Tap the card body → full prop breakdown page (real game-log
+              // projection, hit-rate, injury & matchup defense). Close the
+              // sheet first so the pushed route isn't hidden under this Modal.
+              const openStats = () => {
+                onClose();
+                router.push({
+                  pathname: "/prop/[id]",
+                  params: {
+                    id: data.athleteId ?? data.player ?? "prop",
+                    player: data.player,
+                    marketKey: market,
+                    marketLabel: mlabel,
+                    line: String(aiSuggestion.line),
+                    side: aiSuggestion.side,
+                    odds: String(aiSuggestion.price),
+                    game: data.gameLabel,
+                    sport: data.sport,
+                    athleteId: data.athleteId ?? "",
+                    headshot: data.headshot ?? "",
+                    startsAt: data.startsAt ?? "",
+                    pick: pickStr,
+                  },
+                });
+              };
               return (
                 <View
                   style={{
@@ -597,10 +621,26 @@ export function PlayerPropsSheet({
                     gap: 12,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  {/* Header is its own tap target → full breakdown page. Kept
+                      separate from the add button below so a tap on "+" never
+                      also navigates (no overlapping/nested press zones). */}
+                  <Pressable
+                    onPress={openStats}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      opacity: pressed ? 0.6 : 1,
+                    })}
+                  >
                     <Feather name="zap" size={14} color={colors.accent} />
                     <SectionLabel>AI Suggested</SectionLabel>
-                  </View>
+                    <View style={{ flex: 1 }} />
+                    <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
+                      Full breakdown
+                    </Text>
+                    <Feather name="chevron-right" size={14} color={colors.primary} />
+                  </Pressable>
 
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, paddingRight: 10 }}>

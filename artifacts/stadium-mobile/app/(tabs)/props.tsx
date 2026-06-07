@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
+import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -453,6 +454,82 @@ function PlayerResultRow({
   );
 }
 
+// Section header used in the search results to separate teams from players.
+function SearchSectionLabel({ children }: { children: React.ReactNode }) {
+  const colors = useColors();
+  return (
+    <Text
+      style={{
+        color: colors.mutedForeground,
+        fontFamily: FONT.bold,
+        fontSize: 11,
+        letterSpacing: 1,
+        textTransform: "uppercase",
+        marginTop: 2,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+// A tappable team search hit → opens the team-props sheet. Used only while a
+// search query is active.
+function TeamResultRow({
+  team,
+  opp,
+  isHome,
+  onOpen,
+}: {
+  team: string;
+  opp: string;
+  isHome: boolean;
+  onOpen: () => void;
+}) {
+  const colors = useColors();
+  const code = (team.split(/\s+/).filter(Boolean).pop() ?? team).slice(0, 3).toUpperCase();
+  return (
+    <Pressable
+      onPress={onOpen}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 12,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <View
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 12 }}>{code}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
+          {team}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 1 }}>
+          {isHome ? "Home" : "Away"} vs {opp.split(/\s+/).filter(Boolean).pop() ?? opp} · tap to view
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+    </Pressable>
+  );
+}
+
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -464,6 +541,7 @@ export default function PropsScreen() {
   );
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
+  const [teamSheet, setTeamSheet] = useState<TeamSheetData | null>(null);
 
   // Open the player-props detail seeded to the tapped market, gathering every
   // market that player has in this game (for the metric pills + lines list).
@@ -477,8 +555,22 @@ export default function PropsScreen() {
       teamAbbr: teamAbbrFor(prop, g.teams),
       sport,
       gameLabel: g.gameLabel,
+      startsAt: g.startsAt,
       initialMarket: prop.market,
       props: playerProps,
+    });
+  };
+
+  // Open the team-props sheet from a team search hit. We carry only the team
+  // names + game context; the sheet fetches everything it shows from real feeds.
+  const openTeam = (t: { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }) => {
+    setTeamSheet({
+      team: t.team,
+      opp: t.opp,
+      isHome: t.isHome,
+      sport,
+      gameLabel: t.gameLabel,
+      startsAt: t.startsAt,
     });
   };
 
@@ -766,6 +858,34 @@ export default function PropsScreen() {
     [filtered],
   );
 
+  // While searching, also surface TEAMS whose name matches the query — parsed
+  // from the real game labels in the props window ("Away @ Home"). One row per
+  // team (deduped), each carrying its game context so the team sheet can fetch
+  // real history + posted markets. Players and teams are searched together.
+  const teamResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [] as { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }[];
+    const data = propsQ.data ?? [];
+    const seen = new Set<string>();
+    const out: { team: string; opp: string; isHome: boolean; gameLabel: string; startsAt: string }[] = [];
+    for (const g of data) {
+      const [away, home] = g.gameLabel.split(" @ ");
+      if (!away || !home) continue;
+      const sides = [
+        { team: away.trim(), opp: home.trim(), isHome: false },
+        { team: home.trim(), opp: away.trim(), isHome: true },
+      ];
+      for (const s of sides) {
+        if (!s.team.toLowerCase().includes(q)) continue;
+        const k = s.team.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ ...s, gameLabel: g.gameLabel, startsAt: g.startsAt });
+      }
+    }
+    return out;
+  }, [propsQ.data, query]);
+
   // While searching, collapse each game's matches to one row per player (with a
   // representative prop to seed the sheet + a market count), instead of listing
   // every prop line.
@@ -826,7 +946,7 @@ export default function PropsScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search players"
+              placeholder="Search players or teams"
               placeholderTextColor={colors.mutedForeground}
               style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
               autoCorrect={false}
@@ -892,38 +1012,62 @@ export default function PropsScreen() {
             <Loading label="Loading player props…" />
           ) : propsQ.isError ? (
             <ErrorState onRetry={() => propsQ.refetch()} />
+          ) : query.trim() ? (
+            // Searching → players AND teams. Show a TEAMS section (if any team
+            // name matches) above one compact tappable row per matching player.
+            totalProps === 0 && teamResults.length === 0 ? (
+              <EmptyState
+                icon="search"
+                title="No matches"
+                subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players or teams match “${query}”.`}
+              />
+            ) : (
+              <>
+                {teamResults.length > 0 ? (
+                  <View style={{ gap: 10 }}>
+                    <SearchSectionLabel>Teams</SearchSectionLabel>
+                    {teamResults.map((t) => (
+                      <TeamResultRow
+                        key={`team-${t.team}`}
+                        team={t.team}
+                        opp={t.opp}
+                        isHome={t.isHome}
+                        onOpen={() => openTeam(t)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+                {playerResults.length > 0 && teamResults.length > 0 ? (
+                  <SearchSectionLabel>Players</SearchSectionLabel>
+                ) : null}
+                {playerResults.map(({ g, players }, gi) => (
+                  <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
+                        {g.gameLabel}
+                      </Text>
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                        {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
+                      </Text>
+                    </View>
+                    {players.map(({ prop, count }) => (
+                      <PlayerResultRow
+                        key={`${g.gameLabel}-${prop.player}`}
+                        prop={prop}
+                        marketCount={count}
+                        onOpen={() => openSheet(g, prop)}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </>
+            )
           ) : totalProps === 0 ? (
             <EmptyState
-              icon={query ? "search" : "user"}
-              title={query ? "No matching players" : "No props in the window"}
-              subtitle={
-                query
-                  ? `No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} players match “${query}”.`
-                  : `No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`
-              }
+              icon="user"
+              title="No props in the window"
+              subtitle={`No player props are posted for ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games in the ${sport === "soccer" ? "next 2 weeks" : "next 48 hours"}. Try another league.`}
             />
-          ) : query.trim() ? (
-            // Searching → compact: one tappable row per player, not every prop.
-            playerResults.map(({ g, players }, gi) => (
-              <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: colors.foreground, fontFamily: FONT.displaySemi, fontSize: 15, flex: 1 }} numberOfLines={1}>
-                    {g.gameLabel}
-                  </Text>
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                    {new Date(g.startsAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}
-                  </Text>
-                </View>
-                {players.map(({ prop, count }) => (
-                  <PlayerResultRow
-                    key={`${g.gameLabel}-${prop.player}`}
-                    prop={prop}
-                    marketCount={count}
-                    onOpen={() => openSheet(g, prop)}
-                  />
-                ))}
-              </View>
-            ))
           ) : (
             filtered.map((g, gi) => (
               <View key={`${g.gameLabel}-${gi}`} style={{ gap: 10 }}>
@@ -953,6 +1097,7 @@ export default function PropsScreen() {
         </View>
       </ScrollView>
       <PlayerPropsSheet data={sheet} onClose={() => setSheet(null)} />
+      <TeamPropsSheet data={teamSheet} onClose={() => setTeamSheet(null)} />
     </View>
   );
 }
