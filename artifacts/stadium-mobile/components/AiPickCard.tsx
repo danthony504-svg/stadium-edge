@@ -14,7 +14,7 @@ import {
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican } from "@/lib/format";
-import type { ParsedPick } from "@/components/PickCard";
+import { EdgeReadout, type ParsedPick } from "@/components/PickCard";
 import { FONT } from "@/components/ui";
 
 if (
@@ -177,6 +177,10 @@ export function AiPickCard({ pick }: { pick: ParsedPick }) {
       >
         {formatAmerican(pick.odds)}
       </Text>
+
+      <View style={{ alignItems: "center", alignSelf: "stretch" }}>
+        <EdgeReadout edge={pick.edge} />
+      </View>
 
       {/* AI reasoning note — collapsed behind a pill so the card stays compact. */}
       {pick.edge ? (

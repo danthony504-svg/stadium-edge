@@ -139,6 +139,90 @@ function AltRungChip({
   );
 }
 
+// Pull the model's projected win/hit %, the price's implied %, and the edge gap
+// out of the EDGE note prose. The chat prompt mandates a parseable shape
+// ("... -110 implies ~52%, I project this OVER ~66% -> +14% edge"), so these
+// regexes read the REAL numbers the model stated — they NEVER invent one. When
+// the note carries no projection (an honest market-price leg with no data
+// backing), everything comes back null and the card says so plainly.
+export function parseEdgeStats(edge?: string): {
+  projected: number | null;
+  implied: number | null;
+  edge: number | null;
+} {
+  const empty = { projected: null, implied: null, edge: null };
+  if (!edge) return empty;
+  const s = edge.replace(/[−–—]/g, "-");
+  const pct = (m: RegExpMatchArray | null): number | null => {
+    if (!m) return null;
+    const n = parseFloat(m[1]);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? Math.round(n) : null;
+  };
+  // The gap between the projection word and its percent must NOT cross a sign
+  // ([+-]) or another digit — otherwise "Model edge is +14% edge" would skip to
+  // the "+14" and mislabel an EDGE number as a projected win rate.
+  const projected = pct(
+    s.match(
+      /\b(?:i\s+project|project(?:ed)?(?:\s+this)?|model|puts(?:\s+this)?|lean)\b[^%\d+\-]{0,24}?(\d{1,3}(?:\.\d+)?)\s*%/i,
+    ),
+  );
+  const implied = pct(s.match(/\bimplies?\b[^%\d+\-]{0,16}?(\d{1,3}(?:\.\d+)?)\s*%/i));
+  let edgeGap: number | null = null;
+  const em = s.match(/([+-])\s*(\d{1,3}(?:\.\d+)?)\s*%?\s*edge\b/i);
+  if (em) {
+    const n = parseFloat(em[2]);
+    if (Number.isFinite(n)) edgeGap = em[1] === "-" ? -Math.round(n) : Math.round(n);
+  }
+  // No explicit "+N% edge" token but both percentages are present → derive the
+  // gap by subtraction. This is pure arithmetic on the model's OWN numbers.
+  if (edgeGap === null && projected !== null && implied !== null) {
+    edgeGap = projected - implied;
+  }
+  return { projected, implied, edge: edgeGap };
+}
+
+// Always-visible readout of the projected edge for a leg. Shows the model's
+// projected win/hit %, the book's implied %, and the gap between them; when the
+// model had no data to project (no game log etc.), it honestly reads
+// "Market price" instead of manufacturing a number.
+export function EdgeReadout({ edge }: { edge?: string }) {
+  const colors = useColors();
+  const { projected, implied, edge: gap } = parseEdgeStats(edge);
+  const chip = (label: string, fg: string, border: string) => (
+    <View
+      key={label}
+      style={{
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 999,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: border,
+      }}
+    >
+      <Text style={{ color: fg, fontFamily: FONT.bold, fontSize: 11 }}>{label}</Text>
+    </View>
+  );
+  if (projected === null) {
+    return (
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        {chip("Market price", colors.mutedForeground, colors.border)}
+      </View>
+    );
+  }
+  const gapColor =
+    gap === null ? colors.mutedForeground : gap >= 0 ? colors.success : colors.destructive;
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {chip(`Model ${projected}%`, colors.primary, colors.primary)}
+      {implied !== null ? chip(`${implied}% implied`, colors.mutedForeground, colors.border) : null}
+      {gap !== null
+        ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor)
+        : null}
+    </View>
+  );
+}
+
 export function PickCard({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
@@ -214,6 +298,8 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
           ) : null}
         </View>
       ) : null}
+
+      <EdgeReadout edge={pick.edge} />
 
       {pick.edge ? (
         <View>
