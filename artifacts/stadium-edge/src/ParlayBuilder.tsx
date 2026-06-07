@@ -9231,18 +9231,46 @@ export default function ParlayBuilder() {
           // Suppress the AI's "bet responsibly" / responsible-gambling reminder line.
           if (/bet\s+responsibl|responsible\s+gambl|gamble\s+responsibl|21\s*\+/i.test(line)) return null;
           if (line.trim()) {
-            const parts = line.split(/(\*\*[^*]+\*\*)/g);
+            const trimmed = line.trim();
+            // Inline **bold** → <strong>, everything else plain.
+            const renderInline = (s: string) =>
+              s.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+                part.length >= 4 && part.startsWith("**") && part.endsWith("**") ? (
+                  <strong key={j} className="text-slate-100 font-semibold">
+                    {part.slice(2, -2)}
+                  </strong>
+                ) : (
+                  <span key={j}>{part}</span>
+                )
+              );
+            // Section divider ("---", "***", "⸻", em/en-dash runs).
+            if (/^(?:[-*_]\s?){3,}$/.test(trimmed) || /^[⸻―—–]+$/.test(trimmed)) {
+              return <div key={i} className="my-2 border-t border-slate-800" />;
+            }
+            // Header (#/##/###).
+            const h = trimmed.match(/^(#{1,3})\s+(.+?)\s*#*$/);
+            if (h) {
+              const lvl = h[1].length;
+              const cls = lvl === 1 ? "text-[16px]" : lvl === 2 ? "text-[15px]" : "text-[14px]";
+              return (
+                <p key={i} className={`${cls} font-semibold text-slate-100 mt-2 mb-0.5`}>
+                  {renderInline(h[2])}
+                </p>
+              );
+            }
+            // Bullet row ("* " / "- " / "• ") with a hanging indent.
+            const b = trimmed.match(/^[*\-•]\s+(.+)$/);
+            if (b) {
+              return (
+                <div key={i} className="flex gap-2 text-[15px] text-slate-300 leading-relaxed">
+                  <span className="text-slate-500 select-none">•</span>
+                  <span className="flex-1">{renderInline(b[1])}</span>
+                </div>
+              );
+            }
             return (
               <p key={i} className="text-[15px] text-slate-300 leading-relaxed">
-                {parts.map((part, j) =>
-                  part.startsWith("**") && part.endsWith("**") ? (
-                    <strong key={j} className="text-slate-100 font-semibold">
-                      {part.slice(2, -2)}
-                    </strong>
-                  ) : (
-                    <span key={j}>{part}</span>
-                  )
-                )}
+                {renderInline(trimmed)}
               </p>
             );
           }

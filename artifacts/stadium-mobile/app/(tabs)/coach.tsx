@@ -21,6 +21,7 @@ import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import {
   PickCard,
@@ -1355,17 +1356,25 @@ export default function CoachScreen() {
                     {isWaiting ? (
                       <ActivityIndicator color={colors.mutedForeground} size="small" />
                     ) : bubbleText.length > 0 ? (
-                      <Text
-                        selectable
-                        style={{
-                          color: m.role === "user" ? colors.primaryForeground : colors.foreground,
-                          fontFamily: FONT.body,
-                          fontSize: 14,
-                          lineHeight: 21,
-                        }}
-                      >
-                        {bubbleText}
-                      </Text>
+                      m.role === "assistant" ? (
+                        <ChatMarkdown
+                          text={bubbleText}
+                          color={colors.foreground}
+                          mutedColor={colors.mutedForeground}
+                        />
+                      ) : (
+                        <Text
+                          selectable
+                          style={{
+                            color: colors.primaryForeground,
+                            fontFamily: FONT.body,
+                            fontSize: 14,
+                            lineHeight: 21,
+                          }}
+                        >
+                          {bubbleText}
+                        </Text>
+                      )
                     ) : null}
                   </Pressable>
                 ) : null}
