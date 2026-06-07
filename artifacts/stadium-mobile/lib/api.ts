@@ -638,6 +638,35 @@ export function isPickable(startsAt?: string | null): boolean {
   return t > now - 4 * 3600_000 && t < now + 48 * 3600_000;
 }
 
+// "Today / tonight only" intent. The user wants games on the CURRENT local
+// calendar day that haven't started yet — no tomorrow, no already-in-progress.
+// "tomorrow" anywhere disables it so "today or tomorrow" keeps the full window.
+export function wantsTodayOnly(text?: string | null): boolean {
+  const t = String(text || "").toLowerCase();
+  if (!t) return false;
+  if (/\btomorrow\b/.test(t)) return false;
+  return /\b(?:today|tonight)\b/.test(t);
+}
+
+// A game is "today & upcoming" when it tips off later on the device's current
+// calendar day (LOCAL time). Excludes already-started games and any game on a
+// different date — matching the Today / Tomorrow labels the cards show, so a
+// "today" ask never surfaces a tomorrow game or one that already kicked off.
+export function startsTodayUpcoming(startsAt?: string | null): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  if (t <= now) return false; // already started (or tipping off right now)
+  const d = new Date(t);
+  const n = new Date(now);
+  return (
+    d.getFullYear() === n.getFullYear() &&
+    d.getMonth() === n.getMonth() &&
+    d.getDate() === n.getDate()
+  );
+}
+
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
 // American odds -> implied win probability. Used to pick the single alt-ladder
@@ -1457,6 +1486,10 @@ export async function buildChatContext(
   // NAMES a sport/game, allow that focal sport's upcoming games a wider horizon
   // into the matchup-history pool, BOUNDED per sport so a non-focal or broad ask
   // never pulls a week of slates and bloats the context.
+  // "Today / tonight" ask → restrict every pool (odds, games, props) to games
+  // that tip off later TODAY (local) and haven't started yet, so the model can
+  // only ever build from today's upcoming slate.
+  const todayOnly = wantsTodayOnly(focalText);
   const focalSportsHist = focalSportsFromText(focalText);
   const withinFocalHorizon = (startsAt?: string | null) => {
     if (!startsAt) return false;
@@ -1468,6 +1501,7 @@ export async function buildChatContext(
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
+      if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods, altSign));
     }
     const sportFocal = focalSportsHist.has(sport);
@@ -1479,12 +1513,13 @@ export async function buildChatContext(
       const home = g.homeTeam || g.homeAbbr || "";
       if (!away || !home) continue;
       const gameLabel = `${away} @ ${home}`;
-      let included = isPickable(g.startsAt);
-      if (!included) {
+      let included = isPickable(g.startsAt) && (!todayOnly || startsTodayUpcoming(g.startsAt));
+      if (!included && !todayOnly) {
         // Series-lookahead widening: only for the named sport/game, only a few
         // games out, capped (focalExtra) so a focal MLB ask can't drag in a
         // week of baseball. These extra games carry no odds — they exist purely
-        // so the coach can do the matchup / last-meeting read for them.
+        // so the coach can do the matchup / last-meeting read for them. A
+        // today-only ask never widens — it stays on today's upcoming slate.
         const isFocalGame = sportFocal || gameMatchesFocalText(gameLabel, focalText);
         if (isFocalGame && withinFocalHorizon(g.startsAt) && focalExtra < 6) {
           included = true;
@@ -1569,6 +1604,7 @@ export async function buildChatContext(
     const idMap = buildPropIdMap(gamesAll[i]);
     for (const g of oddsAll[i]) {
       if (!isPickable(g.commenceTime)) continue;
+      if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       if (!g.homeTeam || !g.awayTeam) continue;
       const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
       propCandidates.push({ sport, g, ids });

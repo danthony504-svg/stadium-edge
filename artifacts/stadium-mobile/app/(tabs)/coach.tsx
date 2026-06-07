@@ -52,7 +52,9 @@ import {
   propPoolFromRealProps,
   searchPlayer,
   searchTeam,
+  startsTodayUpcoming,
   streamChat,
+  wantsTodayOnly,
   type AltSign,
   type ChatMessage,
   type PropPoolEntry,
@@ -875,6 +877,11 @@ export default function CoachScreen() {
         const wantsMinusAlt =
           !oddsThreshold && altMentioned && minusCue && !plusCue;
         const altSign: AltSign = wantsPlusAlt ? "plus" : wantsMinusAlt ? "minus" : null;
+        // "Today / tonight" ask: buildChatContext already restricts the pools to
+        // today's upcoming games, but the server's fresh-fetch backfill can still
+        // surface a tomorrow/started prop the model picks. We re-check the
+        // resolved legs below so nothing off-today ever reaches the slip.
+        const todayOnly = wantsTodayOnly(trimmed);
         const { context, propPool, gameMeta } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
@@ -1001,6 +1008,24 @@ export default function CoachScreen() {
               picks.length === 0
                 ? `\n\n_No real ${word} alt legs were available on tonight's board, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
                 : `\n\n_Showing the ${picks.length} real ${word} alt leg${picks.length === 1 ? "" : "s"}; dropped ${dropped} that landed on the other sign._`;
+          }
+        }
+        // "Today / tonight" ask: belt-and-braces drop of any resolved leg whose
+        // game isn't on today's local calendar day or has already started. The
+        // realOdds / realProps pools are already today-filtered, but the server's
+        // fresh-fetch prop backfill can hand the model a tomorrow/started prop —
+        // this guarantees none reaches the slip. Runs BEFORE the reach-the-count
+        // backfill so any top-up draws only from today's remaining real games.
+        let todayNote = "";
+        if (todayOnly) {
+          const before = picks.length;
+          picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          const dropped = before - picks.length;
+          if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
+            todayNote =
+              picks.length === 0
+                ? `\n\n_Nothing on today's board is still upcoming for that — every game I could pull has already started or isn't until later. Ask without limiting to today, or check back as more of today's games approach tip-off._`
+                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} for games still to start today; dropped ${dropped} that already started or aren't today._`;
           }
         }
         // The number of legs the user explicitly asked for (0 when unspecified).
@@ -1151,12 +1176,13 @@ export default function CoachScreen() {
         // unbacked scaffold and keep only the lead-in prose plus an honest note
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
-        let finalContent = full + thresholdNote + signNote;
+        let finalContent = full + thresholdNote + signNote + todayNote;
         if (picks.length === 0 && emittedPickLines > 0) {
           const lead = assistantBubbleText(full, false);
           const note =
             thresholdNote ||
             signNote ||
+            todayNote ||
             "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }
