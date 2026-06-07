@@ -844,22 +844,11 @@ export default function PropsScreen() {
                 fontFamily: FONT.display,
                 fontSize: 13,
                 letterSpacing: 0.5,
-                marginBottom: 2,
-                paddingHorizontal: 16,
-              }}
-            >
-              ★ AI RECOMMENDED
-            </Text>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.medium,
-                fontSize: 11,
                 marginBottom: 8,
                 paddingHorizontal: 16,
               }}
             >
-              A-grades = high real hit-rate on this line · upsets = model lean
+              ★ AI RECOMMENDED
             </Text>
             <ScrollView
               horizontal
@@ -870,7 +859,6 @@ export default function PropsScreen() {
                 <View key={`${item.pick.game}|${item.pick.pick}|${i}`} style={{ width: 290 }}>
                   <PickCard
                     pick={item.pick}
-                    badge={item.badge}
                     hideReadout
                     onPress={() => openRecommended(item)}
                   />
