@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,7 +18,15 @@ import {
   searchTeam,
   type TeamForm,
 } from "@/lib/api";
-import { injuriesForMatchup, injuryTone, teamNameMatches } from "@/lib/injuries";
+import {
+  injuriesForMatchup,
+  teamNameMatches,
+  friendlyInjury,
+  injuryImpact,
+  summarizeTeamInjuries,
+  injuryEdge,
+  type InjuryImpactTier,
+} from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
@@ -48,6 +56,24 @@ function MatchupLine({ game }: { game: string }) {
 
 export default function TeamPickDetailScreen() {
   const colors = useColors();
+  // Impact tier → colour / label for the injury rows (high red, med orange,
+  // low amber, none green). Closes over theme colours.
+  const impactColor = (tier: InjuryImpactTier): string =>
+    tier === "high"
+      ? colors.destructive
+      : tier === "med"
+        ? "#f97316"
+        : tier === "low"
+          ? colors.warning
+          : colors.success;
+  const impactLabel = (tier: InjuryImpactTier): string =>
+    tier === "high"
+      ? "High impact"
+      : tier === "med"
+        ? "Med impact"
+        : tier === "low"
+          ? "Low impact"
+          : "Minimal";
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
@@ -195,6 +221,14 @@ export default function TeamPickDetailScreen() {
     () => injuriesForMatchup(injuriesQ.data, [team, opp]),
     [injuriesQ.data, team, opp],
   );
+  // Per-team impact rollups + the derived injury edge (real counts, no WAR).
+  const injurySummaries = useMemo(
+    () => matchupInjuries.map((t) => summarizeTeamInjuries(sport, t)),
+    [matchupInjuries, sport],
+  );
+  const injEdge = useMemo(() => injuryEdge(injurySummaries), [injurySummaries]);
+  // Which teams' full injury lists are expanded ("View all N injuries →").
+  const [injuryOpen, setInjuryOpen] = useState<Record<string, boolean>>({});
 
   // Opponent's REAL season points-allowed. `opp` is an explicit param here, so
   // we can resolve it directly (unlike the prop page, which shows both sides).
@@ -464,46 +498,144 @@ export default function TeamPickDetailScreen() {
                 : "No injuries reported for either side."}
             </Text>
           ) : (
-            <View style={{ gap: 12 }}>
-              {matchupInjuries.map((t) => (
-                <View key={t.team} style={{ gap: 6 }}>
-                  <Text
-                    style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}
-                  >
-                    {t.team} · {t.entries.length}
+            <View style={{ gap: 14 }}>
+              {/* Injury edge summary — derived from real impact counts, no WAR */}
+              <View
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  padding: 12,
+                  gap: 6,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.bold,
+                    fontSize: 10,
+                    letterSpacing: 0.6,
+                  }}
+                >
+                  INJURY EDGE
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: 5,
+                      backgroundColor:
+                        injEdge.kind === "advantage" ? colors.success : colors.mutedForeground,
+                    }}
+                  />
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+                    {injEdge.kind === "advantage"
+                      ? `Advantage: ${injEdge.team}`
+                      : "Even — minimal injury edge"}
                   </Text>
-                  {t.entries.slice(0, 6).map((e, i) => {
-                    const tone = injuryTone(e.status);
-                    const dot =
-                      tone === "out" ? colors.destructive : tone === "doubt" ? colors.warning : colors.success;
-                    return (
-                      <View
-                        key={`${e.player}-${i}`}
-                        style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-                      >
-                        <View
-                          style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }}
-                        />
-                        <Text
-                          style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}
-                          numberOfLines={1}
-                        >
-                          {e.player}
-                          {e.position ? ` (${e.position})` : ""}
-                        </Text>
-                        <Text style={{ color: dot, fontFamily: FONT.bold, fontSize: 11 }}>
-                          {e.status}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                  {t.entries.length > 6 ? (
-                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                      +{t.entries.length - 6} more
-                    </Text>
-                  ) : null}
                 </View>
-              ))}
+                <Text
+                  style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
+                >
+                  {(() => {
+                    if (injEdge.kind !== "advantage")
+                      return "Both sides have comparable injury impact.";
+                    const oppHigh =
+                      injurySummaries.find((s) => s.team === injEdge.opp)?.highCount ?? 0;
+                    const ownHigh =
+                      injurySummaries.find((s) => s.team === injEdge.team)?.highCount ?? 0;
+                    // Only cite high-impact counts when they actually differ — the
+                    // edge is driven by total impact, so equal high-counts would
+                    // make a "vs" line read wrong. Fall back to the honest total.
+                    return oppHigh > ownHigh
+                      ? `${injEdge.opp} is more banged up (${oppHigh} high-impact vs ${ownHigh}).`
+                      : `${injEdge.opp} carries more total injury impact across the roster.`;
+                  })()}
+                </Text>
+              </View>
+
+              {matchupInjuries.map((t) => {
+                const summary = injurySummaries.find((s) => s.team === t.team);
+                const sorted = [...t.entries].sort(
+                  (a, b) => injuryImpact(sport, b).score - injuryImpact(sport, a).score,
+                );
+                const open = !!injuryOpen[t.team];
+                const shown = open ? sorted : sorted.slice(0, 6);
+                return (
+                  <View key={t.team} style={{ gap: 6 }}>
+                    <Text
+                      style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}
+                    >
+                      {t.team} · {t.entries.length}
+                    </Text>
+                    {summary && summary.groups.length > 0 ? (
+                      <Text
+                        style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+                      >
+                        {summary.groups.map((g) => `${g.group} ${g.count}`).join("  ·  ")}
+                      </Text>
+                    ) : null}
+                    {shown.map((e, i) => {
+                      const { tier } = injuryImpact(sport, e);
+                      const c = impactColor(tier);
+                      const friendly = friendlyInjury(e.status);
+                      return (
+                        <View
+                          key={`${e.player}-${i}`}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                        >
+                          <View
+                            style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c }}
+                          />
+                          <Text
+                            style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}
+                            numberOfLines={1}
+                          >
+                            {e.player}
+                            {e.position ? ` (${e.position})` : ""}
+                          </Text>
+                          <View style={{ alignItems: "flex-end" }}>
+                            <Text style={{ color: c, fontFamily: FONT.bold, fontSize: 11 }}>
+                              {friendly.label}
+                            </Text>
+                            <Text
+                              style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9 }}
+                            >
+                              {impactLabel(tier)}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                    {t.entries.length > 6 ? (
+                      <Pressable
+                        onPress={() =>
+                          setInjuryOpen((prev) => ({ ...prev, [t.team]: !prev[t.team] }))
+                        }
+                        hitSlop={6}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingTop: 2 }}
+                      >
+                        <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
+                          {open ? "Show less" : `View all ${t.entries.length} injuries`}
+                        </Text>
+                        <Feather
+                          name={open ? "chevron-up" : "arrow-right"}
+                          size={12}
+                          color={colors.primary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              <Text
+                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9, lineHeight: 13 }}
+              >
+                Impact = ESPN injury severity + position — a quick betting guide, not a player rating.
+              </Text>
             </View>
           )}
         </Section>
