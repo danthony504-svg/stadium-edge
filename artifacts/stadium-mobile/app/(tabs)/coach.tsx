@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -24,6 +24,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import {
   PickCard,
+  gameSideFromPick,
   parsePicks,
   backfillPicks,
   norm,
@@ -520,8 +521,61 @@ export default function CoachScreen() {
   // when nothing has settled. Recomputed only when the results ledger changes.
   const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
   const slipClearance = useCoachSlipClearance();
+  const router = useRouter();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
+
+  // Tap a chat pick card → open its real stats sheet: the player's game-log
+  // breakdown for a prop, or the picked team's matchup page for a game-level
+  // leg (ML/spread). Returns undefined when there's no single-subject sheet to
+  // show (game totals name no team; props with no player identifier) so the card
+  // stays non-tappable instead of promising a breakdown it can't deliver.
+  const statsHandlerFor = useCallback(
+    (p: ParsedPick): (() => void) | undefined => {
+      if (p.isProp) {
+        if (!p.player && !p.athleteId) return undefined;
+        return () =>
+          router.push({
+            pathname: "/prop/[id]",
+            params: {
+              id: p.athleteId ?? p.player ?? "prop",
+              player: p.player ?? "",
+              marketKey: p.propMarketKey ?? "",
+              marketLabel: p.market,
+              line: p.propLine != null ? String(p.propLine) : "",
+              side: p.propSide ?? "",
+              odds: String(p.odds),
+              game: p.game,
+              sport: p.sport ?? "",
+              athleteId: p.athleteId ?? "",
+              headshot: p.headshot ?? "",
+              startsAt: p.startsAt ?? "",
+              pick: p.pick,
+            },
+          });
+      }
+      const side = gameSideFromPick(p);
+      if (!side || !p.sport) return undefined;
+      return () =>
+        router.push({
+          pathname: "/team-pick/[id]",
+          params: {
+            id: side.name,
+            team: side.name,
+            opp: side.opp,
+            isHome: side.isHome ? "1" : "0",
+            sport: p.sport ?? "",
+            market: p.market,
+            line: side.line != null ? String(side.line) : "",
+            odds: String(p.odds),
+            game: p.game,
+            startsAt: p.startsAt ?? "",
+            pick: p.pick,
+          },
+        });
+    },
+    [router],
+  );
 
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [input, setInput] = useState("");
@@ -1345,7 +1399,7 @@ export default function CoachScreen() {
                       />
                     ) : null}
                     {m.picks!.map((p, j) => (
-                      <PickCard key={`${i}-${j}`} pick={p} />
+                      <PickCard key={`${i}-${j}`} pick={p} onPress={statsHandlerFor(p)} />
                     ))}
                   </View>
                 ) : null}

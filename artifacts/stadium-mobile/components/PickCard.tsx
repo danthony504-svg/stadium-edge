@@ -1137,6 +1137,12 @@ function matchProp(
     headshot: best.headshot ?? null,
     teamAbbr: best.teamAbbr ?? null,
     altOptions,
+    // Carried so a tap on this card can open the player's real stats sheet.
+    player: best.player,
+    athleteId: best.athleteId ?? null,
+    propMarketKey: best.marketKey,
+    propLine: best.line,
+    propSide: best.side,
   };
 }
 
@@ -1273,6 +1279,35 @@ export function enrichPickMeta(pick: ParsedPick, gameMeta: GameMeta[]): ParsedPi
     awayAbbr: meta.awayAbbr,
     homeAbbr: meta.homeAbbr,
   };
+}
+
+// Resolve which side of a game-level pick names a single team, so a tap can open
+// that team's real stats sheet. Reads ONLY the pick's own "Away @ Home" label
+// and selection text (no feed lookup needed). Returns null for props and totals
+// (which name no single team) and for ambiguous picks (both teams present), so a
+// card never opens the wrong team's breakdown. The spread number (if any) is
+// parsed off the selection.
+export function gameSideFromPick(
+  pick: ParsedPick,
+): { name: string; opp: string; isHome: boolean; line: number | null } | null {
+  if (pick.isProp) return null;
+  const text = norm(pick.pick);
+  if (sideOf(pick.pick)) return null; // total — no single team
+  const parts = pick.game.split(/\s+@\s+/);
+  if (parts.length !== 2) return null;
+  const [away, home] = parts.map((s) => s.trim());
+  const homeNick = teamNick(home);
+  const awayNick = teamNick(away);
+  const matchHome =
+    text.includes(norm(home)) || (homeNick.length > 2 && text.split(" ").includes(homeNick));
+  const matchAway =
+    text.includes(norm(away)) || (awayNick.length > 2 && text.split(" ").includes(awayNick));
+  if (matchHome === matchAway) return null; // neither, or both (ambiguous) → don't guess
+  const m = pick.pick.match(/([+-]\d+(?:\.\d+)?)/);
+  const line = m ? Number(m[1]) : null;
+  return matchHome
+    ? { name: home, opp: away, isHome: true, line }
+    : { name: away, opp: home, isHome: false, line };
 }
 
 export function parsePicks(

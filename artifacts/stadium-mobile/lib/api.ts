@@ -887,6 +887,13 @@ export type PropPoolEntry = {
   // player photo; teamAbbr is the player's team code resolved via playerTeamId.
   headshot?: string | null;
   teamAbbr?: string | null;
+  // Identifiers carried so a resolved chat prop card can open the player's real
+  // stats sheet: athleteId joins to the ESPN game log (null when the feed didn't
+  // supply one — soccer falls back to player name); marketKey is the raw Odds API
+  // market key (e.g. "player_points") the stat page reads to grade the line.
+  // Both are render-only — NEVER sent to the AI.
+  athleteId?: string | null;
+  marketKey?: string;
 };
 
 // Render-only team metadata for game-level picks (logos + abbreviations). Built
@@ -1672,11 +1679,12 @@ export async function buildChatContext(
               ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
               : null;
             const marketLabel = propMarketLabel(p.market);
+            const athleteId = p.athleteId ?? null;
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market });
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market });
             }
           }
         }
@@ -1972,11 +1980,12 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
     const marketLabel = propMarketLabel(p.market);
+    const athleteId = p.athleteId ?? null;
     if (p.over != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market });
     }
     if (p.line != null && p.under != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market });
     }
   }
   return out;
