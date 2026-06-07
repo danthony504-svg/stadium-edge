@@ -705,11 +705,18 @@ export default function PropsScreen() {
     const strong = [...aTier.map((a) => a.item), ...upsets];
     if (strong.length > 0) return strong.slice(0, REC_CAP);
 
-    // Honest fallback: real value picks ranked by the longest (most plus-money)
-    // posted price — the side the market itself prices as the better value — NO
-    // grade badge. Deterministic so the rail is stable between renders.
+    // Honest fallback: when nothing earns a real hit-rate grade we have NO edge
+    // to stand on, so we must not promote longshots. A long plus-money price means
+    // the market thinks the outcome is UNLIKELY — not that it's "good value" — and
+    // recommending e.g. "Over 0.5 Stolen Bases (+1350)" for a player we have no
+    // game log for would imply confidence we don't have. So drop rare-event
+    // longshots entirely and surface only the lines the market prices near a coin
+    // flip (shortest price first), with NO grade badge. Deterministic. If nothing
+    // qualifies the rail is simply empty — honest beats padded with longshots.
+    const FALLBACK_MAX_ODDS = 160; // exclude longshots when we have no real data
     return [...gradeCandidates]
-      .sort((a, b) => b.pick.odds - a.pick.odds)
+      .filter((c) => c.pick.odds <= FALLBACK_MAX_ODDS)
+      .sort((a, b) => a.pick.odds - b.pick.odds)
       .slice(0, REC_CAP)
       .map((c) => ({ pick: c.pick, badge: null }));
   }, [gradeCandidates, gradesQ.data, upsetsQ.data]);
