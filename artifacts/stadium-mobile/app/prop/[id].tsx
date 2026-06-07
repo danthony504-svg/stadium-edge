@@ -11,7 +11,14 @@ import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { ErrorState, FONT, Loading } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { getPlayerHistory } from "@/lib/api";
+import {
+  getInjuries,
+  getPlayerHistory,
+  getTeamDefense,
+  searchTeam,
+  type TeamDefense,
+} from "@/lib/api";
+import { findPlayerInjury, injuryTone, teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
@@ -157,6 +164,91 @@ export default function PropDetailScreen() {
     );
   };
 
+  // Back nav that never throws "GO_BACK was not handled": when this screen was
+  // opened cold (deep link / fresh stack) there's nothing to pop, so fall back
+  // to the home tab instead of dispatching a GO_BACK no navigator can handle.
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+  };
+
+  // --- Real availability + usage + matchup-defense signals (free ESPN feeds) ---
+
+  // Player's REAL injury designation (status only — we never invent "impact").
+  const injuriesQ = useQuery({
+    queryKey: ["injuries", sport],
+    enabled: !!sport,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getInjuries(sport, signal),
+  });
+  const injuryLookup = useMemo(
+    () => findPlayerInjury(injuriesQ.data, player),
+    [injuriesQ.data, player],
+  );
+  const playerInjury = injuryLookup.status === "found" ? injuryLookup.entry : null;
+
+  // Recent minutes — a REAL workload/role read pulled straight from the game
+  // log we already fetched. This is honest minutes, NOT a possession-based
+  // usage rate (that needs team box-score totals we don't have for free).
+  const usage = useMemo(() => {
+    const labels = historyQ.data?.labels ?? [];
+    const rows = historyQ.data?.recent ?? [];
+    const minLabel = labels.find((l) => /^min(ute)?s?$/i.test(l.trim()));
+    if (!minLabel) return null;
+    const vals: number[] = [];
+    for (const g of rows.slice(0, WINDOW)) {
+      const raw = g.stats?.[minLabel];
+      if (raw == null) continue;
+      const m = String(raw).match(/^(\d+)(?::(\d+))?/);
+      if (!m) continue;
+      const v = Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0);
+      if (Number.isFinite(v) && v > 0) vals.push(v);
+    }
+    if (vals.length === 0) return null;
+    return { avg: Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10, n: vals.length };
+  }, [historyQ.data]);
+
+  // Both teams in this matchup, parsed from the "Away @ Home" label so we can
+  // show each side's REAL season points-allowed without having to guess which
+  // team the player is on.
+  const [awayName, homeName] = useMemo(() => {
+    const at = game.split(/\s+@\s+/);
+    if (at.length === 2) return [at[0].trim(), at[1].trim()];
+    const vs = game.split(/\s+vs\.?\s+/i);
+    if (vs.length === 2) return [vs[0].trim(), vs[1].trim()];
+    return ["", ""];
+  }, [game]);
+
+  const defenseQ = useQuery({
+    queryKey: ["matchup-defense", sport, awayName, homeName],
+    enabled: !!sport && !!awayName && !!homeName,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const resolveOne = async (name: string): Promise<{ name: string; def: TeamDefense } | null> => {
+        const r = await searchTeam(name, signal);
+        // Fail closed: require a same-sport hit, and prefer one whose name
+        // actually matches — never silently fall back to an unrelated team.
+        const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
+        const hit = sportHits.find((t) => teamNameMatches(t.name, name)) ?? null;
+        if (!hit) return null;
+        const def = await getTeamDefense(sport, hit.teamId, signal);
+        return { name: def.teamName ?? hit.name ?? name, def };
+      };
+      const [away, home] = await Promise.all([resolveOne(awayName), resolveOne(homeName)]);
+      return { away, home };
+    },
+  });
+  const defenseRows = useMemo(() => {
+    const d = defenseQ.data;
+    return [d?.away, d?.home].filter(
+      (x): x is { name: string; def: TeamDefense } => !!x && x.def.avgPointsAgainst != null,
+    );
+  }, [defenseQ.data]);
+
+  const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
+  const toneColor =
+    injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Header */}
@@ -172,7 +264,7 @@ export default function PropDetailScreen() {
           borderBottomColor: colors.border,
         }}
       >
-        <Pressable onPress={() => router.back()} hitSlop={10} style={{ padding: 6 }}>
+        <Pressable onPress={goBack} hitSlop={10} style={{ padding: 6 }}>
           <Feather name="chevron-left" size={24} color={colors.foreground} />
         </Pressable>
         <Text
@@ -378,6 +470,100 @@ export default function PropDetailScreen() {
             </Section>
           </>
         )}
+
+        {/* Availability & usage — REAL ESPN injury designation + recent minutes */}
+        <Section title="AVAILABILITY & USAGE">
+          <View style={{ gap: 0 }}>
+            {injuriesQ.isLoading ? (
+              <BreakdownRow
+                icon="activity"
+                label="Injury status"
+                sub="Checking the ESPN injury report…"
+                value="…"
+                last={!usage}
+              />
+            ) : playerInjury ? (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  paddingVertical: 10,
+                  borderBottomWidth: usage ? 1 : 0,
+                  borderBottomColor: colors.border,
+                }}
+              >
+                <Feather name="alert-triangle" size={16} color={toneColor} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+                    {playerInjury.status}
+                  </Text>
+                  <Text
+                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+                    numberOfLines={3}
+                  >
+                    {playerInjury.position ? `${playerInjury.position} · ` : ""}
+                    {playerInjury.description}
+                  </Text>
+                </View>
+              </View>
+            ) : injuriesQ.isError ? (
+              <BreakdownRow
+                icon="info"
+                label="Injury status unavailable"
+                sub="Couldn't reach the ESPN injury report"
+                value="—"
+                last={!usage}
+              />
+            ) : injuryLookup.status === "ambiguous" ? (
+              <BreakdownRow
+                icon="info"
+                label="Injury status unavailable"
+                sub="More than one player shares this name — not shown to avoid a wrong match"
+                value="—"
+                last={!usage}
+              />
+            ) : (
+              <BreakdownRow
+                icon="check-circle"
+                label="Not on the injury report"
+                sub="ESPN lists no active designation for this player"
+                value="OK"
+                last={!usage}
+              />
+            )}
+            {usage ? (
+              <BreakdownRow
+                icon="clock"
+                label="Recent minutes"
+                sub={`Real average, last ${usage.n} games`}
+                value={usage.avg.toFixed(1)}
+                last
+              />
+            ) : null}
+          </View>
+        </Section>
+
+        {/* Matchup defense — REAL season points-allowed for both sides */}
+        {defenseRows.length > 0 ? (
+          <Section title="MATCHUP DEFENSE">
+            <View style={{ gap: 0 }}>
+              {defenseRows.map((r, i) => (
+                <BreakdownRow
+                  key={r.name}
+                  icon="shield"
+                  label={r.def.teamName ?? r.name}
+                  sub="Points allowed per game (season)"
+                  value={r.def.avgPointsAgainst!.toFixed(1)}
+                  last={i === defenseRows.length - 1}
+                />
+              ))}
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              Team-wide scoring allowed — a real season rate, not a position-specific matchup.
+            </Text>
+          </Section>
+        ) : null}
 
         {/* Add to slip */}
         <Pressable

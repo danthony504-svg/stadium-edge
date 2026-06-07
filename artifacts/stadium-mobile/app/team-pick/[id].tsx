@@ -11,7 +11,14 @@ import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { ErrorState, FONT, Loading } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { getTeamHistory, searchTeam, type TeamForm } from "@/lib/api";
+import {
+  getInjuries,
+  getTeamDefense,
+  getTeamHistory,
+  searchTeam,
+  type TeamForm,
+} from "@/lib/api";
+import { injuriesForMatchup, injuryTone, teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
@@ -169,6 +176,44 @@ export default function TeamPickDetailScreen() {
   const errored = resolveQ.isError || historyQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
 
+  // Back nav that never throws "GO_BACK was not handled": when opened cold
+  // (deep link / fresh stack) there's nothing to pop, so fall back to home.
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+  };
+
+  // --- Real injury report + opponent defense (free ESPN feeds) ---
+
+  const injuriesQ = useQuery({
+    queryKey: ["injuries", sport],
+    enabled: !!sport,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getInjuries(sport, signal),
+  });
+  const matchupInjuries = useMemo(
+    () => injuriesForMatchup(injuriesQ.data, [team, opp]),
+    [injuriesQ.data, team, opp],
+  );
+
+  // Opponent's REAL season points-allowed. `opp` is an explicit param here, so
+  // we can resolve it directly (unlike the prop page, which shows both sides).
+  const oppDefenseQ = useQuery({
+    queryKey: ["opp-defense", sport, opp],
+    enabled: !!sport && !!opp,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const r = await searchTeam(opp, signal);
+      // Fail closed: require a same-sport hit whose name actually matches the
+      // opponent — never fall back to an unrelated team's defensive stats.
+      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
+      const hit = sportHits.find((t) => teamNameMatches(t.name, opp)) ?? null;
+      if (!hit) return null;
+      return getTeamDefense(sport, hit.teamId, signal);
+    },
+  });
+  const oppDefense = oppDefenseQ.data ?? null;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Header */}
@@ -184,7 +229,7 @@ export default function TeamPickDetailScreen() {
           borderBottomColor: colors.border,
         }}
       >
-        <Pressable onPress={() => router.back()} hitSlop={10} style={{ padding: 6 }}>
+        <Pressable onPress={goBack} hitSlop={10} style={{ padding: 6 }}>
           <Feather name="chevron-left" size={24} color={colors.foreground} />
         </Pressable>
         <Text
@@ -378,6 +423,90 @@ export default function TeamPickDetailScreen() {
             </Section>
           </>
         )}
+
+        {/* Opponent defense — REAL season points-allowed for the opponent */}
+        {oppDefense && oppDefense.avgPointsAgainst != null ? (
+          <Section title="OPPONENT DEFENSE">
+            <View style={{ gap: 0 }}>
+              <BreakdownRow
+                icon="shield"
+                label={oppDefense.teamName ?? opp}
+                sub="Points allowed per game (season)"
+                value={oppDefense.avgPointsAgainst.toFixed(1)}
+                last={oppDefense.avgPointsFor == null}
+              />
+              {oppDefense.avgPointsFor != null ? (
+                <BreakdownRow
+                  icon="zap"
+                  label="Opponent offense"
+                  sub="Points scored per game (season)"
+                  value={oppDefense.avgPointsFor.toFixed(1)}
+                  last
+                />
+              ) : null}
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              Team-wide season rates — not position-specific.
+            </Text>
+          </Section>
+        ) : null}
+
+        {/* Injury report — REAL ESPN designations for both sides */}
+        <Section title="INJURY REPORT">
+          {injuriesQ.isLoading ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+              Checking the ESPN injury report…
+            </Text>
+          ) : matchupInjuries.length === 0 ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+              {injuriesQ.isError
+                ? "Couldn't reach the ESPN injury report."
+                : "No injuries reported for either side."}
+            </Text>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {matchupInjuries.map((t) => (
+                <View key={t.team} style={{ gap: 6 }}>
+                  <Text
+                    style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}
+                  >
+                    {t.team} · {t.entries.length}
+                  </Text>
+                  {t.entries.slice(0, 6).map((e, i) => {
+                    const tone = injuryTone(e.status);
+                    const dot =
+                      tone === "out" ? colors.destructive : tone === "doubt" ? colors.warning : colors.success;
+                    return (
+                      <View
+                        key={`${e.player}-${i}`}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                      >
+                        <View
+                          style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }}
+                        />
+                        <Text
+                          style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}
+                          numberOfLines={1}
+                        >
+                          {e.player}
+                          {e.position ? ` (${e.position})` : ""}
+                        </Text>
+                        <Text style={{ color: dot, fontFamily: FONT.bold, fontSize: 11 }}>
+                          {e.status}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  {t.entries.length > 6 ? (
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+                      +{t.entries.length - 6} more
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          )}
+        </Section>
 
         {/* Add to slip */}
         <Pressable

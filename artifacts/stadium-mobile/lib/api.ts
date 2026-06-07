@@ -490,6 +490,59 @@ export function getTeamHistory(
   return getJson<TeamHistory>(`/sports/team-history?${q.toString()}`, signal);
 }
 
+// ---------- Real injury report (ESPN) ----------
+
+// One player's REAL injury designation from ESPN's league-wide report.
+export type InjuryEntry = {
+  player: string;
+  position: string | null;
+  status: string;
+  description: string;
+};
+// Injuries grouped by team (artifacts/api-server /sports/injuries).
+export type InjuryTeam = {
+  team: string;
+  teamAbbr: string;
+  entries: InjuryEntry[];
+};
+
+// League-wide injury report for a sport. Every status is ESPN's own real
+// designation (Out / Questionable / Day-To-Day / ...). Returns [] on a miss.
+export function getInjuries(
+  sport: string,
+  signal?: AbortSignal,
+): Promise<InjuryTeam[]> {
+  return getJson<InjuryTeam[]>(
+    `/sports/injuries?sport=${encodeURIComponent(sport)}`,
+    signal,
+  );
+}
+
+// ---------- Coarse team defense (ESPN) ----------
+
+// Real, coarse team-defense pack (artifacts/api-server /sports/team-defense).
+// `avgPointsAgainst` is the only true "opponent allows" rate ESPN exposes per
+// team without box-score aggregation — it is TEAM-WIDE, not position-specific.
+export type TeamDefense = {
+  sport: string;
+  teamId: string;
+  teamName: string | null;
+  avgPointsAgainst: number | null;
+  avgPointsFor: number | null;
+  pointDifferential: number | null;
+  defensive: Record<string, { value: number | null; displayValue: string | null }>;
+  offensive: Record<string, { value: number | null; displayValue: string | null }>;
+};
+
+export function getTeamDefense(
+  sport: string,
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<TeamDefense> {
+  const q = new URLSearchParams({ sport, teamId });
+  return getJson<TeamDefense>(`/sports/team-defense?${q.toString()}`, signal);
+}
+
 // ---------- StatMuse period game log (real per-game period splits) ----------
 
 // One real per-game period row scraped from StatMuse's results grid.
