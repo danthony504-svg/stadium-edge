@@ -1139,9 +1139,18 @@ function teamSideFromPick(
 // Idempotent + non-destructive: a pick that already carries a headshot (prop) or
 // any logo is returned untouched, so re-enriching stored slip picks is safe.
 export function enrichPickMeta(pick: ParsedPick, gameMeta: GameMeta[]): ParsedPick {
-  // Props show a player headshot, never a team logo — leave them alone even when
-  // the headshot is null (feed miss) so we never paint a team logo on a prop.
-  if (pick.isProp) return pick;
+  // Props show a player headshot, never a team logo. The player's single team
+  // code (teamAbbr) comes from the props feed's playerTeamId and can resolve to
+  // the wrong club (e.g. a Knicks player tagged "NO"), so for the subtitle we
+  // attach the game's matchup abbreviations (always correct, from ESPN) and let
+  // the card render "AWAY @ HOME · MARKET" instead of a lone, possibly-wrong
+  // code. Logos are never set here so the headshot stays the avatar.
+  if (pick.isProp) {
+    if (pick.awayAbbr && pick.homeAbbr) return pick;
+    const m = gameMeta.find((gm) => sameGame(gm.game, pick.game));
+    if (!m) return pick;
+    return { ...pick, awayAbbr: m.awayAbbr, homeAbbr: m.homeAbbr };
+  }
   if (pick.headshot || pick.teamLogo || pick.awayLogo || pick.homeLogo) return pick;
   const meta = gameMeta.find((gm) => sameGame(gm.game, pick.game));
   if (!meta) return pick;

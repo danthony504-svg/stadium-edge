@@ -165,7 +165,11 @@ export function AiPickCard({ pick }: { pick: ParsedPick }) {
         }}
         numberOfLines={1}
       >
-        {pick.teamAbbr
+        {pick.isProp
+          ? pick.awayAbbr && pick.homeAbbr
+            ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${pick.market}`
+            : pick.market
+          : pick.teamAbbr
           ? `${pick.teamAbbr} · ${pick.market}`
           : pick.awayAbbr && pick.homeAbbr
           ? `${pick.awayAbbr} @ ${pick.homeAbbr} · ${pick.market}`
