@@ -1066,16 +1066,19 @@ export default function PropsScreen() {
           </View>
         ) : null}
 
-        {/* Sport selector */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
-        >
-          {propsSports.map((s) => (
-            <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-          ))}
-        </ScrollView>
+        {/* Sport selector — hidden while searching, since search spans every
+            league at once and the selected pill no longer scopes the results. */}
+        {searching ? null : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
+          >
+            {propsSports.map((s) => (
+              <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
+            ))}
+          </ScrollView>
+        )}
 
         {/* Props list */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
