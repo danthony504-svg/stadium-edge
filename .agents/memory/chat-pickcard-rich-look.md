@@ -23,8 +23,11 @@ preference was superseded.)
   (game-detail). It takes a `grid?: boolean`: `PickCard` passes `grid` → bordered
   stat cells; `AiPickCard` passes nothing → original pill chips.
 - To unify a surface, swap `<AiPickCard pick={p}/>` for a `<View style={{width:290}}><PickCard pick={p}/></View>` in a horizontal ScrollView (see props.tsx / slip.tsx).
-- **Readout = three signals only** (per user): `AI Grade` (letter), `Confidence`
-  (x/10), `Edge` (%). Model%/Implied%/Safety were removed from the render.
+- **Readout = three big tiles** (per user mockup), order `AI Grade` · `Edge` ·
+  `Confidence` (x/10, "/10" muted). Each tile = icon+UPPER label, large value,
+  short caption (gradeBlurb/edgeBlurb/confidenceBlurb, all derived from the same
+  score/gap). Confidence value is always `colors.primary` (blue) per mockup.
+  Model%/Implied%/Safety were removed from the render.
 - All three derive from the model's OWN stated edge (`parseEdgeStats.edge`, kept
   one-decimal — `pct()` must NOT round or a subtraction-derived edge distorts):
   `deriveConfidenceScore(gap,variance)`=0–10 (5.5 base + ~0.45/pt, ±0.6 variance,

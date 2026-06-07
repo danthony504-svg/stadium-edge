@@ -361,6 +361,26 @@ function deriveGrade(score: number | null): string | null {
   return "F";
 }
 
+// Short plain-English captions under each metric — all derived from the SAME real
+// signals (score = scaled edge; gap = the model's stated edge), never new data.
+function gradeBlurb(score: number): string {
+  if (score >= 8) return "Strong Value";
+  if (score >= 6.5) return "Solid Value";
+  if (score >= 5) return "Fair Value";
+  return "Thin Value";
+}
+function edgeBlurb(gap: number): string {
+  if (gap > 0) return "Positive Edge";
+  if (gap < 0) return "Negative Edge";
+  return "Even Edge";
+}
+function confidenceBlurb(score: number): string {
+  if (score >= 7.5) return "High Confidence";
+  if (score >= 6) return "Solid Confidence";
+  if (score >= 4.5) return "Moderate Confidence";
+  return "Low Confidence";
+}
+
 // Variance is how much the OUTCOME swings, independent of edge: player props and
 // longshot prices are boom-or-bust (High); heavy favorites on game lines are
 // steady (Low). Derived from the leg's own market type + price — no invented
@@ -415,58 +435,107 @@ export function EdgeReadout({
   // uppercase label over its value. Every value is a REAL parsed number (or the
   // derived descriptor); cells with no backing data are simply not rendered.
   if (grid) {
+    // One stat tile: icon + uppercase label on top, a large value, and a short
+    // plain-English caption underneath. `suffix` renders muted/small after the
+    // value (e.g. the "/10" on Confidence).
     const cell = (
       icon: keyof typeof Feather.glyphMap,
       label: string,
       value: string,
       valueColor: string,
+      caption: string,
+      suffix?: string,
     ) => (
       <View
         key={label}
         style={{
-          flexGrow: 1,
-          flexBasis: "30%",
+          flex: 1,
           minWidth: 96,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 7,
-          paddingVertical: 7,
-          paddingHorizontal: 9,
-          borderRadius: 11,
+          paddingVertical: 12,
+          paddingHorizontal: 11,
+          borderRadius: 14,
           backgroundColor: colors.card,
           borderWidth: 1,
           borderColor: colors.border,
         }}
       >
-        <Feather name={icon} size={14} color={valueColor} />
-        <View style={{ gap: 1 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+          <Feather name={icon} size={12} color={valueColor} />
           <Text
             style={{
               color: colors.mutedForeground,
               fontFamily: FONT.medium,
-              fontSize: 9,
+              fontSize: 9.5,
               letterSpacing: 0.3,
               textTransform: "uppercase",
             }}
           >
             {label}
           </Text>
-          <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 13 }}>{value}</Text>
         </View>
+        <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 26, marginTop: 8 }}>
+          {value}
+          {suffix ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 14 }}>
+              {suffix}
+            </Text>
+          ) : null}
+        </Text>
+        <Text
+          style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10.5, marginTop: 4 }}
+        >
+          {caption}
+        </Text>
       </View>
     );
     if (gap === null) {
       return (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-          {cell("info", "Pricing", "Market price", colors.mutedForeground)}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <View
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              paddingHorizontal: 11,
+              borderRadius: 14,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <Feather name="info" size={12} color={colors.mutedForeground} />
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: FONT.medium,
+                  fontSize: 9.5,
+                  letterSpacing: 0.3,
+                  textTransform: "uppercase",
+                }}
+              >
+                Pricing
+              </Text>
+            </View>
+            <Text
+              style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16, marginTop: 8 }}
+            >
+              Market price
+            </Text>
+            <Text
+              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10.5, marginTop: 4 }}
+            >
+              No model edge
+            </Text>
+          </View>
         </View>
       );
     }
+    const s = score ?? 0;
     return (
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {cell("award", "AI Grade", grade ?? "—", gradeColor)}
-        {cell("shield", "Confidence", `${(score ?? 0).toFixed(1)}/10`, gradeColor)}
-        {cell("trending-up", "Edge", edgeText ?? "—", gapColor)}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {cell("award", "AI Grade", grade ?? "—", gradeColor, gradeBlurb(s))}
+        {cell("trending-up", "Edge", edgeText ?? "—", gapColor, edgeBlurb(gap))}
+        {cell("target", "Confidence", s.toFixed(1), colors.primary, confidenceBlurb(s), "/10")}
       </View>
     );
   }
@@ -498,8 +567,8 @@ export function EdgeReadout({
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {chip(`AI Grade: ${grade ?? "—"}`, gradeColor, gradeColor)}
-      {chip(`Confidence: ${(score ?? 0).toFixed(1)}/10`, gradeColor, colors.border)}
       {chip(`Edge: ${edgeText ?? "—"}`, gapColor, gapColor)}
+      {chip(`Confidence: ${(score ?? 0).toFixed(1)}/10`, colors.primary, colors.border)}
     </View>
   );
 }
