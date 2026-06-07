@@ -29,6 +29,7 @@ export default function TabLayout() {
         <Stack.Screen name="coach" />
         <Stack.Screen name="props" />
         <Stack.Screen name="slip" />
+        <Stack.Screen name="report" />
       </Stack>
       {/* Floating slip popup + nav are siblings of the nested Stack so they
           reliably paint over tab content (a root-level overlay does not). */}

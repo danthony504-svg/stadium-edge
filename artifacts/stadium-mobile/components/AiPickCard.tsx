@@ -179,7 +179,7 @@ export function AiPickCard({ pick }: { pick: ParsedPick }) {
       </Text>
 
       <View style={{ alignItems: "center", alignSelf: "stretch" }}>
-        <EdgeReadout edge={pick.edge} />
+        <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} />
       </View>
 
       {/* AI reasoning note — collapsed behind a pill so the card stays compact. */}

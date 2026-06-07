@@ -11,7 +11,7 @@ import { logger } from "../lib/logger";
 // blob the client owns; the server only persists and returns it.
 
 // Only these namespaces may be written, so a client can't stash arbitrary data.
-const ALLOWED_NAMESPACES = new Set(["savedSlips", "tracker"]);
+const ALLOWED_NAMESPACES = new Set(["savedSlips", "tracker", "results"]);
 
 const syncLimiter = rateLimit({ windowMs: 60_000, max: 120, name: "sync" });
 

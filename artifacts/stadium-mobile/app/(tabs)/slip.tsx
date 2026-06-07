@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -17,15 +17,35 @@ import { AiPickCard } from "@/components/AiPickCard";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { enrichPickMeta } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
-import { useBetSlip, type Leg, type SavedSlip } from "@/context/BetSlipContext";
+import {
+  useBetSlip,
+  type BetResult,
+  type Leg,
+  type LegResult,
+  type SavedSlip,
+} from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildGameMeta, getGames, type EspnGame } from "@/lib/api";
+import {
+  buildGameMeta,
+  getGames,
+  gradeBets,
+  type EspnGame,
+  type GradeLegInput,
+} from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
 import { saveSlipToPhotos } from "@/lib/slipImage";
 
 // A game is considered "over" once it has been live longer than any realistic
 // game runs. Generous so we never clear a slip whose game is still in play.
 const GAME_OVER_BUFFER_MS = 6 * 3600_000;
+
+// How long after a slip's last game starts we stop waiting for full grading and
+// archive whatever we have. StatMuse player-stat logs can lag a few hours after
+// a game ends, so we re-attempt grading on each feed refresh while the game is
+// recent; once it's this old the data source has settled (or the game has
+// dropped out of ESPN's window) and any still-ungraded legs are archived as
+// "ungraded" — kept for the record but excluded from performance stats.
+const FORCE_ARCHIVE_MS = 40 * 3600_000;
 
 const teamNick = (s: string) =>
   (s || "").trim().split(/\s+/).filter(Boolean).pop()?.toLowerCase() || "";
@@ -45,20 +65,27 @@ function gameTeamNicks(label: string): [string, string] | null {
 // Matching is scoped to the leg's own sport and requires a UNIQUE fixture: if
 // zero or multiple games match (cross-sport nickname collision, doubleheader),
 // we return "unknown" so the slip is never deleted on an ambiguous match.
+// Resolve a leg's game label to the UNIQUE matching fixture in the live feed,
+// scoped to the leg's sport. Returns null on zero/multiple matches so callers
+// never act on an ambiguous game (cross-sport collision, doubleheader).
+function legGameMatch(games: EspnGame[], label: string, sport?: string): EspnGame | null {
+  const teams = gameTeamNicks(label);
+  if (!teams) return null;
+  const [a, b] = teams;
+  if (!a || !b || a === b) return null;
+  const candidates = games.filter((g) => {
+    if (sport && g.sport && g.sport !== sport) return false;
+    const ga = teamNick(g.awayTeam || "");
+    const gh = teamNick(g.homeTeam || "");
+    return (ga === a && gh === b) || (ga === b && gh === a);
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 function legGameStatus(games: EspnGame[]) {
   return (label: string, sport?: string): "over" | "live" | "unknown" => {
-    const teams = gameTeamNicks(label);
-    if (!teams) return "unknown";
-    const [a, b] = teams;
-    if (!a || !b || a === b) return "unknown";
-    const candidates = games.filter((g) => {
-      if (sport && g.sport && g.sport !== sport) return false;
-      const ga = teamNick(g.awayTeam || "");
-      const gh = teamNick(g.homeTeam || "");
-      return (ga === a && gh === b) || (ga === b && gh === a);
-    });
-    if (candidates.length !== 1) return "unknown";
-    const match = candidates[0];
+    const match = legGameMatch(games, label, sport);
+    if (!match) return "unknown";
     const finished = match.state === "post" || /final/i.test(match.status || "");
     if (finished) return "over";
     const t = Date.parse(match.startsAt);
@@ -223,7 +250,7 @@ export default function SlipScreen() {
     clearLegs,
     saveCurrentSlip,
     deleteSlip,
-    deleteSlips,
+    settleSlips,
     aiPicks,
   } = useBetSlip();
   const [savingImage, setSavingImage] = useState(false);
@@ -287,23 +314,127 @@ export default function SlipScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiPicks, gamesKey]);
 
-  // Auto-clear saved slips once every game in them is over. A slip is removed
-  // only when ALL its games are positively confirmed finished (ESPN Final/post,
-  // or started well past a generous game-length buffer). Games we can't resolve
-  // in the live feed are treated as "unknown" and keep the slip — never delete
-  // on missing data. Finished games drop out of ESPN's window after ~a day, so
-  // this clears slips while their results are still visible.
+  // Grade-then-archive finished saved slips. When ALL of a slip's games are
+  // confirmed over (ESPN Final/post, or started past a generous buffer), we send
+  // its legs to the server grader, archive the real W/L/push outcomes into the
+  // results ledger, then remove the slip from saved (replacing the old
+  // delete-only auto-clear). Honesty rules:
+  //  • A leg the grader can't settle for certain comes back "ungraded" and is
+  //    kept on the record but excluded from performance stats — never an
+  //    invented result.
+  //  • A slip with any still-ungraded leg is left in place and retried on the
+  //    next feed refresh (StatMuse stat logs can lag a few hours), UNTIL its last
+  //    game is FORCE_ARCHIVE_MS old, at which point we archive what we have so a
+  //    permanently-ungradeable leg can't strand a slip forever.
+  // A ref guards against grading the same slip concurrently across re-renders.
+  const gradingRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (allGames.length === 0 || savedSlips.length === 0) return;
     const status = legGameStatus(allGames);
-    const toRemove = savedSlips
-      .filter(
-        (s) =>
-          s.legs.length > 0 &&
-          s.legs.every((l) => status(l.game, l.sport) === "over"),
-      )
-      .map((s) => s.id);
-    if (toRemove.length > 0) deleteSlips(toRemove);
+    // Slips whose every leg's game is confirmed over and not already grading.
+    const finished = savedSlips.filter(
+      (s) =>
+        s.legs.length > 0 &&
+        !gradingRef.current.has(s.id) &&
+        s.legs.every((l) => status(l.game, l.sport) === "over"),
+    );
+    if (finished.length === 0) return;
+
+    let cancelled = false;
+    // Every slip whose in-flight guard we claim this run, so we can release them
+    // all in `finally` — otherwise a cancellation (deps changed mid-request) or a
+    // run whose results are discarded would strand a slip in the guard set and it
+    // would never be re-graded for the rest of the session.
+    const claimed: string[] = [];
+    (async () => {
+      const settled: BetResult[] = [];
+      try {
+      for (const slip of finished) {
+        gradingRef.current.add(slip.id);
+        claimed.push(slip.id);
+        // Resolve each leg's exact start time so the grader can disambiguate
+        // series/doubleheaders; newest start drives the force-archive deadline.
+        let newestStart = 0;
+        const input: GradeLegInput[] = slip.legs.map((l) => {
+          const g = legGameMatch(allGames, l.game, l.sport);
+          const startsAt = g?.startsAt;
+          const t = startsAt ? Date.parse(startsAt) : NaN;
+          if (Number.isFinite(t)) newestStart = Math.max(newestStart, t);
+          return {
+            game: l.game,
+            market: l.market,
+            pick: l.pick,
+            sport: l.sport,
+            odds: l.odds,
+            startsAt,
+          };
+        });
+
+        let graded: Awaited<ReturnType<typeof gradeBets>> = [];
+        try {
+          graded = await gradeBets(input);
+        } catch {
+          continue; // transient — retry on next refresh (guard released in finally)
+        }
+        if (cancelled) return;
+
+        const byIndex = new Map(graded.map((r) => [r.index, r]));
+        const legResults: LegResult[] = slip.legs.map((l, i) => {
+          const r = byIndex.get(i);
+          return {
+            ...l,
+            result: r?.result ?? "ungraded",
+            family: r?.family,
+            side: r?.side,
+          };
+        });
+
+        const anyUngraded = legResults.some((l) => l.result === "ungraded");
+        const expired = newestStart > 0 && Date.now() - newestStart > FORCE_ARCHIVE_MS;
+        // Wait (retry later) only if some leg is ungraded AND the game is still
+        // recent enough that the data source may yet catch up.
+        if (anyUngraded && !expired) continue; // guard released in finally
+
+        // Parlay outcome — FAIL CLOSED on the win side. A single confirmed losing
+        // leg sinks the whole parlay, so a real loss is honest even if other legs
+        // never settled. But we must NOT claim a win/push while any leg is still
+        // ungraded (the expired-archive case): an unconfirmed leg could have lost,
+        // so the parlay outcome is "ungraded" and excluded from the W/L record.
+        // The per-leg results stay honest either way (each leg keeps its own real
+        // win/loss/push/ungraded), so leg-level breakdowns are unaffected.
+        const slipResult: BetResult["slipResult"] = legResults.some(
+          (l) => l.result === "loss",
+        )
+          ? "loss"
+          : legResults.some((l) => l.result === "ungraded")
+            ? "ungraded"
+            : legResults.some((l) => l.result === "win")
+              ? "win"
+              : "push";
+
+        settled.push({
+          id: slip.id,
+          createdAt: slip.createdAt,
+          settledAt: Date.now(),
+          legs: legResults,
+          stake: slip.stake,
+          combinedOdds: slip.combinedOdds,
+          slipResult,
+        });
+      }
+      if (!cancelled && settled.length > 0) settleSlips(settled);
+      } finally {
+        // Release the in-flight guard for every slip claimed this run. Committed
+        // slips are removed from savedSlips by settleSlips so they won't re-grade;
+        // uncommitted ones (cancelled / still-ungraded / transient error) become
+        // eligible again on the next feed refresh.
+        for (const id of claimed) gradingRef.current.delete(id);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gamesKey, savedSlips]);
 

@@ -41,6 +41,7 @@ import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
+import { computeModelStrengths } from "@/lib/modelReport";
 import {
   buildChatContext,
   gameMatchesFocalText,
@@ -512,7 +513,12 @@ function AddAllButton({
 export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { legs, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
+  const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
+  // Soft, real-data-only signal about which bet categories the model has actually
+  // been hitting (from the user's graded Model Report). Injected into every chat
+  // context so the Coach can lean into hot categories — advisory only, omitted
+  // when nothing has settled. Recomputed only when the results ledger changes.
+  const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
   const slipClearance = useCoachSlipClearance();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
   const autoSentRef = useRef<string | null>(null);
@@ -708,6 +714,7 @@ export default function CoachScreen() {
                 false,
                 trimmed,
               );
+              if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
               const grounded: ChatMessage[] = history.map((m) => ({
                 role: m.role,
                 content: m.content,
@@ -823,6 +830,7 @@ export default function CoachScreen() {
           trimmed,
           altSign,
         );
+        if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,
           content: m.content,

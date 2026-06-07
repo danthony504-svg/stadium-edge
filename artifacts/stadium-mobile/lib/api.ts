@@ -141,7 +141,55 @@ async function authedFetch(
 // ---------- Cross-device sync (per signed-in user) ----------
 
 // Whitelisted namespaces on the server (routes/sync.ts).
-export type SyncNamespace = "savedSlips" | "tracker";
+export type SyncNamespace = "savedSlips" | "tracker" | "results";
+
+// ---------- Bet grading (routes/grade.ts) ----------
+
+export type GradeOutcome = "win" | "loss" | "push" | "ungraded";
+
+export type GradeLegInput = {
+  game: string;
+  market: string;
+  pick: string;
+  sport?: string;
+  odds?: number;
+  startsAt?: string;
+};
+
+export type GradeLegResult = {
+  index: number;
+  family: string;
+  side: string;
+  result: GradeOutcome;
+  detail: string;
+};
+
+// Grade finished legs against REAL outcomes (final scores / real stat logs).
+// Server fail-closes to "ungraded" for anything it can't settle for certain —
+// we never invent a W/L. Returns results aligned to the input order by index.
+export async function gradeBets(
+  legs: GradeLegInput[],
+  signal?: AbortSignal,
+): Promise<GradeLegResult[]> {
+  const path = "/sports/grade";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ legs }),
+      signal,
+    }),
+    REQUEST_TIMEOUT_MS,
+    path,
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await withTimeout(
+    res.json() as Promise<{ results?: GradeLegResult[] }>,
+    REQUEST_TIMEOUT_MS,
+    `${path} (body)`,
+  ));
+  return Array.isArray(json.results) ? json.results : [];
+}
 
 export type SyncResponse<T> = { data: T | null; updatedAt: string | null };
 
@@ -974,6 +1022,12 @@ export type ChatContext = {
   // factor + altitude, real ballpark weather (null for domes), and both probable
   // starters' real tendency. Omitted when no MLB game resolved data.
   mlbGameEnv?: Record<string, unknown>;
+  // Soft signal derived ONLY from the user's REAL graded results (Model Report):
+  // short strings like "Unders: strong (61%, 11-7)" for categories above the
+  // sample bar. The model may lean into hot categories / be cautious on cold
+  // ones, but it's advisory only and never overrides real matchup analytics.
+  // Omitted when not enough has settled to say anything honest.
+  modelStrengths?: string[];
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean

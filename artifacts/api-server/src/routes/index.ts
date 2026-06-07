@@ -17,6 +17,7 @@ import slipImageRouter from "./slipImage";
 import syncRouter from "./sync";
 import ufcRouter from "./ufc";
 import notificationsRouter from "./notifications";
+import gradeRouter from "./grade";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(slipImageRouter);
 router.use(syncRouter);
 router.use(ufcRouter);
 router.use(notificationsRouter);
+router.use(gradeRouter);
 
 export default router;

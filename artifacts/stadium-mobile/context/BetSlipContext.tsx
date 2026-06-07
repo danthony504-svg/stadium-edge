@@ -11,7 +11,7 @@ import React, {
 } from "react";
 
 import { parlayAmerican } from "@/lib/format";
-import { getSync, putSync } from "@/lib/api";
+import { getSync, putSync, type GradeOutcome } from "@/lib/api";
 
 export type Leg = {
   id: string;
@@ -29,6 +29,31 @@ export type SavedSlip = {
   legs: Leg[];
   stake: number;
   combinedOdds: number | null;
+};
+
+// A leg that has been settled against real results (real final score / real
+// stat log). `result` is "ungraded" when the outcome couldn't be confirmed for
+// certain — those legs are kept for the record but excluded from performance
+// stats so we never count an invented W/L. `family`/`side` come from the grader
+// (e.g. "total"/"under", "strikeouts"/"over") and drive the Model Report
+// breakdowns.
+export type LegResult = Leg & {
+  result: GradeOutcome;
+  family?: string;
+  side?: string;
+};
+
+// A fully-settled slip, archived into the user's permanent results ledger.
+export type BetResult = {
+  id: string; // the original SavedSlip id
+  createdAt: number; // when the slip was first saved
+  settledAt: number; // when it was graded
+  legs: LegResult[];
+  stake: number;
+  combinedOdds: number | null;
+  // Parlay outcome: "loss" if ANY graded leg lost; "win" only if every
+  // gradeable leg won/pushed; "ungraded" if no leg could be settled at all.
+  slipResult: GradeOutcome;
 };
 
 // The latest picks the AI Coach recommended (from its most recent parlay).
@@ -58,6 +83,7 @@ export type AiPick = {
 type BetSlipState = {
   legs: Leg[];
   savedSlips: SavedSlip[];
+  results: BetResult[];
   stake: number;
   combinedOdds: number | null;
   hydrated: boolean;
@@ -71,6 +97,8 @@ type BetSlipState = {
   deleteSlip: (id: string) => void;
   deleteSlips: (ids: string[]) => void;
   setAiPicks: (picks: AiPick[]) => void;
+  // Archive settled slips into the results ledger and remove them from saved.
+  settleSlips: (settled: BetResult[]) => void;
 };
 
 const STORAGE_KEY = "stadium-edge:betslip:v1";
@@ -78,6 +106,10 @@ const STORAGE_KEY = "stadium-edge:betslip:v1";
 // Cap how many slips a user can keep so storage never grows unbounded. Oldest
 // slips fall off the end when a new one is saved (newest are prepended).
 const MAX_SAVED_SLIPS = 25;
+
+// Cap the settled-results ledger so storage/sync payloads stay bounded; oldest
+// settled slips fall off the end (newest first).
+const MAX_RESULTS = 300;
 
 // Hard cap on legs in the active slip. A bulk "Add all" of a big parlay (e.g.
 // "25 leg") on top of existing legs used to blow past any sane ticket size and
@@ -103,12 +135,25 @@ function mergeSlips(a: SavedSlip[], b: SavedSlip[]): SavedSlip[] {
     .slice(0, MAX_SAVED_SLIPS);
 }
 
+// Union two results ledgers by slip id (newest settled first, capped). Used on
+// sign-in so results graded on another device merge instead of clobbering.
+function mergeResults(a: BetResult[], b: BetResult[]): BetResult[] {
+  const byId = new Map<string, BetResult>();
+  for (const r of [...a, ...b]) {
+    if (r && typeof r.id === "string") byId.set(r.id, r);
+  }
+  return Array.from(byId.values())
+    .sort((x, y) => (y.settledAt ?? 0) - (x.settledAt ?? 0))
+    .slice(0, MAX_RESULTS);
+}
+
 export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [legs, setLegs] = useState<Leg[]>([]);
   const [savedSlips, setSavedSlips] = useState<SavedSlip[]>([]);
   const [stake, setStakeState] = useState(10);
   const [hydrated, setHydrated] = useState(false);
   const [aiPicks, setAiPicksState] = useState<AiPick[]>([]);
+  const [results, setResults] = useState<BetResult[]>([]);
   const loaded = useRef(false);
 
   // Load persisted state once.
@@ -120,6 +165,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed.legs)) setLegs(parsed.legs);
           if (Array.isArray(parsed.savedSlips)) setSavedSlips(parsed.savedSlips);
+          if (Array.isArray(parsed.results)) setResults(parsed.results);
           if (Number.isFinite(parsed.stake)) setStakeState(parsed.stake);
         }
       } catch {
@@ -136,9 +182,9 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     if (!loaded.current) return;
     AsyncStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ legs, savedSlips, stake }),
+      JSON.stringify({ legs, savedSlips, results, stake }),
     ).catch(() => {});
-  }, [legs, savedSlips, stake]);
+  }, [legs, savedSlips, results, stake]);
 
   // ---------- Cross-device sync (signed-in users only) ----------
   // Anonymous users are local-only (the effects below no-op). When signed in we
@@ -147,6 +193,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn, userId } = useAuth();
   const syncedUserRef = useRef<string | null>(null);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resultsPushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Bumped to retry the initial pull when the Clerk token isn't ready yet (a
   // signed-in GET that 401s/errors must NOT be treated as "server empty").
   const [pullRetry, setPullRetry] = useState(0);
@@ -173,6 +220,18 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
         if (Array.isArray(data) && data.length > 0) {
           setSavedSlips((local) => mergeSlips(data, local));
         }
+        // Pull the settled-results ledger too. Best-effort: a failure here is
+        // non-fatal (the savedSlips read already proved the token is valid), so
+        // it must not block marking the session synced.
+        try {
+          const { data: rData } = await getSync<BetResult[]>("results");
+          if (!cancelled && Array.isArray(rData) && rData.length > 0) {
+            setResults((local) => mergeResults(rData, local));
+          }
+        } catch {
+          // ignore — results re-push on next change once synced
+        }
+        if (cancelled) return;
         // Authenticated read succeeded (server empty or not) — safe to push.
         syncedUserRef.current = userId;
       } catch {
@@ -204,6 +263,21 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       if (pushTimer.current) clearTimeout(pushTimer.current);
     };
   }, [savedSlips, hydrated, isSignedIn, userId]);
+
+  // Debounced push of the settled-results ledger (same gating as saved slips).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isSignedIn || !userId) return;
+    if (syncedUserRef.current !== userId) return; // wait for initial pull
+
+    if (resultsPushTimer.current) clearTimeout(resultsPushTimer.current);
+    resultsPushTimer.current = setTimeout(() => {
+      putSync("results", results).catch(() => {});
+    }, 800);
+    return () => {
+      if (resultsPushTimer.current) clearTimeout(resultsPushTimer.current);
+    };
+  }, [results, hydrated, isSignedIn, userId]);
 
   const combinedOdds = useMemo(
     () => parlayAmerican(legs.map((l) => l.odds)),
@@ -271,10 +345,21 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
 
   const setAiPicks = useCallback((picks: AiPick[]) => setAiPicksState(picks), []);
 
+  // Archive fully-settled slips into the permanent results ledger and remove
+  // them from saved in a single atomic step. Dedups by id so a slip can never be
+  // graded into the ledger twice.
+  const settleSlips = useCallback((settled: BetResult[]) => {
+    if (settled.length === 0) return;
+    const ids = new Set(settled.map((s) => s.id));
+    setResults((prev) => mergeResults(settled, prev));
+    setSavedSlips((prev) => prev.filter((s) => !ids.has(s.id)));
+  }, []);
+
   const value = useMemo(
     () => ({
       legs,
       savedSlips,
+      results,
       stake,
       combinedOdds,
       hydrated,
@@ -288,10 +373,12 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       deleteSlip,
       deleteSlips,
       setAiPicks,
+      settleSlips,
     }),
     [
       legs,
       savedSlips,
+      results,
       stake,
       combinedOdds,
       hydrated,
@@ -305,6 +392,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
       deleteSlip,
       deleteSlips,
       setAiPicks,
+      settleSlips,
     ],
   );
 

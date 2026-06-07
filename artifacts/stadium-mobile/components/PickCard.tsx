@@ -181,13 +181,64 @@ export function parseEdgeStats(edge?: string): {
   return { projected, implied, edge: edgeGap };
 }
 
+// Confidence is a plain-English label for HOW MUCH edge the model claimed on
+// this leg — it is derived purely from the edge gap the model itself stated, so
+// it never asserts more certainty than the model's own numbers. No projection =
+// no confidence (the leg is a market-price play with nothing to grade).
+function deriveConfidence(
+  gap: number | null,
+  projected: number | null,
+): "High" | "Medium" | "Low" | null {
+  if (projected === null) return null;
+  if (gap === null) return "Medium";
+  if (gap >= 8) return "High";
+  if (gap >= 3) return "Medium";
+  return "Low";
+}
+
+// Variance is how much the OUTCOME swings, independent of edge: player props and
+// longshot prices are boom-or-bust (High); heavy favorites on game lines are
+// steady (Low). Derived from the leg's own market type + price — no invented
+// number, just a risk descriptor for the bet's shape.
+function deriveVariance(odds?: number, isProp?: boolean): "High" | "Medium" | "Low" {
+  if (isProp) return "High";
+  if (typeof odds === "number") {
+    if (odds >= 120) return "High";
+    if (odds <= -250) return "Low";
+  }
+  return "Medium";
+}
+
 // Always-visible readout of the projected edge for a leg. Shows the model's
-// projected win/hit %, the book's implied %, and the gap between them; when the
-// model had no data to project (no game log etc.), it honestly reads
-// "Market price" instead of manufacturing a number.
-export function EdgeReadout({ edge }: { edge?: string }) {
+// projected win/hit %, the book's implied %, the gap between them, plus plain
+// Confidence + Variance descriptors. When the model had no data to project (no
+// game log etc.), it honestly reads "Market price" instead of manufacturing a
+// number — but Variance (a property of the bet itself) still shows.
+export function EdgeReadout({
+  edge,
+  odds,
+  isProp,
+}: {
+  edge?: string;
+  odds?: number;
+  isProp?: boolean;
+}) {
   const colors = useColors();
   const { projected, implied, edge: gap } = parseEdgeStats(edge);
+  const confidence = deriveConfidence(gap, projected);
+  const variance = deriveVariance(odds, isProp);
+  const confColor =
+    confidence === "High"
+      ? colors.success
+      : confidence === "Medium"
+        ? colors.primary
+        : colors.mutedForeground;
+  const varColor =
+    variance === "High"
+      ? colors.destructive
+      : variance === "Low"
+        ? colors.success
+        : colors.mutedForeground;
   const chip = (label: string, fg: string, border: string) => (
     <View
       key={label}
@@ -207,6 +258,7 @@ export function EdgeReadout({ edge }: { edge?: string }) {
     return (
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
         {chip("Market price", colors.mutedForeground, colors.border)}
+        {chip(`Variance: ${variance}`, varColor, colors.border)}
       </View>
     );
   }
@@ -219,6 +271,8 @@ export function EdgeReadout({ edge }: { edge?: string }) {
       {gap !== null
         ? chip(`${gap >= 0 ? "+" : ""}${gap}% edge`, gapColor, gapColor)
         : null}
+      {confidence ? chip(`Confidence: ${confidence}`, confColor, colors.border) : null}
+      {chip(`Variance: ${variance}`, varColor, colors.border)}
     </View>
   );
 }
@@ -299,7 +353,7 @@ export function PickCard({ pick }: { pick: ParsedPick }) {
         </View>
       ) : null}
 
-      <EdgeReadout edge={pick.edge} />
+      <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} />
 
       {pick.edge ? (
         <View>
