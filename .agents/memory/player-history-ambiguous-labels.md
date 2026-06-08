@@ -27,6 +27,12 @@ prefer an empty "no per-game data" message over a wrong stat.
 **Real-computation exceptions (allowed, not estimates):**
 - `batter_total_bases` = H + 2B + 2·(3B) + 3·(HR) — exact identity from
   unambiguous MLB batting columns.
+- `player_threes` (NBA "3-Pointers") — the made portion of the "made-attempted"
+  `3PT` string ("2-5"→2) IS the betting quantity, so extracting the number
+  before the dash is an EXACT read, not the ambiguous case. Lives in propStats
+  `MARKET_MADE`/`madeCount()` (prefers a bare `3PM` if present). Was previously
+  (wrongly) honest-nulled, causing "No per-game data for 3-Pointers in the
+  recent log." Add other made-attempted markets here, not to the ambiguous Set.
 
 **Verified column quirks:** NHL assists=`A` shots=`S` (map
 `player_shots_on_goal`→`["S","SOG","SHOTS"]`, `player_assists`→`["AST","A"]`);

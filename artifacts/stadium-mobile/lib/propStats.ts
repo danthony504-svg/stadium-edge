@@ -39,8 +39,31 @@ const MARKET_SINGLE: Record<string, string[]> = {
   player_shots_on_target: ["SOT"],
 };
 
+// Markets whose ESPN gamelog column is a "made-attempted" string rather than a
+// plain number — NBA "3PT" comes through as e.g. "2-5" (2 made of 5 attempted).
+// The betting quantity ("3-Pointers" = threes MADE) is the number before the
+// dash, so reading it is an EXACT extraction of a real stat, not an estimate.
+// "3PM" is listed first for feeds that already give a bare made count.
+const MARKET_MADE: Record<string, string[]> = {
+  player_threes: ["3PM", "3PT"],
+};
+
 function num(stats: Record<string, string>, label: string): number | null {
   const n = Number(stats[label]);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Made count from a column that may be a bare number ("3") or a real
+// "made-attempted" pair ("2-5"). Returns the made portion, or null if the value
+// is missing or not one of those two exact shapes (never guesses).
+function madeCount(stats: Record<string, string>, label: string): number | null {
+  const raw = stats[label];
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (s === "") return null;
+  const pair = s.match(/^(\d+)\s*-\s*\d+$/);
+  if (pair) return Number(pair[1]);
+  const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -86,6 +109,16 @@ export function gameValueForMarket(
     }
     return sum;
   }
+  const made = MARKET_MADE[market];
+  if (made) {
+    for (const lab of made) {
+      if (ambiguous.has(lab)) continue;
+      const n = madeCount(stats, lab);
+      if (n != null) return n;
+    }
+    return null;
+  }
+
   const singles = MARKET_SINGLE[market];
   if (singles) {
     for (const lab of singles) {
