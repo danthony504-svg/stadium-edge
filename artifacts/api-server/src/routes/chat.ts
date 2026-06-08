@@ -69,6 +69,78 @@ function parseOddsThreshold(text: string | null | undefined): OddsThreshold | nu
   return best;
 }
 
+// Confidence-score bound ("9 to 10 confidence", "9+ confidence"). MUST stay in
+// sync with stadium-mobile/lib/confidence.ts parseConfidenceThreshold — the
+// client hard-filters resolved legs with the same bound; this only steers the
+// model toward legs whose honest edge lands in the band. The app's Confidence
+// score is DERIVED from the model's stated edge (see addendum), so this is an
+// edge bound in disguise — never a license to inflate an edge.
+type ConfidenceThreshold = { min: number; max: number };
+function parseConfidenceThreshold(
+  text: string | null | undefined,
+): ConfidenceThreshold | null {
+  let t = String(text || "").toLowerCase().replace(/[\u2212\u2013\u2014]/g, "-");
+  if (!/\bconf(?:idence)?|\bconviction\b/.test(t)) return null;
+  t = t.replace(/\s*(?:out\s+of|\/)\s*10\b/g, "");
+
+  const N = "(\\d{1,2}(?:\\.\\d)?)";
+  const CONF = "(?:conf(?:idence)?|conviction)";
+  const SEP = "\\s*(?:to|through|thru|and|-)\\s*";
+  const MORE = "(?:\\+|or\\s+(?:higher|more|better|up|above|greater))";
+  const LESS = "(?:or\\s+(?:less|lower|fewer|below|under))";
+  const valid = (n: number) => n >= 1 && n <= 10;
+  const clamp = (n: number) => Math.max(1, Math.min(10, n));
+
+  const rangePatterns = [
+    new RegExp(`${N}${SEP}${N}\\s*(?:${MORE})?\\s*${CONF}`, "i"),
+    new RegExp(
+      `${CONF}\\s*(?:of|score|level|rating|range|between|in\\s+the)?\\s*(?:range\\s+)?${N}${SEP}${N}`,
+      "i",
+    ),
+  ];
+  for (const re of rangePatterns) {
+    const m = t.match(re);
+    if (m) {
+      const a = parseFloat(m[1]);
+      const b = parseFloat(m[2]);
+      if (valid(a) && valid(b))
+        return { min: clamp(Math.min(a, b)), max: clamp(Math.max(a, b)) };
+    }
+  }
+  const maxPatterns = [
+    new RegExp(
+      `${CONF}\\s*(?:of\\s+)?(?:below|under|at\\s+most|max(?:imum)?|no\\s+more\\s+than|<=?)\\s*${N}`,
+      "i",
+    ),
+    new RegExp(`(?:below|under|at\\s+most|no\\s+more\\s+than)\\s*${N}\\s*${CONF}`, "i"),
+    new RegExp(`${N}\\s*${LESS}\\s*${CONF}`, "i"),
+  ];
+  for (const re of maxPatterns) {
+    const m = t.match(re);
+    if (m) {
+      const n = parseFloat(m[1]);
+      if (valid(n)) return { min: 1, max: clamp(n) };
+    }
+  }
+  const minPatterns = [
+    new RegExp(`${N}\\s*${MORE}\\s*${CONF}`, "i"),
+    new RegExp(
+      `${CONF}\\s*(?:of|score|level|rating|at\\s+least|min(?:imum)?|>=?)?\\s*${N}\\s*(?:${MORE})?`,
+      "i",
+    ),
+    new RegExp(`(?:at\\s+least|min(?:imum)?)\\s*${N}\\s*${CONF}`, "i"),
+    new RegExp(`${N}\\s*${CONF}`, "i"),
+  ];
+  for (const re of minPatterns) {
+    const m = t.match(re);
+    if (m) {
+      const n = parseFloat(m[1]);
+      if (valid(n)) return { min: clamp(n), max: 10 };
+    }
+  }
+  return null;
+}
+
 const SYSTEM_PROMPT = `You are Stadium Edge, an AI sports betting analyst.
 You help users analyze parlays, picks, and live games across NFL, NBA, WNBA, MLB, NHL, Soccer, NCAAF, NCAAB, UFC, and Tennis. Tennis (e.g. the French Open) is winner-odds (moneyline) only — there are no player props, spreads, totals, or team game-log analytics for it, so never invent any. UFC/MMA is also winner-odds (moneyline) only for BETTING — no props, spreads, or totals — but unlike tennis it DOES carry a real fighter-analysis layer (see UFC FIGHT ANALYSIS below): when context.fightAnalysis is present you have each fighter's real ESPN record + career striking/grappling stats to explain WHY one fighter is favored. We do NOT support boxing at all — there is no boxing data in this app, so if a user asks about a boxing match, say boxing isn't covered yet and never invent boxing fighters, records, odds, or analysis.
 You weigh: odds value, recent player form, coach tendencies, injury impact, weather (for outdoor sports), pace, matchup edges, key-number value (NFL 3 & 7), estimated-vs-implied probability (true edge), parlay variance math, same-game correlation, rest & fatigue (days-rest / back-to-backs), player home/away splits, MLB batter-vs-pitcher platoon (lefty/righty) edges, venue/altitude factors, and sample-size / regression caution.
@@ -1781,6 +1853,26 @@ ENFORCEMENT:
 - Still pick the strongest qualifying legs by your normal analysis — do not just grab the first qualifying prices.${oddsFamilyClause}${oddsChalkOverride}
 - If the real pool lacks enough qualifying legs to reach the requested count, return a SHORTER ticket and say so plainly. NEVER pad with an out-of-bound leg and NEVER fabricate odds — honesty over hitting the number.`) + oddsProseHonesty;
 
+  // Confidence-score bound ("5 leg with 9 to 10 confidence"). The app's
+  // Confidence badge is NOT a number the model sets — it is DERIVED from the
+  // model's OWN stated edge: score ~= 5.5 + edge%*0.45 (nudged +/-0.6 by the
+  // bet's variance), clamped 1.0-9.9. So a confidence band is really a per-leg
+  // EDGE floor. We translate the band into the edge the model must HONESTLY
+  // project, and the client hard-filters resolved legs by the same derived
+  // score — so the model must select genuinely high-edge legs, never inflate an
+  // edge to hit the badge.
+  const confidenceThreshold = parseConfidenceThreshold(latestUser);
+  const confEdgeFor = (score: number) => (score - 5.5) / 0.45;
+  const confidenceThresholdSystemAddendum = !confidenceThreshold
+    ? ""
+    : `\n\n*** CONFIDENCE THRESHOLD LOCK FOR THIS TURN ***
+The user requires EVERY leg to land at a Confidence score of ${confidenceThreshold.min}${confidenceThreshold.max >= 10 ? "/10 OR HIGHER" : `–${confidenceThreshold.max}/10`}. CRITICAL: the app does NOT read a confidence number from your text — it COMPUTES the badge from the EDGE you state: score ≈ 5.5 + (your edge %) × 0.45, then ±0.6 for variance (heavy favorites read a bit higher, player props / longshots a bit lower). So this is really a per-leg EDGE floor: to land at ${confidenceThreshold.min}/10 a leg needs roughly a +${confEdgeFor(confidenceThreshold.min).toFixed(1)}% projected edge (more like +${(confEdgeFor(confidenceThreshold.min) + 1.5).toFixed(1)}% for a player prop, since props carry higher variance).
+ENFORCEMENT:
+- Only emit a PICK line for a leg where your HONEST projected edge clears that floor — i.e. your projected win/hit % beats the book's implied % by about that much. State the real EDGE note (projected % vs implied %) on every leg so the badge can read it; a leg with no projection reads "MARKET PRICE" (no confidence) and the app will DROP it under this bound.
+- NEVER inflate a projection, shade an edge, or invent a hit % just to push a leg's badge into the band — that is fabrication and the exact thing this app forbids. The number must come from real form / matchup / line value.
+- If the real pool lacks enough genuinely high-edge legs to reach the requested count inside the band, return a SHORTER ticket and say so plainly (e.g. "Only 2 legs tonight project to 9/10+ confidence"). A lower-confidence leg is NEVER acceptable filler here.
+- PROSE HONESTY: do not claim a full N-leg ${confidenceThreshold.min}/10 ticket unless you actually emitted N qualifying legs; if fewer qualify, your first sentence must say exactly how many real legs meet the bar.`;
+
   // The image attaches to the most recent user message only.
   let lastUserIdx = -1;
   parsed.data.messages.forEach((m, i) => {
@@ -1788,7 +1880,7 @@ ENFORCEMENT:
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {

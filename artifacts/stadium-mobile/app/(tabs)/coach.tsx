@@ -27,6 +27,7 @@ import {
   PickCard,
   gameSideFromPick,
   parsePicks,
+  parseEdgeStats,
   backfillPicks,
   norm,
   marketFamily,
@@ -38,6 +39,13 @@ import {
 } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
+import {
+  confidenceSatisfiesThreshold,
+  deriveConfidenceScore,
+  deriveVariance,
+  describeConfidenceThreshold,
+  parseConfidenceThreshold,
+} from "@/lib/confidence";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { useCoachSlipClearance } from "@/components/SlipBar";
@@ -858,6 +866,13 @@ export default function CoachScreen() {
         // both to steer alt-rung selection in the context and to hard-filter the
         // resolved legs below.
         const oddsThreshold = parseOddsThreshold(trimmed);
+        // Confidence-score ask ("5 leg with 9 to 10 confidence"). The Confidence
+        // badge is DERIVED from each leg's stated edge (deriveConfidenceScore), so
+        // this band is really a per-leg edge floor. Parsed once: the server prompt
+        // steers the model toward genuinely high-edge legs, and we hard-filter the
+        // resolved legs below by the SAME derived score so every card truly meets
+        // the band — never inflating an edge, honest-short if too few qualify.
+        const confidenceThreshold = parseConfidenceThreshold(trimmed);
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
@@ -1006,6 +1021,35 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        // Confidence-threshold lock: drop any resolved leg whose DERIVED confidence
+        // (the same 0–10 score the card shows, computed from the leg's stated edge
+        // + variance) falls outside the requested band. This is the hard guarantee
+        // — the server prompt steers the model toward high-edge legs, but only this
+        // filter makes EVERY rendered card actually sit in the band. A leg with no
+        // stated edge derives a null score (it would read "MARKET PRICE") and is
+        // excluded — there is no confidence to verify. Never fabricates or inflates;
+        // it only drops real, resolved legs that don't clear the bar.
+        let confidenceNote = "";
+        if (confidenceThreshold) {
+          const before = picks.length;
+          picks = picks.filter((p) =>
+            confidenceSatisfiesThreshold(
+              deriveConfidenceScore(
+                parseEdgeStats(p.edge).edge,
+                deriveVariance(p.odds, p.isProp),
+              ),
+              confidenceThreshold,
+            ),
+          );
+          const dropped = before - picks.length;
+          if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
+            const band = describeConfidenceThreshold(confidenceThreshold);
+            confidenceNote =
+              picks.length === 0
+                ? `\n\n_None of tonight's grounded legs project a big enough edge to reach ${band} confidence right now — that score is derived from each leg's real projected edge, and I won't inflate an edge to fake the number. Try a lower confidence or a different market._`
+                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} that project to ${band} confidence; dropped ${dropped} below that bar — I won't pad with lower-confidence or edgeless legs._`;
+          }
+        }
         // Explicit "+ alt" / "- alt" sign lock: drop any resolved leg whose real
         // odds sign doesn't match what the user asked for, so EVERY card is on the
         // requested sign. The context already steers game-level alts (one rung per
@@ -1060,7 +1104,12 @@ export default function CoachScreen() {
         // context — never fabricating (only appends real realOdds entries), gated
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
-        if (requestedLegs > picks.length && picks.length > 0 && !oddsThreshold) {
+        if (
+          requestedLegs > picks.length &&
+          picks.length > 0 &&
+          !oddsThreshold &&
+          !confidenceThreshold
+        ) {
           const target = Math.min(requestedLegs, MAX_LEGS);
           if (altSign) {
             picks = backfillPicks(picks, context.realOdds, gameMeta, {
@@ -1215,11 +1264,12 @@ export default function CoachScreen() {
         // unbacked scaffold and keep only the lead-in prose plus an honest note
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
-        let finalContent = full + thresholdNote + signNote + todayNote;
+        let finalContent = full + thresholdNote + confidenceNote + signNote + todayNote;
         if (picks.length === 0 && emittedPickLines > 0) {
           const lead = assistantBubbleText(full, false);
           const note =
             thresholdNote ||
+            confidenceNote ||
             signNote ||
             todayNote ||
             "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";

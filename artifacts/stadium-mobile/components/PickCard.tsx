@@ -5,6 +5,7 @@ import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "rea
 
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
+import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { FONT } from "@/components/ui";
@@ -334,24 +335,6 @@ export function parseEdgeStats(edge?: string): {
   return { projected, implied, edge: edgeGap };
 }
 
-// Confidence is a 0–10 score for HOW MUCH edge the model claimed on this leg —
-// derived purely from the edge gap the model itself stated (nudged by the bet's
-// variance), so it never asserts more certainty than the model's own numbers.
-// No stated edge = no score (the leg is a market-price play with nothing to
-// grade). Centered at 5.5 with ~0.45 pt per point of edge, clamped to 1.0–9.9 so
-// nothing ever reads as a false certainty.
-function deriveConfidenceScore(
-  gap: number | null,
-  variance: "High" | "Medium" | "Low",
-): number | null {
-  if (gap === null) return null;
-  let score = 5.5 + gap * 0.45;
-  if (variance === "High") score -= 0.6;
-  else if (variance === "Low") score += 0.6;
-  score = Math.max(1, Math.min(9.9, score));
-  return Math.round(score * 10) / 10;
-}
-
 // AI Grade is just the confidence score re-expressed as a familiar letter — same
 // underlying signal, no new data. Null score (no edge) means no grade.
 function deriveGrade(score: number | null): string | null {
@@ -387,19 +370,6 @@ function confidenceBlurb(score: number): string {
   if (score >= 6) return "Solid Confidence";
   if (score >= 4.5) return "Moderate Confidence";
   return "Low Confidence";
-}
-
-// Variance is how much the OUTCOME swings, independent of edge: player props and
-// longshot prices are boom-or-bust (High); heavy favorites on game lines are
-// steady (Low). Derived from the leg's own market type + price — no invented
-// number, just a risk descriptor for the bet's shape.
-function deriveVariance(odds?: number, isProp?: boolean): "High" | "Medium" | "Low" {
-  if (isProp) return "High";
-  if (typeof odds === "number") {
-    if (odds >= 120) return "High";
-    if (odds <= -250) return "Low";
-  }
-  return "Medium";
 }
 
 // Always-visible readout of the projected edge for a leg. Shows the model's
