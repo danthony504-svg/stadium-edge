@@ -45,6 +45,7 @@ import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { computeModelStrengths } from "@/lib/modelReport";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
+import { focalSportsFromText } from "@/lib/chatContextPriority";
 import {
   buildChatContext,
   gameMatchesFocalText,
@@ -1131,9 +1132,31 @@ export default function CoachScreen() {
                 (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
                   ? norm(onlyGameLabel)
                   : null;
-              const pool = lockedGame
+              // SPORT-SCOPE LOCK — never backfill a sport-scoped ticket with
+              // another sport's games. The server SPORT-SCOPE rule already keeps
+              // an "all nba games" ticket inside the league; if the model returns
+              // it short, this deterministic fill must stay in that league too or
+              // it re-introduces the exact cross-sport leak the user reported (an
+              // NBA ask padded with MLB alt spreads/totals). Lock to (a) any sport
+              // the user named in THIS message, else (b) the sport shared by 2+
+              // resolved legs (mirrors the market-family lock below). A lone leg
+              // does NOT establish a sport lock, so a generic N-leg ask still
+              // fills across the whole board.
+              const namedSports = focalSportsFromText(trimmed);
+              const legSports = new Set(
+                picks.map((p) => p.sport).filter((s): s is string => !!s),
+              );
+              const lockedSports =
+                namedSports.size > 0
+                  ? namedSports
+                  : picks.length >= 2 && legSports.size === 1
+                    ? legSports
+                    : null;
+              let pool = lockedGame
                 ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
                 : context.realOdds;
+              if (lockedSports)
+                pool = pool.filter((e) => lockedSports.has(e.sport));
               // Infer an implicit MARKET lock from the model's own resolved
               // legs: if every game-level leg sits in ONE full-game family
               // (e.g. a "spread parlay" or "moneyline parlay" that came back
