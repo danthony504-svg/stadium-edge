@@ -656,8 +656,13 @@ export default function CoachScreen() {
     [legs],
   );
 
-  const scrollToEnd = useCallback(() => {
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  // animated=true for one-off jumps (after send, on finish). During streaming we
+  // call this on every token; an ANIMATED scroll can't finish before the next
+  // token fires another, so the view lags behind the growing text and the newest
+  // lines spill below the fold ("overflowing as it's delivered"). Pass false
+  // there for an instant scroll that pins the bottom on every chunk.
+  const scrollToEnd = useCallback((animated: boolean = true) => {
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated }));
   }, []);
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -800,7 +805,7 @@ export default function CoachScreen() {
                     copy[copy.length - 1] = { role: "assistant", content: sofar };
                     return copy;
                   });
-                  scrollToEnd();
+                  scrollToEnd(false);
                 },
               });
               setMessages((prev) => {
@@ -934,7 +939,7 @@ export default function CoachScreen() {
               copy[copy.length - 1] = { role: "assistant", content: sofar };
               return copy;
             });
-            scrollToEnd();
+            scrollToEnd(false);
           },
         });
         // Merge server rows the client pool is missing (the client pool wins on
