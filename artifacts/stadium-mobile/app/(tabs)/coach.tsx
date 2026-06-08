@@ -709,6 +709,9 @@ export default function CoachScreen() {
       const trimmed = text.trim();
       const images = attachedImages;
       if ((!trimmed && !images.length) || streaming) return;
+      // Drop the keyboard once a message is actually sent so the reply isn't
+      // hidden behind it (covers the send button, suggested prompts, auto-send).
+      Keyboard.dismiss();
       setInput("");
       setAttachedImages([]);
 
