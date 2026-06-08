@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQueries } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
   Alert,
   Pressable,
@@ -32,6 +32,7 @@ import {
   searchPlayer,
   type EspnGame,
   type GradeLegInput,
+  type GradeLegResult,
 } from "@/lib/api";
 import { formatAmerican, parlayAmerican, parlayImplied, payout } from "@/lib/format";
 import { isGameLevelMarket, parsePropLeg } from "@/lib/propLegParse";
@@ -114,14 +115,49 @@ function legGameStatus(games: EspnGame[]) {
   };
 }
 
+// Per-leg display state on a saved slip. "win"/"loss"/"push"/"ungraded" come
+// from the server grader (real results, never invented); "pending" means the
+// leg's game hasn't finished yet; "grading" means the game is over but the
+// grader result hasn't loaded for this card yet.
+type LegDisplayStatus =
+  | "win"
+  | "loss"
+  | "push"
+  | "ungraded"
+  | "pending"
+  | "grading";
+
+const LEG_STATUS_ICON = {
+  win: "check-circle",
+  loss: "x-circle",
+  push: "minus-circle",
+  ungraded: "help-circle",
+  grading: "loader",
+  pending: "clock",
+} as const satisfies Record<
+  LegDisplayStatus,
+  ComponentProps<typeof Feather>["name"]
+>;
+
+function legStatusColor(
+  s: LegDisplayStatus,
+  colors: ReturnType<typeof useColors>,
+): string {
+  if (s === "win") return colors.success;
+  if (s === "loss") return colors.destructive;
+  return colors.mutedForeground;
+}
+
 function LegRow({
   leg,
   onRemove,
   onPress,
+  status,
 }: {
   leg: Leg;
   onRemove?: () => void;
   onPress?: () => void;
+  status?: LegDisplayStatus;
 }) {
   const colors = useColors();
   const rowStyle = {
@@ -134,6 +170,13 @@ function LegRow({
   };
   const inner = (
     <>
+      {status ? (
+        <Feather
+          name={LEG_STATUS_ICON[status]}
+          size={16}
+          color={legStatusColor(status, colors)}
+        />
+      ) : null}
       <View style={{ flex: 1 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
           {leg.pick}
@@ -170,15 +213,75 @@ function SavedSlipCard({
   slip,
   onDelete,
   onOpenLeg,
+  allGames,
+  gradeResults,
 }: {
   slip: SavedSlip;
   onDelete: () => void;
   onOpenLeg?: (leg: Leg) => void;
+  allGames: EspnGame[];
+  gradeResults?: GradeLegResult[];
 }) {
   const colors = useColors();
   const [open, setOpen] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
   const ret = payout(slip.stake, slip.combinedOdds);
+
+  // Resolve a real, never-invented status for each leg: game finished? grader
+  // result? — so the card can show a settled/pending summary and per-leg ✓/✗
+  // while the slip is still waiting on its remaining games to finish.
+  const legStatuses = useMemo<LegDisplayStatus[]>(() => {
+    const resolve = legGameStatus(allGames);
+    const byIndex = new Map((gradeResults ?? []).map((r) => [r.index, r]));
+    return slip.legs.map((l, i) => {
+      if (resolve(l.game, l.sport) !== "over") return "pending";
+      const r = byIndex.get(i);
+      return r ? r.result : "grading";
+    });
+  }, [allGames, gradeResults, slip.legs]);
+
+  const total = slip.legs.length;
+  const pendingCount = legStatuses.filter((s) => s === "pending").length;
+  const settledCount = total - pendingCount;
+  const anyLoss = legStatuses.includes("loss");
+  // Every leg fully settled with no loss: a win only if at least one leg won
+  // (the rest pushing), an all-push if every leg pushed. A leftover "ungraded"
+  // leg leaves the parlay short of a clean result, so it stays in the neutral
+  // "settled count" form rather than claiming a win.
+  const settledNoLoss = pendingCount === 0 && total > 0 && !anyLoss;
+  const allPush = settledNoLoss && legStatuses.every((s) => s === "push");
+  const allWon =
+    settledNoLoss &&
+    legStatuses.some((s) => s === "win") &&
+    legStatuses.every((s) => s === "win" || s === "push");
+
+  // A single confirmed losing leg sinks the whole parlay — surface that even
+  // while other legs are still pending (it's already determinative).
+  const summaryText = anyLoss
+    ? pendingCount > 0
+      ? `Parlay lost · ${pendingCount} still pending`
+      : "Parlay lost"
+    : allWon
+      ? "Parlay won"
+      : allPush
+        ? "Parlay pushed"
+        : pendingCount > 0
+          ? `${settledCount}/${total} settled · ${pendingCount} pending`
+          : `${settledCount}/${total} settled`;
+  const summaryColor = anyLoss
+    ? colors.destructive
+    : allWon
+      ? colors.success
+      : colors.mutedForeground;
+  const summaryIcon: ComponentProps<typeof Feather>["name"] = anyLoss
+    ? "x-circle"
+    : allWon
+      ? "check-circle"
+      : allPush
+        ? "minus-circle"
+        : pendingCount > 0
+          ? "clock"
+          : "help-circle";
 
   const onSaveToPhotos = async () => {
     if (savingImage || slip.legs.length === 0) return;
@@ -226,12 +329,22 @@ function SavedSlipCard({
         ${slip.stake.toFixed(0)} → ${ret.toFixed(2)} · {new Date(slip.createdAt).toLocaleDateString()}
       </Text>
 
+      {total > 0 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
+          <Feather name={summaryIcon} size={13} color={summaryColor} />
+          <Text style={{ color: summaryColor, fontFamily: FONT.semibold, fontSize: 12 }}>
+            {summaryText}
+          </Text>
+        </View>
+      ) : null}
+
       {open ? (
         <View style={{ marginTop: 8 }}>
-          {slip.legs.map((l) => (
+          {slip.legs.map((l, i) => (
             <LegRow
               key={l.id}
               leg={l}
+              status={legStatuses[i]}
               onPress={onOpenLeg && legOpenable(l) ? () => onOpenLeg(l) : undefined}
             />
           ))}
@@ -363,6 +476,50 @@ export default function SlipScreen() {
     return aiPicks.map((p) => enrichPickMeta(p, gameMeta));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiPicks, gamesKey]);
+
+  // Display-only grading for saved slips that have at least one FINISHED game, so
+  // each card can show real per-leg ✓/✗ and a settled/pending summary while the
+  // slip is still waiting on its remaining games. The archive effect below still
+  // owns committing fully-settled slips to the Model Report; this reuses the same
+  // server grader (which fail-closes to "ungraded" — never an invented W/L). The
+  // query key includes which legs are over so it re-grades as more games finish.
+  const slipGradeQueries = useQueries({
+    queries: savedSlips.map((s) => {
+      const resolve = legGameStatus(allGames);
+      const overIdx = s.legs
+        .map((l, i) => (resolve(l.game, l.sport) === "over" ? i : -1))
+        .filter((i) => i >= 0);
+      return {
+        queryKey: ["saved-slip-grade", s.id, overIdx.join(",")],
+        enabled: allGames.length > 0 && overIdx.length > 0,
+        staleTime: 5 * 60_000,
+        queryFn: ({ signal }: { signal?: AbortSignal }) => {
+          const input: GradeLegInput[] = s.legs.map((l) => {
+            const g = legGameMatch(allGames, l.game, l.sport);
+            return {
+              game: l.game,
+              market: l.market,
+              pick: l.pick,
+              sport: l.sport,
+              odds: l.odds,
+              startsAt: g?.startsAt,
+            };
+          });
+          return gradeBets(input, signal);
+        },
+      };
+    }),
+  });
+  const slipGradeKey = slipGradeQueries.map((q) => q.dataUpdatedAt).join("|");
+  const slipGradeById = useMemo(() => {
+    const m = new Map<string, GradeLegResult[]>();
+    savedSlips.forEach((s, i) => {
+      const data = slipGradeQueries[i]?.data;
+      if (data) m.set(s.id, data);
+    });
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedSlips, slipGradeKey]);
 
   // Tapping an AI-recommended card opens its full stats sheet: the player's REAL
   // game-log breakdown for a prop leg, or the picked team's stats sheet for a
@@ -855,6 +1012,8 @@ export default function SlipScreen() {
                 <SavedSlipCard
                   key={s.id}
                   slip={s}
+                  allGames={allGames}
+                  gradeResults={slipGradeById.get(s.id)}
                   onDelete={() => deleteSlip(s.id)}
                   onOpenLeg={openLeg}
                 />

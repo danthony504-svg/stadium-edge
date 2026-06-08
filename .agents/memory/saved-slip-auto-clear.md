@@ -37,3 +37,19 @@ nickname+sport+unique-match is the resolution signal.
   (`saveSlipToPhotos(slip.legs, slip.stake)`). "Button not showing" on device is
   almost always a stale Metro bundle — restart the `artifacts/stadium-mobile: expo`
   workflow so the device reloads fresh JS.
+
+## Saved-slip pending-status display (display-only grading)
+- A parlay grades atomically: a slip mixing finished + future games (e.g. created
+  yesterday but containing tonight's games) silently waits in Saved Slips with no
+  feedback → user thinks Model Report grading is broken ("No settled bets yet").
+- `SavedSlipCard` now shows a summary line + per-leg ✓/✗/clock. Per-leg status:
+  game not over → "pending"; over → server grader's real win/loss/push/ungraded;
+  over-but-not-loaded → "grading". `anyLoss` surfaces "Parlay lost" even with
+  pending legs (a confirmed losing leg is determinative). all-push → "Parlay
+  pushed" (NOT "won"); a leftover ungraded leg stays in neutral "N/N settled".
+- Powered by a SEPARATE display-only `useQueries` (`["saved-slip-grade", id,
+  overIdx]`, 5min stale, enabled when ≥1 leg over) reusing the same `gradeBets`
+  server grader — does NOT mutate slips/results. The existing grade-then-archive
+  effect still solely owns committing settled slips to the Model Report.
+- **Why grading must be honest:** grader fail-closes to "ungraded"; never invent
+  a W/L. Mobile-only, OTA-unsafe → ships next native build.
