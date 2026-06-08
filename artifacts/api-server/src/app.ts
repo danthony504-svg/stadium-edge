@@ -19,6 +19,23 @@ const app: Express = express();
 // limits behave per-user instead of collapsing to one shared proxy IP.
 app.set("trust proxy", true);
 
+// Express auto-generates a weak ETag for every JSON response. On native,
+// expo/fetch surfaces a 304 Not Modified (the OS HTTP cache revalidating a URL a
+// previous screen already fetched) as a non-ok response with an EMPTY body — and
+// the mobile client's getJson treats any non-2xx as a failure (-> [] fallback).
+// The AI Coach re-fetches odds/games that the Home/Props screens already cached,
+// so those requests came back 304 and were silently dropped, leaving the chat
+// context empty — the coach then truthfully but wrongly reported "no games
+// tonight" on a full slate. Live odds must never be served from a stale client
+// cache anyway, so disable ETags and mark every /api response no-store: each
+// request gets a fresh 200 with a body. Upstream cost is unaffected — the server
+// keeps its own in-memory cache (cachedJson) for the actual data providers.
+app.set("etag", false);
+app.use("/api", (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 app.use(
   pinoHttp({
     logger,
