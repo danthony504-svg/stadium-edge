@@ -1514,14 +1514,33 @@ export async function buildChatContext(
 ): Promise<BuiltChatContext> {
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
-  const [oddsAll, gamesAll, injuriesAll] = await Promise.all([
-    Promise.all(sports.map((s) => getOdds(s, signal).catch(() => [] as OddsGame[]))),
-    Promise.all(sports.map((s) => getGames(s, signal).catch(() => [] as EspnGame[]))),
+  const fetchCoreFeeds = (sig?: AbortSignal): Promise<[OddsGame[][], EspnGame[][]]> =>
+    Promise.all([
+      Promise.all(sports.map((s) => getOdds(s, sig).catch(() => [] as OddsGame[]))),
+      Promise.all(sports.map((s) => getGames(s, sig).catch(() => [] as EspnGame[]))),
+    ]);
+  const anyNonEmpty = (lists: { length: number }[]): boolean => lists.some((l) => l.length > 0);
+
+  let [[oddsAll, gamesAll], injuriesAll] = await Promise.all([
+    fetchCoreFeeds(signal),
     // Real ESPN injury report per sport (for the per-game injury read the coach
     // factors into picks). A failed/unsupported sport just yields [] — never
     // fabricated; sports without a report (tennis/ufc) simply contribute none.
     Promise.all(sports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[]))),
   ]);
+
+  // BOTH core pools coming back completely empty is the signature of a transient
+  // fetch failure on a weak link (per-request timeout, or a rate-limit burst
+  // when fanning out every sport at once) — NOT a genuinely empty slate, since
+  // an in-season night always has at least one posted game. If we trusted this
+  // empty result the coach would falsely tell the user "the live board is empty,
+  // no games tonight". So retry the core feeds once after a brief pause (to let
+  // any rate-limit window clear) before accepting the empty result. Still
+  // fail-closed: if it's truly empty after the retry, we proceed honestly.
+  if (!anyNonEmpty(oddsAll) && !anyNonEmpty(gamesAll)) {
+    await new Promise<void>((r) => setTimeout(r, 600));
+    [oddsAll, gamesAll] = await fetchCoreFeeds(signal);
+  }
 
   const realOdds: RealOddsEntry[] = [];
   const realGames: RealGameEntry[] = [];
