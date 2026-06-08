@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FactorGrid } from "@/components/FactorCards";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -21,6 +22,7 @@ import {
 import { teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
+import { factorsForTeam } from "@/lib/teamFactors";
 
 // One tappable team, opened from the Props-tab search. We carry only the team
 // names + game context; everything shown is fetched fresh from REAL feeds.
@@ -156,6 +158,14 @@ export function TeamPropsSheet({
     },
   });
   const oppDefense = oppDefenseQ.data ?? null;
+
+  // Advisory "what you're still missing" cards — game-level context to research
+  // before a team bet. Pure guidance, lightly personalized with the REAL team
+  // and opponent names and the home/away flag. No fabricated numbers.
+  const teamFactors = useMemo(
+    () => factorsForTeam({ sport, teamName: team, oppName: opp, isHome: data?.isHome }),
+    [sport, team, opp, data?.isHome],
+  );
 
   const addMarket = (e: RealOddsEntry) => {
     const game = e.game;
@@ -473,6 +483,14 @@ export function TeamPropsSheet({
               </Text>
             </Section>
           ) : null}
+
+          {/* What you're still missing — game-level advisory checklist */}
+          <Section title="WHAT YOU'RE STILL MISSING">
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
+              Game-level context to research before betting this team — guidance, not predictions.
+            </Text>
+            <FactorGrid factors={teamFactors} />
+          </Section>
         </ScrollView>
 
         <SlipBar />
