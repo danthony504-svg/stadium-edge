@@ -1,16 +1,20 @@
-// Advisory "things to weigh before betting" cards for the prop detail page.
+// "Things to weigh before betting" cards for the prop detail page.
 //
-// HONESTY NOTE: this module contains NO data and makes NO claims about a
-// specific player's numbers. Every card is generic, evergreen guidance that
-// tells the bettor what to research (starting pitcher, lineup, weather, the
-// opponent's scheme, …). It never asserts a stat value, so there is nothing
-// here that could be fabricated — the real numbers on the page come from the
-// live game-log feed elsewhere.
+// HONESTY NOTE: cards come in two flavours and BOTH are honest.
+//   1. REAL cards — built only when the page passes in `real` signals that were
+//      computed from live feeds (the player's own game log, the opposing
+//      probable starter, his platoon split, the ballpark + weather). Every
+//      number printed here is a real recorded value or a deterministic
+//      derivation of one — never an estimate or a guess. Any field the feed
+//      didn't carry is simply omitted.
+//   2. GENERIC cards — evergreen guidance ("check the starting pitcher",
+//      "confirm the lineup") used as the fallback when a real signal isn't
+//      available (data missing, off-season, a sport we don't enrich yet). These
+//      assert NO stat value, so there is nothing here that could be fabricated.
 //
 // Cards may be personalized with names that are ALREADY known and REAL: the
-// player's name (passed in) and the two team names parsed from the matchup.
-// When a name can't be resolved the card falls back to a neutral noun, so the
-// copy is always honest and never invents a team or player.
+// player's name and the two team names parsed from the matchup. When a name
+// can't be resolved the card falls back to a neutral noun.
 
 export type FactorTier = "critical" | "important" | "useful";
 
@@ -21,6 +25,55 @@ export type PropFactor = {
   body: string;
 };
 
+// REAL, already-computed signals for this exact prop. Everything is nullable so
+// the cards degrade gracefully to the generic guidance below. The page is
+// responsible for ensuring every number here is a real feed value (it is) — this
+// module only formats them.
+export type RealPropSignals = {
+  // Per-game home vs away average of THIS market's value, straight from the
+  // player's real game log. Both sides must have at least one game.
+  homeAway?: {
+    homeAvg: number;
+    awayAvg: number;
+    homeN: number;
+    awayN: number;
+  } | null;
+  // The player's recent per-game average for THIS market (the page's headline
+  // projection) vs his real season-long per-game average for the same stat.
+  recentVsSeason?: {
+    recentAvg: number;
+    seasonAvg: number;
+    recentN: number;
+  } | null;
+  // MLB batter-only real signals.
+  mlb?: {
+    // The OPPOSING probable starting pitcher this batter faces tonight.
+    pitcher?: {
+      name: string;
+      throws: "L" | "R" | null;
+      kPer9: number | null;
+      era: number | null;
+    } | null;
+    // The batter's real platoon line vs that starter's throwing hand.
+    platoon?: {
+      bats: "L" | "R" | "S" | null;
+      hand: "L" | "R"; // the starter's throwing hand (the side shown)
+      avg: number | null;
+      ops: number | null;
+    } | null;
+    // The home ballpark + a live weather snapshot (null fields = honest gaps;
+    // domes report weather-neutral).
+    ballpark?: {
+      venue: string | null;
+      hrIndex: number | null;
+      dome: boolean;
+      tempF: number | null;
+      windMph: number | null;
+      condition: string | null;
+    } | null;
+  } | null;
+};
+
 export type FactorContext = {
   sport: string;
   marketKey: string;
@@ -29,6 +82,9 @@ export type FactorContext = {
   playerName?: string | null;
   teamName?: string | null; // the player's own team (full name)
   oppName?: string | null; // the opponent team (full name)
+  // Optional, REAL computed signals. When present, the matching cards show real
+  // numbers instead of generic guidance.
+  real?: RealPropSignals | null;
 };
 
 // --- name helpers -----------------------------------------------------------
@@ -47,81 +103,235 @@ function shortTeam(full?: string | null): string | null {
   return parts[parts.length - 1] || null;
 }
 
-// --- shared evergreen cards -------------------------------------------------
+// A short noun for the market value ("Hits" -> "hits", "Total Bases" -> "total
+// bases"), used in the real home/away + recent-vs-season copy.
+function statNoun(label?: string | null): string {
+  const l = (label ?? "").trim().toLowerCase();
+  return l || "this stat";
+}
 
-const HOME_AWAY: PropFactor = {
+// Baseball-style rate: 0.265 -> ".265", 1.024 -> "1.024".
+function rate3(n: number): string {
+  const s = n.toFixed(3);
+  return s.startsWith("0.") ? s.slice(1) : s;
+}
+
+// --- shared cards (REAL when signals present, else generic) -----------------
+
+const HOME_AWAY_GENERIC: PropFactor = {
   tier: "useful",
   emoji: "🏟",
   title: "Home / Away Splits",
   body: "Some players perform noticeably better at home. Factor in which venue this game is at.",
 };
 
-const REGRESSION: PropFactor = {
+const REGRESSION_GENERIC: PropFactor = {
   tier: "useful",
   emoji: "📊",
   title: "Recent vs Season",
   body: "Is this recent stretch above or below the player's season average? Regression to the mean matters when the line sits near his real level.",
 };
 
+function homeAwayCard(real: RealPropSignals | null | undefined, noun: string): PropFactor {
+  const ha = real?.homeAway;
+  if (ha && ha.homeN > 0 && ha.awayN > 0) {
+    const lean =
+      ha.homeAvg > ha.awayAvg
+        ? "He's been better at home"
+        : ha.awayAvg > ha.homeAvg
+          ? "He's been better on the road"
+          : "Even home and away";
+    return {
+      tier: "useful",
+      emoji: "🏟",
+      title: "Home / Away Splits",
+      body: `Real game-log split: ${ha.homeAvg.toFixed(1)} ${noun}/game at home (${ha.homeN}) vs ${ha.awayAvg.toFixed(1)} away (${ha.awayN}). ${lean} — weigh tonight's venue.`,
+    };
+  }
+  return HOME_AWAY_GENERIC;
+}
+
+function recentVsSeasonCard(real: RealPropSignals | null | undefined, noun: string): PropFactor {
+  const r = real?.recentVsSeason;
+  if (r) {
+    const diff = r.recentAvg - r.seasonAvg;
+    const adir = Math.abs(diff) < 0.1 ? "even" : diff > 0 ? "above" : "below";
+    const tail =
+      adir === "above"
+        ? "Hot stretch — weigh regression if the line chases it."
+        : adir === "below"
+          ? "Cold stretch — weigh a bounce-back if the line overreacts."
+          : "Steady — the line sits near his real level.";
+    const cmp =
+      adir === "even"
+        ? `right at his season average (${r.seasonAvg.toFixed(1)})`
+        : `${adir} his season average of ${r.seasonAvg.toFixed(1)}`;
+    return {
+      tier: "useful",
+      emoji: "📊",
+      title: "Recent vs Season",
+      body: `Last ${r.recentN}: ${r.recentAvg.toFixed(1)} ${noun}/game — ${cmp}. ${tail}`,
+    };
+  }
+  return REGRESSION_GENERIC;
+}
+
 // --- baseball ---------------------------------------------------------------
 
-const MLB_BATTER: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "⚾",
-    title: "Tonight's Starting Pitcher",
-    body: "High-K starters suppress hits regardless of form. Check the K/9 rate and this hitter's career line vs this pitcher specifically.",
-  },
-  {
-    tier: "critical",
-    emoji: "✋",
-    title: "L/R Splits vs Starter",
-    body: "A hitter's platoon split (vs lefties vs righties) can be dramatic. Check his split and match it against tonight's starter's throwing hand.",
-  },
-  {
-    tier: "important",
-    emoji: "💨",
-    title: "Ballpark & Wind",
-    body: "Wind blowing in kills offense; blowing out is run-friendly. Park factors matter — check the weather before betting.",
-  },
-  {
-    tier: "important",
-    emoji: "📋",
-    title: "Confirmed Lineup",
-    body: "Is the player confirmed starting, and where in the order? A rest day or scratch voids the prop. Check before first pitch.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+const MLB_PITCHER_STARTER_GENERIC: PropFactor = {
+  tier: "critical",
+  emoji: "⚾",
+  title: "Tonight's Starting Pitcher",
+  body: "High-K starters suppress hits regardless of form. Check the K/9 rate and this hitter's career line vs this pitcher specifically.",
+};
 
-const MLB_PITCHER: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "⚾",
-    title: "Opposing Lineup K-Rate",
-    body: "Strikeout props live and die on the opponent's whiff rate. A high-contact lineup caps the ceiling regardless of his stuff.",
-  },
-  {
-    tier: "critical",
-    emoji: "🔢",
-    title: "Pitch Count & Leash",
-    body: "Manager tendencies and recent pitch counts decide how deep he goes. An early hook caps strikeouts and outs.",
-  },
-  {
-    tier: "important",
-    emoji: "💨",
-    title: "Ballpark & Weather",
-    body: "Hitter-friendly parks and wind blowing out inflate contact and runs allowed. Check conditions before betting.",
-  },
-  {
-    tier: "important",
-    emoji: "📋",
-    title: "Confirmed to Start",
-    body: "Late scratches and rain delays happen. Confirm he's on the mound before first pitch.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+const MLB_PLATOON_GENERIC: PropFactor = {
+  tier: "critical",
+  emoji: "✋",
+  title: "L/R Splits vs Starter",
+  body: "A hitter's platoon split (vs lefties vs righties) can be dramatic. Check his split and match it against tonight's starter's throwing hand.",
+};
+
+const MLB_BALLPARK_GENERIC: PropFactor = {
+  tier: "important",
+  emoji: "💨",
+  title: "Ballpark & Wind",
+  body: "Wind blowing in kills offense; blowing out is run-friendly. Park factors matter — check the weather before betting.",
+};
+
+const MLB_LINEUP_GENERIC: PropFactor = {
+  tier: "important",
+  emoji: "📋",
+  title: "Confirmed Lineup",
+  body: "Is the player confirmed starting, and where in the order? A rest day or scratch voids the prop. Check before first pitch.",
+};
+
+function mlbStarterCard(real: RealPropSignals | null | undefined): PropFactor {
+  const p = real?.mlb?.pitcher;
+  if (p?.name) {
+    const hand = p.throws === "L" ? "LHP" : p.throws === "R" ? "RHP" : null;
+    const bits: string[] = [];
+    if (p.kPer9 != null) bits.push(`${p.kPer9.toFixed(1)} K/9`);
+    if (p.era != null) bits.push(`${p.era.toFixed(2)} ERA`);
+    const line = bits.length ? ` This season: ${bits.join(", ")}.` : "";
+    const lean =
+      p.kPer9 != null
+        ? p.kPer9 >= 9
+          ? " A high-strikeout arm caps hits and total bases."
+          : p.kPer9 <= 7
+            ? " A lower-strikeout arm puts more balls in play."
+            : ""
+        : "";
+    return {
+      tier: "critical",
+      emoji: "⚾",
+      title: "Tonight's Starting Pitcher",
+      body: `Faces ${p.name}${hand ? ` (${hand})` : ""}.${line}${lean}`,
+    };
+  }
+  return MLB_PITCHER_STARTER_GENERIC;
+}
+
+function mlbPlatoonCard(real: RealPropSignals | null | undefined, name: string): PropFactor {
+  const pl = real?.mlb?.platoon;
+  if (pl && (pl.avg != null || pl.ops != null)) {
+    const handLabel = pl.hand === "L" ? "LHP" : "RHP";
+    const batsLabel =
+      pl.bats === "S" ? "switch-hits" : pl.bats === "L" ? "bats lefty" : pl.bats === "R" ? "bats righty" : "hits";
+    // Same-handed (R vs RHP / L vs LHP) is the tougher look for the hitter;
+    // opposite hand and switch-hitters get the platoon edge.
+    const edge =
+      pl.bats === "S"
+        ? " — a switch-hitter keeps the platoon edge"
+        : pl.bats && pl.bats === pl.hand
+          ? " — the tougher same-handed look"
+          : pl.bats
+            ? " — the favorable opposite-handed look"
+            : "";
+    const stat: string[] = [];
+    if (pl.avg != null) stat.push(`${rate3(pl.avg)} AVG`);
+    if (pl.ops != null) stat.push(`${rate3(pl.ops)} OPS`);
+    return {
+      tier: "critical",
+      emoji: "✋",
+      title: "L/R Platoon vs Starter",
+      body: `${name} ${batsLabel} and faces a ${handLabel}${edge}. His real line vs ${handLabel}: ${stat.join(", ")}.`,
+    };
+  }
+  return MLB_PLATOON_GENERIC;
+}
+
+function mlbBallparkCard(real: RealPropSignals | null | undefined): PropFactor {
+  const b = real?.mlb?.ballpark;
+  if (b && (b.venue || b.hrIndex != null)) {
+    const idx =
+      b.hrIndex != null
+        ? `HR park factor ${b.hrIndex} (${b.hrIndex >= 105 ? "hitter-friendly" : b.hrIndex <= 95 ? "pitcher-friendly" : "roughly neutral"})`
+        : null;
+    let wx: string | null = null;
+    if (b.dome) {
+      wx = "Roof park — weather neutral.";
+    } else {
+      const w: string[] = [];
+      if (b.tempF != null) w.push(`${b.tempF}°F`);
+      if (b.windMph != null) w.push(`wind ${b.windMph} mph`);
+      if (b.condition) w.push(b.condition);
+      if (w.length) wx = `Now: ${w.join(", ")}.`;
+    }
+    const head = [b.venue, idx].filter(Boolean).join(" — ");
+    return {
+      tier: "important",
+      emoji: "💨",
+      title: "Ballpark & Weather",
+      body: `${head}.${wx ? ` ${wx}` : ""}`,
+    };
+  }
+  return MLB_BALLPARK_GENERIC;
+}
+
+function mlbBatter(
+  real: RealPropSignals | null | undefined,
+  playerName: string | null | undefined,
+  homeAway: PropFactor,
+  recent: PropFactor,
+): PropFactor[] {
+  return [
+    mlbStarterCard(real),
+    mlbPlatoonCard(real, firstNameOf(playerName)),
+    mlbBallparkCard(real),
+    MLB_LINEUP_GENERIC,
+    homeAway,
+    recent,
+  ];
+}
+
+function mlbPitcher(real: RealPropSignals | null | undefined, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "⚾",
+      title: "Opposing Lineup K-Rate",
+      body: "Strikeout props live and die on the opponent's whiff rate. A high-contact lineup caps the ceiling regardless of his stuff.",
+    },
+    {
+      tier: "critical",
+      emoji: "🔢",
+      title: "Pitch Count & Leash",
+      body: "Manager tendencies and recent pitch counts decide how deep he goes. An early hook caps strikeouts and outs.",
+    },
+    // The pitcher works in his home park too — the ballpark/weather card is real
+    // and side-independent, so reuse it here.
+    mlbBallparkCard(real),
+    {
+      tier: "important",
+      emoji: "📋",
+      title: "Confirmed to Start",
+      body: "Late scratches and rain delays happen. Confirm he's on the mound before first pitch.",
+    },
+    homeAway,
+    recent,
+  ];
+}
 
 // --- basketball (market-aware) ----------------------------------------------
 
@@ -140,7 +350,7 @@ function teamSubject(ctx: BCtx): string {
   return ctx.teamShort ? `${ctx.teamShort}'s` : "his team's";
 }
 
-function bballAssists(ctx: BCtx): PropFactor[] {
+function bballAssists(ctx: BCtx, recent: PropFactor): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -166,12 +376,7 @@ function bballAssists(ctx: BCtx): PropFactor[] {
       title: "Game Pace & Total",
       body: "Slower pace means fewer possessions and fewer assist chances. Check the posted game total as a pace hint.",
     },
-    {
-      tier: "useful",
-      emoji: "📊",
-      title: "Season-Long Avg",
-      body: `Is the recent average ${ctx.name}'s true level or a hot/cold stretch? Regression matters when the line sits near his real mean.`,
-    },
+    recent,
     {
       tier: "useful",
       emoji: "💊",
@@ -181,7 +386,7 @@ function bballAssists(ctx: BCtx): PropFactor[] {
   ];
 }
 
-function bballPoints(ctx: BCtx): PropFactor[] {
+function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -207,12 +412,12 @@ function bballPoints(ctx: BCtx): PropFactor[] {
       title: "Pace & Total",
       body: "A high total and fast pace mean more possessions and scoring chances. Check the game total.",
     },
-    HOME_AWAY,
-    REGRESSION,
+    homeAway,
+    recent,
   ];
 }
 
-function bballRebounds(ctx: BCtx): PropFactor[] {
+function bballRebounds(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -238,12 +443,12 @@ function bballRebounds(ctx: BCtx): PropFactor[] {
       title: "Misses Create Boards",
       body: "More missed shots mean more rebounds. A low-shooting, lower-total matchup can mean more boards to grab.",
     },
-    HOME_AWAY,
-    REGRESSION,
+    homeAway,
+    recent,
   ];
 }
 
-function bballThrees(ctx: BCtx): PropFactor[] {
+function bballThrees(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -269,12 +474,12 @@ function bballThrees(ctx: BCtx): PropFactor[] {
       title: "Pace & Total",
       body: "A fast, high-total game means more possessions and more shot attempts.",
     },
-    HOME_AWAY,
-    REGRESSION,
+    homeAway,
+    recent,
   ];
 }
 
-function bballGeneric(ctx: BCtx): PropFactor[] {
+function bballGeneric(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -300,12 +505,12 @@ function bballGeneric(ctx: BCtx): PropFactor[] {
       title: "Pace & Total",
       body: "Game pace and the posted total hint at possessions. High-total games create more chances.",
     },
-    HOME_AWAY,
-    REGRESSION,
+    homeAway,
+    recent,
   ];
 }
 
-function basketballFactors(ctx: BCtx, key: string): PropFactor[] {
+function basketballFactors(ctx: BCtx, key: string, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   const hasAssist = /assist|\bast\b/.test(key);
   const hasReb = /rebound|\breb\b/.test(key);
   const hasPts = /point|\bpts\b/.test(key);
@@ -314,137 +519,151 @@ function basketballFactors(ctx: BCtx, key: string): PropFactor[] {
   // their tailored set.
   const distinct = [hasAssist, hasReb, hasPts].filter(Boolean).length;
   if (distinct <= 1) {
-    if (hasThree) return bballThrees(ctx);
-    if (hasAssist) return bballAssists(ctx);
-    if (hasReb) return bballRebounds(ctx);
-    if (hasPts) return bballPoints(ctx);
+    if (hasThree) return bballThrees(ctx, homeAway, recent);
+    if (hasAssist) return bballAssists(ctx, recent);
+    if (hasReb) return bballRebounds(ctx, homeAway, recent);
+    if (hasPts) return bballPoints(ctx, homeAway, recent);
   }
-  return bballGeneric(ctx);
+  return bballGeneric(ctx, homeAway, recent);
 }
 
 // --- football / hockey / soccer / generic -----------------------------------
 
-const FOOTBALL: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "📈",
-    title: "Game Script",
-    body: "A trailing team throws more; a leading team runs more. The spread and total hint at the likely script.",
-  },
-  {
-    tier: "critical",
-    emoji: "🛡",
-    title: "Matchup & Coverage",
-    body: "The opponent's defense against this position sets the ceiling. Check who's shadowing and any run-funnel tendencies.",
-  },
-  {
-    tier: "important",
-    emoji: "🩹",
-    title: "Injuries & Inactives",
-    body: "Inactives shift targets and carries. A missing teammate can concentrate volume on this player.",
-  },
-  {
-    tier: "important",
-    emoji: "💨",
-    title: "Weather",
-    body: "Wind and rain depress passing and kicking. Check the forecast for outdoor games.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+function football(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "📈",
+      title: "Game Script",
+      body: "A trailing team throws more; a leading team runs more. The spread and total hint at the likely script.",
+    },
+    {
+      tier: "critical",
+      emoji: "🛡",
+      title: "Matchup & Coverage",
+      body: "The opponent's defense against this position sets the ceiling. Check who's shadowing and any run-funnel tendencies.",
+    },
+    {
+      tier: "important",
+      emoji: "🩹",
+      title: "Injuries & Inactives",
+      body: "Inactives shift targets and carries. A missing teammate can concentrate volume on this player.",
+    },
+    {
+      tier: "important",
+      emoji: "💨",
+      title: "Weather",
+      body: "Wind and rain depress passing and kicking. Check the forecast for outdoor games.",
+    },
+    homeAway,
+    recent,
+  ];
+}
 
-const HOCKEY: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "🏒",
-    title: "Confirmed Line & TOI",
-    body: "Line and power-play deployment drive shots and points. A line demotion or scratch sinks the prop — check the morning skate.",
-  },
-  {
-    tier: "critical",
-    emoji: "🥅",
-    title: "Opposing Goalie & Defense",
-    body: "The opponent's goalie and shot-suppression set the ceiling. A hot goalie caps points.",
-  },
-  {
-    tier: "important",
-    emoji: "⚡",
-    title: "Power-Play Role",
-    body: "Top power-play time inflates shots and points. Confirm he's on the top unit.",
-  },
-  {
-    tier: "important",
-    emoji: "🩹",
-    title: "Injuries Around Him",
-    body: "Linemates in or out shift his role and scoring chances.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+function hockey(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "🏒",
+      title: "Confirmed Line & TOI",
+      body: "Line and power-play deployment drive shots and points. A line demotion or scratch sinks the prop — check the morning skate.",
+    },
+    {
+      tier: "critical",
+      emoji: "🥅",
+      title: "Opposing Goalie & Defense",
+      body: "The opponent's goalie and shot-suppression set the ceiling. A hot goalie caps points.",
+    },
+    {
+      tier: "important",
+      emoji: "⚡",
+      title: "Power-Play Role",
+      body: "Top power-play time inflates shots and points. Confirm he's on the top unit.",
+    },
+    {
+      tier: "important",
+      emoji: "🩹",
+      title: "Injuries Around Him",
+      body: "Linemates in or out shift his role and scoring chances.",
+    },
+    homeAway,
+    recent,
+  ];
+}
 
-const SOCCER: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "📋",
-    title: "Confirmed to Start & Minutes",
-    body: "Rotation is heavy in soccer. A bench start or early sub kills shot and goal props. Check the confirmed XI before kickoff.",
-  },
-  {
-    tier: "critical",
-    emoji: "🎯",
-    title: "Role & Set Pieces",
-    body: "Penalty and set-piece duty drives goal odds. Confirm he's the designated taker.",
-  },
-  {
-    tier: "important",
-    emoji: "🛡",
-    title: "Opponent & Game State",
-    body: "A defensive opponent, or a team chasing the game, changes how many shots he gets.",
-  },
-  {
-    tier: "important",
-    emoji: "✈️",
-    title: "Fixture Congestion",
-    body: "Midweek games and travel can mean rotation or reduced minutes.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+function soccer(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "📋",
+      title: "Confirmed to Start & Minutes",
+      body: "Rotation is heavy in soccer. A bench start or early sub kills shot and goal props. Check the confirmed XI before kickoff.",
+    },
+    {
+      tier: "critical",
+      emoji: "🎯",
+      title: "Role & Set Pieces",
+      body: "Penalty and set-piece duty drives goal odds. Confirm he's the designated taker.",
+    },
+    {
+      tier: "important",
+      emoji: "🛡",
+      title: "Opponent & Game State",
+      body: "A defensive opponent, or a team chasing the game, changes how many shots he gets.",
+    },
+    {
+      tier: "important",
+      emoji: "✈️",
+      title: "Fixture Congestion",
+      body: "Midweek games and travel can mean rotation or reduced minutes.",
+    },
+    homeAway,
+    recent,
+  ];
+}
 
-const GENERIC: PropFactor[] = [
-  {
-    tier: "critical",
-    emoji: "✅",
-    title: "Confirmed to Play",
-    body: "Availability and role drive every prop. Confirm the player is active and starting before betting.",
-  },
-  {
-    tier: "critical",
-    emoji: "🛡",
-    title: "Matchup",
-    body: "The opponent's strength against this stat sets the ceiling for the night.",
-  },
-  {
-    tier: "important",
-    emoji: "🩹",
-    title: "Injuries Around Him",
-    body: "Teammates in or out can shift this player's volume and opportunity.",
-  },
-  HOME_AWAY,
-  REGRESSION,
-];
+function genericFactors(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "✅",
+      title: "Confirmed to Play",
+      body: "Availability and role drive every prop. Confirm the player is active and starting before betting.",
+    },
+    {
+      tier: "critical",
+      emoji: "🛡",
+      title: "Matchup",
+      body: "The opponent's strength against this stat sets the ceiling for the night.",
+    },
+    {
+      tier: "important",
+      emoji: "🩹",
+      title: "Injuries Around Him",
+      body: "Teammates in or out can shift this player's volume and opportunity.",
+    },
+    homeAway,
+    recent,
+  ];
+}
 
-// Pick the right advisory set for a prop. Baseball splits into batter vs pitcher
-// and basketball into per-market sets (assists / points / rebounds / threes)
-// because the levers are completely different; everything else is keyed by sport
-// family, with a generic fallback so the section is never empty or wrong.
+// Pick the right set for a prop. Baseball splits into batter vs pitcher and
+// basketball into per-market sets (assists / points / rebounds / threes) because
+// the levers are completely different; everything else is keyed by sport family,
+// with a generic fallback so the section is never empty or wrong. Every set ends
+// with the home/away + recent-vs-season cards, which render REAL numbers when
+// the page supplies them and fall back to generic guidance otherwise.
 export function factorsForProp(opts: FactorContext): PropFactor[] {
   const sport = (opts.sport || "").toLowerCase();
   const key = `${opts.marketKey} ${opts.marketLabel}`.toLowerCase();
+  const real = opts.real ?? null;
+  const noun = statNoun(opts.marketLabel);
+  const homeAway = homeAwayCard(real, noun);
+  const recent = recentVsSeasonCard(real, noun);
 
   if (sport === "mlb") {
     const isPitcher = /pitcher|strikeout|\bouts\b|earned run|hits allowed|walks allowed/.test(key);
-    return isPitcher ? MLB_PITCHER : MLB_BATTER;
+    return isPitcher ? mlbPitcher(real, homeAway, recent) : mlbBatter(real, opts.playerName, homeAway, recent);
   }
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
     const ctx: BCtx = {
@@ -452,12 +671,12 @@ export function factorsForProp(opts: FactorContext): PropFactor[] {
       oppShort: shortTeam(opts.oppName),
       teamShort: shortTeam(opts.teamName),
     };
-    return basketballFactors(ctx, key);
+    return basketballFactors(ctx, key, homeAway, recent);
   }
-  if (sport === "nfl" || sport === "ncaaf") return FOOTBALL;
-  if (sport === "nhl") return HOCKEY;
-  if (sport === "soccer") return SOCCER;
-  return GENERIC;
+  if (sport === "nfl" || sport === "ncaaf") return football(homeAway, recent);
+  if (sport === "nhl") return hockey(homeAway, recent);
+  if (sport === "soccer") return soccer(homeAway, recent);
+  return genericFactors(homeAway, recent);
 }
 
 export const TIER_META: Record<FactorTier, { label: string; prefix: string }> = {

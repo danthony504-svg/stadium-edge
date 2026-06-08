@@ -491,6 +491,64 @@ export function getTeamHistory(
   return getJson<TeamHistory>(`/sports/team-history?${q.toString()}`, signal);
 }
 
+// ---------- MLB probables + ballpark + batter splits (real ESPN) ----------
+
+// The opposing probable starter's real season tendency (the slice we use on the
+// prop page). Mirrors the api-server PitcherTendency shape; honest nulls.
+export type MlbPitcherTendency = {
+  era: number | null;
+  whip: number | null;
+  ip: number | null;
+  kPer9: number | null;
+  hrAllowed: number | null;
+  hrPer9: number | null;
+  flyBallPct: number | null;
+  groundFlyRatio: number | null;
+  oppOPS: number | null;
+};
+
+// One team's probable starting pitcher today, with throwing hand + tendency.
+export type MlbProbable = {
+  name: string;
+  athleteId: string;
+  throws: string | null; // ESPN display: "Left" / "Right" / null
+  tendency: MlbPitcherTendency | null;
+};
+
+// Per-game ballpark environment keyed by the HOME team's ESPN id: real venue +
+// static park HR factor + a live weather snapshot (null for domes / no key).
+export type MlbGameEnv = {
+  homeAbbr: string | null;
+  venue: string | null;
+  park: { hrIndex: number; altitudeFt: number; dome: boolean } | null;
+  weather: { tempF: number | null; condition: string | null; windMph: number | null; humidity: number | null } | null;
+};
+
+export type MlbProbablesResp = {
+  probables: Record<string, MlbProbable>; // keyed by ESPN teamId
+  games?: Record<string, MlbGameEnv>; // keyed by HOME team ESPN id
+};
+
+// Today's probable starters per team + per-game ballpark environment. Cached on
+// the server; returns empty buckets (never fabricated) on a miss.
+export function getMlbProbables(signal?: AbortSignal): Promise<MlbProbablesResp> {
+  return getJson<MlbProbablesResp>(`/sports/mlb-probables`, signal);
+}
+
+// A batter's REAL platoon line (season-to-date vs LHP / vs RHP) + handedness,
+// straight from ESPN. Each split is a { label: number } map keyed by ESPN's own
+// stat labels ("AVG", "OPS", ...); honest nulls when the feed has no data.
+export type MlbBatterSplits = {
+  athleteId: string;
+  bats: string | null; // ESPN display: "Left" / "Right" / "Switch" / null
+  vsLeft: Record<string, number> | null;
+  vsRight: Record<string, number> | null;
+};
+
+export function getMlbBatterSplits(athleteId: string, signal?: AbortSignal): Promise<MlbBatterSplits> {
+  return getJson<MlbBatterSplits>(`/sports/mlb-batter-splits?athleteId=${encodeURIComponent(athleteId)}`, signal);
+}
+
 // ---------- Real injury report (ESPN) ----------
 
 // One player's REAL injury designation from ESPN's league-wide report.

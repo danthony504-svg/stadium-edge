@@ -13,6 +13,8 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import {
   getInjuries,
+  getMlbBatterSplits,
+  getMlbProbables,
   getPlayerHistory,
   getTeamDefense,
   searchTeam,
@@ -21,7 +23,7 @@ import {
 import { findPlayerInjury, injuryTone, teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
-import { factorsForProp } from "@/lib/propFactors";
+import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
 
@@ -272,13 +274,121 @@ export default function PropDetailScreen() {
     return { teamName: undefined as string | undefined, oppName: undefined as string | undefined };
   }, [historyQ.data, awayName, homeName]);
 
-  // Market-aware "things to research before betting" cards, tailored to the
-  // sport (batter vs pitcher for MLB; per-market for basketball) and lightly
-  // personalized with the REAL player and team names. Pure advisory text — no
-  // fabricated numbers.
+  // REAL home/away split of THIS market's value, straight from the game log we
+  // already loaded. Needs at least one game on each side or we leave it null and
+  // the card falls back to generic guidance.
+  const realHomeAway = useMemo(() => {
+    const home = games.filter((g) => g.isHome === true).map((g) => g.value);
+    const away = games.filter((g) => g.isHome === false).map((g) => g.value);
+    if (home.length === 0 || away.length === 0) return null;
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    return { homeAvg: avg(home), awayAvg: avg(away), homeN: home.length, awayN: away.length };
+  }, [games]);
+
+  // REAL recent (this page's projection) vs season-long per-game average for the
+  // same market. The season average is computed with the very same market→stat
+  // resolver used per game, applied to the player's real season averages (avg of
+  // a sum equals the sum of the averages, so combos/total-bases stay exact).
+  const realRecentVsSeason = useMemo(() => {
+    if (projection == null || n === 0) return null;
+    const avgs = historyQ.data?.seasonSummary?.averages;
+    if (!avgs) return null;
+    const asStr: Record<string, string> = {};
+    for (const [k, v] of Object.entries(avgs)) asStr[k] = String(v);
+    const seasonAvg = gameValueForMarket(marketKey, asStr, ambiguous);
+    if (seasonAvg == null) return null;
+    return { recentAvg: projection, seasonAvg, recentN: n };
+  }, [projection, n, historyQ.data, marketKey, ambiguous]);
+
+  // MLB batter enrichment: the opposing probable starter, this batter's platoon
+  // line vs that starter's hand, and the home ballpark + live weather. All real
+  // ESPN data, resolved fail-closed (team-id misses leave a card generic).
+  const mlbQ = useQuery({
+    queryKey: ["mlb-prop-signals", athleteId, awayName, homeName],
+    enabled: sport === "mlb" && !!athleteId && !!awayName && !!homeName,
+    staleTime: 15 * 60_000,
+    queryFn: async ({ signal }) => {
+      const resolveTeamId = async (name: string): Promise<string | null> => {
+        const r = await searchTeam(name, signal);
+        const hits = r.results.filter((t) => (t.sport ?? "") === "mlb");
+        return hits.find((t) => teamNameMatches(t.name, name))?.teamId ?? null;
+      };
+      const [awayId, homeId, probRes, splits] = await Promise.all([
+        resolveTeamId(awayName),
+        resolveTeamId(homeName),
+        getMlbProbables(signal).catch(() => ({ probables: {} } as Awaited<ReturnType<typeof getMlbProbables>>)),
+        getMlbBatterSplits(athleteId, signal).catch(() => null),
+      ]);
+      return { awayId, homeId, probRes, splits };
+    },
+  });
+
+  // Assemble the REAL MLB signal block from the resolved feeds (batter only —
+  // pitcher props don't face an "opposing starter"). Everything here is a real
+  // recorded value; any gap stays null so the card degrades to honest guidance.
+  const realMlb = useMemo<RealPropSignals["mlb"]>(() => {
+    if (sport !== "mlb") return null;
+    const d = mlbQ.data;
+    if (!d) return null;
+    const nick = (s: string) => s.toLowerCase().split(/\s+/).pop() ?? s.toLowerCase();
+    // The pitcher this batter faces is the OPPONENT team's probable starter.
+    // Map the (already fail-closed) opponent name back to its resolved team id,
+    // but require EXACTLY ONE side to match so a shared nickname (Red Sox vs
+    // White Sox) never mis-attributes the pitcher — fall back to generic.
+    let oppId: string | null = null;
+    if (oppName) {
+      const on = nick(oppName);
+      const homeMatch = !!homeName && nick(homeName) === on;
+      const awayMatch = !!awayName && nick(awayName) === on;
+      if (homeMatch && !awayMatch) oppId = d.homeId;
+      else if (awayMatch && !homeMatch) oppId = d.awayId;
+    }
+    const praw = oppId ? d.probRes.probables[oppId] : null;
+    const throws: "L" | "R" | null = praw?.throws === "Left" ? "L" : praw?.throws === "Right" ? "R" : null;
+    const pitcher = praw?.name
+      ? { name: praw.name, throws, kPer9: praw.tendency?.kPer9 ?? null, era: praw.tendency?.era ?? null }
+      : null;
+
+    // Platoon line vs the starter's hand (only meaningful once we know the hand).
+    let platoon: NonNullable<RealPropSignals["mlb"]>["platoon"] = null;
+    if (d.splits && throws) {
+      const bats: "L" | "R" | "S" | null =
+        d.splits.bats === "Left" ? "L" : d.splits.bats === "Right" ? "R" : d.splits.bats === "Switch" ? "S" : null;
+      const sideMap = throws === "R" ? d.splits.vsRight : d.splits.vsLeft;
+      const avg = sideMap?.["AVG"] ?? null;
+      const ops = sideMap?.["OPS"] ?? null;
+      if (avg != null || ops != null) platoon = { bats, hand: throws, avg, ops };
+    }
+
+    // Ballpark + weather is keyed by the HOME team and is side-independent.
+    const env = d.homeId ? d.probRes.games?.[d.homeId] ?? null : null;
+    let ballpark: NonNullable<RealPropSignals["mlb"]>["ballpark"] = null;
+    if (env && (env.venue || env.park)) {
+      ballpark = {
+        venue: env.venue,
+        hrIndex: env.park?.hrIndex ?? null,
+        dome: env.park?.dome ?? false,
+        tempF: env.weather?.tempF ?? null,
+        windMph: env.weather?.windMph ?? null,
+        condition: env.weather?.condition ?? null,
+      };
+    }
+
+    if (!pitcher && !platoon && !ballpark) return null;
+    return { pitcher, platoon, ballpark };
+  }, [sport, mlbQ.data, oppName, homeName, awayName]);
+
+  // Market-aware "things to weigh before betting" cards, tailored to the sport
+  // (batter vs pitcher for MLB; per-market for basketball) and personalized with
+  // the REAL player and team names. Cards render real numbers when the signals
+  // above are present and fall back to honest guidance when they aren't.
+  const real = useMemo<RealPropSignals>(
+    () => ({ homeAway: realHomeAway, recentVsSeason: realRecentVsSeason, mlb: realMlb }),
+    [realHomeAway, realRecentVsSeason, realMlb],
+  );
   const factors = useMemo(
-    () => factorsForProp({ sport, marketKey, marketLabel, playerName: player, teamName, oppName }),
-    [sport, marketKey, marketLabel, player, teamName, oppName],
+    () => factorsForProp({ sport, marketKey, marketLabel, playerName: player, teamName, oppName, real }),
+    [sport, marketKey, marketLabel, player, teamName, oppName, real],
   );
 
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
@@ -601,10 +711,10 @@ export default function PropDetailScreen() {
           </Section>
         ) : null}
 
-        {/* Factors to weigh — generic, sport-aware advisory checklist */}
+        {/* Factors to weigh — real numbers where we have them, else what to check */}
         <Section title="FACTORS TO WEIGH">
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
-            General things to research before betting this prop — guidance, not predictions.
+            Real numbers where we have the data — plus what to still check yourself before betting.
           </Text>
           <FactorGrid factors={factors} />
         </Section>
