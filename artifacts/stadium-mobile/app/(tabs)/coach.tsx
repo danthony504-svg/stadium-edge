@@ -312,8 +312,11 @@ function assistantBubbleText(content: string, hasPicks: boolean): string {
 // keep showing the real card AND stream a grounded reply.
 const PROJECTION_RE =
   /\b(do you think|you think|think (?:he|she|they|it)|predict(?:ion)?|project(?:ion|ed|ing)?|expect(?:ed|ing|s)?|forecast|your (?:take|thoughts|opinion|guess|prediction|call)|thoughts on|over or under|over\/under|o\/u|should i|good bet|worth (?:a )?(?:bet|play|shot)|likely to|going to|gonna)\b/i;
+// Subject is negative-lookahead'd against "you" so an assistant-addressed lookup
+// ("can you get me his stats") stays card-only, while a player-subject projection
+// ("would he get a hit", "can Ben Rice hit 2 today") triggers the grounded reply.
 const PROJECTION_WILL_RE =
-  /\bwill\s+[a-z.'’\- ]{2,30}?\s(?:score|get|have|put up|go for|drop|record|tally|hit|reach|exceed)\b/i;
+  /\b(?:will|would|can|could)\s+(?!you\b)[a-z.'’\- ]{2,30}?\s(?:score|get|have|put up|go for|drop|record|tally|hit|reach|exceed)\b/i;
 
 function isProjectionQuestion(text: string): boolean {
   return PROJECTION_RE.test(text) || PROJECTION_WILL_RE.test(text);

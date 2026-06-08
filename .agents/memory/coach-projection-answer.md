@@ -13,8 +13,15 @@ gets no actual answer.
 card AND then stream a grounded AI reply.
 
 **How to apply (mobile, stadium-mobile/app/(tabs)/coach.tsx):**
-- `isProjectionQuestion()` (PROJECTION_RE + a "will <someone> <verb>" pattern)
-  gates the second phase; pure lookups stay card-only.
+- `isProjectionQuestion()` (PROJECTION_RE + a "(will|would|can|could) <someone>
+  <verb>" pattern, PROJECTION_WILL_RE) gates the second phase; pure lookups stay
+  card-only. NOTE: the aux-verb list must cover all four — an early version only
+  had "will", so "would Ben Rice get a hit today?" rendered the card with NO
+  grounded answer. Subject has a `(?!you\b)` lookahead so an assistant-addressed
+  lookup ("can you get me his stats") stays card-only while a player-subject ask
+  ("can he get a hit") fires. Verbs are an explicit list (score|get|have|hit|
+  reach|…); add new phrasings to BOTH the verb group and PROJECTION_RE as they
+  surface.
 - Ground the second stream with `serializeStatCardForAI(card)` — a REAL-DATA
   block built from ONLY the card payload (ESPN seasonSummary/recent/vsOpponent,
   or StatMuse period rows). Never inject invented numbers — this is what keeps
