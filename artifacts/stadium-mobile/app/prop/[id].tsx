@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { findPlayerInjury, injuryTone, teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
+import { factorsForProp, TIER_META, type PropFactor } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
 
@@ -244,6 +245,13 @@ export default function PropDetailScreen() {
       (x): x is { name: string; def: TeamDefense } => !!x && x.def.avgPointsAgainst != null,
     );
   }, [defenseQ.data]);
+
+  // Generic "things to research before betting" cards, tailored to the sport
+  // (and batter vs pitcher for MLB). Pure advisory text — no fabricated numbers.
+  const factors = useMemo(
+    () => factorsForProp({ sport, marketKey, marketLabel }),
+    [sport, marketKey, marketLabel],
+  );
 
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
   const toneColor =
@@ -565,6 +573,14 @@ export default function PropDetailScreen() {
           </Section>
         ) : null}
 
+        {/* Factors to weigh — generic, sport-aware advisory checklist */}
+        <Section title="FACTORS TO WEIGH">
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
+            General things to research before betting this prop — guidance, not predictions.
+          </Text>
+          <FactorGrid factors={factors} />
+        </Section>
+
         {/* Add to slip */}
         <Pressable
           onPress={onToggle}
@@ -723,6 +739,55 @@ function EmptyNote({ text }: { text: string }) {
       <Feather name="info" size={16} color={colors.mutedForeground} />
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19, flex: 1 }}>
         {text}
+      </Text>
+    </View>
+  );
+}
+
+function FactorGrid({ factors }: { factors: PropFactor[] }) {
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+      {factors.map((f, i) => (
+        <FactorCard key={i} factor={f} />
+      ))}
+    </View>
+  );
+}
+
+function FactorCard({ factor }: { factor: PropFactor }) {
+  const colors = useColors();
+  const tint =
+    factor.tier === "critical"
+      ? colors.destructive
+      : factor.tier === "important"
+        ? colors.warning
+        : colors.mutedForeground;
+  const meta = TIER_META[factor.tier];
+  return (
+    <View
+      style={{
+        // Two columns: half the row minus the 10px gap.
+        width: "47.5%",
+        flexGrow: 1,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderTopColor: tint,
+        borderTopWidth: 2,
+        borderRadius: colors.radius,
+        padding: 12,
+        gap: 7,
+      }}
+    >
+      <Text style={{ color: tint, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.8 }}>
+        {meta.prefix} {meta.label}
+      </Text>
+      <Text style={{ fontSize: 18 }}>{factor.emoji}</Text>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13, lineHeight: 17 }}>
+        {factor.title}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+        {factor.body}
       </Text>
     </View>
   );
