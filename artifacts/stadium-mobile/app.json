@@ -8,9 +8,7 @@
     "scheme": "stadium-mobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "runtimeVersion": {
-      "policy": "fingerprint"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c"
     },
