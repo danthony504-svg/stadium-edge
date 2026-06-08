@@ -246,11 +246,38 @@ export default function PropDetailScreen() {
     );
   }, [defenseQ.data]);
 
-  // Generic "things to research before betting" cards, tailored to the sport
-  // (and batter vs pitcher for MLB). Pure advisory text — no fabricated numbers.
+  // Resolve which side of the matchup is the player's own team vs the opponent,
+  // using ONLY real data: a player never appears as their own opponent, so the
+  // team that shows up in their recent game-log opponents is the opponent and
+  // the other side is their team. Fail closed (undefined) if it's not certain,
+  // so the cards fall back to neutral wording rather than guessing.
+  const { teamName, oppName } = useMemo(() => {
+    const rows = historyQ.data?.recent ?? [];
+    const opps = rows
+      .map((r) => (r.opponentName ?? "").toLowerCase())
+      .filter(Boolean);
+    if (!awayName || !homeName || opps.length === 0) {
+      return { teamName: undefined as string | undefined, oppName: undefined as string | undefined };
+    }
+    const nick = (n: string) => (n.toLowerCase().split(/\s+/).pop() ?? n.toLowerCase());
+    const seen = (n: string) => {
+      const k = nick(n);
+      return !!k && opps.some((o) => o.includes(k));
+    };
+    const awayIsOpp = seen(awayName);
+    const homeIsOpp = seen(homeName);
+    if (awayIsOpp && !homeIsOpp) return { teamName: homeName, oppName: awayName };
+    if (homeIsOpp && !awayIsOpp) return { teamName: awayName, oppName: homeName };
+    return { teamName: undefined as string | undefined, oppName: undefined as string | undefined };
+  }, [historyQ.data, awayName, homeName]);
+
+  // Market-aware "things to research before betting" cards, tailored to the
+  // sport (batter vs pitcher for MLB; per-market for basketball) and lightly
+  // personalized with the REAL player and team names. Pure advisory text — no
+  // fabricated numbers.
   const factors = useMemo(
-    () => factorsForProp({ sport, marketKey, marketLabel }),
-    [sport, marketKey, marketLabel],
+    () => factorsForProp({ sport, marketKey, marketLabel, playerName: player, teamName, oppName }),
+    [sport, marketKey, marketLabel, player, teamName, oppName],
   );
 
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
