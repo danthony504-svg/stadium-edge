@@ -44,6 +44,7 @@ import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { computeModelStrengths } from "@/lib/modelReport";
+import { stripTrailingReminder } from "@/lib/reminderStrip";
 import {
   buildChatContext,
   gameMatchesFocalText,
@@ -284,12 +285,14 @@ function requestedLegCount(text: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// assistantBubbleText also strips the model's trailing responsible-gambling
+// sign-off (see lib/reminderStrip) so it doesn't render as a dangling line.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
   const lines = content.split("\n");
   const idx = lines.findIndex((l) => PICK_SCAFFOLD_RE.test(l.trim()));
-  if (idx === -1) return content.trim();
-  return lines.slice(0, idx).join("\n").trim();
+  const kept = idx === -1 ? lines : lines.slice(0, idx);
+  return stripTrailingReminder(kept.join("\n"));
 }
 
 // Does the user want the coach's TAKE/projection, not just the raw stat card?
