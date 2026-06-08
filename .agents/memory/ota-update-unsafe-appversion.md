@@ -1,9 +1,29 @@
 ---
-name: OTA (eas update) is unsafe on stadium-mobile with appVersion runtime policy
-description: Why pushing an OTA JS bundle to the production app crashed it on launch, and how to recover / ship safely
+name: OTA (eas update) — history of the appVersion crash; now on fingerprint policy
+description: Why OTA crashed the app under the old appVersion policy, and the conditions under which OTA is now safe (fingerprint)
 ---
 
-# OTA update on stadium-mobile is unsafe right now
+# UPDATE: runtimeVersion policy is now "fingerprint"
+
+The `appVersion` policy below was the ROOT CAUSE of the OTA crash. It has since
+been switched to `"policy": "fingerprint"` in app.json and a fresh baseline
+build (iOS Build #33) was cut to embed the current JS + the fingerprint runtime.
+
+**OTA is now safe ONCE the fingerprint-baseline build is the installed binary.**
+Fingerprint derives runtimeVersion from the real native fingerprint, so EAS will
+NOT serve a JS bundle to a native binary it doesn't match (the crash below can't
+happen). Rules that still hold:
+- `eas update` does NOT inherit eas.json build-profile env — run the export with
+  the production `EXPO_PUBLIC_*` values or API_BASE falls back to "/api" and the
+  Clerk key is empty. Ship via `eas update --branch production`.
+- A change that touches NATIVE deps/config produces a NEW fingerprint; OTA won't
+  reach the old binary (correctly) — that delta needs a fresh native build.
+- Don't OTA onto a binary OLDER than the fingerprint baseline; install the
+  baseline build first.
+
+---
+
+# (Historical) OTA update on stadium-mobile was unsafe under appVersion policy
 
 `eas update --branch production` from current HEAD CRASHED the installed iOS app
 on launch ("Something went wrong / Please reload" — the app's React error
