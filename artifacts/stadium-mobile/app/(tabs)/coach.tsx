@@ -55,7 +55,6 @@ import {
   searchTeam,
   startsTodayUpcoming,
   streamChat,
-  wantsTodayOnly,
   type AltSign,
   type ChatMessage,
   type PropPoolEntry,
@@ -878,12 +877,7 @@ export default function CoachScreen() {
         const wantsMinusAlt =
           !oddsThreshold && altMentioned && minusCue && !plusCue;
         const altSign: AltSign = wantsPlusAlt ? "plus" : wantsMinusAlt ? "minus" : null;
-        // "Today / tonight" ask: buildChatContext already restricts the pools to
-        // today's upcoming games, but the server's fresh-fetch backfill can still
-        // surface a tomorrow/started prop the model picks. We re-check the
-        // resolved legs below so nothing off-today ever reaches the slip.
-        const todayOnly = wantsTodayOnly(trimmed);
-        const { context, propPool, gameMeta } = await buildChatContext(
+        const { context, propPool, gameMeta, todayOnly } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
           controller.signal,
@@ -892,6 +886,16 @@ export default function CoachScreen() {
           trimmed,
           altSign,
         );
+        // "Today / tonight" ask: buildChatContext already restricts the pools to
+        // today's upcoming games AND returns the EFFECTIVE decision it applied.
+        // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
+        // pick filter below stays consistent with the context build: when the
+        // late-evening fallback relaxed the restriction (tonight's slate already
+        // started, only tomorrow's games left), we must NOT re-impose it here and
+        // zero out the real tomorrow slate. When today-only IS in force, the
+        // server's fresh-fetch backfill can still surface a tomorrow/started prop
+        // the model picks, so we re-check the resolved legs so nothing off-today
+        // reaches the slip.
         if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
         const apiMessages: ChatMessage[] = history.map((m) => ({
           role: m.role,

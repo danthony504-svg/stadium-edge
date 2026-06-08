@@ -7,9 +7,18 @@ import {
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import {
+  isPickable,
+  startsTodayUpcoming,
+  wantsTodayOnly,
+  resolveTodayOnly,
+} from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
 export { gameMatchesFocalText };
+// Pure slate/pickability helpers (defined in ./slate); re-exported so the many
+// existing `from "./api"` imports keep working unchanged.
+export { isPickable, startsTodayUpcoming, wantsTodayOnly, resolveTodayOnly };
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
@@ -699,44 +708,9 @@ export function propMarketKeyForLabel(label: string): string | null {
 }
 
 // ---------- Pickability window ----------
-
-// In progress (started up to 4h ago) OR tips off within the next 48h.
-export function isPickable(startsAt?: string | null): boolean {
-  if (!startsAt) return false;
-  const t = Date.parse(startsAt);
-  if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  return t > now - 4 * 3600_000 && t < now + 48 * 3600_000;
-}
-
-// "Today / tonight only" intent. The user wants games on the CURRENT local
-// calendar day that haven't started yet — no tomorrow, no already-in-progress.
-// "tomorrow" anywhere disables it so "today or tomorrow" keeps the full window.
-export function wantsTodayOnly(text?: string | null): boolean {
-  const t = String(text || "").toLowerCase();
-  if (!t) return false;
-  if (/\btomorrow\b/.test(t)) return false;
-  return /\b(?:today|tonight)\b/.test(t);
-}
-
-// A game is "today & upcoming" when it tips off later on the device's current
-// calendar day (LOCAL time). Excludes already-started games and any game on a
-// different date — matching the Today / Tomorrow labels the cards show, so a
-// "today" ask never surfaces a tomorrow game or one that already kicked off.
-export function startsTodayUpcoming(startsAt?: string | null): boolean {
-  if (!startsAt) return false;
-  const t = Date.parse(startsAt);
-  if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  if (t <= now) return false; // already started (or tipping off right now)
-  const d = new Date(t);
-  const n = new Date(now);
-  return (
-    d.getFullYear() === n.getFullYear() &&
-    d.getMonth() === n.getMonth() &&
-    d.getDate() === n.getDate()
-  );
-}
+// These pure slate/pickability helpers live in ./slate (dependency-free so they
+// are unit-testable under node --test). Re-exported here so the many existing
+// `from "./api"` imports keep working unchanged.
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -1287,6 +1261,12 @@ export type BuiltChatContext = {
   // Real upset spots (mlLean on the betting dog), sorted by edge desc. Powers the
   // mobile Upset Watch card; the coach gets the same signal via matchupHistory.
   upsetSpots: UpsetSpot[];
+  // The EFFECTIVE today-only decision actually applied to these pools (after the
+  // resolveTodayOnly late-evening fallback). Callers MUST use this — not a fresh
+  // wantsTodayOnly(text) — when post-filtering parsed picks, or they'd re-impose
+  // the strict today-only filter the context build deliberately relaxed and zero
+  // out the (real, tomorrow) slate again.
+  todayOnly: boolean;
 };
 
 // ---------- Upset Watch / moneyline-lean engine (port of the web app) ----------
@@ -1599,10 +1579,22 @@ export async function buildChatContext(
   // NAMES a sport/game, allow that focal sport's upcoming games a wider horizon
   // into the matchup-history pool, BOUNDED per sport so a non-focal or broad ask
   // never pulls a week of slates and bloats the context.
-  // "Today / tonight" ask → restrict every pool (odds, games, props) to games
-  // that tip off later TODAY (local) and haven't started yet, so the model can
-  // only ever build from today's upcoming slate.
-  const todayOnly = wantsTodayOnly(focalText);
+  // A "today / tonight" ask restricts every pool to games that tip off later on
+  // the user's LOCAL calendar day. But late in the evening that set is often
+  // EMPTY — tonight's games have all already started, and the next posted slate
+  // in the feed is tomorrow. Applying the restriction then would empty realOdds,
+  // realGames AND realProps, so the coach falsely reports "the live board isn't
+  // loaded — no games tonight" on a full slate. resolveTodayOnly drops the
+  // restriction in exactly that case (asked, but nothing qualifies as
+  // today-and-upcoming) so we fall back to the normal next-48h pickable window.
+  // Every game carries its real startsAt, so the coach can still see (and say)
+  // they're tomorrow's slate — nothing is fabricated; we just stop hiding the
+  // only real games we have.
+  const candidateStartTimes: (string | null | undefined)[] = [
+    ...oddsAll.flat().map((g) => g.commenceTime),
+    ...gamesAll.flat().filter((g) => g.state !== "post").map((g) => g.startsAt),
+  ];
+  const todayOnly = resolveTodayOnly(wantsTodayOnly(focalText), candidateStartTimes);
   const focalSportsHist = focalSportsFromText(focalText);
   const withinFocalHorizon = (startsAt?: string | null) => {
     if (!startsAt) return false;
@@ -2092,6 +2084,7 @@ export async function buildChatContext(
     propPool,
     gameMeta,
     upsetSpots,
+    todayOnly,
   };
 }
 
