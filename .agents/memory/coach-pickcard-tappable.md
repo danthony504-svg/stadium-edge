@@ -16,7 +16,15 @@ non-tappable when there's no groundable sheet.
 - Game legs: `gameSideFromPick(p)` (exported from PickCard, parses the pick's own "Away @ Home" `game`
   string + selection text, NO feed lookup) returns null for props, totals (Over/Under name no single
   team), malformed labels, and ambiguous both-team matches; handler also undefined when `!p.sport`.
-- **Never** open a team sheet for a game total and never side-guess.
+- Game totals now ARE tappable (added later): `gameTotalFromPick` (exported from
+  PickCard, parses the pick's own "Away @ Home" + Over/Under into `{away,home,
+  side,line}`, null for props/non-totals/malformed) routes to `/team-pick/[id]`
+  with `kind:"total"`. The team-pick screen is a thin switch: `kind==="total"` →
+  `TotalMatchupView` (renders BOTH teams via two self-contained `TeamTotalBlock`
+  showing each team's REAL last-10 combined per-game totals pts+oppPts, avg, and
+  "Over N: X/N" — never one inferred side, fail-closed empty note when no real
+  games) else the original `TeamPickView`. Still: never side-guess a single team
+  for a total — show the matchup.
 
 **Prop-id threading gotcha:** chat prop ParsedPicks are built by `propPick`/`matchProp` from
 `PropPoolEntry`, which originally dropped `athleteId` and the raw market key — so `/prop/[id]` (needs

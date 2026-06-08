@@ -54,7 +54,17 @@ function MatchupLine({ game }: { game: string }) {
   );
 }
 
+// The screen routes to one of two views: the default single-team pick sheet
+// (moneyline/spread) or — for a game total, which names no single team — a
+// matchup sheet showing BOTH teams' real combined-scoring. `kind` is fixed per
+// navigation, so each mounted view runs a stable set of hooks.
 export default function TeamPickDetailScreen() {
+  const params = useLocalSearchParams<{ kind?: string }>();
+  if (String(params.kind ?? "") === "total") return <TotalMatchupView />;
+  return <TeamPickView />;
+}
+
+function TeamPickView() {
   const colors = useColors();
   // Impact tier → colour / label for the injury rows (high red, med orange,
   // low amber, none green). Closes over theme colours.
@@ -681,6 +691,520 @@ export default function TeamPickDetailScreen() {
 
       <SlipBar />
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Game-total matchup view: a total names no single team, so we show BOTH sides'
+// REAL recent scoring (each team's combined per-game totals) plus the shared
+// injury report. Nothing is predicted — every number comes from final scores.
+// ---------------------------------------------------------------------------
+function TotalMatchupView() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
+  const router = useRouter();
+  const { addLeg, removeLeg, hasLeg } = useBetSlip();
+
+  const impactColor = (tier: InjuryImpactTier): string =>
+    tier === "high"
+      ? colors.destructive
+      : tier === "med"
+        ? "#f97316"
+        : tier === "low"
+          ? colors.warning
+          : colors.success;
+  const impactLabel = (tier: InjuryImpactTier): string =>
+    tier === "high"
+      ? "High impact"
+      : tier === "med"
+        ? "Med impact"
+        : tier === "low"
+          ? "Low impact"
+          : "Minimal";
+
+  const p = useLocalSearchParams<{
+    away?: string;
+    home?: string;
+    totalSide?: string;
+    sport?: string;
+    market?: string;
+    line?: string;
+    odds?: string;
+    game?: string;
+    startsAt?: string;
+    pick?: string;
+  }>();
+
+  const away = String(p.away ?? "");
+  const home = String(p.home ?? "");
+  const sport = String(p.sport ?? "");
+  const market = String(p.market ?? "Total");
+  const game = String(p.game ?? "");
+  const startsAt = p.startsAt ? String(p.startsAt) : "";
+  const odds = Number(p.odds);
+  const line = p.line != null && p.line !== "" ? Number(p.line) : null;
+  const pickStr = String(p.pick ?? "");
+  const sportLabel = SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase();
+
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+  };
+
+  // Injury report for BOTH sides (same real ESPN feed the team view uses).
+  const injuriesQ = useQuery({
+    queryKey: ["injuries", sport],
+    enabled: !!sport,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getInjuries(sport, signal),
+  });
+  const matchupInjuries = useMemo(
+    () => injuriesForMatchup(injuriesQ.data, [home, away]),
+    [injuriesQ.data, home, away],
+  );
+  const injurySummaries = useMemo(
+    () => matchupInjuries.map((t) => summarizeTeamInjuries(sport, t)),
+    [matchupInjuries, sport],
+  );
+  const injEdge = useMemo(() => injuryEdge(injurySummaries), [injurySummaries]);
+  const [injuryOpen, setInjuryOpen] = useState<Record<string, boolean>>({});
+
+  const added = hasLeg(game, market, pickStr);
+  const onToggle = () => {
+    if (added) {
+      removeLeg(`${game}|${market}|${pickStr}`.toLowerCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
+    const leg: ParsedPick = {
+      game,
+      market,
+      pick: pickStr,
+      odds,
+      sport,
+      isProp: false,
+      startsAt: startsAt || null,
+    };
+    const ok = addLeg(leg);
+    Haptics.impactAsync(
+      ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <View
+        style={{
+          paddingTop: insets.top + 6,
+          paddingBottom: 10,
+          paddingHorizontal: 12,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        }}
+      >
+        <Pressable onPress={goBack} hitSlop={10} style={{ padding: 6 }}>
+          <Feather name="chevron-left" size={24} color={colors.foreground} />
+        </Pressable>
+        <Text
+          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16, flex: 1 }}
+          numberOfLines={1}
+        >
+          {pickStr || "Total"}
+        </Text>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{
+          padding: 16,
+          paddingBottom: insets.bottom + 40 + slipClearance,
+          gap: 14,
+        }}
+      >
+        {/* Title block */}
+        <View
+          style={{
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: colors.radius,
+            padding: 16,
+            gap: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 10,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+              }}
+            >
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
+                GAME TOTAL
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Feather name="check-circle" size={12} color={colors.success} />
+              <Text style={{ color: colors.success, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
+                REAL STATS
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22, lineHeight: 26 }}>
+                {pickStr}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
+                {market} · combined score
+              </Text>
+            </View>
+            <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 24 }}>
+              {formatAmerican(odds)}
+            </Text>
+          </View>
+
+          <MatchupLine game={game} />
+          {formatGameTime(startsAt) ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+              <Feather name="clock" size={12} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+                {formatGameTime(startsAt)} · {sportLabel}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Each side's REAL combined-scoring form vs the line */}
+        <TeamTotalBlock roleLabel="AWAY" name={away} sport={sport} line={line} />
+        <TeamTotalBlock roleLabel="HOME" name={home} sport={sport} line={line} />
+
+        {line != null ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+            "Over {line}" counts each team's own recent games whose combined final
+            score cleared {line} — vs varied opponents, not a prediction of this
+            matchup.
+          </Text>
+        ) : null}
+
+        {/* Injury report — REAL ESPN designations for both sides */}
+        <Section title="INJURY REPORT">
+          {injuriesQ.isLoading ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+              Checking the ESPN injury report…
+            </Text>
+          ) : matchupInjuries.length === 0 ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+              {injuriesQ.isError
+                ? "Couldn't reach the ESPN injury report."
+                : "No injuries reported for either side."}
+            </Text>
+          ) : (
+            <View style={{ gap: 14 }}>
+              <View
+                style={{
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
+                  padding: 12,
+                  gap: 6,
+                }}
+              >
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
+                  INJURY EDGE
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: 5,
+                      backgroundColor:
+                        injEdge.kind === "advantage" ? colors.success : colors.mutedForeground,
+                    }}
+                  />
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+                    {injEdge.kind === "advantage"
+                      ? `Advantage: ${injEdge.team}`
+                      : "Even — minimal injury edge"}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+                  {(() => {
+                    if (injEdge.kind !== "advantage")
+                      return "Both sides have comparable injury impact.";
+                    const oppHigh =
+                      injurySummaries.find((s) => s.team === injEdge.opp)?.highCount ?? 0;
+                    const ownHigh =
+                      injurySummaries.find((s) => s.team === injEdge.team)?.highCount ?? 0;
+                    return oppHigh > ownHigh
+                      ? `${injEdge.opp} is more banged up (${oppHigh} high-impact vs ${ownHigh}).`
+                      : `${injEdge.opp} carries more total injury impact across the roster.`;
+                  })()}
+                </Text>
+              </View>
+
+              {matchupInjuries.map((t) => {
+                const summary = injurySummaries.find((s) => s.team === t.team);
+                const sorted = [...t.entries].sort(
+                  (a, b) => injuryImpact(sport, b).score - injuryImpact(sport, a).score,
+                );
+                const open = !!injuryOpen[t.team];
+                const shown = open ? sorted : sorted.slice(0, 6);
+                return (
+                  <View key={t.team} style={{ gap: 6 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}>
+                      {t.team} · {t.entries.length}
+                    </Text>
+                    {summary && summary.groups.length > 0 ? (
+                      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                        {summary.groups.map((g) => `${g.group} ${g.count}`).join("  ·  ")}
+                      </Text>
+                    ) : null}
+                    {shown.map((e, i) => {
+                      const { tier } = injuryImpact(sport, e);
+                      const c = impactColor(tier);
+                      const friendly = friendlyInjury(e.status);
+                      return (
+                        <View
+                          key={`${e.player}-${i}`}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                        >
+                          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c }} />
+                          <Text
+                            style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12, flex: 1 }}
+                            numberOfLines={1}
+                          >
+                            {e.player}
+                            {e.position ? ` (${e.position})` : ""}
+                          </Text>
+                          <View style={{ alignItems: "flex-end" }}>
+                            <Text style={{ color: c, fontFamily: FONT.bold, fontSize: 11 }}>
+                              {friendly.label}
+                            </Text>
+                            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9 }}>
+                              {impactLabel(tier)}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                    {t.entries.length > 6 ? (
+                      <Pressable
+                        onPress={() =>
+                          setInjuryOpen((prev) => ({ ...prev, [t.team]: !prev[t.team] }))
+                        }
+                        hitSlop={6}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingTop: 2 }}
+                      >
+                        <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>
+                          {open ? "Show less" : `View all ${t.entries.length} injuries`}
+                        </Text>
+                        <Feather
+                          name={open ? "chevron-up" : "arrow-right"}
+                          size={12}
+                          color={colors.primary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9, lineHeight: 13 }}>
+                Impact = ESPN injury severity + position — a quick betting guide, not a player rating.
+              </Text>
+            </View>
+          )}
+        </Section>
+
+        {/* Add to slip */}
+        <Pressable
+          onPress={onToggle}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 7,
+            paddingVertical: 14,
+            borderRadius: 12,
+            backgroundColor: added ? colors.card : colors.primary,
+            borderWidth: added ? 1 : 0,
+            borderColor: colors.border,
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          <Feather
+            name={added ? "x" : "plus"}
+            size={17}
+            color={added ? colors.mutedForeground : colors.primaryForeground}
+          />
+          <Text
+            style={{
+              color: added ? colors.mutedForeground : colors.primaryForeground,
+              fontFamily: FONT.bold,
+              fontSize: 14,
+            }}
+          >
+            {added ? "Added — tap to remove" : "Add to slip"}
+          </Text>
+        </Pressable>
+      </ScrollView>
+
+      <SlipBar />
+    </View>
+  );
+}
+
+// One team's REAL recent combined-scoring form (its own games' final totals) vs
+// the line. Self-contained (own resolve + history queries) so the matchup view
+// can render two of these. Fail-closed: no real games → an honest empty note.
+function TeamTotalBlock({
+  roleLabel,
+  name,
+  sport,
+  line,
+}: {
+  roleLabel: string;
+  name: string;
+  sport: string;
+  line: number | null;
+}) {
+  const colors = useColors();
+
+  const resolveQ = useQuery({
+    queryKey: ["team-resolve", sport, name],
+    enabled: !!sport && !!name,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const r = await searchTeam(name, signal);
+      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
+      return sportHits.find((t) => teamNameMatches(t.name, name)) ?? sportHits[0] ?? null;
+    },
+  });
+  const resolved = resolveQ.data ?? null;
+
+  const historyQ = useQuery({
+    queryKey: ["team-history", sport, resolved?.teamId],
+    enabled: !!sport && !!resolved?.teamId,
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
+  });
+  const history = historyQ.data ?? null;
+
+  const games = useMemo(() => {
+    return (history?.recent ?? [])
+      .filter((g) => g.pts != null && g.oppPts != null)
+      .slice(0, 10)
+      .map((g) => ({
+        total: (g.pts as number) + (g.oppPts as number),
+        date: g.date,
+        opp: g.opp,
+        home: g.home,
+      }));
+  }, [history]);
+
+  const n = games.length;
+  const overs = useMemo(
+    () => (line != null ? games.filter((g) => g.total > line).length : 0),
+    [games, line],
+  );
+  const avgTotal = n > 0 ? games.reduce((a, g) => a + g.total, 0) / n : null;
+  const scale = useMemo(
+    () => Math.max(1, ...games.map((g) => g.total), line ?? 0),
+    [games, line],
+  );
+
+  const loading = resolveQ.isLoading || historyQ.isLoading;
+  const errored = resolveQ.isError || historyQ.isError;
+  const noData = !loading && !errored && (!resolved || n === 0);
+
+  return (
+    <Section title={`${roleLabel} · ${resolved?.name ?? name}`}>
+      {loading ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Loading real recent results…
+        </Text>
+      ) : errored ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+          Couldn't reach recent results for {name}.
+        </Text>
+      ) : noData ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+          No real recent results for {name} right now — nothing estimated.
+        </Text>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <BreakdownRow
+            icon="arrow-up-circle"
+            label="Points per game"
+            sub="Scored · allowed (last 10)"
+            value={`${history?.last10.ptsFor?.toFixed(1) ?? "—"} · ${history?.last10.ptsAgainst?.toFixed(1) ?? "—"}`}
+          />
+          <BreakdownRow
+            icon="activity"
+            label="Avg combined total"
+            sub="Both teams' points per game"
+            value={avgTotal != null ? avgTotal.toFixed(1) : "—"}
+            last={line == null}
+          />
+          {line != null ? (
+            <BreakdownRow
+              icon="bar-chart-2"
+              label={`Over ${line}`}
+              sub="Recent games clearing the line"
+              value={`${overs}/${n}`}
+              last
+            />
+          ) : null}
+
+          <View style={{ gap: 8 }}>
+            {games.map((g, i) => {
+              const over = line != null && g.total > line;
+              const w = `${Math.max(6, Math.round((g.total / scale) * 100))}%`;
+              return (
+                <View key={i} style={{ gap: 3 }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                      {(g.home ? "vs " : "@ ") + (g.opp ?? "—")}
+                      {g.date ? ` · ${g.date}` : ""}
+                    </Text>
+                    <Text
+                      style={{
+                        color: over ? colors.success : colors.mutedForeground,
+                        fontFamily: FONT.bold,
+                        fontSize: 12,
+                      }}
+                    >
+                      {g.total}
+                    </Text>
+                  </View>
+                  <View style={{ height: 7, borderRadius: 4, backgroundColor: colors.card, overflow: "hidden" }}>
+                    <View
+                      style={{
+                        width: w as `${number}%`,
+                        height: "100%",
+                        borderRadius: 4,
+                        backgroundColor: over ? colors.success : colors.border,
+                      }}
+                    />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+    </Section>
   );
 }
 

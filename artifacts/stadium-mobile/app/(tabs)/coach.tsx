@@ -26,6 +26,7 @@ import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/Peri
 import {
   PickCard,
   gameSideFromPick,
+  gameTotalFromPick,
   parsePicks,
   parseEdgeStats,
   backfillPicks,
@@ -569,24 +570,49 @@ export default function CoachScreen() {
           });
       }
       const side = gameSideFromPick(p);
-      if (!side || !p.sport) return undefined;
-      return () =>
-        router.push({
-          pathname: "/team-pick/[id]",
-          params: {
-            id: side.name,
-            team: side.name,
-            opp: side.opp,
-            isHome: side.isHome ? "1" : "0",
-            sport: p.sport ?? "",
-            market: p.market,
-            line: side.line != null ? String(side.line) : "",
-            odds: String(p.odds),
-            game: p.game,
-            startsAt: p.startsAt ?? "",
-            pick: p.pick,
-          },
-        });
+      if (side && p.sport) {
+        return () =>
+          router.push({
+            pathname: "/team-pick/[id]",
+            params: {
+              id: side.name,
+              team: side.name,
+              opp: side.opp,
+              isHome: side.isHome ? "1" : "0",
+              sport: p.sport ?? "",
+              market: p.market,
+              line: side.line != null ? String(side.line) : "",
+              odds: String(p.odds),
+              game: p.game,
+              startsAt: p.startsAt ?? "",
+              pick: p.pick,
+            },
+          });
+      }
+      // Game total ("Over/Under 214.5") names no single team — open the matchup
+      // stats sheet showing BOTH sides' real scoring instead of side-guessing.
+      const total = gameTotalFromPick(p);
+      if (total && p.sport) {
+        return () =>
+          router.push({
+            pathname: "/team-pick/[id]",
+            params: {
+              id: `${total.away}__${total.home}`,
+              kind: "total",
+              away: total.away,
+              home: total.home,
+              totalSide: total.side,
+              sport: p.sport ?? "",
+              market: p.market,
+              line: total.line != null ? String(total.line) : "",
+              odds: String(p.odds),
+              game: p.game,
+              startsAt: p.startsAt ?? "",
+              pick: p.pick,
+            },
+          });
+      }
+      return undefined;
     },
     [router],
   );
