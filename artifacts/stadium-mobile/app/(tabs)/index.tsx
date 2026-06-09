@@ -262,8 +262,8 @@ export default function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
+        stickyHeaderIndices={[0]}
         contentContainerStyle={{
-          paddingTop: insets.top,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
@@ -279,6 +279,10 @@ export default function HomeScreen() {
           />
         }
       >
+        {/* Pinned header — logo, search, and sport pills stay affixed to the top
+            of the page (including while featured props load) instead of scrolling
+            away; the content below scrolls underneath them. */}
+        <View style={{ paddingTop: insets.top, backgroundColor: colors.background }}>
         {/* Logo */}
         <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
           <Image
@@ -316,6 +320,18 @@ export default function HomeScreen() {
             Search games, teams, or player props…
           </Text>
         </Pressable>
+
+        {/* Sport selector — pinned with the logo and search above the rails. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 16 }}
+        >
+          {SPORTS.map((s) => (
+            <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
+          ))}
+        </ScrollView>
+        </View>
 
         {/* Tagline */}
         <Text
@@ -386,17 +402,6 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </View>
-
-        {/* Sport selector */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 20 }}
-        >
-          {SPORTS.map((s) => (
-            <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-          ))}
-        </ScrollView>
 
         {/* Featured players */}
         {featuredEnabled && (featuredQ.isLoading || featured.length > 0) ? (

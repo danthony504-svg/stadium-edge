@@ -13,7 +13,7 @@ import {
   getBiometricCapability,
   getSavedLoginEmail,
 } from "@/lib/biometricLogin";
-import { buildReferralLink, referralCodeFromUserId } from "@/lib/referral";
+import { buildReferralLink } from "@/lib/referral";
 
 export default function AccountScreen() {
   const colors = useColors();
@@ -67,27 +67,25 @@ export default function AccountScreen() {
     "Signed in";
   const initial = email.charAt(0).toUpperCase();
 
-  // Refer-a-friend: a stable code + shareable link unique to this account. The
-  // link only renders when we can build a real, openable URL (id + domain).
-  const referralCode = referralCodeFromUserId(user?.id);
+  // Refer-a-friend: a shareable link unique to this account, derived from the
+  // real account id. We only render the card when we can build a real, openable
+  // URL (id + domain) — never a code-only or placeholder fallback.
   const referralLink = buildReferralLink(user?.id, process.env.EXPO_PUBLIC_DOMAIN);
-  const referralValue = referralLink ?? referralCode;
   const [copied, setCopied] = React.useState(false);
 
   const onCopyReferral = async () => {
-    if (!referralValue) return;
-    await Clipboard.setStringAsync(referralValue);
+    if (!referralLink) return;
+    await Clipboard.setStringAsync(referralLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
 
   const onShareReferral = async () => {
-    if (!referralValue) return;
-    const message = referralLink
-      ? `Join me on Stadium Edge for real betting edges — sign up with my link: ${referralLink}`
-      : `Join me on Stadium Edge for real betting edges — use my referral code ${referralCode} when you sign up.`;
+    if (!referralLink) return;
     try {
-      await Share.share({ message });
+      await Share.share({
+        message: `Join me on Stadium Edge for real betting edges — sign up with my link: ${referralLink}`,
+      });
     } catch {
       // User dismissed the share sheet — nothing to do.
     }
@@ -171,7 +169,7 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        {referralValue ? (
+        {referralLink ? (
           <View
             style={{
               backgroundColor: colors.card,
@@ -207,7 +205,7 @@ export default function AccountScreen() {
                 style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}
                 numberOfLines={1}
               >
-                {referralValue}
+                {referralLink}
               </Text>
             </View>
             <View style={{ flexDirection: "row", gap: 10 }}>
