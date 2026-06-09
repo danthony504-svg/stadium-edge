@@ -1041,8 +1041,8 @@ export default function PropsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        stickyHeaderIndices={[0]}
         contentContainerStyle={{
-          paddingTop: insets.top + 8,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
@@ -1053,6 +1053,10 @@ export default function PropsScreen() {
           />
         }
       >
+        {/* Pinned header — logo, search and sport pills stay affixed to the top
+            of the page (including while props are loading), so the content below
+            scrolls underneath them instead of pushing them around. */}
+        <View style={{ paddingTop: insets.top + 8, backgroundColor: colors.background }}>
         {/* Logo — matches the Home logo's size and position */}
         <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
           <Image
@@ -1110,6 +1114,7 @@ export default function PropsScreen() {
             ))}
           </ScrollView>
         )}
+        </View>
 
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
