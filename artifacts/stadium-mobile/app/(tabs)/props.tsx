@@ -52,6 +52,14 @@ const GRADE_MIN_SAMPLE = 5; // need at least this many real games to grade at al
 const GRADE_POOL = 12; // candidate players we pull game logs for per sport
 const REC_CAP = 6; // cards shown in the rail
 
+// VALUE (+EV) rail. A prop is "mispriced" when the best posted price beats the
+// de-vigged CROSS-BOOK consensus fair value — the server computes this (ev/edge/
+// fairProb on main lines quoted by enough books) and we NEVER recompute or guess
+// it client-side. Surface only props clearing a small positive-EV bar so the rail
+// is genuinely "value", not noise; empty (hidden) when nothing qualifies.
+const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
+const VALUE_CAP = 8; // cards shown in the value rail
+
 type Grade = "A+" | "A" | "A-";
 // Map a real hit-rate (cleared / sample) to a letter. Below A- we don't grade.
 function gradeFromHitPct(pct: number): Grade | null {
@@ -866,6 +874,63 @@ export default function PropsScreen() {
       .map((c) => ({ pick: c.pick, badge: null }));
   }, [gradeCandidates, gradesQ.data, upsetsQ.data]);
 
+  // VALUE (+EV) rail — props whose BEST posted price beats the de-vigged
+  // cross-book consensus fair value (a real market inefficiency). ev/evSide/
+  // fairProb/edge are computed SERVER-SIDE on main lines quoted by enough books;
+  // we only read them — never recompute or guess. We show the side that carries
+  // the edge (evSide) at its offered price, ranked by EV descending, capped, with
+  // a plain-English caption ("+3.2% edge • fair ~48%"). Hidden when none qualify.
+  type ValueItem = { pick: ParsedPick; ev: number; caption: string };
+  const valueProps = useMemo<ValueItem[]>(() => {
+    const data = propsQ.data ?? [];
+    const out: ValueItem[] = [];
+    const seen = new Set<string>();
+    for (const g of data) {
+      for (const p of g.props) {
+        if (p.alt) continue; // main lines only carry the EV signal
+        const ev = p.ev;
+        if (ev == null || ev < MIN_VALUE_EV || !p.evSide) continue;
+        const side = p.evSide;
+        // No-line (Yes/No) markets quote only the "Over"/Yes side and the
+        // canonical pick-string drops the side token, so an "Under"/No edge here
+        // can't be represented unambiguously — skip it rather than mislabel it.
+        if (p.line == null && side !== "Over") continue;
+        const price = side === "Over" ? p.overPrice : p.underPrice;
+        if (price == null) continue;
+        const key = `${p.player}|${p.market}|${p.line}|${side}`.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const label = propMarketLabel(p.market);
+        const pick =
+          p.line != null ? `${p.player} ${side} ${p.line} ${label}` : `${p.player} ${label}`;
+        const fairPct = p.fairProb != null ? Math.round(p.fairProb * 100) : null;
+        const edgeTxt = p.edge != null ? `+${p.edge.toFixed(1)}% edge` : `+${ev.toFixed(1)}% value`;
+        const caption = fairPct != null ? `${edgeTxt} • fair ~${fairPct}%` : edgeTxt;
+        out.push({
+          ev,
+          caption,
+          pick: {
+            game: g.gameLabel,
+            market: label,
+            pick,
+            odds: price,
+            sport,
+            isProp: true,
+            startsAt: g.startsAt,
+            headshot: p.headshot ?? null,
+            teamAbbr: teamAbbrFor(p, g.teams),
+            athleteId: p.athleteId ?? null,
+            player: p.player,
+            propMarketKey: p.market,
+            propLine: p.line ?? null,
+            propSide: side,
+          },
+        });
+      }
+    }
+    return out.sort((a, b) => b.ev - a.ev).slice(0, VALUE_CAP);
+  }, [propsQ.data, sport]);
+
   // Open the right detail page for a recommended card: prop breakdown for player
   // props, the team breakdown page for an upset (team moneyline) pick. The upset
   // side is resolved upstream (RecItem.upset), so we navigate with real params.
@@ -1059,6 +1124,53 @@ export default function PropsScreen() {
                     pick={item.pick}
                     hideReadout
                     onPress={() => openRecommended(item)}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {/* VALUE (+EV) — props whose best posted price beats the de-vigged
+            cross-book consensus fair value. Server-computed, real-or-omitted;
+            hidden while searching and when nothing qualifies. */}
+        {!query.trim() && valueProps.length > 0 ? (
+          <View style={{ marginBottom: 18 }}>
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.display,
+                fontSize: 13,
+                letterSpacing: 0.5,
+                marginBottom: 2,
+                paddingHorizontal: 16,
+              }}
+            >
+              ⚡ VALUE (+EV)
+            </Text>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 11,
+                marginBottom: 8,
+                paddingHorizontal: 16,
+              }}
+            >
+              Best price beats the cross-book fair value
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
+            >
+              {valueProps.map((item, i) => (
+                <View key={`val-${item.pick.game}|${item.pick.pick}|${i}`} style={{ width: 290 }}>
+                  <PickCard
+                    pick={item.pick}
+                    hideReadout
+                    badge={{ text: `+${item.ev.toFixed(1)}% EV`, caption: item.caption, tone: "value" }}
+                    onPress={() => openPropDetail(item.pick)}
                   />
                 </View>
               ))}

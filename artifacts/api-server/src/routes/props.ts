@@ -320,9 +320,34 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // less-negative when both negative; sign change always favors the
     // positive (plus money).
     const americanToProb = (a: number) => (a > 0 ? 100 / (a + 100) : -a / (-a + 100));
+    const americanToDecimal = (a: number) => (a > 0 ? a / 100 + 1 : 100 / -a + 1);
     const betterAmerican = (a: number, b: number) => (americanToProb(a) < americanToProb(b) ? a : b);
-    type PropRow = { player: string; market: string; line: number | null; overPrice: number | null; underPrice: number | null; alt: boolean };
+    type PropRow = {
+      player: string;
+      market: string;
+      line: number | null;
+      overPrice: number | null;
+      underPrice: number | null;
+      alt: boolean;
+      // Cross-book +EV / "mispriced" signal (MAIN lines only, computed below).
+      // ev = expected value % of the best posted price vs the no-vig consensus
+      // fair value across books; evSide = the side that carries that edge;
+      // fairProb = consensus fair win prob (0-1) of that side; edge = fairProb -
+      // best-price implied prob, in percentage points; books = # of two-sided
+      // books used for the consensus. All null when coverage is too thin (honest).
+      ev?: number | null;
+      evSide?: "Over" | "Under" | null;
+      fairProb?: number | null;
+      edge?: number | null;
+      books?: number;
+    };
     const byKey = new Map<string, PropRow>();
+    // Per-book two-sided prices for MAIN lines, used to compute the no-vig
+    // consensus fair value. Keyed the same as byKey (player|market|line), then by
+    // book title → { over, under }. Only a book that posts BOTH sides can be
+    // de-vigged, so we keep them per book and require a minimum count below.
+    type SideBook = { over?: number; under?: number };
+    const bookByKey = new Map<string, Map<string, SideBook>>();
     // Ingest a source's outcomes. Alternate-ladder sources strip the
     // "_alternate" suffix so each rung folds into the SAME (player, stat) bucket
     // as the main line; a rung that also exists as a real MAIN line is treated
@@ -340,12 +365,26 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             if (!isAlt) row.alt = false;
             const price = Math.round(o.price);
             const side = o.name.toLowerCase();
-            if (side === "over" || side === "yes") {
+            const isOver = side === "over" || side === "yes";
+            const isUnder = side === "under" || side === "no";
+            if (isOver) {
               row.overPrice = row.overPrice == null ? price : betterAmerican(row.overPrice, price);
-            } else if (side === "under" || side === "no") {
+            } else if (isUnder) {
               row.underPrice = row.underPrice == null ? price : betterAmerican(row.underPrice, price);
             }
             byKey.set(k, row);
+            // Record this book's posted price per side (MAIN lines only) so we can
+            // de-vig each book individually and form a consensus fair value. Alt
+            // rungs are excluded — they have sparse, lopsided coverage that would
+            // produce an unreliable "fair" line.
+            if (!isAlt && (isOver || isUnder)) {
+              const title = book.title ?? "?";
+              let bm = bookByKey.get(k);
+              if (!bm) { bm = new Map(); bookByKey.set(k, bm); }
+              const sb = bm.get(title) ?? {};
+              if (isOver) sb.over = price; else sb.under = price;
+              bm.set(title, sb);
+            }
           }
         }
       }
@@ -392,6 +431,55 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       for (const r of list.slice(0, ALT_CAP_PER_PM)) trimmedAlts.push(r);
     }
     const aggregatedRows = [...mains, ...trimmedAlts];
+
+    // ---- Cross-book +EV ("mispriced prop") detection (MAIN lines only) -------
+    // For each main line we de-vig EVERY book that posted BOTH sides
+    // (fairOver = oImpl / (oImpl + uImpl)), take the MEDIAN across books as the
+    // consensus fair win probability, then compare the BEST posted price on each
+    // side to that fair value. EV% = fair * decimalOdds(best) - 1 (>0 means the
+    // best price pays more than the consensus says it should = a value/+EV spot).
+    // We require >= MIN_DEVIG_BOOKS two-sided books so a single off-market book
+    // can't manufacture a phantom edge; thinner coverage stays unflagged (null),
+    // never guessed. The outlier book is intentionally LEFT IN the consensus,
+    // which only ever SHRINKS the measured edge — a deliberately conservative,
+    // honesty-first choice (we'd rather understate value than invent it).
+    const MIN_DEVIG_BOOKS = 3;
+    const median = (arr: number[]) => {
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    };
+    for (const r of mains) {
+      const k = `${r.player}|${r.market}|${r.line ?? "_"}`;
+      const bm = bookByKey.get(k);
+      if (!bm) continue;
+      const fairOvers: number[] = [];
+      const fairUnders: number[] = [];
+      for (const sb of bm.values()) {
+        if (sb.over == null || sb.under == null) continue;
+        const oi = americanToProb(sb.over);
+        const ui = americanToProb(sb.under);
+        const tot = oi + ui;
+        if (tot <= 0) continue;
+        fairOvers.push(oi / tot);
+        fairUnders.push(ui / tot);
+      }
+      if (fairOvers.length < MIN_DEVIG_BOOKS) continue;
+      const fairOver = median(fairOvers);
+      const fairUnder = median(fairUnders);
+      const evOver = r.overPrice != null ? fairOver * americanToDecimal(r.overPrice) - 1 : -Infinity;
+      const evUnder = r.underPrice != null ? fairUnder * americanToDecimal(r.underPrice) - 1 : -Infinity;
+      if (evOver === -Infinity && evUnder === -Infinity) continue;
+      const pickOver = evOver >= evUnder;
+      const ev = pickOver ? evOver : evUnder;
+      const fair = pickOver ? fairOver : fairUnder;
+      const best = (pickOver ? r.overPrice : r.underPrice) as number;
+      r.ev = Math.round(ev * 1000) / 10; // EV as a percentage, 1 decimal
+      r.evSide = pickOver ? "Over" : "Under";
+      r.fairProb = Math.round(fair * 1000) / 1000;
+      r.edge = Math.round((fair - americanToProb(best)) * 1000) / 10; // pct points
+      r.books = fairOvers.length;
+    }
 
     // Enrich with player headshot + ESPN athleteId + their team id from
     // each team's roster. athleteId/playerTeamId let the client fetch each

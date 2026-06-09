@@ -322,6 +322,17 @@ export type PlayerProp = {
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  // Cross-book +EV ("mispriced") signal (MAIN lines only; absent/null otherwise).
+  // ev = EV% of the best posted price vs the no-vig cross-book consensus fair
+  // value; evSide = the side that carries the edge; fairProb = consensus fair win
+  // prob (0-1); edge = fairProb - best-price implied prob (percentage points);
+  // books = # of two-sided books in the consensus. Computed server-side in
+  // props.ts — REAL or omitted, never fabricated client-side.
+  ev?: number | null;
+  evSide?: "Over" | "Under" | null;
+  fairProb?: number | null;
+  edge?: number | null;
+  books?: number;
 };
 
 export type PropsResponse = {
@@ -944,6 +955,15 @@ export type RealPropEntry = {
   over: number | null;
   under: number | null;
   alt: boolean;
+  // Cross-book +EV ("mispriced") signal (MAIN lines only; null otherwise). Lets
+  // the chat AI surface real value props when asked. ev = EV% of the best price
+  // vs no-vig consensus fair value; evSide = which side; fairProb = consensus fair
+  // win prob (0-1); edge = fairProb - implied prob (pct points). Computed
+  // server-side — REAL or null, never fabricated.
+  ev?: number | null;
+  evSide?: "Over" | "Under" | null;
+  fairProb?: number | null;
+  edge?: number | null;
 };
 
 // Resolution-shape prop entry (one row per posted side) that the slip parser
@@ -1799,6 +1819,12 @@ export async function buildChatContext(
               over: overQ ? p.overPrice : null,
               under: underQ ? p.underPrice : null,
               alt: !!p.alt,
+              // Carry the server-computed +EV signal (MAIN lines only) so the
+              // chat AI can surface real mispriced/value props on request.
+              ev: p.ev ?? null,
+              evSide: p.evSide ?? null,
+              fairProb: p.fairProb ?? null,
+              edge: p.edge ?? null,
             });
             // Collect each unique player once for the game-log / platoon fetch.
             // opponentTeamId + isHome come from the player's team vs the game's

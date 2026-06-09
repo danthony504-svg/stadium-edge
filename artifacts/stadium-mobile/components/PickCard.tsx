@@ -526,7 +526,7 @@ export function PickCard({
   // accent: "grade" for a real hit-rate letter grade, "upset" for a model-lean
   // underdog. The caption states what the badge MEANS in plain English so it
   // never reads as a fabricated rating.
-  badge?: { text: string; caption?: string; tone: "grade" | "upset" } | null;
+  badge?: { text: string; caption?: string; tone: "grade" | "upset" | "value" } | null;
 }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
@@ -577,7 +577,12 @@ export function PickCard({
               paddingVertical: 3,
               paddingHorizontal: 8,
               borderRadius: 999,
-              backgroundColor: badge.tone === "grade" ? colors.success : colors.accent,
+              backgroundColor:
+                badge.tone === "grade"
+                  ? colors.success
+                  : badge.tone === "value"
+                    ? colors.primary
+                    : colors.accent,
             }}
           >
             <Text
