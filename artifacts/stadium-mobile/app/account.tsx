@@ -1,8 +1,9 @@
 import { useAuth, useUser } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import React from "react";
-import { Alert, Pressable, Switch, Text, View } from "react-native";
+import { Alert, Pressable, Share, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
@@ -12,6 +13,7 @@ import {
   getBiometricCapability,
   getSavedLoginEmail,
 } from "@/lib/biometricLogin";
+import { buildReferralLink, referralCodeFromUserId } from "@/lib/referral";
 
 export default function AccountScreen() {
   const colors = useColors();
@@ -64,6 +66,32 @@ export default function AccountScreen() {
     user?.emailAddresses?.[0]?.emailAddress ??
     "Signed in";
   const initial = email.charAt(0).toUpperCase();
+
+  // Refer-a-friend: a stable code + shareable link unique to this account. The
+  // link only renders when we can build a real, openable URL (id + domain).
+  const referralCode = referralCodeFromUserId(user?.id);
+  const referralLink = buildReferralLink(user?.id, process.env.EXPO_PUBLIC_DOMAIN);
+  const referralValue = referralLink ?? referralCode;
+  const [copied, setCopied] = React.useState(false);
+
+  const onCopyReferral = async () => {
+    if (!referralValue) return;
+    await Clipboard.setStringAsync(referralValue);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+
+  const onShareReferral = async () => {
+    if (!referralValue) return;
+    const message = referralLink
+      ? `Join me on Stadium Edge for real betting edges — sign up with my link: ${referralLink}`
+      : `Join me on Stadium Edge for real betting edges — use my referral code ${referralCode} when you sign up.`;
+    try {
+      await Share.share({ message });
+    } catch {
+      // User dismissed the share sheet — nothing to do.
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -163,6 +191,101 @@ export default function AccountScreen() {
             sign in on another device.
           </Text>
         </View>
+
+        {referralValue ? (
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 16,
+              gap: 12,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Feather name="gift" size={18} color={colors.primary} />
+              <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+                Refer a friend
+              </Text>
+            </View>
+            <Text
+              style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground }}
+            >
+              Share your personal link and invite friends to Stadium Edge.
+            </Text>
+            <View
+              style={{
+                backgroundColor: colors.background,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 10,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Text
+                style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}
+                numberOfLines={1}
+              >
+                {referralValue}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                onPress={onCopyReferral}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 10,
+                  paddingVertical: 11,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Feather
+                  name={copied ? "check" : "copy"}
+                  size={16}
+                  color={copied ? colors.primary : colors.foreground}
+                />
+                <Text
+                  style={{
+                    fontFamily: FONT.semibold,
+                    fontSize: 14,
+                    color: copied ? colors.primary : colors.foreground,
+                  }}
+                >
+                  {copied ? "Copied" : "Copy"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={onShareReferral}
+                style={({ pressed }) => ({
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  backgroundColor: colors.primary,
+                  borderRadius: 10,
+                  paddingVertical: 11,
+                  opacity: pressed ? 0.85 : 1,
+                })}
+              >
+                <Feather name="share" size={16} color={colors.primaryForeground} />
+                <Text
+                  style={{ fontFamily: FONT.bold, fontSize: 14, color: colors.primaryForeground }}
+                >
+                  Share
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         {bioCap.supported || bioLoginEmail ? (
           <View
