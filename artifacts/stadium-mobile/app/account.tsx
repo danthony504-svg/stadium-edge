@@ -171,27 +171,6 @@ export default function AccountScreen() {
           </View>
         </View>
 
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: colors.radius,
-            padding: 16,
-          }}
-        >
-          <Feather name="refresh-cw" size={18} color={colors.primary} />
-          <Text
-            style={{ flex: 1, fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground }}
-          >
-            Saved slips are backed up to your account and restored automatically when you
-            sign in on another device.
-          </Text>
-        </View>
-
         {referralValue ? (
           <View
             style={{
