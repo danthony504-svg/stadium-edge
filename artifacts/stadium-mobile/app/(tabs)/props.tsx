@@ -1096,6 +1096,21 @@ export default function PropsScreen() {
           </View>
         </View>
 
+        {/* Sport selector — directly under the search bar so the league scope is
+            obvious before the rails. Hidden while searching, since search spans
+            every league at once and the selected pill no longer scopes results. */}
+        {searching ? null : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
+          >
+            {propsSports.map((s) => (
+              <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
+            ))}
+          </ScrollView>
+        )}
+
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
             hidden while searching. */}
@@ -1177,20 +1192,6 @@ export default function PropsScreen() {
             </ScrollView>
           </View>
         ) : null}
-
-        {/* Sport selector — hidden while searching, since search spans every
-            league at once and the selected pill no longer scopes the results. */}
-        {searching ? null : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
-          >
-            {propsSports.map((s) => (
-              <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-            ))}
-          </ScrollView>
-        )}
 
         {/* Props list */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
