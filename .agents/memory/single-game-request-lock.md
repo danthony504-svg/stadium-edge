@@ -34,5 +34,29 @@ soonest-N / total cap must exempt explicitly-named games. Note this is distinct
 from the genuinely-empty pool case (Odds API rate-limited / OFFLINE) below — verify
 server-side props EXIST before assuming a fetch gap.
 
+# Single-game HIGH-LEG safe-alt under-fill (mobile Coach)
+A single-game safe/alt ask with NO period words ("safe 15 leg alt for game 4 of
+the nba") stalled at ~3 legs: one game's full-game ML/Spread/Total + alt rungs are
+the only independent legs, and the period ladder never entered the context. Two
+coupled gaps in coach.tsx:
+1. **Period data never loaded.** `includePeriods` was `wantsPeriodMarkets()` only
+   (false here) and `altSign` null, so buildChatContext never emitted the game's
+   Q1–Q4/1H/2H rungs into realOdds. Fix: also unlock periods for a single-game
+   high-leg ask — `singleGameDepth = requestedLegs>=6 && single-game cue` (game N /
+   this|that|the|one|single|same game / "for X vs|@|at|against Y"); set
+   `includePeriods = wantsPeriodMarkets() || singleGameDepth`. Requires hoisting
+   `requestedLegs` ABOVE buildChatContext.
+2. **Backfill lock only covered the plain branch.** The reach-N `lockedGame`/
+   `lockedSports`→pool computation lived INSIDE the plain `else` branch; the
+   `altSign` and `includePeriods` branches filled from unscoped `context.realOdds`.
+   Fix: hoist the lock to `backfillPool` ABOVE all three branches so every order
+   (ALT/PERIOD/GENERIC) stays scoped to the one locked game/sport.
+**Why:** single-game depth needs the period ladder both LOADED (gap 1) and used by
+a SCOPED backfill (gap 2); fixing either alone leaves it short or leaks other games.
+**How to apply:** CLIENT-ONLY (server chat.ts already documents single-game period
+depth + thin-slate). Multi-game tickets: lockedGame=null → backfillPool===realOdds,
+unchanged. Honesty intact — backfill only uses real realOdds rungs, model supplies
+prop cushion alts.
+
 # Note
 The odds/props pool goes fully empty when The Odds API is rate-limited (shows OFFLINE in the UI). During those windows a named game has no props at all, which is correct/honest, not a bug — don't "fix" emptiness by widening to other games.

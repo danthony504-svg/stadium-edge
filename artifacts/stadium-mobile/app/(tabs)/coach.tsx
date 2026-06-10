@@ -902,10 +902,32 @@ export default function CoachScreen() {
         // resolved legs below by the SAME derived score so every card truly meets
         // the band — never inflating an edge, honest-short if too few qualify.
         const confidenceThreshold = parseConfidenceThreshold(trimmed);
+        // The number of legs the user explicitly asked for (0 when unspecified).
+        // Computed up here (not just before the reach-N backstop below) because a
+        // single-game high-leg ask needs it to decide includePeriods.
+        const requestedLegs = requestedLegCount(trimmed);
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
-        const includePeriods = wantsPeriodMarkets(trimmed);
+        //
+        // ALSO unlock periods for a SINGLE-GAME high-leg ask even without explicit
+        // period words ("safe 15 leg alt for game 4 of the nba"): one game's
+        // full-game markets (ML / Spread / Total + their alt rungs) top out at a
+        // handful of independent legs, so the only honest way to reach a big count
+        // from ONE game is its period ladder (Q1–Q4 / 1H / 2H) plus that game's
+        // player props. Without this the period markets never enter realOdds, so
+        // neither the model nor the deterministic backfill can use them and the
+        // ticket stalls at ~3 legs (the reported bug). Gated on a real leg count
+        // AND a single-game cue (a named matchup, "game N", or "this/that/the/
+        // same/one/single game") so a generic multi-game ask is unaffected.
+        const singleGameDepth =
+          requestedLegs >= 6 &&
+          (/\bgame\s*#?\s*\d+\b/i.test(trimmed) ||
+            /\b(this|that|the|one|single|same)\s+game\b/i.test(trimmed) ||
+            /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(
+              trimmed,
+            ));
+        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
         // forces minus-money rungs (safer cushion). The sign is recognised three
@@ -1118,8 +1140,6 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} for games still to start today; dropped ${dropped} that already started or aren't today._`;
           }
         }
-        // The number of legs the user explicitly asked for (0 when unspecified).
-        const requestedLegs = requestedLegCount(trimmed);
         // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
         // REACH-N rule and returns a leg or two short even when the real board has
         // plenty more — two flavors:
@@ -1140,14 +1160,58 @@ export default function CoachScreen() {
           !confidenceThreshold
         ) {
           const target = Math.min(requestedLegs, MAX_LEGS);
+          // SINGLE-GAME / SPORT LOCK for the backfill pool — shared by EVERY
+          // backfill order below so no branch widens a locked ticket. Derived
+          // from the model's OWN resolved legs (and any game/sport the user named
+          // this message):
+          //   * lockedGame fires only for a genuine single-game intent — EVERY
+          //     resolved leg (props included) on ONE game AND either 2+ legs
+          //     resolved there or the user named it. A lone leg never locks (a
+          //     generic N-leg ask that happened to ground one prop must still
+          //     fill across the whole board).
+          //   * lockedSports fires for a named sport, else the sport shared by 2+
+          //     resolved legs (a lone leg never locks).
+          // For a multi-game ticket both are null, so backfillPool === realOdds
+          // and behavior is unchanged. This is what keeps the single-game
+          // period/alt fill (the includePeriods branch below) scoped to the one
+          // game instead of pulling in other matchups.
+          const onlyGameLabel =
+            new Set(picks.map((p) => norm(p.game))).size === 1
+              ? picks[0].game
+              : null;
+          const lockedGame =
+            onlyGameLabel &&
+            (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
+              ? norm(onlyGameLabel)
+              : null;
+          const namedSports = focalSportsFromText(trimmed);
+          const legSports = new Set(
+            picks.map((p) => p.sport).filter((s): s is string => !!s),
+          );
+          const lockedSports =
+            namedSports.size > 0
+              ? namedSports
+              : picks.length >= 2 && legSports.size === 1
+                ? legSports
+                : null;
+          let backfillPool = lockedGame
+            ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
+            : context.realOdds;
+          if (lockedSports)
+            backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
           if (altSign) {
-            picks = backfillPicks(picks, context.realOdds, gameMeta, {
+            picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
               altSign,
               order: ALT_BACKFILL_ORDER,
             });
           } else if (includePeriods) {
-            picks = backfillPicks(picks, context.realOdds, gameMeta, {
+            // Period / same-game (and single-game high-leg) ticket: fill from the
+            // locked game's period ladder (Q1–Q4 / 1H / 2H sides + totals + the
+            // period MLs the model most often skips) and full-game alt rungs —
+            // every entry a real realOdds line, scoped by backfillPool to the
+            // locked game so a single-game ask never widens to other matchups.
+            picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
               order: PERIOD_BACKFILL_ORDER,
             });
@@ -1183,59 +1247,9 @@ export default function CoachScreen() {
               );
             if (!allProps || !mentionsProps) {
               const gameLegs = picks.filter((p) => !p.isProp);
-              // SINGLE-GAME LOCK — only when EVERY resolved leg (props INCLUDED)
-              // sits on the SAME one game, i.e. a genuine single-game parlay. The
-              // old check looked only at game-level legs, so a ticket of 2 props
-              // from different WNBA games + 1 lone MLB ML wrongly locked the fill
-              // pool to that one MLB game and starved the backfill (→ "only 3 held
-              // up" on a 6-game board). Counting ALL legs' games fixes that: when
-              // the props come from other matchups the set is >1 and we fill from
-              // the whole board.
-              // A genuine SINGLE-GAME parlay locks the fill to that one game.
-              // But a lone resolved leg also trivially has one distinct game, so
-              // gating on `size === 1` alone wrongly locked a GENERIC "3-leg
-              // parlay for tonight" that happened to ground just one prop to that
-              // prop's game — then that game's mains were thin and the ticket
-              // stayed at 1 leg (the reported bug). Only lock when the intent is
-              // truly single-game: either the model resolved 2+ legs all on that
-              // SAME game, OR the user actually NAMED that game in their ask.
-              // Otherwise fill from the whole board so a generic N-leg ask reaches
-              // its count across other matchups.
-              const onlyGameLabel =
-                new Set(picks.map((p) => norm(p.game))).size === 1
-                  ? picks[0].game
-                  : null;
-              const lockedGame =
-                onlyGameLabel &&
-                (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
-                  ? norm(onlyGameLabel)
-                  : null;
-              // SPORT-SCOPE LOCK — never backfill a sport-scoped ticket with
-              // another sport's games. The server SPORT-SCOPE rule already keeps
-              // an "all nba games" ticket inside the league; if the model returns
-              // it short, this deterministic fill must stay in that league too or
-              // it re-introduces the exact cross-sport leak the user reported (an
-              // NBA ask padded with MLB alt spreads/totals). Lock to (a) any sport
-              // the user named in THIS message, else (b) the sport shared by 2+
-              // resolved legs (mirrors the market-family lock below). A lone leg
-              // does NOT establish a sport lock, so a generic N-leg ask still
-              // fills across the whole board.
-              const namedSports = focalSportsFromText(trimmed);
-              const legSports = new Set(
-                picks.map((p) => p.sport).filter((s): s is string => !!s),
-              );
-              const lockedSports =
-                namedSports.size > 0
-                  ? namedSports
-                  : picks.length >= 2 && legSports.size === 1
-                    ? legSports
-                    : null;
-              let pool = lockedGame
-                ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
-                : context.realOdds;
-              if (lockedSports)
-                pool = pool.filter((e) => lockedSports.has(e.sport));
-              // Infer an implicit MARKET lock from the model's own resolved
+              // The single-game / sport lock that scopes the fill pool is computed
+              // ONCE above (backfillPool) and shared by every branch. Infer on top
+              // of it an implicit MARKET lock from the model's own resolved
               // legs: if every game-level leg sits in ONE full-game family
               // (e.g. a "spread parlay" or "moneyline parlay" that came back
               // all spreads / all MLs), constrain the fill to that same family
@@ -1259,7 +1273,7 @@ export default function CoachScreen() {
                 lockedFam && FAMILY_ORDER[lockedFam]
                   ? FAMILY_ORDER[lockedFam]
                   : GENERIC_BACKFILL_ORDER;
-              picks = backfillPicks(picks, pool, gameMeta, { target, order });
+              picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
             }
           }
         }
