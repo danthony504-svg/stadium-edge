@@ -318,6 +318,10 @@ export type PlayerProp = {
   line: number | null;
   overPrice: number | null;
   underPrice: number | null;
+  // The sportsbook behind the best price on each side (for arbitrage "where to
+  // bet"). REAL book name from props.ts or null/absent — never fabricated.
+  overBook?: string | null;
+  underBook?: string | null;
   alt: boolean;
   headshot: string | null;
   athleteId: string | null;

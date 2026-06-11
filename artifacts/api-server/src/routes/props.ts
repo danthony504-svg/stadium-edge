@@ -328,6 +328,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       line: number | null;
       overPrice: number | null;
       underPrice: number | null;
+      // The sportsbook behind the best price on each side (for "where to bet"
+      // arbitrage). Tracked in lockstep with overPrice/underPrice below.
+      overBook: string | null;
+      underBook: string | null;
       alt: boolean;
       // Cross-book +EV / "mispriced" signal (MAIN lines only, computed below).
       // ev = expected value % of the best posted price vs the no-vig consensus
@@ -361,16 +365,22 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             const player = o.description ?? "—";
             const line = o.point ?? null;
             const k = `${player}|${marketKey}|${line ?? "_"}`;
-            const row = byKey.get(k) ?? { player, market: marketKey, line, overPrice: null, underPrice: null, alt: isAlt };
+            const row = byKey.get(k) ?? { player, market: marketKey, line, overPrice: null, underPrice: null, overBook: null, underBook: null, alt: isAlt };
             if (!isAlt) row.alt = false;
             const price = Math.round(o.price);
             const side = o.name.toLowerCase();
             const isOver = side === "over" || side === "yes";
             const isUnder = side === "under" || side === "no";
+            const title = book.title ?? "?";
+            // Keep the BEST price per side AND the book that posts it. A new book
+            // wins the slot whenever betterAmerican prefers its price (ties go to
+            // the newer book, matching betterAmerican's bias).
             if (isOver) {
-              row.overPrice = row.overPrice == null ? price : betterAmerican(row.overPrice, price);
+              if (row.overPrice == null) { row.overPrice = price; row.overBook = title; }
+              else { const b = betterAmerican(row.overPrice, price); if (b !== row.overPrice) { row.overPrice = b; row.overBook = title; } }
             } else if (isUnder) {
-              row.underPrice = row.underPrice == null ? price : betterAmerican(row.underPrice, price);
+              if (row.underPrice == null) { row.underPrice = price; row.underBook = title; }
+              else { const b = betterAmerican(row.underPrice, price); if (b !== row.underPrice) { row.underPrice = b; row.underBook = title; } }
             }
             byKey.set(k, row);
             // Record this book's posted price per side (MAIN lines only) so we can
@@ -378,7 +388,6 @@ router.get("/sports/props", async (req, res): Promise<void> => {
             // rungs are excluded — they have sparse, lopsided coverage that would
             // produce an unreliable "fair" line.
             if (!isAlt && (isOver || isUnder)) {
-              const title = book.title ?? "?";
               let bm = bookByKey.get(k);
               if (!bm) { bm = new Map(); bookByKey.set(k, bm); }
               const sb = bm.get(title) ?? {};
