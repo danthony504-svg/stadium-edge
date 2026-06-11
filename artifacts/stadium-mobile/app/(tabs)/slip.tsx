@@ -50,6 +50,15 @@ const GAME_OVER_BUFFER_MS = 6 * 3600_000;
 // "ungraded" — kept for the record but excluded from performance stats.
 const FORCE_ARCHIVE_MS = 40 * 3600_000;
 
+// Once a saved slip is at least this old, its games are certain to have finished
+// (slips are made within hours of game time) AND have likely dropped out of
+// ESPN's live scoreboard window (yesterday → +7d). Past this age, a leg whose
+// game can no longer be found in the live feed is treated as "over" so the
+// server grader — which settles against StatMuse logs / historical finals, not
+// the live feed — still runs. Generous so an early-saved slip for a future game
+// (still in the live feed) is never wrongly forced over.
+const STALE_SLIP_MS = 24 * 3600_000;
+
 const teamNick = (s: string) =>
   (s || "").trim().split(/\s+/).filter(Boolean).pop()?.toLowerCase() || "";
 
@@ -104,9 +113,24 @@ function legGameMatch(games: EspnGame[], label: string, sport?: string): EspnGam
 }
 
 function legGameStatus(games: EspnGame[]) {
-  return (label: string, sport?: string): "over" | "live" | "unknown" => {
+  return (
+    label: string,
+    sport?: string,
+    slipCreatedAt?: number,
+  ): "over" | "live" | "unknown" => {
     const match = legGameMatch(games, label, sport);
-    if (!match) return "unknown";
+    if (!match) {
+      // Game has aged out of ESPN's live window. If its slip is old enough that
+      // the game must already be finished, treat it as "over" so the grader
+      // still runs (it fail-closes to "ungraded" for anything it can't confirm,
+      // so we never invent a result). Otherwise leave it unknown.
+      if (
+        slipCreatedAt !== undefined &&
+        Date.now() - slipCreatedAt > STALE_SLIP_MS
+      )
+        return "over";
+      return "unknown";
+    }
     const finished = match.state === "post" || /final/i.test(match.status || "");
     if (finished) return "over";
     const t = Date.parse(match.startsAt);
@@ -234,11 +258,11 @@ function SavedSlipCard({
     const resolve = legGameStatus(allGames);
     const byIndex = new Map((gradeResults ?? []).map((r) => [r.index, r]));
     return slip.legs.map((l, i) => {
-      if (resolve(l.game, l.sport) !== "over") return "pending";
+      if (resolve(l.game, l.sport, slip.createdAt) !== "over") return "pending";
       const r = byIndex.get(i);
       return r ? r.result : "grading";
     });
-  }, [allGames, gradeResults, slip.legs]);
+  }, [allGames, gradeResults, slip.legs, slip.createdAt]);
 
   const total = slip.legs.length;
   const pendingCount = legStatuses.filter((s) => s === "pending").length;
@@ -487,13 +511,17 @@ export default function SlipScreen() {
     queries: savedSlips.map((s) => {
       const resolve = legGameStatus(allGames);
       const overIdx = s.legs
-        .map((l, i) => (resolve(l.game, l.sport) === "over" ? i : -1))
+        .map((l, i) => (resolve(l.game, l.sport, s.createdAt) === "over" ? i : -1))
         .filter((i) => i >= 0);
       return {
         queryKey: ["saved-slip-grade", s.id, overIdx.join(",")],
-        enabled: allGames.length > 0 && overIdx.length > 0,
+        enabled: overIdx.length > 0,
         staleTime: 5 * 60_000,
         queryFn: ({ signal }: { signal?: AbortSignal }) => {
+          // For a game still in the live feed, pass its real start so the grader
+          // can disambiguate a series/doubleheader; for an aged-out game (no feed
+          // entry) fall back to the slip's creation time as the date hint.
+          const createdIso = new Date(s.createdAt).toISOString();
           const input: GradeLegInput[] = s.legs.map((l) => {
             const g = legGameMatch(allGames, l.game, l.sport);
             return {
@@ -502,7 +530,7 @@ export default function SlipScreen() {
               pick: l.pick,
               sport: l.sport,
               odds: l.odds,
-              startsAt: g?.startsAt,
+              startsAt: g?.startsAt ?? createdIso,
             };
           });
           return gradeBets(input, signal);
@@ -663,14 +691,18 @@ export default function SlipScreen() {
   // A ref guards against grading the same slip concurrently across re-renders.
   const gradingRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (allGames.length === 0 || savedSlips.length === 0) return;
+    if (savedSlips.length === 0) return;
     const status = legGameStatus(allGames);
-    // Slips whose every leg's game is confirmed over and not already grading.
+    // Slips whose every leg's game is confirmed over and not already grading. A
+    // game is "over" via the live feed (real Final / started past the buffer) or,
+    // once the slip is old enough, via the aged-out fallback (game gone from the
+    // feed but the slip is long past STALE_SLIP_MS) — so a slip is never stranded
+    // just because its games dropped out of ESPN's window before grading.
     const finished = savedSlips.filter(
       (s) =>
         s.legs.length > 0 &&
         !gradingRef.current.has(s.id) &&
-        s.legs.every((l) => status(l.game, l.sport) === "over"),
+        s.legs.every((l) => status(l.game, l.sport, s.createdAt) === "over"),
     );
     if (finished.length === 0) return;
 
@@ -688,11 +720,16 @@ export default function SlipScreen() {
         claimed.push(slip.id);
         // Resolve each leg's exact start time so the grader can disambiguate
         // series/doubleheaders; newest start drives the force-archive deadline.
+        // For an aged-out game (no live-feed entry) fall back to the slip's
+        // creation time so the deadline still advances and the date hint is
+        // populated — otherwise newestStart stays 0, the slip never "expires",
+        // and a permanently-ungradeable aged-out leg would strand it forever.
+        const createdIso = new Date(slip.createdAt).toISOString();
         let newestStart = 0;
         const input: GradeLegInput[] = slip.legs.map((l) => {
           const g = legGameMatch(allGames, l.game, l.sport);
-          const startsAt = g?.startsAt;
-          const t = startsAt ? Date.parse(startsAt) : NaN;
+          const startsAt = g?.startsAt ?? createdIso;
+          const t = Date.parse(startsAt);
           if (Number.isFinite(t)) newestStart = Math.max(newestStart, t);
           return {
             game: l.game,

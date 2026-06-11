@@ -53,3 +53,30 @@ nickname+sport+unique-match is the resolution signal.
   effect still solely owns committing settled slips to the Model Report.
 - **Why grading must be honest:** grader fail-closes to "ungraded"; never invent
   a W/L. Mobile-only, OTA-unsafe → ships next native build.
+
+## Aged-out games strand slips as "pending" forever (fixed)
+- Symptom: a saved slip whose games finished days ago (so they dropped out of
+  ESPN's live yesterday→+7d window) shows every leg "pending" forever and never
+  archives. Two independent causes, both feed-coupled:
+  1. **Client** `legGameStatus` returned "unknown" for any game not in the live
+     feed → forced "pending" and never sent to the grader. **Fix:** when the game
+     is absent from the feed AND the slip is older than `STALE_SLIP_MS` (24h, slips
+     are made within hours of tip), return "over" so the grader runs. Still honest:
+     the server grader fail-closes to "ungraded" for anything it can't confirm.
+  2. **Client** force-archive deadline (`newestStart`) and the grader date hint
+     (`startsAt`) were derived ONLY from live-feed start times, so for an aged-out
+     slip `newestStart` stayed 0 → the slip never "expired" → stranded even if
+     ungradeable. **Fix:** fall back to `slip.createdAt` for both the date hint and
+     the force-archive deadline when the feed entry is gone.
+  - Also relaxed two gates that blocked grading when a sport had no current games:
+    archive effect early-return is now only `savedSlips.length===0` (dropped
+    `allGames.length===0`); display `slipGradeQueries.enabled` is `overIdx.length>0`
+    (dropped `allGames.length>0`). Threaded `slip.createdAt` into all 3 call sites.
+- **Server** `grade.ts fetchFinals` only looked back 3 days → week-old finals not
+  found → "ungraded". Widened lookback to **10 days**, limit 200→300 (busy MLB
+  windows). `matchFinal` single-hit ignores the startsAt hint; multi-hit uses it
+  (±36h) so the createdAt fallback is safe.
+- **Edge case accepted:** a slip saved >36h before its game fails-closed to
+  ungraded (rare — slips are made near game time).
+- **Verified** end-to-end against real ESPN finals: week-old WNBA ML/total and a
+  real player prop (StatMuse log path) all graded with real scores.

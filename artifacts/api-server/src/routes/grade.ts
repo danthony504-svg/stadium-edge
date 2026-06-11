@@ -35,21 +35,24 @@ type EspnScoreEvent = {
   }>;
 };
 
-// Pull recent FINAL games for a sport from ESPN's scoreboard (yesterday → +7d,
-// same window as /sports/games so a just-finished game is present). Only
-// completed games (state === "post") with both numeric scores are returned.
+// Pull recent FINAL games for a sport from ESPN's scoreboard. The window looks
+// back 10 days (not just yesterday) so slips that lingered a few days — e.g. a
+// leg whose game aged out of the live /sports/games window before it could be
+// graded — can still be settled. Only completed games (state === "post") with
+// both numeric scores are returned.
 async function fetchFinals(sportPath: string): Promise<FinalGame[]> {
   const fmt = (d: Date) =>
     `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
   const now = new Date();
-  const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const start = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
   const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const dateRange = `${fmt(start)}-${fmt(end)}`;
   const data = await cachedJson<{ events?: EspnScoreEvent[] }>(
     `grade-finals:${sportPath}:${dateRange}`,
     60 * 1000,
     async () => {
-      const url = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard?dates=${dateRange}&limit=200`;
+      // limit=300 so a busy 11-day MLB window (~15 games/day) isn't truncated.
+      const url = `https://site.api.espn.com/apis/site/v2/sports/${sportPath}/scoreboard?dates=${dateRange}&limit=300`;
       const r = await fetch(url);
       if (!r.ok) throw new Error(`ESPN ${r.status}`);
       return (await r.json()) as { events?: EspnScoreEvent[] };
