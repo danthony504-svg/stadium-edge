@@ -4,6 +4,7 @@ import React from "react";
 import { Text, View } from "react-native";
 
 import {
+  AppleAuthButton,
   AuthDivider,
   AuthField,
   AuthShell,
@@ -109,6 +110,8 @@ export default function SignUpScreen() {
 
       <AuthDivider />
       <GoogleAuthButton />
+      <View style={{ height: 12 }} />
+      <AppleAuthButton />
 
       <View
         style={{

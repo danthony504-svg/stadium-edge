@@ -5,6 +5,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 
 import {
+  AppleAuthButton,
   AUTH_ACCENT,
   AuthDivider,
   AuthField,
@@ -531,6 +532,8 @@ export default function SignInScreen() {
 
       <AuthDivider />
       <GoogleAuthButton />
+      <View style={{ height: 12 }} />
+      <AppleAuthButton />
 
       <View
         style={{

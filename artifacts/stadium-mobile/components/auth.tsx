@@ -301,6 +301,84 @@ function GoogleG({ size = 18 }: { size?: number }) {
   );
 }
 
+// Apple logo glyph (solid). Rendered black on the white Apple-branded button.
+function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 384 512">
+      <Path
+        fill={color}
+        d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+      />
+    </Svg>
+  );
+}
+
+// Sign in with Apple button. Required by App Store Guideline 4.8 as an equivalent
+// login option alongside the third-party (Google) sign-in. Uses Clerk's
+// oauth_apple SSO flow (startSSOFlow signs up AND signs in). Styled per Apple's
+// button guidelines: a white button with the black Apple glyph stands out on the
+// dark auth UI (white is an Apple-approved style for dark backgrounds).
+export function AppleAuthButton() {
+  useWarmUpBrowser();
+  const router = useRouter();
+  const { startSSOFlow } = useSSO();
+  const [busy, setBusy] = useState(false);
+
+  const onPress = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { createdSessionId, setActive } = await startSSOFlow({
+        strategy: "oauth_apple",
+        redirectUrl: AuthSession.makeRedirectUri(),
+      });
+      if (createdSessionId && setActive) {
+        await setActive({
+          session: createdSessionId,
+          navigate: async ({ session, decorateUrl }) => {
+            if (session?.currentTask) return;
+            router.replace(decorateUrl("/") as Href);
+          },
+        });
+      }
+    } catch (err) {
+      console.error("Apple SSO failed", JSON.stringify(err, null, 2));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, router, startSSOFlow]);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      accessibilityRole="button"
+      accessibilityLabel="Continue with Apple"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 10,
+        backgroundColor: "#ffffff",
+        borderRadius: 12,
+        paddingVertical: 15,
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      {busy ? (
+        <ActivityIndicator color="#000" />
+      ) : (
+        <>
+          <AppleLogo size={18} color="#000" />
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: "#000" }}>
+            Continue with Apple
+          </Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
 // Google SSO button. startSSOFlow signs up AND signs in, so a single button
 // covers both flows. On success it sets the active session and returns home.
 export function GoogleAuthButton() {
