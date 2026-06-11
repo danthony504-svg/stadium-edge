@@ -3,6 +3,35 @@ import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib
 
 const router: IRouter = Router();
 
+// The upstream Odds API enforces a per-SECOND frequency limit (HTTP 429,
+// EXCEEDED_FREQ_LIMIT) that is separate from the monthly quota. A cold-cache
+// chat-context build fans out many per-event prop requests at once, and a
+// MULTI-KEY sport (soccer) additionally fires one events-list lookup per league
+// BEFORE its props fetch — so soccer reliably trips the per-second limit. The
+// base props fetch had no retry, so it threw → the route returned 502 → the
+// client saw zero soccer props → the AI coach honestly but wrongly refused to
+// build a soccer prop parlay even though props were available upstream.
+//
+// A short bounded backoff+jitter rides out the sub-second window. We retry only
+// transient failures (429 + 5xx); a 4xx like 422 (unsupported market) fails
+// fast. On success the result is cached 5 min, so only the cold burst pays this
+// cost. Jitter de-syncs concurrent retries so they don't collide in lockstep.
+async function fetchOddsApi(url: string, attempts = 4): Promise<Response> {
+  for (let i = 0; i < attempts; i++) {
+    const r = await fetch(url);
+    if (r.ok) return r;
+    const retryable = r.status === 429 || r.status >= 500;
+    if (!retryable || i === attempts - 1) return r;
+    // Drain the body so the socket can be reused before backing off.
+    await r.text().catch(() => {});
+    const backoff = 200 * 2 ** i + Math.floor(Math.random() * 150);
+    await new Promise((resolve) => setTimeout(resolve, backoff));
+  }
+  // Unreachable (the loop always returns on the last attempt), but satisfies the
+  // type checker that a Response is always produced.
+  return fetch(url);
+}
+
 // Raised from 30 → 120/min: a single chat parlay request fans out up to
 // 12 prop fetches in one burst, and a user opening 2-3 game-detail pages
 // before that easily blew the old 30/min cap, returning silent 429s that
@@ -180,7 +209,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         5 * 60 * 1000,
         async () => {
           const url = `https://api.the-odds-api.com/v4/sports/${key}/events?apiKey=${apiKey}&dateFormat=iso`;
-          const r = await fetch(url);
+          const r = await fetchOddsApi(url);
           if (!r.ok) throw new Error(`events ${r.status}`);
           return (await r.json()) as Array<{ id: string; home_team: string; away_team: string }>;
         },
@@ -280,7 +309,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
 
     const fetchOdds = async (mkList: string[]) => {
       const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/events/${effectiveEventId}/odds?apiKey=${apiKey}&regions=us&markets=${mkList.join(",")}&oddsFormat=american`;
-      const r = await fetch(url);
+      const r = await fetchOddsApi(url);
       if (!r.ok) {
         const text = await r.text();
         throw new Error(`Upstream ${r.status}: ${text.slice(0, 200)}`);
