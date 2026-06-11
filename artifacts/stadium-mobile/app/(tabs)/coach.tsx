@@ -65,6 +65,7 @@ import {
   searchPlayer,
   searchTeam,
   startsTodayUpcoming,
+  todayBuildNote,
   streamChat,
   type AltSign,
   type ChatMessage,
@@ -1132,13 +1133,16 @@ export default function CoachScreen() {
         if (todayOnly) {
           const before = picks.length;
           picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
-          const dropped = before - picks.length;
-          if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
-            todayNote =
-              picks.length === 0
-                ? `\n\n_Nothing on today's board is still upcoming for that — every game I could pull has already started or isn't until later. Ask without limiting to today, or check back as more of today's games approach tip-off._`
-                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} for games still to start today; dropped ${dropped} that already started or aren't today._`;
-          }
+          // Honest, non-contradictory note (pure helper, unit-tested in
+          // slate.test.ts). Never claims "nothing is upcoming" — todayOnly being
+          // true guarantees a game is still to come; it instead distinguishes
+          // "legs were on started/non-today games" (before>0) from "slate too
+          // thin to ground the requested ticket" (before===0, the soccer case).
+          todayNote = todayBuildNote({
+            before,
+            surviving: picks.length,
+            emittedPickLines,
+          });
         }
         // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
         // REACH-N rule and returns a leg or two short even when the real board has

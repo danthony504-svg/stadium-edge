@@ -12,13 +12,20 @@ import {
   startsTodayUpcoming,
   wantsTodayOnly,
   resolveTodayOnly,
+  todayBuildNote,
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
 export { gameMatchesFocalText };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
-export { isPickable, startsTodayUpcoming, wantsTodayOnly, resolveTodayOnly };
+export {
+  isPickable,
+  startsTodayUpcoming,
+  wantsTodayOnly,
+  resolveTodayOnly,
+  todayBuildNote,
+};
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.

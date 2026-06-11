@@ -59,3 +59,37 @@ export function resolveTodayOnly(
   if (!requested) return false;
   return startTimes.some((t) => isPickable(t) && startsTodayUpcoming(t));
 }
+
+// Pick the honest note appended under a "today / tonight" build after the
+// startsTodayUpcoming post-parse filter. This only ever runs when todayOnly is
+// active, which (via resolveTodayOnly) GUARANTEES at least one game is still
+// upcoming today — so we must NEVER tell the user "nothing is upcoming". The
+// note must distinguish the two reasons a today build can come back empty:
+//   - before > 0  : legs DID ground in real odds but every one was on a game
+//                   that already kicked off or isn't on today's calendar day,
+//                   so the today filter removed them all.
+//   - before === 0: the model emitted PICK lines but none grounded in real
+//                   odds — today's slate is too thin to build the requested
+//                   ticket without forcing it (e.g. a sport-locked soccer ask
+//                   when only one match is still to come; you cannot make a
+//                   SAFE 7-leg from a single game).
+// When some legs survive but others were dropped, surface the transparency
+// count. `before` is the resolved-pick count BEFORE the filter, `surviving` is
+// the count after it. Returns "" when no note is warranted.
+export function todayBuildNote(opts: {
+  before: number;
+  surviving: number;
+  emittedPickLines: number;
+}): string {
+  const { before, surviving, emittedPickLines } = opts;
+  if (surviving === 0 && emittedPickLines > 0) {
+    return before > 0
+      ? `\n\n_The legs I found are on games that already kicked off or aren't today, so there's nothing left to show for a today-only ticket. I can build from the next 48 hours instead, or you can check back as today's games get closer to kickoff._`
+      : `\n\n_Today's slate is too thin to safely fill that — there aren't enough games still to start today to build it without forcing it. Want me to build from this week's full slate, or a shorter ticket from what's still to come today?_`;
+  }
+  const dropped = before - surviving;
+  if (dropped > 0) {
+    return `\n\n_Showing the ${surviving} real leg${surviving === 1 ? "" : "s"} for games still to start today; dropped ${dropped} that already started or aren't today._`;
+  }
+  return "";
+}
