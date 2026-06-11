@@ -60,7 +60,9 @@ type FeaturedPlayer = {
   headshot: string | null;
   teamAbbr: string | null;
   label: string;
-  line: number;
+  // null for yes/no markets that have no numeric line (e.g. soccer Anytime
+  // Goalscorer, NFL Anytime TD) — the card shows just the market + price.
+  line: number | null;
   overPrice: number;
 };
 
@@ -175,8 +177,9 @@ export default function HomeScreen() {
 
   const featuredQ = useQuery({
     queryKey: ["home-featured", sport, featIdsKey],
-    // Wait for ESPN games to SUCCEED (not merely settle) so team ids/headshots are
-    // attached on the first pass; without headshots every prop is filtered out. When
+    // Wait for ESPN games to SUCCEED (not merely settle) so team ids/headshots
+    // attach on the first pass (headshots are OPTIONAL — the avatar falls back to
+    // initials — but ESPN ids give us the team abbr + photo when available). When
     // gamesQ flips false->true the query enables and runs.
     enabled: featuredEnabled && featGames.length > 0 && gamesQ.isSuccess,
     staleTime: 2 * 60_000,
@@ -205,7 +208,10 @@ export default function HomeScreen() {
         if (s.status !== "fulfilled") continue;
         const { info, props } = s.value;
         for (const p of props) {
-          if (p.alt || !p.headshot || p.overPrice == null || p.line == null) continue;
+          // Require only a real over/yes price. A headshot is optional (soccer
+          // players have none — the avatar shows initials) and the line may be
+          // null for yes/no markets (soccer Anytime Goalscorer, NFL Anytime TD).
+          if (p.alt || p.overPrice == null) continue;
           const key = p.player.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
@@ -470,7 +476,8 @@ export default function HomeScreen() {
                       style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 12, textAlign: "center" }}
                       numberOfLines={1}
                     >
-                      Over {p.line} {p.label} {formatAmerican(p.overPrice)}
+                      {p.line != null ? `Over ${p.line} ${p.label}` : p.label}{" "}
+                      {formatAmerican(p.overPrice)}
                     </Text>
                   </Pressable>
                 ))}
