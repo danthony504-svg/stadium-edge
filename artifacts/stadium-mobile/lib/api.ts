@@ -1745,9 +1745,10 @@ export async function buildChatContext(
   }
 
   // Assemble a REAL player-prop pool from the soonest prop-capable games so the
-  // AI can build prop legs (and never fabricate them). PROPS_SPORTS only — the
-  // props route returns nothing for soccer/tennis/ufc. A failed per-game fetch
-  // just narrows the pool; it never invents props.
+  // AI can build prop legs (and never fabricate them). PROPS_SPORTS only. Soccer
+  // IS prop-capable but only for FIFA World Cup games (goalscorer/shots/SoT);
+  // club leagues + tennis/ufc return nothing. A failed/empty per-game fetch just
+  // narrows the pool; it never invents props.
   const propCandidates: { sport: string; g: OddsGame; ids: PropTeamIds | null }[] = [];
   sports.forEach((sport, i) => {
     if (!PROPS_SPORTS.includes(sport)) return;
@@ -1761,6 +1762,29 @@ export async function buildChatContext(
     }
   });
   propCandidates.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
+  // Focal-priority for the props FETCH window. We only fetch props for the
+  // soonest MAX_PROP_CONTEXT_GAMES prop-capable games. On a night with many
+  // earlier-starting games from OTHER sports (e.g. ~15 evening MLB games), that
+  // window fills up before a later focal slate (e.g. 9pm World Cup soccer) is
+  // ever reached — so the focal games get ZERO props fetched and the model can
+  // only build game-level legs (moneyline/spread/total). That is exactly why a
+  // "soccer parlay" came back as all ML/spread/total despite real soccer props
+  // existing upstream. When the user named a sport/game, float that focal slate
+  // to the front (still time-sorted within each group) so its props are always
+  // fetched first. Mirrors the realProps cap (balancePropsByGame) and the
+  // matchup-history focal ordering — those float the CAP, this floats the FETCH.
+  if (focalText) {
+    const focalSports = focalSportsFromText(focalText);
+    const isFocal = (c: { sport: string; g: OddsGame }) =>
+      gameMatchesFocalText(`${c.g.awayTeam} @ ${c.g.homeTeam}`, focalText) ||
+      focalSports.has(c.sport);
+    const focal = propCandidates.filter(isFocal);
+    if (focal.length > 0 && focal.length < propCandidates.length) {
+      const rest = propCandidates.filter((c) => !isFocal(c));
+      propCandidates.length = 0;
+      propCandidates.push(...focal, ...rest);
+    }
+  }
 
   const realProps: RealPropEntry[] = [];
   // Render-only prop pool (one row per posted side) enriched with the real ESPN

@@ -40,3 +40,26 @@ keys). Buckets are populated in array order → stable.
 **Gotcha:** nested empty-array literal `[[],[],...]` infers `never[][]` under this
 file's loose TS; type it `(typeof realProps)[]` or the downstream context block
 errors with "Property 'game' does not exist on type 'never'".
+
+## Mobile has a SECOND focal-starve point: the props FETCH window (not just the cap)
+
+In `stadium-mobile/lib/api.ts` `buildChatContext`, props are only fetched for the
+soonest `MAX_PROP_CONTEXT_GAMES` (24) prop-capable games — `propCandidates` is
+sorted purely by `commenceTime` then `.slice(0, 24)`. The cap floats (`balancePropsByGame`)
+are focal-aware, but the FETCH was NOT.
+
+**Why this bites (the "still moneyline and spread" soccer bug):** on a night with
+~15 earlier MLB games, the soonest-24 fetch window fills before a LATER focal slate
+(e.g. 9pm World Cup soccer) is reached, so the focal games get ZERO props fetched.
+The model then only has game-level soccer markets → the "soccer parlay" comes back
+as all ML/spread/total even though 400+ real soccer props (goalscorer/shots/SoT)
+exist upstream. The prop mandate + never-fabricate matcher can't help when props
+were never fetched into the context at all.
+
+**Fix:** after the time-sort, float focal-slate candidates to the front of
+`propCandidates` (still time-sorted within each group) BEFORE the slice, using the
+same `focalSportsFromText` + `gameMatchesFocalText` predicate the cap and the
+matchup-history target ordering already use. `focalText` is the user's raw message
+(arg 6 to buildChatContext). So: cap-float and fetch-float are TWO separate places;
+a focal-starvation symptom on mobile may need the fetch-float, not a cap bump.
+Client-side change → reaches users via a new native build / OTA, not the server.
