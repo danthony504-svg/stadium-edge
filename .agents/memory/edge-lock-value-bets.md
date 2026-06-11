@@ -41,4 +41,14 @@ data was real — the bug was scope+display, not fabrication.
 Web (stadium-edge) has **no** arbitrage page — this is mobile-only. api-server prop `ev`
 fields were already real (no server change needed).
 
+**"Find higher % arbs" is a feed-breadth lever, not a number knob.** Real guaranteed arbs
+are inherently small (~0.5–2%); `MAX_ARB_PCT` is already 30 so nothing real is filtered for
+being too high, and anything above ~3% is almost always a stale/voided line (NOT guaranteed —
+rejecting it is honesty, not a bug). The ONLY legitimate way to surface more/higher arbs is to
+scan more sportsbooks. odds.ts bulk game-line call now requests `regions=us,us2` (adds Fanatics,
+ESPN BET, Hard Rock, Fliff, etc.) → more cross-book gaps. **Deliberately left the per-event
+alt/period fetch at `regions=us`** to cap credit cost (per-event alt markets are 5x credit; us2
+would double an already-expensive fan-out). If alt-line arb breadth is ever needed, that's the
+next lever — with the credit-cost caveat. Restart api-server after odds.ts edits (no watcher).
+
 Tests: `lib/arbitrage.test.ts` via `node --test 'lib/**/*.test.ts'` (96 total after +4).

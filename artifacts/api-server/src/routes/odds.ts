@@ -65,7 +65,12 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
           `odds:${key}:v3`,
           5 * 60 * 1000,
           async () => {
-            const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=us&markets=${bulkMarkets}&oddsFormat=american`;
+            // Scan us + us2 so we cover MORE sportsbooks (Fanatics, ESPN BET,
+            // Hard Rock, Fliff, etc.). More books = more cross-book price gaps =
+            // more real arbitrage/value found, and a better chance of catching a
+            // higher-% edge when one genuinely exists. (Real arbs stay small —
+            // this widens the net, it does not inflate the number.)
+            const url = `https://api.the-odds-api.com/v4/sports/${key}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${bulkMarkets}&oddsFormat=american`;
             const r = await fetch(url);
             if (!r.ok) {
               const text = await r.text();
