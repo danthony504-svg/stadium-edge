@@ -1,11 +1,16 @@
-// Pure arbitrage detection from REAL bookmaker odds.
+// Edge detection from REAL bookmaker odds — two flavours:
+//
+//   1. Arbitrage (guaranteed): two (or three) mutually-exclusive sides, each
+//      taken at its BEST available sportsbook, with combined implied probability
+//      < 100% — a genuine risk-free edge.
+//   2. Value bets (higher upside, NOT guaranteed): a single REAL price that
+//      beats the market's no-vig consensus fair value — positive expected value
+//      over time, but any individual bet can lose.
 //
 // No expo / network imports so this runs under `node --test` (see
-// arbitrage.test.ts). Every input is a real posted price from the odds feed; an
-// arbitrage is only emitted when two (or three) mutually-exclusive sides, each
-// taken at its BEST available sportsbook, have combined implied probability
-// < 100% — a genuine risk-free edge. Nothing here invents a price or a book, and
-// a side with no named book is skipped (we can't tell the user where to bet it).
+// arbitrage.test.ts). Every input is a real posted price from the odds feed.
+// Nothing here invents a price or a book, and a side with no named book is
+// skipped (we can't tell the user where to bet it).
 
 // ---- Structural input shapes (compatible with lib/api.ts OddsGame/PlayerProp).
 // Defined locally so this file has zero runtime dependency on api.ts.
@@ -30,6 +35,15 @@ export type ArbPropInput = {
   overBook?: string | null;
   underBook?: string | null;
   alt?: boolean;
+  // Server-computed cross-book +EV signal (REAL or absent — never fabricated
+  // client-side). ev = EV% of the best posted price vs the no-vig consensus;
+  // evSide = which side carries it; fairProb = consensus fair win prob (0-1);
+  // books = # of two-sided books in the consensus.
+  ev?: number | null;
+  evSide?: "Over" | "Under" | null;
+  fairProb?: number | null;
+  edge?: number | null;
+  books?: number;
 };
 export type ArbPropGame = {
   game: string;
@@ -250,6 +264,134 @@ export function findPropArbs(games: ArbPropGame[]): ArbOpportunity[] {
             impliedProb: arb.impl[1],
           },
         ],
+      });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Value bets: a single REAL price that beats the market's no-vig consensus fair
+// value (positive expected value). Higher upside than an arb, but NOT guaranteed
+// — any one bet can lose. We require a credible multi-book consensus and a
+// believable edge band: below MIN it's indistinguishable from vig-removal noise;
+// above MAX it's almost certainly a stale or mismatched line on one book, not
+// genuine value. Nothing is fabricated — the "fair" line is the consensus of
+// real posted prices and the bet is a real best price at a named book.
+// ---------------------------------------------------------------------------
+export const MIN_VALUE_PCT = 2;
+export const MAX_VALUE_PCT = 12;
+export const MIN_VALUE_BOOKS = 3;
+
+export type ValueBet = {
+  id: string;
+  sport: string;
+  game: string; // "Away @ Home"
+  marketKey: string;
+  kind: "game" | "prop";
+  player?: string | null;
+  startsAt?: string | null;
+  label: string; // the single side to bet, e.g. "Lakers ML", "Over 20.5"
+  book: string; // best sportsbook for this price
+  price: number; // American odds of the bet
+  fairProb: number; // 0-1 no-vig consensus win prob for this side
+  edgePct: number; // EV% = (fairProb * decimalOdds - 1) * 100
+  books: number; // # of books in the consensus
+};
+
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const n = s.length;
+  if (n === 0) return NaN;
+  return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+// Game-line value: for each mutually-exclusive group, build a no-vig fair line
+// from the per-book consensus (robust median per side, normalised to sum to 1),
+// then surface the single side whose BEST available price most beats its fair
+// value. Only the strongest qualifying side per group is emitted (a value bet is
+// one side, not both — betting both is not an arb here).
+export function findGameLineValueBets(games: ArbGame[]): ValueBet[] {
+  const out: ValueBet[] = [];
+  for (const g of games ?? []) {
+    const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
+    for (const m of g.markets ?? []) {
+      if (!GAME_ARB_MARKETS.has(m.key)) continue;
+      for (const group of mutexGroups(m)) {
+        const perSide = group.map((o) => {
+          const books = (o.books ?? []).filter((b) => b.book && b.book.trim().length > 0);
+          let best = books[0] ?? null;
+          for (const b of books) if (best && impliedProb(b.price) < impliedProb(best.price)) best = b;
+          return { o, books, med: median(books.map((b) => impliedProb(b.price))), best };
+        });
+        // Need a credible consensus on every side, a named best price, and sane
+        // medians — otherwise we can't trust the fair line.
+        if (perSide.some((s) => s.books.length < MIN_VALUE_BOOKS || !s.best)) continue;
+        if (perSide.some((s) => !Number.isFinite(s.med) || s.med <= 0)) continue;
+        const sum = perSide.reduce((a, s) => a + s.med, 0);
+        if (!(sum > 0)) continue;
+
+        let bestSide: ValueBet | null = null;
+        for (const s of perSide) {
+          const fair = s.med / sum; // no-vig consensus prob for this side
+          const best = s.best!;
+          const edgePct = (fair * americanToDecimal(best.price) - 1) * 100;
+          if (edgePct < MIN_VALUE_PCT || edgePct > MAX_VALUE_PCT) continue;
+          const vb: ValueBet = {
+            id: `v|${g.id}|${m.key}|${s.o.name}${s.o.point ?? ""}`,
+            sport: g.sport,
+            game: gameLabel,
+            marketKey: m.key,
+            kind: "game",
+            startsAt: g.commenceTime,
+            label: gameLegLabel(m.key, s.o),
+            book: best.book,
+            price: best.price,
+            fairProb: fair,
+            edgePct: round1(edgePct),
+            books: s.books.length,
+          };
+          if (!bestSide || vb.edgePct > bestSide.edgePct) bestSide = vb;
+        }
+        if (bestSide) out.push(bestSide);
+      }
+    }
+  }
+  return out;
+}
+
+// Prop value: reuse the server's cross-book +EV signal (computed in props.ts from
+// the no-vig consensus of real book prices). We never recompute or invent it —
+// only surface it when it clears the same believable band and has enough books
+// and a real price+book on the value side.
+export function findPropValueBets(games: ArbPropGame[]): ValueBet[] {
+  const out: ValueBet[] = [];
+  for (const g of games ?? []) {
+    for (const p of g.props ?? []) {
+      const ev = p.ev;
+      if (ev == null || !p.evSide || p.fairProb == null) continue;
+      if (ev < MIN_VALUE_PCT || ev > MAX_VALUE_PCT) continue;
+      if ((p.books ?? 0) < MIN_VALUE_BOOKS) continue;
+      const isOver = p.evSide === "Over";
+      const price = isOver ? p.overPrice : p.underPrice;
+      const book = isOver ? p.overBook : p.underBook;
+      if (price == null || !book || !book.trim()) continue;
+      const yesNo = p.line == null;
+      const label = yesNo ? (isOver ? "Yes" : "No") : `${p.evSide} ${p.line}`;
+      out.push({
+        id: `v|${g.game}|${p.player}|${p.market}|${p.line ?? "_"}`,
+        sport: g.sport,
+        game: g.game,
+        marketKey: p.market,
+        kind: "prop",
+        player: p.player,
+        startsAt: g.startsAt ?? null,
+        label,
+        book,
+        price,
+        fairProb: p.fairProb,
+        edgePct: round1(ev),
+        books: p.books ?? 0,
       });
     }
   }

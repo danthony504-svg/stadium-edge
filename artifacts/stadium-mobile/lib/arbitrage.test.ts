@@ -6,7 +6,9 @@ import {
   computeArb,
   computeStakes,
   findGameLineArbs,
+  findGameLineValueBets,
   findPropArbs,
+  findPropValueBets,
   guaranteedReturn,
   impliedProb,
   type ArbGame,
@@ -325,6 +327,180 @@ test("findGameLineArbs rejects same-book both sides and malformed groups", () =>
     },
   ];
   assert.equal(findGameLineArbs(sameSignSpread).length, 0);
+});
+
+test("findGameLineValueBets surfaces a +EV side that is not an arb", () => {
+  // Underdog ML priced longer at one book than the no-vig consensus implies, and
+  // the best prices do NOT sum to an arb (best implied 0.303 + 0.714 > 1).
+  const games: ArbGame[] = [
+    {
+      id: "v1",
+      sport: "nba",
+      homeTeam: "Bears",
+      awayTeam: "Sharks",
+      commenceTime: "2026-06-12T00:00:00Z",
+      markets: [
+        {
+          key: "h2h",
+          outcomes: [
+            {
+              name: "Sharks",
+              price: 230,
+              books: [
+                { book: "DK", price: 230 },
+                { book: "FD", price: 200 },
+                { book: "MGM", price: 205 },
+                { book: "BR", price: 200 },
+              ],
+            },
+            {
+              name: "Bears",
+              price: -260,
+              books: [
+                { book: "FD", price: -260 },
+                { book: "MGM", price: -250 },
+                { book: "BR", price: -260 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+  // Not a guaranteed arb (best prices sum to >100% implied).
+  assert.equal(findGameLineArbs(games).length, 0);
+  const values = findGameLineValueBets(games);
+  assert.equal(values.length, 1);
+  const v = values[0];
+  assert.equal(v.kind, "game");
+  assert.equal(v.label, "Sharks ML");
+  assert.equal(v.book, "DK");
+  assert.equal(v.price, 230);
+  assert.ok(v.edgePct >= 2 && v.edgePct <= 12, `edge ${v.edgePct} in band`);
+  assert.equal(v.books, 4);
+});
+
+test("findGameLineValueBets needs enough books for a consensus", () => {
+  const thin: ArbGame[] = [
+    {
+      id: "v2",
+      sport: "nba",
+      homeTeam: "Bears",
+      awayTeam: "Sharks",
+      commenceTime: "2026-06-12T00:00:00Z",
+      markets: [
+        {
+          key: "h2h",
+          outcomes: [
+            { name: "Sharks", price: 230, books: [{ book: "DK", price: 230 }, { book: "FD", price: 200 }] },
+            { name: "Bears", price: -260, books: [{ book: "FD", price: -260 }, { book: "MGM", price: -250 }] },
+          ],
+        },
+      ],
+    },
+  ];
+  assert.equal(findGameLineValueBets(thin).length, 0);
+});
+
+test("findPropValueBets surfaces the server +EV side and gates noise", () => {
+  const games: ArbPropGame[] = [
+    {
+      game: "Celtics @ Lakers",
+      sport: "nba",
+      startsAt: "2026-06-12T00:00:00Z",
+      props: [
+        // Real +EV signal on the Over → emitted.
+        {
+          player: "Jayson Tatum",
+          market: "player_points",
+          line: 27.5,
+          overPrice: 120,
+          underPrice: -140,
+          overBook: "DraftKings",
+          underBook: "FanDuel",
+          ev: 4.2,
+          evSide: "Over",
+          fairProb: 0.55,
+          books: 5,
+        },
+        // EV below the floor → skipped.
+        {
+          player: "Below Floor",
+          market: "player_points",
+          line: 20.5,
+          overPrice: 110,
+          underPrice: -130,
+          overBook: "DK",
+          underBook: "FD",
+          ev: 1,
+          evSide: "Over",
+          fairProb: 0.52,
+          books: 5,
+        },
+        // Too few books for a credible consensus → skipped.
+        {
+          player: "Thin Books",
+          market: "player_points",
+          line: 22.5,
+          overPrice: 150,
+          underPrice: -180,
+          overBook: "DK",
+          underBook: "FD",
+          ev: 6,
+          evSide: "Over",
+          fairProb: 0.5,
+          books: 2,
+        },
+        // No server EV signal → skipped (never fabricated client-side).
+        {
+          player: "No Signal",
+          market: "player_points",
+          line: 18.5,
+          overPrice: 100,
+          underPrice: -120,
+          overBook: "DK",
+          underBook: "FD",
+        },
+      ],
+    },
+  ];
+  const values = findPropValueBets(games);
+  assert.equal(values.length, 1);
+  const v = values[0];
+  assert.equal(v.kind, "prop");
+  assert.equal(v.player, "Jayson Tatum");
+  assert.equal(v.label, "Over 27.5");
+  assert.equal(v.book, "DraftKings");
+  assert.equal(v.price, 120);
+  assert.equal(v.edgePct, 4.2);
+});
+
+test("findPropValueBets labels yes/no value markets", () => {
+  const games: ArbPropGame[] = [
+    {
+      game: "X @ Y",
+      sport: "nfl",
+      props: [
+        {
+          player: "Some Player",
+          market: "player_anytime_td",
+          line: null,
+          overPrice: 175,
+          underPrice: -220,
+          overBook: "Caesars",
+          underBook: "FD",
+          ev: 5,
+          evSide: "Over",
+          fairProb: 0.42,
+          books: 4,
+        },
+      ],
+    },
+  ];
+  const values = findPropValueBets(games);
+  assert.equal(values.length, 1);
+  assert.equal(values[0].label, "Yes");
+  assert.equal(values[0].book, "Caesars");
 });
 
 test("findPropArbs labels yes/no markets", () => {

@@ -16,12 +16,17 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getOdds, getProps, propMarketLabel, PROPS_SPORTS } from "@/lib/api";
 import {
+  americanToDecimal,
   computeStakes,
   findGameLineArbs,
+  findGameLineValueBets,
   findPropArbs,
+  findPropValueBets,
   guaranteedReturn,
+  impliedProb,
   type ArbOpportunity,
   type ArbPropGame,
+  type ValueBet,
 } from "@/lib/arbitrage";
 import { SPORTS, sportLabel } from "@/lib/sports";
 
@@ -57,13 +62,17 @@ function formatStart(iso?: string | null): string {
   });
 }
 
-// One sport's worth of opportunities: game lines for all sports, props only for
-// the sports the props endpoint actually serves.
-async function scanArb(sport: string, signal?: AbortSignal): Promise<ArbOpportunity[]> {
+type ScanResult = { arbs: ArbOpportunity[]; values: ValueBet[] };
+
+// One sport's worth of edges: guaranteed arbs AND +EV value bets, for game lines
+// (all sports) and player props (only the sports the props endpoint serves).
+async function scanArb(sport: string, signal?: AbortSignal): Promise<ScanResult> {
   const odds = await getOdds(sport, signal);
   const gameArbs = findGameLineArbs(odds);
+  const gameValues = findGameLineValueBets(odds);
 
   let propArbs: ArbOpportunity[] = [];
+  let propValues: ValueBet[] = [];
   if (PROPS_SPORTS.includes(sport)) {
     const now = Date.now();
     const HORIZON_H = sport === "soccer" ? 14 * 24 : 48;
@@ -94,9 +103,10 @@ async function scanArb(sport: string, signal?: AbortSignal): Promise<ArbOpportun
       }),
     );
     propArbs = findPropArbs(propGames);
+    propValues = findPropValueBets(propGames);
   }
 
-  return [...gameArbs, ...propArbs];
+  return { arbs: [...gameArbs, ...propArbs], values: [...gameValues, ...propValues] };
 }
 
 function StakeLeg({
@@ -258,6 +268,134 @@ function ArbCard({ opp, total }: { opp: ArbOpportunity; total: number }) {
   );
 }
 
+const VALUE_ACCENT = "#f59e0b"; // amber — distinct from the green "guaranteed" arb badge
+
+function ValueCard({ vb, total }: { vb: ValueBet; total: number }) {
+  const colors = useColors();
+  const ret = Math.round(total * americanToDecimal(vb.price) * 100) / 100;
+  const profit = Math.round((ret - total) * 100) / 100;
+  const start = formatStart(vb.startsAt);
+  const fairPct = Math.round(vb.fairProb * 100);
+  const pricePct = Math.round(impliedProb(vb.price) * 100);
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 14,
+        gap: 10,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <View
+              style={{
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+                borderRadius: 6,
+                backgroundColor: colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            >
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10 }}>
+                {sportLabel(vb.sport).toUpperCase()}
+              </Text>
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {vb.kind === "prop" ? propMarketLabel(vb.marketKey) : GAME_MARKET_LABEL[vb.marketKey] ?? vb.marketKey}
+            </Text>
+          </View>
+          {vb.player ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16, marginTop: 6 }}>
+              {vb.player}
+            </Text>
+          ) : null}
+          <Text
+            style={{
+              color: vb.player ? colors.mutedForeground : colors.foreground,
+              fontFamily: vb.player ? FONT.medium : FONT.semibold,
+              fontSize: vb.player ? 12 : 15,
+              marginTop: vb.player ? 2 : 6,
+            }}
+          >
+            {vb.game}
+          </Text>
+          {start ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
+              {start}
+            </Text>
+          ) : null}
+        </View>
+        <View
+          style={{
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: 10,
+            backgroundColor: "rgba(245,158,11,0.15)",
+            borderWidth: 1,
+            borderColor: "rgba(245,158,11,0.4)",
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.bold, fontSize: 17 }}>+{vb.edgePct}%</Text>
+          <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.semibold, fontSize: 8, letterSpacing: 0.5 }}>
+            EV EDGE
+          </Text>
+        </View>
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 12,
+          backgroundColor: colors.background,
+          borderWidth: 1,
+          borderColor: colors.border,
+          gap: 10,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>{vb.label}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 }}>
+            <Feather name="map-pin" size={11} color={colors.primary} />
+            <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>{vb.book}</Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+              · {formatOdds(vb.price)}
+            </Text>
+          </View>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>BET</Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>${total.toFixed(2)}</Text>
+        </View>
+      </View>
+
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 }}>
+        Fair win chance{" "}
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{fairPct}%</Text> vs this price's{" "}
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>{pricePct}%</Text> — a real edge across{" "}
+        {vb.books} books. Wins{" "}
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold }}>${ret.toFixed(2)}</Text> (profit{" "}
+        <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.semibold }}>${profit.toFixed(2)}</Text>) if it hits.
+      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Feather name="alert-triangle" size={11} color={VALUE_ACCENT} />
+        <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.semibold, fontSize: 11 }}>
+          Positive expected value — NOT a guaranteed win.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 export default function ArbitrageScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -281,16 +419,33 @@ export default function ArbitrageScreen() {
   const allErrored = queries.length > 0 && queries.every((q) => q.isError);
 
   const dataStamp = queries.map((q) => q.dataUpdatedAt).join(",");
-  const opportunities = useMemo(() => {
-    const all: ArbOpportunity[] = [];
-    for (const q of queries) if (q.data) all.push(...q.data);
-    // De-dupe by id (a game can surface via two sport scans only if mis-tagged)
-    // and sort biggest guaranteed edge first.
-    const seen = new Set<string>();
-    const unique = all.filter((o) => (seen.has(o.id) ? false : (seen.add(o.id), true)));
-    return unique.sort((a, b) => b.profitPct - a.profitPct);
+  const { arbs, values } = useMemo(() => {
+    const allArbs: ArbOpportunity[] = [];
+    const allValues: ValueBet[] = [];
+    for (const q of queries) {
+      if (!q.data) continue;
+      allArbs.push(...q.data.arbs);
+      allValues.push(...q.data.values);
+    }
+    // Guaranteed arbs: de-dupe by id, biggest locked-in edge first.
+    const seenA = new Set<string>();
+    const arbs = allArbs
+      .filter((o) => (seenA.has(o.id) ? false : (seenA.add(o.id), true)))
+      .sort((a, b) => b.profitPct - a.profitPct);
+    // Value bets: drop any on a market that already has a guaranteed arb (don't
+    // show the same matchup twice), de-dupe, biggest +EV first, then cap.
+    const arbMarkets = new Set(arbs.map((o) => `${o.game}|${o.marketKey}|${o.player ?? ""}`));
+    const seenV = new Set<string>();
+    const values = allValues
+      .filter((v) => !arbMarkets.has(`${v.game}|${v.marketKey}|${v.player ?? ""}`))
+      .filter((v) => (seenV.has(v.id) ? false : (seenV.add(v.id), true)))
+      .sort((a, b) => b.edgePct - a.edgePct)
+      .slice(0, 40);
+    return { arbs, values };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataStamp]);
+
+  const hasAny = arbs.length > 0 || values.length > 0;
 
   const refetchAll = () => {
     for (const q of queries) q.refetch();
@@ -311,10 +466,10 @@ export default function ArbitrageScreen() {
       >
         <View>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            Arbitrage
+            Edge Lock
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-            Bet both sides at different books for a guaranteed profit no matter the result.
+            Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
           </Text>
         </View>
 
@@ -332,9 +487,10 @@ export default function ArbitrageScreen() {
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Feather name="info" size={16} color={colors.primary} style={{ marginTop: 2 }} />
             <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 }}>
-              We scan real prices across US sportsbooks for game lines and player props.
-              When one book's Over plus another book's Under add up to under 100% implied
-              probability, that's a locked-in edge. True arbs are rare and vanish fast.
+              We scan real prices across US sportsbooks. <Text style={{ color: "#22c55e", fontFamily: FONT.semibold }}>Arbitrage</Text> bets
+              both sides at different books for a locked-in profit. <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.semibold }}>Value bets</Text> are
+              single prices that beat the market's fair value — positive expected value, but
+              not guaranteed.
             </Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -397,25 +553,50 @@ export default function ArbitrageScreen() {
               <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 14 }}>Retry</Text>
             </Pressable>
           </View>
-        ) : opportunities.length === 0 ? (
+        ) : !hasAny ? (
           <View style={{ paddingVertical: 50, alignItems: "center", gap: 12, paddingHorizontal: 20 }}>
             <Feather name="search" size={28} color={colors.mutedForeground} />
             <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, textAlign: "center" }}>
-              No arbitrage on the board right now
+              No edges on the board right now
             </Text>
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, textAlign: "center", lineHeight: 19 }}>
-              Books are priced efficiently at the moment. Arbs appear and disappear quickly —
+              Books are priced efficiently at the moment. Edges appear and disappear quickly —
               pull to refresh to scan again.
             </Text>
           </View>
         ) : (
           <>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 12 }}>
-              {opportunities.length} OPPORTUNIT{opportunities.length === 1 ? "Y" : "IES"} FOUND
-            </Text>
-            {opportunities.map((opp) => (
-              <ArbCard key={opp.id} opp={opp} total={total} />
-            ))}
+            {arbs.length > 0 ? (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Feather name="lock" size={13} color="#22c55e" />
+                  <Text style={{ color: "#22c55e", fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
+                    GUARANTEED ARBITRAGE · {arbs.length}
+                  </Text>
+                </View>
+                {arbs.map((opp) => (
+                  <ArbCard key={opp.id} opp={opp} total={total} />
+                ))}
+              </>
+            ) : null}
+
+            {values.length > 0 ? (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: arbs.length > 0 ? 6 : 0 }}>
+                  <Feather name="trending-up" size={13} color={VALUE_ACCENT} />
+                  <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
+                    VALUE BETS · {values.length}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18, marginTop: -4 }}>
+                  Higher upside. Real prices that beat the market's fair value — positive
+                  expected value, not guaranteed wins.
+                </Text>
+                {values.map((vb) => (
+                  <ValueCard key={vb.id} vb={vb} total={total} />
+                ))}
+              </>
+            ) : null}
           </>
         )}
       </ScrollView>
