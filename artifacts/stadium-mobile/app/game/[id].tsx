@@ -7,6 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
+import { GamePropsSection } from "@/components/GamePropsSection";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
@@ -652,6 +653,8 @@ export default function GameDetailScreen() {
               <MarketBlock key={m.key} game={game} market={m} decoded={d} />
             ));
           })()}
+
+          <GamePropsSection game={game} />
         </ScrollView>
       )}
       {/* Floating slip popup — this is a root-stack screen (outside the tab
