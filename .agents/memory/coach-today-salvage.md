@@ -16,14 +16,29 @@ is on the board. Two causes compound:
    is filtered out it never runs — nothing gets rebuilt from today's real games.
 
 **The fix (salvage):** right after the today filter, when `picks` emptied AND the
-model emitted pick lines AND the user NAMED a sport that still has real
-upcoming-today games, rebuild from `context.realOdds` filtered to that sport (it's
-already today-filtered) via `backfillPicks([], pool, GENERIC_BACKFILL_ORDER)`. That
-only ever appends REAL posted lines (one per game×market-family), so it never
-fabricates and never stacks correlated same-line sides. It often lands short of N
-(one match can't honestly yield 7 uncorrelated legs) — the existing honest
-leg-count note then says exactly how many held up. The today-note now renders only
-when the salvage ALSO comes up empty.
+user NAMED a sport that still has real upcoming-today games, rebuild from
+`context.realOdds` filtered to that sport (it's already today-filtered, `.sport`
+is the app id e.g. "soccer" which `focalSportsFromText` returns) via
+`backfillPicks([], pool, GENERIC_BACKFILL_ORDER)`. That only ever appends REAL
+posted lines (one per game×market-family), so it never fabricates and never stacks
+correlated same-line sides. It often lands short of N (one match can't honestly
+yield 7 uncorrelated legs) — the existing honest leg-count note then says exactly
+how many held up. The today-note now renders only when the salvage ALSO comes up
+empty.
+
+**CRITICAL — do NOT gate the salvage on `emittedPickLines > 0`.** For an ask one
+real game can't honestly fill, the model REFUSES OUTRIGHT with zero PICK lines
+(`emittedPickLines === 0`) instead of returning legs that then get filtered. An
+`emittedPickLines > 0` gate skips the salvage exactly when it's needed, and the
+user just sees the generic "board is thin" backstop. The build-intent signal is
+`requestedLegs > 0` + a named sport — NOT whether the model emitted picks. When
+the salvage builds picks out of a refusal, the model's streamed prose (`full`) is
+a refusal / stripped scaffold that CONTRADICTS the real cards, so a `salvageBuilt`
+flag replaces `finalContent` with a clean lead-in (legNote still carries the
+honest short-count). And feed `todayBuildNote` `emittedPickLines || (namedSport ?
+requestedLegs : 0)` so a refused-but-genuine named-sport build with no real today
+game shows the honest "slate too thin" note instead of silence (which falls
+through to the generic backstop).
 
 **Why:** repeatedly refusing a buildable request (zero legs while admitting "this
 has to come from <real today game>") reads as broken even when the prose is honest.

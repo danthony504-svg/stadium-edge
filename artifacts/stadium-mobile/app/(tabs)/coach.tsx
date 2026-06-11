@@ -1131,6 +1131,12 @@ export default function CoachScreen() {
         // this guarantees none reaches the slip. Runs BEFORE the reach-the-count
         // backfill so any top-up draws only from today's remaining real games.
         let todayNote = "";
+        // Set when the today-only salvage below actually built a real ticket out
+        // of nothing (the model refused / its legs were all filtered). The
+        // model's streamed prose (`full`) is then a refusal or stripped scaffold
+        // that contradicts the real cards we're about to show, so finalContent
+        // gets a clean lead-in instead of that prose.
+        let salvageBuilt = false;
         if (todayOnly) {
           const before = picks.length;
           picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
@@ -1149,9 +1155,16 @@ export default function CoachScreen() {
           // authoritative. backfillPicks' own (game, market-family) dedup keeps the
           // salvage to one main per family per game, so it never stacks correlated
           // same-line sides even when the whole ticket sits on one game.
-          if (
+          // NOTE: this fires even when the model emitted ZERO PICK lines. For an
+          // ask one real game can't honestly fill ("7 leg soccer parlay" with one
+          // soccer match on the board), the model often REFUSES outright rather
+          // than return legs that then get filtered — so an `emittedPickLines > 0`
+          // gate would skip the salvage exactly when it's needed and the user just
+          // sees the generic "board is thin" refusal. A genuine build request is
+          // signalled by an explicit leg count (requestedLegs > 0) plus a named
+          // sport (checked just below), which is enough to safely build.
+          const salvageEligible =
             picks.length === 0 &&
-            emittedPickLines > 0 &&
             requestedLegs > 0 &&
             !oddsThreshold &&
             !confidenceThreshold &&
@@ -1160,19 +1173,20 @@ export default function CoachScreen() {
             // skip it. A props-only / prop-market ask wants players, not game
             // moneylines, so don't silently fall back to game mains there either.
             !altSign &&
-            !mentionsPropIntent(trimmed)
-          ) {
-            const salvageSports = focalSportsFromText(trimmed);
-            if (salvageSports.size > 0) {
-              const salvagePool = context.realOdds.filter((e) =>
-                salvageSports.has(e.sport),
-              );
-              if (salvagePool.length > 0) {
-                picks = backfillPicks([], salvagePool, gameMeta, {
-                  target: Math.min(requestedLegs, MAX_LEGS),
-                  order: GENERIC_BACKFILL_ORDER,
-                });
-              }
+            !mentionsPropIntent(trimmed);
+          const salvageSports = salvageEligible
+            ? focalSportsFromText(trimmed)
+            : new Set<string>();
+          if (salvageEligible && salvageSports.size > 0) {
+            const salvagePool = context.realOdds.filter((e) =>
+              salvageSports.has(e.sport),
+            );
+            if (salvagePool.length > 0) {
+              picks = backfillPicks([], salvagePool, gameMeta, {
+                target: Math.min(requestedLegs, MAX_LEGS),
+                order: GENERIC_BACKFILL_ORDER,
+              });
+              if (picks.length > 0) salvageBuilt = true;
             }
           }
           // Honest, non-contradictory note (pure helper, unit-tested in
@@ -1186,7 +1200,14 @@ export default function CoachScreen() {
             todayNote = todayBuildNote({
               before,
               surviving: picks.length,
-              emittedPickLines,
+              // Treat a genuine-but-refused build (the model returned zero PICK
+              // lines) the same as an emitted one so the note is the honest
+              // "slate too thin / nothing today" message instead of silence —
+              // silence would fall through to the generic backstop refusal. Only
+              // when the user actually NAMED a sport (a targeted build that just
+              // had no real today game), so a generic no-sport refusal keeps the
+              // generic backstop.
+              emittedPickLines: emittedPickLines || (salvageSports.size > 0 ? requestedLegs : 0),
             });
           }
         }
@@ -1351,7 +1372,14 @@ export default function CoachScreen() {
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
         let finalContent = full + thresholdNote + confidenceNote + signNote + todayNote;
-        if (picks.length === 0 && emittedPickLines > 0) {
+        if (salvageBuilt) {
+          // The salvage built a real ticket out of nothing; the model's own prose
+          // was a refusal / stripped scaffold that contradicts the cards. Replace
+          // it with a clean lead-in. legNote (rendered below) carries the honest
+          // "you asked for N, only X held up" count when the ticket lands short.
+          finalContent =
+            "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
+        } else if (picks.length === 0 && emittedPickLines > 0) {
           const lead = assistantBubbleText(full, false);
           const note =
             thresholdNote ||
