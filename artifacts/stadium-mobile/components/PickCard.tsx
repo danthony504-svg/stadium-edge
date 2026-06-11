@@ -1595,3 +1595,116 @@ export function backfillPicks(
   }
   return out;
 }
+
+// Reach-the-count PROP backfill — the prop analogue of backfillPicks, used by the
+// today-only salvage when an "N-leg parlay" refusal (or an all-filtered ticket)
+// leaves only a couple of game-level mains on one match. Appends REAL posted
+// player / game props (never invented) for the SAME today games until the ticket
+// reaches `target`, so the salvage ticket isn't all moneylines/spreads on one
+// game. One leg per (game, player, market) — never two rungs of the same prop.
+// Today-gating + each leg's real kickoff come from `realToday` (the salvage's
+// already-`startsTodayUpcoming`-filtered realOdds for the named sport): only props
+// whose game appears there are eligible, so a tomorrow/started game's prop can
+// never slip in. Each leg's odds are the rung closest to even money among that
+// prop's real posted rungs (the most "main" line), skipping no-equity juice
+// (<= -1000). The edge note is honest — added to reach the size, not a model read.
+export function backfillProps(
+  existing: ParsedPick[],
+  propPool: PropPoolEntry[],
+  realToday: RealOddsLike[],
+  gameMeta: GameMeta[],
+  opts: { target: number },
+): ParsedPick[] {
+  const { target } = opts;
+  if (existing.length >= target) return existing;
+  const out = [...existing];
+  // Allowed games come from realToday (= the salvage's sport-filtered,
+  // already-startsTodayUpcoming realOdds). For each game label we keep BOTH a
+  // representative kickoff (for the leg's startsAt) AND the SET of calendar days
+  // it occurs on. propPool can include non-today props (the server prop backfill
+  // bypasses the today filter), so a game-label-only gate would let a repeated
+  // matchup (series play) on a future date inherit today's slot. We close that by
+  // date-matching each prop's OWN kickoff to an allowed day. Day-bucketing (not
+  // exact timestamp) tolerates odds-vs-props feed jitter for the same event while
+  // still excluding a different-date instance of the same matchup.
+  const dayOf = (s?: string | null): string | null => {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime())
+      ? null
+      : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  };
+  const startsAtByGame = new Map<string, string | null>();
+  const daysByGame = new Map<string, Set<string>>();
+  for (const e of realToday) {
+    const k = norm(e.game);
+    if (!startsAtByGame.has(k)) startsAtByGame.set(k, e.startsAt ?? null);
+    const day = dayOf(e.startsAt);
+    if (day) {
+      const set = daysByGame.get(k) ?? new Set<string>();
+      set.add(day);
+      daysByGame.set(k, set);
+    }
+  }
+  const legSeen = new Set(
+    out.map((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase()),
+  );
+  const ip = (o: number) => (o < 0 ? -o / (-o + 100) : 100 / (o + 100));
+  // One entry per (game, player, market): the rung closest to even money among
+  // the real posted rungs — never a deep longshot or a no-equity favorite.
+  const byKey = new Map<string, PropPoolEntry>();
+  for (const e of propPool) {
+    const k = norm(e.game);
+    if (!startsAtByGame.has(k)) continue; // named sport's allowed games only
+    if (typeof e.odds !== "number" || e.odds <= -1000) continue;
+    // Date guard: if we know both the prop's day and the game's allowed days,
+    // the prop must fall on one of them — otherwise it's a same-label game on a
+    // different date and must NOT be admitted (would be a fabricated kickoff).
+    const propDay = dayOf(e.startsAt);
+    const allowedDays = daysByGame.get(k);
+    if (propDay && allowedDays && allowedDays.size > 0 && !allowedDays.has(propDay)) {
+      continue;
+    }
+    const key = `${k}|${norm(e.player)}|${norm(e.marketLabel)}`;
+    const cur = byKey.get(key);
+    if (!cur || Math.abs(ip(e.odds) - 0.5) < Math.abs(ip(cur.odds) - 0.5)) {
+      byKey.set(key, e);
+    }
+  }
+  for (const e of byKey.values()) {
+    if (out.length >= target) break;
+    const pick =
+      e.line != null
+        ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
+        : `${e.player} ${e.marketLabel}`;
+    const legKey = `${e.game}|${e.marketLabel}|${pick}`.toLowerCase();
+    if (legSeen.has(legKey)) continue;
+    legSeen.add(legKey);
+    out.push(
+      enrichPickMeta(
+        {
+          game: e.game,
+          market: e.marketLabel,
+          pick,
+          odds: e.odds,
+          sport: e.sport,
+          isProp: true,
+          // Prefer the prop's OWN real kickoff; fall back to the game's
+          // representative kickoff only when the feed didn't carry one.
+          startsAt: e.startsAt ?? startsAtByGame.get(norm(e.game)) ?? null,
+          headshot: e.headshot ?? null,
+          teamAbbr: e.teamAbbr ?? null,
+          player: e.player,
+          athleteId: e.athleteId ?? null,
+          propMarketKey: e.marketKey,
+          propLine: e.line,
+          propSide: e.side,
+          edge:
+            "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
+        },
+        gameMeta,
+      ),
+    );
+  }
+  return out;
+}

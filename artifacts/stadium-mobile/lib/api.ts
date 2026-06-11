@@ -761,6 +761,14 @@ export function buildRealOdds(
   const out: RealOddsEntry[] = [];
   const game = `${g.awayTeam} @ ${g.homeTeam}`;
   const base = { sport: g.sport, game, startsAt: g.commenceTime };
+  // Soccer team names are multi-word ("Czech Republic", "South Korea"); the
+  // last-word `nickname` truncates them to a confusing, ambiguous moneyline /
+  // spread label ("Republic ML") that doesn't clearly name the home/away side.
+  // For soccer show the FULL team name so each leg reads "Czech Republic ML".
+  // US leagues keep the nickname ("Los Angeles Lakers" -> "Lakers"), correct
+  // there. The "Draw" outcome of a 3-way line is left as-is by either path.
+  const isSoccer = g.sport === "soccer";
+  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
   const h2h = g.markets.find((m) => m.key === "h2h");
   const spreads = g.markets.find((m) => m.key === "spreads");
   const totals = g.markets.find((m) => m.key === "totals");
@@ -776,14 +784,14 @@ export function buildRealOdds(
   if (h2h) {
     for (const o of h2h.outcomes || []) {
       if (!mainOk(o.price)) continue;
-      out.push({ ...base, market: "Moneyline", pick: `${nickname(o.name)} ML`, odds: o.price });
+      out.push({ ...base, market: "Moneyline", pick: `${teamLabel(o.name)} ML`, odds: o.price });
     }
   }
   if (spreads) {
     for (const o of spreads.outcomes || []) {
       if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      out.push({ ...base, market: "Spread", pick: `${nickname(o.name)}${pt}`, odds: o.price });
+      out.push({ ...base, market: "Spread", pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
     }
   }
   if (totals) {
@@ -871,14 +879,14 @@ export function buildRealOdds(
       if (pml) {
         for (const o of pml.outcomes || []) {
           if (o.price == null || !mainOk(o.price)) continue;
-          out.push({ ...base, market: `${plabel} Moneyline`, pick: `${nickname(o.name)} ML`, odds: o.price });
+          out.push({ ...base, market: `${plabel} Moneyline`, pick: `${teamLabel(o.name)} ML`, odds: o.price });
         }
       }
       if (psp) {
         for (const o of psp.outcomes || []) {
           if (o.price == null || !mainOk(o.price)) continue;
           const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-          out.push({ ...base, market: `${plabel} Spread`, pick: `${nickname(o.name)}${pt}`, odds: o.price });
+          out.push({ ...base, market: `${plabel} Spread`, pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
         }
       }
       if (ptot) {
@@ -990,6 +998,10 @@ export type PropPoolEntry = {
   line: number | null;
   side: "Over" | "Under";
   odds: number;
+  // Real event kickoff (ISO) carried from RealPropEntry. The today-only salvage
+  // date-gates each prop by its OWN kickoff, so a repeated matchup (series play)
+  // on a future date can't pass a game-label-only check and inherit today's time.
+  startsAt?: string | null;
   // Render-only metadata (real ESPN data, never sent to the AI). headshot is the
   // player photo; teamAbbr is the player's team code resolved via playerTeamId.
   headshot?: string | null;
@@ -2163,10 +2175,10 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
     if (p.over != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market, startsAt: p.startsAt });
     }
     if (p.line != null && p.under != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt });
     }
   }
   return out;

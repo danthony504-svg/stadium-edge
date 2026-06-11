@@ -30,6 +30,7 @@ import {
   parsePicks,
   parseEdgeStats,
   backfillPicks,
+  backfillProps,
   norm,
   marketFamily,
   ALT_BACKFILL_ORDER,
@@ -1182,9 +1183,21 @@ export default function CoachScreen() {
               salvageSports.has(e.sport),
             );
             if (salvagePool.length > 0) {
+              const tgt = Math.min(requestedLegs, MAX_LEGS);
               picks = backfillPicks([], salvagePool, gameMeta, {
-                target: Math.min(requestedLegs, MAX_LEGS),
+                target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
+              });
+              // Top up with REAL player/game props from the SAME today-upcoming
+              // games so the salvage ticket isn't all moneylines/spreads on one
+              // match (user: "what about all the player and game props"). Honest:
+              // backfillProps only emits real posted prop lines and is today-gated
+              // to the games in salvagePool (already startsTodayUpcoming-filtered),
+              // so it never fabricates or reaches a tomorrow/started game. When the
+              // game has no real props (e.g. club soccer) it adds nothing and the
+              // ticket stays game-lines only — still honest, still real.
+              picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
+                target: tgt,
               });
               if (picks.length > 0) salvageBuilt = true;
             }

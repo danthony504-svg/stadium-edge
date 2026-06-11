@@ -44,6 +44,42 @@ through to the generic backstop).
 has to come from <real today game>") reads as broken even when the prose is honest.
 A short real ticket beats zero.
 
+**Salvage must include PROPS, not just game lines.** The first salvage cut only
+ran `backfillPicks(GENERIC_BACKFILL_ORDER)` = full-game Moneyline/Spread/Total, so
+a one-game soccer ask salvaged to ~3 legs all on that match — user: "what about
+all the player and game props". Fix = a sibling `backfillProps(existing, propPool,
+realToday, gameMeta, {target})` in PickCard.tsx (the prop analogue of
+backfillPicks) called right after the game-line backfill. It emits REAL posted
+prop legs only (one per game×player×market, rung closest to even money, skip
+<= -1000 juice), today-gated by deriving the allowed-game set + each leg's real
+kickoff from `realToday` (= salvagePool, already `startsTodayUpcoming`-filtered) —
+so a tomorrow/started game's prop can never slip in, and it fabricates nothing.
+
+**Game-label-only today-gating LEAKS — must date-match per prop.** `propPool`
+(mergedPropPool) can contain NON-today props because the server prop backfill
+bypasses the today filter. So gating a prop solely by "its game label is in
+realToday" lets a REPEATED matchup (series play, same Away@Home on a later date)
+pass and inherit today's kickoff — a fabricated start time. Fix: thread the real
+`startsAt` onto `PropPoolEntry` (copied from `RealPropEntry.startsAt` in
+`propPoolFromRealProps`) and in backfillProps build a per-label SET of allowed
+calendar days from realToday; a prop is admitted only if its OWN day is in that
+set. **Day-bucket, not exact timestamp** — odds vs props come from different feeds
+and the ISO can jitter for the same event, so exact-match would over-exclude and
+starve props; same-date doubleheaders are both today so admitting either is honest.
+The emitted leg uses the prop's own startsAt (game's only as fallback).
+Pick-string + fields mirror `matchProp` exactly (`player side line marketLabel`
+or `player marketLabel` for yes/no; isProp, headshot, athleteId, propMarketKey,
+propSide, propLine) so slip dedupe / tap-to-stats parity holds; runs through
+`enrichPickMeta` for the AWAY@HOME subtitle. No real props for the game (club
+soccer) → adds nothing, ticket stays honest game-lines only.
+
+**Soccer ML/spread label was truncated.** `nickname()` = last word, so soccer
+multi-word names collapse confusingly ("Czech Republic" → "Republic ML"). Fixed in
+`buildRealOdds`: a `teamLabel(name)` = soccer? full name : nickname, applied to
+full-game AND period ML+Spread emits. US leagues keep the nickname. The change is
+at the SOURCE entry (buildRealOdds), so every downstream consumer (backfill, slip,
+dedupe, AI context) sees the same corrected string — no per-surface patching.
+
 **How to apply / mandatory gates:** the salvage MUST be excluded for:
 - `altSign` (`+alt`/`-alt`): the sign filter already ran earlier, so unsigned
   generic mains would violate the lock and never get re-validated.
