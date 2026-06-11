@@ -31,10 +31,12 @@ same matchup as both). Values sorted by `edgePct` desc, capped ~40.
 **Near-term horizon gotcha:** game-line arbs/values had NO horizon filter, so the Odds API's
 genuinely-real but far-out slates (e.g. NFL Week 1 posted in June, 3 months out) appeared with
 `formatStart` showing only weekday+time ("Sun 12:00 PM") → looked like THIS week. Fix = filter
-`getOdds` to a near-term window (`GAME_HORIZON_H = 10*24`, same `now-4h` lower bound) BEFORE
-findGameLine*; props path already had its own 48h/soccer-14d gate (that's why only game-line arbs
-leaked). Also added month+day to `formatStart` so dates are never ambiguous. The data was real —
-the bug was scope+display, not fabrication.
+`getOdds` to the app's standard near-term "pickable" window (`NEAR_TERM_H = 48`, `now-4h` lower
+bound) BEFORE findGameLine*, and the prop path reuses the SAME `nearTerm` set (dropped the old
+soccer-14d special-case). Also added month+day to `formatStart` so dates are never ambiguous.
+**Why 48h not wider:** user rejected BOTH out-of-season NFL (Sept) AND merely-days-out soccer
+(Jun 16/17) — edges days out are stale/unactionable; keep the board to imminent games only. The
+data was real — the bug was scope+display, not fabrication.
 
 Web (stadium-edge) has **no** arbitrage page — this is mobile-only. api-server prop `ev`
 fields were already real (no server change needed).

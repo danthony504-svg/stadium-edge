@@ -71,27 +71,24 @@ type ScanResult = { arbs: ArbOpportunity[]; values: ValueBet[] };
 async function scanArb(sport: string, signal?: AbortSignal): Promise<ScanResult> {
   const odds = await getOdds(sport, signal);
   const now = Date.now();
-  // Only scan near-term games. Books post some slates (e.g. NFL Week 1) months
-  // early, and an out-of-season game shown as "Sun 12:00 PM" reads as if it were
-  // this week. Lines that far out are also stale/unactionable, so we cap the
-  // window — keeping a full week-plus of real, near-term edges.
-  const GAME_HORIZON_H = 10 * 24;
-  const nearTerm = odds.filter((g) => {
-    const t = Date.parse(g.commenceTime);
-    return !Number.isNaN(t) && t > now - 4 * 3600_000 && t < now + GAME_HORIZON_H * 3600_000;
-  });
+  // Only scan near-term games (the app's standard "pickable" window). Books post
+  // some slates months early (e.g. NFL Week 1) and edges days out are stale and
+  // unactionable, so we cap to imminent games — matching the rest of the app and
+  // keeping the board to what a bettor can actually place now.
+  const NEAR_TERM_H = 48;
+  const isNearTerm = (iso: string) => {
+    const t = Date.parse(iso);
+    return !Number.isNaN(t) && t > now - 4 * 3600_000 && t < now + NEAR_TERM_H * 3600_000;
+  };
+  const nearTerm = odds.filter((g) => isNearTerm(g.commenceTime));
   const gameArbs = findGameLineArbs(nearTerm);
   const gameValues = findGameLineValueBets(nearTerm);
 
   let propArbs: ArbOpportunity[] = [];
   let propValues: ValueBet[] = [];
   if (PROPS_SPORTS.includes(sport)) {
-    const HORIZON_H = sport === "soccer" ? 14 * 24 : 48;
-    const pickable = odds
-      .filter((g) => {
-        const t = Date.parse(g.commenceTime);
-        return !Number.isNaN(t) && t > now - 4 * 3600_000 && t < now + HORIZON_H * 3600_000;
-      })
+    const pickable = nearTerm
+      .slice()
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime))
       .slice(0, ARB_MAX_GAMES);
 
