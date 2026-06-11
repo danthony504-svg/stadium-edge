@@ -2040,17 +2040,21 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       // meant 35-80s of SILENT thinking before the first visible token — the
       // user saw a blank screen and gave up ("not loading"). The picks come
       // straight from the real-data context block and the rules are spelled
-      // out explicitly in the system prompt, so the model doesn't need deep
-      // open-ended reasoning to follow them. "low" STILL left >25s of silent
-      // thinking on the full LIVE context (user gave up again), so we drop to
-      // "none" — the lowest setting — to push time-to-first-token to a few
-      // seconds. The picks come straight from the real-data context block,
-      // and the client-side PICK validation drops any stray rule violations, so
-      // minimal reasoning is an acceptable trade for actually streaming a ticket.
-      // NOTE: the model dropped support for "minimal" (now returns a 400 that
-      // surfaces to users as "AI service is temporarily unavailable"); the
-      // supported floor is "none". Bump back up only if pick quality regresses.
-      reasoning_effort: "none",
+      // out explicitly in the system prompt. We previously ran this at "minimal"
+      // for fast time-to-first-token, but the model DROPPED support for "minimal"
+      // (now 400s with unsupported_value, which surfaced to users as "AI service
+      // is temporarily unavailable" on every chat). The supported ladder is
+      // none | low | medium | high | xhigh. We first dropped to "none", but with
+      // ZERO reasoning the model could not reliably execute the multi-step
+      // thin-slate / sport-scope build logic — on a thin soccer "today" slate it
+      // returned a self-contradictory zero-leg refusal ("I can build the safest
+      // 7-leg... [then] nothing is upcoming") instead of the short honest ticket
+      // the prompt mandates. "low" restores enough reasoning for that logic while
+      // staying near the bottom of the ladder; the SSE heartbeat (250ms pings)
+      // plus the early "Pulling real odds…" status frame already mask the longer
+      // silent time-to-first-token that originally pushed us off "low", so the
+      // user no longer sees a blank screen. Bump further only if quality regresses.
+      reasoning_effort: "low",
       messages,
       stream: true,
     }, { signal: upstreamAbort.signal });
