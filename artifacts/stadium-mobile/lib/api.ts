@@ -2207,7 +2207,26 @@ function abortError(): Error {
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
 export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls, onProps }: StreamChatArgs): Promise<string> {
-  const STALL_MS = 4000; // max gap between chunks before we call the link dead
+  // Max gap between chunks AFTER the first content token. Once the model is
+  // streaming, the proxy is in pass-through and frames (real tokens + ~400ms
+  // keep-alive pings) flow in real-time, so a multi-second gap then genuinely
+  // means a dropped link.
+  const STALL_MS = 4000;
+  // Max wait for the FIRST content token (the read phase BEFORE any tokens). The
+  // Replit path-based proxy BUFFERS the entire SSE response — status frame, the
+  // resolved props frame, AND every keep-alive ping — and only flushes to the
+  // client once the upstream reasoning model emits its first real content. So
+  // during the model's silent time-to-first-token window the client receives
+  // ZERO bytes no matter how often the server pings (verified on the wire: an
+  // ~8.5s status→first-content silence on a 200KB context, longer on a big
+  // multi-leg build). A 4s stall watchdog therefore tripped on EVERY attempt
+  // before the build could even start, and each retry hit the identical silence
+  // → exhaustion → "I lost the connection while building your ticket". We give
+  // the pre-content phase a generous ceiling that covers worst-case reasoning +
+  // proxy buffering; a genuinely dead link still aborts and retries, just later.
+  // Once the first token lands the proxy switches to pass-through and we tighten
+  // back to STALL_MS for the rest of the stream.
+  const FIRST_TOKEN_MS = 45000;
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body (the full real-data context — ~120 odds + the prop pool + matchup/fight
   // analysis runs to tens of KB) AND the server's time-to-first-byte. On a weak
@@ -2282,15 +2301,19 @@ export async function streamChat({ messages, context, onToken, signal, imageData
       // recovery (the server logged "request aborted" while the client's await
       // never settled). So we NEVER `await reader.read()` directly: we race it
       // against a stall timer. If no chunk (a real token OR a server keep-alive
-      // ping) arrives within STALL_MS the link is dead — we abort to free the
-      // socket and bail to the retry logic WITHOUT waiting on the (possibly hung)
-      // read. The server pings ~every 400ms even while the reasoning model is
-      // silent before its first token, so a multi-second gap unambiguously means
-      // a dropped connection, never a healthy slow start.
+      // ping) arrives within the read budget the link is dead — we abort to free
+      // the socket and bail to the retry logic WITHOUT waiting on the (possibly hung)
+      // read. The budget is two-phase: BEFORE the first content token the proxy
+      // buffers everything (even keep-alive pings) until the model starts, so the
+      // client legitimately receives nothing for the model's whole time-to-first-
+      // token — we wait up to FIRST_TOKEN_MS. AFTER the first token the proxy is
+      // in pass-through and frames flow in real-time, so a STALL_MS gap then
+      // unambiguously means a dropped connection.
       while (true) {
         let stallTimer: ReturnType<typeof setTimeout> | null = null;
+        const readBudget = sawContent ? STALL_MS : FIRST_TOKEN_MS;
         const stall = new Promise<typeof STALL>((resolve) => {
-          stallTimer = setTimeout(() => resolve(STALL), STALL_MS);
+          stallTimer = setTimeout(() => resolve(STALL), readBudget);
         });
         let result: Awaited<ReturnType<typeof reader.read>> | typeof STALL;
         try {

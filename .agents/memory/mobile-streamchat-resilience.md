@@ -24,10 +24,19 @@ full real-data context — ~120 odds + prop pool + matchup/fight analysis = tens
 KB) over a weak uplink before headers arrive.
 
 **Retry-tuning constraints (don't relax blindly):**
-- `STALL_MS` (mid-stream gap) can stay ~4s because the server heartbeat writes a
-  `data:{ping:1}` frame after >=400ms idle (interval checks every 250ms), so the
-  client sees activity every ~400-650ms even during the model's silent
-  time-to-first-token. The client resets its stall watchdog on ANY chunk.
+- The stall watchdog is **TWO-PHASE**, NOT a single STALL_MS. CORRECTION to an
+  earlier belief: server keep-alive pings do **NOT** reach the client during the
+  model's pre-first-token window — the Replit proxy buffers the WHOLE response
+  (status + props + every ping, even 2KB-padded) until the upstream emits its
+  first real content. So a flat 4s STALL_MS tripped on EVERY attempt before a big
+  build could start → "I lost the connection while building your ticket". See
+  chat-sse-heartbeat.md ("proxy buffers EVERYTHING until first token").
+- Fix: `FIRST_TOKEN_MS` (~45s) for reads taken while `sawContent === false`
+  (covers worst-case reasoning + proxy buffering, during which the client legit
+  receives zero bytes), then tighten to `STALL_MS` (~4s) once the first token
+  lands — AFTER first token the proxy is pass-through and frames/pings DO flow in
+  real-time, so a 4s gap then is a real drop. Retry safety preserved: still
+  `!sawContent` during the long wait, so a genuine pre-token death still retries.
 - `CONNECT_MS` must cover body-upload + TTFB, not just TTFB. Raised 8s→12s.
 - Backoff must be **abort-aware** (clear timer + resolve on the caller's signal)
   or a user cancel waits out the delay; and skipped after the final attempt.

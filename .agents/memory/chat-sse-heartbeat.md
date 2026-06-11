@@ -136,6 +136,43 @@ real token ~5-6s (with `reasoning_effort:"minimal"`).
 Confirm the first `data:` chunk lands sub-second through the PUBLIC `$REPLIT_DEV_DOMAIN`
 proxy, not just localhost.
 
+# Proxy buffers EVERYTHING until the model's first token — heartbeats CANNOT bridge pre-first-token (client two-phase timeout is the real fix)
+
+A later mobile "I lost the connection while building your ticket" on a big build
+(7-leg soccer) proved a HARDER limit than the idle/gzip buffering above. Reproduced
+on the wire through `$REPLIT_DEV_DOMAIN/api/chat` with a ~135KB body (and even with
+identity encoding — so this is NOT the gzip case): the client receives the initial
+status burst, then **TOTAL on-the-wire silence for the model's entire
+time-to-first-token** (~8.5s on a 200KB context, longer on a real big build), then
+status's props + first content arrive together in a flush.
+
+Server `[chattiming]` logs proved the event loop is NOT blocked: props frame written
+at +0ms, ~10 keep-alive pings written during the silent window, `create()` resolved
+at +6855ms, first token +6857ms. Yet the client got NONE of those pings/props until
+first content. **So the Replit proxy buffers the whole SSE response — status, the
+props frame, AND every keep-alive ping (even 2KB-padded ones) — and only flushes
+once the upstream reasoning model emits its first REAL content.** No server-side
+heartbeat (padded or not, any cadence) can put bytes on the client's wire during
+that window. (Padding the per-ping frame to 2KB was tried and REVERTED — it changed
+nothing pre-first-token.)
+
+**Why the old "pings every 0.4-0.65s during TTFB" belief was wrong:** earlier tests
+used SMALL contexts where `create()` resolved in ~1s, so the buffered window was
+short and the post-first-token ping flow (which IS real-time — verified pings every
+~260ms AFTER content starts) looked like it spanned TTFB. It didn't. Pre-first-token
+pings are always buffered.
+
+**The real fix is CLIENT-SIDE, two-phase (mobile streamChat):** use a generous
+`FIRST_TOKEN_MS` (~45s) for the stall watchdog while `sawContent === false`, then
+tighten to `STALL_MS` (~4s) after the first content token. Before content the client
+legitimately gets zero bytes (proxy buffering) so it must be patient; after content
+the proxy is pass-through and frames flow real-time so a short stall is correct.
+Retry safety is preserved (still `!sawContent` during the wait → genuine pre-token
+death still retries). The server heartbeat is STILL worth keeping for MID-STREAM
+pauses (after first token it does flow), but it does nothing for the pre-first-token
+window — don't try to fix that window on the server. NOTE: a client change ships via
+a native build, not OTA (see ota-update-unsafe-appversion.md).
+
 # Named-game context trim — cut prefill when every leg is locked to one matchup
 
 Single-game parlay requests ("Spurs @ Thunder, 10 legs") still carried the FULL
