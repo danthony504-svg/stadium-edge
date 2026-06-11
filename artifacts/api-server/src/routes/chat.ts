@@ -2043,12 +2043,14 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       // out explicitly in the system prompt, so the model doesn't need deep
       // open-ended reasoning to follow them. "low" STILL left >25s of silent
       // thinking on the full LIVE context (user gave up again), so we drop to
-      // "minimal" — the lowest gpt-5.4 setting — to push time-to-first-token to
-      // a few seconds. The picks come straight from the real-data context block,
+      // "none" — the lowest setting — to push time-to-first-token to a few
+      // seconds. The picks come straight from the real-data context block,
       // and the client-side PICK validation drops any stray rule violations, so
       // minimal reasoning is an acceptable trade for actually streaming a ticket.
-      // Bump back up only if pick quality visibly regresses.
-      reasoning_effort: "minimal",
+      // NOTE: the model dropped support for "minimal" (now returns a 400 that
+      // surfaces to users as "AI service is temporarily unavailable"); the
+      // supported floor is "none". Bump back up only if pick quality regresses.
+      reasoning_effort: "none",
       messages,
       stream: true,
     }, { signal: upstreamAbort.signal });

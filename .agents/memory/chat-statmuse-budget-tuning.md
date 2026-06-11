@@ -33,7 +33,13 @@ asked to remove. teamFetches/questionFetch/periodLogFetches are already gated to
 named-game / explicit-stat / period intent and are fine as-is.
 
 ## Already at the floor (don't re-investigate as a speed lever)
-The model is `gpt-5.4` at `reasoning_effort: "minimal"` (lowest setting) with an
-idle-aware SSE heartbeat — that was the biggest TTFT win and there is no lower
-reasoning setting. Base odds/props pool is client-supplied; server only does
+The model is `gpt-5.4` at `reasoning_effort: "none"` (lowest supported setting)
+with an idle-aware SSE heartbeat — that was the biggest TTFT win and there is no
+lower reasoning setting. Base odds/props pool is client-supplied; server only does
 fresh-fetch fallbacks + this enrichment.
+
+> NOTE: the floor was `"minimal"` until the model dropped support for it (started
+> returning a 400 `unsupported_value` that surfaced to users as "AI service is
+> temporarily unavailable" on EVERY chat). Supported values are now
+> `none|low|medium|high|xhigh`; `"none"` is the new floor. See
+> `reasoning-effort-minimal-removed.md`.
