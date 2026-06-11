@@ -93,3 +93,24 @@ export function todayBuildNote(opts: {
   }
   return "";
 }
+
+// Does the user's message express PROP intent (explicit "props"/"player props",
+// a specific prop market like strikeouts / home runs / shots / receptions, or a
+// points-as-prop phrasing)? Used to keep a real props-only / prop-market ask from
+// falling back to GAME-LEVEL mains: both the reach-the-count backfill and the
+// today-only salvage skip the game-main fill when this is true so a "6 home run
+// hitters" / "strikeout parlay" stays in props instead of silently becoming
+// moneylines. A GENERIC "6-leg parlay for tonight" carries none of these words,
+// so it returns false and the game-main fill stays available.
+export function mentionsPropIntent(text?: string | null): boolean {
+  const t = String(text || "");
+  return (
+    /\b(props?|prop bets?|player props?)\b/i.test(t) ||
+    /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
+      t,
+    ) ||
+    /\b(points?|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points?|pts)\b/i.test(
+      t,
+    )
+  );
+}

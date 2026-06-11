@@ -66,6 +66,7 @@ import {
   searchTeam,
   startsTodayUpcoming,
   todayBuildNote,
+  mentionsPropIntent,
   streamChat,
   type AltSign,
   type ChatMessage,
@@ -1133,16 +1134,61 @@ export default function CoachScreen() {
         if (todayOnly) {
           const before = picks.length;
           picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
+          // (it reached for props on non-today games via the server's prop
+          // backfill, or whiffed) WHILE the user named a sport that still has a
+          // real upcoming-today game on the board. Rather than show zero, build
+          // the best real ticket today's remaining game(s) honestly support from
+          // their full-game mains — never fabricating: backfillPicks only appends
+          // real realOdds entries, which are already today-filtered here, so every
+          // leg is real, today, and upcoming. One soccer match can't honestly
+          // yield 7 uncorrelated legs, so this often lands short of the requested
+          // count — the honest leg-count note below says exactly how many held up.
+          // Gated to a NAMED sport (a generic "today" ask keeps prior behavior)
+          // and skipped under the odds/confidence locks whose own filters stay
+          // authoritative. backfillPicks' own (game, market-family) dedup keeps the
+          // salvage to one main per family per game, so it never stacks correlated
+          // same-line sides even when the whole ticket sits on one game.
+          if (
+            picks.length === 0 &&
+            emittedPickLines > 0 &&
+            requestedLegs > 0 &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            // A "+ alt" / "- alt" sign lock already ran its own filter above; a
+            // salvage of unsigned game mains would violate the requested sign, so
+            // skip it. A props-only / prop-market ask wants players, not game
+            // moneylines, so don't silently fall back to game mains there either.
+            !altSign &&
+            !mentionsPropIntent(trimmed)
+          ) {
+            const salvageSports = focalSportsFromText(trimmed);
+            if (salvageSports.size > 0) {
+              const salvagePool = context.realOdds.filter((e) =>
+                salvageSports.has(e.sport),
+              );
+              if (salvagePool.length > 0) {
+                picks = backfillPicks([], salvagePool, gameMeta, {
+                  target: Math.min(requestedLegs, MAX_LEGS),
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
+            }
+          }
           // Honest, non-contradictory note (pure helper, unit-tested in
-          // slate.test.ts). Never claims "nothing is upcoming" — todayOnly being
-          // true guarantees a game is still to come; it instead distinguishes
-          // "legs were on started/non-today games" (before>0) from "slate too
-          // thin to ground the requested ticket" (before===0, the soccer case).
-          todayNote = todayBuildNote({
-            before,
-            surviving: picks.length,
-            emittedPickLines,
-          });
+          // slate.test.ts) — only when the salvage above ALSO came up empty (no
+          // real today game in the named sport, or no sport named). Never claims
+          // "nothing is upcoming"; todayOnly being true guarantees a game is still
+          // to come, so it distinguishes "legs were on started/non-today games"
+          // (before>0) from "slate too thin to ground the requested ticket"
+          // (before===0, the soccer case).
+          if (picks.length === 0) {
+            todayNote = todayBuildNote({
+              before,
+              surviving: picks.length,
+              emittedPickLines,
+            });
+          }
         }
         // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
         // REACH-N rule and returns a leg or two short even when the real board has
@@ -1241,14 +1287,7 @@ export default function CoachScreen() {
             // server's MARKET_KEYWORDS so a real props-only / prop-market lock
             // ("player props only", "6 home run hitters", "strikeout parlay")
             // still skips the game-main fill and stays in props.
-            const mentionsProps =
-              /\b(props?|prop bets?|player props?)\b/i.test(trimmed) ||
-              /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
-                trimmed,
-              ) ||
-              /\b(points?|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points?|pts)\b/i.test(
-                trimmed,
-              );
+            const mentionsProps = mentionsPropIntent(trimmed);
             if (!allProps || !mentionsProps) {
               const gameLegs = picks.filter((p) => !p.isProp);
               // The single-game / sport lock that scopes the fill pool is computed
