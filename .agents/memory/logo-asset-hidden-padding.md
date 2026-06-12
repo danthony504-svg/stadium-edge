@@ -14,15 +14,20 @@ roughly **34% transparent bands on the top AND bottom**, plus ~10% side margins.
 floating centered in the box — looks like a tiny logo in a big empty gap. This is
 what caused the Player Props header "logo + search bar at top look off" report.
 
-**Fix in place:** `assets/images/logo-wordmark.png` (1584×270, aspect ~5.87) is the
-tightly-cropped version. Both the Player Props header (`app/(tabs)/props.tsx`) AND the
-Home header (`app/(tabs)/index.tsx`) use it at
-`width:Math.min(250, screenWidth-32), aspectRatio:1584/270, paddingTop:insets.top+6`
-for a flush, compact header that pins logo + search bar to the top (no big empty gap).
+**A trimmed `logo-wordmark.png` (1584×270) exists** and was briefly used in the Home +
+Player Props headers, BUT the user reverted it.
 
-**How to apply:** for any FLUSH/compact header, use `logo-wordmark.png`, not
-`logo.png`. The original padded `logo.png` is still used intentionally by
-`(auth)/welcome.tsx` and `components/auth.tsx` at their own fixed sizes — do NOT swap
-those without re-tuning each box, since trimming changes the effective render size. If
-a global trim is ever wanted, overwrite `logo.png` and re-size those call sites
-together.
+**USER PREFERENCE (authoritative): keep the FULL original `logo.png` at its original
+size on every header — Home (`app/(tabs)/index.tsx`) AND Player Props
+(`app/(tabs)/props.tsx`) — at `width:"100%", height:130, marginTop:-8`.** The user
+WANTS the larger full-width logo and is fine with the surrounding whitespace; they
+explicitly asked to change it "back to original size." Do NOT swap back to
+`logo-wordmark.png` to "fix the gap" — that is not a bug to them.
+Also: `fadeDuration={0}` on those `<Image>`s so the logo paints instantly (no
+Android fade / "loaded in" flash); the header is already pinned via
+`stickyHeaderIndices={[0]}`.
+
+**How to apply:** use `logo.png` at `width:"100%", height:130` for the mobile
+Home/Props headers. `logo-wordmark.png` is now unused by tabs (kept as an asset only).
+`(auth)/welcome.tsx` and `components/auth.tsx` also use `logo.png` at their own fixed
+sizes.

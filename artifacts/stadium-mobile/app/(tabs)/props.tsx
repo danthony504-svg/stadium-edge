@@ -12,7 +12,6 @@ import {
   ScrollView,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -339,7 +338,6 @@ function TeamResultRow({
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
@@ -947,17 +945,14 @@ export default function PropsScreen() {
             of the page (including while props are loading), so the content below
             scrolls underneath them instead of pushing them around. */}
         <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo — tightly-cropped wordmark so it sits flush at the top without the
-            large empty bands the full logo asset carries. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 10, alignItems: "center" }}>
+        {/* Logo — full Stadium Edge logo at its original size, pinned to the top
+            and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
           <Image
-            source={require("@/assets/images/logo-wordmark.png")}
-            style={{
-              width: Math.min(250, screenWidth - 32),
-              maxWidth: "100%",
-              aspectRatio: 1584 / 270,
-            }}
+            source={require("@/assets/images/logo.png")}
+            style={{ width: "100%", height: 130, marginTop: -8 }}
             resizeMode="contain"
+            fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
         </View>

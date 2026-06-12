@@ -8,7 +8,6 @@ import {
   RefreshControl,
   ScrollView,
   Text,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -133,7 +132,6 @@ function FeaturedAvatar({
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { width: screenWidth } = useWindowDimensions();
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
@@ -335,17 +333,14 @@ export default function HomeScreen() {
             of the page (including while featured props load) instead of scrolling
             away; the content below scrolls underneath them. */}
         <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo — tightly-cropped wordmark so it sits flush at the top without the
-            large empty bands the full logo asset carries. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 10, alignItems: "center" }}>
+        {/* Logo — full Stadium Edge logo at its original size, pinned to the top
+            and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
           <Image
-            source={require("@/assets/images/logo-wordmark.png")}
-            style={{
-              width: Math.min(250, screenWidth - 32),
-              maxWidth: "100%",
-              aspectRatio: 1584 / 270,
-            }}
+            source={require("@/assets/images/logo.png")}
+            style={{ width: "100%", height: 130, marginTop: -8 }}
             resizeMode="contain"
+            fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
         </View>
