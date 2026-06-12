@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { GetOddsQueryParams, GetOddsResponse } from "@workspace/api-zod";
-import { ODDS_SPORT_KEYS, cachedJson, rateLimit } from "../lib/sports";
+import { ODDS_SPORT_KEYS, resolveOddsKeys, cachedJson, rateLimit } from "../lib/sports";
 import { resolveWorldCupTeam } from "./props";
 
 const router: IRouter = Router();
@@ -31,14 +31,15 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     return;
   }
   const sportId = parsed.data.sport.toLowerCase();
-  const oddsKeyRaw = ODDS_SPORT_KEYS[sportId];
-  if (!oddsKeyRaw) {
+  if (ODDS_SPORT_KEYS[sportId] === undefined) {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
   // Some app sports fan out to MULTIPLE Odds API keys (soccer = several
-  // leagues, tennis = ATP + WTA). Normalize to an array and fetch+merge all.
-  const oddsKeys = Array.isArray(oddsKeyRaw) ? oddsKeyRaw : [oddsKeyRaw];
+  // leagues, tennis = the active ATP + WTA tournaments) which are fetched and
+  // merged. Tennis keys are resolved dynamically from the live Odds API calendar
+  // (the per-tournament keys change week to week); everything else is static.
+  const oddsKeys = await resolveOddsKeys(sportId);
   // Tennis is winner-odds (moneyline) ONLY by product requirement — no
   // spreads/totals/alt/period markets. Enforce it server-side (don't even
   // request them) so the feed can never surface anything beyond h2h, rather

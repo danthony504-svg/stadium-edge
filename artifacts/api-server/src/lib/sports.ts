@@ -27,8 +27,53 @@ export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
   ncaaf: "americanfootball_ncaaf",
   ncaab: "basketball_ncaab",
   ufc: "mma_mixed_martial_arts",
+  // Fallback only — tennis keys are resolved dynamically (see resolveOddsKeys).
+  // The Odds API has a separate key per tournament, so a hardcoded major goes
+  // empty the moment that major ends.
   tennis: ["tennis_atp_french_open", "tennis_wta_french_open"],
 };
+
+// Resolve the Odds API sport key(s) to fetch for an app sport.
+//
+// Most sports map to a fixed key (or a fixed set). TENNIS is different: the Odds
+// API has a SEPARATE key per tournament (tennis_atp_french_open,
+// tennis_wta_wimbledon, tennis_wta_queens_club_champ, ...) and only the events
+// currently being played are flagged `active`. Pinning the tab to one major's
+// keys means it goes empty the moment that major ends (e.g. after Roland-Garros
+// the live grass-court events live under entirely different keys). So for tennis
+// we discover the active ATP/WTA tournament keys from the Odds API sports list
+// (cached 30 min) and fetch those, keeping the tab in step with the live
+// calendar. Fail-safe: on any error, or if nothing is active, fall back to the
+// static keys.
+export async function resolveOddsKeys(sportId: string): Promise<string[]> {
+  const raw = ODDS_SPORT_KEYS[sportId];
+  const staticKeys = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  if (sportId !== "tennis") return staticKeys;
+  const apiKey = process.env["ODDS_API_KEY"];
+  if (!apiKey) return staticKeys;
+  try {
+    const list = await cachedJson<Array<{ key?: string; active?: boolean }>>(
+      "odds:sportslist:v1",
+      30 * 60 * 1000,
+      async () => {
+        const r = await fetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${apiKey}`);
+        if (!r.ok) throw new Error(`Odds API sports list ${r.status}`);
+        return (await r.json()) as Array<{ key?: string; active?: boolean }>;
+      },
+    );
+    const active = list
+      .filter(
+        (s) =>
+          s.active === true &&
+          typeof s.key === "string" &&
+          (s.key.startsWith("tennis_atp_") || s.key.startsWith("tennis_wta_")),
+      )
+      .map((s) => s.key as string);
+    return active.length ? active : staticKeys;
+  } catch {
+    return staticKeys;
+  }
+}
 
 export const ESPN_SPORT_PATHS: Record<string, string> = {
   nfl: "football/nfl",
