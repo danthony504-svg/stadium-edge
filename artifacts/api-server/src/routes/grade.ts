@@ -81,6 +81,106 @@ async function fetchFinals(sportPath: string): Promise<FinalGame[]> {
   return out;
 }
 
+// ── Golf outright grading ────────────────────────────────────────────────────
+// Golf legs are outright "<Golfer> to win" bets on a major. They're settled
+// against ESPN's golf leaderboard: a tournament that's COMPLETED has a champion
+// (the competitor flagged `winner`, or position/order 1). We never guess — an
+// in-progress or unfound tournament grades ungraded.
+type GolfWinner = { tournament: string; winner: string; date: string };
+
+type EspnGolfEvent = {
+  name?: string;
+  shortName?: string;
+  date?: string;
+  status?: { type?: { completed?: boolean; state?: string } };
+  competitions?: Array<{
+    status?: { type?: { completed?: boolean; state?: string } };
+    competitors?: Array<{
+      order?: number;
+      winner?: boolean;
+      athlete?: { displayName?: string };
+    }>;
+  }>;
+};
+
+// Normalize names/titles for tolerant matching: lowercase, strip diacritics, drop
+// punctuation ("U.S. Open" → "us open"), collapse whitespace.
+function golfNorm(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Pull recent COMPLETED golf tournaments (+ their champions) from ESPN's PGA
+// scoreboard over a 14-day window (majors run 4 days; the window absorbs a few
+// days of grading lag). Only completed events with a resolvable winner returned.
+async function fetchGolfWinners(): Promise<GolfWinner[]> {
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const start = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const end = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const dateRange = `${fmt(start)}-${fmt(end)}`;
+  const data = await cachedJson<{ events?: EspnGolfEvent[] }>(
+    `grade-golf:${dateRange}`,
+    60 * 1000,
+    async () => {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/golf/pga/scoreboard?dates=${dateRange}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`ESPN golf ${r.status}`);
+      return (await r.json()) as { events?: EspnGolfEvent[] };
+    },
+  );
+  const out: GolfWinner[] = [];
+  for (const e of data.events ?? []) {
+    const comp = e.competitions?.[0];
+    const completed =
+      comp?.status?.type?.completed ?? e.status?.type?.completed ?? false;
+    if (!completed) continue;
+    const competitors = comp?.competitors ?? [];
+    const champ =
+      competitors.find((c) => c.winner === true) ??
+      competitors.find((c) => c.order === 1);
+    const name = champ?.athlete?.displayName;
+    const tournament = e.name || e.shortName;
+    if (!name || !tournament) continue;
+    out.push({ tournament, winner: name, date: e.date ?? "" });
+  }
+  return out;
+}
+
+// Settle a golf outright leg. game = tournament title ("US Open"), pick =
+// "<Golfer> to win". Match the tournament by normalized name overlap, then
+// compare the picked golfer to the real champion. Fail-closed (ungraded) when no
+// completed tournament matches.
+function gradeGolf(
+  game: string,
+  pick: string,
+  winners: GolfWinner[],
+): { result: GradeResult; detail: string } {
+  const golfer = golfNorm(pick.replace(/\s+to\s+win\b.*$/i, ""));
+  if (!golfer) return { result: "ungraded", detail: "no golfer in pick" };
+  const wantToks = golfNorm(game).split(" ").filter((t) => t.length >= 2);
+  if (wantToks.length === 0) return { result: "ungraded", detail: "no tournament" };
+  // A tournament matches when every meaningful token of the leg's title appears
+  // in the ESPN event name (so "us open" matches "U.S. Open"). Require EXACTLY
+  // one completed match so an ambiguous title never settles against the wrong
+  // event.
+  const matches = winners.filter((w) => {
+    const evNorm = golfNorm(w.tournament);
+    return wantToks.every((t) => evNorm.includes(t));
+  });
+  if (matches.length !== 1) {
+    return { result: "ungraded", detail: "tournament not final / not found" };
+  }
+  const champion = golfNorm(matches[0].winner);
+  if (golfer === champion) return { result: "win", detail: `won: ${matches[0].winner}` };
+  return { result: "loss", detail: `winner: ${matches[0].winner}` };
+}
+
 const lastToken = (s: string) => s.toLowerCase().trim().split(/\s+/).slice(-1)[0] ?? "";
 
 // Does this pick/matchup text name the given team? Match the full display name
@@ -213,6 +313,17 @@ router.post("/sports/grade", async (req, res): Promise<void> => {
     }),
   );
 
+  // Golf is outright-only (no ESPN_SPORT_PATHS entry); fetch recent champions
+  // once if any leg is a golf bet.
+  let golfWinners: GolfWinner[] = [];
+  if (legs.some((l) => (l.sport || "").toLowerCase() === "golf")) {
+    try {
+      golfWinners = await fetchGolfWinners();
+    } catch {
+      /* leave empty → golf legs grade ungraded */
+    }
+  }
+
   const results = await Promise.all(
     legs.map(async (leg, index) => {
       const sport = (leg.sport || "").toLowerCase();
@@ -220,6 +331,13 @@ router.post("/sports/grade", async (req, res): Promise<void> => {
       const market = String(leg.market || "");
       const pick = String(leg.pick || "").trim();
       const base = { index, family: "", side: "" as string };
+
+      // --- Golf outright: "<Golfer> to win" (settled vs ESPN leaderboard) ---
+      if (sport === "golf") {
+        const { result, detail } = gradeGolf(game, pick, golfWinners);
+        return { ...base, family: "tournament winner", side: "win", result, detail };
+      }
+
       const finals = finalsBySport.get(sport);
       if (!finals) return { ...base, result: "ungraded" as GradeResult, detail: "no scores for sport" };
       const final = matchFinal(game, finals, leg.startsAt);

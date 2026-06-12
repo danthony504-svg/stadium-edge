@@ -16,6 +16,7 @@ const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
   { label: "Home", route: "/", icon: "home" },
   { label: "Coach", route: "/coach", icon: "zap" },
   { label: "Props", route: "/props", icon: "user" },
+  { label: "Golf", route: "/golf", icon: "flag" },
   { label: "Edge Lock", route: "/arbitrage", icon: "repeat" },
   { label: "Slip", route: "/slip", icon: "layers" },
   { label: "Model Report", route: "/report", icon: "bar-chart-2" },

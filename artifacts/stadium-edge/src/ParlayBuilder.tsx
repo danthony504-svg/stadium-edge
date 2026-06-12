@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useUser, useClerk, useAuth } from "@clerk/react";
 import { useLocation } from "wouter";
-import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User } from "lucide-react";
+import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Swords, Edit3, Gavel, Info, Menu, User, Check } from "lucide-react";
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 import stadiumEdgeWordmark from "./assets/stadium-edge-wordmark.png";
@@ -3373,6 +3373,12 @@ export default function ParlayBuilder() {
   const [realGamesBySport, setRealGamesBySport] = useState({}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
   const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
   const [realPropsByEvent, setRealPropsByEvent] = useState({}); // { eventId: { home, away, bookmaker, props:[{player,market,line,overPrice,underPrice}] } }
+  // Golf outright-winner boards (PGA majors). Real Odds API outrights with a
+  // no-vig consensus model + line-shopping — entirely separate from the team
+  // sports above (golf is NOT in SPORTS; it would break odds/coach/arb).
+  const [golfData, setGolfData] = useState<any[] | null>(null); // null=loading, []=none, [{key,title,commenceTime,bookCount,field:[...]}]
+  const [golfError, setGolfError] = useState(false);
+  const [golfExpanded, setGolfExpanded] = useState<Record<string, boolean>>({}); // tournament key -> show full field
   // Sports for which the backend now ships quarter/half player markets
   // (_q1 / _h1). A cached entry for one of these sports that contains ZERO
   // QH rows is treated as STALE and re-fetched — this auto-migrates users
@@ -3691,6 +3697,31 @@ export default function ParlayBuilder() {
     }, 10000);
     return () => clearInterval(iv);
   }, [showLiveDemo, selectedSports]);
+
+  // Fetch golf outright boards once when the Golf view is first opened (and
+  // refresh on a slow cadence while it stays open). Real Odds API data only —
+  // an error or empty board renders an honest empty state, never fabricated.
+  useEffect(() => {
+    if (view !== "golf") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/sports/golf");
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        if (cancelled) return;
+        setGolfData(Array.isArray(j) ? j : []);
+        setGolfError(false);
+      } catch {
+        if (cancelled) return;
+        setGolfError(true);
+        setGolfData((prev) => prev ?? []);
+      }
+    };
+    load();
+    const iv = setInterval(load, 60000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [view]);
 
   // Populate + refresh real live + upcoming games and bookmaker odds for the
   // selected sports. Powers the Home Screen, Sport Detail, search, and the live
@@ -10830,10 +10861,126 @@ export default function ParlayBuilder() {
         </div>
       )}
 
+      {view === "golf" && (
+        <div className="flex-1 overflow-y-auto bg-slate-900">
+          <div className="bg-slate-900 px-4 pt-4 pb-4 sticky top-0 z-10 border-b border-slate-800">
+            <div className="flex items-center justify-between">
+              <button onClick={() => setView("home")} className="text-slate-400 hover:text-slate-100 text-sm">‹ Back</button>
+              <h1 className="text-slate-100 font-bold text-lg">Golf</h1>
+              <span className="w-10" />
+            </div>
+            <p className="text-slate-400 text-xs mt-2 text-center">
+              Outright winner odds for the majors — best price across books, ranked by a no-vig market model.
+            </p>
+          </div>
+
+          <div className="px-4 py-4 space-y-4">
+            {golfData === null ? (
+              <div className="text-center text-slate-400 text-sm py-16">Loading golf odds…</div>
+            ) : golfError && golfData.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-slate-300 text-sm font-semibold">Couldn’t load golf odds</p>
+                <p className="text-slate-500 text-xs mt-1">Please try again in a moment.</p>
+              </div>
+            ) : golfData.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-slate-300 text-sm font-semibold">No tournaments on the board</p>
+                <p className="text-slate-500 text-xs mt-1">Outright markets open in the weeks before each major. Check back soon.</p>
+              </div>
+            ) : (
+              golfData.map((t) => {
+                const expanded = !!golfExpanded[t.key];
+                const shown = expanded ? t.field : t.field.slice(0, 12);
+                const valueCount = t.field.filter((p) => p.value).length;
+                const teeOff = (() => {
+                  const ms = Date.parse(t.commenceTime);
+                  if (Number.isNaN(ms)) return "";
+                  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                })();
+                return (
+                  <div key={t.key} className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-slate-100 font-bold text-lg leading-tight">{t.title}</div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          Tees off {teeOff} · {t.field.length} in field · {t.bookCount} books
+                        </div>
+                      </div>
+                      {valueCount > 0 && (
+                        <span className="shrink-0 text-[10px] font-bold tracking-wide px-2 py-1 rounded bg-emerald-500/15 text-emerald-400">
+                          {valueCount} VALUE
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-3 divide-y divide-slate-800">
+                      {shown.map((p, i) => {
+                        const pick = `${p.name} to win`;
+                        const leg = { game: t.title, market: "Tournament Winner", pick };
+                        const inSlip = parlayLegs.some((l) => legKey(l) === legKey(leg));
+                        const bestBook = p.books && p.books[0] ? p.books[0].book : null;
+                        return (
+                          <div key={p.name} className="flex items-center gap-3 py-2.5">
+                            <span className="w-6 text-center text-slate-500 font-bold text-xs">{i + 1}</span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-slate-100 font-semibold text-sm">{p.name}</span>
+                                {p.value && (
+                                  <span className="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">VALUE</span>
+                                )}
+                              </div>
+                              <div className="text-slate-500 text-[11px] mt-0.5">
+                                {(p.fairProb * 100).toFixed(1)}% model win
+                                {p.edgePct != null ? ` · ${p.edgePct > 0 ? "+" : ""}${p.edgePct}% edge` : ""}
+                                {bestBook ? ` · ${bestBook}` : ""}
+                              </div>
+                            </div>
+                            <span className="text-slate-100 font-bold text-sm tabular-nums min-w-[3.5rem] text-right">
+                              {p.price > 0 ? `+${p.price}` : p.price}
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (inSlip) { removeLegByPick(leg); }
+                                else {
+                                  addLeg(
+                                    { game: t.title, market: "Tournament Winner", pick, odds: p.price, sport: "golf", real: true, edge: p.edgePct != null ? `${p.edgePct > 0 ? "+" : ""}${p.edgePct}% edge` : undefined },
+                                    { skipValidation: true },
+                                  );
+                                }
+                              }}
+                              className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border transition ${inSlip ? "bg-cyan-500 border-cyan-500 text-slate-950" : "bg-slate-900 border-slate-700 text-slate-100 hover:border-cyan-400"}`}
+                              title={inSlip ? "Remove from slip" : "Add to slip"}
+                            >
+                              {inSlip ? <Check size={18} /> : <Plus size={18} />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {t.field.length > 12 && (
+                      <button
+                        onClick={() => setGolfExpanded((m) => ({ ...m, [t.key]: !expanded }))}
+                        className="w-full mt-3 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-cyan-400 text-xs font-semibold hover:border-cyan-400 transition"
+                      >
+                        {expanded ? "Show fewer" : `Show all ${t.field.length}`}
+                      </button>
+                    )}
+                  </div>
+                );
+              })
+            )}
+            <p className="text-[9px] font-mono text-slate-500 text-center mt-6 uppercase tracking-widest leading-relaxed">
+              Real outright odds from sportsbooks · 21+ · Bet responsibly
+            </p>
+          </div>
+        </div>
+      )}
+
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto scroll-fade px-4 py-4 space-y-5 bg-slate-900"
-        style={{ paddingBottom: Math.max(composerH, 130) + 16, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}
+        style={{ paddingBottom: Math.max(composerH, 130) + 16, fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" || view === "golf" ? "none" : undefined }}
       >
         {messages.map((m, i) => (
           <div key={i} className={`slide-up flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -11963,6 +12110,12 @@ export default function ParlayBuilder() {
                   icon: <Swords size={16} />,
                   sub: "Browse leagues & search",
                   action: () => setView("allsports"),
+                },
+                {
+                  label: "Golf",
+                  icon: <span className="text-emerald-400">⛳</span>,
+                  sub: "Major outright winners",
+                  action: () => setView("golf"),
                 },
                 {
                   label: "Live Now",
@@ -13747,7 +13900,7 @@ export default function ParlayBuilder() {
       )}
 
       {/* Global ticket bar — shows on home/profile/plans when picks exist */}
-      {parlayLegs.length > 0 && (view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming") && (
+      {parlayLegs.length > 0 && (view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" || view === "golf") && (
         <button
           onClick={() => setBetslipOpen(true)}
           className="absolute bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 px-4 py-4 flex items-center justify-between shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-30"
@@ -13918,7 +14071,7 @@ export default function ParlayBuilder() {
         </div>
       )}
 
-      <div ref={composerRef} className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" ? "none" : undefined }}>
+      <div ref={composerRef} className="absolute bottom-0 left-0 right-0 border-t border-slate-800 bg-slate-900 p-3 z-20" style={{ display: view === "home" || view === "profile" || view === "plans" || view === "allsports" || view === "allupcoming" || view === "golf" ? "none" : undefined }}>
         {/* Popup YOUR SLIP — collapsed pill above chat; expands upward. */}
         {parlayLegs.length > 0 && (
           <>

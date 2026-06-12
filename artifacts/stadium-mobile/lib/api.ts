@@ -313,6 +313,42 @@ export function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]
   return getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
 }
 
+// ---------- Golf (PGA majors outright winner) ----------
+// Mirrors artifacts/api-server golf.ts. Golf is OUTRIGHT-only (bet a golfer "to
+// win the tournament"), so it lives on its own screen — it is deliberately NOT in
+// the SPORTS list (which assumes head-to-head games + odds/coach/arb support).
+
+export type GolfBookPrice = { book: string; price: number };
+
+// One golfer in a tournament field. Every number is real bookmaker data:
+// `price` is the BEST available American price (line-shopped across books),
+// `fairProb` is the no-vig consensus win probability, and `edgePct`/`value`
+// flag a price that beats that consensus (null when the golfer is a deep
+// longshot whose edge can't be honestly computed).
+export type GolfPlayer = {
+  name: string;
+  price: number;
+  decimal: number;
+  fairProb: number;
+  edgePct: number | null;
+  value: boolean;
+  bookCount: number;
+  books: GolfBookPrice[];
+};
+
+export type GolfTournament = {
+  key: string;
+  title: string;
+  eventId: string;
+  commenceTime: string;
+  bookCount: number;
+  field: GolfPlayer[];
+};
+
+export function getGolf(signal?: AbortSignal): Promise<GolfTournament[]> {
+  return getJson<GolfTournament[]>("/sports/golf", signal);
+}
+
 export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
 }

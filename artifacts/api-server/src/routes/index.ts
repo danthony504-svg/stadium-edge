@@ -19,6 +19,7 @@ import ufcRouter from "./ufc";
 import tennisRouter from "./tennis";
 import notificationsRouter from "./notifications";
 import gradeRouter from "./grade";
+import golfRouter from "./golf";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(ufcRouter);
 router.use(tennisRouter);
 router.use(notificationsRouter);
 router.use(gradeRouter);
+router.use(golfRouter);
 
 export default router;
