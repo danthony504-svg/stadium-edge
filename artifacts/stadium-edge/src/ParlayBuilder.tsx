@@ -5,6 +5,7 @@ import { Send, Trash2, TrendingUp, Sparkles, Plus, X, Zap, Shuffle, Users, Sword
 import stadiumEdgeLogo from "@assets/IMG_9617_1779815867324.png";
 import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 import stadiumEdgeWordmark from "./assets/stadium-edge-wordmark.png";
+import { loadSlateSnapshot, saveSlateSnapshot } from "./lib/slateCache";
 
 // Login enabled — shows the sign-in/sign-up entry points (matched by the
 // AUTH_ENABLED flag and /sign-in & /sign-up routes in App.tsx).
@@ -1949,6 +1950,12 @@ const getBaselineHitRate = (pick) => {
 
 const TRACKER_KEY = "stadium_edge_tracker_v1";
 
+// Vertical browse lists (All Sports league detail, View-all Upcoming) reveal an
+// initial batch of games and load more as the user scrolls, instead of painting
+// the entire slate at once. Mirrors the mobile Props tab's INITIAL_GAMES/STEP.
+const BROWSE_INITIAL_GAMES = 8;
+const BROWSE_GAMES_STEP = 8;
+
 const loadTracker = () => {
   if (typeof window === "undefined") return [];
   try {
@@ -3367,11 +3374,16 @@ export default function ParlayBuilder() {
   const [showLiveDemo, setShowLiveDemo] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [view, setView] = useState("home"); // "chat" | "home" | "profile"
+  // Hydrate the browse surfaces instantly from the last persisted slate while the
+  // live fetch (fetchAll) revalidates in the background. Read once at mount; a
+  // null snapshot (none / stale) means a normal cold load. Live in-progress games
+  // are intentionally NOT restored — they change too fast to show from cache.
+  const [initialSlate] = useState(() => loadSlateSnapshot());
   const [homeLiveGames, setHomeLiveGames] = useState([]);
-  const [homeUpcomingGames, setHomeUpcomingGames] = useState([]);
-  const [homeDataStatus, setHomeDataStatus] = useState("loading"); // "loading" | "live" | "sim"
-  const [realGamesBySport, setRealGamesBySport] = useState({}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
-  const [realOddsBySport, setRealOddsBySport] = useState({}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
+  const [homeUpcomingGames, setHomeUpcomingGames] = useState(() => initialSlate?.upcoming ?? []);
+  const [homeDataStatus, setHomeDataStatus] = useState(initialSlate ? "live" : "loading"); // "loading" | "live" | "sim"
+  const [realGamesBySport, setRealGamesBySport] = useState(() => initialSlate?.games ?? {}); // { nfl: [{awayTeam,homeTeam,status,startsAt,venue,...}], ... }
+  const [realOddsBySport, setRealOddsBySport] = useState(() => initialSlate?.odds ?? {}); // { nfl: [{id,homeTeam,awayTeam,markets}], ... }
   const [realPropsByEvent, setRealPropsByEvent] = useState({}); // { eventId: { home, away, bookmaker, props:[{player,market,line,overPrice,underPrice}] } }
   // Golf outright-winner boards (PGA majors). Real Odds API outrights with a
   // no-vig consensus model + line-shopping — entirely separate from the team
@@ -3402,6 +3414,30 @@ export default function ParlayBuilder() {
   const [headshotErrors, setHeadshotErrors] = useState({}); // { [headshotUrl]: true } — track broken URLs so we can swap to initials
   const [homeSearch, setHomeSearch] = useState("");
   const [sportDetail, setSportDetail] = useState(null); // sport id when viewing a sport's teams/props
+  // Incremental "load more on scroll" for the vertical browse lists (mirrors the
+  // mobile Props tab) — render an initial batch, then grow as the user nears the
+  // bottom instead of painting the whole slate at once.
+  const [sportDetailLimit, setSportDetailLimit] = useState(BROWSE_INITIAL_GAMES);
+  const [allUpcomingLimit, setAllUpcomingLimit] = useState(BROWSE_INITIAL_GAMES);
+  const sportDetailTotalRef = useRef(0);
+  const allUpcomingTotalRef = useRef(0);
+  // Reset the visible window whenever the user switches league or re-enters a view.
+  useEffect(() => { setSportDetailLimit(BROWSE_INITIAL_GAMES); }, [sportDetail]);
+  useEffect(() => { if (view === "allupcoming") setAllUpcomingLimit(BROWSE_INITIAL_GAMES); }, [view]);
+  // Grow the visible window when scrolling near the bottom of a browse list.
+  // Stops once everything is revealed (the per-list total refs are set in render).
+  const handleSportDetailScroll = (e) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 600) return;
+    if (sportDetail && !homeSearch.trim()) {
+      setSportDetailLimit((n) => (n >= sportDetailTotalRef.current ? n : n + BROWSE_GAMES_STEP));
+    }
+  };
+  const handleAllUpcomingScroll = (e) => {
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 600) return;
+    setAllUpcomingLimit((n) => (n >= allUpcomingTotalRef.current ? n : n + BROWSE_GAMES_STEP));
+  };
   const [expandedGame, setExpandedGame] = useState(null); // game string expanded to show all props
   const [gameDetail, setGameDetail] = useState(null); // { game, sport } for the full game-detail screen
   const [openPropCats, setOpenPropCats] = useState(["AI Spreads & Totals", "Game Lines"]); // categories open (independent accordions)
@@ -3903,6 +3939,12 @@ export default function ParlayBuilder() {
           const oBySport = {};
           for (const { sport, odds } of oddsResults) oBySport[sport] = odds;
           setRealOddsBySport(oBySport);
+          // Persist the freshest slate for instant paint on the next open/refresh.
+          // Runs after the sync block below, so `upcoming` is fully built/sorted.
+          // Only cache when we actually got real games (never cache empty/sim).
+          if (all.length > 0) {
+            saveSlateSnapshot({ games: bySport, odds: oBySport, upcoming });
+          }
         });
         const all = results.flatMap((r) => r.games);
         const live = [];
@@ -10227,7 +10269,7 @@ export default function ParlayBuilder() {
       )}
 
       {view === "allsports" && (
-        <div className="flex-1 overflow-y-auto bg-slate-900">
+        <div className="flex-1 overflow-y-auto bg-slate-900" onScroll={handleSportDetailScroll}>
           {/* Search header (matches page) */}
           <div className="bg-slate-900 px-4 pt-4 pb-4 sticky top-0 z-10 border-b border-slate-800">
             <div className="flex items-center justify-between mb-3">
@@ -10608,7 +10650,8 @@ export default function ParlayBuilder() {
                     <div className="mb-6">
                       <h3 className="font-bold text-slate-200 mb-2 text-sm">Games — tap to see all props</h3>
                       <div className="space-y-2">
-                        {Object.entries(byGame).sort((a, b) => {
+                        {(() => {
+                        const sortedGames = Object.entries(byGame).sort((a, b) => {
                           // Sort chronologically — soonest first. Games with
                           // no resolvable start time sink to the bottom.
                           const ta = new Date(lookupGameStart(a[0]) || 0).getTime();
@@ -10619,7 +10662,10 @@ export default function ParlayBuilder() {
                           if (fa) return 1;
                           if (fb) return -1;
                           return ta - tb;
-                        }).map(([game, picks]) => {
+                        });
+                        // Track the full count so scroll/Load-more knows when to stop.
+                        sportDetailTotalRef.current = sortedGames.length;
+                        return sortedGames.slice(0, sportDetailLimit).map(([game, picks]) => {
                           const nameMap = TEAM_ABBR_TO_NAME[sportDetail] || {};
                           const gamePlayers = (PLAYERS[sportDetail] || []).filter((pl) => {
                             const full = nameMap[pl.team] || pl.team;
@@ -10670,8 +10716,17 @@ export default function ParlayBuilder() {
                               <span className="text-cyan-400 shrink-0">›</span>
                             </button>
                           );
-                        })}
+                        });
+                        })()}
                       </div>
+                      {Object.keys(byGame).length > sportDetailLimit && (
+                        <button
+                          onClick={() => setSportDetailLimit((n) => n + BROWSE_GAMES_STEP)}
+                          className="w-full mt-3 border border-slate-800 rounded-xl py-2.5 text-xs font-mono uppercase tracking-wider text-cyan-400 hover:border-cyan-400 hover:text-cyan-300 transition"
+                        >
+                          Load more games ({Object.keys(byGame).length - sportDetailLimit} more)
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -10771,7 +10826,7 @@ export default function ParlayBuilder() {
       )}
 
       {view === "allupcoming" && (
-        <div className="flex-1 overflow-y-auto bg-slate-900">
+        <div className="flex-1 overflow-y-auto bg-slate-900" onScroll={handleAllUpcomingScroll}>
           {/* Header */}
           <div className="bg-slate-900 px-4 pt-4 pb-4 sticky top-0 z-10 border-b border-slate-800">
             <div className="flex items-center justify-between mb-3">
@@ -10801,16 +10856,21 @@ export default function ParlayBuilder() {
             {(() => {
               const q = homeSearch.trim().toLowerCase();
               const terms = expandTeamQuery(q);
-              const games = q
+              const allGames = q
                 ? homeUpcomingGames.filter((g) => matchesTerms(g.game, terms) || (g.sport || "").toLowerCase().includes(q))
                 : homeUpcomingGames;
-              if (games.length === 0) {
+              if (allGames.length === 0) {
                 return (
                   <p className="text-center text-slate-500 text-sm py-12">
                     {q ? "No upcoming games match your search." : "No upcoming games right now for your selected sports."}
                   </p>
                 );
               }
+              // Reveal an initial batch and load more on scroll instead of
+              // painting the whole list. `allGames` is already popularity-sorted.
+              allUpcomingTotalRef.current = allGames.length;
+              const games = allGames.slice(0, allUpcomingLimit);
+              const remaining = allGames.length - games.length;
               // Group by sport for easier scanning
               const bySport = {};
               for (const g of games) { (bySport[g.sport] ||= []).push(g); }
@@ -10851,6 +10911,14 @@ export default function ParlayBuilder() {
                       </div>
                     </div>
                   ))}
+                  {remaining > 0 && (
+                    <button
+                      onClick={() => setAllUpcomingLimit((n) => n + BROWSE_GAMES_STEP)}
+                      className="w-full border border-slate-800 rounded-xl py-2.5 text-xs font-mono uppercase tracking-wider text-cyan-400 hover:border-cyan-400 hover:text-cyan-300 transition"
+                    >
+                      Load more games ({remaining} more)
+                    </button>
+                  )}
                 </div>
               );
             })()}
