@@ -1311,6 +1311,55 @@ export type TennisMatchup = {
   round: string | null;
 };
 
+export type TennisBio = {
+  age: number | null;
+  height: string | null;
+  weight: string | null;
+  plays: string | null;
+  turnedPro: number | null;
+  birthPlace: string | null;
+};
+export type TennisCareer = {
+  wins: number | null;
+  losses: number | null;
+  winPct: number | null;
+  singlesTitles: number | null;
+  doublesTitles: number | null;
+  prize: number | null;
+};
+export type TennisPlayerProfile = {
+  name: string;
+  resolvedName: string | null;
+  athleteId: string | null;
+  tour: "ATP" | "WTA" | null;
+  country: string | null;
+  rank: number | null;
+  rankPoints: number | null;
+  bio: TennisBio | null;
+  career: TennisCareer | null;
+  recentForm: TennisRecentResult[];
+  formSummary: { wins: number; losses: number } | null;
+};
+
+// Fetch a real tennis player's full stats sheet (ranking + bio + career singles
+// record + recent form). Returns null on a failed fetch — the caller treats that
+// as "no data" and never fabricates.
+export async function getTennisPlayer(
+  name: string,
+  signal?: AbortSignal,
+): Promise<TennisPlayerProfile | null> {
+  const n = name.trim();
+  if (!n) return null;
+  try {
+    return await getJson<TennisPlayerProfile>(
+      `/sports/tennis-player?name=${encodeURIComponent(n)}`,
+      signal,
+    );
+  } catch {
+    return null;
+  }
+}
+
 // Fetch the real tennis matchup (both players' ATP/WTA rank + country + season
 // recent form + recent head-to-head). Returns null on a failed/empty fetch —
 // the caller treats that as "no data" and never fabricates.

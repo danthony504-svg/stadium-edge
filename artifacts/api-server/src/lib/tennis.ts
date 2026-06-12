@@ -45,6 +45,40 @@ export type TennisMatchup = {
   round: string | null;
 };
 
+// Real player bio + career stats from ESPN. Every field is honest-nulled when
+// ESPN doesn't carry it; nothing is estimated.
+export type TennisBio = {
+  age: number | null;
+  height: string | null; // e.g. "6' 5\""
+  weight: string | null; // e.g. "189 lbs"
+  plays: string | null; // playing hand, e.g. "Left" / "Right"
+  turnedPro: number | null; // debut year
+  birthPlace: string | null; // e.g. "Zurich, Switzerland"
+};
+export type TennisCareer = {
+  wins: number | null; // career singles wins
+  losses: number | null; // career singles losses
+  winPct: number | null; // 0..100, computed only when both W and L are present
+  singlesTitles: number | null;
+  doublesTitles: number | null;
+  prize: number | null; // career prize money, USD
+};
+
+// A full single-player stats sheet: bio + ranking + career record + recent form.
+export type TennisPlayerProfile = {
+  name: string; // echo of the query
+  resolvedName: string | null;
+  athleteId: string | null;
+  tour: "ATP" | "WTA" | null;
+  country: string | null;
+  rank: number | null;
+  rankPoints: number | null;
+  bio: TennisBio | null;
+  career: TennisCareer | null;
+  recentForm: TennisRecentResult[];
+  formSummary: { wins: number; losses: number } | null;
+};
+
 const RANK_TTL = 6 * 60 * 60 * 1000; // rankings update ~weekly
 const SCORE_TTL = 5 * 60 * 1000; // active tournaments / draws
 const FORM_TTL = 60 * 60 * 1000; // a player's results within a season
@@ -329,6 +363,120 @@ export async function buildTennisMatchup(away: string, home: string): Promise<Te
         return set.has(normName(away)) && set.has(normName(home));
       });
       return { away: aw, home: hm, h2h, tournament: m?.tournament || null, round: m?.round || null };
+    },
+  );
+}
+
+const PROFILE_TTL = 6 * 60 * 60 * 1000; // bio + career record change slowly
+
+// Real per-player bio + career singles record from ESPN's core API. The two
+// halves fail independently and honest-null on any miss — nothing is estimated.
+async function loadAthleteProfile(
+  athleteId: string,
+  tour: "ATP" | "WTA",
+): Promise<{ bio: TennisBio | null; career: TennisCareer | null }> {
+  const tl = tour.toLowerCase();
+  return cachedJson<{ bio: TennisBio | null; career: TennisCareer | null }>(
+    `tennis:profile:${tl}:${athleteId}`,
+    PROFILE_TTL,
+    async () => {
+      let bio: TennisBio | null = null;
+      let career: TennisCareer | null = null;
+      try {
+        const a = await fetchJson(
+          `https://sports.core.api.espn.com/v2/sports/tennis/leagues/${tl}/athletes/${athleteId}`,
+        );
+        const b: TennisBio = {
+          age: typeof a?.age === "number" ? a.age : null,
+          height: a?.displayHeight || null,
+          weight: a?.displayWeight || null,
+          plays: a?.hand?.displayValue || null,
+          turnedPro: typeof a?.debutYear === "number" ? a.debutYear : null,
+          birthPlace: a?.birthPlace?.summary || null,
+        };
+        if (Object.values(b).some((v) => v != null)) bio = b;
+      } catch {
+        bio = null;
+      }
+      try {
+        const s = await fetchJson(
+          `https://sports.core.api.espn.com/v2/sports/tennis/leagues/${tl}/athletes/${athleteId}/statistics`,
+        );
+        const stats: Record<string, number> = {};
+        for (const cat of s?.splits?.categories || []) {
+          for (const st of cat?.stats || []) {
+            if (st?.name != null && typeof st?.value === "number") stats[st.name] = st.value;
+          }
+        }
+        const wins = typeof stats.singlesWon === "number" ? stats.singlesWon : null;
+        const losses = typeof stats.singlesLost === "number" ? stats.singlesLost : null;
+        const winPct =
+          wins != null && losses != null && wins + losses > 0
+            ? Math.round((wins / (wins + losses)) * 1000) / 10
+            : null;
+        const c: TennisCareer = {
+          wins,
+          losses,
+          winPct,
+          singlesTitles: typeof stats.singlesTitles === "number" ? stats.singlesTitles : null,
+          doublesTitles: typeof stats.doublesTitles === "number" ? stats.doublesTitles : null,
+          prize: typeof stats.prize === "number" ? stats.prize : null,
+        };
+        if (Object.values(c).some((v) => v != null)) career = c;
+      } catch {
+        career = null;
+      }
+      return { bio, career };
+    },
+  );
+}
+
+// Full single-player stats sheet (bio + ranking + career + recent form). Mirrors
+// buildTennisMatchup's resolution: the player is looked up across both tours via
+// the rankings + active scoreboard. Fail-closed — an unresolved player comes back
+// with null fields and empty form, never fabricated stats.
+export async function buildTennisPlayer(name: string): Promise<TennisPlayerProfile> {
+  const trimmed = name.trim();
+  return cachedJson<TennisPlayerProfile>(
+    `tennis:player:${normName(trimmed)}`,
+    MATCHUP_TTL,
+    async () => {
+      const [rankings, sb] = await Promise.all([loadRankings(), loadScoreboard()]);
+      const key = normName(trimmed);
+      const rank = rankings[key];
+      const sp = sb.players[key];
+      const tour = rank?.tour || sp?.tour || null;
+      const athleteId = rank?.athleteId || sp?.athleteId || null;
+      const resolvedName = rank?.displayName || sp?.displayName || (athleteId ? trimmed : null);
+      const country = sp?.country || null;
+
+      let bio: TennisBio | null = null;
+      let career: TennisCareer | null = null;
+      let recentForm: TennisRecentResult[] = [];
+      if (athleteId && tour) {
+        const [profile, form] = await Promise.all([
+          loadAthleteProfile(athleteId, tour).catch(() => ({ bio: null, career: null })),
+          loadRecentForm(athleteId, tour).catch(() => [] as TennisRecentResult[]),
+        ]);
+        bio = profile.bio;
+        career = profile.career;
+        recentForm = form;
+      }
+      const wins = recentForm.filter((r) => r.win === true).length;
+      const losses = recentForm.filter((r) => r.win === false).length;
+      return {
+        name: trimmed,
+        resolvedName,
+        athleteId,
+        tour,
+        country,
+        rank: rank?.rank ?? null,
+        rankPoints: rank?.points ?? null,
+        bio,
+        career,
+        recentForm,
+        formSummary: recentForm.length ? { wins, losses } : null,
+      };
     },
   );
 }

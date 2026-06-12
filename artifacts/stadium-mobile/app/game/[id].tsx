@@ -10,6 +10,7 @@ import { AiPickCard } from "@/components/AiPickCard";
 import { GamePropsSection } from "@/components/GamePropsSection";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
+import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -583,6 +584,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   const colors = useColors();
   const [data, setData] = useState<TennisMatchup | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sheet, setSheet] = useState<{ name: string; fallback: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -637,13 +639,24 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
     p.formSummary ? `${p.formSummary.wins}-${p.formSummary.losses}` : "—";
 
   const Side = ({ p, name, align }: { p: TennisPlayer; name: string; align: "left" | "right" }) => (
-    <View style={{ flex: 1, gap: 2, alignItems: align === "right" ? "flex-end" : "flex-start" }}>
-      <Text
-        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
-        numberOfLines={1}
-      >
-        {name}
-      </Text>
+    <Pressable
+      onPress={() => setSheet({ name: p.resolvedName || name, fallback: name })}
+      style={({ pressed }) => ({
+        flex: 1,
+        gap: 2,
+        alignItems: align === "right" ? "flex-end" : "flex-start",
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Text
+          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        <Feather name="chevron-right" size={13} color={colors.mutedForeground} />
+      </View>
       {p.country ? (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
           {p.country}
@@ -664,7 +677,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
           {rankStr(p)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 
   const FormList = ({ p }: { p: TennisPlayer }) => (
@@ -715,6 +728,13 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   );
 
   return (
+    <>
+    <TennisPlayerSheet
+      name={sheet?.name ?? null}
+      fallbackName={sheet?.fallback}
+      visible={!!sheet}
+      onClose={() => setSheet(null)}
+    />
     <View
       style={{
         backgroundColor: colors.card,
@@ -795,6 +815,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
         </View>
       ) : null}
     </View>
+    </>
   );
 }
 

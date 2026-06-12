@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
-import { buildTennisMatchup } from "../lib/tennis.js";
+import { buildTennisMatchup, buildTennisPlayer } from "../lib/tennis.js";
 
 const router: IRouter = Router();
 
@@ -22,6 +22,25 @@ router.get("/sports/tennis-matchup", async (req, res) => {
     res.json(matchup);
   } catch {
     res.status(502).json({ error: "tennis matchup unavailable" });
+  }
+});
+
+// Real single-player stats sheet: ESPN ATP/WTA ranking + bio + career singles
+// record + season recent form. Cold calls fan out to rankings + scoreboards +
+// the athlete bio/statistics/eventlog, so cap per-IP like the matchup route.
+router.use("/sports/tennis-player", rateLimit({ windowMs: 60_000, max: 120, name: "tennis-player" }));
+
+router.get("/sports/tennis-player", async (req, res) => {
+  const name = String(req.query.name || "").trim();
+  if (!name) {
+    res.status(400).json({ error: "player name is required" });
+    return;
+  }
+  try {
+    const profile = await buildTennisPlayer(name);
+    res.json(profile);
+  } catch {
+    res.status(502).json({ error: "tennis player unavailable" });
   }
 });
 
