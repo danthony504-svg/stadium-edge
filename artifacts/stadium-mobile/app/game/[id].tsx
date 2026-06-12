@@ -853,6 +853,7 @@ export default function GameDetailScreen() {
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const { id, sport } = useLocalSearchParams<{ id: string; sport: string }>();
+  const [tennisSheet, setTennisSheet] = useState<string | null>(null);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -899,13 +900,39 @@ export default function GameDetailScreen() {
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 + slipClearance, gap: 14 }}>
           <View style={{ gap: 6 }}>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
-              {game.awayTeam}
-            </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>at</Text>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
-              {game.homeTeam}
-            </Text>
+            {game.sport === "tennis" ? (
+              <>
+                <Pressable
+                  onPress={() => setTennisSheet(game.awayTeam)}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                    {game.awayTeam}
+                  </Text>
+                  <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+                </Pressable>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>at</Text>
+                <Pressable
+                  onPress={() => setTennisSheet(game.homeTeam)}
+                  style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                    {game.homeTeam}
+                  </Text>
+                  <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                  {game.awayTeam}
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>at</Text>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
+                  {game.homeTeam}
+                </Text>
+              </>
+            )}
             <Badge label={new Date(game.commenceTime).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })} tone="muted" />
           </View>
 
@@ -933,6 +960,12 @@ export default function GameDetailScreen() {
           <GamePropsSection game={game} />
         </ScrollView>
       )}
+      {/* Tap a tennis player name (header) to open their stats sheet. */}
+      <TennisPlayerSheet
+        name={tennisSheet}
+        visible={!!tennisSheet}
+        onClose={() => setTennisSheet(null)}
+      />
       {/* Floating slip popup — this is a root-stack screen (outside the tab
           layout), so render its own instance to overlay this screen. */}
       <SlipBar />

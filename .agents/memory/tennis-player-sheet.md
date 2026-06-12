@@ -25,3 +25,9 @@ look like the other sports.
 - Reuses the matchup path's rankings+scoreboard resolution (see tennis-matchup.md
   for the athleteId / linescores ESPN gotchas). api-server has NO watcher —
   restart it after server edits.
+
+**Two tap entry points (both open TennisPlayerSheet):** the matchup-card player
+names (sheet state lives inside TennisMatchupCard) AND the prominent header names
+on the game-detail page (separate page-level `tennisSheet` state). They are
+independent sheet-control paths — when changing sheet behavior, check both.
+
