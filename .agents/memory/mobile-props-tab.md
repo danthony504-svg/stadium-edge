@@ -35,8 +35,24 @@ BUT if EVERY pickable game's request fails, throw so the UI shows the retryable
 ErrorState — otherwise a total outage masquerades as an honest "no props posted".
 
 ## Sport coverage
-Only sports in MARKETS_BY_SPORT serve props (mlb/wnba/nba/nhl/nfl/ncaaf/ncaab).
-soccer/tennis/ufc return [] upstream, so the props sport selector excludes them.
+Only sports in MARKETS_BY_SPORT serve props (mlb/wnba/nba/nhl/nfl/ncaaf/ncaab/soccer).
+tennis/ufc/tabletennis return [] from the props feed.
+
+## Browse-only (moneyline) sports on the props tab
+`BROWSE_ONLY_SPORTS = ["tennis","tabletennis"]` get a PILL but no props. When one is
+selected the tab swaps the prop rails/list for a REAL posted-matches list:
+- `pillSports` = PROPS_SPORTS ∪ BROWSE_ONLY_SPORTS (drives the pill row only).
+- `propsSports` still drives the per-sport props `useQueries` — browse sports are NOT
+  fetched for props (they have none).
+- `isBrowseSport` early-returns `[]` from `gradeCandidates`/`valueProps`/`filtered` and
+  disables `upsetsQ`, so the AI-RECOMMENDED/VALUE rails stay hidden (no ESPN feed =
+  no model lean for these sports — honest, never fabricated).
+- A separate `browseOddsQ = getOdds(sport)` (enabled only when isBrowseSport) feeds a
+  `GameCard` list; tap → `/game/[id]` (loads by `getOdds(sport)` + `id` match). Both
+  tennis (Odds API hash id) and tabletennis (Bovada numeric id) carry usable ids.
+**Gotcha:** when sport ∉ propsSports, `selIdx` falls back to 0 (MLB), so `propsQ` points
+at MLB — you MUST gate every props-derived memo/render on `isBrowseSport` or the tab
+shows MLB data under a tennis pill. RefreshControl also branches on isBrowseSport.
 
 ## Search collapses to one row per player (decided)
 When a search query is active, the props screen shows ONE tappable row per player

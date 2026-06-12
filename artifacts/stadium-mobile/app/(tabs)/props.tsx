@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
@@ -30,6 +31,7 @@ import {
   propMarketLabel,
   PROPS_SPORTS,
   type EspnGame,
+  type OddsGame,
   type PlayerProp,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
@@ -37,6 +39,11 @@ import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
+
+// Sports we list on this tab that have NO player-prop feed (individual sports the
+// books price moneyline-only). They still get a REAL posted-matches list here —
+// the prop rails stay empty (honest) and tapping a match opens full odds.
+const BROWSE_ONLY_SPORTS = ["tennis", "tabletennis"];
 
 // How many of the soonest pickable games to pull props for. Each game is a
 // separate Odds API request; the props route allows 120/min and caches 5min,
@@ -401,6 +408,14 @@ export default function PropsScreen() {
   }, [params.q, params.sp]);
 
   const propsSports = useMemo(() => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id)), []);
+  // Pills shown on this tab: every props-capable league PLUS the moneyline-only
+  // browse sports. The props data queries below still run only over propsSports —
+  // browse sports have no prop feed, so they get a real matches list instead.
+  const isBrowseSport = BROWSE_ONLY_SPORTS.includes(sport);
+  const pillSports = useMemo(
+    () => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id) || BROWSE_ONLY_SPORTS.includes(s.id)),
+    [],
+  );
 
   const searching = query.trim().length > 0;
 
@@ -442,6 +457,22 @@ export default function PropsScreen() {
   );
   const searchBusy = sportQueries.some((q) => q.isFetching);
 
+  // Moneyline-only browse sports (tennis / table tennis) have no prop feed, so
+  // instead of the props rails we list their REAL posted matches. Odds only —
+  // tapping a card opens the full odds detail page. Disabled for prop sports.
+  const browseOddsQ = useQuery({
+    queryKey: ["browse-odds", sport],
+    enabled: isBrowseSport,
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) => getOdds(sport, signal),
+  });
+  const browseGames = useMemo<OddsGame[]>(() => {
+    if (!isBrowseSport) return [];
+    return (browseOddsQ.data ?? [])
+      .filter((g) => isPickable(g.commenceTime))
+      .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  }, [browseOddsQ.data, isBrowseSport]);
+
   // Candidate pool for the AI RECOMMENDED rail — built ONLY from the real props
   // feed: a real player, real posted line, and the value side (recommendSide).
   // Deduped to one main line per player, in feed order, capped at GRADE_POOL so
@@ -456,6 +487,7 @@ export default function PropsScreen() {
     side: "Over" | "Under";
   };
   const gradeCandidates = useMemo<Cand[]>(() => {
+    if (isBrowseSport) return [];
     const data = propsQ.data ?? [];
     const out: Cand[] = [];
     const seen = new Set<string>();
@@ -509,7 +541,7 @@ export default function PropsScreen() {
       }
     }
     return out;
-  }, [propsQ.data, sport]);
+  }, [propsQ.data, sport, isBrowseSport]);
 
   // Real hit-rate grade per candidate. For each player we pull their REAL game
   // log and count how often they cleared THIS posted line over their last
@@ -563,6 +595,7 @@ export default function PropsScreen() {
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
     queryKey: ["props-upsets", sport],
+    enabled: !isBrowseSport,
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 5 * 60_000,
   });
@@ -650,6 +683,7 @@ export default function PropsScreen() {
   // a plain-English caption ("+3.2% edge • fair ~48%"). Hidden when none qualify.
   type ValueItem = { pick: ParsedPick; ev: number; caption: string };
   const valueProps = useMemo<ValueItem[]>(() => {
+    if (isBrowseSport) return [];
     const data = propsQ.data ?? [];
     const out: ValueItem[] = [];
     const seen = new Set<string>();
@@ -697,7 +731,7 @@ export default function PropsScreen() {
       }
     }
     return out.sort((a, b) => b.ev - a.ev).slice(0, VALUE_CAP);
-  }, [propsQ.data, sport]);
+  }, [propsQ.data, sport, isBrowseSport]);
 
   // Open the right detail page for a recommended card: prop breakdown for player
   // props, the team breakdown page for an upset (team moneyline) pick. The upset
@@ -728,6 +762,7 @@ export default function PropsScreen() {
   };
 
   const filtered = useMemo(() => {
+    if (isBrowseSport) return [];
     const data = propsQ.data ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return data;
@@ -737,7 +772,7 @@ export default function PropsScreen() {
         props: g.props.filter((p) => p.player.toLowerCase().includes(q)),
       }))
       .filter((g) => g.props.length > 0);
-  }, [propsQ.data, query]);
+  }, [propsQ.data, query, isBrowseSport]);
 
   const totalProps = useMemo(
     () => filtered.reduce((n, g) => n + g.props.length, 0),
@@ -815,8 +850,8 @@ export default function PropsScreen() {
         }}
         refreshControl={
           <RefreshControl
-            refreshing={propsQ.isFetching}
-            onRefresh={() => propsQ.refetch()}
+            refreshing={isBrowseSport ? browseOddsQ.isFetching : propsQ.isFetching}
+            onRefresh={() => (isBrowseSport ? browseOddsQ.refetch() : propsQ.refetch())}
             tintColor={colors.mutedForeground}
           />
         }
@@ -877,7 +912,7 @@ export default function PropsScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
           >
-            {propsSports.map((s) => (
+            {pillSports.map((s) => (
               <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
             ))}
           </ScrollView>
@@ -968,7 +1003,41 @@ export default function PropsScreen() {
 
         {/* Props list */}
         <View style={{ paddingHorizontal: 16, gap: 16 }}>
-          {!searching && propsQ.isLoading ? (
+          {!searching && isBrowseSport ? (
+            browseOddsQ.isLoading ? (
+              <Loading label="Loading matches…" />
+            ) : browseOddsQ.isError ? (
+              <ErrorState onRetry={() => browseOddsQ.refetch()} />
+            ) : browseGames.length === 0 ? (
+              <EmptyState
+                icon="calendar"
+                title="No matches in the window"
+                subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} matches are posted in the next 48 hours. Try another league.`}
+              />
+            ) : (
+              <>
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 12,
+                    marginBottom: 2,
+                  }}
+                >
+                  Moneyline and game lines only — this sport has no player props. Tap a match for all odds.
+                </Text>
+                {browseGames.map((g) => (
+                  <GameCard
+                    key={g.id}
+                    game={g}
+                    onPress={() =>
+                      router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })
+                    }
+                  />
+                ))}
+              </>
+            )
+          ) : !searching && propsQ.isLoading ? (
             <Loading label="Loading player props…" />
           ) : !searching && propsQ.isError ? (
             <ErrorState onRetry={() => propsQ.refetch()} />
