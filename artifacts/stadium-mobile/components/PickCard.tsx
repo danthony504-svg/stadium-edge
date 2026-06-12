@@ -110,13 +110,13 @@ function marketIcon(pick: ParsedPick): keyof typeof Feather.glyphMap {
   return "flag";
 }
 
-// In tennis (and table tennis) a "spread" is a GAMES handicap (e.g. -4.5 games),
-// not a points spread — so the card badge should read "Game Handicap". This is a
-// DISPLAY-ONLY relabel: the underlying `market` value is never changed, so slip
-// leg keys, dedupe, and AI-pick resolution all keep using the real "Spread" /
-// "Alt Spread" market name.
+// In tennis a "spread" is a GAMES handicap (e.g. -4.5 games), not a points
+// spread — so the card badge should read "Game Handicap". This is a DISPLAY-ONLY
+// relabel: the underlying `market` value is never changed, so slip leg keys,
+// dedupe, and AI-pick resolution all keep using the real "Spread" / "Alt Spread"
+// market name.
 function marketDisplayLabel(market: string, sport?: string): string {
-  if (sport === "tennis" || sport === "tabletennis") {
+  if (sport === "tennis") {
     if (/^spread$/i.test(market)) return "Game Handicap";
     if (/^alt spread$/i.test(market)) return "Alt Game Handicap";
   }

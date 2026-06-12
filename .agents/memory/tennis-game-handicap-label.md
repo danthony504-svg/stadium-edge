@@ -3,7 +3,7 @@ name: Tennis spread = "Game Handicap" label
 description: Why tennis/table-tennis spread cards relabel to "Game Handicap" and why it must stay display-only
 ---
 
-In tennis (and table tennis) the "spread" market is a GAMES handicap (e.g. -4.5 games), not a points spread, so the card badge reads "Game Handicap" / "Alt Game Handicap".
+In tennis the "spread" market is a GAMES handicap (e.g. -4.5 games), not a points spread, so the card badge reads "Game Handicap" / "Alt Game Handicap". (Table tennis was removed as a sport — see table-tennis-removed.md — so the helper only checks `sport === "tennis"`.)
 
 **Why:** Showing a generic "SPREAD" badge on a tennis games-handicap line reads wrong to bettors.
 

@@ -43,7 +43,7 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 // Sports we list on this tab that have NO player-prop feed (individual sports the
 // books price moneyline-only). They still get a REAL posted-matches list here —
 // the prop rails stay empty (honest) and tapping a match opens full odds.
-const BROWSE_ONLY_SPORTS = ["tennis", "tabletennis"];
+const BROWSE_ONLY_SPORTS = ["tennis"];
 
 // How many of the soonest pickable games to pull props for. Each game is a
 // separate Odds API request; the props route allows 120/min and caches 5min,

@@ -99,7 +99,6 @@ const SPORTS = [
   { id: "ncaab", label: "NCAAB", emoji: "🎓" },
   { id: "ufc", label: "UFC", emoji: "🥊" },
   { id: "tennis", label: "Tennis", emoji: "🎾" },
-  { id: "tabletennis", label: "Table Tennis", emoji: "🏓" },
 ];
 
 // Player database — hypothetical stats with form ratings (1-10) for matchup engine
@@ -12048,7 +12047,7 @@ export default function ParlayBuilder() {
         });
         // Individual matchup (e.g. UFC/MMA, tennis): "X vs Y", no team-style markets.
         // For these, Game Lines / Team Props don't apply — show fight/match markets only.
-        const isIndividual = sport === "ufc" || sport === "mma" || sport === "tennis" || sport === "tabletennis" || sport === "golf" || sport === "nascar"
+        const isIndividual = sport === "ufc" || sport === "mma" || sport === "tennis" || sport === "golf" || sport === "nascar"
           || (/\bvs\.?\b/i.test(game) && !/@/.test(game));
         // Group team picks into categories by market keyword
         const altSpreadPicks = picks.filter((p) => /^alt spread$/i.test(p.market));

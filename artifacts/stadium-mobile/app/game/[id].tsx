@@ -819,34 +819,6 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   );
 }
 
-// Honest note for table tennis: the app carries real live betting lines for it,
-// but there is NO reliable public source for table-tennis player stats or
-// matchup history — so rather than fabricate, we say so plainly.
-function TableTennisNote() {
-  const colors = useColors();
-  return (
-    <View
-      style={{
-        backgroundColor: colors.card,
-        borderColor: colors.border,
-        borderWidth: 1,
-        borderRadius: colors.radius,
-        padding: 14,
-        gap: 6,
-      }}
-    >
-      <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
-        MATCHUP
-      </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}>
-        Detailed player stats and matchup history aren&apos;t available for table tennis from a
-        reliable source, so we don&apos;t show them rather than guess. The real betting lines below
-        are live.
-      </Text>
-    </View>
-  );
-}
-
 export default function GameDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -942,7 +914,6 @@ export default function GameDetailScreen() {
 
           {game.sport === "tennis" ? <TennisMatchupCard game={game} /> : null}
 
-          {game.sport === "tabletennis" ? <TableTennisNote /> : null}
 
           {(() => {
             // Decode + drop unrenderable keys, then order: full-game mains first,
