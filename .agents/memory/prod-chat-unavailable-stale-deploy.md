@@ -35,3 +35,22 @@ mobile rebuild is required for this particular fix.
 api-server deployment is republished; dev workflow correctness ≠ production
 correctness. Always check deployment logs (not dev logs) for published-app bug
 reports.
+
+# Transient "There was a problem running the requested app / 404" page
+
+A full-page HTML 404 titled "Run this app to see the results here" with a
+"Go Home" button is the Replit deployment ROUTER placeholder shown when no server
+is bound to the requested path at that instant — NOT a broken build. On an
+**autoscale** deployment (deploymentTarget="autoscale" in .replit) this happens
+during cold starts (scaled-to-zero → first request) or mid-redeploy windows.
+
+**Confirm it's transient, not real:** curl the published host root directly
+(domain is EXPO_PUBLIC_DOMAIN in stadium-mobile/eas.json, e.g.
+`stadium-edge-1.replit.app`). If `GET /` returns 200 with the real app HTML
+(`<title>Stadium Edge</title>`) and `/api/*` responds, the deployment is healthy
+and the user just hit a cold-start blip — tell them to refresh. A bare
+`/api/sports/odds` curl returns 400 (missing required `sport` query param), which
+is healthy validation, not an outage.
+
+**If it recurs often:** autoscale cold starts are inherent; a Reserved VM
+(always-on) deployment avoids them — that's a user cost/config decision.
