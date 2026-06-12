@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,7 +22,7 @@ import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
 import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet";
-import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   fetchUpsetSpots,
@@ -41,13 +41,12 @@ import { formatAmerican } from "@/lib/format";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
 import { SPORTS } from "@/lib/sports";
+// Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
+// are listed but have NO player-prop feed — they get a real matches list here
+// instead, the prop rails stay empty (honest), and tapping a match opens odds.
+import { BROWSE_ONLY_SPORTS, isPillSport, SportPills } from "@/components/SportPills";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
-
-// Sports we list on this tab that have NO player-prop feed (individual sports the
-// books price moneyline-only). They still get a REAL posted-matches list here —
-// the prop rails stay empty (honest) and tapping a match opens full odds.
-const BROWSE_ONLY_SPORTS = ["tennis"];
 
 // How many of the soonest pickable games to pull props for. Each game is a
 // separate Odds API request; the props route allows 120/min and caches 5min.
@@ -342,7 +341,7 @@ export default function PropsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
   const [sport, setSport] = useState(
-    params.sp && PROPS_SPORTS.includes(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
+    params.sp && isPillSport(String(params.sp)) ? String(params.sp) : PROPS_SPORTS[0],
   );
   const [query, setQuery] = useState(params.q ? String(params.q) : "");
   const [sheet, setSheet] = useState<PlayerSheetData | null>(null);
@@ -422,7 +421,7 @@ export default function PropsScreen() {
   // When navigated to with a player/sport (e.g. from the Home featured row),
   // sync the search + sport selector to that target.
   useEffect(() => {
-    if (params.sp && PROPS_SPORTS.includes(String(params.sp))) setSport(String(params.sp));
+    if (params.sp && isPillSport(String(params.sp))) setSport(String(params.sp));
     if (params.q != null) setQuery(String(params.q));
   }, [params.q, params.sp]);
 
@@ -431,10 +430,6 @@ export default function PropsScreen() {
   // browse sports. The props data queries below still run only over propsSports —
   // browse sports have no prop feed, so they get a real matches list instead.
   const isBrowseSport = BROWSE_ONLY_SPORTS.includes(sport);
-  const pillSports = useMemo(
-    () => SPORTS.filter((s) => PROPS_SPORTS.includes(s.id) || BROWSE_ONLY_SPORTS.includes(s.id)),
-    [],
-  );
 
   const searching = query.trim().length > 0;
 
@@ -994,15 +989,11 @@ export default function PropsScreen() {
             obvious before the rails. Hidden while searching, since search spans
             every league at once and the selected pill no longer scopes results. */}
         {searching ? null : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
-          >
-            {pillSports.map((s) => (
-              <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-            ))}
-          </ScrollView>
+          <SportPills
+            activeId={sport}
+            onSelectSport={setSport}
+            onSelectGolf={() => router.push("/golf")}
+          />
         )}
         </View>
 

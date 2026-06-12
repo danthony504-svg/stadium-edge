@@ -1,11 +1,13 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import React from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Badge, Card, FONT, Loading, ErrorState, EmptyState } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
+import { SportPills } from "@/components/SportPills";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { getGolf, type GolfPlayer, type GolfTournament } from "@/lib/api";
@@ -187,6 +189,7 @@ function TournamentCard({ tournament }: { tournament: GolfTournament }) {
 export default function GolfScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const slipClearance = useSlipClearance();
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["golf"],
@@ -199,13 +202,22 @@ export default function GolfScreen() {
       <ScrollView
         contentContainerStyle={{
           paddingTop: insets.top + 56,
-          paddingHorizontal: 16,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={colors.primary} />
         }
       >
+        {/* Same league pill row as the Props tab — Golf is active here, and the
+            other pills navigate back to the Props board (Golf isn't a SPORTS
+            member, so it lives on this dedicated screen rather than in-page). */}
+        <SportPills
+          activeId="golf"
+          onSelectSport={(id) => router.navigate({ pathname: "/props", params: { sp: id } })}
+          onSelectGolf={() => {}}
+        />
+
+        <View style={{ paddingHorizontal: 16 }}>
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 26 }}>Golf</Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4, marginBottom: 16 }}>
           Outright winner odds for the majors — best price across books, ranked by a no-vig market model.
@@ -224,6 +236,7 @@ export default function GolfScreen() {
         ) : (
           data.map((t) => <TournamentCard key={t.key} tournament={t} />)
         )}
+        </View>
       </ScrollView>
     </View>
   );
