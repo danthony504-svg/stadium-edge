@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -184,7 +184,6 @@ export default function HomeScreen() {
   // headshots + team labels), matched by nickname.
   const featuredEnabled = PROPS_SPORTS.includes(sport);
   const featGames = useMemo(() => games.slice(0, 4), [games]);
-  const featIdsKey = featGames.map((g) => g.id).join(",");
 
   const teamInfoMap = useMemo(() => {
     const map = new Map<
@@ -214,74 +213,86 @@ export default function HomeScreen() {
     return map;
   }, [gamesQ.data]);
 
-  const featuredQ = useQuery({
-    queryKey: ["home-featured", sport, featIdsKey],
-    // Wait for ESPN games to SUCCEED (not merely settle) so team ids/headshots
-    // attach on the first pass (headshots are OPTIONAL — the avatar falls back to
-    // initials — but ESPN ids give us the team abbr + photo when available). When
-    // gamesQ flips false->true the query enables and runs.
-    enabled: featuredEnabled && featGames.length > 0 && gamesQ.isSuccess,
-    staleTime: 2 * 60_000,
-    queryFn: async ({ signal }): Promise<FeaturedPlayer[]> => {
-      const settled = await Promise.allSettled(
-        featGames.map((g) => {
-          const info = teamInfoMap.get(
+  // One query PER featured game (not a single allSettled over all 4), so the
+  // rail renders PROGRESSIVELY — players from whichever game responds first
+  // appear immediately instead of the whole section blocking on the slowest
+  // (cold-cache) props request. Still gated on ESPN success so team ids/abbrs/
+  // crests attach on the first pass (headshots optional → avatar falls back to
+  // initials).
+  const featuredGameQs = useQueries({
+    queries: featGames.map((g) => ({
+      queryKey: ["home-featured", sport, g.id],
+      enabled: featuredEnabled && gamesQ.isSuccess,
+      staleTime: 2 * 60_000,
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const info =
+          teamInfoMap.get(
             `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
-          );
-          return getProps(
-            {
-              sport,
-              eventId: g.id,
-              home: g.homeTeam,
-              away: g.awayTeam,
-              homeTeamId: info?.homeTeamId,
-              awayTeamId: info?.awayTeamId,
-            },
-            signal,
-          ).then((r) => ({ info, props: r.props ?? [] }));
-        }),
-      );
-      const seen = new Set<string>();
-      const out: FeaturedPlayer[] = [];
-      for (const s of settled) {
-        if (s.status !== "fulfilled") continue;
-        const { info, props } = s.value;
-        for (const p of props) {
-          // Require only a real over/yes price. A headshot is optional (soccer
-          // players have none — the avatar shows initials) and the line may be
-          // null for yes/no markets (soccer Anytime Goalscorer, NFL Anytime TD).
-          if (p.alt || p.overPrice == null) continue;
-          const key = p.player.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          const isHome =
-            !!p.playerTeamId && !!info?.homeTeamId && p.playerTeamId === info.homeTeamId;
-          const isAway =
-            !!p.playerTeamId && !!info?.awayTeamId && p.playerTeamId === info.awayTeamId;
-          const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
-          // Prefer the server-resolved crest (World Cup soccer has no team id, so
-          // info-based resolution finds nothing); otherwise use the ESPN game's
-          // home/away logo. Either way it's a REAL crest or null.
-          const teamLogo =
-            p.teamLogo ?? (isHome ? info!.homeLogo : isAway ? info!.awayLogo : null);
-          out.push({
-            name: p.player,
-            headshot: p.headshot,
-            teamLogo,
-            teamAbbr,
-            label: propMarketLabel(p.market),
-            line: p.line,
-            overPrice: p.overPrice,
-          });
-          if (out.length >= 8) break;
-        }
-        if (out.length >= 8) break;
-      }
-      return out;
-    },
+          ) ?? null;
+        const r = await getProps(
+          {
+            sport,
+            eventId: g.id,
+            home: g.homeTeam,
+            away: g.awayTeam,
+            homeTeamId: info?.homeTeamId,
+            awayTeamId: info?.awayTeamId,
+          },
+          signal,
+        );
+        return { info, props: r.props ?? [] };
+      },
+    })),
   });
 
-  const featured = featuredQ.data ?? [];
+  // Merge whatever games have resolved so far, dedupe by player, cap at 8.
+  // Recomputed each render (cheap) as more per-game queries settle, so the rail
+  // fills in incrementally rather than appearing all at once or not at all.
+  const featured: FeaturedPlayer[] = (() => {
+    const seen = new Set<string>();
+    const out: FeaturedPlayer[] = [];
+    for (const q of featuredGameQs) {
+      const data = q.data;
+      if (!data) continue;
+      const { info, props } = data;
+      for (const p of props) {
+        // Require only a real over/yes price. A headshot is optional (soccer
+        // players have none — the avatar shows initials) and the line may be
+        // null for yes/no markets (soccer Anytime Goalscorer, NFL Anytime TD).
+        if (p.alt || p.overPrice == null) continue;
+        const key = p.player.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const isHome =
+          !!p.playerTeamId && !!info?.homeTeamId && p.playerTeamId === info.homeTeamId;
+        const isAway =
+          !!p.playerTeamId && !!info?.awayTeamId && p.playerTeamId === info.awayTeamId;
+        const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
+        // Prefer the server-resolved crest (World Cup soccer has no team id, so
+        // info-based resolution finds nothing); otherwise use the ESPN game's
+        // home/away logo. Either way it's a REAL crest or null.
+        const teamLogo =
+          p.teamLogo ?? (isHome ? info!.homeLogo : isAway ? info!.awayLogo : null);
+        out.push({
+          name: p.player,
+          headshot: p.headshot,
+          teamLogo,
+          teamAbbr,
+          label: propMarketLabel(p.market),
+          line: p.line,
+          overPrice: p.overPrice,
+        });
+        if (out.length >= 8) break;
+      }
+      if (out.length >= 8) break;
+    }
+    return out;
+  })();
+
+  // Spinner only until the FIRST game resolves; once any player shows, the
+  // section stays populated while slower games keep filling in behind it.
+  const featuredLoading =
+    featuredEnabled && featured.length === 0 && featuredGameQs.some((q) => q.isLoading);
 
   // UPSET WATCH: real spots where the app's analytics (mlLean) favor the betting
   // underdog, scoped to the selected sport. Same engine as the coach used to use
@@ -295,7 +306,10 @@ export default function HomeScreen() {
   const upsets: UpsetSpot[] = upsetsQ.data ?? [];
 
   const refreshing =
-    oddsQ.isFetching || gamesQ.isFetching || featuredQ.isFetching || upsetsQ.isFetching;
+    oddsQ.isFetching ||
+    gamesQ.isFetching ||
+    featuredGameQs.some((q) => q.isFetching) ||
+    upsetsQ.isFetching;
 
   const askCoach = (msg: string) =>
     router.push({
@@ -322,7 +336,9 @@ export default function HomeScreen() {
             onRefresh={() => {
               oddsQ.refetch();
               gamesQ.refetch();
-              featuredQ.refetch();
+              // Manual refetch() fires even on disabled queries, so only kick
+              // the featured props fan-out for sports that actually have props.
+              if (featuredEnabled) featuredGameQs.forEach((q) => q.refetch());
               upsetsQ.refetch();
             }}
             tintColor={colors.mutedForeground}
@@ -456,7 +472,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Featured players */}
-        {featuredEnabled && (featuredQ.isLoading || featured.length > 0) ? (
+        {featuredEnabled && (featuredLoading || featured.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <Text
               style={{
@@ -469,7 +485,7 @@ export default function HomeScreen() {
             >
               Featured Players
             </Text>
-            {featuredQ.isLoading ? (
+            {featured.length === 0 ? (
               <View style={{ paddingHorizontal: 16 }}>
                 <Loading label="Loading featured props…" />
               </View>
