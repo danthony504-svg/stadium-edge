@@ -16,6 +16,7 @@ import bballrefRouter from "./bballref";
 import slipImageRouter from "./slipImage";
 import syncRouter from "./sync";
 import ufcRouter from "./ufc";
+import tennisRouter from "./tennis";
 import notificationsRouter from "./notifications";
 import gradeRouter from "./grade";
 
@@ -38,6 +39,7 @@ router.use(bballrefRouter);
 router.use(slipImageRouter);
 router.use(syncRouter);
 router.use(ufcRouter);
+router.use(tennisRouter);
 router.use(notificationsRouter);
 router.use(gradeRouter);
 

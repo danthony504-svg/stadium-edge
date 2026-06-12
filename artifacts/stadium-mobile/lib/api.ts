@@ -1278,6 +1278,55 @@ export async function getFightAnalysis(away: string, home: string, signal?: Abor
   }
 }
 
+// ---------- Tennis matchup (routes/tennis.ts) ----------
+
+export type TennisRecentResult = {
+  date: string;
+  opponent: string | null;
+  win: boolean | null;
+  score: string | null;
+  round: string | null;
+};
+export type TennisPlayer = {
+  name: string;
+  resolvedName: string | null;
+  athleteId: string | null;
+  country: string | null;
+  rank: number | null;
+  rankPoints: number | null;
+  tour: "ATP" | "WTA" | null;
+  recentForm: TennisRecentResult[];
+  formSummary: { wins: number; losses: number } | null;
+};
+export type TennisH2H = {
+  homeWins: number;
+  awayWins: number;
+  meetings: TennisRecentResult[];
+} | null;
+export type TennisMatchup = {
+  away: TennisPlayer;
+  home: TennisPlayer;
+  h2h: TennisH2H;
+  tournament: string | null;
+  round: string | null;
+};
+
+// Fetch the real tennis matchup (both players' ATP/WTA rank + country + season
+// recent form + recent head-to-head). Returns null on a failed/empty fetch —
+// the caller treats that as "no data" and never fabricates.
+export async function getTennisMatchup(
+  away: string,
+  home: string,
+  signal?: AbortSignal,
+): Promise<TennisMatchup | null> {
+  const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+  try {
+    return await getJson<TennisMatchup>(`/sports/tennis-matchup?${qs}`, signal);
+  } catch {
+    return null;
+  }
+}
+
 // Compact matchup-history entry sent to the AI (mirror of the web shape).
 export type MatchupHistoryEntry = {
   home: unknown;

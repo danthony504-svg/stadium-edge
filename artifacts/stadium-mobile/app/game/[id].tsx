@@ -13,7 +13,7 @@ import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getFightAnalysis, getOdds, streamChat, type FightAnalysis, type OddsGame, type OddsMarket } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -575,6 +575,257 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   );
 }
 
+// Real tennis matchup — both players' ESPN ATP/WTA ranking + country + season
+// recent form (set scores) + any recent head-to-head. Every value comes from
+// ESPN; missing values are honest-nulled (—), never fabricated. Renders nothing
+// when neither player resolves to real data.
+function TennisMatchupCard({ game }: { game: OddsGame }) {
+  const colors = useColors();
+  const [data, setData] = useState<TennisMatchup | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    getTennisMatchup(game.awayTeam, game.homeTeam, controller.signal)
+      .then((d) => {
+        if (!controller.signal.aborted) setData(d);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setData(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [game.awayTeam, game.homeTeam]);
+
+  if (loading) {
+    return (
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderWidth: 1,
+          borderRadius: colors.radius,
+          padding: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <ActivityIndicator color={colors.primary} />
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
+          Loading player data…
+        </Text>
+      </View>
+    );
+  }
+
+  const hasData = (p?: TennisPlayer | null) =>
+    !!p && (p.rank != null || p.country != null || p.recentForm.length > 0);
+  if (!data || (!hasData(data.away) && !hasData(data.home))) return null;
+
+  const aw = data.away;
+  const hm = data.home;
+  const aName = aw.resolvedName || game.awayTeam || "Away";
+  const hName = hm.resolvedName || game.homeTeam || "Home";
+  const tour = aw.tour || hm.tour;
+  const rankStr = (p: TennisPlayer) =>
+    p.rank != null ? `${p.tour || tour || ""} #${p.rank}`.trim() : "Unranked";
+  const formStr = (p: TennisPlayer) =>
+    p.formSummary ? `${p.formSummary.wins}-${p.formSummary.losses}` : "—";
+
+  const Side = ({ p, name, align }: { p: TennisPlayer; name: string; align: "left" | "right" }) => (
+    <View style={{ flex: 1, gap: 2, alignItems: align === "right" ? "flex-end" : "flex-start" }}>
+      <Text
+        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
+        numberOfLines={1}
+      >
+        {name}
+      </Text>
+      {p.country ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+          {p.country}
+        </Text>
+      ) : null}
+      <View
+        style={{
+          backgroundColor: "rgba(56,189,248,0.12)",
+          borderColor: "rgba(56,189,248,0.4)",
+          borderWidth: 1,
+          borderRadius: 6,
+          paddingHorizontal: 7,
+          paddingVertical: 2,
+          marginTop: 2,
+        }}
+      >
+        <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 11 }}>
+          {rankStr(p)}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const FormList = ({ p }: { p: TennisPlayer }) => (
+    <View style={{ flex: 1, gap: 4 }}>
+      {p.recentForm.length ? (
+        p.recentForm.map((r, i) => (
+          <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 4,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor:
+                  r.win === true
+                    ? "rgba(16,185,129,0.18)"
+                    : r.win === false
+                      ? "rgba(239,68,68,0.16)"
+                      : "rgba(148,163,184,0.16)",
+              }}
+            >
+              <Text
+                style={{
+                  color: r.win === true ? "#10b981" : r.win === false ? "#ef4444" : colors.mutedForeground,
+                  fontFamily: FONT.semibold,
+                  fontSize: 9,
+                }}
+              >
+                {r.win === true ? "W" : r.win === false ? "L" : "·"}
+              </Text>
+            </View>
+            <Text
+              style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}
+              numberOfLines={1}
+            >
+              {r.opponent ? `vs ${nickname(r.opponent)}` : "—"}
+              {r.score ? ` ${r.score}` : ""}
+            </Text>
+          </View>
+        ))
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+          No recent results
+        </Text>
+      )}
+    </View>
+  );
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 12,
+      }}
+    >
+      <View style={{ gap: 2 }}>
+        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+          MATCHUP
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+          REAL DATA · ESPN {tour ? tour : "ATP/WTA"}
+          {data.tournament ? ` · ${data.tournament}` : ""}
+          {data.round ? ` · ${data.round}` : ""}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+        <Side p={aw} name={aName} align="right" />
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, paddingTop: 4 }}>VS</Text>
+        <Side p={hm} name={hName} align="left" />
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 7,
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
+        <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "right" }}>
+          {formStr(aw)}
+        </Text>
+        <Text style={{ width: 132, color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 9.5, textAlign: "center", letterSpacing: 0.3 }}>
+          RECENT FORM (W-L)
+        </Text>
+        <Text style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+          {formStr(hm)}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 14 }}>
+        <FormList p={aw} />
+        <FormList p={hm} />
+      </View>
+
+      {data.h2h && data.h2h.meetings.length ? (
+        <View
+          style={{
+            backgroundColor: "rgba(56,189,248,0.06)",
+            borderColor: "rgba(56,189,248,0.3)",
+            borderWidth: 1,
+            borderRadius: colors.radius,
+            padding: 11,
+            gap: 6,
+          }}
+        >
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+            RECENT HEAD-TO-HEAD (THIS SEASON)
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
+            {hName} {data.h2h.homeWins}–{data.h2h.awayWins} {aName}
+          </Text>
+          {data.h2h.meetings.map((r, i) => (
+            <Text key={i} style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              {r.round ? `${r.round}: ` : ""}
+              {r.win === true ? `${hName} won` : r.win === false ? `${aName} won` : "result n/a"}
+              {r.score ? ` ${r.score}` : ""}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// Honest note for table tennis: the app carries real live betting lines for it,
+// but there is NO reliable public source for table-tennis player stats or
+// matchup history — so rather than fabricate, we say so plainly.
+function TableTennisNote() {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+        MATCHUP
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 18 }}>
+        Detailed player stats and matchup history aren&apos;t available for table tennis from a
+        reliable source, so we don&apos;t show them rather than guess. The real betting lines below
+        are live.
+      </Text>
+    </View>
+  );
+}
+
 export default function GameDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -640,6 +891,10 @@ export default function GameDetailScreen() {
           <AiGamePicks game={game} />
 
           {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
+
+          {game.sport === "tennis" ? <TennisMatchupCard game={game} /> : null}
+
+          {game.sport === "tabletennis" ? <TableTennisNote /> : null}
 
           {(() => {
             // Decode + drop unrenderable keys, then order: full-game mains first,
