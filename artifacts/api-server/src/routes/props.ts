@@ -187,7 +187,7 @@ type WcTeamRef = { id: string; logo: string };
 // Resolve one national team from ESPN's FIFA World Cup teams list by name.
 // Layered match (exact → substring → 5-char prefix), each requiring a UNIQUE
 // hit; anything ambiguous or missing a crest returns null (fail closed).
-async function resolveWorldCupTeam(name: string): Promise<WcTeamRef | null> {
+export async function resolveWorldCupTeam(name: string): Promise<WcTeamRef | null> {
   if (!name) return null;
   const data = await cachedJson<WcTeamsResp>(`wc-teams`, 24 * 60 * 60 * 1000, async () => {
     const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${WORLD_CUP_PATH}/teams`);

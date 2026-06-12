@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { GetOddsQueryParams, GetOddsResponse } from "@workspace/api-zod";
 import { ODDS_SPORT_KEYS, cachedJson, rateLimit } from "../lib/sports";
+import { resolveWorldCupTeam } from "./props";
 
 const router: IRouter = Router();
 
@@ -81,7 +82,87 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
         ).catch(() => [] as RawOddsGame[]),
       ),
     );
-    const games = perKey.flat();
+    let games = perKey.flat();
+
+    // ── Finished World Cup game suppression ──────────────────────────────
+    // The Odds API keeps a match in its feed during play and for a while
+    // AFTER the final whistle — the line just freezes at lopsided in-play
+    // numbers (e.g. -2500 / +250000), so a game that has clearly ended still
+    // looks bettable. WC national-team games are NOT in ESPN's club soccer
+    // feed, so the generic in-progress window can't tell a finished match
+    // from a live one. Use ESPN's FIFA World Cup scoreboard — the
+    // authoritative status source — to drop matches it marks completed.
+    // Real status only; on any scoreboard error we keep the games as-is
+    // (fail-open — never hide a genuinely live match on a transient hiccup).
+    if (sportId === "soccer" && games.some((g) => g.sport_key === "soccer_fifa_world_cup")) {
+      try {
+        const finished = await cachedJson(
+          "wc:finished:v2",
+          2 * 60 * 1000,
+          async (): Promise<Array<[string, string]>> => {
+            const r = await fetch(
+              "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard",
+            );
+            if (!r.ok) return [];
+            const j = (await r.json()) as {
+              events?: Array<{
+                status?: { type?: { completed?: boolean } };
+                competitions?: Array<{ competitors?: Array<{ team?: { id?: string | number } }> }>;
+              }>;
+            };
+            const pairs: Array<[string, string]> = [];
+            for (const e of j.events ?? []) {
+              if (!e.status?.type?.completed) continue;
+              const ids = (e.competitions?.[0]?.competitors ?? [])
+                .map((c) => (c.team?.id != null ? String(c.team.id) : ""))
+                .filter(Boolean);
+              if (ids.length === 2) pairs.push([ids[0]!, ids[1]!]);
+            }
+            return pairs;
+          },
+        );
+        if (finished.length) {
+          // Match finished events to odds games by ESPN team ID, NOT by name.
+          // ESPN and the Odds API spell several nations differently ("Czechia"
+          // vs "Czech Republic", "Congo DR" vs "DR Congo", "Türkiye" vs
+          // "Turkey"), so any name compare needs an ever-growing alias list and
+          // still silently misses teams. Instead resolve each odds team to its
+          // ESPN World Cup team ID with the SAME uniqueness-guarded resolver
+          // that powers the WC crests, and read the scoreboard side's real
+          // team.id — an exact, drift-proof key.
+          const wcGames = games.filter((g) => g.sport_key === "soccer_fifa_world_cup");
+          const idByGame = new Map<string, { home: string | null; away: string | null }>();
+          await Promise.all(
+            wcGames.map(async (g) => {
+              const [h, a] = await Promise.all([
+                resolveWorldCupTeam(g.home_team).catch(() => null),
+                resolveWorldCupTeam(g.away_team).catch(() => null),
+              ]);
+              idByGame.set(g.id, { home: h?.id ?? null, away: a?.id ?? null });
+            }),
+          );
+          // A WC game is finished when its two team IDs match a completed
+          // event's two team IDs (either order) and EXACTLY ONE finished event
+          // matches. Unresolved teams (null id) or any ambiguity fail OPEN so we
+          // never drop a still-upcoming or live fixture.
+          const isFinishedWc = (gameId: string): boolean => {
+            const ids = idByGame.get(gameId);
+            if (!ids || !ids.home || !ids.away) return false;
+            return (
+              finished.filter(
+                ([a, b]) =>
+                  (a === ids.home && b === ids.away) || (a === ids.away && b === ids.home),
+              ).length === 1
+            );
+          };
+          games = games.filter(
+            (g) => g.sport_key !== "soccer_fifa_world_cup" || !isFinishedWc(g.id),
+          );
+        }
+      } catch {
+        // Fail-open: scoreboard unreachable → keep the games as-is.
+      }
+    }
 
     // Fan out alt fetches in parallel for each event that hasn't kicked
     // off yet and starts within the next 48h. Cap concurrency by
