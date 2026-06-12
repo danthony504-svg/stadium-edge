@@ -265,6 +265,20 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 const PARLAY_BUILD_RE =
   /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
 
+// Ordered progress labels shown while a parlay builds. They are tied to the REAL
+// phases of the build, not a cosmetic timer: 0-2 cover buildChatContext fetching
+// odds → props → matchups (cycled while it runs), 3 ("Building correlation") is
+// locked in once that data is in and the model is reasoning, and 4 ("Finalizing
+// parlay") only appears once real PICK lines actually stream back (derived from
+// the live leg count). Every label describes work that genuinely happens.
+const BUILD_STAGES = [
+  "Scanning odds",
+  "Finding value props",
+  "Checking matchups",
+  "Building correlation",
+  "Finalizing parlay",
+] as const;
+
 // "Improve THIS slip" intent (mirror of the server's improveWording in chat.ts).
 // When the user uploaded a bet-slip photo and then asks for "a better one", they
 // want a BETTER version of THAT SAME slip — same games, same leg count. The slip
@@ -628,6 +642,8 @@ export default function CoachScreen() {
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  // Index into BUILD_STAGES for the live parlay-build progress indicator.
+  const [buildStage, setBuildStage] = useState(0);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -661,6 +677,8 @@ export default function CoachScreen() {
   }, []);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Interval that cycles the first build stages while the context fetch runs.
+  const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (params.prefill) setInput(String(params.prefill));
@@ -958,6 +976,19 @@ export default function CoachScreen() {
         const wantsMinusAlt =
           !oddsThreshold && altMentioned && minusCue && !plusCue;
         const altSign: AltSign = wantsPlusAlt ? "plus" : wantsMinusAlt ? "minus" : null;
+        // Staged build progress: while the context fetch runs we cycle through the
+        // first three labels (odds → value props → matchups — the real phases of
+        // buildChatContext), capped at "Checking matchups". We jump to "Building
+        // correlation" only once the data is actually in (below), and the render
+        // promotes to "Finalizing parlay" once real PICK lines stream.
+        const isParlayBuild = PARLAY_BUILD_RE.test(trimmed) || requestedLegs > 0;
+        if (isParlayBuild) {
+          setBuildStage(0);
+          if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+          stageTimerRef.current = setInterval(() => {
+            setBuildStage((s) => (s < 2 ? s + 1 : s));
+          }, 1200);
+        }
         const { context, propPool, gameMeta, todayOnly } = await buildChatContext(
           DEFAULT_SPORTS,
           slipForContext,
@@ -968,6 +999,15 @@ export default function CoachScreen() {
           altSign,
           requestedLegs,
         );
+        // Context (odds/props/matchups) is in — stop cycling and hold the indicator
+        // on "Building correlation" for the model-reasoning wait (the long phase).
+        if (isParlayBuild) {
+          if (stageTimerRef.current) {
+            clearInterval(stageTimerRef.current);
+            stageTimerRef.current = null;
+          }
+          setBuildStage(3);
+        }
         // "Today / tonight" ask: buildChatContext already restricts the pools to
         // today's upcoming games AND returns the EFFECTIVE decision it applied.
         // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1435,6 +1475,11 @@ export default function CoachScreen() {
           });
         }
       } finally {
+        if (stageTimerRef.current) {
+          clearInterval(stageTimerRef.current);
+          stageTimerRef.current = null;
+        }
+        setBuildStage(0);
         setWaiting(false);
         setStreaming(false);
         abortRef.current = null;
@@ -1460,7 +1505,10 @@ export default function CoachScreen() {
   }, [params.send, params.ts, params.prefill, streaming, send]);
 
   useEffect(() => {
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+    };
   }, []);
 
   return (
@@ -1619,9 +1667,27 @@ export default function CoachScreen() {
                         fontSize: 13,
                       }}
                     >
-                      {buildingLegCount > 0
-                        ? `Building your parlay… ${buildingLegCount} leg${buildingLegCount === 1 ? "" : "s"}`
-                        : "Building your parlay…"}
+                      {(() => {
+                        // Real PICK lines streaming => Finalizing; otherwise show
+                        // the current fetch/reason stage. Suffix is the leg count
+                        // once finalizing, else the N/5 step so the staging reads.
+                        // When the build was detected only via streamed PICK
+                        // scaffolding (parlayBuildIntent false), the stage timer
+                        // never ran, so buildStage is still 0 — floor to 3
+                        // ("Building correlation") rather than show a stale
+                        // "Scanning odds" before picks land.
+                        const stageIdx =
+                          buildingLegCount > 0
+                            ? 4
+                            : parlayBuildIntent
+                              ? Math.min(buildStage, 3)
+                              : 3;
+                        const suffix =
+                          stageIdx === 4 && buildingLegCount > 0
+                            ? `${buildingLegCount} leg${buildingLegCount === 1 ? "" : "s"}`
+                            : `${stageIdx + 1}/5`;
+                        return `${BUILD_STAGES[stageIdx]}… ${suffix}`;
+                      })()}
                     </Text>
                   </View>
                 ) : null}
