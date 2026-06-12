@@ -859,12 +859,13 @@ export default function PropsScreen() {
         {/* Pinned header — logo, search and sport pills stay affixed to the top
             of the page (including while props are loading), so the content below
             scrolls underneath them instead of pushing them around. */}
-        <View style={{ paddingTop: insets.top + 8, backgroundColor: colors.background }}>
-        {/* Logo — matches the Home logo's size and position */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
+        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
+        {/* Logo — tightly-cropped wordmark so it sits flush at the top without the
+            large empty bands the full logo asset carries. */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 10, alignItems: "center" }}>
           <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 130, marginTop: -8 }}
+            source={require("@/assets/images/logo-wordmark.png")}
+            style={{ width: 250, aspectRatio: 1584 / 270 }}
             resizeMode="contain"
             accessibilityLabel="Stadium Edge"
           />
