@@ -1,9 +1,12 @@
 import { Feather } from "@expo/vector-icons";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -37,6 +40,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
 import { SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -47,9 +51,13 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 const BROWSE_ONLY_SPORTS = ["tennis"];
 
 // How many of the soonest pickable games to pull props for. Each game is a
-// separate Odds API request; the props route allows 120/min and caches 5min,
-// so a dozen is comfortable and keeps the screen responsive.
-const MAX_GAMES = 12;
+// separate Odds API request; the props route allows 120/min and caches 5min.
+// We no longer hard-cap at a dozen — instead the browse list starts with an
+// INITIAL_GAMES batch and loads GAMES_STEP more as the user scrolls, so later
+// games become reachable without firing every request up front. Non-selected
+// search sports stay at the initial batch (bounded breadth across leagues).
+const INITIAL_GAMES = 6;
+const GAMES_STEP = 6;
 
 // AI RECOMMENDED grading. The "AI grade" is NOT a fabricated model rating (the
 // app has no edge/confidence feed) — it's a transparent letter derived ONLY from
@@ -138,9 +146,20 @@ function recommendSide(p: PlayerProp): { side: "Over" | "Under"; price: number }
   return null;
 }
 
+// A page of loaded props: the games we pulled props for, plus the TOTAL number
+// of pickable games available in the window (so the UI knows whether scrolling
+// can load more). `total` is the count BEFORE the per-page game limit and before
+// dropping games that returned zero props.
+type GamePropsPage = { games: GameProps[]; total: number };
+
 // Fetch odds (for the pickable game list + Odds API event ids) and ESPN games
-// (for team ids → headshots), then pull player props per game.
-async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameProps[]> {
+// (for team ids → headshots), then pull player props for the soonest `limit`
+// games. Returns the loaded games plus the total pickable count for load-more.
+async function fetchAllProps(
+  sport: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<GamePropsPage> {
   const [odds, games] = await Promise.all([
     getOdds(sport, signal),
     getGames(sport, signal).catch(() => [] as EspnGame[]),
@@ -157,10 +176,10 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
     if (Number.isNaN(t)) return false;
     return t > now - 4 * 3600_000 && t < now + HORIZON_H * 3600_000;
   };
-  const pickable = odds
+  const windowed = odds
     .filter((g) => inWindow(g.commenceTime))
-    .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime))
-    .slice(0, MAX_GAMES);
+    .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  const pickable = windowed.slice(0, Math.max(1, limit));
 
   let failures = 0;
   const results = await Promise.all(
@@ -196,7 +215,7 @@ async function fetchAllProps(sport: string, signal?: AbortSignal): Promise<GameP
   if (pickable.length > 0 && failures === pickable.length) {
     throw new Error("All player-prop requests failed");
   }
-  return results.filter((r) => r.props.length > 0);
+  return { games: results.filter((r) => r.props.length > 0), total: windowed.length };
 }
 
 // Compact search result: one tappable row per player (name + how many markets
@@ -432,17 +451,55 @@ export default function PropsScreen() {
   }, [query]);
   const fetchAllSports = debouncedQuery.trim().length > 0;
 
+  // Last-loaded props snapshots (per sport) restored from AsyncStorage on mount.
+  // Fed as `placeholderData` below so the tab paints instantly from cache on open
+  // (even after an app relaunch) while fresh data revalidates in the background —
+  // the blocking spinner then only appears on a true cold start (no snapshot).
+  const [snapshots, setSnapshots] = useState<Record<string, GamePropsPage>>({});
+  useEffect(() => {
+    let alive = true;
+    loadAllPropsSnapshots<GameProps>().then((s) => {
+      if (alive) setSnapshots(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Load-more: the selected sport's browse list grows in GAMES_STEP increments as
+  // the user scrolls (see onScroll). Reset to the initial batch whenever the
+  // selected sport changes. Non-selected search sports always use INITIAL_GAMES.
+  const [gamesLimit, setGamesLimit] = useState(INITIAL_GAMES);
+  useEffect(() => {
+    setGamesLimit(INITIAL_GAMES);
+  }, [sport]);
+
   // One query per props sport. The selected sport always loads (it drives the
   // browse list + the AI rail); the rest load only once the user starts a search
   // — so search spans EVERY league at once, not just the selected pill. Per-sport
   // keys share React Query's cache, so flipping pills never refetches fresh data.
   const sportQueries = useQueries({
-    queries: propsSports.map((s) => ({
-      queryKey: ["props-all", s.id],
-      queryFn: ({ signal }: { signal?: AbortSignal }) => fetchAllProps(s.id, signal),
-      staleTime: 2 * 60_000,
-      enabled: s.id === sport || fetchAllSports,
-    })),
+    queries: propsSports.map((s) => {
+      const limit = s.id === sport ? gamesLimit : INITIAL_GAMES;
+      return {
+        queryKey: ["props-all", s.id, limit],
+        queryFn: async ({ signal }: { signal?: AbortSignal }) => {
+          const page = await fetchAllProps(s.id, limit, signal);
+          // Persist the freshest snapshot so the next open is instant-from-cache.
+          void savePropsSnapshot(s.id, page);
+          return page;
+        },
+        staleTime: 2 * 60_000,
+        // Keep data around long after the tab loses focus so returning to it is
+        // instant (default gcTime would drop it after 5 min).
+        gcTime: 30 * 60_000,
+        // Show the previous batch while a larger one loads (load-more = no
+        // spinner), and on a cold start fall back to the persisted snapshot so the
+        // last-known props paint immediately while fresh data arrives.
+        placeholderData: (prev: GamePropsPage | undefined) => prev ?? snapshots[s.id],
+        enabled: s.id === sport || fetchAllSports,
+      };
+    }),
   });
 
   // The selected sport's query drives the browse view, the AI rail, and refresh.
@@ -453,7 +510,7 @@ export default function PropsScreen() {
   // reads this pool so a player/team match in ANY league surfaces at once.
   const dataStamp = sportQueries.map((q) => q.dataUpdatedAt).join(",");
   const searchPool = useMemo(
-    () => sportQueries.flatMap((q) => q.data ?? []),
+    () => sportQueries.flatMap((q) => q.data?.games ?? []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dataStamp],
   );
@@ -490,7 +547,7 @@ export default function PropsScreen() {
   };
   const gradeCandidates = useMemo<Cand[]>(() => {
     if (isBrowseSport) return [];
-    const data = propsQ.data ?? [];
+    const data = propsQ.data?.games ?? [];
     const out: Cand[] = [];
     const seen = new Set<string>();
     for (const g of data) {
@@ -686,7 +743,7 @@ export default function PropsScreen() {
   type ValueItem = { pick: ParsedPick; ev: number; caption: string };
   const valueProps = useMemo<ValueItem[]>(() => {
     if (isBrowseSport) return [];
-    const data = propsQ.data ?? [];
+    const data = propsQ.data?.games ?? [];
     const out: ValueItem[] = [];
     const seen = new Set<string>();
     for (const g of data) {
@@ -765,7 +822,7 @@ export default function PropsScreen() {
 
   const filtered = useMemo(() => {
     if (isBrowseSport) return [];
-    const data = propsQ.data ?? [];
+    const data = propsQ.data?.games ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return data;
     return data
@@ -779,6 +836,32 @@ export default function PropsScreen() {
   const totalProps = useMemo(
     () => filtered.reduce((n, g) => n + g.props.length, 0),
     [filtered],
+  );
+
+  // Load-more: are there more pickable games than we've currently loaded for the
+  // selected sport? (Only meaningful in the non-search browse view.)
+  const hasMoreGames =
+    !isBrowseSport && !searching && (propsQ.data?.total ?? 0) > gamesLimit;
+  // True while the larger batch is in flight (showing the previous batch via
+  // placeholderData) — drives the footer "Loading more games…" indicator.
+  const loadingMore = hasMoreGames && propsQ.isFetching;
+  // Guard so onScroll only bumps the limit once per batch (it fires rapidly).
+  const loadMoreGuard = useRef(false);
+  useEffect(() => {
+    if (!propsQ.isFetching) loadMoreGuard.current = false;
+  }, [propsQ.isFetching]);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!hasMoreGames || propsQ.isFetching || loadMoreGuard.current) return;
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const distanceToBottom =
+        contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (distanceToBottom < 600) {
+        loadMoreGuard.current = true;
+        setGamesLimit((g) => g + GAMES_STEP);
+      }
+    },
+    [hasMoreGames, propsQ.isFetching],
   );
 
   // While searching, also surface TEAMS whose name matches the query — parsed
@@ -847,6 +930,8 @@ export default function PropsScreen() {
       <ScrollView
         keyboardShouldPersistTaps="handled"
         stickyHeaderIndices={[0]}
+        onScroll={onScroll}
+        scrollEventThrottle={200}
         contentContainerStyle={{
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
@@ -1135,6 +1220,25 @@ export default function PropsScreen() {
               </View>
             ))
           )}
+          {/* Load-more footer: only in the browse view, when more pickable games
+              remain than we've loaded. Tapping (or scrolling near the bottom)
+              pulls the next batch; a spinner shows while it's in flight. */}
+          {!searching && !isBrowseSport && (loadingMore || hasMoreGames) ? (
+            <Pressable
+              onPress={() => {
+                if (!propsQ.isFetching && hasMoreGames) setGamesLimit((g) => g + GAMES_STEP);
+              }}
+              style={{ paddingVertical: 16, alignItems: "center", justifyContent: "center" }}
+            >
+              {loadingMore ? (
+                <ActivityIndicator color={colors.mutedForeground} />
+              ) : (
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+                  Load more games
+                </Text>
+              )}
+            </Pressable>
+          ) : null}
         </View>
       </ScrollView>
       <PlayerPropsSheet

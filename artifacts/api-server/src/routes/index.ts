@@ -20,6 +20,7 @@ import tennisRouter from "./tennis";
 import notificationsRouter from "./notifications";
 import gradeRouter from "./grade";
 import golfRouter from "./golf";
+import prebuildRouter from "./prebuild";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(tennisRouter);
 router.use(notificationsRouter);
 router.use(gradeRouter);
 router.use(golfRouter);
+router.use(prebuildRouter);
 
 export default router;
