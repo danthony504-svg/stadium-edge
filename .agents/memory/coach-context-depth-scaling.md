@@ -27,17 +27,18 @@ parlays coming back short (see big-parlay-prop-fetch-cap, mobile-chat-prop-bread
 Only small/medium tickets shrink, where the smaller pool is still far more than
 enough to fill the requested legs. This cuts upload bytes + model time-to-first-token.
 
-**The dominant per-item cost is matchupHistory.** Measured on the wire (api-server
-logs the serialized context size), each matchup entry is ~15 KB (recent-game /
-h2h / L10 arrays) vs ~3 KB per player game-log and ~0.5 KB per prop. A first-pass
-"medium" tier (280/90/28/12) was still ~367 KB ≈ ~90K input tokens, and the model's
-time-to-first-token still outran the stream watchdog → abort-and-resend loop. So
-the tiers cut **matchup hardest** (it's analytics for winner/upset reads, NOT the
-source of PICK lines, which come from realProps+realOdds — safest to trim), history
-next, with a props/odds floor that still fills the legs. Current tiers: small
-(80/45/10/3), medium (110/55/16/4) ≈ ~120 KB, full (cap/120/cap/16). When tuning,
-prefer cutting matchup before props — props/history under-fill is far more visible
-to the user than thinner matchup analytics.
+**matchupHistory + playerHistory are the heaviest per-item fields.** A first-pass
+"medium" tier (280/90/28/12) still serialized to ~367 KB ≈ ~90K input tokens and
+the model's time-to-first-token still outran the stream watchdog → abort-and-resend
+loop (api-server: repeated `request aborted`, statusCode 200 so the server WAS still
+working — the client just gave up; one held 68s). matchup/history entries carry
+recent-game / h2h / L10 / game-log arrays so a handful dwarfs a hundred props; both
+are ANALYTICS, NOT the source of PICK lines (realProps+realOdds), so they're the
+safest to cut. Current tiers: small (80/45/10/3), medium (110/55/16/4), full
+(cap/120/cap/16). **Don't guess at per-field size** — api-server now logs an exact
+per-field BYTE breakdown (`chatCtxBytes` in "chat context size before model call");
+read it to confirm what dominates before retuning. When tuning, prefer cutting
+matchup/history before props — props under-fill is far more user-visible.
 
 **How to apply / gotchas:**
 - Period / same-game high-leg builds keep `ODDS_CAP = 400` (the `includePeriods`

@@ -95,15 +95,16 @@ export function prioritizePlayerHistoryTargets<T extends { sport: string; game: 
 // then aborted and re-sent the whole payload in a retry loop (verified: repeated
 // `request aborted` on /api/chat, never reaching a first token).
 //
-// The dominant cost per ITEM is matchupHistory: each entry carries recent-game /
-// head-to-head / L10 arrays and serializes to ~15 KB, so a dozen of them is ~half
-// the payload. matchupHistory is supporting ANALYTICS (winner-consistency / upset
-// reads), NOT the source of the PICK lines (those come from realProps + realOdds),
-// so it is the safest thing to cut hard. We therefore trim matchup most, history
-// next, and keep a props/odds floor that still comfortably fills the requested
-// legs (the server also backfills props beyond the context — see
-// server-returned prop pool). Big tickets (11+) keep the FULL breadth so they
-// never come back short. Sizes below bring medium to ~120 KB / ~30K tokens.
+// matchupHistory and playerHistory are the heaviest per-ITEM fields — each entry
+// carries recent-game / head-to-head / L10 / game-log arrays, so a handful of them
+// dwarfs a hundred props. Both are supporting ANALYTICS (winner-consistency / upset
+// / grounding prose), NOT the source of the PICK lines (those come from realProps +
+// realOdds), so they are the safest things to cut hard. We therefore trim matchup
+// most, history next, and keep a props/odds floor that still comfortably fills the
+// requested legs (the server also backfills props beyond the context — see the
+// server-returned prop pool). Big tickets (11+) keep the FULL breadth so they never
+// come back short. (api-server logs an exact per-field BYTE breakdown — chatCtxBytes
+// in "chat context size before model call" — use it to retune these tiers.)
 export type ContextDepth = { props: number; odds: number; history: number; matchup: number };
 
 // Tiers mirror the product spec: 2-5 legs = focused, 6-10 = medium, 11+ = full.

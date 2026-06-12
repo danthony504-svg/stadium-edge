@@ -1692,6 +1692,17 @@ router.post("/chat", async (req, res): Promise<void> => {
     const lc = (lockedContext ?? {}) as Record<string, unknown>;
     const cnt = (v: unknown) =>
       Array.isArray(v) ? v.length : v && typeof v === "object" ? Object.keys(v).length : 0;
+    // Serialized BYTE size of each field so we know exactly what dominates the
+    // payload (the count alone hides that one matchup/history entry can be 10-30x
+    // a prop). Drives the chatContextPriority depth tiers — cut the heaviest field
+    // first. Wrapped in its own try (stringify of a field can't break the count log).
+    const bytes = (v: unknown) => {
+      try {
+        return v == null ? 0 : JSON.stringify(v).length;
+      } catch {
+        return -1;
+      }
+    };
     req.log.info(
       {
         chatCtx: {
@@ -1701,6 +1712,18 @@ router.post("/chat", async (req, res): Promise<void> => {
           realGames: cnt(lc.realGames),
           playerHistory: cnt(lc.playerHistory),
           matchupHistory: cnt(lc.matchupHistory),
+        },
+        chatCtxBytes: {
+          realProps: bytes(lc.realProps),
+          realOdds: bytes(lc.realOdds),
+          realGames: bytes(lc.realGames),
+          playerHistory: bytes(lc.playerHistory),
+          matchupHistory: bytes(lc.matchupHistory),
+          mlbPlatoon: bytes(lc.mlbPlatoon),
+          mlbGameEnv: bytes(lc.mlbGameEnv),
+          matchupInjuries: bytes(lc.matchupInjuries),
+          fightAnalysis: bytes(lc.fightAnalysis),
+          currentSlip: bytes(lc.currentSlip),
         },
       },
       "chat context size before model call",
