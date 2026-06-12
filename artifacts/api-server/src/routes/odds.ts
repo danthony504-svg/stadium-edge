@@ -40,11 +40,15 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
   // merged. Tennis keys are resolved dynamically from the live Odds API calendar
   // (the per-tournament keys change week to week); everything else is static.
   const oddsKeys = await resolveOddsKeys(sportId);
-  // Tennis is winner-odds (moneyline) ONLY by product requirement — no
-  // spreads/totals/alt/period markets. Enforce it server-side (don't even
-  // request them) so the feed can never surface anything beyond h2h, rather
-  // than relying on the upstream feed happening to omit them.
-  const moneylineOnly = sportId === "tennis";
+  // Table Tennis is winner-odds (moneyline) ONLY — it has no Odds API keys and
+  // comes from the Bovada fallback, which lists only the match moneyline.
+  // Tennis carries the match winner (h2h), game spread (handicap), and Total
+  // Match Games (totals) — all REAL from the Odds API bulk feed — but it has no
+  // halves/quarters, so it skips the per-event alt/period fetch (skipAltPeriod)
+  // and serves mains only. We never request set betting / set winners: the Odds
+  // API doesn't carry them (INVALID_MARKET), so they'd have to be fabricated.
+  const moneylineOnly = sportId === "tabletennis";
+  const skipAltPeriod = moneylineOnly || sportId === "tennis";
   const bulkMarkets = moneylineOnly ? "h2h" : "h2h,spreads,totals";
   const apiKey = process.env["ODDS_API_KEY"];
   if (!apiKey) {
@@ -173,10 +177,11 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     const americanToProb = (a: number) => (a < 0 ? -a / (-a + 100) : 100 / (a + 100));
     const now = Date.now();
     const WINDOW_MS = 48 * 60 * 60 * 1000;
-    // Moneyline-only sports (tennis) skip the per-event alt/period fetch
-    // entirely — those endpoints only serve spreads/totals/period ladders,
-    // which tennis must never show.
-    const upcoming = moneylineOnly ? [] : games.filter((g) => {
+    // Sports without halves/quarters (table tennis, tennis) skip the per-event
+    // alt/period fetch entirely — those endpoints serve period ladders that
+    // don't exist for them. Tennis still gets its main spreads/totals from the
+    // bulk call above; it just has no per-event alt/period markets to add.
+    const upcoming = skipAltPeriod ? [] : games.filter((g) => {
       const t = new Date(g.commence_time).getTime();
       return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
     }).slice(0, 12); // cap credit spend

@@ -31,6 +31,9 @@ export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
   // The Odds API has a separate key per tournament, so a hardcoded major goes
   // empty the moment that major ends.
   tennis: ["tennis_atp_french_open", "tennis_wta_french_open"],
+  // Table tennis has no Odds API coverage — empty keys force the Bovada
+  // fallback (lib/games.ts BOVADA_PATHS), which serves the match moneyline.
+  tabletennis: [],
 };
 
 // Resolve the Odds API sport key(s) to fetch for an app sport.

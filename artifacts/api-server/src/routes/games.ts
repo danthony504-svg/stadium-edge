@@ -403,6 +403,7 @@ const BOVADA_PATHS: Record<string, string> = {
   ncaaf: "football/college-football",
   ncaab: "basketball/college-basketball",
   soccer: "soccer",
+  tabletennis: "table-tennis",
 };
 // Cached server-side; cap is an abuse guard only. Match odds-espn so a
 // full-slate fallback fan-out across both fetch effects can't false-429 and

@@ -20,6 +20,7 @@ export const SPORTS: Sport[] = [
   { id: "soccer", label: "Soccer", short: "SOC", icon: "soccer" },
   { id: "ufc", label: "UFC", short: "UFC", icon: "mixed-martial-arts" },
   { id: "tennis", label: "Tennis", short: "TEN", icon: "tennis" },
+  { id: "tabletennis", label: "Table Tennis", short: "TT", icon: "table-tennis" },
   { id: "nfl", label: "NFL", short: "NFL", icon: "football" },
   { id: "ncaaf", label: "CFB", short: "CFB", icon: "football" },
   { id: "ncaab", label: "CBB", short: "CBB", icon: "basketball" },
