@@ -110,6 +110,19 @@ function marketIcon(pick: ParsedPick): keyof typeof Feather.glyphMap {
   return "flag";
 }
 
+// In tennis (and table tennis) a "spread" is a GAMES handicap (e.g. -4.5 games),
+// not a points spread — so the card badge should read "Game Handicap". This is a
+// DISPLAY-ONLY relabel: the underlying `market` value is never changed, so slip
+// leg keys, dedupe, and AI-pick resolution all keep using the real "Spread" /
+// "Alt Spread" market name.
+function marketDisplayLabel(market: string, sport?: string): string {
+  if (sport === "tennis" || sport === "tabletennis") {
+    if (/^spread$/i.test(market)) return "Game Handicap";
+    if (/^alt spread$/i.test(market)) return "Alt Game Handicap";
+  }
+  return market;
+}
+
 // "Away @ Home" with the away side in blue and the home side in red so the
 // fixture reads at a glance. Falls back to a plain muted line when the label
 // isn't a clean two-team matchup (e.g. a futures or oddly-formatted game).
@@ -657,7 +670,7 @@ export function PickCard({
                 textTransform: "uppercase",
               }}
             >
-              {pick.market}
+              {marketDisplayLabel(pick.market, pick.sport)}
             </Text>
           </View>
           <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
