@@ -15,6 +15,26 @@ _Replace the heading above with the project's name, and this line with one sente
   server instances share one view. Leave unset for single-instance (in-memory)
   deployments; Redis errors fail over to the in-memory store automatically.
 
+## Scheduled jobs (cron)
+
+The api-server deploys as **autoscale**, so in-process timers (`setInterval`)
+can't be trusted to run. Time-based work is driven by **Scheduled Deployments**
+that POST to secured cron endpoints (guarded by the `x-cron-key` header vs
+`NOTIFY_CRON_KEY` / `PREBUILD_CRON_KEY`):
+
+- **Notifications** — `POST /api/notifications/cron`, ~every 15 min.
+- **Cache pre-warming** — `POST /api/prebuild/cron`, every few minutes (the
+  warmed odds/games/props caches have ~5 min TTLs). Run command:
+  `bash scripts/prebuild-cron.sh` (reads `PREBUILD_CRON_URL` defaulting to the
+  published api-server, and `PREBUILD_CRON_KEY` falling back to
+  `NOTIFY_CRON_KEY`). The endpoint makes the live instance warm its caches over
+  loopback, so it adds no extra Odds API quota beyond a normal page load.
+
+To set up the pre-warming schedule: from the published project, create a
+**Scheduled Deployment** (Publishing tool) with run command
+`bash scripts/prebuild-cron.sh` on a few-minute interval. `NOTIFY_CRON_KEY` is
+already a shared env var, so no extra secret is required.
+
 ## Scaling
 
 - The api-server rate limits are per-user: `app.set("trust proxy", true)` lets
