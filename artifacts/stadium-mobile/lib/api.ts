@@ -2,6 +2,7 @@ import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
 import {
+  contextDepthForLegs,
   focalSportsFromText,
   gameMatchesFocalText,
   prioritizePlayerHistoryTargets,
@@ -1499,6 +1500,7 @@ async function buildMatchupHistoryAndUpsets(
   mlPriceByLabel: Record<string, Record<string, number>>,
   signal?: AbortSignal,
   focalText?: string | null,
+  matchupCap = 16,
 ): Promise<{ matchupHistory: Record<string, MatchupHistoryEntry>; upsetSpots: UpsetSpot[] }> {
   const matchupHistory: Record<string, MatchupHistoryEntry> = {};
   const upsetSpots: UpsetSpot[] = [];
@@ -1518,7 +1520,7 @@ async function buildMatchupHistoryAndUpsets(
     }
   }
   await Promise.all(
-    ordered.slice(0, 16).map(async (t) => {
+    ordered.slice(0, matchupCap).map(async (t) => {
       try {
         const data = await getMatchupHistory(t.sport, t.homeTeamId, t.awayTeamId, signal);
         const home10 = data?.home?.last10;
@@ -1638,7 +1640,12 @@ export async function buildChatContext(
   includePeriods = false,
   focalText?: string | null,
   altSign: AltSign = null,
+  requestedLegs = 0,
 ): Promise<BuiltChatContext> {
+  // Scale how much of the slate we send the model to the ticket size the user
+  // asked for (small parlays don't need the whole night's pool). Big tickets keep
+  // full breadth. See contextDepthForLegs for the why (latency) and the tiers.
+  const depth = contextDepthForLegs(requestedLegs, MAX_PROPS_IN_CONTEXT);
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
   // Fast path: fan out odds+games for every sport at once.
@@ -1806,6 +1813,7 @@ export async function buildChatContext(
     buildMlPriceByLabel(realOdds),
     signal,
     focalText,
+    depth.matchup,
   );
 
   // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
@@ -2033,7 +2041,7 @@ export async function buildChatContext(
     : realOdds;
   // Period/same-game tickets surface many game-level period legs per game, so the
   // cap is raised when those are included to keep a usable multi-leg pool.
-  const ODDS_CAP = includePeriods ? 400 : 120;
+  const ODDS_CAP = includePeriods ? 400 : depth.odds;
 
   // ---------- Real player game logs + MLB platoon / ballpark signals ----------
   // Mirror of the web ParlayBuilder build: pull each unique prop player's REAL
@@ -2053,7 +2061,7 @@ export async function buildChatContext(
   // MLB slate fills all 40 slots and an NBA/NFL game the user named gets no
   // recent logs — the coach then truthfully says "no recent log available" even
   // though the server has it. See chatContextPriority.ts (unit-tested).
-  const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, 40);
+  const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
   if (phTargets.length > 0) {
     type HistResp = {
       recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
@@ -2250,7 +2258,7 @@ export async function buildChatContext(
       currentSlip,
       realGames: realGames.slice(0, 60),
       realOdds: rankedOdds.slice(0, ODDS_CAP),
-      realProps: balancePropsByGame(realProps, MAX_PROPS_IN_CONTEXT, focalText),
+      realProps: balancePropsByGame(realProps, depth.props, focalText),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
       ...(Object.keys(playerHistory).length ? { playerHistory } : {}),

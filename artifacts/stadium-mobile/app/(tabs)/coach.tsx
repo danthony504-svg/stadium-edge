@@ -966,6 +966,7 @@ export default function CoachScreen() {
           includePeriods,
           trimmed,
           altSign,
+          requestedLegs,
         );
         // "Today / tonight" ask: buildChatContext already restricts the pools to
         // today's upcoming games AND returns the EFFECTIVE decision it applied.

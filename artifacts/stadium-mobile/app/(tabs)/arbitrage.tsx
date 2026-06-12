@@ -474,7 +474,7 @@ export default function ArbitrageScreen() {
       >
         <View>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            Value Edge
+            Edge Lock
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
             Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.

@@ -83,3 +83,31 @@ export function prioritizePlayerHistoryTargets<T extends { sport: string; game: 
     .map((x) => x.t)
     .slice(0, cap);
 }
+
+// How much REAL data the Coach feeds the model, scaled to the SIZE of the ticket
+// the user asked for. A small parlay does not need the entire night's slate:
+// sending the full pool (400 props / 120 odds / 40 game logs ≈ 0.5 MB once
+// serialized) made the reasoning model slow to its first token, so a generic
+// "6-leg parlay for tonight" sat on "Building your parlay…" for 20-30s on a weak
+// link — and the stall-watchdog then aborted and re-sent the whole payload,
+// compounding it. Scaling the breadth down for small/medium tickets shrinks the
+// payload (faster upload + faster time-to-first-token) while big tickets keep the
+// FULL breadth so they never come back short (the slate is already heavily tuned
+// against under-filling — see balancePropsByGame / prioritizePlayerHistoryTargets).
+export type ContextDepth = { props: number; odds: number; history: number; matchup: number };
+
+// Tiers mirror the product spec: 2-5 legs = focused, 6-10 = medium, 11+ = full.
+// `requestedLegs` is 0 when the ask carried no explicit count (general chat or an
+// unnumbered build) — that falls back to the MEDIUM tier, still far leaner than
+// the old always-max behavior but generous enough to fill a typical parlay.
+export const CONTEXT_DEPTH_DEFAULT_LEGS = 8;
+export function contextDepthForLegs(
+  requestedLegs: number,
+  fullPropCap: number,
+  fullHistoryCap: number = PLAYER_HISTORY_CAP,
+): ContextDepth {
+  const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
+  if (n <= 5) return { props: 160, odds: 60, history: 16, matchup: 8 };
+  if (n <= 10) return { props: 280, odds: 90, history: 28, matchup: 12 };
+  return { props: fullPropCap, odds: 120, history: fullHistoryCap, matchup: 16 };
+}

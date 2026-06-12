@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { prioritizePlayerHistoryTargets } from "./chatContextPriority.ts";
+import {
+  contextDepthForLegs,
+  prioritizePlayerHistoryTargets,
+} from "./chatContextPriority.ts";
 
 type Target = { sport: string; game: string; player: string };
 
@@ -130,4 +133,52 @@ test("stable within a tier: original order preserved among equal-rank targets", 
     result.map((r) => r.player),
     ["first", "second", "third"],
   );
+});
+
+// ---------- contextDepthForLegs: scale data to ticket size ----------
+
+const FULL_PROPS = 400;
+
+test("small tickets (2-5 legs) get the focused, leanest pool", () => {
+  for (const n of [2, 3, 4, 5]) {
+    const d = contextDepthForLegs(n, FULL_PROPS);
+    assert.deepEqual(d, { props: 160, odds: 60, history: 16, matchup: 8 });
+  }
+});
+
+test("medium tickets (6-10 legs) get the medium pool", () => {
+  for (const n of [6, 8, 10]) {
+    const d = contextDepthForLegs(n, FULL_PROPS);
+    assert.deepEqual(d, { props: 280, odds: 90, history: 28, matchup: 12 });
+  }
+});
+
+test("big tickets (11+ legs) keep FULL breadth so they never come back short", () => {
+  for (const n of [11, 15, 25]) {
+    const d = contextDepthForLegs(n, FULL_PROPS);
+    assert.deepEqual(d, { props: FULL_PROPS, odds: 120, history: 40, matchup: 16 });
+  }
+});
+
+test("no explicit leg count (0) falls back to the MEDIUM tier, not full", () => {
+  const d = contextDepthForLegs(0, FULL_PROPS);
+  assert.deepEqual(d, { props: 280, odds: 90, history: 28, matchup: 12 });
+});
+
+test("depth is monotonic non-decreasing as the ticket grows", () => {
+  const sizes = [2, 5, 6, 10, 11, 15];
+  for (let i = 1; i < sizes.length; i++) {
+    const prev = contextDepthForLegs(sizes[i - 1], FULL_PROPS);
+    const cur = contextDepthForLegs(sizes[i], FULL_PROPS);
+    assert.ok(cur.props >= prev.props, `props ${sizes[i]} >= ${sizes[i - 1]}`);
+    assert.ok(cur.odds >= prev.odds, `odds ${sizes[i]} >= ${sizes[i - 1]}`);
+    assert.ok(cur.history >= prev.history, `history ${sizes[i]} >= ${sizes[i - 1]}`);
+    assert.ok(cur.matchup >= prev.matchup, `matchup ${sizes[i]} >= ${sizes[i - 1]}`);
+  }
+});
+
+test("the full tier honors the caller's real caps (never exceeds them)", () => {
+  const d = contextDepthForLegs(15, FULL_PROPS, 40);
+  assert.equal(d.props, FULL_PROPS);
+  assert.equal(d.history, 40);
 });
