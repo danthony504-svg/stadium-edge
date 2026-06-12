@@ -128,10 +128,52 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+// Brief backoff between retries (grows with the attempt, plus jitter so a burst
+// of clients doesn't retry in lockstep and re-trip a shared rate limiter).
+function sleepBackoff(attempt: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, 300 * attempt + Math.random() * 250));
+}
+
+// Resilient GET. A single transient blip used to nuke whole surfaces (e.g. the
+// Props page errors out the moment its uncaught odds fetch fails). The most
+// common transients are a 429 from the shared-proxy-IP rate limiter (every
+// mobile client looks like one IP to the edge) and brief upstream 5xx — both
+// return fast, so we retry those up to MAX_ATTEMPTS. Deterministic 4xx
+// (400/401/404) won't change on retry, so we fail fast. Network drops/timeouts
+// each wait the full per-request timeout, so we cap THOSE at a single retry to
+// avoid stacking long stalls onto the chat-context fan-outs that share this
+// fetcher (they have no shared deadline).
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), REQUEST_TIMEOUT_MS, path);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await withTimeout(res.json() as Promise<T>, REQUEST_TIMEOUT_MS, `${path} (body)`));
+  const MAX_ATTEMPTS = 3;
+  let networkRetried = false;
+  let lastErr: unknown = new Error(`request failed: ${path}`);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw new Error(`aborted: ${path}`);
+    try {
+      const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), REQUEST_TIMEOUT_MS, path);
+      if (res.ok) {
+        return await withTimeout(res.json() as Promise<T>, REQUEST_TIMEOUT_MS, `${path} (body)`);
+      }
+      // Only 429 (rate limit) and 5xx (server/upstream blip) are transient.
+      if (res.status !== 429 && res.status < 500) throw new Error(`HTTP ${res.status}`);
+      lastErr = new Error(`HTTP ${res.status}`);
+      if (attempt < MAX_ATTEMPTS) await sleepBackoff(attempt);
+    } catch (e) {
+      // A genuine caller abort (unmount / cancel) must never be retried.
+      if (signal?.aborted) throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // A deterministic HTTP error we threw above (any non-429/5xx) → propagate.
+      if (/^HTTP (?!429|5\d\d)/.test(msg)) throw e;
+      lastErr = e;
+      // Network drop / timeout (no "HTTP " prefix): retry at most once.
+      if (!/^HTTP /.test(msg)) {
+        if (networkRetried) throw e;
+        networkRetried = true;
+      }
+      if (attempt < MAX_ATTEMPTS) await sleepBackoff(attempt);
+    }
+  }
+  throw lastErr;
 }
 
 // ---------- Authenticated requests (Clerk Bearer token) ----------
