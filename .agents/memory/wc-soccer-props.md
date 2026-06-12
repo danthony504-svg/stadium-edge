@@ -48,6 +48,23 @@ props, so the chronological `slice(0, MAX_GAMES)` fills with prop-positive games
 (no starvation). The coach pool / web 24h window were NOT changed — only the
 mobile Props tab fetch.
 
+**National-team crests + headshots (Featured Players, etc.):** WC soccer props
+have NO team id / team field / headshot, odds-feed games have no logos, and ESPN
+`/sports/games?sport=soccer` returns CLUB games — so the ONLY handle is the team
+NAME on the odds game. Server resolves nation+crest from ESPN's closed 48-team
+FIFA WC teams list (`soccer/fifa.world/teams`) and attributes each player via that
+nation's ROSTER; `PlayerProp.teamLogo` carries it to the client (avatar already
+falls headshot→teamLogo→initials). Durable gotchas:
+- **Player name match:** odds vs ESPN differ in word ORDER + hyphenation
+  ("Kangin Lee" vs ESPN "Lee Kang-In") → plain normalize misses; key the roster on
+  a SORTED token set with hyphens JOINED (kang-in→kangin) so order/hyphen don't matter.
+- **Team name match:** odds "Czech Republic" vs ESPN "Czechia" needs a prefix tier
+  (exact/substring both fail); match layered exact→substring→5-char-prefix, each
+  UNIQUE-guarded, fail-closed to null (never a guessed flag).
+- **Cross-nation collisions:** merge the two rosters fail-closed — if the same
+  tokenized name is on BOTH teams, suppress the crest (can't tell which player).
+- Only ~8/26 nationals have a real ESPN headshot; the rest fall to the crest.
+
 **Sync points touched:** sports.ts (add WC key), props.ts
 (MARKETS_BY_SPORT.soccer + multi-key resolver), mobile lib/api.ts
 (PROP_MARKET_LABELS + add "soccer" to PROPS_SPORTS), web ParlayBuilder.tsx

@@ -259,7 +259,11 @@ export default function HomeScreen() {
           const isAway =
             !!p.playerTeamId && !!info?.awayTeamId && p.playerTeamId === info.awayTeamId;
           const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
-          const teamLogo = isHome ? info!.homeLogo : isAway ? info!.awayLogo : null;
+          // Prefer the server-resolved crest (World Cup soccer has no team id, so
+          // info-based resolution finds nothing); otherwise use the ESPN game's
+          // home/away logo. Either way it's a REAL crest or null.
+          const teamLogo =
+            p.teamLogo ?? (isHome ? info!.homeLogo : isAway ? info!.awayLogo : null);
           out.push({
             name: p.player,
             headshot: p.headshot,

@@ -157,6 +157,98 @@ async function fetchRosterMap(espnPath: string, teamId: string): Promise<Map<str
   return m;
 }
 
+// World Cup (national-team) crest + headshot resolution. World Cup soccer props
+// carry NO team id, NO team field, and ESPN's club-league feeds don't list the
+// national teams, so the odds feed's team NAMES are the only handle we have. We
+// resolve both nations from ESPN's FIFA World Cup teams list (a CLOSED 48-team
+// set, so fuzzy matching is uniqueness-guarded and FAIL-CLOSED — a wrong crest
+// would be fabrication) to get each crest, then attribute each player to a
+// nation via that nation's roster. National-team player names arrive from the
+// odds feed in a DIFFERENT word order and hyphenation than ESPN uses
+// (e.g. "Kangin Lee" vs ESPN "Lee Kang-In"), so plain normalizeName misses; we
+// key the roster on a SORTED token set with hyphenated segments joined.
+const WORLD_CUP_PATH = "soccer/fifa.world";
+const nameTokenKey = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/-/g, "")
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .sort()
+    .join(" ");
+
+type WcTeam = { id?: string | number; displayName?: string; name?: string; logos?: Array<{ href?: string }> };
+type WcTeamsResp = { sports?: Array<{ leagues?: Array<{ teams?: Array<{ team?: WcTeam }> }> }> };
+type WcTeamRef = { id: string; logo: string };
+
+// Resolve one national team from ESPN's FIFA World Cup teams list by name.
+// Layered match (exact → substring → 5-char prefix), each requiring a UNIQUE
+// hit; anything ambiguous or missing a crest returns null (fail closed).
+async function resolveWorldCupTeam(name: string): Promise<WcTeamRef | null> {
+  if (!name) return null;
+  const data = await cachedJson<WcTeamsResp>(`wc-teams`, 24 * 60 * 60 * 1000, async () => {
+    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${WORLD_CUP_PATH}/teams`);
+    if (!r.ok) throw new Error(`ESPN WC teams ${r.status}`);
+    return (await r.json()) as WcTeamsResp;
+  }).catch(() => null);
+  const teams = (data?.sports?.[0]?.leagues?.[0]?.teams ?? [])
+    .map((t) => t.team)
+    .filter((t): t is WcTeam => !!t);
+  if (!teams.length) return null;
+  const norm = (s: string) =>
+    s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const teamName = (t: WcTeam) => norm(t.displayName ?? t.name ?? "");
+  const want = norm(name);
+  const pick = (cands: WcTeam[]): WcTeamRef | null => {
+    if (cands.length !== 1) return null;
+    const t = cands[0];
+    const logo = t.logos?.[0]?.href;
+    if (t.id == null || !logo) return null;
+    return { id: String(t.id), logo };
+  };
+  let r = pick(teams.filter((t) => teamName(t) === want));
+  if (r) return r;
+  r = pick(teams.filter((t) => { const n = teamName(t); return n.length > 0 && (n.includes(want) || want.includes(n)); }));
+  if (r) return r;
+  const p = want.slice(0, 5);
+  r = pick(teams.filter((t) => { const n = teamName(t); return n.length >= 5 && (n.startsWith(p) || want.startsWith(n.slice(0, 5))); }));
+  return r;
+}
+
+type WcRosterEntry = { headshot: string | null; athleteId: string | null; teamId: string; teamLogo: string };
+async function fetchWorldCupRosterMap(team: WcTeamRef): Promise<Map<string, WcRosterEntry>> {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${WORLD_CUP_PATH}/teams/${team.id}/roster`;
+  const data = await cachedJson<EspnRoster>(`wc-roster:${team.id}`, 6 * 60 * 60 * 1000, async () => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`ESPN WC roster ${r.status}`);
+    return (await r.json()) as EspnRoster;
+  });
+  const m = new Map<string, WcRosterEntry>();
+  const flat: RosterAthlete[] = [];
+  for (const entry of data.athletes ?? []) {
+    if (entry && typeof entry === "object" && "items" in entry && Array.isArray((entry as { items?: RosterAthlete[] }).items)) {
+      flat.push(...((entry as { items: RosterAthlete[] }).items));
+    } else {
+      flat.push(entry as RosterAthlete);
+    }
+  }
+  for (const a of flat) {
+    const name = a.fullName ?? a.displayName;
+    if (!name) continue;
+    const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
+    m.set(nameTokenKey(name), {
+      headshot: href ?? null,
+      athleteId: a.id != null ? String(a.id) : null,
+      teamId: team.id,
+      teamLogo: team.logo,
+    });
+  }
+  return m;
+}
+
 router.get("/sports/props", async (req, res): Promise<void> => {
   const sport = String(req.query["sport"] || "").toLowerCase();
   const eventId = String(req.query["eventId"] || "");
@@ -534,13 +626,53 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
     }
 
+    // World Cup soccer: attach the national-team crest (+ a real headshot when
+    // ESPN has one) the only way the data allows — by resolving both nations
+    // from their NAMES and attributing each player via roster. Fail-closed: any
+    // player we can't confidently place keeps a null crest (client shows
+    // initials) rather than guessing a flag.
+    let wcMap: Map<string, WcRosterEntry> | null = null;
+    if (sport === "soccer") {
+      const [homeTeam, awayTeam] = await Promise.all([
+        resolveWorldCupTeam(data.home_team ?? "").catch(() => null),
+        resolveWorldCupTeam(data.away_team ?? "").catch(() => null),
+      ]);
+      const rosters = await Promise.all(
+        [homeTeam, awayTeam]
+          .filter((t): t is WcTeamRef => !!t)
+          .map((t) => fetchWorldCupRosterMap(t).catch(() => new Map<string, WcRosterEntry>())),
+      );
+      if (rosters.length) {
+        // Merge both rosters, but FAIL CLOSED on cross-nation name collisions:
+        // if the same tokenized name appears on BOTH teams we can't tell which
+        // player the prop means, so suppress the crest (initials) rather than
+        // overwrite-and-guess.
+        wcMap = new Map<string, WcRosterEntry>();
+        const ambiguous = new Set<string>();
+        for (const m of rosters) {
+          for (const [k, v] of m) {
+            if (ambiguous.has(k)) continue;
+            const existing = wcMap.get(k);
+            if (existing && existing.teamId !== v.teamId) {
+              wcMap.delete(k);
+              ambiguous.add(k);
+              continue;
+            }
+            wcMap.set(k, v);
+          }
+        }
+      }
+    }
+
     const props = aggregatedRows.map((p) => {
       const r = rosterMap?.get(normalizeName(p.player));
+      const w = wcMap?.get(nameTokenKey(p.player));
       return {
         ...p,
-        headshot: r?.headshot ?? null,
-        athleteId: r?.athleteId ?? null,
-        playerTeamId: r?.teamId ?? null,
+        headshot: w?.headshot ?? r?.headshot ?? null,
+        athleteId: w?.athleteId ?? r?.athleteId ?? null,
+        playerTeamId: w?.teamId ?? r?.teamId ?? null,
+        teamLogo: w?.teamLogo ?? null,
       };
     });
 

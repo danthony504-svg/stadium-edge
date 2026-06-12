@@ -335,6 +335,10 @@ export type PlayerProp = {
   headshot: string | null;
   athleteId: string | null;
   playerTeamId: string | null;
+  // National-team crest, resolved server-side for World Cup soccer props (which
+  // carry no team id). REAL ESPN logo or null — never guessed. Lets the avatar
+  // fall back to a crest when there's no headshot.
+  teamLogo?: string | null;
   // Cross-book +EV ("mispriced") signal (MAIN lines only; absent/null otherwise).
   // ev = EV% of the best posted price vs the no-vig cross-book consensus fair
   // value; evSide = the side that carries the edge; fairProb = consensus fair win
