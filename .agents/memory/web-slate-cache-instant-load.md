@@ -33,4 +33,4 @@ previously rendered the whole slate at once).
 
 ## Reuses server warming
 No server change — `fetchAll` already hits `/api/sports/games` and
-`/api/sports/odds`, the endpoints the Task #9 prewarm warms.
+`/api/sports/odds`, the endpoints the prebuild/cron prewarm warms.

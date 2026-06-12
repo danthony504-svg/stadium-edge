@@ -325,30 +325,11 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        stickyHeaderIndices={[0]}
-        contentContainerStyle={{
-          paddingBottom: insets.bottom + 24 + slipClearance,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              oddsQ.refetch();
-              gamesQ.refetch();
-              // Manual refetch() fires even on disabled queries, so only kick
-              // the featured props fan-out for sports that actually have props.
-              if (featuredEnabled) featuredGameQs.forEach((q) => q.refetch());
-              upsetsQ.refetch();
-            }}
-            tintColor={colors.mutedForeground}
-          />
-        }
-      >
-        {/* Pinned header — logo, search, and sport pills stay affixed to the top
-            of the page (including while featured props load) instead of scrolling
-            away; the content below scrolls underneath them. */}
-        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
+      {/* Fixed header — logo, search, and sport pills are pinned to the top of
+          the screen and NEVER move, even while data loads in below. Rendered as
+          a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
+          reflows in the scrolling content can't shift it down. */}
+      <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
         {/* Logo — full Stadium Edge logo at its original size, pinned to the top
             and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
         <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
@@ -399,7 +380,27 @@ export default function HomeScreen() {
             <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
           ))}
         </ScrollView>
-        </View>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + 24 + slipClearance,
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              oddsQ.refetch();
+              gamesQ.refetch();
+              // Manual refetch() fires even on disabled queries, so only kick
+              // the featured props fan-out for sports that actually have props.
+              if (featuredEnabled) featuredGameQs.forEach((q) => q.refetch());
+              upsetsQ.refetch();
+            }}
+            tintColor={colors.mutedForeground}
+          />
+        }
+      >
 
         {/* Tagline */}
         <Text
