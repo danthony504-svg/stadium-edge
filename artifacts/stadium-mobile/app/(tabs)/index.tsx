@@ -58,6 +58,9 @@ function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
 type FeaturedPlayer = {
   name: string;
   headshot: string | null;
+  // Real ESPN team logo for the player's team — used as the avatar fallback when
+  // no headshot is available (e.g. soccer players) before dropping to initials.
+  teamLogo: string | null;
   teamAbbr: string | null;
   label: string;
   // null for yes/no markets that have no numeric line (e.g. soccer Anytime
@@ -66,14 +69,29 @@ type FeaturedPlayer = {
   overPrice: number;
 };
 
-function FeaturedAvatar({ headshot, name }: { headshot: string | null; name: string }) {
+function FeaturedAvatar({
+  headshot,
+  teamLogo,
+  name,
+}: {
+  headshot: string | null;
+  teamLogo: string | null;
+  name: string;
+}) {
   const colors = useColors();
+  // Fall back through real imagery only: player headshot first, then the team
+  // logo, and finally initials. onError drops a broken image to the next tier so
+  // a dead URL never leaves an empty avatar.
+  const [headshotFailed, setHeadshotFailed] = useState(false);
+  const [logoFailed, setLogoFailed] = useState(false);
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+  const showHeadshot = headshot && !headshotFailed;
+  const showLogo = !showHeadshot && teamLogo && !logoFailed;
   return (
     <View
       style={{
@@ -88,8 +106,20 @@ function FeaturedAvatar({ headshot, name }: { headshot: string | null; name: str
         overflow: "hidden",
       }}
     >
-      {headshot ? (
-        <Image source={{ uri: headshot }} style={{ width: 56, height: 56 }} resizeMode="cover" />
+      {showHeadshot ? (
+        <Image
+          source={{ uri: headshot! }}
+          style={{ width: 56, height: 56 }}
+          resizeMode="cover"
+          onError={() => setHeadshotFailed(true)}
+        />
+      ) : showLogo ? (
+        <Image
+          source={{ uri: teamLogo! }}
+          style={{ width: 34, height: 34 }}
+          resizeMode="contain"
+          onError={() => setLogoFailed(true)}
+        />
       ) : (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
           {initials || "?"}
@@ -159,7 +189,14 @@ export default function HomeScreen() {
   const teamInfoMap = useMemo(() => {
     const map = new Map<
       string,
-      { homeTeamId: string | null; awayTeamId: string | null; homeAbbr: string | null; awayAbbr: string | null }
+      {
+        homeTeamId: string | null;
+        awayTeamId: string | null;
+        homeAbbr: string | null;
+        awayAbbr: string | null;
+        homeLogo: string | null;
+        awayLogo: string | null;
+      }
     >();
     for (const g of gamesQ.data ?? []) {
       const home = g.homeTeam || g.homeAbbr || "";
@@ -170,6 +207,8 @@ export default function HomeScreen() {
         awayTeamId: g.awayTeamId ?? null,
         homeAbbr: g.homeAbbr ?? null,
         awayAbbr: g.awayAbbr ?? null,
+        homeLogo: g.homeLogo ?? null,
+        awayLogo: g.awayLogo ?? null,
       });
     }
     return map;
@@ -215,15 +254,16 @@ export default function HomeScreen() {
           const key = p.player.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          const teamAbbr =
-            p.playerTeamId && info?.homeTeamId && p.playerTeamId === info.homeTeamId
-              ? info.homeAbbr
-              : p.playerTeamId && info?.awayTeamId && p.playerTeamId === info.awayTeamId
-                ? info.awayAbbr
-                : null;
+          const isHome =
+            !!p.playerTeamId && !!info?.homeTeamId && p.playerTeamId === info.homeTeamId;
+          const isAway =
+            !!p.playerTeamId && !!info?.awayTeamId && p.playerTeamId === info.awayTeamId;
+          const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
+          const teamLogo = isHome ? info!.homeLogo : isAway ? info!.awayLogo : null;
           out.push({
             name: p.player,
             headshot: p.headshot,
+            teamLogo,
             teamAbbr,
             label: propMarketLabel(p.market),
             line: p.line,
@@ -452,7 +492,7 @@ export default function HomeScreen() {
                       opacity: pressed ? 0.85 : 1,
                     })}
                   >
-                    <FeaturedAvatar headshot={p.headshot} name={p.name} />
+                    <FeaturedAvatar headshot={p.headshot} teamLogo={p.teamLogo} name={p.name} />
                     <Text
                       style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, textAlign: "center" }}
                       numberOfLines={1}
