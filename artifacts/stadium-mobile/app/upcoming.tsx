@@ -9,7 +9,16 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getGames, getOdds, isPickable, type EspnGame, type OddsGame } from "@/lib/api";
+import {
+  getGames,
+  getOdds,
+  getTennisFlags,
+  isPickable,
+  resolveTennisFlag,
+  type EspnGame,
+  type OddsGame,
+  type TennisFlag,
+} from "@/lib/api";
 import { SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -33,6 +42,26 @@ function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   return map;
 }
 
+// Tennis cards have no ESPN team meta (players aren't teams), so merge in each
+// player's REAL country flag as the avatar image. The flag fills the GameCard's
+// logo slot, which already falls back to initials when the uri is null — so a
+// player ESPN doesn't carry simply stays as initials (never a guessed flag).
+function withTennisFlags(
+  base: GameMeta | undefined,
+  flags: Record<string, TennisFlag> | undefined,
+  g: OddsGame,
+): GameMeta | undefined {
+  if (!flags) return base;
+  const awayFlag = resolveTennisFlag(flags, g.awayTeam);
+  const homeFlag = resolveTennisFlag(flags, g.homeTeam);
+  if (!awayFlag && !homeFlag) return base;
+  return {
+    ...(base ?? {}),
+    awayLogo: awayFlag ?? base?.awayLogo ?? null,
+    homeLogo: homeFlag ?? base?.homeLogo ?? null,
+  };
+}
+
 export default function UpcomingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -52,6 +81,15 @@ export default function UpcomingScreen() {
     queryFn: ({ signal }) => getGames(sportId, signal),
     staleTime: 60_000,
     enabled: !!sportId,
+  });
+
+  // Tennis players' REAL ESPN country flags — used as card avatars in place of
+  // initials. One cached fetch covers the whole slate; only fired for tennis.
+  const tennisFlagsQ = useQuery({
+    queryKey: ["tennis-flags"],
+    queryFn: ({ signal }) => getTennisFlags(signal),
+    staleTime: 5 * 60_000,
+    enabled: sportId === "tennis",
   });
 
   const metaMap = useMemo(() => buildMetaMap(gamesQ.data ?? []), [gamesQ.data]);
@@ -140,7 +178,11 @@ export default function UpcomingScreen() {
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 + slipClearance, gap: 12 }}>
           {games.map((g) => {
-            const meta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+            const baseMeta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+            const meta =
+              sportId === "tennis"
+                ? withTennisFlags(baseMeta, tennisFlagsQ.data, g)
+                : baseMeta;
             return (
               <GameCard
                 key={g.id}

@@ -147,6 +147,7 @@ async function loadRankings(): Promise<Record<string, RankInfo>> {
 type SbPlayer = {
   athleteId: string | null;
   country: string | null;
+  flag: string | null; // ESPN country-flag image URL (real); null when absent
   tour: "ATP" | "WTA";
   displayName: string;
 };
@@ -186,6 +187,7 @@ async function loadScoreboard(): Promise<Scoreboard> {
                   players[key] = {
                     athleteId,
                     country: a.flag?.alt || null,
+                    flag: a.flag?.href || null,
                     tour: tour.toUpperCase() as "ATP" | "WTA",
                     displayName: a.displayName,
                   };
@@ -201,6 +203,26 @@ async function loadScoreboard(): Promise<Scoreboard> {
     }
     return { players, matchups };
   });
+}
+
+// Public: a name-keyed map of every player currently in an ATP/WTA draw to
+// their REAL ESPN country flag (image URL + country name). Tennis "teams" are
+// individuals with no club crest, so the Upcoming cards show the player's
+// country flag instead of plain initials. Every value is parsed straight from
+// ESPN — a player ESPN doesn't carry simply has no entry (the client falls
+// back to initials), never a guessed flag.
+export type TennisFlagEntry = {
+  displayName: string;
+  country: string | null;
+  flag: string | null;
+};
+export async function loadTennisFlags(): Promise<Record<string, TennisFlagEntry>> {
+  const sb = await loadScoreboard();
+  const out: Record<string, TennisFlagEntry> = {};
+  for (const [key, p] of Object.entries(sb.players)) {
+    out[key] = { displayName: p.displayName, country: p.country, flag: p.flag };
+  }
+  return out;
 }
 
 // Resolve a player's recent (this-season) results from their ESPN eventlog.

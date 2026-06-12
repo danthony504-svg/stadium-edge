@@ -1,8 +1,24 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
-import { buildTennisMatchup, buildTennisPlayer } from "../lib/tennis.js";
+import { buildTennisMatchup, buildTennisPlayer, loadTennisFlags } from "../lib/tennis.js";
 
 const router: IRouter = Router();
+
+// Real ESPN country flags for every player in an active ATP/WTA draw, keyed by
+// a normalized player name. Tennis players have no club crest, so the Upcoming
+// cards render the country flag instead of plain initials. One cached fetch
+// serves the whole slate. Real data only — a missing player has no entry and
+// the client falls back to initials.
+router.use("/sports/tennis-flags", rateLimit({ windowMs: 60_000, max: 120, name: "tennis-flags" }));
+
+router.get("/sports/tennis-flags", async (_req, res) => {
+  try {
+    const flags = await loadTennisFlags();
+    res.json(flags);
+  } catch {
+    res.json({});
+  }
+});
 
 // Real tennis matchup: both players' ESPN ATP/WTA ranking + country + season
 // recent form (set scores) + any recent head-to-head. ESPN hits are cached in

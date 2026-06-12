@@ -1455,6 +1455,67 @@ export async function getTennisMatchup(
   }
 }
 
+// ---------- Tennis country flags (routes/tennis.ts) ----------
+
+// A single player's REAL ESPN country flag. Tennis players have no club crest,
+// so the Upcoming cards show the country flag instead of plain initials.
+export type TennisFlag = {
+  displayName: string;
+  country: string | null;
+  flag: string | null; // ESPN flag image URL, or null when ESPN has none
+};
+
+// Diacritic-/punctuation-insensitive player-name key. Must mirror the server's
+// normName (lib/tennis.ts) so the odds-feed player names match the ESPN draw
+// names the flags map is keyed by.
+export function normTennisName(s: unknown): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Fetch the name-keyed country-flag map for every player in an active ATP/WTA
+// draw. One cached request serves the whole tennis slate. Returns {} on any
+// failure so the cards just fall back to initials (never fabricated).
+export async function getTennisFlags(
+  signal?: AbortSignal,
+): Promise<Record<string, TennisFlag>> {
+  try {
+    return await getJson<Record<string, TennisFlag>>("/sports/tennis-flags", signal);
+  } catch {
+    return {};
+  }
+}
+
+// Resolve a player's REAL country-flag URL from the flags map. Tries the full
+// normalized name first, then a UNIQUE surname fallback (the odds feed and ESPN
+// occasionally differ on first-name form). An ambiguous surname or a player
+// ESPN doesn't carry returns null — the card falls back to initials, never a
+// guessed flag.
+export function resolveTennisFlag(
+  flags: Record<string, TennisFlag> | undefined,
+  name: string,
+): string | null {
+  if (!flags || !name) return null;
+  const key = normTennisName(name);
+  const direct = flags[key];
+  if (direct?.flag) return direct.flag;
+  const surname = key.split(" ").filter(Boolean).pop();
+  if (!surname) return null;
+  let hit: TennisFlag | null = null;
+  for (const [k, v] of Object.entries(flags)) {
+    const last = k.split(" ").filter(Boolean).pop();
+    if (last === surname && v.flag) {
+      if (hit) return null; // ambiguous surname — don't guess
+      hit = v;
+    }
+  }
+  return hit?.flag ?? null;
+}
+
 // Compact matchup-history entry sent to the AI (mirror of the web shape).
 export type MatchupHistoryEntry = {
   home: unknown;
