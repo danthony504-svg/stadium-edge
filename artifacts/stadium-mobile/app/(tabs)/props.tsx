@@ -9,6 +9,7 @@ import {
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -319,6 +320,7 @@ function TeamResultRow({
 export default function PropsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{ q?: string; sp?: string }>();
@@ -865,7 +867,11 @@ export default function PropsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 10, alignItems: "center" }}>
           <Image
             source={require("@/assets/images/logo-wordmark.png")}
-            style={{ width: 250, aspectRatio: 1584 / 270 }}
+            style={{
+              width: Math.min(250, screenWidth - 32),
+              maxWidth: "100%",
+              aspectRatio: 1584 / 270,
+            }}
             resizeMode="contain"
             accessibilityLabel="Stadium Edge"
           />
