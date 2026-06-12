@@ -85,15 +85,25 @@ export function prioritizePlayerHistoryTargets<T extends { sport: string; game: 
 }
 
 // How much REAL data the Coach feeds the model, scaled to the SIZE of the ticket
-// the user asked for. A small parlay does not need the entire night's slate:
-// sending the full pool (400 props / 120 odds / 40 game logs ≈ 0.5 MB once
-// serialized) made the reasoning model slow to its first token, so a generic
-// "6-leg parlay for tonight" sat on "Building your parlay…" for 20-30s on a weak
-// link — and the stall-watchdog then aborted and re-sent the whole payload,
-// compounding it. Scaling the breadth down for small/medium tickets shrinks the
-// payload (faster upload + faster time-to-first-token) while big tickets keep the
-// FULL breadth so they never come back short (the slate is already heavily tuned
-// against under-filling — see balancePropsByGame / prioritizePlayerHistoryTargets).
+// the user asked for. A small parlay does not need the entire night's slate.
+//
+// Measured on the wire (api-server logs the serialized context size): the FULL
+// pool is ~497 KB, and even a first pass at "medium" (280 props / 90 odds / 28
+// logs / 12 matchups) was still ~367 KB — ~90K input tokens. The reasoning model's
+// time-to-first-token grows with input length, so a generic "6-leg parlay for
+// tonight" still sat on "Building your parlay…" past the stream watchdog, which
+// then aborted and re-sent the whole payload in a retry loop (verified: repeated
+// `request aborted` on /api/chat, never reaching a first token).
+//
+// The dominant cost per ITEM is matchupHistory: each entry carries recent-game /
+// head-to-head / L10 arrays and serializes to ~15 KB, so a dozen of them is ~half
+// the payload. matchupHistory is supporting ANALYTICS (winner-consistency / upset
+// reads), NOT the source of the PICK lines (those come from realProps + realOdds),
+// so it is the safest thing to cut hard. We therefore trim matchup most, history
+// next, and keep a props/odds floor that still comfortably fills the requested
+// legs (the server also backfills props beyond the context — see
+// server-returned prop pool). Big tickets (11+) keep the FULL breadth so they
+// never come back short. Sizes below bring medium to ~120 KB / ~30K tokens.
 export type ContextDepth = { props: number; odds: number; history: number; matchup: number };
 
 // Tiers mirror the product spec: 2-5 legs = focused, 6-10 = medium, 11+ = full.
@@ -107,7 +117,7 @@ export function contextDepthForLegs(
   fullHistoryCap: number = PLAYER_HISTORY_CAP,
 ): ContextDepth {
   const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
-  if (n <= 5) return { props: 160, odds: 60, history: 16, matchup: 8 };
-  if (n <= 10) return { props: 280, odds: 90, history: 28, matchup: 12 };
+  if (n <= 5) return { props: 80, odds: 45, history: 10, matchup: 3 };
+  if (n <= 10) return { props: 110, odds: 55, history: 16, matchup: 4 };
   return { props: fullPropCap, odds: 120, history: fullHistoryCap, matchup: 16 };
 }

@@ -142,14 +142,14 @@ const FULL_PROPS = 400;
 test("small tickets (2-5 legs) get the focused, leanest pool", () => {
   for (const n of [2, 3, 4, 5]) {
     const d = contextDepthForLegs(n, FULL_PROPS);
-    assert.deepEqual(d, { props: 160, odds: 60, history: 16, matchup: 8 });
+    assert.deepEqual(d, { props: 80, odds: 45, history: 10, matchup: 3 });
   }
 });
 
 test("medium tickets (6-10 legs) get the medium pool", () => {
   for (const n of [6, 8, 10]) {
     const d = contextDepthForLegs(n, FULL_PROPS);
-    assert.deepEqual(d, { props: 280, odds: 90, history: 28, matchup: 12 });
+    assert.deepEqual(d, { props: 110, odds: 55, history: 16, matchup: 4 });
   }
 });
 
@@ -162,7 +162,14 @@ test("big tickets (11+ legs) keep FULL breadth so they never come back short", (
 
 test("no explicit leg count (0) falls back to the MEDIUM tier, not full", () => {
   const d = contextDepthForLegs(0, FULL_PROPS);
-  assert.deepEqual(d, { props: 280, odds: 90, history: 28, matchup: 12 });
+  assert.deepEqual(d, { props: 110, odds: 55, history: 16, matchup: 4 });
+});
+
+test("matchup is trimmed hardest (it is the heaviest per-item cost, ~15KB each)", () => {
+  // matchupHistory entries dominate the serialized payload, so small/medium must
+  // cut them far below the full tier. Guards against a future re-bloat.
+  assert.ok(contextDepthForLegs(4, FULL_PROPS).matchup <= 4, "small matchup stays tiny");
+  assert.ok(contextDepthForLegs(8, FULL_PROPS).matchup <= 5, "medium matchup stays tiny");
 });
 
 test("depth is monotonic non-decreasing as the ticket grows", () => {
