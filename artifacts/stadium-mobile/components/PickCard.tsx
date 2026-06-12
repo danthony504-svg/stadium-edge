@@ -533,6 +533,21 @@ export function PickCard({
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
 
+  // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
+  // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
+  // alone doesn't read as the home or away side at a glance. gameSideFromPick
+  // resolves the REAL side from the pick's own "Away @ Home" label — it returns
+  // null for totals, props, the Draw outcome, and any ambiguous label, so the
+  // tag is never guessed. Tag color mirrors MatchupLine: away = blue (primary),
+  // home = red (destructive).
+  const soccerSide = pick.sport === "soccer" ? gameSideFromPick(pick) : null;
+  const homeAwayTag = soccerSide
+    ? {
+        label: soccerSide.isHome ? "HOME" : "AWAY",
+        color: soccerSide.isHome ? colors.destructive : colors.primary,
+      }
+    : null;
+
   // The AI edge note is collapsed behind a pill so cards stay compact; tapping
   // the pill animates the reasoning open/closed.
   const toggleEdge = () => {
@@ -650,9 +665,33 @@ export function PickCard({
           </Text>
         </View>
 
-        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-          {pick.pick}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
+            {pick.pick}
+          </Text>
+          {homeAwayTag ? (
+            <View
+              style={{
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+                borderRadius: 6,
+                borderWidth: 1,
+                borderColor: homeAwayTag.color,
+              }}
+            >
+              <Text
+                style={{
+                  color: homeAwayTag.color,
+                  fontFamily: FONT.bold,
+                  fontSize: 10,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {homeAwayTag.label}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <MatchupLine game={pick.game} />
         {formatGameTime(pick.startsAt) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
