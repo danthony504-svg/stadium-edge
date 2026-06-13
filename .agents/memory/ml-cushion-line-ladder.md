@@ -13,13 +13,18 @@ within that band every rung is strictly safer than the ML (the ML needs an outri
 win; a +point spread also cashes on a narrow loss).
 
 **Decisions worth keeping:**
-- **Tier choice is driven by ODDS, not by the line.** Safe = the safest price
-  (LOWEST odds / most juice); Value = the highest PAYOUT (HIGHEST odds). Do NOT
-  pick Value as "the shallowest line" — a real book can misprice/stale an alt rung
-  so the shallowest line is not the best payout, which would mislabel Value. Ties
+- **PLUS-MONEY rungs only** (`ML_CUSHION_MIN_ODDS` = +100). Per user: the ML
+  cushion exists to ADD AN EDGE (a better-than-even payout while adding points),
+  NOT to lay heavy juice for "safety". Minus-money alt spreads (e.g. +1 -184) are
+  DROPPED — don't re-add a deep-juice "Safe" rung. Most favorite MLs will then
+  show BEST only, which is correct/honest.
+- **Tier choice is driven by ODDS, not by the line.** Safe = the safest plus
+  price (LOWEST odds); Value = the highest PAYOUT (HIGHEST odds). Do NOT pick
+  Value as "the shallowest line" — a real book can misprice/stale an alt rung so
+  the shallowest line is not the best payout, which would mislabel Value. Ties
   break to the deeper cushion (more points), then stable order.
-- **Honesty:** REAL posted rungs only, `CUSHION_FLOOR` (-550) drops buried
-  no-payout juice; no posted +point spread in band → BEST only, never fabricate.
+- **Honesty:** REAL posted rungs only; no posted plus-money +point spread in band
+  → BEST only, never fabricate.
 - **Period prefix is preserved** (moneyline→spread within the same period) so a
   "Q3 ML" pick only pulls Q3 spread rungs, never the full-game spread.
 - Mutual exclusivity is automatic — the existing cardLegs/siblingLegKeys already

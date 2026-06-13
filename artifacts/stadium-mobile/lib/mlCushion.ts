@@ -13,6 +13,13 @@
 export const ML_CUSHION_MIN_PTS = 1;
 export const ML_CUSHION_MAX_PTS = 20;
 
+// Only PLUS-MONEY cushion rungs (American odds >= +100) qualify. The point of an
+// ML cushion is to ADD AN EDGE — a better-than-even payout while still derisking
+// the bet by giving the team points — not to lay heavy juice for safety. A
+// same-team alt spread priced at minus money is dropped, so the card falls back
+// to BEST only rather than showing an expensive "safe" rung.
+export const ML_CUSHION_MIN_ODDS = 100;
+
 export type CushionRung = { line: number; odds: number };
 
 // Pick the Safe and Value tiers from the eligible cushion rungs:

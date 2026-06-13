@@ -4,6 +4,7 @@ import {
   chooseMlCushionTiers,
   ML_CUSHION_MIN_PTS,
   ML_CUSHION_MAX_PTS,
+  ML_CUSHION_MIN_ODDS,
 } from "./mlCushion.ts";
 
 test("empty rungs -> null (card shows BEST only)", () => {
@@ -82,7 +83,21 @@ test("deterministic: same Safe/Value rung regardless of input order", () => {
   assert.equal(descending[b.value!].odds, -150);
 });
 
-test("band constants are +1..+20", () => {
+test("plus-money cushions: Safe = lowest plus odds, Value = highest payout", () => {
+  // After PickCard's plus-money filter (odds >= +100), tiers still resolve by
+  // odds: +110 is the safest plus price, +175 the best payout.
+  const rungs = [
+    { line: 1.5, odds: 110 },
+    { line: 1, odds: 175 },
+    { line: 2.5, odds: 130 },
+  ];
+  const r = chooseMlCushionTiers(rungs)!;
+  assert.equal(rungs[r.safe].odds, 110);
+  assert.equal(rungs[r.value!].odds, 175);
+});
+
+test("band constants are +1..+20 and plus-money floor is +100", () => {
   assert.equal(ML_CUSHION_MIN_PTS, 1);
   assert.equal(ML_CUSHION_MAX_PTS, 20);
+  assert.equal(ML_CUSHION_MIN_ODDS, 100);
 });
