@@ -35,6 +35,37 @@ To set up the pre-warming schedule: from the published project, create a
 `bash scripts/prebuild-cron.sh` on a few-minute interval. `NOTIFY_CRON_KEY` is
 already a shared env var, so no extra secret is required.
 
+### Paging when the cron stalls
+
+The notifications run stamps a heartbeat into KV; `GET /api/notifications/cron/status`
+(same `x-cron-key` guard) returns **200** when a run happened within the last
+~35 min and **503** when the schedule looks stalled. `scripts/cron-monitor.sh`
+polls that endpoint and pages a human on any non-200:
+
+- On a healthy 200 it exits 0 quietly.
+- On a 503/500/etc. it POSTs an alert to a **Slack-compatible incoming webhook**
+  (`MONITOR_ALERT_WEBHOOK_URL`) AND exits non-zero, so the run is also marked
+  failed (visible in deployment logs / Replit's deploy-failure notifications) as
+  a backstop even if the webhook is unset.
+
+To set it up: create a **second Scheduled Deployment** with run command
+`bash scripts/cron-monitor.sh` on a few-minute interval, and set
+`MONITOR_ALERT_WEBHOOK_URL` to a Slack/Mattermost incoming webhook (for Discord,
+append `/slack` to the webhook URL so it accepts the Slack-style `{"text": …}`
+payload). Optional env: `MONITOR_STATUS_URL` (defaults to the published
+api-server), `MONITOR_CRON_KEY` (falls back to `NOTIFY_CRON_KEY`),
+`MONITOR_ALERT_LABEL` (a prefix like `[prod]`). An external uptime monitor
+(UptimeRobot, Better Uptime, etc.) pointed at the same URL with the `x-cron-key`
+header works equally well as an alternative to the script.
+
+**Rotating the key:** the monitor reuses `NOTIFY_CRON_KEY` — the same secret the
+cron endpoints already use. To rotate without breaking anything, update
+`NOTIFY_CRON_KEY` in one go everywhere it lives: the api-server deployment and
+every Scheduled Deployment that reads it (notifications, pre-warming, and this
+monitor), then redeploy. There is no separate monitor secret to forget. If you
+want an independent secret just for the monitor, set `MONITOR_CRON_KEY` and it
+takes precedence.
+
 ## Scaling
 
 - The api-server rate limits are per-user: `app.set("trust proxy", true)` lets
