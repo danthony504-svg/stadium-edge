@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, userSyncTable, notifLogTable, pushTokensTable } from "@workspace/db";
 import { sendPush } from "./push.js";
 import { decideSweepAction } from "./coachBuildSweep.js";
+import { coachReadyDedupeKey, coachFailedDedupeKey } from "./coachBuildFinish.js";
 
 // -------------------------------------------------------------------------
 // Background-finished AI Coach parlay builds (mobile). When a build is in
@@ -145,7 +146,7 @@ export async function stashAndNotifyBackgroundBuild(opts: {
 
     // At-most-once per build (the same composite-PK idempotency log the cron
     // jobs use). A client retry / second disconnect can't double-send.
-    const dedupeKey = `coachReady:${userId}:${buildId}`;
+    const dedupeKey = coachReadyDedupeKey(userId, buildId);
     const claimed = await db
       .insert(notifLogTable)
       .values({ userId, dedupeKey })
@@ -225,7 +226,7 @@ export async function stashBackgroundBuildFailure(opts: {
     // can never collide for the same buildId. Sharing this key across the
     // handler AND the sweeper guarantees a single failure push even if both
     // observe the same dead build.
-    const dedupeKey = `coachFailed:${userId}:${buildId}`;
+    const dedupeKey = coachFailedDedupeKey(userId, buildId);
     const claimed = await db
       .insert(notifLogTable)
       .values({ userId, dedupeKey })

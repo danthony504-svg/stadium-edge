@@ -9,6 +9,11 @@ import {
   stashAndNotifyBackgroundBuild,
   stashBackgroundBuildFailure,
 } from "../lib/coachBuild.js";
+import {
+  decideCompletionOutcome,
+  decideErrorOutcome,
+  shouldWatchdogAbort,
+} from "../lib/coachBuildFinish.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -2135,7 +2140,7 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     if (watchdog || !bgUserId) return;
     watchdog = setInterval(() => {
       const now = Date.now();
-      if (now - lastUpstreamChunk >= BG_IDLE_MS || now - bgStart >= BG_MAX_MS) {
+      if (shouldWatchdogAbort({ now, lastUpstreamChunk, bgStart, idleMs: BG_IDLE_MS, maxMs: BG_MAX_MS })) {
         req.log.warn(
           { buildId: bgBuildId, idleMs: now - lastUpstreamChunk, totalMs: now - bgStart },
           "background coach build watchdog aborting stalled upstream stream",
@@ -2238,58 +2243,71 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       res.end();
     }
     if (bgUserId) {
-      if (clientGone) {
-        // The user walked away mid-build but asked us to finish.
-        if (fullText.trim()) {
-          // Stash the completed reply + prop pool and fire a single push so they
-          // can open it on return. (Also retires the in-flight marker.)
-          await stashAndNotifyBackgroundBuild({
-            userId: bgUserId,
-            buildId: bgBuildId,
-            full: fullText,
-            props: aiRealProps,
-            log: req.log,
-          });
-        } else {
-          // Stream completed but produced nothing usable — persist a terminal
-          // status (don't leave the user in silent limbo) instead of a ticket.
-          // (Also retires the in-flight marker.)
-          await stashBackgroundBuildFailure({
-            userId: bgUserId,
-            buildId: bgBuildId,
-            status: "failed",
-            log: req.log,
-          });
-        }
+      // Pure decision (terminal-status selection + the "stash nothing on a
+      // partial build" honesty rule), unit-tested in coachBuildFinish.test.ts.
+      const outcome = decideCompletionOutcome({
+        clientGone,
+        hasUsableText: fullText.trim().length > 0,
+      });
+      if (outcome.kind === "stashReady") {
+        // The user walked away mid-build but asked us to finish — stash the
+        // completed reply + prop pool and fire a single push so they can open it
+        // on return. (Also retires the in-flight marker.)
+        await stashAndNotifyBackgroundBuild({
+          userId: bgUserId,
+          buildId: bgBuildId,
+          full: fullText,
+          props: aiRealProps,
+          log: req.log,
+        });
+      } else if (outcome.kind === "stashFailure") {
+        // Stream completed but produced nothing usable — persist a terminal
+        // status (don't leave the user in silent limbo) instead of a ticket.
+        // (Also retires the in-flight marker.)
+        await stashBackgroundBuildFailure({
+          userId: bgUserId,
+          buildId: bgBuildId,
+          status: outcome.status,
+          log: req.log,
+        });
       } else {
-        // Delivered live in-app (the client never left) — there's nothing to
-        // stash, but we MUST retire the in-flight marker we recorded at stream
-        // start, or the cron sweeper would later falsely finalize this happily
-        // delivered build as "failed".
+        // deliveredLive: the client never left — there's nothing to stash, but
+        // we MUST retire the in-flight marker we recorded at stream start, or the
+        // cron sweeper would later falsely finalize this delivered build as
+        // "failed".
         await clearBackgroundBuildPending(bgUserId, bgBuildId, req.log);
       }
     }
   } catch (err) {
     stopHeartbeat();
     stopWatchdog();
+    // Pure decision (timedOut-vs-failed terminal status + the "stash nothing on
+    // an aborted build" honesty rule), unit-tested in coachBuildFinish.test.ts.
+    const outcome = decideErrorOutcome({
+      clientGone,
+      bgEligible: !!bgUserId,
+      writableEnded: res.writableEnded,
+      destroyed: res.destroyed,
+      watchdogAborted,
+    });
     // A background build the user walked away from: the watchdog aborted a
     // stalled upstream (timedOut) or the stream errored (failed). We never stash
     // a partial ticket (honesty), but we DO persist a terminal status + optional
     // push so the client shows a deterministic "couldn't finish, tap to retry"
     // instead of silent limbo. Only when the socket is already gone — a live
     // client takes the normal error path below.
-    if (clientGone && bgUserId && !res.writableEnded) {
+    if (outcome.kind === "stashFailure") {
       await stashBackgroundBuildFailure({
-        userId: bgUserId,
+        userId: bgUserId!,
         buildId: bgBuildId,
-        status: watchdogAborted ? "timedOut" : "failed",
+        status: outcome.status,
         log: req.log,
       });
       return;
     }
     // Client disconnected (we aborted the upstream call ourselves) — the socket
     // is already gone and any accumulated reply is incomplete, so stay silent.
-    if (clientGone || res.writableEnded || res.destroyed) return;
+    if (outcome.kind === "silent") return;
     // Live-client error: the user is still watching and gets the inline error
     // below (they can retry). Retire the in-flight marker we recorded at stream
     // start so the cron sweeper doesn't later finalize this as a phantom failure.
