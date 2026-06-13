@@ -43,6 +43,7 @@ import {
 } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
+import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import {
   confidenceSatisfiesThreshold,
@@ -109,6 +110,10 @@ type UIMessage = {
   // (stalled / errored, nothing stashed). Holds the original prompt so the
   // attached "Try again" button can re-run the exact same build.
   retry?: string;
+  // Snapshot of the slip captured when the user runs "Analyze my ticket" — used
+  // to render the Ticket Scan summary card above the streamed analysis. Held on
+  // the message (not live state) so it stays accurate even if the slip changes.
+  analyzeSlip?: TicketScanLeg[];
 };
 
 type StatCardResult = {
@@ -916,7 +921,17 @@ export default function CoachScreen() {
         ...messages,
         { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined },
       ];
-      setMessages([...history, { role: "assistant", content: "" }]);
+      // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
+      // streamed breakdown. Snapshot the slip NOW (with each leg's edge note) so
+      // the card's real metrics stay correct even if the slip later changes.
+      const analyzeSlipSnapshot: TicketScanLeg[] | undefined =
+        wantsAnalyzeSlip(trimmed) && legs.length
+          ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
+          : undefined;
+      setMessages([
+        ...history,
+        { role: "assistant", content: "", ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}) },
+      ]);
       setWaiting(true);
       setStreaming(true);
       scrollToEnd();
@@ -1203,7 +1218,7 @@ export default function CoachScreen() {
               }
               setMessages((prev) => {
                 const copy = [...prev];
-                copy[copy.length - 1] = { role: "assistant", content: sofar };
+                copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", content: sofar };
                 return copy;
               });
               scrollToEnd(false);
@@ -1637,6 +1652,7 @@ export default function CoachScreen() {
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
+            ...copy[copy.length - 1],
             role: "assistant",
             content: finalContent,
             picks,
@@ -1891,6 +1907,11 @@ export default function CoachScreen() {
               (isWaiting || bubbleText.length > 0 || !!m.imageUris?.length);
             return (
               <View key={i}>
+                {m.analyzeSlip?.length ? (
+                  <View style={{ marginBottom: showBubble || isWaiting ? 10 : 0 }}>
+                    <TicketScanSummary legs={m.analyzeSlip} loading={isWaiting} />
+                  </View>
+                ) : null}
                 {m.statCard ? (
                   <PlayerStatCard data={m.statCard} />
                 ) : m.periodGameLog ? (

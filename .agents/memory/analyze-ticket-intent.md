@@ -65,3 +65,20 @@ into `playerHistory` (recentFormOnly).
   no-data legs are stated plainly, never fabricated.
 - Client analyze/enrichment changes need an EAS OTA to reach the installed app
   (dev/preview is live immediately).
+
+## Ticket Scan summary card (analyze loading state)
+Analyze has a long pre-first-token wait that used to show only a spinner. A
+`TicketScanSummary` card now renders above the streamed breakdown when the
+assistant message carries an `analyzeSlip` snapshot (slip pick/odds/edge,
+captured at send time so later slip edits can't skew it). Rows: Legs / Estimated
+Hit Rate / Highest Confidence Leg / Weakest Leg / Average Edge.
+**Honesty:** all values REAL-or-null from the slip's own odds + the model's OWN
+stated EDGE notes — `lib/ticketScan.ts` is a dependency-free pure module
+(impliedProb inlined for node --test). Highest/Weakest rank by the app's
+edge-derived `deriveConfidenceScore` (same as pick cards) when ≥2 legs are
+graded, else fall back to market-implied likelihood so every priced leg stays
+rankable. `loading` (= isWaiting) shows "Calculating…"; once resolved a genuine
+null shows "—", NEVER a perpetual "Calculating…".
+**Wiring gotcha:** the streaming `setMessages` updates (onToken + final commit)
+MUST spread the prior message (`...copy[last]`) or `analyzeSlip` is dropped the
+instant the first token arrives.
