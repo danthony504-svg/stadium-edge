@@ -5,15 +5,10 @@ import { SendChatMessageBody } from "@workspace/api-zod";
 import { rateLimit } from "../lib/sports.js";
 import {
   recordBackgroundBuildPending,
-  clearBackgroundBuildPending,
-  stashAndNotifyBackgroundBuild,
-  stashBackgroundBuildFailure,
+  finalizeCompletedBuild,
+  finalizeErroredBuild,
 } from "../lib/coachBuild.js";
-import {
-  decideCompletionOutcome,
-  decideErrorOutcome,
-  shouldWatchdogAbort,
-} from "../lib/coachBuildFinish.js";
+import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -2255,75 +2250,52 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       res.end();
     }
     if (bgUserId) {
-      // Pure decision (terminal-status selection + the "stash nothing on a
-      // partial build" honesty rule), unit-tested in coachBuildFinish.test.ts.
-      const outcome = decideCompletionOutcome({
+      // Persist the terminal outcome of a completed background-eligible build:
+      // stash the ready ticket (user walked away), stash a terminal failure
+      // (empty completion), or — for a live in-app delivery — just retire the
+      // in-flight marker so the cron sweeper never finalizes this delivered build
+      // as a phantom "failed". The decision + the marker-retirement invariant
+      // live in coachBuild.ts so they are integration-testable against a real DB
+      // (coachBuildSweepIntegration.test.ts); the pure decision is additionally
+      // unit-tested in coachBuildFinish.test.ts.
+      await finalizeCompletedBuild({
+        userId: bgUserId,
+        buildId: bgBuildId,
         clientGone,
-        hasUsableText: fullText.trim().length > 0,
+        fullText,
+        props: aiRealProps,
+        log: req.log,
       });
-      if (outcome.kind === "stashReady") {
-        // The user walked away mid-build but asked us to finish — stash the
-        // completed reply + prop pool and fire a single push so they can open it
-        // on return. (Also retires the in-flight marker.)
-        await stashAndNotifyBackgroundBuild({
-          userId: bgUserId,
-          buildId: bgBuildId,
-          full: fullText,
-          props: aiRealProps,
-          log: req.log,
-        });
-      } else if (outcome.kind === "stashFailure") {
-        // Stream completed but produced nothing usable — persist a terminal
-        // status (don't leave the user in silent limbo) instead of a ticket.
-        // (Also retires the in-flight marker.)
-        await stashBackgroundBuildFailure({
-          userId: bgUserId,
-          buildId: bgBuildId,
-          status: outcome.status,
-          log: req.log,
-        });
-      } else {
-        // deliveredLive: the client never left — there's nothing to stash, but
-        // we MUST retire the in-flight marker we recorded at stream start, or the
-        // cron sweeper would later falsely finalize this delivered build as
-        // "failed".
-        await clearBackgroundBuildPending(bgUserId, bgBuildId, req.log);
-      }
     }
   } catch (err) {
     stopHeartbeat();
     stopWatchdog();
-    // Pure decision (timedOut-vs-failed terminal status + the "stash nothing on
-    // an aborted build" honesty rule), unit-tested in coachBuildFinish.test.ts.
-    const outcome = decideErrorOutcome({
+    // Persist the terminal outcome of an errored / aborted build. A background
+    // build the user walked away from is stashed as a terminal failure (never a
+    // partial ticket — honesty — plus an optional push so the client shows
+    // "couldn't finish, tap to retry"); a live-client error retires the in-flight
+    // marker so the cron sweeper doesn't later finalize this as a phantom
+    // failure; an already-gone socket stays silent. The decision + the
+    // marker-retirement invariant live in coachBuild.ts so they are
+    // integration-testable against a real DB (coachBuildSweepIntegration.test.ts);
+    // the pure decision is additionally unit-tested in coachBuildFinish.test.ts.
+    const outcome = await finalizeErroredBuild({
+      userId: bgUserId,
+      buildId: bgBuildId,
       clientGone,
-      bgEligible: !!bgUserId,
       writableEnded: res.writableEnded,
       destroyed: res.destroyed,
       watchdogAborted,
+      log: req.log,
     });
-    // A background build the user walked away from: the watchdog aborted a
-    // stalled upstream (timedOut) or the stream errored (failed). We never stash
-    // a partial ticket (honesty), but we DO persist a terminal status + optional
-    // push so the client shows a deterministic "couldn't finish, tap to retry"
-    // instead of silent limbo. Only when the socket is already gone — a live
-    // client takes the normal error path below.
-    if (outcome.kind === "stashFailure") {
-      await stashBackgroundBuildFailure({
-        userId: bgUserId!,
-        buildId: bgBuildId,
-        status: outcome.status,
-        log: req.log,
-      });
-      return;
-    }
+    // Background build the user walked away from — terminal status persisted and
+    // the socket is already gone, so there's nothing more to send.
+    if (outcome.kind === "stashFailure") return;
     // Client disconnected (we aborted the upstream call ourselves) — the socket
     // is already gone and any accumulated reply is incomplete, so stay silent.
     if (outcome.kind === "silent") return;
     // Live-client error: the user is still watching and gets the inline error
-    // below (they can retry). Retire the in-flight marker we recorded at stream
-    // start so the cron sweeper doesn't later finalize this as a phantom failure.
-    if (bgUserId) await clearBackgroundBuildPending(bgUserId, bgBuildId, req.log);
+    // below (they can retry). The in-flight marker was already retired above.
     req.log.error({ err }, "Chat stream failed");
     res.write(
       `data: ${JSON.stringify({

@@ -23,7 +23,13 @@ background-stash paths: normal in-app completion and the live-client error path
 call no stash function, so they must clear the marker explicitly. Miss one and
 the sweeper later finalizes a happily-delivered ticket as a phantom "failed".
 **How to apply:** whenever you add/branch a terminal outcome in the chat
-handler, ensure that branch clears the pending marker.
+handler, ensure that branch clears the pending marker. The live terminal
+sequencing now lives in `coachBuild.ts` helpers `finalizeCompletedBuild`
+(success branch) and `finalizeErroredBuild` (catch branch) — chat.ts delegates
+to them and only keeps the SSE writes — so the marker-clearing WIRING is
+integration-tested against real Postgres (coachBuildSweepIntegration.test.ts
+scenarios F/G). Keep editing those helpers, not a re-inlined copy, or you lose
+that coverage.
 
 **Why the sweeper must run unconditionally in cron.** The notification job has
 early returns ("no push tokens" / "no users") before its push fan-out. The sweep

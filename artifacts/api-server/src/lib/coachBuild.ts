@@ -2,7 +2,13 @@ import { and, eq, inArray, sql, lt, like, or } from "drizzle-orm";
 import { db, userSyncTable, notifLogTable, pushTokensTable } from "@workspace/db";
 import { sendPush } from "./push.js";
 import { decideSweepAction, pruneCutoffMs } from "./coachBuildSweep.js";
-import { coachReadyDedupeKey, coachFailedDedupeKey } from "./coachBuildFinish.js";
+import {
+  coachReadyDedupeKey,
+  coachFailedDedupeKey,
+  decideCompletionOutcome,
+  decideErrorOutcome,
+  type BackgroundOutcome,
+} from "./coachBuildFinish.js";
 
 // -------------------------------------------------------------------------
 // Background-finished AI Coach parlay builds (mobile). When a build is in
@@ -267,6 +273,88 @@ export async function stashBackgroundBuildFailure(opts: {
   } catch (err) {
     log.error({ err }, "background coach build failure stash/notify failed");
   }
+}
+
+// Apply the persistence side of a COMPLETED background-eligible build's terminal
+// outcome — the exact sequencing the live /chat handler's success branch needs,
+// extracted here so the marker-retirement WIRING is integration-testable against
+// a real DB (the 2000-line handler can't be driven end-to-end without a model
+// stream + socket). Only side effects live here; any SSE writes stay in the
+// caller. Returns the decided outcome so the caller can branch on it.
+//
+// CRITICAL INVARIANT: every completion outcome retires the in-flight marker —
+// `deliveredLive` clears it directly, and both stash helpers clear it as part of
+// persisting their terminal status. Miss one and the cron sweeper would later
+// finalize a happily-delivered ticket as a phantom "failed" (silent-limbo bug).
+export async function finalizeCompletedBuild(opts: {
+  userId: string;
+  buildId: string;
+  clientGone: boolean;
+  fullText: string;
+  props: unknown[];
+  log: CoachBuildLogger;
+}): Promise<BackgroundOutcome> {
+  const { userId, buildId, clientGone, fullText, props, log } = opts;
+  const outcome = decideCompletionOutcome({
+    clientGone,
+    hasUsableText: fullText.trim().length > 0,
+  });
+  if (outcome.kind === "stashReady") {
+    // The user walked away mid-build but asked us to finish — stash the completed
+    // reply + prop pool and fire a single push. (Also retires the marker.)
+    await stashAndNotifyBackgroundBuild({ userId, buildId, full: fullText, props, log });
+  } else if (outcome.kind === "stashFailure") {
+    // Stream completed but produced nothing usable — persist a terminal status
+    // instead of a ticket. (Also retires the marker.)
+    await stashBackgroundBuildFailure({ userId, buildId, status: outcome.status, log });
+  } else {
+    // deliveredLive: the client never left, so there's nothing to stash — but we
+    // MUST retire the in-flight marker recorded at stream start, or the sweeper
+    // would later falsely finalize this delivered build as "failed".
+    await clearBackgroundBuildPending(userId, buildId, log);
+  }
+  return outcome;
+}
+
+// Apply the persistence side of an ERRORED / aborted background-eligible build's
+// terminal outcome — the DB-side of the live /chat handler's catch block. The
+// SSE error frame + res.end() stay in the caller (this owns only persistence).
+// `userId` is the background-eligible user id or null (a non-bg request never
+// records a marker, so there is nothing to retire). Returns the decided outcome
+// so the caller can choose whether to surface the inline error.
+//
+// CRITICAL INVARIANT: the `liveError` branch MUST clear the marker — a live
+// client that hit an error is a fully-terminated build, and leaving its marker
+// would let the sweeper finalize it as a phantom "failed" after the deadline.
+export async function finalizeErroredBuild(opts: {
+  userId: string | null;
+  buildId: string;
+  clientGone: boolean;
+  writableEnded: boolean;
+  destroyed: boolean;
+  watchdogAborted: boolean;
+  log: CoachBuildLogger;
+}): Promise<BackgroundOutcome> {
+  const { userId, buildId, clientGone, writableEnded, destroyed, watchdogAborted, log } = opts;
+  const outcome = decideErrorOutcome({
+    clientGone,
+    bgEligible: !!userId,
+    writableEnded,
+    destroyed,
+    watchdogAborted,
+  });
+  if (outcome.kind === "stashFailure") {
+    // Background build the user walked away from: persist a terminal status (never
+    // a partial ticket — honesty). (Also retires the marker.)
+    await stashBackgroundBuildFailure({ userId: userId!, buildId, status: outcome.status, log });
+  } else if (outcome.kind === "liveError") {
+    // Live client is still watching and will get the inline error — retire the
+    // in-flight marker recorded at stream start so the sweeper doesn't later
+    // finalize this as a phantom failure.
+    if (userId) await clearBackgroundBuildPending(userId, buildId, log);
+  }
+  // "silent": socket already gone / response finished — nothing to persist.
+  return outcome;
 }
 
 // SWEEPER (cron). Closes the autoscale gap: a TCP drop can kill the in-flight
