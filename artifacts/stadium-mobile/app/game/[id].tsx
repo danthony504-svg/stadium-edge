@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
 import { GamePropsSection } from "@/components/GamePropsSection";
+import { InjuryReport } from "@/components/InjuryReport";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
@@ -909,6 +910,12 @@ export default function GameDetailScreen() {
           </View>
 
           <AiGamePicks game={game} />
+
+          {/* Real ESPN injury report for both sides + how it tilts the game.
+              Team-sport only — individual sports (tennis/UFC) have no team feed. */}
+          {!["tennis", "ufc", "mma"].includes(game.sport) ? (
+            <InjuryReport sport={game.sport} teams={[game.awayTeam, game.homeTeam]} />
+          ) : null}
 
           {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
 

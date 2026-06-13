@@ -23,6 +23,7 @@ import {
 import { findPlayerInjury, injuryTone, teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
+import { InjuryReport } from "@/components/InjuryReport";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
@@ -709,6 +710,19 @@ export default function PropDetailScreen() {
               Team-wide scoring allowed — a real season rate, not a position-specific matchup.
             </Text>
           </Section>
+        ) : null}
+
+        {/* The injured opponents this player is facing — real ESPN report for
+            the OTHER side only. oppName is fail-closed, so this shows only when
+            we're certain which team is the opponent. */}
+        {oppName ? (
+          <InjuryReport
+            sport={sport}
+            teams={[oppName]}
+            title="INJURIES YOU'RE FACING"
+            caption={`Who's banged up on ${oppName} for ${player}'s ${marketLabel.toLowerCase()}. Key absences can shift this matchup.`}
+            framing="facing"
+          />
         ) : null}
 
         {/* Factors to weigh — real numbers where we have them, else what to check */}

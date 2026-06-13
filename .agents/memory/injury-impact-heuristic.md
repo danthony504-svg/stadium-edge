@@ -25,6 +25,21 @@ precision. The edge CAPTION must not cite high-impact counts when they're equal
 (edge is total-score-driven) — fall back to total-impact wording. Card is
 mobile-only; web team-pick has no injury rail.
 
+**Shared InjuryReport component:** `components/InjuryReport.tsx` is a
+self-contained (own injuries query + edge + expand state) card now reused on the
+GAME DETAIL page (both teams, team-sport only — skip tennis/ufc/mma) and the
+PLAYER PROP page (single OPPONENT team via the prop page's fail-closed `oppName`,
+title "INJURIES YOU'RE FACING", `framing="facing"`). Edge box only renders when
+2 teams resolve. It surfaces the REAL ESPN `description` field per player ("what
+injury") — that's the honest answer to "what's the injury", filtered to skip
+"No description" boilerplate. team-pick still has its OWN inline injury JSX (not
+yet refactored onto the shared component — optional future single-sourcing).
+
+**SUBSTITUTION = NOT BUILDABLE:** ESPN /sports/injuries returns only
+{player, position, status, description} — NO substitute/replacement/depth-chart
+field. "Show their substitution" CANNOT be honestly built; `framing="facing"`
+adds an explicit note that replacements aren't published. Never invent a fill-in.
+
 **Chat coach injuries (mobile-only):** the chat SYSTEM_PROMPT historically
 *claimed* to "weigh injury impact" but NO injury data was ever in the chat
 context — that instruction was hollow (a quiet honesty gap: told to cite
