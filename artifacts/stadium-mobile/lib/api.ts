@@ -2665,15 +2665,25 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // Once the first token lands the proxy switches to pass-through and we tighten
   // back to STALL_MS for the rest of the stream.
   const FIRST_TOKEN_MS = 45000;
+  // The POST body is identical on every attempt, so serialize it ONCE up front
+  // (re-stringifying a ~130KB+ build context on each retry is pure waste) and
+  // reuse the same string below.
+  const bodyStr = JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId });
+  const bodyKB = bodyStr.length / 1024;
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
-  // body (the full real-data context — ~120 odds + the prop pool + matchup/fight
-  // analysis runs to tens of KB) AND the server's time-to-first-byte. On a weak
-  // uplink (the reported "couldn't reach the feed" failure was on a 1-bar LTE
-  // device) an 8s ceiling tripped connect-stall on every attempt before the body
-  // had even finished uploading, so the build failed before the model was ever
-  // reached. 12s gives a slow uplink room to land the request; a genuinely dead
-  // link still aborts and retries (just a few seconds later).
-  const CONNECT_MS = 12000;
+  // body AND the server's time-to-first-byte. The body is NOT small for a build:
+  // production logs show a multi-leg "tonight" context serializes to ~130KB and a
+  // full 11+ leg slate to ~500KB. On a weak uplink (the reported failures were on
+  // a 1-bar 5G/LTE device) a flat 12s ceiling can't push 130KB+ before it trips,
+  // so EVERY attempt connect-stalled before the body finished uploading and we
+  // re-POSTed the identical payload 3-5× → exhaustion → "I lost the connection
+  // while building your ticket" (verified on the wire: the same contextChars POST
+  // repeated back-to-back). So scale the connect budget to the actual body size:
+  // a 12s floor for normal chats, plus headroom for big build bodies, capped so a
+  // genuinely dead link still aborts in reasonable time (the background-build path
+  // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
+  // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
+  const CONNECT_MS = Math.min(30000, Math.max(12000, Math.round(12000 + Math.max(0, bodyKB - 40) * 120)));
   const MAX_ATTEMPTS = 5;
 
   let lastErr: unknown = null;
@@ -2718,7 +2728,7 @@ export async function streamChat({ messages, context, onToken, signal, imageData
               "Content-Type": "application/json",
               ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
             },
-            body: JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId }),
+            body: bodyStr,
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
           connectStall,
