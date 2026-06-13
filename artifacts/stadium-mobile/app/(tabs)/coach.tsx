@@ -1056,6 +1056,12 @@ export default function CoachScreen() {
         // resolved legs below by the SAME derived score so every card truly meets
         // the band — never inflating an edge, honest-short if too few qualify.
         const confidenceThreshold = parseConfidenceThreshold(trimmed);
+        // Default-mode opt-out for the B+ grade floor below: a longshot / lottery /
+        // moonshot ask is explicitly a low-grade, high-variance ticket, so the
+        // floor must not gut it. (An explicit odds band and the user's own
+        // confidence bar are handled by their own filters — see gradeFloorActive.)
+        const wantsLongshot =
+          /\b(?:lottery|moon\s?shots?|long\s?shots?)\b/i.test(trimmed);
         // The number of legs the user explicitly asked for (0 when unspecified).
         // Computed up here (not just before the reach-N backstop below) because a
         // single-game high-leg ask needs it to decide includePeriods.
@@ -1592,6 +1598,53 @@ export default function CoachScreen() {
         if (picks.length > MAX_LEGS) {
           picks = picks.slice(0, MAX_LEGS);
         }
+        // Grade each resolved leg with the 5-component pick rubric, from the SAME
+        // real context the legs were resolved against (odds carry edge +
+        // book-spread, props carry their +EV/spread; matchup history + injuries
+        // ground the trend/matchup/injury sub-scores). Honest-or-null: any signal
+        // that can't be grounded for a leg stays absent on its card. Done HERE
+        // (before the grade floor + notes + finalContent) so the floor can read
+        // each leg's grade and so a floored-to-empty ticket falls into the
+        // blank-reply handling below.
+        picks = attachPickScores(picks, {
+          realOdds: context.realOdds,
+          propPool: mergedPropPool,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+        });
+        // DEFAULT CHAT GRADE FLOOR — only surface B+ to A+ picks. By default the
+        // Coach shows only picks it can honestly grade B+ or better (composite
+        // >= 7.5, the SAME B+ threshold gradeFromComposite uses). The server prompt
+        // steers the model to lean on real alt rungs that add edge so each pick
+        // earns that grade; this is the hard guarantee that DROPS any resolved leg
+        // whose real edge / matchup / line value can't reach B+ — it only ever
+        // removes real, graded legs, never inflates a score to keep a weak pick. A
+        // leg that can't be graded at all (composite null — a pure market-price
+        // play with no stated edge) cannot clear the bar and is dropped too.
+        // Skipped when the user opted into a mode whose own rules govern: an
+        // explicit odds band, their own confidence bar, or a longshot/lottery ask
+        // (a deliberately low-grade, high-variance ticket).
+        // gradeNote (markdown) is for the ZERO-pick branches where the assistant
+        // bubble is visible; gradeLegNote (plain text) is for the surviving-picks
+        // case, where the bubble is suppressed and the ONLY visible channel is the
+        // legNote rendered beside the cards.
+        let gradeNote = "";
+        let gradeLegNote = "";
+        const gradeFloorActive =
+          !oddsThreshold && !confidenceThreshold && !wantsLongshot;
+        if (gradeFloorActive && emittedPickLines > 0) {
+          const before = picks.length;
+          picks = picks.filter((p) => {
+            const c = p.scores?.composite;
+            return typeof c === "number" && c >= 7.5;
+          });
+          const dropped = before - picks.length;
+          if (picks.length === 0 && before > 0) {
+            gradeNote = `\n\n_None of tonight's grounded legs reach a B+ grade right now — that grade is built from each leg's real edge, matchup, and line value, and I won't inflate it to force a pick. Try a specific game or market, or check back when the board fills in._`;
+          } else if (dropped > 0) {
+            gradeLegNote = `Showing the ${picks.length} pick${picks.length === 1 ? "" : "s"} that grade B+ or better; dropped ${dropped} that couldn't reach that bar on real edge.`;
+          }
+        }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1600,7 +1653,11 @@ export default function CoachScreen() {
         // or (2) the real board was too thin to ground that many legs. We never
         // pad with invented legs.
         let legNote = "";
-        if (picks.length > 0 && requestedLegs > picks.length) {
+        if (gradeLegNote) {
+          // The grade floor trimmed the ticket; that explanation supersedes the
+          // generic "you asked for N" count (it already says why it's shorter).
+          legNote = gradeLegNote;
+        } else if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =
             requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
@@ -1614,8 +1671,9 @@ export default function CoachScreen() {
         // unbacked scaffold and keep only the lead-in prose plus an honest note
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
-        let finalContent = full + thresholdNote + confidenceNote + signNote + todayNote;
-        if (salvageBuilt) {
+        let finalContent =
+          full + thresholdNote + confidenceNote + signNote + todayNote + gradeNote;
+        if (salvageBuilt && picks.length > 0) {
           // The salvage built a real ticket out of nothing; the model's own prose
           // was a refusal / stripped scaffold that contradicts the cards. Replace
           // it with a clean lead-in. legNote (rendered below) carries the honest
@@ -1629,6 +1687,7 @@ export default function CoachScreen() {
             confidenceNote ||
             signNote ||
             todayNote ||
+            gradeNote ||
             "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }
@@ -1638,17 +1697,6 @@ export default function CoachScreen() {
           finalContent =
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
-        // Grade each resolved leg with the 5-component pick rubric, from the
-        // SAME real context the legs were resolved against (odds carry edge +
-        // book-spread, props carry their +EV/spread; matchup history + injuries
-        // ground the trend/matchup/injury sub-scores). Honest-or-null: any
-        // signal that can't be grounded for a leg stays absent on its card.
-        picks = attachPickScores(picks, {
-          realOdds: context.realOdds,
-          propPool: mergedPropPool,
-          matchupHistory: context.matchupHistory,
-          matchupInjuries: context.matchupInjuries,
-        });
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
