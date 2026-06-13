@@ -200,3 +200,167 @@ test("no numeric performance value leaks when MLB real fields are null/partial",
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Opponent team-defense card (REAL, two-sided). Uses ONLY the opposing team's
+// own team-wide defensive production — never a positional "allows X to this
+// player" split. Each sport renders real numbers when supplied and falls back
+// to its evergreen generic matchup card when the feed carried nothing.
+// ---------------------------------------------------------------------------
+
+const EMPTY_OD: NonNullable<RealPropSignals["oppDefense"]> = {
+  team: null,
+  pointsAgainst: null,
+  blocks: null,
+  steals: null,
+  defRebounds: null,
+  sacks: null,
+  interceptions: null,
+  passesDefended: null,
+  stuffs: null,
+  savePct: null,
+  goalsAgainstAvg: null,
+  cleanSheets: null,
+};
+
+test("NBA scoring prop surfaces real opponent rim protection (caps) vs leaky (Over)", () => {
+  const rim = factorsForProp({
+    sport: "nba",
+    marketKey: "player_points",
+    marketLabel: "Points",
+    oppName: "Memphis Grizzlies",
+    real: { oppDefense: { ...EMPTY_OD, team: "Memphis Grizzlies", blocks: 6.2, pointsAgainst: 110 } },
+  });
+  const card = rim.find((c) => /6\.2 blocks\/g/.test(c.body));
+  assert.ok(card, "shows real blocks/g");
+  assert.ok(/rim protection/i.test(card!.body), "caps interior scoring lean");
+
+  const leaky = factorsForProp({
+    sport: "nba",
+    marketKey: "player_points",
+    marketLabel: "Points",
+    oppName: "Washington Wizards",
+    real: { oppDefense: { ...EMPTY_OD, team: "Washington Wizards", blocks: 3.8, pointsAgainst: 122 } },
+  });
+  assert.ok(leaky.some((c) => /leaky defense — supports the Over/i.test(c.body)), "leaky → Over");
+});
+
+test("NBA rebounds prop is two-sided on real defensive rebounds", () => {
+  const cleans = factorsForProp({
+    sport: "nba",
+    marketKey: "player_rebounds",
+    marketLabel: "Rebounds",
+    oppName: "Cleveland Cavaliers",
+    real: { oppDefense: { ...EMPTY_OD, team: "Cleveland Cavaliers", defRebounds: 36.5 } },
+  });
+  assert.ok(cleans.some((c) => /36\.5 def reb\/g/.test(c.body) && /fewer boards/i.test(c.body)), "cleans glass");
+
+  const gives = factorsForProp({
+    sport: "nba",
+    marketKey: "player_rebounds",
+    marketLabel: "Rebounds",
+    oppName: "Atlanta Hawks",
+    real: { oppDefense: { ...EMPTY_OD, team: "Atlanta Hawks", defRebounds: 30.2 } },
+  });
+  assert.ok(gives.some((c) => /more boards available/i.test(c.body)), "gives up glass");
+});
+
+test("NFL passing prop shows real pass rush + INTs, two-sided on the points-allowed rate", () => {
+  // Stingy unit (low pts/g) → caps, mentions the pressure descriptively.
+  const stingy = factorsForProp({
+    sport: "nfl",
+    marketKey: "player_pass_yds",
+    marketLabel: "Passing Yards",
+    oppName: "Pittsburgh Steelers",
+    real: { oppDefense: { ...EMPTY_OD, team: "Pittsburgh Steelers", pointsAgainst: 16.5, sacks: 42, interceptions: 15 } },
+  });
+  const card = stingy.find((c) => /42 sacks/.test(c.body) && /15 INT/.test(c.body));
+  assert.ok(card, "shows season sacks + INT");
+  assert.ok(/this season/i.test(card!.body), "labels counting stats as season totals");
+  assert.ok(/caps passing Overs|raises INT risk/i.test(card!.body), "stingy → caps lean");
+
+  // Leaky unit (high pts/g) → supports the Over EVEN with sacks/INT present.
+  // (Season totals must NOT force a one-sided "caps" lean.)
+  const leaky = factorsForProp({
+    sport: "nfl",
+    marketKey: "player_pass_yds",
+    marketLabel: "Passing Yards",
+    oppName: "Carolina Panthers",
+    real: { oppDefense: { ...EMPTY_OD, team: "Carolina Panthers", pointsAgainst: 28, sacks: 40, interceptions: 12 } },
+  });
+  assert.ok(leaky.some((c) => /leaky defense — supports the Over/i.test(c.body)), "leaky → Over despite totals");
+  assert.ok(!leaky.some((c) => /caps passing Overs/i.test(c.body)), "no one-sided caps from raw totals");
+
+  // Neutral pts/g with totals present → totals shown but NO directional lean.
+  const neutral = factorsForProp({
+    sport: "nfl",
+    marketKey: "player_pass_yds",
+    marketLabel: "Passing Yards",
+    oppName: "Test",
+    real: { oppDefense: { ...EMPTY_OD, pointsAgainst: 22, sacks: 38, interceptions: 11 } },
+  });
+  const ncard = neutral.find((c) => /38 sacks/.test(c.body));
+  assert.ok(ncard && !/supports the Over|caps/i.test(ncard.body), "neutral rate → no lean from totals");
+});
+
+test("NHL prop shows real save% / GAA and the goalie lean (normalizes SV% scale)", () => {
+  const hot = factorsForProp({
+    sport: "nhl",
+    marketKey: "player_shots_on_goal",
+    marketLabel: "Shots on Goal",
+    oppName: "Winnipeg Jets",
+    real: { oppDefense: { ...EMPTY_OD, team: "Winnipeg Jets", savePct: 0.922, goalsAgainstAvg: 2.4 } },
+  });
+  assert.ok(hot.some((c) => /\.922 SV%/.test(c.body) && /2\.40 GAA/.test(c.body)), "shows SV% + GAA");
+  assert.ok(hot.some((c) => /hot goalie/i.test(c.body)), "hot goalie caps");
+
+  const pct = factorsForProp({
+    sport: "nhl",
+    marketKey: "player_shots_on_goal",
+    marketLabel: "Shots on Goal",
+    oppName: "Test",
+    real: { oppDefense: { ...EMPTY_OD, savePct: 92.2 } },
+  });
+  assert.ok(pct.some((c) => /\.922 SV%/.test(c.body)), "normalizes percentage-scale SV%");
+});
+
+test("soccer prop shows real goals allowed + clean sheets, two-sided back line", () => {
+  const stingy = factorsForProp({
+    sport: "soccer",
+    marketKey: "player_shots",
+    marketLabel: "Shots",
+    oppName: "Atletico Madrid",
+    real: { oppDefense: { ...EMPTY_OD, team: "Atletico Madrid", pointsAgainst: 0.8, cleanSheets: 12 } },
+  });
+  assert.ok(stingy.some((c) => /0\.80 goals allowed\/g/.test(c.body) && /12 clean sheets/.test(c.body)), "shows rate + clean sheets");
+  assert.ok(stingy.some((c) => /stingy back line/i.test(c.body)), "stingy caps");
+});
+
+test("opponent-defense card falls back to generic when no real number landed", () => {
+  // All-null oppDefense → realOppDefenseCard returns null → generic kept.
+  const f = factorsForProp({
+    sport: "nba",
+    marketKey: "player_points",
+    marketLabel: "Points",
+    oppName: "New York Knicks",
+    real: { oppDefense: { ...EMPTY_OD } },
+  });
+  assert.ok(f.some((c) => /scoring ceiling/i.test(c.body)), "kept generic defense card");
+  // And no fabricated number leaks.
+  assert.ok(!f.some((c) => /\d+\.\d+ (?:blocks|steals|def reb|pts allowed)\/g/.test(c.body)), "no leaked numbers");
+});
+
+// HONESTY GUARD: the opponent-defense card must NEVER imply positional /
+// per-player defense — the language must stay team-wide.
+test("opponent-defense card never claims positional/per-player defense", () => {
+  const banned = /allows? (?:him|her|this player|\d)|to (?:point guards|shooting guards|wide receivers|the position)/i;
+  const f = factorsForProp({
+    sport: "nba",
+    marketKey: "player_assists",
+    marketLabel: "Assists",
+    oppName: "Boston Celtics",
+    real: { oppDefense: { ...EMPTY_OD, team: "Boston Celtics", steals: 9.1, pointsAgainst: 106 } },
+  });
+  for (const c of f) assert.ok(!banned.test(c.body), `positional claim in "${c.title}": "${c.body}"`);
+  assert.ok(f.some((c) => /9\.1 steals\/g/.test(c.body) && /ball-hawking/i.test(c.body)), "real steals + lean");
+});

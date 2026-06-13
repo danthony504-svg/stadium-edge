@@ -437,13 +437,45 @@ export default function PropDetailScreen() {
     return { pitcher, platoon, ballpark };
   }, [sport, mlbQ.data, oppName, homeName, awayName]);
 
+  // The OPPONENT's REAL team-wide defense (blocks/steals/sacks/INT/save% etc.),
+  // pulled from the team-defense pack we already fetched. oppName is fail-closed
+  // and is always exactly the away or home side, so we pick that side's pack —
+  // never guess. Everything stays a real recorded number; gaps drop to null and
+  // the matchup card falls back to honest generic guidance. This is TEAM-WIDE
+  // production, never a positional "allows X to this player" split (ESPN has none).
+  const realOppDefense = useMemo<RealPropSignals["oppDefense"]>(() => {
+    const d = defenseQ.data;
+    if (!d || !oppName) return null;
+    const side = oppName === awayName ? d.away : oppName === homeName ? d.home : null;
+    if (!side) return null;
+    const def = side.def;
+    const num = (k: string) => def.defensive[k]?.value ?? null;
+    const od = {
+      team: def.teamName ?? side.name,
+      pointsAgainst: def.avgPointsAgainst,
+      blocks: num("avgBlocks"),
+      steals: num("avgSteals"),
+      defRebounds: num("avgDefensiveRebounds"),
+      sacks: num("sacks"),
+      interceptions: num("interceptions"),
+      passesDefended: num("passesDefended"),
+      stuffs: num("stuffs"),
+      savePct: num("savePct"),
+      goalsAgainstAvg: num("goalsAgainstAverage"),
+      cleanSheets: num("cleanSheets"),
+    };
+    // Only surface when at least one real number landed.
+    const hasAny = Object.entries(od).some(([k, v]) => k !== "team" && v != null);
+    return hasAny ? od : null;
+  }, [defenseQ.data, oppName, awayName, homeName]);
+
   // Market-aware "things to weigh before betting" cards, tailored to the sport
   // (batter vs pitcher for MLB; per-market for basketball) and personalized with
   // the REAL player and team names. Cards render real numbers when the signals
   // above are present and fall back to honest guidance when they aren't.
   const real = useMemo<RealPropSignals>(
-    () => ({ homeAway: realHomeAway, recentVsSeason: realRecentVsSeason, mlb: realMlb }),
-    [realHomeAway, realRecentVsSeason, realMlb],
+    () => ({ homeAway: realHomeAway, recentVsSeason: realRecentVsSeason, mlb: realMlb, oppDefense: realOppDefense }),
+    [realHomeAway, realRecentVsSeason, realMlb, realOppDefense],
   );
   const factors = useMemo(
     () => factorsForProp({ sport, marketKey, marketLabel, playerName: player, teamName, oppName, real }),

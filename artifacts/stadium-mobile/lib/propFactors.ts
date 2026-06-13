@@ -78,6 +78,29 @@ export type RealPropSignals = {
       condition: string | null;
     } | null;
   } | null;
+  // The OPPONENT team's REAL, team-wide defensive production from ESPN (and the
+  // headline points-allowed rate). This is NOT a positional "allows X to this
+  // player/position" split — ESPN doesn't expose that and we never invent it.
+  // Used to frame, two-sided, how tough the defense the player faces tonight is.
+  // Every field nullable → the card omits anything the feed didn't carry.
+  oppDefense?: {
+    team: string | null;
+    pointsAgainst: number | null; // per-game points (or goals) allowed — a rate
+    // basketball (per-game averages)
+    blocks: number | null;
+    steals: number | null;
+    defRebounds: number | null;
+    // football (season totals)
+    sacks: number | null;
+    interceptions: number | null;
+    passesDefended: number | null;
+    stuffs: number | null;
+    // hockey (rates)
+    savePct: number | null;
+    goalsAgainstAvg: number | null;
+    // soccer (season total)
+    cleanSheets: number | null;
+  } | null;
 };
 
 export type FactorContext = {
@@ -180,6 +203,113 @@ function recentVsSeasonCard(real: RealPropSignals | null | undefined, noun: stri
     };
   }
   return REGRESSION_GENERIC;
+}
+
+// REAL opponent team-defense card (two-sided), shared by every sport. Uses ONLY
+// the opposing team's own team-wide defensive production from ESPN — never a
+// positional "allows X to this player" split, which ESPN doesn't expose and we
+// never fabricate. Returns null when no real number is available so the caller
+// keeps its evergreen generic card. Counting stats (sacks, INT, clean sheets)
+// are labelled "this season" because the feed reports them as season totals;
+// per-game/rate stats drive the high/low lean since totals aren't comparable
+// across teams that have played a different number of games.
+function realOppDefenseCard(
+  sport: string,
+  oppShort: string | null,
+  od: RealPropSignals["oppDefense"],
+  key: string,
+): PropFactor | null {
+  if (!od) return null;
+  const subj = od.team ?? oppShort ?? "the opponent";
+  const bits: string[] = [];
+  let lean = "";
+
+  if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
+    const isReb = /rebound|\breb\b/.test(key);
+    const isAst = /assist|\bast\b/.test(key);
+    const isScore = /point|\bpts\b|three|3-?pt|3 ?pointer|threes|\bfg\b|field goal/.test(key);
+    if (isReb && od.defRebounds != null) bits.push(`${od.defRebounds.toFixed(1)} def reb/g`);
+    if (isAst && od.steals != null) bits.push(`${od.steals.toFixed(1)} steals/g`);
+    if (isScore && od.blocks != null) bits.push(`${od.blocks.toFixed(1)} blocks/g`);
+    if (od.pointsAgainst != null) bits.push(`${od.pointsAgainst.toFixed(1)} pts allowed/g`);
+    const leaky = od.pointsAgainst != null && od.pointsAgainst >= 118;
+    const stingy = od.pointsAgainst != null && od.pointsAgainst <= 108;
+    if (isReb && od.defRebounds != null) {
+      lean =
+        od.defRebounds >= 35
+          ? " They clean their own glass — fewer boards to grab."
+          : od.defRebounds <= 31
+            ? " They give up the defensive glass — more boards available."
+            : "";
+    } else if (isAst && od.steals != null) {
+      lean =
+        od.steals >= 8.5
+          ? " A ball-hawking defense that jumps passing lanes — assist risk."
+          : od.steals <= 6.5
+            ? " Low-pressure hands — cleaner passing windows."
+            : "";
+    } else if (isScore && od.blocks != null && od.blocks >= 5.5) {
+      lean = " Strong rim protection — caps interior scoring.";
+    }
+    if (!lean) lean = leaky ? " A leaky defense — supports the Over." : stingy ? " A stingy defense — caps the Over." : "";
+  } else if (sport === "nfl" || sport === "ncaaf") {
+    const isRush = /rush/.test(key);
+    if (od.pointsAgainst != null) bits.push(`${od.pointsAgainst.toFixed(1)} pts allowed/g`);
+    const ssn: string[] = [];
+    if (isRush) {
+      if (od.stuffs != null) ssn.push(`${od.stuffs} run stuffs`);
+    } else {
+      if (od.sacks != null) ssn.push(`${od.sacks} sacks`);
+      if (od.interceptions != null) ssn.push(`${od.interceptions} INT`);
+      if (od.passesDefended != null) ssn.push(`${od.passesDefended} passes defended`);
+    }
+    if (ssn.length) bits.push(`${ssn.join(", ")} this season`);
+    // Direction is driven ONLY by the per-game points-allowed RATE — season
+    // counting totals (sacks/INT/stuffs) are descriptive and not normalized by
+    // games played, so they can't set a lean on their own.
+    const leaky = od.pointsAgainst != null && od.pointsAgainst >= 25;
+    const stingy = od.pointsAgainst != null && od.pointsAgainst <= 18;
+    if (leaky) {
+      lean = " A leaky defense — supports the Over.";
+    } else if (stingy) {
+      lean =
+        !isRush && (od.sacks != null || od.interceptions != null)
+          ? " A stingy defense with a pass rush and ball-hawking secondary — caps passing Overs and raises INT risk."
+          : " A stingy defense — caps the Over.";
+    }
+  } else if (sport === "nhl") {
+    // ESPN may ship SV% as a fraction (.912) or a percentage (91.2) — normalise.
+    const sv = od.savePct != null ? (od.savePct > 1 ? od.savePct / 100 : od.savePct) : null;
+    if (sv != null) bits.push(`${rate3(sv)} SV%`);
+    if (od.goalsAgainstAvg != null) bits.push(`${od.goalsAgainstAvg.toFixed(2)} GAA`);
+    const hot = (sv != null && sv >= 0.915) || (od.goalsAgainstAvg != null && od.goalsAgainstAvg <= 2.6);
+    const leaky = (sv != null && sv <= 0.895) || (od.goalsAgainstAvg != null && od.goalsAgainstAvg >= 3.4);
+    lean = hot
+      ? " A hot goalie behind a stingy defense — caps shot and point Overs."
+      : leaky
+        ? " A leaky netminder — supports shot and point Overs."
+        : "";
+  } else if (sport === "soccer") {
+    if (od.pointsAgainst != null) bits.push(`${od.pointsAgainst.toFixed(2)} goals allowed/g`);
+    if (od.cleanSheets != null) bits.push(`${od.cleanSheets} clean sheets this season`);
+    const stingy = od.pointsAgainst != null && od.pointsAgainst <= 1.0;
+    const leaky = od.pointsAgainst != null && od.pointsAgainst >= 1.6;
+    lean = stingy
+      ? " A stingy back line — caps shot and goal Overs."
+      : leaky
+        ? " A leaky back line — supports shot and goal Overs."
+        : "";
+  } else if (od.pointsAgainst != null) {
+    bits.push(`${od.pointsAgainst.toFixed(1)} allowed/g`);
+  }
+
+  if (!bits.length) return null;
+  return {
+    tier: "critical",
+    emoji: "🛡",
+    title: oppShort ? `${oppShort} Defense` : "Opponent Defense",
+    body: `Faces ${subj}. ${bits.join(", ")}.${lean}`,
+  };
 }
 
 // --- baseball ---------------------------------------------------------------
@@ -384,7 +514,7 @@ function teamSubject(ctx: BCtx): string {
   return ctx.teamShort ? `${ctx.teamShort}'s` : "his team's";
 }
 
-function bballAssists(ctx: BCtx, recent: PropFactor): PropFactor[] {
+function bballAssists(ctx: BCtx, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -392,7 +522,7 @@ function bballAssists(ctx: BCtx, recent: PropFactor): PropFactor[] {
       title: "Game Context",
       body: `Playoff or must-win games can push ${ctx.name} into facilitator mode and spike assists; a low-stakes game can flip it. Check what's at stake.`,
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: oppTitle(ctx, "Defensive Scheme"),
@@ -420,7 +550,7 @@ function bballAssists(ctx: BCtx, recent: PropFactor): PropFactor[] {
   ];
 }
 
-function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -428,7 +558,7 @@ function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropF
       title: "Confirmed Role & Minutes",
       body: `Minutes drive scoring. A blowout, rest day, or rotation change can sink the prop. Check ${ctx.name}'s projected minutes and the status report.`,
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: oppTitle(ctx, "Defense"),
@@ -451,7 +581,7 @@ function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropF
   ];
 }
 
-function bballRebounds(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function bballRebounds(ctx: BCtx, homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -459,7 +589,7 @@ function bballRebounds(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): Pro
       title: "Confirmed Role & Minutes",
       body: `Boards follow minutes. Foul trouble or a blowout cuts them short. Check ${ctx.name}'s projected minutes.`,
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: oppTitle(ctx, "Pace & Glass"),
@@ -482,7 +612,7 @@ function bballRebounds(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): Pro
   ];
 }
 
-function bballThrees(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function bballThrees(ctx: BCtx, homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -490,7 +620,7 @@ function bballThrees(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropF
       title: "Role as a Shooter",
       body: `Three-point props hinge on volume and green light. Confirm ${ctx.name}'s recent attempt rate, not just makes.`,
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: oppTitle(ctx, "Perimeter Defense"),
@@ -513,7 +643,7 @@ function bballThrees(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropF
   ];
 }
 
-function bballGeneric(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function bballGeneric(ctx: BCtx, homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -521,7 +651,7 @@ function bballGeneric(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): Prop
       title: "Confirmed Role & Minutes",
       body: `Minutes drive every counting stat. A blowout, rest day, or rotation change can sink the prop. Check ${ctx.name}'s status and projected minutes.`,
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: oppTitle(ctx, "Matchup & Defense"),
@@ -544,7 +674,13 @@ function bballGeneric(ctx: BCtx, homeAway: PropFactor, recent: PropFactor): Prop
   ];
 }
 
-function basketballFactors(ctx: BCtx, key: string, homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function basketballFactors(
+  ctx: BCtx,
+  key: string,
+  homeAway: PropFactor,
+  recent: PropFactor,
+  oppCard: PropFactor | null,
+): PropFactor[] {
   const hasAssist = /assist|\bast\b/.test(key);
   const hasReb = /rebound|\breb\b/.test(key);
   const hasPts = /point|\bpts\b/.test(key);
@@ -553,17 +689,17 @@ function basketballFactors(ctx: BCtx, key: string, homeAway: PropFactor, recent:
   // their tailored set.
   const distinct = [hasAssist, hasReb, hasPts].filter(Boolean).length;
   if (distinct <= 1) {
-    if (hasThree) return bballThrees(ctx, homeAway, recent);
-    if (hasAssist) return bballAssists(ctx, recent);
-    if (hasReb) return bballRebounds(ctx, homeAway, recent);
-    if (hasPts) return bballPoints(ctx, homeAway, recent);
+    if (hasThree) return bballThrees(ctx, homeAway, recent, oppCard);
+    if (hasAssist) return bballAssists(ctx, recent, oppCard);
+    if (hasReb) return bballRebounds(ctx, homeAway, recent, oppCard);
+    if (hasPts) return bballPoints(ctx, homeAway, recent, oppCard);
   }
-  return bballGeneric(ctx, homeAway, recent);
+  return bballGeneric(ctx, homeAway, recent, oppCard);
 }
 
 // --- football / hockey / soccer / generic -----------------------------------
 
-function football(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function football(homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -571,7 +707,7 @@ function football(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
       title: "Game Script",
       body: "A trailing team throws more; a leading team runs more. The spread and total hint at the likely script.",
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: "Matchup & Coverage",
@@ -594,7 +730,7 @@ function football(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   ];
 }
 
-function hockey(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function hockey(homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -602,7 +738,7 @@ function hockey(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
       title: "Confirmed Line & TOI",
       body: "Line and power-play deployment drive shots and points. A line demotion or scratch sinks the prop — check the morning skate.",
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🥅",
       title: "Opposing Goalie & Defense",
@@ -625,7 +761,7 @@ function hockey(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   ];
 }
 
-function soccer(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function soccer(homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -639,7 +775,7 @@ function soccer(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
       title: "Role & Set Pieces",
       body: "Penalty and set-piece duty drives goal odds. Confirm he's the designated taker.",
     },
-    {
+    oppCard ?? {
       tier: "important",
       emoji: "🛡",
       title: "Opponent & Game State",
@@ -656,7 +792,7 @@ function soccer(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
   ];
 }
 
-function genericFactors(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+function genericFactors(homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | null): PropFactor[] {
   return [
     {
       tier: "critical",
@@ -664,7 +800,7 @@ function genericFactors(homeAway: PropFactor, recent: PropFactor): PropFactor[] 
       title: "Confirmed to Play",
       body: "Availability and role drive every prop. Confirm the player is active and starting before betting.",
     },
-    {
+    oppCard ?? {
       tier: "critical",
       emoji: "🛡",
       title: "Matchup",
@@ -694,6 +830,9 @@ export function factorsForProp(opts: FactorContext): PropFactor[] {
   const noun = statNoun(opts.marketLabel);
   const homeAway = homeAwayCard(real, noun);
   const recent = recentVsSeasonCard(real, noun);
+  // Real, two-sided opponent team-defense card (null → callers keep their
+  // evergreen generic matchup card). MLB has its own pitcher/ballpark block.
+  const oppCard = realOppDefenseCard(sport, shortTeam(opts.oppName), real?.oppDefense ?? null, key);
 
   if (sport === "mlb") {
     const isPitcher = /pitcher|strikeout|\bouts\b|earned run|hits allowed|walks allowed/.test(key);
@@ -705,12 +844,12 @@ export function factorsForProp(opts: FactorContext): PropFactor[] {
       oppShort: shortTeam(opts.oppName),
       teamShort: shortTeam(opts.teamName),
     };
-    return basketballFactors(ctx, key, homeAway, recent);
+    return basketballFactors(ctx, key, homeAway, recent, oppCard);
   }
-  if (sport === "nfl" || sport === "ncaaf") return football(homeAway, recent);
-  if (sport === "nhl") return hockey(homeAway, recent);
-  if (sport === "soccer") return soccer(homeAway, recent);
-  return genericFactors(homeAway, recent);
+  if (sport === "nfl" || sport === "ncaaf") return football(homeAway, recent, oppCard);
+  if (sport === "nhl") return hockey(homeAway, recent, oppCard);
+  if (sport === "soccer") return soccer(homeAway, recent, oppCard);
+  return genericFactors(homeAway, recent, oppCard);
 }
 
 export const TIER_META: Record<FactorTier, { label: string; prefix: string }> = {
