@@ -195,6 +195,70 @@ async function kvSet(key: string, value: unknown): Promise<void> {
     .onConflictDoUpdate({ target: appKvTable.key, set: { value, updatedAt: now } });
 }
 
+// ---- cron heartbeat / health -------------------------------------------
+// EVERY time-based feature (reminders, results, odds-move/daily/upset pushes AND
+// the abandoned-Coach-build sweeper) depends on the Scheduled Deployment hitting
+// POST /api/notifications/cron every ~15 min. If that schedule ever stops firing
+// (missing schedule, expired NOTIFY_CRON_KEY, bad deploy) the whole pipeline goes
+// dark silently. So at the end of every run we stamp a heartbeat into KV; a
+// status endpoint / startup check reads it to notice a stalled schedule instead
+// of failing silently.
+const CRON_HEARTBEAT_KEY = "cron:heartbeat";
+// A run is MISSING if none was recorded within this window. The schedule fires
+// ~every 15 min, so 35 min tolerates one fully-missed tick before flagging it.
+export const CRON_STALE_AFTER_MS = 35 * 60 * 1000;
+
+type CronHeartbeat = { at: number; summary: Record<string, number> };
+
+export type CronHealth = {
+  // ISO timestamp of the last recorded run, or null if one has never run.
+  lastRunAt: string | null;
+  ageMs: number | null;
+  ageMinutes: number | null;
+  // true when no run was recorded inside CRON_STALE_AFTER_MS (incl. never-run).
+  stale: boolean;
+  // true only once a run has actually been recorded (distinguishes "stalled"
+  // from "brand-new deploy that hasn't had its first tick yet").
+  everRan: boolean;
+  // The summary from the last run, so coachSwept et al. are observable.
+  summary: Record<string, number> | null;
+};
+
+// Stamp the heartbeat after a successful cron run. Fail-safe: a heartbeat write
+// must never break the run, and the caller treats a throw as non-fatal.
+export async function recordCronHeartbeat(
+  summary: Record<string, number>,
+): Promise<void> {
+  await kvSet(CRON_HEARTBEAT_KEY, {
+    at: Date.now(),
+    summary,
+  } satisfies CronHeartbeat);
+}
+
+// Read the heartbeat and derive whether the schedule looks healthy.
+export async function getCronHealth(): Promise<CronHealth> {
+  const hb = await kvGet<CronHeartbeat>(CRON_HEARTBEAT_KEY);
+  if (!hb || typeof hb.at !== "number") {
+    return {
+      lastRunAt: null,
+      ageMs: null,
+      ageMinutes: null,
+      stale: true,
+      everRan: false,
+      summary: null,
+    };
+  }
+  const ageMs = Date.now() - hb.at;
+  return {
+    lastRunAt: new Date(hb.at).toISOString(),
+    ageMs,
+    ageMinutes: Math.round(ageMs / 60000),
+    stale: ageMs > CRON_STALE_AFTER_MS,
+    everRan: true,
+    summary: hb.summary ?? null,
+  };
+}
+
 // ---- odds snapshot / movement -------------------------------------------
 type OddsSnap = {
   mlHome: number | null;

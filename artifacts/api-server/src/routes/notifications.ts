@@ -6,6 +6,8 @@ import { rateLimit } from "../lib/sports";
 import { logger } from "../lib/logger";
 import {
   runNotificationJobs,
+  recordCronHeartbeat,
+  getCronHealth,
   sendTestToUser,
   DEFAULT_PREFS,
   type Prefs,
@@ -177,11 +179,43 @@ router.post("/notifications/cron", async (req, res) => {
   }
   try {
     const result = await runNotificationJobs();
+    // Stamp the heartbeat so a stalled schedule can be detected (see the status
+    // endpoint below). Fail-safe — a heartbeat write must never fail the run.
+    try {
+      await recordCronHeartbeat(result.summary);
+    } catch (err) {
+      logger.warn({ err }, "cron heartbeat write failed");
+    }
     logger.info({ summary: result.summary }, "notification cron run");
     res.json({ ok: true, ...result });
   } catch (err) {
     logger.error({ err }, "notification cron failed");
     res.status(500).json({ error: "cron failed" });
+  }
+});
+
+// Health check for the Scheduled Deployment that drives every time-based
+// feature. Guarded by the SAME shared secret as the cron itself so an external
+// monitor can poll it. Returns 200 when a run was recorded within the freshness
+// window, 503 when the schedule appears stalled (no run in the last ~35 min) —
+// so a silent stall trips an alert instead of going unnoticed. The last run's
+// summary (incl. coachSwept) is included so it's observable after deploy.
+router.get("/notifications/cron/status", async (req, res) => {
+  const key = process.env.NOTIFY_CRON_KEY;
+  if (!key) {
+    res.status(503).json({ error: "cron not configured" });
+    return;
+  }
+  if (req.get("x-cron-key") !== key) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  try {
+    const health = await getCronHealth();
+    res.status(health.stale ? 503 : 200).json({ ok: !health.stale, ...health });
+  } catch (err) {
+    logger.error({ err }, "cron status failed");
+    res.status(500).json({ error: "status failed" });
   }
 });
 
