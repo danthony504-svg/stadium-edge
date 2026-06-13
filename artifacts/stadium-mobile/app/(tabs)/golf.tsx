@@ -67,8 +67,6 @@ function PlayerRow({
     }
   };
 
-  const bestBook = player.books[0]?.book;
-
   return (
     <View
       style={{
@@ -102,8 +100,35 @@ function PlayerRow({
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
           {(player.fairProb * 100).toFixed(1)}% model win
           {player.edgePct != null ? `  ·  ${player.edgePct > 0 ? "+" : ""}${player.edgePct}% edge` : ""}
-          {bestBook ? `  ·  ${bestBook}` : ""}
         </Text>
+        {player.books.length > 0 ? (
+          // Line shopping — the price at every book, best first (highlighted).
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {player.books.map((b, bi) => (
+              <View
+                key={b.book}
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: 6,
+                  borderWidth: 1,
+                  borderColor: bi === 0 ? colors.primary : colors.border,
+                  backgroundColor: bi === 0 ? colors.surface : "transparent",
+                }}
+              >
+                <Text
+                  style={{
+                    color: bi === 0 ? colors.primary : colors.mutedForeground,
+                    fontFamily: bi === 0 ? FONT.semibold : FONT.body,
+                    fontSize: 10,
+                  }}
+                >
+                  {b.book} {formatOdds(b.price)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15, minWidth: 64, textAlign: "right" }}>

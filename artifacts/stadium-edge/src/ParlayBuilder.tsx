@@ -10986,7 +10986,6 @@ export default function ParlayBuilder() {
                         const pick = `${p.name} to win`;
                         const leg = { game: t.title, market: "Tournament Winner", pick };
                         const inSlip = parlayLegs.some((l) => legKey(l) === legKey(leg));
-                        const bestBook = p.books && p.books[0] ? p.books[0].book : null;
                         return (
                           <div key={p.name} className="flex items-center gap-3 py-2.5">
                             <span className="w-6 text-center text-slate-500 font-bold text-xs">{i + 1}</span>
@@ -11000,8 +10999,19 @@ export default function ParlayBuilder() {
                               <div className="text-slate-500 text-[11px] mt-0.5">
                                 {(p.fairProb * 100).toFixed(1)}% model win
                                 {p.edgePct != null ? ` · ${p.edgePct > 0 ? "+" : ""}${p.edgePct}% edge` : ""}
-                                {bestBook ? ` · ${bestBook}` : ""}
                               </div>
+                              {p.books && p.books.length > 0 && (
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1.5" title="Line shopping — price at each book, best first">
+                                  {p.books.map((b, bi) => (
+                                    <span
+                                      key={b.book}
+                                      className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded border ${bi === 0 ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300 font-semibold" : "border-slate-800 bg-slate-900 text-slate-400"}`}
+                                    >
+                                      {b.book} {b.price > 0 ? `+${b.price}` : b.price}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <span className="text-slate-100 font-bold text-sm tabular-nums min-w-[3.5rem] text-right">
                               {p.price > 0 ? `+${p.price}` : p.price}
