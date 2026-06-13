@@ -29,6 +29,15 @@ steers both surfaces.
 lottery/moonshot (`wantsLongshot`), explicit odds/price band (`oddsThreshold`),
 explicit confidence ask (`confidenceThreshold`).
 
+**Market-pick "add points" rule (prompt-only):** for a straight market/game-line
+pick (moneyline/spread/total) it is explicitly OK — and preferred over dropping —
+to ADD POINTS, i.e. move to a real Alt Spread/Alt Total rung that buys a safer
+number/bigger cushion, so the pick reaches B+ to A+. Still real rungs only, never
+shade/invent a line. No client change needed: the never-fabricate matcher resolves
+the emitted alt rung back to its real realOdds entry, so the higher-graded rung
+survives the composite≥7.5 filter; if adding points still can't reach B+, the
+filter drops it honestly.
+
 ## Transparency gotcha (caught in review — don't regress)
 The assistant bubble is SUPPRESSED for any message with picks
 (`assistantBubbleText(..., hasPicks)` → ""). So a markdown note appended to
