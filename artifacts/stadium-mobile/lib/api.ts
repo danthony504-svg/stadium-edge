@@ -490,6 +490,45 @@ export type PropsResponse = {
 // back empty and just narrow the pool — never fabricated.
 export const PROPS_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab", "soccer"];
 
+// ---------- +500 Steals (mobile-only longshot value feed + W/L record) ----------
+
+// A single longshot "steal": a live/upcoming bet at American odds +500..+30000
+// that the server flagged as carrying a REAL cross-book no-vig edge. Every field
+// is real or null — the server omits anything it can't price honestly.
+export type LiveSteal = {
+  id: string;
+  sport: string;
+  game: string;
+  market: string;
+  pick: string;
+  player: string | null;
+  price: number;
+  edge: number | null;
+  ev: number | null;
+  fairProb: number | null;
+  startsAt: string | null;
+};
+
+// Auto-graded W/L track record of the app's OWN steal picks (graded against real
+// game/stat results — NOT the user's personal bets). `graded` = wins+losses+pushes.
+export type StealRecord = {
+  wins: number;
+  losses: number;
+  pushes: number;
+  pending: number;
+  ungraded: number;
+  graded: number;
+};
+
+export type LiveStealsResponse = {
+  steals: LiveSteal[];
+  record: StealRecord;
+};
+
+export function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
+  return getJson<LiveStealsResponse>(`/sports/live-steals`, signal);
+}
+
 export type GetPropsArgs = {
   sport: string;
   eventId: string;

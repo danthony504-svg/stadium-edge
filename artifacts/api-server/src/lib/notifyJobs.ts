@@ -9,6 +9,7 @@ import {
 import { logger } from "./logger";
 import { sendPush, type PushMessage } from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
+import { runLiveStealsJob } from "./liveSteals";
 
 // -------------------------------------------------------------------------
 // All time-based push triggers live here. The API server deploys as AUTOSCALE,
@@ -508,6 +509,16 @@ export async function runNotificationJobs(): Promise<{
     summary.coachPrunedNotif = pruned.notifLogs;
   } catch (err) {
     logger.warn({ err: (err as Error)?.message }, "notify: coach build prune failed");
+  }
+
+  // Capture today's "+500 steals" and grade any that have finished, so the
+  // app's own steal track record settles continuously. Not user-specific, so it
+  // runs UNCONDITIONALLY (before the no-tokens early return) and is itself
+  // fail-safe — it can never break the push fan-out below.
+  try {
+    await runLiveStealsJob();
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message }, "notify: live steals job failed");
   }
 
   const tokenRows = await db.select().from(pushTokensTable);

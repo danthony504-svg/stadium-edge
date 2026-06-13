@@ -289,14 +289,22 @@ async function gradeProp(
   return { result: win ? "win" : "loss", detail: `${value} ${side} ${line}` };
 }
 
-type GradeLeg = { game?: string; market?: string; pick?: string; sport?: string; odds?: number; startsAt?: string };
+export type GradeLeg = { game?: string; market?: string; pick?: string; sport?: string; odds?: number; startsAt?: string };
 
-router.post("/sports/grade", async (req, res): Promise<void> => {
-  const legs: GradeLeg[] = Array.isArray(req.body?.legs) ? req.body.legs : [];
-  if (legs.length === 0 || legs.length > 30) {
-    res.status(400).json({ error: "legs must be a 1..30 array" });
-    return;
-  }
+export type GradeLegResult = {
+  index: number;
+  family: string;
+  side: string;
+  result: GradeResult;
+  detail: string;
+};
+
+// Grade a batch of finished legs against REAL outcomes. Shared by the public
+// POST /sports/grade route AND the live-steals ledger (lib/liveSteals.ts) so the
+// app's own steal track record settles with the exact same honest logic — never
+// a fabricated W/L. Results are aligned to the input order by `index`.
+export async function gradeLegs(legs: GradeLeg[]): Promise<GradeLegResult[]> {
+  if (legs.length === 0) return [];
 
   // Fetch finals once per distinct sport.
   const sports = Array.from(new Set(legs.map((l) => (l.sport || "").toLowerCase()).filter(Boolean)));
@@ -412,6 +420,16 @@ router.post("/sports/grade", async (req, res): Promise<void> => {
     }),
   );
 
+  return results;
+}
+
+router.post("/sports/grade", async (req, res): Promise<void> => {
+  const legs: GradeLeg[] = Array.isArray(req.body?.legs) ? req.body.legs : [];
+  if (legs.length === 0 || legs.length > 30) {
+    res.status(400).json({ error: "legs must be a 1..30 array" });
+    return;
+  }
+  const results = await gradeLegs(legs);
   res.json({ results });
 });
 

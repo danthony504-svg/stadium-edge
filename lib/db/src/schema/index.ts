@@ -19,3 +19,4 @@
 
 export * from "./userSync";
 export * from "./notifications";
+export * from "./liveSteals";

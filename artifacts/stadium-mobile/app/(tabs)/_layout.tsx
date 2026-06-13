@@ -30,6 +30,7 @@ export default function TabLayout() {
         <Stack.Screen name="props" />
         <Stack.Screen name="golf" />
         <Stack.Screen name="arbitrage" />
+        <Stack.Screen name="steals" />
         <Stack.Screen name="slip" />
         <Stack.Screen name="report" />
       </Stack>
