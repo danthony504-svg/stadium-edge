@@ -46,3 +46,8 @@ that build (never overwrite a real "ready"). Pure decision logic is factored
 into a side-effect-free helper so it's unit-testable without a database (the
 concurrency safety itself lives in the SQL predicates — needs real Postgres to
 exercise).
+
+## Retention / cleanup of terminal records
+Terminal background-build bookkeeping grows otherwise-unbounded: the per-build `notif_log` dedupe rows (`coachReady:`/`coachFailed:` prefixes — one NEW row per build) and the per-user `coachBuild` outcome stash (latest-wins so bounded, but stale once games are over). `pruneOldCoachBuilds` (coachBuild.ts) deletes both older than `COACH_BUILD_RETENTION_MS` (7d), folded into the same notification cron AFTER the sweep (no new schedule). Pure `pruneCutoffMs(now, retentionMs)` lives in coachBuildSweep.ts for unit-testing.
+**Why safe for at-most-once:** retention (7d) dwarfs the build lifecycle (BG_MAX_MS 240s + 8-min sweep deadline), so nothing live re-touches a build old enough to prune; dedupe rows are only needed within that window.
+**Gotcha:** the notif_log delete MUST be scoped to the `coachReady:%`/`coachFailed:%` dedupeKey prefixes (LIKE), or it would nuke reminder/result/daily/upset dedupe rows the cron jobs own. Each delete is independently try-wrapped/fail-safe so it can't break the cron run.

@@ -39,3 +39,15 @@ export function decideSweepAction(
   if (terminalReached) return { kind: "clearMarker" };
   return { kind: "finalizeFailed", buildId };
 }
+
+// Pure retention math for the terminal-record pruner (kept here, side-effect-
+// free, so it's unit-testable; the db-coupled pruner in coachBuild.ts maps it
+// onto DELETEs). Returns the cutoff epoch-ms at/before which a terminal
+// background-build bookkeeping row (the per-user `coachBuild` outcome stash and
+// the per-build `notif_log` dedupe rows) is old enough to delete. Because the
+// retention window dwarfs the few-minute build lifecycle, nothing live ever
+// re-touches a row this old — so pruning can't weaken the at-most-once push
+// guarantee within the dedupe window.
+export function pruneCutoffMs(now: number, retentionMs: number): number {
+  return now - retentionMs;
+}

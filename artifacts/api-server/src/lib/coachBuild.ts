@@ -1,7 +1,7 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, lt, like, or } from "drizzle-orm";
 import { db, userSyncTable, notifLogTable, pushTokensTable } from "@workspace/db";
 import { sendPush } from "./push.js";
-import { decideSweepAction } from "./coachBuildSweep.js";
+import { decideSweepAction, pruneCutoffMs } from "./coachBuildSweep.js";
 import { coachReadyDedupeKey, coachFailedDedupeKey } from "./coachBuildFinish.js";
 
 // -------------------------------------------------------------------------
@@ -39,6 +39,16 @@ export const COACH_BUILD_PENDING_NS = "coachBuildPending";
 // larger than the in-handler watchdog max wall-clock (BG_MAX_MS = 240s in
 // chat.ts) so a still-running build is never falsely swept.
 export const COACH_BUILD_STALE_MS = 8 * 60 * 1000;
+
+// How long terminal background-build bookkeeping is retained before the cron
+// pruner deletes it: the per-user `coachBuild` outcome stash (latest-wins, one
+// row/user) and — the unbounded one — a `notif_log` dedupe row per build
+// (coachReady / coachFailed). A week is comfortably longer than both the
+// few-minute build lifecycle and the time a user might take to reopen the app
+// after walking away, so deleting older rows can neither strand a returning
+// user nor weaken the at-most-once push guarantee (nothing live re-touches a
+// build this old).
+export const COACH_BUILD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Minimal structural logger so this lib works with both the per-request pino
 // logger (req.log) and the module logger used by the cron jobs.
@@ -341,6 +351,69 @@ export async function sweepAbandonedCoachBuilds(
     }
   }
   return swept;
+}
+
+// RETENTION (cron). The sweeper above retires in-flight markers, but the
+// TERMINAL records are otherwise kept forever: the per-user `coachBuild` outcome
+// stash (latest-wins, one row/user — bounded but stale once the games are long
+// over) and the per-build `notif_log` dedupe rows (coachReady / coachFailed —
+// one new row PER build, so unbounded growth). This deletes both once they age
+// past COACH_BUILD_RETENTION_MS so the tables don't accumulate stale rows.
+//
+// Safe for the at-most-once push guarantee: the retention window dwarfs the
+// few-minute build lifecycle (handler watchdog + 8-min sweep deadline), so no
+// live handler or sweeper ever re-touches a build old enough to be pruned —
+// the dedupe rows are only needed WITHIN that window. Each delete is wrapped
+// independently and fail-safe (never throws) so it can't break the cron run.
+// Returns the per-table delete counts for the cron summary.
+export async function pruneOldCoachBuilds(
+  log: CoachBuildLogger,
+  retentionMs: number = COACH_BUILD_RETENTION_MS,
+): Promise<{ stashes: number; notifLogs: number }> {
+  const cutoff = new Date(pruneCutoffMs(Date.now(), retentionMs));
+  let stashes = 0;
+  let notifLogs = 0;
+
+  // Terminal outcome stashes (ready/failed/timedOut) the client has had ample
+  // time to consume. Latest-wins keeps one per user, but a user who never
+  // returns leaves a permanently stale row — prune it by age.
+  try {
+    const deleted = await db
+      .delete(userSyncTable)
+      .where(
+        and(
+          eq(userSyncTable.namespace, COACH_BUILD_NS),
+          lt(userSyncTable.updatedAt, cutoff),
+        ),
+      )
+      .returning({ userId: userSyncTable.userId });
+    stashes = deleted.length;
+  } catch (err) {
+    log.error({ err }, "coach build prune: stash delete failed");
+  }
+
+  // Per-build push dedupe rows — the unbounded one. Scope STRICTLY to the
+  // background-build dedupe namespaces so other notification dedupe rows
+  // (reminder/result/daily/etc., which the cron jobs own) are never touched.
+  try {
+    const deleted = await db
+      .delete(notifLogTable)
+      .where(
+        and(
+          lt(notifLogTable.sentAt, cutoff),
+          or(
+            like(notifLogTable.dedupeKey, "coachReady:%"),
+            like(notifLogTable.dedupeKey, "coachFailed:%"),
+          ),
+        ),
+      )
+      .returning({ k: notifLogTable.dedupeKey });
+    notifLogs = deleted.length;
+  } catch (err) {
+    log.error({ err }, "coach build prune: notif_log delete failed");
+  }
+
+  return { stashes, notifLogs };
 }
 
 // Compare-and-delete a marker by the exact row version (updatedAt) we read.
