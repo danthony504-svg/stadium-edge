@@ -38,6 +38,24 @@ enforced in THREE layers, not just the prompt:
    count → `isParlayBuild=false` → no "Building parlay…" lead-in suppression, no
    background-finish; prose streams normally.
 
+## Slip-player enrichment (the "but this is a ticket you picked" fix)
+Analyze sends the SAME generic capped/balanced slate context as a build, so a
+deep same-game slip's prop players are NOT in `playerHistory` — the Coach then
+honestly-but-uselessly says "no game log in my feed" on EVERY leg it picked. Fix:
+`buildChatContext` now takes an `analyzeSlip` flag; when set + `currentSlip` has
+legs it extracts each PROP player's name and pulls their REAL recent game log
+into `playerHistory` (recentFormOnly).
+- The existing named off-pool form-question enrichment was refactored into a
+  shared `enrichRecentForm(candidates)` closure (whole-word + active-player guard
+  intact); the analyze pass reuses it, so a TEAM name (team total) or a bare
+  total never binds to an athlete — fail-closed, never fabricated.
+- Player name is parsed by `slipPropPlayerName(pick)` (pure module `lib/slipPlayer.ts`,
+  unit-tested): text before the first ` over|under|yes|no` token; null for ML /
+  spread / bare total. Pick format is `"<Player> <Side> <line> <stat>"`.
+- coach.tsx passes `wantsAnalyzeSlip(trimmed)` as the new (last) buildChatContext
+  arg. chat.ts analyze addendum now tells the model the slip players' logs ARE in
+  playerHistory so it uses them before claiming no data.
+
 ## How to apply
 - Any new analyze phrasing must go in BOTH `coach.tsx` ANALYZE_SLIP_RE and
   `chat.ts` analyzeWording or the halves drift. Restart api-server after editing
@@ -45,3 +63,5 @@ enforced in THREE layers, not just the prompt:
   `${...}` inside addendum strings.
 - Honesty rule still binds: per-leg reads are grounded ONLY in real context data;
   no-data legs are stated plainly, never fabricated.
+- Client analyze/enrichment changes need an EAS OTA to reach the installed app
+  (dev/preview is live immediately).

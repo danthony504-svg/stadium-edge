@@ -1143,6 +1143,7 @@ export default function CoachScreen() {
             trimmed,
             altSign,
             requestedLegs,
+            wantsAnalyzeSlip(trimmed),
           ));
           // Context (odds/props/matchups) is in — stop cycling and hold the indicator
           // on "Building correlation" for the model-reasoning wait (the long phase).

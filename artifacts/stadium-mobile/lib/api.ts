@@ -8,6 +8,7 @@ import {
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import { slipPropPlayerName } from "./slipPlayer";
 import {
   isPickable,
   startsTodayUpcoming,
@@ -1849,6 +1850,7 @@ export async function buildChatContext(
   focalText?: string | null,
   altSign: AltSign = null,
   requestedLegs = 0,
+  analyzeSlip = false,
 ): Promise<BuiltChatContext> {
   // Scale how much of the slate we send the model to the ticket size the user
   // asked for (small parlays don't need the whole night's pool). Big tickets keep
@@ -2320,16 +2322,67 @@ export async function buildChatContext(
     );
   }
 
-  // Named off-pool player enrichment (recent-form-only reads). When the user
-  // NAMES players for a form/HR read ("do you like Seager, Pederson, Nimmo to
-  // homer", "how's Soto hitting lately") and they're NOT in tonight's prop pool,
-  // the chat path would otherwise have no real data and either refuse or risk
-  // fabricating. Resolve each named player against ESPN and inject their REAL
-  // recent game log so the model can give a grounded recent-form-only read. The
-  // SINGLE-player case is already handled upstream by the stat-card path; this
-  // covers MULTIPLE named players (the card path extracts only one name). Gated
-  // to non-build form questions; each name is resolved against a real ESPN search
-  // (whole-word guarded) so junk tokens never bind to an athlete.
+  // Resolve free-form player-name candidates against ESPN and inject their REAL
+  // recent game log (recent-form-only) into playerHistory. Shared by the named
+  // off-pool form-question enrichment and the analyze-ticket pass below. Every
+  // candidate is whole-word + active-player guarded so a stray token or a team
+  // name can never bind to an unrelated athlete — players with no real recent log
+  // stay absent (honest no-history), never fabricated.
+  const enrichRecentForm = async (candidates: string[]) => {
+    const uniq = Array.from(new Set(candidates.filter(Boolean))).slice(0, 16);
+    if (!uniq.length) return;
+    const existingIds = new Set(
+      Object.keys(playerHistory)
+        .map((k) => k.split("#")[1])
+        .filter(Boolean),
+    );
+    const norm = (s: string) =>
+      String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const seenIds = new Set<string>();
+    type EnrichResp = {
+      recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
+    };
+    await Promise.all(
+      uniq.map(async (cand) => {
+        try {
+          const sr = await searchPlayer(cand, signal);
+          const hit = (sr.results || [])[0];
+          if (!hit?.athleteId || !hit.name) return;
+          // Whole-word guard: every candidate token must be a WHOLE word in the
+          // resolved name (accent-insensitive) so a fuzzy ESPN hit can't bind an
+          // unrelated player to a stray token.
+          const nameToks = norm(hit.name).split(/\s+/).filter(Boolean);
+          const candToks = norm(cand).split(/\s+/).filter(Boolean);
+          if (!candToks.length || !candToks.every((c) => nameToks.includes(c))) return;
+          // Single-token (surname-only) candidates are the highest misbinding
+          // risk — many athletes share a surname/first name. Accept one only
+          // when the player is ACTIVE and the token IS their first or last name
+          // (not a middle-name accident or a retired namesake). Multi-token
+          // (first + last) candidates are already specific enough to trust.
+          if (candToks.length === 1) {
+            const isFirstOrLast =
+              candToks[0] === nameToks[0] || candToks[0] === nameToks[nameToks.length - 1];
+            if (!hit.isActive || !isFirstOrLast) return;
+          }
+          const id = String(hit.athleteId);
+          if (existingIds.has(id) || seenIds.has(id)) return;
+          seenIds.add(id);
+          const q = new URLSearchParams({ sport: hit.sport, athleteId: id });
+          const data = await getJson<EnrichResp>(`/sports/player-history?${q.toString()}`, signal);
+          const recent = Array.isArray(data?.recent) ? data.recent.slice(0, 5) : [];
+          if (!recent.length) return;
+          playerHistory[`${hit.name}#${id}`] = {
+            player: hit.name,
+            recentFormOnly: true,
+            recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
+          };
+        } catch {
+          /* honest no-history fallback — skip this name */
+        }
+      }),
+    );
+  };
+
   if (focalText && focalText.trim()) {
     const ftLow = focalText.toLowerCase();
     const isBuild =
@@ -2341,58 +2394,23 @@ export async function buildChatContext(
         ftLow,
       );
     if (!isBuild && hasFormCue) {
-      const existingIds = new Set(
-        Object.keys(playerHistory)
-          .map((k) => k.split("#")[1])
-          .filter(Boolean),
-      );
-      const candidates = extractNamedCandidates(focalText).slice(0, 6);
-      const norm = (s: string) =>
-        String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      const seenIds = new Set<string>();
-      type EnrichResp = {
-        recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
-      };
-      await Promise.all(
-        candidates.map(async (cand) => {
-          try {
-            const sr = await searchPlayer(cand, signal);
-            const hit = (sr.results || [])[0];
-            if (!hit?.athleteId || !hit.name) return;
-            // Whole-word guard: every candidate token must be a WHOLE word in the
-            // resolved name (accent-insensitive) so a fuzzy ESPN hit can't bind an
-            // unrelated player to a stray token.
-            const nameToks = norm(hit.name).split(/\s+/).filter(Boolean);
-            const candToks = norm(cand).split(/\s+/).filter(Boolean);
-            if (!candToks.length || !candToks.every((c) => nameToks.includes(c))) return;
-            // Single-token (surname-only) candidates are the highest misbinding
-            // risk — many athletes share a surname/first name. Accept one only
-            // when the player is ACTIVE and the token IS their first or last name
-            // (not a middle-name accident or a retired namesake). Multi-token
-            // (first + last) candidates are already specific enough to trust.
-            if (candToks.length === 1) {
-              const isFirstOrLast =
-                candToks[0] === nameToks[0] || candToks[0] === nameToks[nameToks.length - 1];
-              if (!hit.isActive || !isFirstOrLast) return;
-            }
-            const id = String(hit.athleteId);
-            if (existingIds.has(id) || seenIds.has(id)) return;
-            seenIds.add(id);
-            const q = new URLSearchParams({ sport: hit.sport, athleteId: id });
-            const data = await getJson<EnrichResp>(`/sports/player-history?${q.toString()}`, signal);
-            const recent = Array.isArray(data?.recent) ? data.recent.slice(0, 5) : [];
-            if (!recent.length) return;
-            playerHistory[`${hit.name}#${id}`] = {
-              player: hit.name,
-              recentFormOnly: true,
-              recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
-            };
-          } catch {
-            /* honest no-history fallback — skip this name */
-          }
-        }),
-      );
+      await enrichRecentForm(extractNamedCandidates(focalText).slice(0, 6));
     }
+  }
+
+  // Analyze-the-ticket enrichment. A read-only slip critique grades each leg the
+  // coach itself picked, but a deep same-game ticket's prop players are usually
+  // NOT in tonight's capped/balanced prop pool (or its game-log targets), so
+  // without this the coach would honestly-but-uselessly say "no game log in my
+  // feed" for a leg it just built. Pull each slip PROP player's REAL recent game
+  // log so the analysis can validate the posted number against actual production.
+  // Game-level legs (ML / spread / total) yield no player and are skipped; the
+  // shared whole-word / active guard refuses team names, so nothing is fabricated.
+  if (analyzeSlip && currentSlip.length) {
+    const slipNames = currentSlip
+      .map((leg) => slipPropPlayerName(leg.pick))
+      .filter((n): n is string => !!n);
+    await enrichRecentForm(slipNames);
   }
 
   // MLB platoon (batter hand vs opposing probable starter) + per-game ballpark
