@@ -419,7 +419,7 @@ export async function pruneOldCoachBuilds(
 // Compare-and-delete a marker by the exact row version (updatedAt) we read.
 // Used only for malformed markers that carry no usable buildId; the updatedAt
 // guard ensures a concurrent newer build that overwrote the row is not clobbered.
-async function clearMarkerRow(
+export async function clearMarkerRow(
   userId: string,
   updatedAt: Date,
   log: CoachBuildLogger,

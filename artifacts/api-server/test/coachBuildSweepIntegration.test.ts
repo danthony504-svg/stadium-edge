@@ -30,6 +30,8 @@ const PREFIX = `test_sweep_${Date.now()}_${Math.random().toString(36).slice(2, 8
 const userA = `${PREFIX}A`;
 const userB = `${PREFIX}B`;
 const userC = `${PREFIX}C`;
+const userD = `${PREFIX}D`;
+const userE = `${PREFIX}E`;
 const buildA = "bA";
 const buildB = "bB";
 const buildC = "bC";
@@ -50,6 +52,8 @@ async function bundleHarness(): Promise<string> {
       // handle (otherwise `node --test` would hang on the live pg pool).
       contents: `export {
   sweepAbandonedCoachBuilds,
+  clearBackgroundBuildPending,
+  clearMarkerRow,
   COACH_BUILD_NS,
   COACH_BUILD_PENDING_NS,
   COACH_BUILD_STALE_MS,
@@ -116,6 +120,8 @@ test("sweepAbandonedCoachBuilds finalizes abandoned builds against a real DB", a
     pool = mod.pool;
     const {
       sweepAbandonedCoachBuilds,
+      clearBackgroundBuildPending,
+      clearMarkerRow,
       COACH_BUILD_NS,
       COACH_BUILD_PENDING_NS,
       COACH_BUILD_STALE_MS,
@@ -166,6 +172,21 @@ test("sweepAbandonedCoachBuilds finalizes abandoned builds against a real DB", a
          ON CONFLICT (user_id, namespace)
          DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
         [userId, COACH_BUILD_NS, JSON.stringify(data)],
+      );
+    // Like putMarker but pins updated_at to an explicit ms-precision Date (rather
+    // than microsecond SQL now()), so the row version round-trips exactly when
+    // read back — required by the delete-by-updatedAt (clearMarkerRow) test.
+    const putMarkerAt = (
+      userId: string,
+      data: Record<string, unknown>,
+      updatedAt: Date,
+    ) =>
+      q(
+        `INSERT INTO user_sync (user_id, namespace, data, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4)
+         ON CONFLICT (user_id, namespace)
+         DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+        [userId, COACH_BUILD_PENDING_NS, JSON.stringify(data), updatedAt.toISOString()],
       );
 
     // A: stale marker, NO terminal stash -> should be finalized as "failed".
@@ -267,6 +288,105 @@ test("sweepAbandonedCoachBuilds finalizes abandoned builds against a real DB", a
         [userC],
       );
       assert.equal(claim.rows.length, 0, "no push claim for a live build");
+    });
+
+    // ---- scenario D: latest-wins clobber guard (delete-by-buildId) -----------
+    // The exact concurrency bug the buildId-conditional delete exists to prevent:
+    // an OLD background build is still mid-clean-up when the user starts a NEW
+    // build, which (latest-wins) overwrites the single in-flight marker row with
+    // a DIFFERENT buildId. When the OLD build finally finishes and clears its
+    // marker, it MUST NOT clobber the newer build's marker — otherwise the newer
+    // build is re-stranded in silent limbo. clearBackgroundBuildPending deletes
+    // strictly WHERE data->>'buildId' = <old buildId>, so it no-ops here.
+    await t.test("D: an OLD finish does not clobber a NEWER build's marker", async () => {
+      const buildOld = "bD-old";
+      const buildNew = "bD-new";
+      // OLD build records its in-flight marker, then the user kicks off a NEW
+      // build whose marker (latest-wins) overwrites the row with a new buildId.
+      await putMarker(userD, buildOld, freshCreatedAt);
+      await putMarker(userD, buildNew, freshCreatedAt);
+
+      // OLD build's terminal finish races in and tries to retire ITS marker.
+      await clearBackgroundBuildPending(userD, buildOld, log);
+
+      const survived = await q(
+        `SELECT data FROM user_sync WHERE user_id = $1 AND namespace = $2`,
+        [userD, COACH_BUILD_PENDING_NS],
+      );
+      assert.equal(survived.rows.length, 1, "newer build's marker still present");
+      assert.equal(
+        (survived.rows[0].data as Record<string, unknown>).buildId,
+        buildNew,
+        "the surviving marker is the NEWER build's, untouched",
+      );
+
+      // Sanity: the matching-buildId delete still works (no false-negative) —
+      // the newer build retiring its OWN marker removes the row.
+      await clearBackgroundBuildPending(userD, buildNew, log);
+      const after = await q(
+        `SELECT 1 FROM user_sync WHERE user_id = $1 AND namespace = $2`,
+        [userD, COACH_BUILD_PENDING_NS],
+      );
+      assert.equal(after.rows.length, 0, "matching-buildId delete still retires the marker");
+    });
+
+    // ---- scenario E: malformed-marker cleanup race (delete-by-updatedAt) -----
+    // A malformed marker (no usable buildId) can't be cleared by buildId, so the
+    // sweeper compare-and-deletes on the EXACT row version (updatedAt) it read.
+    // If a newer build overwrites the row between the sweeper's read and its
+    // delete, the updatedAt no longer matches and the delete must no-op rather
+    // than clobber the newer marker. We drive clearMarkerRow directly with a
+    // stale row-version to reproduce that read/overwrite interleaving.
+    //
+    // NOTE: markers must be written with ms-precision Dates (NOT SQL now(), which
+    // is microsecond-precision) so the Date we read back round-trips EXACTLY —
+    // mirroring how production writes the marker (updatedAt: new Date()). A
+    // microsecond value would be truncated on read and never match on delete.
+    await t.test("E: malformed cleanup does not delete a newer row version", async () => {
+      const staleVer = new Date(Date.now() - 5_000); // ms precision
+      // A malformed (no buildId) marker at a known, stale row version — exactly
+      // what the sweeper would read before deciding to clean it up.
+      await putMarkerAt(userE, { createdAt: staleCreatedAt }, staleVer);
+
+      // The version the sweeper captured at read-time.
+      const readBack = await q(
+        `SELECT updated_at FROM user_sync WHERE user_id = $1 AND namespace = $2`,
+        [userE, COACH_BUILD_PENDING_NS],
+      );
+      const observedVer = readBack.rows[0].updated_at as Date;
+      assert.equal(
+        observedVer.getTime(),
+        staleVer.getTime(),
+        "stored row version round-trips at ms precision",
+      );
+
+      // Before the delete lands, a NEWER build overwrites the same row with a
+      // fresh, valid marker (latest-wins) at a different row version.
+      const newVer = new Date();
+      await putMarkerAt(userE, { buildId: "bE-new", createdAt: freshCreatedAt }, newVer);
+
+      // The malformed cleanup fires with the STALE version it read — must no-op.
+      await clearMarkerRow(userE, observedVer, log);
+
+      const survived = await q(
+        `SELECT data, updated_at FROM user_sync WHERE user_id = $1 AND namespace = $2`,
+        [userE, COACH_BUILD_PENDING_NS],
+      );
+      assert.equal(survived.rows.length, 1, "newer marker survives the stale-version delete");
+      assert.equal(
+        (survived.rows[0].data as Record<string, unknown>).buildId,
+        "bE-new",
+        "the surviving marker is the NEWER build's, untouched",
+      );
+
+      // Sanity: a compare-and-delete on the CURRENT version still works (no
+      // false-negative) — the genuine cleanup path remains functional.
+      await clearMarkerRow(userE, survived.rows[0].updated_at as Date, log);
+      const after = await q(
+        `SELECT 1 FROM user_sync WHERE user_id = $1 AND namespace = $2`,
+        [userE, COACH_BUILD_PENDING_NS],
+      );
+      assert.equal(after.rows.length, 0, "matching-version delete still retires the marker");
     });
 
     await cleanup();
