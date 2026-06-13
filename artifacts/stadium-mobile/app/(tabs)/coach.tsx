@@ -1624,25 +1624,48 @@ export default function CoachScreen() {
         // Skipped when the user opted into a mode whose own rules govern: an
         // explicit odds band, their own confidence bar, or a longshot/lottery ask
         // (a deliberately low-grade, high-variance ticket).
-        // gradeNote (markdown) is for the ZERO-pick branches where the assistant
-        // bubble is visible; gradeLegNote (plain text) is for the surviving-picks
-        // case, where the bubble is suppressed and the ONLY visible channel is the
-        // legNote rendered beside the cards.
-        let gradeNote = "";
+        // NEVER-EMPTY behaviour (user's explicit choice): if some legs clear B+,
+        // keep only those; if NONE do, keep the best-available legs (sorted by
+        // composite, ungradeable ones last) labeled with their REAL grade rather
+        // than refusing to an empty ticket — we never inflate a grade. Either way
+        // picks stays non-empty, the bubble is suppressed (assistantBubbleText
+        // returns "" once picks exist), and gradeLegNote (plain text) is the ONLY
+        // visible channel beside the cards.
         let gradeLegNote = "";
         const gradeFloorActive =
           !oddsThreshold && !confidenceThreshold && !wantsLongshot;
         if (gradeFloorActive && emittedPickLines > 0) {
           const before = picks.length;
-          picks = picks.filter((p) => {
+          const passed = picks.filter((p) => {
             const c = p.scores?.composite;
             return typeof c === "number" && c >= 7.5;
           });
-          const dropped = before - picks.length;
-          if (picks.length === 0 && before > 0) {
-            gradeNote = `\n\n_None of tonight's grounded legs reach a B+ grade right now — that grade is built from each leg's real edge, matchup, and line value, and I won't inflate it to force a pick. Try a specific game or market, or check back when the board fills in._`;
-          } else if (dropped > 0) {
-            gradeLegNote = `Showing the ${picks.length} pick${picks.length === 1 ? "" : "s"} that grade B+ or better; dropped ${dropped} that couldn't reach that bar on real edge.`;
+          if (passed.length > 0) {
+            // At least one leg clears the B+ bar: surface only those and note how
+            // many weaker legs were dropped to hold the ticket at that bar.
+            const dropped = before - passed.length;
+            picks = passed;
+            if (dropped > 0) {
+              gradeLegNote = `Showing the ${picks.length} pick${picks.length === 1 ? "" : "s"} that grade B+ or better; dropped ${dropped} that couldn't reach that bar on real edge.`;
+            }
+          } else if (before > 0) {
+            // No leg reaches B+ on tonight's board (thin slate, or market-price
+            // plays with no real edge to grade). Per the user's preference, never
+            // refuse down to an empty ticket: keep the night's BEST-graded legs,
+            // ranked strongest-first, and label them with their REAL grades. We
+            // never inflate a grade — each card shows exactly what the leg earned
+            // (B, B-, or "no edge" when it can't be graded at all).
+            picks = [...picks].sort((a, b) => {
+              const ca = a.scores?.composite;
+              const cb = b.scores?.composite;
+              const va = typeof ca === "number" ? ca : -Infinity;
+              const vb = typeof cb === "number" ? cb : -Infinity;
+              return vb - va;
+            });
+            const topGrade = picks[0]?.scores?.grade;
+            gradeLegNote = topGrade
+              ? `None reached B+ tonight, so here are the ${picks.length} strongest legs the real board supports — top grade ${topGrade}. I won't inflate a grade to fake a B+.`
+              : `None reached B+ tonight — here are the ${picks.length} strongest real legs the board supports right now; it's too thin to ground an edge grade on them, and I won't invent one.`;
           }
         }
         // Transparency note. When the user asked for a specific leg count and we
@@ -1672,7 +1695,7 @@ export default function CoachScreen() {
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
         let finalContent =
-          full + thresholdNote + confidenceNote + signNote + todayNote + gradeNote;
+          full + thresholdNote + confidenceNote + signNote + todayNote;
         if (salvageBuilt && picks.length > 0) {
           // The salvage built a real ticket out of nothing; the model's own prose
           // was a refusal / stripped scaffold that contradicts the cards. Replace
@@ -1687,7 +1710,6 @@ export default function CoachScreen() {
             confidenceNote ||
             signNote ||
             todayNote ||
-            gradeNote ||
             "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }

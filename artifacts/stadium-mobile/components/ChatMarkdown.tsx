@@ -17,14 +17,23 @@ type Props = {
   mutedColor: string;
 };
 
-// Split a line on **bold** spans and render each run with the right weight.
+// Split a line on **bold** and _italic_ spans and render each run with the right
+// style. Without italic handling the model's (and our own) _emphasis_ notes leak
+// literal underscores into the bubble.
 function renderInline(text: string, color: string, baseFont: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|_[^_\n]+_)/g);
   return parts.map((part, j) => {
     if (part.length >= 4 && part.startsWith("**") && part.endsWith("**")) {
       return (
         <Text key={j} style={{ fontFamily: FONT.bold, color }}>
           {part.slice(2, -2)}
+        </Text>
+      );
+    }
+    if (part.length >= 3 && part.startsWith("_") && part.endsWith("_")) {
+      return (
+        <Text key={j} style={{ fontFamily: baseFont, color, fontStyle: "italic" }}>
+          {part.slice(1, -1)}
         </Text>
       );
     }
