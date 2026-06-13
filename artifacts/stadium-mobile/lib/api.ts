@@ -224,8 +224,21 @@ async function authedFetch(
 
 // ---------- Cross-device sync (per signed-in user) ----------
 
-// Whitelisted namespaces on the server (routes/sync.ts).
-export type SyncNamespace = "savedSlips" | "tracker" | "results";
+// Whitelisted namespaces on the server (routes/sync.ts). "coachBuild" is
+// written server-side (a parlay finished in the background after the user left)
+// and only READ here on return — never PUT from the client.
+export type SyncNamespace = "savedSlips" | "tracker" | "results" | "coachBuild";
+
+// A parlay build the server finished after the phone disconnected. Stashed
+// under the signed-in user's account so the app can rebuild the exact same pick
+// cards on return (no fabrication — `full` is the model's verbatim reply and
+// `props` is the exact resolved prop pool it was fed).
+export type CoachBuildStash = {
+  buildId: string;
+  full: string;
+  props: RealPropEntry[];
+  createdAt: string;
+};
 
 // ---------- Bet grading (routes/grade.ts) ----------
 
@@ -316,6 +329,9 @@ export type NotifPrefs = {
   oddsMovement: boolean;
   gameReminders: boolean;
   upsetAlerts: boolean;
+  // "Your AI Coach finished a parlay you walked away from." Sent from the /chat
+  // background-finish path (not the cron jobs).
+  coachReady: boolean;
 };
 
 // Register this device's Expo push token with the signed-in user's account.
@@ -2492,6 +2508,13 @@ export type StreamChatArgs = {
   // resolve those legs instead of fail-closing the whole ticket. Real bookmaker
   // data only — never fabricated.
   onProps?: (props: RealPropEntry[]) => void;
+  // Background-finish opt-in (AI Coach). When true the server keeps generating
+  // the reply even if this phone disconnects (app backgrounded / left the
+  // screen), stashes the finished ticket under the signed-in user's account,
+  // and fires a push. `buildId` ties that stash back to the local context the
+  // client saved so the same pick cards can be rebuilt on return.
+  notifyOnBackground?: boolean;
+  buildId?: string;
 };
 
 // Convert the server's realProps (one row per player+market with both posted
@@ -2537,7 +2560,16 @@ function abortError(): Error {
 //      succeeds on a later attempt. Once real tokens have started we never retry
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
-export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls, onProps }: StreamChatArgs): Promise<string> {
+export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls, onProps, notifyOnBackground, buildId }: StreamChatArgs): Promise<string> {
+  // Attach the Clerk bearer token so the server can identify the user. This is
+  // required for the background-finish path (it stashes the result + pushes
+  // under the account); harmless for normal chats. Resolved once up front.
+  let authToken: string | null = null;
+  try {
+    authToken = authTokenGetter ? await authTokenGetter() : null;
+  } catch {
+    authToken = null;
+  }
   // Max gap between chunks AFTER the first content token. Once the model is
   // streaming, the proxy is in pass-through and frames (real tokens + ~400ms
   // keep-alive pings) flow in real-time, so a multi-second gap then genuinely
@@ -2607,8 +2639,11 @@ export async function streamChat({ messages, context, onToken, signal, imageData
         res = await Promise.race([
           expoFetch(`${API_BASE}/chat`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messages, context, imageDataUrl, imageDataUrls }),
+            headers: {
+              "Content-Type": "application/json",
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+            body: JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId }),
             signal: attemptCtrl.signal,
           }) as unknown as Promise<Response>,
           connectStall,

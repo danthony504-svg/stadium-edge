@@ -27,6 +27,10 @@ export type Prefs = {
   oddsMovement: boolean;
   gameReminders: boolean;
   upsetAlerts: boolean;
+  // "Your AI Coach finished a parlay you walked away from." Sent from the /chat
+  // route (not the cron jobs), but lives here so it's part of the shared Prefs
+  // shape and auto-whitelisted by PREF_KEYS in the notifications route.
+  coachReady: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {
@@ -36,6 +40,7 @@ export const DEFAULT_PREFS: Prefs = {
   oddsMovement: true,
   gameReminders: true,
   upsetAlerts: true,
+  coachReady: true,
 };
 
 type Leg = {

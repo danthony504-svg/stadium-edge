@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Keyboard,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useAuth } from "@clerk/expo";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -63,6 +65,7 @@ import {
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
+  getSync,
   propPoolFromRealProps,
   searchPlayer,
   searchTeam,
@@ -71,7 +74,10 @@ import {
   mentionsPropIntent,
   streamChat,
   type AltSign,
+  type ChatContext,
   type ChatMessage,
+  type CoachBuildStash,
+  type GameMeta,
   type PropPoolEntry,
   type RealPropEntry,
 } from "@/lib/api";
@@ -98,6 +104,56 @@ type StatCardResult = {
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
 };
+
+// ---- Background-finished parlay builds (Task: continue-on-disconnect) --------
+// When a parlay build is in flight and the user backgrounds the app (or leaves),
+// the phone's socket dies and the in-app stream would stall and fail. Instead we
+// ask the server to FINISH the ticket and push when ready. To rebuild the exact
+// same pick cards on return — with zero re-fetching and zero fabrication — we
+// stash the LOCAL build context (the same odds/props/matchups the model saw)
+// keyed by a buildId. The server stashes the finished reply text + resolved prop
+// pool under the same buildId; on return we marry the two and replay them
+// through the normal parse/render path.
+const PENDING_BUILD_KEY = "coach.pendingBuild";
+
+type PendingBuild = {
+  buildId: string;
+  userText: string;
+  context: ChatContext;
+  propPool: PropPoolEntry[];
+  gameMeta: GameMeta[];
+  todayOnly: boolean;
+  createdAt: number;
+};
+
+function makeBuildId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+async function savePendingBuild(b: PendingBuild): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PENDING_BUILD_KEY, JSON.stringify(b));
+  } catch {
+    /* storage unavailable — background replay just won't be possible */
+  }
+}
+
+async function loadPendingBuild(): Promise<PendingBuild | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_BUILD_KEY);
+    return raw ? (JSON.parse(raw) as PendingBuild) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clearPendingBuild(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(PENDING_BUILD_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 // Resolve a player/stat question into a REAL stat card. Returns null when the
 // message isn't a stat lookup or no real player/data resolves — the caller then
@@ -558,8 +614,11 @@ export default function CoachScreen() {
   const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
-  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string }>();
+  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>();
   const autoSentRef = useRef<string | null>(null);
+  // Signed-in state gates the background-finish path (the server stashes the
+  // result + pushes under the user's account; anonymous users can't be reached).
+  const { isSignedIn } = useAuth();
 
   // Tap a chat pick card → open its real stats sheet: the player's game-log
   // breakdown for a prop, or the picked team's matchup page for a game-level
@@ -680,6 +739,23 @@ export default function CoachScreen() {
   const abortRef = useRef<AbortController | null>(null);
   // Interval that cycles the first build stages while the context fetch runs.
   const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Mirror of `streaming` readable synchronously from the AppState listener
+  // (which can't see React state directly).
+  const streamingRef = useRef(false);
+  useEffect(() => {
+    streamingRef.current = streaming;
+  }, [streaming]);
+  // The build currently eligible to be finished server-side if the app is
+  // backgrounded (set when a signed-in parlay build starts; cleared when it
+  // completes in-app). Holds the buildId tying it to the local PendingBuild.
+  const pendingBgRef = useRef<{ buildId: string } | null>(null);
+  // Set when we deliberately aborted the in-app stream to hand a build off to
+  // the server (so the catch can show a "still building, I'll notify you" line
+  // instead of a connection-error line).
+  const handedOffRef = useRef(false);
+  // buildIds we've already replayed, so a re-render / repeated AppState event
+  // doesn't double-restore the same finished ticket.
+  const restoredBuildRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (params.prefill) setInput(String(params.prefill));
@@ -770,9 +846,26 @@ export default function CoachScreen() {
   }, [streaming, pickingImage, attachedImages.length]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (
+      text: string,
+      opts?: {
+        // Replay mode: a build the server FINISHED in the background while the
+        // app was away. Instead of fetching context + streaming the model, we
+        // render the stashed reply against the locally-saved context (the same
+        // odds/props/matchups the model used). Nothing is re-fetched or invented.
+        replay?: {
+          full: string;
+          props: RealPropEntry[];
+          context: ChatContext;
+          propPool: PropPoolEntry[];
+          gameMeta: GameMeta[];
+          todayOnly: boolean;
+        };
+      },
+    ) => {
+      const replay = opts?.replay ?? null;
       const trimmed = text.trim();
-      const images = attachedImages;
+      const images = replay ? [] : attachedImages;
       if ((!trimmed && !images.length) || streaming) return;
       // Drop the keyboard once a message is actually sent so the reply isn't
       // hidden behind it (covers the send button, suggested prompts, auto-send).
@@ -814,7 +907,7 @@ export default function CoachScreen() {
       try {
         // A photo attachment goes straight to the vision model — the text-only
         // stat-card lookup can't read an image, so skip it when one is attached.
-        const card = hasOutgoingImages ? null : await tryStatCard(trimmed, controller.signal);
+        const card = (replay || hasOutgoingImages) ? null : await tryStatCard(trimmed, controller.signal);
         if (card) {
           setMessages((prev) => {
             const copy = [...prev];
@@ -983,77 +1076,121 @@ export default function CoachScreen() {
         // correlation" only once the data is actually in (below), and the render
         // promotes to "Finalizing parlay" once real PICK lines stream.
         const isParlayBuild = PARLAY_BUILD_RE.test(trimmed) || requestedLegs > 0;
-        if (isParlayBuild) {
-          setBuildStage(0);
-          if (stageTimerRef.current) clearInterval(stageTimerRef.current);
-          stageTimerRef.current = setInterval(() => {
-            setBuildStage((s) => (s < 2 ? s + 1 : s));
-          }, 1200);
-        }
-        const { context, propPool, gameMeta, todayOnly } = await buildChatContext(
-          DEFAULT_SPORTS,
-          slipForContext,
-          controller.signal,
-          oddsThreshold,
-          includePeriods,
-          trimmed,
-          altSign,
-          requestedLegs,
-        );
-        // Context (odds/props/matchups) is in — stop cycling and hold the indicator
-        // on "Building correlation" for the model-reasoning wait (the long phase).
-        if (isParlayBuild) {
-          if (stageTimerRef.current) {
-            clearInterval(stageTimerRef.current);
-            stageTimerRef.current = null;
-          }
-          setBuildStage(3);
-        }
-        // "Today / tonight" ask: buildChatContext already restricts the pools to
-        // today's upcoming games AND returns the EFFECTIVE decision it applied.
-        // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
-        // pick filter below stays consistent with the context build: when the
-        // late-evening fallback relaxed the restriction (tonight's slate already
-        // started, only tomorrow's games left), we must NOT re-impose it here and
-        // zero out the real tomorrow slate. When today-only IS in force, the
-        // server's fresh-fetch backfill can still surface a tomorrow/started prop
-        // the model picks, so we re-check the resolved legs so nothing off-today
-        // reaches the slip.
-        if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
-        const apiMessages: ChatMessage[] = history.map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
 
-        let first = true;
+        // These are the same four pieces buildChatContext returns; in replay mode
+        // we read them from the locally-saved PendingBuild instead of fetching.
+        let context: ChatContext;
+        let propPool: PropPoolEntry[];
+        let gameMeta: GameMeta[];
+        let todayOnly: boolean;
+        let full: string;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
-        // the matcher fail-closes a perfectly real later-game prop ticket. Merge
-        // the server rows in (dedup by game|player|line|side|market) before
-        // parsePicks runs. Real bookmaker rows only — never fabricated.
+        // the matcher fail-closes a perfectly real later-game prop ticket. In
+        // replay mode this is seeded from the stashed result. Real bookmaker rows
+        // only — never fabricated.
         const serverPropPool: PropPoolEntry[] = [];
-        const full = await streamChat({
-          messages: apiMessages,
-          context,
-          imageDataUrls: outgoingImageDataUrls,
-          signal: controller.signal,
-          onProps: (rows: RealPropEntry[]) => {
-            serverPropPool.push(...propPoolFromRealProps(rows));
-          },
-          onToken: (sofar) => {
-            if (first) {
-              first = false;
-              setWaiting(false);
+
+        if (replay) {
+          // Background-finished build: reuse the saved context + stashed reply.
+          context = replay.context;
+          propPool = replay.propPool;
+          gameMeta = replay.gameMeta;
+          todayOnly = replay.todayOnly;
+          full = replay.full;
+          serverPropPool.push(...propPoolFromRealProps(replay.props));
+          setWaiting(false);
+        } else {
+          // Staged build progress while the context fetch runs.
+          if (isParlayBuild) {
+            setBuildStage(0);
+            if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+            stageTimerRef.current = setInterval(() => {
+              setBuildStage((s) => (s < 2 ? s + 1 : s));
+            }, 1200);
+          }
+          ({ context, propPool, gameMeta, todayOnly } = await buildChatContext(
+            DEFAULT_SPORTS,
+            slipForContext,
+            controller.signal,
+            oddsThreshold,
+            includePeriods,
+            trimmed,
+            altSign,
+            requestedLegs,
+          ));
+          // Context (odds/props/matchups) is in — stop cycling and hold the indicator
+          // on "Building correlation" for the model-reasoning wait (the long phase).
+          if (isParlayBuild) {
+            if (stageTimerRef.current) {
+              clearInterval(stageTimerRef.current);
+              stageTimerRef.current = null;
             }
-            setMessages((prev) => {
-              const copy = [...prev];
-              copy[copy.length - 1] = { role: "assistant", content: sofar };
-              return copy;
+            setBuildStage(3);
+          }
+          // "Today / tonight" ask: buildChatContext already restricts the pools to
+          // today's upcoming games AND returns the EFFECTIVE decision it applied.
+          // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
+          // pick filter below stays consistent with the context build.
+          if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
+          const apiMessages: ChatMessage[] = history.map((m) => ({
+            role: m.role,
+            content: m.content,
+          }));
+
+          // Background-finish: a signed-in parlay build is eligible to keep going
+          // server-side if the app is backgrounded. We save the LOCAL context
+          // (keyed by buildId) FIRST so a kill/relaunch can still rebuild the
+          // cards, then pass the same buildId + opt-in flag to the server. A
+          // non-parlay chat or signed-out user just streams normally.
+          const bg = isParlayBuild && !!isSignedIn;
+          const buildId = bg ? makeBuildId() : "";
+          if (bg) {
+            pendingBgRef.current = { buildId };
+            handedOffRef.current = false;
+            await savePendingBuild({
+              buildId,
+              userText: trimmed,
+              context,
+              propPool,
+              gameMeta,
+              todayOnly,
+              createdAt: Date.now(),
             });
-            scrollToEnd(false);
-          },
-        });
+          }
+
+          let first = true;
+          full = await streamChat({
+            messages: apiMessages,
+            context,
+            imageDataUrls: outgoingImageDataUrls,
+            signal: controller.signal,
+            notifyOnBackground: bg,
+            buildId,
+            onProps: (rows: RealPropEntry[]) => {
+              serverPropPool.push(...propPoolFromRealProps(rows));
+            },
+            onToken: (sofar) => {
+              if (first) {
+                first = false;
+                setWaiting(false);
+              }
+              setMessages((prev) => {
+                const copy = [...prev];
+                copy[copy.length - 1] = { role: "assistant", content: sofar };
+                return copy;
+              });
+              scrollToEnd(false);
+            },
+          });
+          // Streamed to completion in-app — no background hand-off happened, so
+          // drop the pending record and its eligibility flag.
+          if (bg) {
+            pendingBgRef.current = null;
+            await clearPendingBuild();
+          }
+        }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
         const mergedPropPool: PropPoolEntry[] = (() => {
@@ -1476,7 +1613,23 @@ export default function CoachScreen() {
         // doesn't wipe the last recommendation.
         if (picks.length > 0) setAiPicks(picks);
       } catch (e: any) {
-        if (e?.name !== "AbortError") {
+        if (handedOffRef.current) {
+          // We deliberately aborted the in-app stream to hand the build off to
+          // the server when the app was backgrounded. It keeps generating and
+          // will push when ready — replace the empty placeholder with a status
+          // line instead of a connection-error line. pendingBgRef stays set so
+          // the AppState "active" handler auto-restores the finished ticket.
+          handedOffRef.current = false;
+          setMessages((prev) => {
+            const copy = [...prev];
+            copy[copy.length - 1] = {
+              role: "assistant",
+              content:
+                "Still building your ticket — I'll keep going even though you stepped away and send you a notification the moment it's ready.",
+            };
+            return copy;
+          });
+        } else if (e?.name !== "AbortError") {
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -1498,8 +1651,98 @@ export default function CoachScreen() {
         scrollToEnd();
       }
     },
-    [messages, slipForContext, streaming, scrollToEnd, attachedImages],
+    [messages, slipForContext, streaming, scrollToEnd, attachedImages, isSignedIn],
   );
+
+  // Restore a parlay the server finished in the background: marry the LOCAL
+  // saved context (same odds/props the model used) with the server's stashed
+  // reply + prop pool, then replay them through the normal render path. Honest
+  // by construction — both halves are real; if either is missing we surface a
+  // note rather than inventing anything. `auto` suppresses the not-ready/other-
+  // device notes (used by the AppState foreground retry, which fires often).
+  const restoreBackgroundBuild = useCallback(
+    async (buildId: string, opts?: { auto?: boolean }) => {
+      if (!buildId || streamingRef.current) return;
+      if (restoredBuildRef.current === buildId) return;
+      try {
+        const pending = await loadPendingBuild();
+        if (!pending || pending.buildId !== buildId) {
+          if (!opts?.auto) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content:
+                  "I finished that ticket, but I can only rebuild it on the device you started it on.",
+              },
+            ]);
+          }
+          return;
+        }
+        const { data: stash } = await getSync<CoachBuildStash>("coachBuild");
+        if (!stash || stash.buildId !== buildId || !stash.full.trim()) {
+          if (!opts?.auto) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: "Still finishing that ticket — give it a moment and tap the notification again.",
+              },
+            ]);
+          }
+          return;
+        }
+        restoredBuildRef.current = buildId;
+        pendingBgRef.current = null;
+        await clearPendingBuild();
+        await send(pending.userText, {
+          replay: {
+            full: stash.full,
+            props: stash.props ?? [],
+            context: pending.context,
+            propPool: pending.propPool,
+            gameMeta: pending.gameMeta,
+            todayOnly: pending.todayOnly,
+          },
+        });
+      } catch {
+        // Transient (token not ready / offline / 401) — leave the pending record
+        // so a later foreground or notification tap can retry. Never fabricate.
+      }
+    },
+    [send],
+  );
+
+  // Hand a build off to the server when the app is backgrounded mid-stream, and
+  // pull the finished result back when the user returns.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background") {
+        // Leaving mid-build: stop THIS attempt (its socket is about to freeze and
+        // would just burn retries) but DON'T discard it — the server keeps going
+        // and pushes when done. The local pending record drives the replay.
+        if (streamingRef.current && pendingBgRef.current) {
+          handedOffRef.current = true;
+          abortRef.current?.abort();
+        }
+      } else if (state === "active") {
+        const pend = pendingBgRef.current;
+        if (pend && !streamingRef.current) {
+          void restoreBackgroundBuild(pend.buildId, { auto: true });
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [restoreBackgroundBuild]);
+
+  // Tapping the "your ticket is ready" push opens Coach with ?buildId=… — load
+  // and replay that finished build. restoredBuildRef guards against re-running.
+  useEffect(() => {
+    const bid = params.buildId ? String(params.buildId) : "";
+    if (!bid) return;
+    pendingBgRef.current = { buildId: bid };
+    void restoreBackgroundBuild(bid);
+  }, [params.buildId, restoreBackgroundBuild]);
 
   // Auto-send when navigated with send=1 (e.g. Home "Build best parlay" / quick
   // chips). Gated by the per-navigation `ts` token (not the prompt text) so that

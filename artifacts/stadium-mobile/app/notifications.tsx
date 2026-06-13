@@ -33,6 +33,7 @@ const DEFAULT_PREFS: NotifPrefs = {
   oddsMovement: true,
   gameReminders: true,
   upsetAlerts: true,
+  coachReady: true,
 };
 
 type CategoryKey = keyof Omit<NotifPrefs, "master">;
@@ -67,6 +68,12 @@ const CATEGORIES: { key: CategoryKey; icon: FeatherName; title: string; subtitle
     icon: "target",
     title: "Underdog watch",
     subtitle: "A daily heads-up when our model likes a live underdog.",
+  },
+  {
+    key: "coachReady",
+    icon: "message-circle",
+    title: "Coach parlay ready",
+    subtitle: "When the AI Coach finishes a parlay you stepped away from.",
   },
 ];
 

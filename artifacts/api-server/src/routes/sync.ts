@@ -10,8 +10,15 @@ import { logger } from "../lib/logger";
 // rejected (clients fall back to local-only storage). `data` is an opaque JSON
 // blob the client owns; the server only persists and returns it.
 
-// Only these namespaces may be written, so a client can't stash arbitrary data.
-const ALLOWED_NAMESPACES = new Set(["savedSlips", "tracker", "results"]);
+// Namespaces a signed-in client may READ. "coachBuild" is written server-side
+// by the /chat route (a parlay the user walked away from, finished in the
+// background) and only READ by the client on return.
+const READABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results", "coachBuild"]);
+// Namespaces a client may WRITE. "coachBuild" is intentionally EXCLUDED so the
+// stashed finished ticket stays server-authored — a client can never overwrite
+// it with fabricated picks (honesty: replayed builds are exactly what the model
+// produced server-side).
+const WRITABLE_NAMESPACES = new Set(["savedSlips", "tracker", "results"]);
 
 const syncLimiter = rateLimit({ windowMs: 60_000, max: 120, name: "sync" });
 
@@ -34,7 +41,7 @@ const router: IRouter = Router();
 
 router.get("/sync/:namespace", syncLimiter, async (req, res) => {
   const ns = paramStr(req.params.namespace);
-  if (!ALLOWED_NAMESPACES.has(ns)) {
+  if (!READABLE_NAMESPACES.has(ns)) {
     res.status(400).json({ error: "unknown namespace" });
     return;
   }
@@ -65,7 +72,7 @@ router.get("/sync/:namespace", syncLimiter, async (req, res) => {
 
 router.put("/sync/:namespace", syncLimiter, async (req, res) => {
   const ns = paramStr(req.params.namespace);
-  if (!ALLOWED_NAMESPACES.has(ns)) {
+  if (!WRITABLE_NAMESPACES.has(ns)) {
     res.status(400).json({ error: "unknown namespace" });
     return;
   }

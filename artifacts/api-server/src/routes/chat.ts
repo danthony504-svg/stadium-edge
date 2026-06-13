@@ -1,7 +1,11 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import OpenAI from "openai";
+import { getAuth } from "@clerk/express";
+import { and, eq, inArray } from "drizzle-orm";
 import { SendChatMessageBody } from "@workspace/api-zod";
+import { db, userSyncTable, pushTokensTable, notifLogTable } from "@workspace/db";
 import { rateLimit } from "../lib/sports.js";
+import { sendPush } from "../lib/push.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -531,6 +535,91 @@ const PERIOD_KEY_TO_LABEL: Record<string, string> = {
   totals_1st_5_innings: "F5 Total", totals_1st_1_innings: "1st Inning Total",
 };
 
+// Resolve the signed-in Clerk user id for a /chat request, or null. getAuth
+// throws if clerkMiddleware didn't run; guard it. Needed so a build the user
+// walked away from can be stashed under their account and a push fired.
+function chatUserId(req: Request): string | null {
+  try {
+    return getAuth(req)?.userId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// The user left / backgrounded the app mid-build but asked us to FINISH it in
+// the background (notifyOnBackground). The model finished generating after the
+// client socket dropped, so we (a) stash the completed reply + the exact prop
+// pool the model used under the user's account (so the app can reconstruct the
+// pick cards on return — identical to the in-app path, no fabrication), and
+// (b) fire a single "your ticket is ready" push. Best-effort: any failure is
+// logged and swallowed so a delivery hiccup never crashes the request.
+async function stashAndNotifyBackgroundBuild(opts: {
+  userId: string;
+  buildId: string;
+  full: string;
+  props: unknown[];
+  log: Request["log"];
+}): Promise<void> {
+  const { userId, buildId, full, props, log } = opts;
+  try {
+    const now = new Date();
+    const payload = { buildId, full, props, createdAt: now.toISOString() };
+    // Latest-wins: one stashed background build per user (they only ever need
+    // the most recent one back). Mirrors the sync route's upsert shape.
+    await db
+      .insert(userSyncTable)
+      .values({ userId, namespace: "coachBuild", data: payload, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [userSyncTable.userId, userSyncTable.namespace],
+        set: { data: payload, updatedAt: now },
+      });
+
+    // Respect the user's notification prefs: the global mute (master) and the
+    // dedicated coachReady toggle both suppress the push. The stash above still
+    // happens so returning to the app can load the result silently.
+    const prefRows = await db
+      .select()
+      .from(userSyncTable)
+      .where(
+        and(eq(userSyncTable.userId, userId), eq(userSyncTable.namespace, "notifPrefs")),
+      )
+      .limit(1);
+    const prefs = (prefRows[0]?.data ?? {}) as Record<string, unknown>;
+    if (prefs["master"] === false || prefs["coachReady"] === false) return;
+
+    // At-most-once per build (the same composite-PK idempotency log the cron
+    // jobs use). A client retry / second disconnect can't double-send.
+    const dedupeKey = `coachReady:${userId}:${buildId}`;
+    const claimed = await db
+      .insert(notifLogTable)
+      .values({ userId, dedupeKey })
+      .onConflictDoNothing()
+      .returning({ k: notifLogTable.dedupeKey });
+    if (claimed.length === 0) return;
+
+    const tokens = await db
+      .select()
+      .from(pushTokensTable)
+      .where(eq(pushTokensTable.userId, userId));
+    if (tokens.length === 0) return;
+    const messages = tokens.map((t) => ({
+      to: t.token,
+      title: "Your parlay is ready",
+      body: "Your AI Coach finished the ticket you started. Tap to see it.",
+      data: { type: "coachReady" as const, buildId },
+    }));
+    const { invalidTokens } = await sendPush(messages);
+    if (invalidTokens.length > 0) {
+      await db
+        .delete(pushTokensTable)
+        .where(inArray(pushTokensTable.token, invalidTokens))
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.error({ err }, "background coach build stash/notify failed");
+  }
+}
+
 router.post("/chat", async (req, res): Promise<void> => {
   const parsed = SendChatMessageBody.safeParse(req.body);
   if (!parsed.success) {
@@ -546,6 +635,18 @@ router.post("/chat", async (req, res): Promise<void> => {
   }
 
   const client = new OpenAI({ baseURL: baseUrl, apiKey });
+
+  // Background-finish opt-in (mobile AI Coach). These are read RAW off the body
+  // (not part of the zod schema, which strips unknown top-level keys to the
+  // typed shape) and are purely about WHERE/WHEN the finished reply is
+  // delivered — they never touch the pick-building logic, prompt, or honesty
+  // rules. When `notifyOnBackground` is set and the user is signed in, a build
+  // the user walks away from keeps generating server-side; on completion we
+  // stash the reply and fire a push instead of discarding it.
+  const rawBody = (req.body ?? {}) as { notifyOnBackground?: unknown; buildId?: unknown };
+  const notifyOnBackground = rawBody.notifyOnBackground === true;
+  const bgBuildId = typeof rawBody.buildId === "string" ? rawBody.buildId : "";
+  const bgUserId = notifyOnBackground && bgBuildId ? chatUserId(req) : null;
 
   // MARKET-LOCK enforcement (server-side belt-and-braces). When the latest
   // user message names a specific market keyword, we (a) filter the realProps
@@ -2040,13 +2141,55 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
   // before the model produces a token. The RESPONSE "close" fires on real
   // socket teardown; we treat it as a disconnect only if we haven't already
   // finished writing (res.writableEnded). On a normal end it's a harmless no-op.
+  //
+  // BACKGROUND-FINISH: when the user opted in (notifyOnBackground) and is
+  // signed in, a disconnect must NOT abort the model — we keep generating so we
+  // can stash the finished reply and push them. We still flag clientGone (to
+  // guard res.write against the dead socket and to know, after completion, that
+  // we should stash + notify instead of having streamed live).
   let clientGone = false;
   const upstreamAbort = new AbortController();
+
+  // WATCHDOG (background mode only). When the client is gone but we're keeping
+  // the model alive to finish in the background, a hung/stalled upstream stream
+  // would otherwise run forever with nobody to abort it (the socket-close
+  // handler intentionally does NOT abort in background mode). Guard against that
+  // with two ceilings: an IDLE cutoff (no token for a while ⇒ genuine stall) and
+  // an absolute MAX wall-clock. Either breach aborts the upstream call, which
+  // throws into the catch below and stays silent (no partial/truncated ticket is
+  // ever stashed — honesty: a half-finished parlay is not delivered). Only armed
+  // once the client has actually left, so a live, slow-but-progressing stream is
+  // never killed. A normal background build finishes well within these bounds.
+  const BG_IDLE_MS = 60_000;
+  const BG_MAX_MS = 240_000;
+  const bgStart = Date.now();
+  let watchdog: ReturnType<typeof setInterval> | null = null;
+  const stopWatchdog = () => {
+    if (watchdog) { clearInterval(watchdog); watchdog = null; }
+  };
+  const startWatchdog = () => {
+    if (watchdog || !bgUserId) return;
+    watchdog = setInterval(() => {
+      const now = Date.now();
+      if (now - lastActivity >= BG_IDLE_MS || now - bgStart >= BG_MAX_MS) {
+        req.log.warn(
+          { buildId: bgBuildId, idleMs: now - lastActivity, totalMs: now - bgStart },
+          "background coach build watchdog aborting stalled upstream stream",
+        );
+        stopWatchdog();
+        upstreamAbort.abort();
+      }
+    }, 5_000);
+  };
+
   res.on("close", () => {
     stopHeartbeat();
     if (!res.writableEnded) {
       clientGone = true;
-      upstreamAbort.abort();
+      // Background mode: keep generating, but arm the watchdog so a stalled
+      // upstream can't run indefinitely now that nobody is reading.
+      if (!bgUserId) upstreamAbort.abort();
+      else startWatchdog();
     }
   });
 
@@ -2085,27 +2228,52 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       stream: true,
     }, { signal: upstreamAbort.signal });
 
+    // Accumulate the full reply so a background-finished build can be stashed
+    // verbatim after the client socket is gone (same text the live client would
+    // have rendered). Only meaningful in background mode but cheap to always do.
+    let fullText = "";
     for await (const chunk of stream) {
-      if (clientGone) break;
+      // In background mode keep consuming to completion even after the client
+      // left (clientGone) — we stash + push the result below. Otherwise a
+      // disconnect means nobody's reading, so stop early to save tokens.
+      if (clientGone && !bgUserId) break;
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
+        fullText += content;
         // Record activity but KEEP the heartbeat running — a mid-stream pause
         // between picks must still emit keep-alives or the proxy drops the
         // connection and truncates the ticket. The idle-aware heartbeat only
         // fires after >=1s of silence; ping frames are ignored client-side.
-        lastActivity = Date.now();
-        res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        // Guard the write: in background mode the socket may already be gone.
+        if (!clientGone) {
+          lastActivity = Date.now();
+          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+        }
       }
     }
     stopHeartbeat();
+    stopWatchdog();
     if (!clientGone && !res.writableEnded) {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
+    // The user walked away mid-build but asked us to finish: stash the completed
+    // reply + prop pool and fire a single push so they can open it on return.
+    if (clientGone && bgUserId && fullText.trim()) {
+      await stashAndNotifyBackgroundBuild({
+        userId: bgUserId,
+        buildId: bgBuildId,
+        full: fullText,
+        props: aiRealProps,
+        log: req.log,
+      });
+    }
   } catch (err) {
     stopHeartbeat();
-    // Client disconnected (we aborted the upstream call ourselves) — the socket
-    // is already gone, so there's nothing to report. Stay silent.
+    stopWatchdog();
+    // Client disconnected (we aborted the upstream call ourselves), or the
+    // background watchdog aborted a stalled stream — the socket is already gone
+    // and any accumulated reply is incomplete, so stash nothing and stay silent.
     if (clientGone || res.writableEnded || res.destroyed) return;
     req.log.error({ err }, "Chat stream failed");
     res.write(

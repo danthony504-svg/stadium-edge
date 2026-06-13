@@ -97,10 +97,12 @@ export function addNotificationResponseListener(
 ): ReturnType<typeof Notifications.addNotificationResponseReceivedListener> {
   return Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data as
-      | { type?: string }
+      | { type?: string; buildId?: string }
       | undefined;
-    // Must mirror the `data.type` values the backend sends (see notifyJobs.ts):
-    // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "upsetAlert" | "test".
+    // Must mirror the `data.type` values the backend sends (see notifyJobs.ts
+    // and the /chat background-finish path):
+    // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "upsetAlert"
+    // | "coachReady" | "test".
     switch (data?.type) {
       case "dailyPicks":
         navigate("/props");
@@ -113,6 +115,11 @@ export function addNotificationResponseListener(
       case "upsetAlert":
         // Upset Watch card lives on the home screen.
         navigate("/");
+        break;
+      case "coachReady":
+        // The AI Coach finished a parlay the user walked away from. Open Coach
+        // with the buildId so it can load + replay the stashed finished ticket.
+        navigate(data.buildId ? `/coach?buildId=${encodeURIComponent(data.buildId)}` : "/coach");
         break;
       default:
         navigate("/");
