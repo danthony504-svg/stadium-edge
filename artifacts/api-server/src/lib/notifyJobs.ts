@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { sendPush, type PushMessage } from "./push";
+import { sweepAbandonedCoachBuilds } from "./coachBuild";
 
 // -------------------------------------------------------------------------
 // All time-based push triggers live here. The API server deploys as AUTOSCALE,
@@ -476,7 +477,22 @@ export async function runNotificationJobs(): Promise<{
     oddsMoves: 0,
     upsets: 0,
     sent: 0,
+    coachSwept: 0,
   };
+
+  // Close the autoscale gap for background Coach builds FIRST, unconditionally:
+  // a TCP drop can kill the /chat handler before any finish-path runs, leaving
+  // an in-flight marker but no stash. Finalize any marker older than the
+  // deadline as a terminal failure (no picks — honesty) so a returning user
+  // always gets a definite outcome. This MUST run independently of the push
+  // fan-out below — the early returns for "no tokens" / "no users" would
+  // otherwise skip it and re-strand abandoned builds. Self-contained +
+  // fail-safe (never throws), so it can't break the rest of the cron run.
+  try {
+    summary.coachSwept = await sweepAbandonedCoachBuilds(logger);
+  } catch (err) {
+    logger.warn({ err: (err as Error)?.message }, "notify: coach build sweep failed");
+  }
 
   const tokenRows = await db.select().from(pushTokensTable);
   if (!tokenRows.length) return { summary };

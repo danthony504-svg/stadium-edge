@@ -1,11 +1,14 @@
 import { Router, type IRouter, type Request } from "express";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
-import { and, eq, inArray } from "drizzle-orm";
 import { SendChatMessageBody } from "@workspace/api-zod";
-import { db, userSyncTable, pushTokensTable, notifLogTable } from "@workspace/db";
 import { rateLimit } from "../lib/sports.js";
-import { sendPush } from "../lib/push.js";
+import {
+  recordBackgroundBuildPending,
+  clearBackgroundBuildPending,
+  stashAndNotifyBackgroundBuild,
+  stashBackgroundBuildFailure,
+} from "../lib/coachBuild.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -544,156 +547,6 @@ function chatUserId(req: Request): string | null {
     return getAuth(req)?.userId ?? null;
   } catch {
     return null;
-  }
-}
-
-// The user left / backgrounded the app mid-build but asked us to FINISH it in
-// the background (notifyOnBackground). The model finished generating after the
-// client socket dropped, so we (a) stash the completed reply + the exact prop
-// pool the model used under the user's account (so the app can reconstruct the
-// pick cards on return — identical to the in-app path, no fabrication), and
-// (b) fire a single "your ticket is ready" push. Best-effort: any failure is
-// logged and swallowed so a delivery hiccup never crashes the request.
-async function stashAndNotifyBackgroundBuild(opts: {
-  userId: string;
-  buildId: string;
-  full: string;
-  props: unknown[];
-  log: Request["log"];
-}): Promise<void> {
-  const { userId, buildId, full, props, log } = opts;
-  try {
-    const now = new Date();
-    const payload = { buildId, status: "ready" as const, full, props, createdAt: now.toISOString() };
-    // Latest-wins: one stashed background build per user (they only ever need
-    // the most recent one back). Mirrors the sync route's upsert shape.
-    await db
-      .insert(userSyncTable)
-      .values({ userId, namespace: "coachBuild", data: payload, updatedAt: now })
-      .onConflictDoUpdate({
-        target: [userSyncTable.userId, userSyncTable.namespace],
-        set: { data: payload, updatedAt: now },
-      });
-
-    // Respect the user's notification prefs: the global mute (master) and the
-    // dedicated coachReady toggle both suppress the push. The stash above still
-    // happens so returning to the app can load the result silently.
-    const prefRows = await db
-      .select()
-      .from(userSyncTable)
-      .where(
-        and(eq(userSyncTable.userId, userId), eq(userSyncTable.namespace, "notifPrefs")),
-      )
-      .limit(1);
-    const prefs = (prefRows[0]?.data ?? {}) as Record<string, unknown>;
-    if (prefs["master"] === false || prefs["coachReady"] === false) return;
-
-    // At-most-once per build (the same composite-PK idempotency log the cron
-    // jobs use). A client retry / second disconnect can't double-send.
-    const dedupeKey = `coachReady:${userId}:${buildId}`;
-    const claimed = await db
-      .insert(notifLogTable)
-      .values({ userId, dedupeKey })
-      .onConflictDoNothing()
-      .returning({ k: notifLogTable.dedupeKey });
-    if (claimed.length === 0) return;
-
-    const tokens = await db
-      .select()
-      .from(pushTokensTable)
-      .where(eq(pushTokensTable.userId, userId));
-    if (tokens.length === 0) return;
-    const messages = tokens.map((t) => ({
-      to: t.token,
-      title: "Your parlay is ready",
-      body: "Your AI Coach finished the ticket you started. Tap to see it.",
-      data: { type: "coachReady" as const, buildId },
-    }));
-    const { invalidTokens } = await sendPush(messages);
-    if (invalidTokens.length > 0) {
-      await db
-        .delete(pushTokensTable)
-        .where(inArray(pushTokensTable.token, invalidTokens))
-        .catch(() => {});
-    }
-  } catch (err) {
-    log.error({ err }, "background coach build stash/notify failed");
-  }
-}
-
-// Companion to the success path above. A background build can stall (the
-// watchdog aborts the upstream model) or error out with no usable reply. We
-// deliberately stash NO picks — a half-finished parlay is never delivered
-// (honesty) — but we DO persist a terminal status so the client can show a
-// deterministic "couldn't finish that build, tap to retry" instead of leaving
-// the user who walked away in silent limbo. An optional push (respecting the
-// same prefs + at-most-once dedupe as the ready push) tells them to come back.
-async function stashBackgroundBuildFailure(opts: {
-  userId: string;
-  buildId: string;
-  status: "failed" | "timedOut";
-  log: Request["log"];
-}): Promise<void> {
-  const { userId, buildId, status, log } = opts;
-  try {
-    const now = new Date();
-    // Terminal status only — no `full`/`props`, so the client can never mistake
-    // this for a deliverable ticket. Latest-wins, same upsert shape as the
-    // success stash (one stashed background build per user).
-    const payload = { buildId, status, createdAt: now.toISOString() };
-    await db
-      .insert(userSyncTable)
-      .values({ userId, namespace: "coachBuild", data: payload, updatedAt: now })
-      .onConflictDoUpdate({
-        target: [userSyncTable.userId, userSyncTable.namespace],
-        set: { data: payload, updatedAt: now },
-      });
-
-    // Same pref gating as the ready push: the global mute (master) and the
-    // dedicated coachReady toggle both suppress the push. The stash above still
-    // happens so returning to the app surfaces the failure silently.
-    const prefRows = await db
-      .select()
-      .from(userSyncTable)
-      .where(
-        and(eq(userSyncTable.userId, userId), eq(userSyncTable.namespace, "notifPrefs")),
-      )
-      .limit(1);
-    const prefs = (prefRows[0]?.data ?? {}) as Record<string, unknown>;
-    if (prefs["master"] === false || prefs["coachReady"] === false) return;
-
-    // At-most-once per build, on a distinct key from the success push so the two
-    // can never collide for the same buildId.
-    const dedupeKey = `coachFailed:${userId}:${buildId}`;
-    const claimed = await db
-      .insert(notifLogTable)
-      .values({ userId, dedupeKey })
-      .onConflictDoNothing()
-      .returning({ k: notifLogTable.dedupeKey });
-    if (claimed.length === 0) return;
-
-    const tokens = await db
-      .select()
-      .from(pushTokensTable)
-      .where(eq(pushTokensTable.userId, userId));
-    if (tokens.length === 0) return;
-    const messages = tokens.map((t) => ({
-      to: t.token,
-      title: "Couldn't finish your parlay",
-      body: "Your AI Coach couldn't complete that ticket. Tap to try again.",
-      // Reuse the coachReady deep-link: tapping opens Coach with this buildId,
-      // where the client reads the stashed terminal status and shows the retry.
-      data: { type: "coachReady" as const, buildId },
-    }));
-    const { invalidTokens } = await sendPush(messages);
-    if (invalidTokens.length > 0) {
-      await db
-        .delete(pushTokensTable)
-        .where(inArray(pushTokensTable.token, invalidTokens))
-        .catch(() => {});
-    }
-  } catch (err) {
-    log.error({ err }, "background coach build failure stash/notify failed");
   }
 }
 
@@ -2305,6 +2158,17 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     }
   });
 
+  // DURABILITY: mark this background-eligible build as in-flight just before we
+  // start streaming, so even an autoscale TCP drop that kills THIS handler
+  // before any finish-path runs leaves a durable trail. The cron sweeper
+  // finalizes any marker that lingers past the deadline as a terminal failure
+  // (no picks — honesty), guaranteeing a returning user always gets a definite
+  // outcome instead of silent limbo. Awaited (a single fast local upsert) so a
+  // very early death still leaves the marker. Best-effort internally.
+  if (bgUserId) {
+    await recordBackgroundBuildPending(bgUserId, bgBuildId, req.log);
+  }
+
   try {
     const stream = await client.chat.completions.create({
       model: "gpt-5.4",
@@ -2373,27 +2237,36 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
-    // The user walked away mid-build but asked us to finish.
-    if (clientGone && bgUserId) {
-      if (fullText.trim()) {
-        // Stash the completed reply + prop pool and fire a single push so they
-        // can open it on return.
-        await stashAndNotifyBackgroundBuild({
-          userId: bgUserId,
-          buildId: bgBuildId,
-          full: fullText,
-          props: aiRealProps,
-          log: req.log,
-        });
+    if (bgUserId) {
+      if (clientGone) {
+        // The user walked away mid-build but asked us to finish.
+        if (fullText.trim()) {
+          // Stash the completed reply + prop pool and fire a single push so they
+          // can open it on return. (Also retires the in-flight marker.)
+          await stashAndNotifyBackgroundBuild({
+            userId: bgUserId,
+            buildId: bgBuildId,
+            full: fullText,
+            props: aiRealProps,
+            log: req.log,
+          });
+        } else {
+          // Stream completed but produced nothing usable — persist a terminal
+          // status (don't leave the user in silent limbo) instead of a ticket.
+          // (Also retires the in-flight marker.)
+          await stashBackgroundBuildFailure({
+            userId: bgUserId,
+            buildId: bgBuildId,
+            status: "failed",
+            log: req.log,
+          });
+        }
       } else {
-        // Stream completed but produced nothing usable — persist a terminal
-        // status (don't leave the user in silent limbo) instead of a ticket.
-        await stashBackgroundBuildFailure({
-          userId: bgUserId,
-          buildId: bgBuildId,
-          status: "failed",
-          log: req.log,
-        });
+        // Delivered live in-app (the client never left) — there's nothing to
+        // stash, but we MUST retire the in-flight marker we recorded at stream
+        // start, or the cron sweeper would later falsely finalize this happily
+        // delivered build as "failed".
+        await clearBackgroundBuildPending(bgUserId, bgBuildId, req.log);
       }
     }
   } catch (err) {
@@ -2417,6 +2290,10 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     // Client disconnected (we aborted the upstream call ourselves) — the socket
     // is already gone and any accumulated reply is incomplete, so stay silent.
     if (clientGone || res.writableEnded || res.destroyed) return;
+    // Live-client error: the user is still watching and gets the inline error
+    // below (they can retry). Retire the in-flight marker we recorded at stream
+    // start so the cron sweeper doesn't later finalize this as a phantom failure.
+    if (bgUserId) await clearBackgroundBuildPending(bgUserId, bgBuildId, req.log);
     req.log.error({ err }, "Chat stream failed");
     res.write(
       `data: ${JSON.stringify({
