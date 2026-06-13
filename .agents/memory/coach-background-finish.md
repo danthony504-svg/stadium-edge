@@ -1,54 +1,48 @@
 ---
 name: Coach background-finish + replay
-description: Mobile AI Coach parlay builds that finish after the phone disconnects — server keeps the model alive, stashes the result, pushes; client replays. Changes only delivery, never pick logic/honesty.
+description: Mobile AI Coach builds that finish after the phone disconnects. Server keeps the model alive, stashes result, pushes; client replays. Operational gotchas + invariants.
 ---
 
-# Coach background-finish + replay
+# Coach background-finish + replay (mobile-only)
 
-Mobile-only. The Coach pick build used to die when the app was backgrounded
-(stream stalls → fail). Now the SERVER finishes the model after the socket
-drops, stashes the result, and pushes; the client replays the stash on return.
-The HONESTY rule and all pick-building logic/prompts are UNCHANGED — only
-WHERE/WHEN the result is delivered.
+The Coach pick build used to die when the app was backgrounded. Now the SERVER
+finishes the model after the socket drops, stashes the result, pushes; the
+client replays it on return. **Invariant: this feature changes only WHERE/WHEN
+the result is delivered — never the pick-building logic, prompts, or the HONESTY
+rule.** A partial/aborted build must stash NOTHING (never deliver a truncated
+ticket).
 
-## Server (chat.ts)
-- Opt-in via `notifyOnBackground` + `buildId` in the POST body; `bgUserId` set
-  only when both present AND the request is authed (chatUserId).
-- `res.on("close")`: in background mode do NOT abort upstream (keep generating);
-  set `clientGone`, guard every `res.write` with `!clientGone`. Non-bg keeps the
-  old behavior (abort on disconnect to save tokens).
-- Stream loop accumulates `fullText`; `if (clientGone && !bgUserId) break`.
-- After done: `if (clientGone && bgUserId && fullText.trim())` →
-  stashAndNotifyBackgroundBuild (upsert finished reply + exact prop pool into
-  userSyncTable namespace "coachBuild", latest-wins; honor master + coachReady
-  prefs from namespace "notifPrefs"; at-most-once via notifLogTable dedupe
-  `coachReady:<user>:<build>`; clean invalid push tokens).
+## Why background mode needs its own watchdog
+In background mode the disconnect handler deliberately does NOT abort the
+upstream model (that's the whole point — keep generating). The cost: a hung
+upstream would run forever. So a background-only watchdog (idle + max
+wall-clock) aborts a genuinely stalled stream; the abort throws into the catch
+and stays silent.
 
-## WATCHDOG (the non-obvious gotcha)
-Because background mode deliberately does NOT abort on disconnect, a hung
-upstream would run FOREVER (resource leak). Background-only watchdog
-(`startWatchdog`, armed in the close handler when bgUserId): idle 60s / max
-240s → `upstreamAbort.abort()`. Aborted/partial builds throw into catch and
-stash NOTHING (never deliver a truncated ticket). Call `stopWatchdog()`
-everywhere `stopHeartbeat()` is called.
+## The watchdog idle-source trap (cost us a review rejection)
+`lastActivity` only advances while the client socket is alive (it also gates
+`res.write`/heartbeats). Once the client is gone we stop writing, so
+`lastActivity` FREEZES even while tokens keep arriving — the idle watchdog then
+falsely aborts a long, still-streaming build. **The watchdog must measure real
+upstream progress: update a separate timestamp on every received token
+regardless of socket state, and check the watchdog against THAT, not
+`lastActivity`.**
 
-## Stash is server-authored (sync.ts)
-Namespaces split into READABLE (incl. coachBuild) vs WRITABLE (excl.
-coachBuild). The client may GET coachBuild but never PUT it — a client can't
-overwrite the stash with fabricated picks.
+## Integrity invariants
+- The stash is server-authored: its sync namespace is READABLE by the client
+  but NOT WRITABLE, so a client can never overwrite it with fabricated picks.
+- Push is at-most-once per build (dedupe log) and honors the global mute + the
+  dedicated coachReady pref.
+- Client replay reuses the stashed reply + prop pool with NO model re-call (no
+  re-fetch, no fabrication).
 
-## Client (coach.tsx)
-- AsyncStorage PENDING_BUILD save/load/clear (force-quit fallback).
-- AppState "background" (NOT "inactive") → abort + handoff; "active" → auto
-  restore. Notification tap deep-links `/coach?buildId=...` (notifications.ts
-  case "coachReady"); params.buildId effect triggers restore.
-- `send(opts.replay)` reuses stashed `full` + props + saved context with NO
-  model re-call (no re-fetch, no fabrication). Stat-card skipped on replay.
-- New "coachReady" notif pref (DEFAULT_PREFS true) in api.ts NotifPrefs +
-  notifyJobs Prefs + notifications.tsx settings row.
+## Client wiring notes
+- AppState "background" (NOT "inactive") triggers handoff; "active" auto-restores.
+- Force-quit fallback = local AsyncStorage pending build + notification-tap
+  deep-link carrying the buildId.
 
-## RISK
+## Open risk / follow-up
 On autoscale prod a TCP drop may kill the in-flight handler before the finish
-path runs (dev won't reproduce). Local AsyncStorage + push-tap replay are the
-fallback. Possible follow-up: persist a terminal failed/timedOut status so the
-client shows deterministic recovery instead of silent limbo.
+path runs (dev won't reproduce). Possible follow-up: persist a terminal
+failed/timedOut status so the client shows deterministic recovery instead of
+silent limbo (proposed as a follow-up task).

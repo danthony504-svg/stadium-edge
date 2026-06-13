@@ -2163,6 +2163,13 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
   const BG_IDLE_MS = 60_000;
   const BG_MAX_MS = 240_000;
   const bgStart = Date.now();
+  // Tracks the last time the UPSTREAM model produced a token. Distinct from
+  // `lastActivity` (which only advances while the client socket is alive, since
+  // it also gates res.write/heartbeats): once the client is gone we no longer
+  // write, so `lastActivity` would freeze and the idle watchdog could falsely
+  // abort a build that is still actively streaming. The watchdog must measure
+  // real upstream progress, so it reads this instead.
+  let lastUpstreamChunk = Date.now();
   let watchdog: ReturnType<typeof setInterval> | null = null;
   const stopWatchdog = () => {
     if (watchdog) { clearInterval(watchdog); watchdog = null; }
@@ -2171,9 +2178,9 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     if (watchdog || !bgUserId) return;
     watchdog = setInterval(() => {
       const now = Date.now();
-      if (now - lastActivity >= BG_IDLE_MS || now - bgStart >= BG_MAX_MS) {
+      if (now - lastUpstreamChunk >= BG_IDLE_MS || now - bgStart >= BG_MAX_MS) {
         req.log.warn(
-          { buildId: bgBuildId, idleMs: now - lastActivity, totalMs: now - bgStart },
+          { buildId: bgBuildId, idleMs: now - lastUpstreamChunk, totalMs: now - bgStart },
           "background coach build watchdog aborting stalled upstream stream",
         );
         stopWatchdog();
@@ -2240,6 +2247,10 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       const content = chunk.choices[0]?.delta?.content;
       if (content) {
         fullText += content;
+        // Mark real upstream progress on EVERY token, even after the client has
+        // left — this is what the background watchdog measures, so a long build
+        // that is still streaming is never falsely aborted.
+        lastUpstreamChunk = Date.now();
         // Record activity but KEEP the heartbeat running — a mid-stream pause
         // between picks must still emit keep-alives or the proxy drops the
         // connection and truncates the ticket. The idle-aware heartbeat only
