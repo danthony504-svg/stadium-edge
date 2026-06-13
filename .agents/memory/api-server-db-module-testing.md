@@ -29,3 +29,29 @@ at-most-once `notif_log` claim is still written (the real at-most-once point)
 but no external Expo push fires; the full sweeper scans the whole
 `coachBuildPending` namespace, so first confirm no foreign markers exist before
 running it against a shared DB.
+
+**Committed pattern** (`test/coachBuildSweepIntegration.test.ts`, runs under
+`pnpm test`): a single `.test.ts` that, in-process, esbuild-bundles a tiny
+stdin harness re-exporting `sweepAbandonedCoachBuilds` + the real `pool` from
+`@workspace/db`, then dynamic-imports the bundle and drives setup/assert SQL
+through that same `pool`. Non-obvious gotchas learned the hard way:
+- The global `register-hooks.mjs` redirect to fakes is scoped to
+  `parentURL.endsWith('/coachBuild.ts')`, so it only fires for a DIRECT
+  `import '../src/lib/coachBuild.ts'`. The esbuild bundle inlines `@workspace/db`
+  (no bare import survives) so the shim never triggers — that's the whole reason
+  bundling gives you the REAL db.
+- You MUST close the live pg pool or `node --test` hangs forever on the open
+  handle. Re-export `pool` from the bundle and `await pool.end()` in `finally`;
+  reuse it for the test's own SQL so there's exactly one handle to close.
+- Stub `./logger` via an esbuild plugin (onResolve `/\/logger$/`) — in
+  non-prod, pino's `pino-pretty` transport spins a WORKER THREAD that is another
+  lingering handle preventing exit. Stubbing logger keeps push.ts's real send
+  path intact (no tokens => no network anyway).
+- externalize ONLY `['pg-native','*.node','@napi-rs/*']` for this graph (logger
+  stubbed => pino is no longer in the tree, so the pino externals aren't needed).
+- Safety guard: before sweeping, `SELECT ... WHERE namespace=pending AND user_id
+  NOT LIKE 'test_sweep_%'` and `t.skip()` if any FOREIGN marker exists — the
+  sweeper would otherwise finalize a real user's build / fire a real push.
+- Per-run unique userId prefix + idempotent `DELETE ... LIKE 'test_sweep_%'`
+  setup/teardown keeps it repeatable; assert per-user state (not the global
+  `swept` count alone) so it's robust on a shared DB.
