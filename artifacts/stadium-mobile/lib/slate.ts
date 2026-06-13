@@ -4,13 +4,32 @@
 
 // ---------- Pickability window ----------
 
-// In progress (started up to 4h ago) OR tips off within the next 48h.
+// In progress (started up to 4h ago) OR tips off within the next 48h. Used by
+// the Home/slate/Upcoming screens, which legitimately SHOW in-progress games.
 export function isPickable(startsAt?: string | null): boolean {
   if (!startsAt) return false;
   const t = Date.parse(startsAt);
   if (!Number.isFinite(t)) return false;
   const now = Date.now();
   return t > now - 4 * 3600_000 && t < now + 48 * 3600_000;
+}
+
+// A game is BETTABLE by the AI Coach only while it is still PREGAME (hasn't
+// started yet) and tips off within the next 48h. This is intentionally STRICTER
+// than isPickable's 4h started-grace window: the coach's betting pools
+// (realOdds/realProps) carry FROZEN pregame prices from the odds feed and mobile
+// has NO live in-game odds feed, live score, or live dead-market guard. So once
+// a game has started, its posted line is stale — offering it as a pregame value
+// pick (e.g. a moneyline on a team that's already losing, off a frozen edge) is
+// dishonest. Started games stay visible on the slate screens via isPickable, but
+// must NOT seed coach picks. A game tipping off "right now" (t <= now) is treated
+// as started.
+export function isPregameBettable(startsAt?: string | null): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now && t < now + 48 * 3600_000;
 }
 
 // "Today / tonight only" intent. The user wants games on the CURRENT local

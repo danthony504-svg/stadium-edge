@@ -11,6 +11,7 @@ import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import { slipPropPlayerName } from "./slipPlayer";
 import {
   isPickable,
+  isPregameBettable,
   startsTodayUpcoming,
   wantsTodayOnly,
   resolveTodayOnly,
@@ -24,6 +25,7 @@ export { gameMatchesFocalText };
 // existing `from "./api"` imports keep working unchanged.
 export {
   isPickable,
+  isPregameBettable,
   startsTodayUpcoming,
   wantsTodayOnly,
   resolveTodayOnly,
@@ -2008,7 +2010,11 @@ export async function buildChatContext(
   };
   sports.forEach((sport, i) => {
     for (const g of oddsAll[i]) {
-      if (!isPickable(g.commenceTime)) continue;
+      // Pregame-only: a game that has already started carries a FROZEN pregame
+      // line here (mobile has no live odds feed / live dead-market guard), so
+      // recommending a bet off it would be dishonest. Slate screens still show
+      // in-progress games via isPickable; the coach pool must not.
+      if (!isPregameBettable(g.commenceTime)) continue;
       if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods, altSign));
     }
@@ -2113,7 +2119,9 @@ export async function buildChatContext(
     if (!PROPS_SPORTS.includes(sport)) return;
     const idMap = buildPropIdMap(gamesAll[i]);
     for (const g of oddsAll[i]) {
-      if (!isPickable(g.commenceTime)) continue;
+      // Pregame-only (same honesty rule as realOdds above): never seed coach
+      // prop picks from a game that's already underway with a frozen line.
+      if (!isPregameBettable(g.commenceTime)) continue;
       if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       if (!g.homeTeam || !g.awayTeam) continue;
       const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;

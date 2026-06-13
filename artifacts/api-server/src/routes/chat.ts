@@ -869,9 +869,15 @@ router.post("/chat", async (req, res): Promise<void> => {
                 try {
                   const oddsRes = await fetch(`${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`);
                   if (!oddsRes.ok) return;
-                  const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string }>;
+                  const oddsList = await oddsRes.json() as Array<{ id?: string; homeTeam?: string; awayTeam?: string; commenceTime?: string }>;
                   const idsToFetch: string[] = [];
                   for (const e of oddsList) {
+                    // Pregame-only: skip games already underway (frozen line). The
+                    // props feed rows carry no startsAt, so the game-level
+                    // commenceTime from /sports/odds is the real honesty gate —
+                    // market-lock seeds games from realGames too, so a started game
+                    // can reach here even after the client pregame gate.
+                    if (e.commenceTime && Date.parse(e.commenceTime) <= Date.now()) continue;
                     const label = `${e.awayTeam} @ ${e.homeTeam}`;
                     if (e.id && gameSet.has(label)) idsToFetch.push(e.id);
                     if (idsToFetch.length >= 6) break;
@@ -996,6 +1002,8 @@ router.post("/chat", async (req, res): Promise<void> => {
               // user is actively looking at (gameSet) so we don't over-stuff
               // context.
               for (const e of oddsList) {
+                // Pregame-only: a started game's period lines are frozen too.
+                if (e.commenceTime && Date.parse(e.commenceTime) <= Date.now()) continue;
                 const label = `${e.awayTeam} @ ${e.homeTeam}`;
                 if (!gameSet.has(label)) continue;
                 for (const m of (e.markets || [])) {
@@ -1025,6 +1033,9 @@ router.post("/chat", async (req, res): Promise<void> => {
               // client's perSportCap so we don't over-fan).
               const idsToFetch: string[] = [];
               for (const e of oddsList) {
+                // Pregame-only: skip started games (frozen line). Props rows
+                // carry no startsAt, so commenceTime here is the honesty gate.
+                if (e.commenceTime && Date.parse(e.commenceTime) <= Date.now()) continue;
                 const label = `${e.awayTeam} @ ${e.homeTeam}`;
                 if (e.id && gameSet.has(label)) idsToFetch.push(e.id);
                 if (idsToFetch.length >= 5) break;

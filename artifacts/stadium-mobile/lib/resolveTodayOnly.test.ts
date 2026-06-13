@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveTodayOnly } from "./slate.ts";
+import { isPickable, isPregameBettable, resolveTodayOnly } from "./slate.ts";
 
 // ISO string offset from now, in hours.
 const at = (hoursFromNow: number) =>
@@ -66,4 +66,26 @@ test("only already-started games -> false", () => {
 
 test("only games beyond the 48h pickable window -> false", () => {
   assert.equal(resolveTodayOnly(true, [at(60), at(72)]), false);
+});
+
+// isPregameBettable: the coach betting pool gate. STRICTER than isPickable —
+// excludes in-progress games whose posted line is frozen (the Diamondbacks bug:
+// a game started 2.5h ago still passed isPickable, so its stale pregame ML got
+// recommended as a "value" pick).
+test("isPregameBettable excludes already-started games that isPickable still allows", () => {
+  const started = at(-2.5); // started 2.5h ago — inside isPickable's 4h grace
+  assert.equal(isPickable(started), true, "isPickable keeps it for slate screens");
+  assert.equal(isPregameBettable(started), false, "but the coach pool must drop it");
+});
+
+test("isPregameBettable keeps unstarted games inside the 48h window", () => {
+  assert.equal(isPregameBettable(at(1)), true);
+  assert.equal(isPregameBettable(at(36)), true);
+});
+
+test("isPregameBettable excludes games beyond the 48h window and bad/empty input", () => {
+  assert.equal(isPregameBettable(at(60)), false);
+  assert.equal(isPregameBettable(null), false);
+  assert.equal(isPregameBettable(undefined), false);
+  assert.equal(isPregameBettable("not-a-date"), false);
 });
