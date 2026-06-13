@@ -111,7 +111,7 @@ test("real MLB batter signals replace pitcher / platoon / ballpark cards", () =>
     playerName: "Nico Hoerner",
     real: {
       mlb: {
-        pitcher: { name: "Logan Webb", throws: "R", kPer9: 8.4, era: 3.25, hrPer9: 0.9, oppOPS: 0.7, whip: 1.15 },
+        pitcher: { name: "Logan Webb", throws: "R", kPer9: 8.4, era: 3.25, hrPer9: 0.9, oppOPS: 0.7, whip: 1.15, flyBallPct: null, barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null },
         platoon: { bats: "R", hand: "R", avg: 0.265, ops: 0.71 },
         ballpark: { venue: "Wrigley Field", hrIndex: 103, dome: false, tempF: 72, windMph: 8, condition: "Clear" },
       },
@@ -134,7 +134,7 @@ test("a hittable low-K starter frames the batter's Over (not just K-suppression)
     marketLabel: "Total Bases",
     real: {
       mlb: {
-        pitcher: { name: "Soft Tosser", throws: "R", kPer9: 6.2, era: 5.8, hrPer9: 1.1, oppOPS: 0.82, whip: 1.48 },
+        pitcher: { name: "Soft Tosser", throws: "R", kPer9: 6.2, era: 5.8, hrPer9: 1.1, oppOPS: 0.82, whip: 1.48, flyBallPct: 0.42, barrelPctAllowed: 9.5, hardHitPctAllowed: 43.0, battedBallEvents: 120 },
         platoon: null,
         ballpark: null,
       },
@@ -150,7 +150,7 @@ test("a hittable low-K starter frames the batter's Over (not just K-suppression)
     marketLabel: "Home Runs",
     real: {
       mlb: {
-        pitcher: { name: "Gopher Baller", throws: "L", kPer9: 7.0, era: 5.1, hrPer9: 1.7, oppOPS: 0.78, whip: 1.3 },
+        pitcher: { name: "Gopher Baller", throws: "L", kPer9: 7.0, era: 5.1, hrPer9: 1.7, oppOPS: 0.78, whip: 1.3, flyBallPct: null, barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null },
         platoon: null,
         ballpark: null,
       },
@@ -191,7 +191,7 @@ test("no numeric performance value leaks when MLB real fields are null/partial",
     { mlb: null },
     { mlb: { pitcher: null, platoon: null, ballpark: null } },
     // Partial: pitcher present but no throws/tendency, platoon missing its stat.
-    { mlb: { pitcher: { name: "TBD", throws: null, kPer9: null, era: null, hrPer9: null, oppOPS: null, whip: null }, platoon: { bats: "R", hand: "R", avg: null, ops: null }, ballpark: null } },
+    { mlb: { pitcher: { name: "TBD", throws: null, kPer9: null, era: null, hrPer9: null, oppOPS: null, whip: null, flyBallPct: null, barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null }, platoon: { bats: "R", hand: "R", avg: null, ops: null }, ballpark: null } },
   ];
   for (const real of cases) {
     const f = factorsForProp({ sport: "mlb", marketKey: "batter_hits", marketLabel: "Hits", real });

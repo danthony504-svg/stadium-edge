@@ -42,6 +42,7 @@ import {
   scoreLineValue,
   scoreTrend,
 } from "@/lib/pickScore";
+import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
@@ -405,6 +406,10 @@ export default function PropDetailScreen() {
           hrPer9: praw.tendency?.hrPer9 ?? null,
           oppOPS: praw.tendency?.oppOPS ?? null,
           whip: praw.tendency?.whip ?? null,
+          flyBallPct: praw.tendency?.flyBallPct ?? null,
+          barrelPctAllowed: praw.tendency?.barrelPctAllowed ?? null,
+          hardHitPctAllowed: praw.tendency?.hardHitPctAllowed ?? null,
+          battedBallEvents: praw.tendency?.battedBallEvents ?? null,
         }
       : null;
 
@@ -481,6 +486,30 @@ export default function PropDetailScreen() {
     () => factorsForProp({ sport, marketKey, marketLabel, playerName: player, teamName, oppName, real }),
     [sport, marketKey, marketLabel, player, teamName, oppName, real],
   );
+
+  // HR TARGET SCORE — only for MLB batter home-run props. A weighted blend of the
+  // REAL signals already resolved in realMlb (opposing starter HR/9 + Statcast
+  // contact-quality allowed + fly-ball rate, ballpark HR index + weather, platoon
+  // OPS vs the starter's hand). The module renormalizes over only the factors that
+  // are actually present, so missing inputs are dropped — never guessed.
+  const isHrMarket = sport === "mlb" && (/home_?run/i.test(marketKey) || /home run/i.test(marketLabel));
+  const hrScore = useMemo<HrScore | null>(() => {
+    if (!isHrMarket) return null;
+    const m = realMlb;
+    if (!m) return null;
+    const s = computeHrScore({
+      hrPer9: m.pitcher?.hrPer9 ?? null,
+      barrelPctAllowed: m.pitcher?.barrelPctAllowed ?? null,
+      hardHitPctAllowed: m.pitcher?.hardHitPctAllowed ?? null,
+      battedBallEvents: m.pitcher?.battedBallEvents ?? null,
+      flyBallPct: m.pitcher?.flyBallPct ?? null,
+      hrIndex: m.ballpark?.hrIndex ?? null,
+      tempF: m.ballpark?.tempF ?? null,
+      dome: m.ballpark?.dome ?? null,
+      platoonOps: m.platoon?.ops ?? null,
+    });
+    return s.score == null ? null : s;
+  }, [isHrMarket, realMlb]);
 
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
   const toneColor =
@@ -851,6 +880,9 @@ export default function PropDetailScreen() {
           </Section>
         ) : null}
 
+        {/* HR Target Score — MLB batter home-run props only, real-data blend */}
+        {hrScore ? <HrTargetScoreCard data={hrScore} /> : null}
+
         {/* Factors to weigh — real numbers where we have them, else what to check */}
         <Section title="FACTORS TO WEIGH">
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
@@ -960,6 +992,85 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         {title}
       </Text>
       {children}
+    </View>
+  );
+}
+
+// HR TARGET SCORE card — a 0..100 weighted blend of the REAL HR-favorability
+// signals we resolved for this batter's matchup. Shows the headline score + band,
+// every present factor with its real value, weight share and 0..1 favorability
+// bar, and an honest list of any factor we didn't have the data for.
+function HrTargetScoreCard({ data }: { data: HrScore }) {
+  const colors = useColors();
+  const score = data.score ?? 0;
+  const band = hrScoreBand(score);
+  const tone =
+    band.tone === "hot"
+      ? colors.success
+      : band.tone === "warm"
+        ? colors.warning
+        : band.tone === "cold"
+          ? colors.destructive
+          : colors.primary;
+  const present = data.factors.filter((f) => f.sub != null);
+  const excluded = data.factors.filter((f) => f.sub == null);
+  return (
+    <View
+      style={{
+        backgroundColor: colors.surface,
+        borderColor: tone,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 12,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={{ gap: 2, flex: 1 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 }}>
+            HR TARGET SCORE
+          </Text>
+          <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 13 }}>{band.label}</Text>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ color: tone, fontFamily: FONT.display, fontSize: 30, lineHeight: 32 }}>{score}</Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>out of 100</Text>
+        </View>
+      </View>
+
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+        A weighted blend of the real matchup signals we have — scored only on the {data.presentCount}{" "}
+        factor{data.presentCount === 1 ? "" : "s"} with data, never on guesses.
+      </Text>
+
+      <View style={{ gap: 9 }}>
+        {present.map((f) => {
+          const pct = Math.round((f.sub ?? 0) * 100);
+          return (
+            <View key={f.key} style={{ gap: 4 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+                  {f.label}
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                    {"  "}
+                    {Math.round(f.weightShare ?? 0)}%
+                  </Text>
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{f.display}</Text>
+              </View>
+              <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.muted, overflow: "hidden" }}>
+                <View style={{ width: `${pct}%`, height: "100%", borderRadius: 3, backgroundColor: tone }} />
+              </View>
+            </View>
+          );
+        })}
+      </View>
+
+      {excluded.length ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 15 }}>
+          Not in tonight's feed (excluded, not estimated): {excluded.map((f) => f.label).join(", ")}.
+        </Text>
+      ) : null}
     </View>
   );
 }

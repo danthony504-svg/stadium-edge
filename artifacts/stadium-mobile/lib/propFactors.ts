@@ -59,6 +59,13 @@ export type RealPropSignals = {
       hrPer9: number | null;
       oppOPS: number | null;
       whip: number | null;
+      // FB / (GB + FB) batted-ball share (ESPN) — a fly-ball arm yields more HRs.
+      flyBallPct: number | null;
+      // REAL Statcast (Baseball Savant) batted-ball-ALLOWED quality. High barrel%
+      // / hard-hit% allowed = the arm gives up loud contact (HR-favorable).
+      barrelPctAllowed: number | null;
+      hardHitPctAllowed: number | null;
+      battedBallEvents: number | null; // Statcast sample size
     } | null;
     // The batter's real platoon line vs that starter's throwing hand.
     platoon?: {
@@ -352,8 +359,15 @@ function mlbStarterCard(real: RealPropSignals | null | undefined, marketKey: str
     // Stat line — only ever REAL feed numbers, market-relevant ones first. For a
     // HR prop the long-ball rate leads; for hits / total bases the contact rates
     // (opponent OPS, WHIP) lead; K/9 + ERA round it out. Any null is omitted.
+    // Statcast rates are only trustworthy on a confirmed, meaningful batted-ball
+    // sample. If the sample is unknown (null) or too small (<40), we EXCLUDE
+    // barrel/hard-hit rather than cite a noisy number — honesty over a shaky read.
+    const scReliable = p.battedBallEvents != null && p.battedBallEvents >= 40;
     const bits: string[] = [];
     if (isHR && p.hrPer9 != null) bits.push(`${p.hrPer9.toFixed(2)} HR/9`);
+    if (isHR && scReliable && p.barrelPctAllowed != null) bits.push(`${p.barrelPctAllowed.toFixed(1)}% barrels allowed`);
+    if (isHR && scReliable && p.hardHitPctAllowed != null) bits.push(`${p.hardHitPctAllowed.toFixed(1)}% hard-hit allowed`);
+    if (isHR && p.flyBallPct != null) bits.push(`${Math.round(p.flyBallPct * 100)}% fly balls`);
     if ((isHR || isContact) && p.oppOPS != null) bits.push(`${rate3(p.oppOPS)} opp OPS`);
     if (isContact && p.whip != null) bits.push(`${p.whip.toFixed(2)} WHIP`);
     if (p.kPer9 != null) bits.push(`${p.kPer9.toFixed(1)} K/9`);
@@ -363,8 +377,16 @@ function mlbStarterCard(real: RealPropSignals | null | undefined, marketKey: str
     // Two-sided read: a hittable / HR-prone arm SUPPORTS the batter's Over (the
     // angle a strikeout-only read misses); a high-K, stingy arm suppresses it.
     // Thresholds mirror the AI Coach's pitcher-tendency rule.
-    const hrProne = p.hrPer9 != null && p.hrPer9 >= 1.3;
-    const hrStingy = p.hrPer9 != null && p.hrPer9 <= 0.8;
+    const loudContact =
+      scReliable &&
+      ((p.barrelPctAllowed != null && p.barrelPctAllowed >= 9) ||
+        (p.hardHitPctAllowed != null && p.hardHitPctAllowed >= 42));
+    const quietContact =
+      scReliable &&
+      ((p.barrelPctAllowed != null && p.barrelPctAllowed <= 5) ||
+        (p.hardHitPctAllowed != null && p.hardHitPctAllowed <= 33));
+    const hrProne = (p.hrPer9 != null && p.hrPer9 >= 1.3) || loudContact;
+    const hrStingy = (p.hrPer9 != null && p.hrPer9 <= 0.8) || (quietContact && (p.hrPer9 == null || p.hrPer9 <= 1.1));
     const hittable = (p.oppOPS != null && p.oppOPS >= 0.76) || (p.whip != null && p.whip >= 1.3);
     const stingy =
       (p.kPer9 != null && p.kPer9 >= 9) ||

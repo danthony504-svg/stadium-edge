@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { cachedJson } from "../lib/sports";
+import { getPitcherStatcastMap, lookupPitcherStatcast } from "../lib/statcast";
 
 const router: IRouter = Router();
 
@@ -132,6 +133,11 @@ export type PitcherTendency = {
   flyBallPct: number | null; // FB / (GB + FB), 0..1
   groundFlyRatio: number | null; // ESPN G/F
   oppOPS: number | null; // opponent OPS against (OOPS)
+  // Statcast (Baseball Savant) batted-ball-ALLOWED profile — REAL data Savant
+  // publishes but ESPN does not. Joined by pitcher name; null when absent.
+  barrelPctAllowed: number | null; // %, barrels allowed / batted-ball events
+  hardHitPctAllowed: number | null; // %, batted balls allowed >= 95 mph EV
+  battedBallEvents: number | null; // Statcast sample size (small = noisy)
 };
 
 async function fetchPitcherTendency(athleteId: string): Promise<PitcherTendency | null> {
@@ -162,7 +168,10 @@ async function fetchPitcherTendency(athleteId: string): Promise<PitcherTendency 
   const flyBallPct = gb != null && fb != null && gb + fb > 0 ? Math.round((fb / (gb + fb)) * 100) / 100 : null;
   // No usable signal at all -> honest null entry rather than an all-null object.
   if (era == null && kPer9 == null && hrAllowed == null && oppOPS == null && flyBallPct == null) return null;
-  return { era, whip, ip, kPer9, hrAllowed, hrPer9, flyBallPct, groundFlyRatio, oppOPS };
+  return {
+    era, whip, ip, kPer9, hrAllowed, hrPer9, flyBallPct, groundFlyRatio, oppOPS,
+    barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -304,9 +313,33 @@ router.get("/sports/mlb-probables", async (req, res): Promise<void> => {
           try { tendencyById[id] = await fetchPitcherTendency(id); } catch { tendencyById[id] = null; }
         }),
       );
+      // Join the REAL Statcast (Savant) barrel% / hard-hit% ALLOWED onto each
+      // starter's tendency by name. Fail-closed: an empty map just leaves the
+      // two fields null and downstream HR scoring degrades honestly.
+      const statcastMap = await getPitcherStatcastMap().catch(() => new Map());
       for (const teamId of Object.keys(byTeam)) {
-        byTeam[teamId].throws = throwsById[byTeam[teamId].athleteId] ?? null;
-        byTeam[teamId].tendency = tendencyById[byTeam[teamId].athleteId] ?? null;
+        const p = byTeam[teamId];
+        p.throws = throwsById[p.athleteId] ?? null;
+        let tend = tendencyById[p.athleteId] ?? null;
+        const sc = lookupPitcherStatcast(statcastMap, p.name);
+        if (sc && (sc.barrelPctAllowed != null || sc.hardHitPctAllowed != null)) {
+          // A pitcher can have Statcast without an ESPN season line yet — build a
+          // minimal tendency so the real barrel/hard-hit numbers aren't dropped.
+          if (!tend) {
+            tend = {
+              era: null, whip: null, ip: null, kPer9: null, hrAllowed: null,
+              hrPer9: null, flyBallPct: null, groundFlyRatio: null, oppOPS: null,
+              barrelPctAllowed: null, hardHitPctAllowed: null, battedBallEvents: null,
+            };
+          }
+          tend = {
+            ...tend,
+            barrelPctAllowed: sc.barrelPctAllowed,
+            hardHitPctAllowed: sc.hardHitPctAllowed,
+            battedBallEvents: sc.battedBallEvents,
+          };
+        }
+        p.tendency = tend;
       }
       return { probables: byTeam, games };
     });

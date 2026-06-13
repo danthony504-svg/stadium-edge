@@ -640,6 +640,10 @@ export type MlbPitcherTendency = {
   flyBallPct: number | null;
   groundFlyRatio: number | null;
   oppOPS: number | null;
+  // Real Statcast (Baseball Savant) batted-ball-allowed profile; honest nulls.
+  barrelPctAllowed: number | null;
+  hardHitPctAllowed: number | null;
+  battedBallEvents: number | null;
 };
 
 // One team's probable starting pitcher today, with throwing hand + tendency.
