@@ -1921,6 +1921,29 @@ ${improveDiversifyLine}
 Open with ONE short line naming what you changed vs the original (e.g. "Spread across 5 games and cut the duplicate Wembanyama / Vassell legs").`
     : "";
 
+  // ANALYZE-THE-TICKET REQUEST — the mobile "Analyze ticket" action (and any
+  // "grade / break down / how good is my slip" phrasing) wants an HONEST,
+  // READ-ONLY breakdown of the ticket the user ALREADY built (the slip in
+  // context.currentSlip) — NOT a new or improved ticket. This is distinct from
+  // improveIntent (which rebuilds): here we critique in prose and emit NO
+  // PICK/ALT lines so the existing slip is never touched. Gated on a real
+  // non-empty currentSlip and suppressed when the user is actually asking to
+  // improve/rebuild (improveIntent wins, since "make it better" owns that flow).
+  const analyzeWording =
+    (/\b(?:analy[sz]e|break\s*down|grade|rate|review|assess|evaluate|critique|check)\b[^\n]{0,24}\b(?:this|that|it|my|the|ticket|slip|parlay|card|bet|bets|legs?)\b/i.test(latestUser) ||
+      /\b(?:thoughts on|how (?:good|bad|strong|risky))\b[^\n]{0,24}\b(?:ticket|slip|parlay|card|bet|bets|legs?)\b/i.test(latestUser));
+  const analyzeIntent = analyzeWording && !improveIntent && improveCurrentSlipLen > 0;
+  const analyzeSystemAddendum = analyzeIntent
+    ? `\n\n*** ANALYZE-THE-TICKET REQUEST FOR THIS TURN (READ-ONLY) ***
+The user wants an HONEST breakdown of the ticket they ALREADY built — the slip in context.currentSlip. This turn is ANALYSIS ONLY:
+- Do NOT build a new ticket and do NOT rewrite, replace, "improve", or re-pick this one. Output PROSE ONLY. Do NOT emit ANY line that begins with "PICK:" or "ALT:" this turn — no add cards, no slip changes whatsoever.
+- Open with ONE short overall verdict line that includes a letter grade (A–F) for the ticket as a whole, weighing real line value, correlation, and leg count (longer parlays are inherently lower-probability — say so honestly; a 15-leg ticket is a longshot no matter how good the legs are).
+- Then a quick leg-by-leg read: for EACH leg, in one line, whether the number/price looks fair and where the risk is — grounded ONLY in the real data you actually have (recent form, matchup, line value already in context). If you have no real data on a leg, say so plainly for that leg; NEVER invent a stat, projection, or edge to fill it.
+- Call out CORRELATION explicitly: flag any legs stacked on the same game, same player, or same game-script, any duplicate exposure, and any anti-correlated combinations — correlation is the single most common hidden parlay risk. If the legs are cleanly independent, say so.
+- ALWAYS state the ticket's combined American odds and the implied win probability that price represents — this is real math off the posted prices on the slip, not a fabricated edge, so include it to set honest expectations. Only omit it if a leg has no real price to combine, in which case say plainly that the combined number can't be computed from the available prices.
+- Name the SINGLE weakest leg and the one change that would help most. You MAY offer to build a tighter version if they want — but do NOT build it now (still no PICK lines this turn).`
+    : "";
+
   // LIVE-BETS LOCK — the client sets context.liveOnly when the user explicitly
   // asks for live / in-play bets, and pre-filters realGames/realOdds/realProps to
   // games CURRENTLY in progress (each marked live:true with the real score/period)
@@ -2034,7 +2057,7 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {

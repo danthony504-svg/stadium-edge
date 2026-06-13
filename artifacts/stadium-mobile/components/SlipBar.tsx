@@ -139,6 +139,21 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
     router.navigate("/slip" as any);
   };
 
+  // Send the current slip to the AI Coach for a READ-ONLY analysis. The fixed
+  // "Analyze my ticket" prompt is matched by the Coach's wantsAnalyzeSlip (and the
+  // server's analyzeIntent) which streams an honest letter-grade / leg-by-leg /
+  // correlation breakdown WITHOUT rebuilding or touching the slip — distinct from
+  // the "improve" flow. send:"1" + a fresh ts trigger the Coach's auto-send effect.
+  const onAnalyze = () => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setOpen(false);
+    onNavigateAway?.();
+    router.push({
+      pathname: "/coach",
+      params: { prefill: "Analyze my ticket", send: "1", ts: String(Date.now()) },
+    } as any);
+  };
+
   const onClear = () => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -271,6 +286,25 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
                 </View>
               ))}
             </ScrollView>
+
+            <Pressable
+              onPress={onAnalyze}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                paddingVertical: 12,
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Feather name="zap" size={14} color={colors.accent} />
+              <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 13 }}>
+                Analyze ticket
+              </Text>
+            </Pressable>
 
             <View
               style={{

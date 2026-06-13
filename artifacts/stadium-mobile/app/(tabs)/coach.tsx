@@ -358,6 +358,20 @@ function wantsImproveSlip(text: string): boolean {
   return IMPROVE_SLIP_RE.test(text) && !IMPROVE_COMPARISON_RE.test(text);
 }
 
+// "Analyze THIS ticket" intent (mirror of the server's analyzeWording in
+// chat.ts). The slip overlay's "Analyze ticket" button sends a fixed
+// "Analyze my ticket" prompt, but a user can also type "grade my slip",
+// "break down this parlay", "how risky is my ticket", etc. This is a READ-ONLY
+// critique — the server emits NO PICK lines for it — so client-side we also
+// suppress pick parsing as a belt-and-braces guard, keeping the existing slip
+// untouched even if a stray PICK line slips through. Excludes the improve flow
+// (which rebuilds), since that owns the "make it better" phrasing.
+const ANALYZE_SLIP_RE =
+  /\b(?:analy[sz]e|break\s*down|grade|rate|review|assess|evaluate|critique|check)\b[^\n]{0,24}\b(?:this|that|it|my|the|ticket|slip|parlay|card|bet|bets|legs?)\b|\b(?:thoughts on|how (?:good|bad|strong|risky))\b[^\n]{0,24}\b(?:ticket|slip|parlay|card|bet|bets|legs?)\b/i;
+function wantsAnalyzeSlip(text: string): boolean {
+  return ANALYZE_SLIP_RE.test(text) && !wantsImproveSlip(text);
+}
+
 // Pull a requested leg count out of the user's ask ("build me a 50 leg",
 // "6-leg parlay") so we can be honest when we deliver fewer — capped at the
 // 15-leg slip max, or short because the real board was too thin to ground that
@@ -1221,14 +1235,25 @@ export default function CoachScreen() {
               ? "value"
               : "cushion"
             : null;
-        let picks = parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        // "Analyze my ticket" is a READ-ONLY critique — the server emits prose only
+        // and never PICK lines. We skip pick parsing entirely (no add-cards, no
+        // backfill, no threshold/sign notes) and treat the reply as pure analysis
+        // prose. Forcing emittedPickLines to 0 also stops the "couldn't ground any
+        // of those legs" empty-bubble note from ever replacing the analysis if the
+        // model were to slip a stray PICK line through.
+        const isAnalyze = wantsAnalyzeSlip(trimmed);
+        let picks = isAnalyze
+          ? []
+          : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
         // prose that merely contains "PICK:" never trips the empty-bubble note.
-        const emittedPickLines = full
-          .split("\n")
-          .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length;
+        const emittedPickLines = isAnalyze
+          ? 0
+          : full
+              .split("\n")
+              .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length;
         // Odds-threshold lock ("10 leg with -300 or less"): drop any leg whose
         // real price breaks the bound so the WHOLE ticket qualifies. The server
         // prompt already steers the model toward qualifying legs; this is the
