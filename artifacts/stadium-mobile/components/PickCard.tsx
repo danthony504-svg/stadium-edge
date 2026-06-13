@@ -7,10 +7,9 @@ import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
 import {
-  chooseMlCushionTiers,
+  chooseMlCushionTwoBand,
   ML_CUSHION_MIN_PTS,
   ML_CUSHION_MAX_PTS,
-  ML_CUSHION_MIN_ODDS,
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
@@ -1257,16 +1256,17 @@ function sameTeam(a: Set<string>, b: Set<string>): boolean {
 // have no alternate line, so they get no rungs (the card shows BEST only).
 // MONEYLINE CUSHION BAND. A moneyline only cashes on an outright win; a spread
 // giving the SAME team +1..+20 points also cashes if they merely lose by fewer
-// than the line, so within this band a rung derisks the ML. We only surface the
-// PLUS-MONEY rungs (odds >= ML_CUSHION_MIN_ODDS) — the goal is to give an EDGE
-// (a better-than-even payout while adding points), NOT to lay heavy juice for
-// safety. For an ML pick we therefore surface the book's REAL posted spread /
-// Alt Spread plus-money rungs on that team as the card's Safe/Value tiers —
-// Safe = the safest plus price (lowest odds), Value = the highest payout
-// (highest odds); see chooseMlCushionTiers. REAL posted rungs only, never
-// invented; an ML with no posted plus-money +point spread in band shows BEST
-// only (honest). Period prefix is preserved so a "Q3 ML" pick only pulls Q3
-// spread rungs, never the full-game spread.
+// than the line, so within this band a rung derisks the ML. We surface TWO real
+// posted spread / Alt Spread rungs on that team, drawn from separate price bands:
+//   Value = the highest-PAYOUT PLUS-money rung (adds points AND pays better than
+//           even — the genuine edge play).
+//   Safe  = the DEEPEST minus-money rung (e.g. a +2/+3 line) priced no worse than
+//           CUSHION_FLOOR juice — you lay juice for a lower payout but it rarely
+//           loses.
+// See chooseMlCushionTwoBand. REAL posted rungs only, never invented; an ML with
+// no eligible rung in a band omits that tier (an ML with neither shows BEST only,
+// honest). Period prefix is preserved so a "Q3 ML" pick only pulls Q3 spread
+// rungs, never the full-game spread.
 function moneylineCushionOptions(
   best: RealOddsLike,
   pool: RealOddsLike[],
@@ -1285,15 +1285,16 @@ function moneylineCushionOptions(
     const ln = numLine(e.pick);
     // +1..+20 points TO the team only (a positive handicap = a cushion).
     if (ln == null || ln < ML_CUSHION_MIN_PTS || ln > ML_CUSHION_MAX_PTS) continue;
-    // Plus-money rungs only: the cushion must ADD an edge (a better-than-even
-    // payout), not lay heavy juice for safety. Minus-money alt spreads are skipped.
-    if (e.odds < ML_CUSHION_MIN_ODDS) continue;
+    // No buried no-payout juice (the safe band floors at CUSHION_FLOOR; plus-money
+    // value rungs always clear it).
+    if (e.odds < CUSHION_FLOOR) continue;
     rungs.push(e);
   }
-  const tiers = chooseMlCushionTiers(
+  const tiers = chooseMlCushionTwoBand(
     rungs.map((e) => ({ line: numLine(e.pick) ?? 0, odds: e.odds })),
+    CUSHION_FLOOR,
   );
-  if (!tiers) return undefined;
+  if (tiers.safe === null && tiers.value === null) return undefined;
   const rung = (e: RealOddsLike) => ({
     side: "",
     line: numLine(e.pick) ?? 0,
@@ -1301,8 +1302,9 @@ function moneylineCushionOptions(
     pick: e.pick,
     market: e.market,
   });
-  const out: ParsedPick["altOptions"] = { cushion: rung(rungs[tiers.safe]!) };
-  if (tiers.value != null) out.value = rung(rungs[tiers.value]!);
+  const out: ParsedPick["altOptions"] = {};
+  if (tiers.safe !== null) out.cushion = rung(rungs[tiers.safe]!);
+  if (tiers.value !== null) out.value = rung(rungs[tiers.value]!);
   return out;
 }
 

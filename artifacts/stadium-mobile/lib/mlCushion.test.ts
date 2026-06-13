@@ -1,99 +1,110 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  chooseMlCushionTiers,
+  chooseMlCushionTwoBand,
   ML_CUSHION_MIN_PTS,
   ML_CUSHION_MAX_PTS,
   ML_CUSHION_MIN_ODDS,
 } from "./mlCushion.ts";
 
-test("empty rungs -> null (card shows BEST only)", () => {
-  assert.equal(chooseMlCushionTiers([]), null);
+const FLOOR = -550;
+
+test("empty rungs -> neither tier (card shows BEST only)", () => {
+  assert.deepEqual(chooseMlCushionTwoBand([], FLOOR), { safe: null, value: null });
 });
 
-test("single rung -> Safe only, no Value", () => {
-  const r = chooseMlCushionTiers([{ line: 4.5, odds: -200 }]);
+test("only a minus-money rung -> Safe only, no Value", () => {
+  const r = chooseMlCushionTwoBand([{ line: 2.5, odds: -200 }], FLOOR);
   assert.deepEqual(r, { safe: 0, value: null });
 });
 
-test("favorite: deepest cushion is Safe (lowest odds), shallowest is Value (best payout)", () => {
-  // More points = more juice (lower odds). +6.5 -320 (safest), +1.5 -150 (best payout).
-  const rungs = [
-    { line: 1.5, odds: -150 },
-    { line: 6.5, odds: -320 },
-    { line: 3.5, odds: -230 },
-  ];
-  const r = chooseMlCushionTiers(rungs);
-  assert.ok(r);
-  assert.equal(rungs[r!.safe].line, 6.5); // safest = most points / lowest odds
-  assert.equal(rungs[r!.value!].line, 1.5); // value = highest payout
+test("only a plus-money rung -> Value only, no Safe", () => {
+  const r = chooseMlCushionTwoBand([{ line: 1.5, odds: 130 }], FLOOR);
+  assert.deepEqual(r, { safe: null, value: 0 });
 });
 
-test("Value is chosen by PAYOUT, not by smallest line (mispriced/stale rung)", () => {
-  // Shallowest line (+1.5) is NOT the best payout here; +3.5 is stale-juiced UP.
+test("both bands present: Safe = deepest minus rung, Value = highest-payout plus rung", () => {
   const rungs = [
-    { line: 1.5, odds: -180 },
-    { line: 3.5, odds: -120 }, // best payout despite being a deeper cushion
-    { line: 7.5, odds: -400 },
+    { line: 1.5, odds: 120 }, // plus -> value candidate
+    { line: 1, odds: 175 }, // plus, best payout -> Value
+    { line: 2.5, odds: -180 }, // minus -> safe candidate
+    { line: 3.5, odds: -260 }, // minus, deepest -> Safe
   ];
-  const r = chooseMlCushionTiers(rungs);
-  assert.ok(r);
-  assert.equal(rungs[r!.safe].line, 7.5); // lowest odds
-  assert.equal(rungs[r!.value!].odds, -120); // highest odds wins, not smallest line
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.safe!].line, 3.5); // most points among minus rungs
+  assert.equal(rungs[r.value!].odds, 175); // best payout among plus rungs
 });
 
-test("underdog: plus-money cushion rungs still pick lowest/highest odds", () => {
+test("Value is chosen by PAYOUT, not by smallest line (mispriced/stale plus rung)", () => {
+  // Shallowest plus line (+1.5) is NOT the best payout; +3.5 is stale-juiced UP.
   const rungs = [
-    { line: 1.5, odds: 120 }, // less cushion, highest payout
-    { line: 8.5, odds: -160 }, // most cushion, lowest payout = safest
+    { line: 1.5, odds: 105 },
+    { line: 3.5, odds: 160 }, // deeper cushion AND best payout
   ];
-  const r = chooseMlCushionTiers(rungs);
-  assert.ok(r);
-  assert.equal(rungs[r!.safe].line, 8.5);
-  assert.equal(rungs[r!.value!].line, 1.5);
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.value!].odds, 160);
+  assert.equal(r.safe, null);
 });
 
-test("equal odds tie-break -> deeper cushion (more points) wins for both tiers", () => {
+test("Safe is the DEEPEST minus rung even if a shallower one is cheaper", () => {
   const rungs = [
-    { line: 2.5, odds: -150 },
-    { line: 5.5, odds: -150 },
+    { line: 2.5, odds: -120 }, // cheaper but shallower
+    { line: 5.5, odds: -300 }, // deepest -> Safe
   ];
-  const r = chooseMlCushionTiers(rungs);
-  assert.ok(r);
-  // Same price: Safe AND Value both prefer more points, so they collapse to the
-  // deeper rung and Value is dropped (no duplicate chip).
-  assert.equal(rungs[r!.safe].line, 5.5);
-  assert.equal(r!.value, null);
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.safe!].line, 5.5);
 });
 
-test("deterministic: same Safe/Value rung regardless of input order", () => {
+test("Safe tie on line -> less-negative odds wins", () => {
+  const rungs = [
+    { line: 4.5, odds: -260 },
+    { line: 4.5, odds: -190 }, // same points, better price -> Safe
+  ];
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.safe!].odds, -190);
+});
+
+test("Value tie on odds -> deeper cushion (more points) wins", () => {
+  const rungs = [
+    { line: 1.5, odds: 140 },
+    { line: 3.5, odds: 140 }, // same price, more points -> Value
+  ];
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.value!].line, 3.5);
+});
+
+test("buried no-payout juice past the floor is excluded from Safe", () => {
+  const rungs = [
+    { line: 8.5, odds: -900 }, // past floor -> ignored
+    { line: 3.5, odds: -300 }, // deepest within floor -> Safe
+  ];
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  assert.equal(rungs[r.safe!].line, 3.5);
+});
+
+test("even-money (-100..+99) counts as Safe band, not Value", () => {
+  const rungs = [{ line: 2.5, odds: -105 }, { line: 1.5, odds: 90 }];
+  const r = chooseMlCushionTwoBand(rungs, FLOOR);
+  // +90 is below the +100 plus-money floor -> Safe band; deeper -105 is deeper.
+  assert.equal(rungs[r.safe!].line, 2.5);
+  assert.equal(r.value, null);
+});
+
+test("deterministic: same Safe/Value regardless of input order", () => {
   const ascending = [
-    { line: 1.5, odds: -150 },
+    { line: 1.5, odds: 150 },
     { line: 6.5, odds: -320 },
   ];
   const descending = [
     { line: 6.5, odds: -320 },
-    { line: 1.5, odds: -150 },
+    { line: 1.5, odds: 150 },
   ];
-  const a = chooseMlCushionTiers(ascending)!;
-  const b = chooseMlCushionTiers(descending)!;
-  assert.equal(ascending[a.safe].odds, -320);
-  assert.equal(descending[b.safe].odds, -320);
-  assert.equal(ascending[a.value!].odds, -150);
-  assert.equal(descending[b.value!].odds, -150);
-});
-
-test("plus-money cushions: Safe = lowest plus odds, Value = highest payout", () => {
-  // After PickCard's plus-money filter (odds >= +100), tiers still resolve by
-  // odds: +110 is the safest plus price, +175 the best payout.
-  const rungs = [
-    { line: 1.5, odds: 110 },
-    { line: 1, odds: 175 },
-    { line: 2.5, odds: 130 },
-  ];
-  const r = chooseMlCushionTiers(rungs)!;
-  assert.equal(rungs[r.safe].odds, 110);
-  assert.equal(rungs[r.value!].odds, 175);
+  const a = chooseMlCushionTwoBand(ascending, FLOOR);
+  const b = chooseMlCushionTwoBand(descending, FLOOR);
+  assert.equal(ascending[a.safe!].odds, -320);
+  assert.equal(descending[b.safe!].odds, -320);
+  assert.equal(ascending[a.value!].odds, 150);
+  assert.equal(descending[b.value!].odds, 150);
 });
 
 test("band constants are +1..+20 and plus-money floor is +100", () => {
