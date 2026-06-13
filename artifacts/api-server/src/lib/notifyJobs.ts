@@ -10,6 +10,15 @@ import { logger } from "./logger";
 import { sendPush, type PushMessage } from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
 import { runLiveStealsJob } from "./liveSteals";
+import {
+  CRON_STALE_AFTER_MS,
+  deriveCronHealth,
+  type CronHeartbeat,
+  type CronHealth,
+} from "./cronHealth";
+
+export { CRON_STALE_AFTER_MS };
+export type { CronHeartbeat, CronHealth };
 
 // -------------------------------------------------------------------------
 // All time-based push triggers live here. The API server deploys as AUTOSCALE,
@@ -204,25 +213,6 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 // status endpoint / startup check reads it to notice a stalled schedule instead
 // of failing silently.
 const CRON_HEARTBEAT_KEY = "cron:heartbeat";
-// A run is MISSING if none was recorded within this window. The schedule fires
-// ~every 15 min, so 35 min tolerates one fully-missed tick before flagging it.
-export const CRON_STALE_AFTER_MS = 35 * 60 * 1000;
-
-type CronHeartbeat = { at: number; summary: Record<string, number> };
-
-export type CronHealth = {
-  // ISO timestamp of the last recorded run, or null if one has never run.
-  lastRunAt: string | null;
-  ageMs: number | null;
-  ageMinutes: number | null;
-  // true when no run was recorded inside CRON_STALE_AFTER_MS (incl. never-run).
-  stale: boolean;
-  // true only once a run has actually been recorded (distinguishes "stalled"
-  // from "brand-new deploy that hasn't had its first tick yet").
-  everRan: boolean;
-  // The summary from the last run, so coachSwept et al. are observable.
-  summary: Record<string, number> | null;
-};
 
 // Stamp the heartbeat after a successful cron run. Fail-safe: a heartbeat write
 // must never break the run, and the caller treats a throw as non-fatal.
@@ -235,28 +225,12 @@ export async function recordCronHeartbeat(
   } satisfies CronHeartbeat);
 }
 
-// Read the heartbeat and derive whether the schedule looks healthy.
+// Read the heartbeat and derive whether the schedule looks healthy. The actual
+// stall-detection logic lives in deriveCronHealth (pure, unit-tested in
+// cronHealth.test.ts); this only does the KV read.
 export async function getCronHealth(): Promise<CronHealth> {
   const hb = await kvGet<CronHeartbeat>(CRON_HEARTBEAT_KEY);
-  if (!hb || typeof hb.at !== "number") {
-    return {
-      lastRunAt: null,
-      ageMs: null,
-      ageMinutes: null,
-      stale: true,
-      everRan: false,
-      summary: null,
-    };
-  }
-  const ageMs = Date.now() - hb.at;
-  return {
-    lastRunAt: new Date(hb.at).toISOString(),
-    ageMs,
-    ageMinutes: Math.round(ageMs / 60000),
-    stale: ageMs > CRON_STALE_AFTER_MS,
-    everRan: true,
-    summary: hb.summary ?? null,
-  };
+  return deriveCronHealth(hb, Date.now());
 }
 
 // ---- odds snapshot / movement -------------------------------------------
