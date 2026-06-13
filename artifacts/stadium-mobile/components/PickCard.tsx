@@ -6,6 +6,11 @@ import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "rea
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
+import {
+  chooseMlCushionTiers,
+  ML_CUSHION_MIN_PTS,
+  ML_CUSHION_MAX_PTS,
+} from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import type { CombinedPickScore } from "@/lib/pickScore";
@@ -1249,6 +1254,53 @@ function sameTeam(a: Set<string>, b: Set<string>): boolean {
 // — never invented. cushion = nearest SAFER rung (lower odds, within
 // CUSHION_FLOOR juice); value = nearest HIGHER-PAYOUT rung. Moneyline / yes-no
 // have no alternate line, so they get no rungs (the card shows BEST only).
+// MONEYLINE CUSHION BAND. A moneyline only cashes on an outright win; a spread
+// giving the SAME team +1..+20 points also cashes if they merely lose by fewer
+// than the line, so within this band EVERY rung is strictly safer than the ML
+// (more juice, less risk). For an ML pick we therefore surface the book's REAL
+// posted spread / Alt Spread rungs on that team inside the band as the card's
+// Safe/Value tiers — Safe = the safest price (lowest odds), Value = the highest
+// payout (highest odds); see chooseMlCushionTiers. REAL posted rungs only, never
+// invented; an ML with no posted +point spread in band shows BEST only (honest).
+// Period prefix is preserved so a "Q3 ML" pick only pulls Q3 spread rungs, never
+// the full-game spread.
+function moneylineCushionOptions(
+  best: RealOddsLike,
+  pool: RealOddsLike[],
+  fam: string,
+): ParsedPick["altOptions"] | undefined {
+  const bestTeam = teamIdToks(best.pick);
+  if (bestTeam.size === 0) return undefined; // can't tell whose ML this is
+  const wantFam = fam.replace(/moneyline$/, "spread"); // same period, spread family
+  const rungs: RealOddsLike[] = [];
+  for (const e of pool) {
+    if (e === best) continue;
+    if (typeof e.odds !== "number") continue;
+    if (!sameGame(e.game, best.game)) continue;
+    if (marketFamily(e.market) !== wantFam) continue;
+    if (!sameTeam(bestTeam, teamIdToks(e.pick))) continue;
+    const ln = numLine(e.pick);
+    // +1..+20 points TO the team only (a positive handicap = a cushion).
+    if (ln == null || ln < ML_CUSHION_MIN_PTS || ln > ML_CUSHION_MAX_PTS) continue;
+    if (e.odds < CUSHION_FLOOR) continue; // skip buried no-payout juice
+    rungs.push(e);
+  }
+  const tiers = chooseMlCushionTiers(
+    rungs.map((e) => ({ line: numLine(e.pick) ?? 0, odds: e.odds })),
+  );
+  if (!tiers) return undefined;
+  const rung = (e: RealOddsLike) => ({
+    side: "",
+    line: numLine(e.pick) ?? 0,
+    odds: e.odds,
+    pick: e.pick,
+    market: e.market,
+  });
+  const out: ParsedPick["altOptions"] = { cushion: rung(rungs[tiers.safe]!) };
+  if (tiers.value != null) out.value = rung(rungs[tiers.value]!);
+  return out;
+}
+
 function gameAltOptions(
   best: RealOddsLike,
   pool: RealOddsLike[],
@@ -1256,7 +1308,10 @@ function gameAltOptions(
   const fam = marketFamily(best.market);
   const isTotal = fam.endsWith("total");
   const isSpread = fam.endsWith("spread");
-  if (!isTotal && !isSpread) return undefined; // moneyline: no alternate line
+  // Moneyline: no alternate line in its OWN family — instead offer the +1..+20
+  // point spread cushion on the same team (real posted rungs only).
+  if (fam.endsWith("moneyline")) return moneylineCushionOptions(best, pool, fam);
+  if (!isTotal && !isSpread) return undefined;
   const bestLine = numLine(best.pick);
   if (bestLine == null) return undefined;
   const bestSide = isTotal ? sideOf(best.pick) : null;
