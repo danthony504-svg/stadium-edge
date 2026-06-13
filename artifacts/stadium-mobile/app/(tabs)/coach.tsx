@@ -97,6 +97,10 @@ type UIMessage = {
   teamCard?: TeamStatCardData;
   // Local URIs of user-attached photos (up to 3), shown in the user bubble.
   imageUris?: string[];
+  // Set on the recovery message shown when a background build couldn't finish
+  // (stalled / errored, nothing stashed). Holds the original prompt so the
+  // attached "Try again" button can re-run the exact same build.
+  retry?: string;
 };
 
 type StatCardResult = {
@@ -1705,7 +1709,43 @@ export default function CoachScreen() {
           return;
         }
         const { data: stash } = await getSync<CoachBuildStash>("coachBuild");
-        if (!stash || stash.buildId !== buildId || !stash.full.trim()) {
+        if (!stash || stash.buildId !== buildId) {
+          if (!opts?.auto) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: "Still finishing that ticket — give it a moment and tap the notification again.",
+              },
+            ]);
+          }
+          return;
+        }
+        // Terminal failure the server recorded: the build stalled (timedOut) or
+        // errored (failed) while the app was away, and NO ticket was stashed
+        // (honesty — we never deliver a half-finished parlay). Show a clear,
+        // non-fabricated recovery message with a "Try again" affordance instead
+        // of a blank/last-state screen. Fires even in `auto` mode so a returning
+        // user always learns the build didn't make it.
+        if (stash.status === "failed" || stash.status === "timedOut") {
+          restoredBuildRef.current = buildId;
+          pendingBgRef.current = null;
+          const retryText = pending.userText;
+          await clearPendingBuild();
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content:
+                stash.status === "timedOut"
+                  ? "I couldn't finish that ticket in time — the build stalled while you were away, so nothing was saved. Tap below to try again."
+                  : "I couldn't finish that ticket — something went wrong on my end while you were away, so nothing was saved. Tap below to try again.",
+              ...(retryText ? { retry: retryText } : {}),
+            },
+          ]);
+          return;
+        }
+        if (!stash.full.trim()) {
           if (!opts?.auto) {
             setMessages((prev) => [
               ...prev,
@@ -1999,6 +2039,32 @@ export default function CoachScreen() {
                       <PickCard key={`${i}-${j}`} pick={p} onPress={statsHandlerFor(p)} />
                     ))}
                   </View>
+                ) : null}
+
+                {m.retry ? (
+                  <Pressable
+                    onPress={() => send(m.retry!)}
+                    disabled={streaming}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      marginTop: 10,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: colors.radius,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      opacity: streaming ? 0.5 : pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Feather name="refresh-cw" size={16} color={colors.foreground} />
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                      Try again
+                    </Text>
+                  </Pressable>
                 ) : null}
               </View>
             );

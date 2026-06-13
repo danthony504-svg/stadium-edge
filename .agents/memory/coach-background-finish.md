@@ -41,8 +41,20 @@ regardless of socket state, and check the watchdog against THAT, not
 - Force-quit fallback = local AsyncStorage pending build + notification-tap
   deep-link carrying the buildId.
 
-## Open risk / follow-up
-On autoscale prod a TCP drop may kill the in-flight handler before the finish
-path runs (dev won't reproduce). Possible follow-up: persist a terminal
-failed/timedOut status so the client shows deterministic recovery instead of
-silent limbo (proposed as a follow-up task).
+## Terminal failure status (no silent limbo)
+A background build that stalls (watchdog abort → `timedOut`) or errors / completes
+empty (→ `failed`) now stashes a TERMINAL STATUS into the same `coachBuild` stash
+— `{ buildId, status, createdAt }` with NO `full`/`props` (honesty: still never
+deliver a partial ticket). Success stash carries `status:"ready"`. The catch path
+distinguishes timedOut vs failed via a `watchdogAborted` flag (set inside the
+watchdog before `upstreamAbort.abort()`); only stashes when `clientGone &&
+bgUserId`. Failure push reuses `data.type:"coachReady"` deep-link but a distinct
+dedupe key (`coachFailed:` vs `coachReady:`). Client `restoreBackgroundBuild`
+checks `status` BEFORE the empty-`full` "still finishing" branch and renders a
+recovery message + "Try again" button (carries the original prompt) — fires even
+in `auto` mode. `CoachBuildStash.status` is optional (older stashes = ready).
+
+## Remaining edge
+On autoscale prod a TCP drop may kill the in-flight handler before EITHER finish
+path runs (dev won't reproduce) — that still leaves no stash. The terminal-status
+path only covers stalls/errors the handler itself observes.

@@ -233,8 +233,18 @@ export type SyncNamespace = "savedSlips" | "tracker" | "results" | "coachBuild";
 // under the signed-in user's account so the app can rebuild the exact same pick
 // cards on return (no fabrication — `full` is the model's verbatim reply and
 // `props` is the exact resolved prop pool it was fed).
+//
+// `status` is the terminal outcome the server recorded:
+//   - "ready"    → a complete reply is present (`full`/`props` populated)
+//   - "timedOut" → the background watchdog aborted a stalled model (no picks)
+//   - "failed"   → the stream errored / produced nothing usable (no picks)
+// On a failed/timedOut stash we deliberately carry NO picks (honesty: a
+// half-finished ticket is never delivered) — the client shows a retry instead.
+// `status` is absent on older stashes written before this field existed; treat
+// missing-but-has-`full` as "ready".
 export type CoachBuildStash = {
   buildId: string;
+  status?: "ready" | "timedOut" | "failed";
   full: string;
   props: RealPropEntry[];
   createdAt: string;

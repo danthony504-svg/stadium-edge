@@ -563,7 +563,7 @@ async function stashAndNotifyBackgroundBuild(opts: {
   const { userId, buildId, full, props, log } = opts;
   try {
     const now = new Date();
-    const payload = { buildId, full, props, createdAt: now.toISOString() };
+    const payload = { buildId, status: "ready" as const, full, props, createdAt: now.toISOString() };
     // Latest-wins: one stashed background build per user (they only ever need
     // the most recent one back). Mirrors the sync route's upsert shape.
     await db
@@ -617,6 +617,82 @@ async function stashAndNotifyBackgroundBuild(opts: {
     }
   } catch (err) {
     log.error({ err }, "background coach build stash/notify failed");
+  }
+}
+
+// Companion to the success path above. A background build can stall (the
+// watchdog aborts the upstream model) or error out with no usable reply. We
+// deliberately stash NO picks — a half-finished parlay is never delivered
+// (honesty) — but we DO persist a terminal status so the client can show a
+// deterministic "couldn't finish that build, tap to retry" instead of leaving
+// the user who walked away in silent limbo. An optional push (respecting the
+// same prefs + at-most-once dedupe as the ready push) tells them to come back.
+async function stashBackgroundBuildFailure(opts: {
+  userId: string;
+  buildId: string;
+  status: "failed" | "timedOut";
+  log: Request["log"];
+}): Promise<void> {
+  const { userId, buildId, status, log } = opts;
+  try {
+    const now = new Date();
+    // Terminal status only — no `full`/`props`, so the client can never mistake
+    // this for a deliverable ticket. Latest-wins, same upsert shape as the
+    // success stash (one stashed background build per user).
+    const payload = { buildId, status, createdAt: now.toISOString() };
+    await db
+      .insert(userSyncTable)
+      .values({ userId, namespace: "coachBuild", data: payload, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [userSyncTable.userId, userSyncTable.namespace],
+        set: { data: payload, updatedAt: now },
+      });
+
+    // Same pref gating as the ready push: the global mute (master) and the
+    // dedicated coachReady toggle both suppress the push. The stash above still
+    // happens so returning to the app surfaces the failure silently.
+    const prefRows = await db
+      .select()
+      .from(userSyncTable)
+      .where(
+        and(eq(userSyncTable.userId, userId), eq(userSyncTable.namespace, "notifPrefs")),
+      )
+      .limit(1);
+    const prefs = (prefRows[0]?.data ?? {}) as Record<string, unknown>;
+    if (prefs["master"] === false || prefs["coachReady"] === false) return;
+
+    // At-most-once per build, on a distinct key from the success push so the two
+    // can never collide for the same buildId.
+    const dedupeKey = `coachFailed:${userId}:${buildId}`;
+    const claimed = await db
+      .insert(notifLogTable)
+      .values({ userId, dedupeKey })
+      .onConflictDoNothing()
+      .returning({ k: notifLogTable.dedupeKey });
+    if (claimed.length === 0) return;
+
+    const tokens = await db
+      .select()
+      .from(pushTokensTable)
+      .where(eq(pushTokensTable.userId, userId));
+    if (tokens.length === 0) return;
+    const messages = tokens.map((t) => ({
+      to: t.token,
+      title: "Couldn't finish your parlay",
+      body: "Your AI Coach couldn't complete that ticket. Tap to try again.",
+      // Reuse the coachReady deep-link: tapping opens Coach with this buildId,
+      // where the client reads the stashed terminal status and shows the retry.
+      data: { type: "coachReady" as const, buildId },
+    }));
+    const { invalidTokens } = await sendPush(messages);
+    if (invalidTokens.length > 0) {
+      await db
+        .delete(pushTokensTable)
+        .where(inArray(pushTokensTable.token, invalidTokens))
+        .catch(() => {});
+    }
+  } catch (err) {
+    log.error({ err }, "background coach build failure stash/notify failed");
   }
 }
 
@@ -2193,6 +2269,10 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
   // abort a build that is still actively streaming. The watchdog must measure
   // real upstream progress, so it reads this instead.
   let lastUpstreamChunk = Date.now();
+  // Set true when the watchdog (not a client/foreground abort or an upstream
+  // error) is the one that killed the stream, so the catch path can persist the
+  // right terminal status ("timedOut" vs "failed").
+  let watchdogAborted = false;
   let watchdog: ReturnType<typeof setInterval> | null = null;
   const stopWatchdog = () => {
     if (watchdog) { clearInterval(watchdog); watchdog = null; }
@@ -2207,6 +2287,7 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
           "background coach build watchdog aborting stalled upstream stream",
         );
         stopWatchdog();
+        watchdogAborted = true;
         upstreamAbort.abort();
       }
     }, 5_000);
@@ -2291,23 +2372,49 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     }
-    // The user walked away mid-build but asked us to finish: stash the completed
-    // reply + prop pool and fire a single push so they can open it on return.
-    if (clientGone && bgUserId && fullText.trim()) {
-      await stashAndNotifyBackgroundBuild({
-        userId: bgUserId,
-        buildId: bgBuildId,
-        full: fullText,
-        props: aiRealProps,
-        log: req.log,
-      });
+    // The user walked away mid-build but asked us to finish.
+    if (clientGone && bgUserId) {
+      if (fullText.trim()) {
+        // Stash the completed reply + prop pool and fire a single push so they
+        // can open it on return.
+        await stashAndNotifyBackgroundBuild({
+          userId: bgUserId,
+          buildId: bgBuildId,
+          full: fullText,
+          props: aiRealProps,
+          log: req.log,
+        });
+      } else {
+        // Stream completed but produced nothing usable — persist a terminal
+        // status (don't leave the user in silent limbo) instead of a ticket.
+        await stashBackgroundBuildFailure({
+          userId: bgUserId,
+          buildId: bgBuildId,
+          status: "failed",
+          log: req.log,
+        });
+      }
     }
   } catch (err) {
     stopHeartbeat();
     stopWatchdog();
-    // Client disconnected (we aborted the upstream call ourselves), or the
-    // background watchdog aborted a stalled stream — the socket is already gone
-    // and any accumulated reply is incomplete, so stash nothing and stay silent.
+    // A background build the user walked away from: the watchdog aborted a
+    // stalled upstream (timedOut) or the stream errored (failed). We never stash
+    // a partial ticket (honesty), but we DO persist a terminal status + optional
+    // push so the client shows a deterministic "couldn't finish, tap to retry"
+    // instead of silent limbo. Only when the socket is already gone — a live
+    // client takes the normal error path below.
+    if (clientGone && bgUserId && !res.writableEnded) {
+      await stashBackgroundBuildFailure({
+        userId: bgUserId,
+        buildId: bgBuildId,
+        status: watchdogAborted ? "timedOut" : "failed",
+        log: req.log,
+      });
+      return;
+    }
+    // Client disconnected (we aborted the upstream call ourselves) — the socket
+    // is already gone and any accumulated reply is incomplete, so stay silent.
     if (clientGone || res.writableEnded || res.destroyed) return;
     req.log.error({ err }, "Chat stream failed");
     res.write(
