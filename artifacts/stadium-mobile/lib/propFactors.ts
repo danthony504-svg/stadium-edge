@@ -53,6 +53,12 @@ export type RealPropSignals = {
       throws: "L" | "R" | null;
       kPer9: number | null;
       era: number | null;
+      // Hittability: how prone he is to the long ball / hard contact. A low-K
+      // but very hittable arm (high HR/9, high opponent OPS, high WHIP) is a
+      // green light for the batter's hits / total-bases / HR Over.
+      hrPer9: number | null;
+      oppOPS: number | null;
+      whip: number | null;
     } | null;
     // The batter's real platoon line vs that starter's throwing hand.
     platoon?: {
@@ -206,22 +212,49 @@ const MLB_LINEUP_GENERIC: PropFactor = {
   body: "Is the player confirmed starting, and where in the order? A rest day or scratch voids the prop. Check before first pitch.",
 };
 
-function mlbStarterCard(real: RealPropSignals | null | undefined): PropFactor {
+function mlbStarterCard(real: RealPropSignals | null | undefined, marketKey: string): PropFactor {
   const p = real?.mlb?.pitcher;
   if (p?.name) {
     const hand = p.throws === "L" ? "LHP" : p.throws === "R" ? "RHP" : null;
+    const isHR = /home ?run|\bhr\b|to hit a hr/.test(marketKey);
+    const isContact = /\bhit|total bas|\btb\b|\brbi|single|double|triple/.test(marketKey);
+
+    // Stat line — only ever REAL feed numbers, market-relevant ones first. For a
+    // HR prop the long-ball rate leads; for hits / total bases the contact rates
+    // (opponent OPS, WHIP) lead; K/9 + ERA round it out. Any null is omitted.
     const bits: string[] = [];
+    if (isHR && p.hrPer9 != null) bits.push(`${p.hrPer9.toFixed(2)} HR/9`);
+    if ((isHR || isContact) && p.oppOPS != null) bits.push(`${rate3(p.oppOPS)} opp OPS`);
+    if (isContact && p.whip != null) bits.push(`${p.whip.toFixed(2)} WHIP`);
     if (p.kPer9 != null) bits.push(`${p.kPer9.toFixed(1)} K/9`);
     if (p.era != null) bits.push(`${p.era.toFixed(2)} ERA`);
     const line = bits.length ? ` This season: ${bits.join(", ")}.` : "";
-    const lean =
-      p.kPer9 != null
-        ? p.kPer9 >= 9
-          ? " A high-strikeout arm caps hits and total bases."
-          : p.kPer9 <= 7
-            ? " A lower-strikeout arm puts more balls in play."
-            : ""
-        : "";
+
+    // Two-sided read: a hittable / HR-prone arm SUPPORTS the batter's Over (the
+    // angle a strikeout-only read misses); a high-K, stingy arm suppresses it.
+    // Thresholds mirror the AI Coach's pitcher-tendency rule.
+    const hrProne = p.hrPer9 != null && p.hrPer9 >= 1.3;
+    const hrStingy = p.hrPer9 != null && p.hrPer9 <= 0.8;
+    const hittable = (p.oppOPS != null && p.oppOPS >= 0.76) || (p.whip != null && p.whip >= 1.3);
+    const stingy =
+      (p.kPer9 != null && p.kPer9 >= 9) ||
+      (p.oppOPS != null && p.oppOPS <= 0.68) ||
+      (p.whip != null && p.whip <= 1.1);
+
+    let lean = "";
+    if (isHR) {
+      if (hrProne) lean = " A home-run-prone arm — supports the HR Over.";
+      else if (hrStingy) lean = " Keeps the ball in the park — argues against the HR Over.";
+      else if (hittable) lean = " A hittable arm that gives up hard contact — gives the bat room.";
+    } else if (hittable && !stingy) {
+      lean = " A hittable arm (high opponent OPS/WHIP) — supports the hits / total-bases Over.";
+    } else if (p.kPer9 != null && p.kPer9 >= 9) {
+      lean = " A high-strikeout arm caps hits and total bases.";
+    } else if (stingy) {
+      lean = " A stingy arm that limits hard contact — caps the Over.";
+    } else if (p.kPer9 != null && p.kPer9 <= 7) {
+      lean = " A lower-strikeout arm puts more balls in play.";
+    }
     return {
       tier: "critical",
       emoji: "⚾",
@@ -294,9 +327,10 @@ function mlbBatter(
   playerName: string | null | undefined,
   homeAway: PropFactor,
   recent: PropFactor,
+  marketKey: string,
 ): PropFactor[] {
   return [
-    mlbStarterCard(real),
+    mlbStarterCard(real, marketKey),
     mlbPlatoonCard(real, firstNameOf(playerName)),
     mlbBallparkCard(real),
     MLB_LINEUP_GENERIC,
@@ -663,7 +697,7 @@ export function factorsForProp(opts: FactorContext): PropFactor[] {
 
   if (sport === "mlb") {
     const isPitcher = /pitcher|strikeout|\bouts\b|earned run|hits allowed|walks allowed/.test(key);
-    return isPitcher ? mlbPitcher(real, homeAway, recent) : mlbBatter(real, opts.playerName, homeAway, recent);
+    return isPitcher ? mlbPitcher(real, homeAway, recent) : mlbBatter(real, opts.playerName, homeAway, recent, key);
   }
   if (sport === "nba" || sport === "wnba" || sport === "ncaab") {
     const ctx: BCtx = {

@@ -397,7 +397,15 @@ export default function PropDetailScreen() {
     const praw = oppId ? d.probRes.probables[oppId] : null;
     const throws: "L" | "R" | null = praw?.throws === "Left" ? "L" : praw?.throws === "Right" ? "R" : null;
     const pitcher = praw?.name
-      ? { name: praw.name, throws, kPer9: praw.tendency?.kPer9 ?? null, era: praw.tendency?.era ?? null }
+      ? {
+          name: praw.name,
+          throws,
+          kPer9: praw.tendency?.kPer9 ?? null,
+          era: praw.tendency?.era ?? null,
+          hrPer9: praw.tendency?.hrPer9 ?? null,
+          oppOPS: praw.tendency?.oppOPS ?? null,
+          whip: praw.tendency?.whip ?? null,
+        }
       : null;
 
     // Platoon line vs the starter's hand (only meaningful once we know the hand).
