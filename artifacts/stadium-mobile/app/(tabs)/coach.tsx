@@ -83,6 +83,14 @@ import {
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
 import { NAME_FALLBACK_SKIP, parseStatLookup } from "@/lib/statLookup";
+import {
+  decideBackgroundRestore,
+  deserializePendingBuild,
+  makeBuildId,
+  serializePendingBuild,
+  shouldAbortForHandoff,
+  shouldHandOffBuild,
+} from "@/lib/backgroundBuild";
 
 type UIMessage = {
   role: "user" | "assistant";
@@ -130,13 +138,11 @@ type PendingBuild = {
   createdAt: number;
 };
 
-function makeBuildId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-}
+// makeBuildId / (de)serialize live in lib/backgroundBuild.ts (pure + unit-tested).
 
 async function savePendingBuild(b: PendingBuild): Promise<void> {
   try {
-    await AsyncStorage.setItem(PENDING_BUILD_KEY, JSON.stringify(b));
+    await AsyncStorage.setItem(PENDING_BUILD_KEY, serializePendingBuild(b));
   } catch {
     /* storage unavailable — background replay just won't be possible */
   }
@@ -145,7 +151,7 @@ async function savePendingBuild(b: PendingBuild): Promise<void> {
 async function loadPendingBuild(): Promise<PendingBuild | null> {
   try {
     const raw = await AsyncStorage.getItem(PENDING_BUILD_KEY);
-    return raw ? (JSON.parse(raw) as PendingBuild) : null;
+    return deserializePendingBuild<PendingBuild>(raw);
   } catch {
     return null;
   }
@@ -1162,7 +1168,7 @@ export default function CoachScreen() {
           // (keyed by buildId) FIRST so a kill/relaunch can still rebuild the
           // cards, then pass the same buildId + opt-in flag to the server. A
           // non-parlay chat or signed-out user just streams normally.
-          const bg = isParlayBuild && !!isSignedIn;
+          const bg = shouldHandOffBuild({ isParlayBuild, isSignedIn: !!isSignedIn });
           const buildId = bg ? makeBuildId() : "";
           if (bg) {
             pendingBgRef.current = { buildId };
@@ -1695,7 +1701,15 @@ export default function CoachScreen() {
       if (restoredBuildRef.current === buildId) return;
       try {
         const pending = await loadPendingBuild();
-        if (!pending || pending.buildId !== buildId) {
+        // Only fetch the server stash when there's a local pending record to
+        // marry it with (and to avoid a needless authenticated GET otherwise).
+        const stash = pending
+          ? (await getSync<CoachBuildStash>("coachBuild")).data
+          : null;
+        // Pure decision (lib/backgroundBuild.ts): which of wrong-device /
+        // not-ready / failed / replay applies. The side effects below stay here.
+        const decision = decideBackgroundRestore(buildId, pending, stash);
+        if (decision.action === "wrong-device") {
           if (!opts?.auto) {
             setMessages((prev) => [
               ...prev,
@@ -1708,8 +1722,7 @@ export default function CoachScreen() {
           }
           return;
         }
-        const { data: stash } = await getSync<CoachBuildStash>("coachBuild");
-        if (!stash || stash.buildId !== buildId) {
+        if (decision.action === "not-ready") {
           if (!opts?.auto) {
             setMessages((prev) => [
               ...prev,
@@ -1721,23 +1734,23 @@ export default function CoachScreen() {
           }
           return;
         }
-        // Terminal failure the server recorded: the build stalled (timedOut) or
-        // errored (failed) while the app was away, and NO ticket was stashed
-        // (honesty — we never deliver a half-finished parlay). Show a clear,
-        // non-fabricated recovery message with a "Try again" affordance instead
-        // of a blank/last-state screen. Fires even in `auto` mode so a returning
-        // user always learns the build didn't make it.
-        if (stash.status === "failed" || stash.status === "timedOut") {
+        if (decision.action === "failed") {
+          // Terminal failure the server recorded: the build stalled (timedOut) or
+          // errored (failed) while the app was away, and NO ticket was stashed
+          // (honesty — we never deliver a half-finished parlay). Show a clear,
+          // non-fabricated recovery message with a "Try again" affordance instead
+          // of a blank/last-state screen. Fires even in `auto` mode so a returning
+          // user always learns the build didn't make it.
           restoredBuildRef.current = buildId;
           pendingBgRef.current = null;
-          const retryText = pending.userText;
+          const retryText = decision.retryText;
           await clearPendingBuild();
           setMessages((prev) => [
             ...prev,
             {
               role: "assistant",
               content:
-                stash.status === "timedOut"
+                decision.status === "timedOut"
                   ? "I couldn't finish that ticket in time — the build stalled while you were away, so nothing was saved. Tap below to try again."
                   : "I couldn't finish that ticket — something went wrong on my end while you were away, so nothing was saved. Tap below to try again.",
               ...(retryText ? { retry: retryText } : {}),
@@ -1745,31 +1758,10 @@ export default function CoachScreen() {
           ]);
           return;
         }
-        if (!stash.full.trim()) {
-          if (!opts?.auto) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: "assistant",
-                content: "Still finishing that ticket — give it a moment and tap the notification again.",
-              },
-            ]);
-          }
-          return;
-        }
         restoredBuildRef.current = buildId;
         pendingBgRef.current = null;
         await clearPendingBuild();
-        await send(pending.userText, {
-          replay: {
-            full: stash.full,
-            props: stash.props ?? [],
-            context: pending.context,
-            propPool: pending.propPool,
-            gameMeta: pending.gameMeta,
-            todayOnly: pending.todayOnly,
-          },
-        });
+        await send(pending!.userText, { replay: decision.payload });
       } catch {
         // Transient (token not ready / offline / 401) — leave the pending record
         // so a later foreground or notification tap can retry. Never fabricate.
@@ -1786,7 +1778,12 @@ export default function CoachScreen() {
         // Leaving mid-build: stop THIS attempt (its socket is about to freeze and
         // would just burn retries) but DON'T discard it — the server keeps going
         // and pushes when done. The local pending record drives the replay.
-        if (streamingRef.current && pendingBgRef.current) {
+        if (
+          shouldAbortForHandoff({
+            streaming: streamingRef.current,
+            hasPendingBackground: !!pendingBgRef.current,
+          })
+        ) {
           handedOffRef.current = true;
           abortRef.current?.abort();
         }
