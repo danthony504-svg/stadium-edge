@@ -27,12 +27,19 @@ A `--import`ed resolve shim + in-memory fakes:
   `@workspace/db`, `./push.js`, and `drizzle-orm` imports to fakes under
   `test/fakes/`. Scoping by parentURL keeps other suites on the real modules.
 - The package `test` script must load it: `node --import ./test/register-hooks.mjs --test …`.
-- `test/fakes/db.ts` is an in-memory drizzle stand-in that **dispatches on TABLE
-  IDENTITY, not on the WHERE conditions** (conditions are opaque because
-  `drizzle-orm` is stubbed to no-ops). It exports a mutable `__control` (canned
-  select rows per table, captured upsert payloads, delete counts, a notif_log
-  dedupe Set) + `resetDb()`. The fake and the test share one module instance, so
-  the test configures `__control` and asserts against it.
+- `test/fakes/db.ts` is an in-memory drizzle stand-in. WRITES (upserts, notif_log
+  claims) still **dispatch on TABLE IDENTITY** and are captured. But READS/DELETES
+  are now **predicate-aware**: the `drizzle-orm` stub captures structured nodes
+  (`{t:"eq"|"lt"|"like"|"inArray"|"and"|"or"|"sql", a, b/parts}`) instead of
+  no-ops, so the fake routes the three distinct user_sync SELECTs (marker scan vs
+  per-user stash lookup vs notifPrefs — all keyed off the namespace `eq` value)
+  and actually EVALUATES the cron pruner's DELETE WHEREs (age cutoff + dedupe-key
+  `like` scoping). `delete().where()` returns a Promise with a `.returning()`
+  attached. It exports a mutable `__control` (canned select rows per
+  purpose: notifPrefsRows/tokenRows/markerRows/stashByUser/*DeleteRows, captured
+  upsert payloads, delete counts, matched-delete rows, a notif_log dedupe Set) +
+  `resetDb()`. The fake and the test share one module instance, so the test
+  configures `__control` and asserts against it.
 - `test/fakes/push.ts` records `sendPush` calls + lets a test inject
   `invalidTokens`.
 
