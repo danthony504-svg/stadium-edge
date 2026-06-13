@@ -1041,6 +1041,19 @@ export type AltRungBias = "value" | "cushion" | null;
 // -200..-500 band the user asks for without burying them in no-payout juice.
 const CUSHION_FLOOR = -550;
 
+// Yes/no prop markets: the feed surfaces these as an Over 0.5 (HR / anytime TD)
+// or null-line (anytime goalscorer) entry, but the books — and the AI, per the
+// shared chat prompt — phrase them as "<Player> To Hit a HR" / "Anytime TD" /
+// "Anytime Goal", with NO line number and NO Over/Under token. The exact
+// line/side gate in matchProp would otherwise reject every such leg, which is
+// exactly why "3 leg home run?" came back "couldn't ground any of those legs".
+const YES_NO_PROP_MARKETS = new Set([
+  "batter_home_runs",
+  "player_anytime_td",
+  "player_goals",
+  "player_goal_scorer_anytime",
+]);
+
 function matchProp(
   game: string,
   market: string,
@@ -1051,13 +1064,27 @@ function matchProp(
   const side = sideOf(selection);
   const selTokens = new Set(norm(selection).split(" ").filter(Boolean));
   const mkN = norm(market);
+  // Detect a yes/no-phrased selection ("To Hit a HR" / "Anytime TD" / "Anytime
+  // Goal") so the line/side gate below can be skipped for those markets — the
+  // "Yes" side maps to the feed's Over leg.
+  const selN = norm(selection);
+  const selYesNo =
+    /\bto hit a hr\b|\banytime (?:td|touchdown|goal)\b|\banytime scorer\b|\bto score (?:a )?(?:td|touchdown|goal)\b/.test(
+      selN,
+    );
   let best: PropPoolEntry | null = null;
   let bestScore = -1;
   for (const e of propPool) {
     if (!sameGame(e.game, game)) continue;
     const ln = norm(e.player).split(" ").filter(Boolean).pop() || "";
     if (!ln || !selTokens.has(ln)) continue; // player must be named
-    if (e.line != null) {
+    const isYesNoEntry =
+      YES_NO_PROP_MARKETS.has(String(e.marketKey || "")) &&
+      (e.line == null || e.line === 0.5);
+    if (selYesNo && isYesNoEntry) {
+      // Yes-phrased pick → the Over (= "Yes") leg only; never the Under/No side.
+      if (e.line != null && e.side !== "Over") continue;
+    } else if (e.line != null) {
       if (!selTokens.has(String(e.line))) continue; // exact posted line
       if (!side || side !== e.side) continue; // exact Over/Under side
     }
