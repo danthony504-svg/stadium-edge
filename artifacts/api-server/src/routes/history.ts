@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
-import { soccerPlayerGameLog } from "../lib/statmuse";
+import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
 
 const router: IRouter = Router();
 
@@ -306,11 +306,24 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
           };
         }
       }
+      // Real possessions PACE (NBA / WNBA only) via StatMuse — a faster opponent
+      // means more counting-stat opportunities for player props. Fetched in
+      // parallel, range-guarded, and honestly null on any miss. Bounded by this
+      // 15-minute matchup-history cache so repeat builds pay nothing.
+      let homePace: number | null = null;
+      let awayPace: number | null = null;
+      if (sportId === "nba" || sportId === "wnba") {
+        [homePace, awayPace] = await Promise.all([
+          teamPace(sportId, home.teamName),
+          teamPace(sportId, away.teamName),
+        ]);
+      }
       return {
         sport: sportId,
         home: {
           teamId: homeTeamId,
           teamName: home.teamName,
+          pace: homePace,
           last10: summarizeForm(home.results, 10),
           last5: summarizeForm(home.results, 5),
           // Venue splits: this team's last-10 form in games played AT HOME vs
@@ -331,6 +344,7 @@ router.get("/sports/matchup-history", async (req, res): Promise<void> => {
         away: {
           teamId: awayTeamId,
           teamName: away.teamName,
+          pace: awayPace,
           last10: summarizeForm(away.results, 10),
           last5: summarizeForm(away.results, 5),
           homeSplit: summarizeForm(away.results.filter((r) => r.isHome), 10),
@@ -597,6 +611,13 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       const all = aggregate(rows);
       const home = aggregate(rows.filter((g) => g.isHome === true));
       const away = aggregate(rows.filter((g) => g.isHome === false));
+      // Recent-form windows (L5/L10/L20) — parity with the ESPN branch so the
+      // pick pipeline can read a soccer player's current-form trend too.
+      const windows = {
+        last5: aggregate(rows.slice(0, 5)),
+        last10: aggregate(rows.slice(0, 10)),
+        last20: aggregate(rows.slice(0, 20)),
+      };
       res.json({
         sport: sportId,
         athleteId,
@@ -606,6 +627,8 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
         vsOpponentName: null,
         homeSplit: { games: home.games, averages: home.averages },
         awaySplit: { games: away.games, averages: away.averages },
+        windows,
+        minutesTrend: null,
         season: null,
         availableSeasons: [],
         seasonSummary: { games: all.games, averages: all.averages, totals: all.totals },
@@ -783,6 +806,37 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       }
     }
     const seasonSummary = { games: flat.length, averages: seasonAvg.averages, totals: seasonTotals };
+    // Recent-form windows: per-stat averages over the last 5 / 10 / 20 games
+    // (real aggregates of the game log, newest-first). Lets a pick weigh a
+    // player's CURRENT form trend vs his season line instead of one 5-game
+    // slice. Honest empty buckets ({ games: 0, averages: {} }) when a window has
+    // no games.
+    const windows = {
+      last5: splitAverages(flat.slice(0, 5)),
+      last10: splitAverages(flat.slice(0, 10)),
+      last20: splitAverages(flat.slice(0, 20)),
+    };
+    // Minutes trend (NBA / WNBA only): average minutes over the last 5 / 10 vs
+    // the season, plus a direction read. Rising minutes support OVERs on
+    // counting props; a minutes cut (role change, blowouts, return from injury)
+    // is a real UNDER signal. Honest null when the log carries no MIN column or
+    // no usable games — never fabricated.
+    let minutesTrend:
+      | { l5: number | null; l10: number | null; season: number | null; direction: "up" | "down" | "steady" }
+      | null = null;
+    if ((sportId === "nba" || sportId === "wnba") && labels.includes("MIN")) {
+      const l5 = windows.last5.averages.MIN ?? null;
+      const l10 = windows.last10.averages.MIN ?? null;
+      const seasonMin = seasonAvg.averages.MIN ?? null;
+      if (l5 != null || l10 != null || seasonMin != null) {
+        let direction: "up" | "down" | "steady" = "steady";
+        if (l5 != null && seasonMin != null) {
+          if (l5 >= seasonMin + 2) direction = "up";
+          else if (l5 <= seasonMin - 2) direction = "down";
+        }
+        minutesTrend = { l5, l10, season: seasonMin, direction };
+      }
+    }
     const seasonFilter = (log.filters ?? []).find((f) => f.name === "season");
     const resolvedSeason = seasonFilter?.value ?? (season || null);
     const availableSeasons = (seasonFilter?.options ?? [])
@@ -797,6 +851,8 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
       vsOpponentName,
       homeSplit,
       awaySplit,
+      windows,
+      minutesTrend,
       season: resolvedSeason,
       availableSeasons,
       seasonSummary,

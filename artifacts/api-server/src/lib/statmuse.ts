@@ -472,3 +472,31 @@ export async function askStatMuse(
     },
   );
 }
+
+// Real team PACE (possessions per game) for NBA / WNBA via StatMuse. Pace is a
+// possessions-tempo number the points-based "combined pace" proxy can't fully
+// capture — a faster opponent means more counting-stat opportunities for a
+// player prop. Returns null on any miss, an unparseable answer, or an
+// out-of-range value so the caller honestly OMITS pace rather than fabricating
+// it. NBA/WNBA only — other leagues have no clean StatMuse pace stat.
+export async function teamPace(
+  sport: string,
+  teamName: string | null | undefined,
+): Promise<number | null> {
+  const league = String(sport || "").toLowerCase();
+  if (league !== "nba" && league !== "wnba") return null;
+  const name = String(teamName || "").trim();
+  if (!name) return null;
+  const a = await askStatMuse(`${name} pace this season`, league);
+  if (!a.answer) return null;
+  // StatMuse phrases pace as "...a pace of 99.4..." or "...99.4 possessions per
+  // game...". Only accept a number explicitly tied to pace/possessions — never a
+  // loose first-number grab (which could pick up a rank, a year, or a point
+  // total). Range-guard to a realistic possessions band; omit otherwise.
+  const m =
+    a.answer.match(/pace[^0-9]{0,12}(\d{2,3}(?:\.\d)?)/i) ||
+    a.answer.match(/(\d{2,3}(?:\.\d)?)\s*possessions/i);
+  const n = m ? parseFloat(m[1]) : NaN;
+  if (!Number.isFinite(n) || n < 85 || n > 115) return null;
+  return Math.round(n * 10) / 10;
+}

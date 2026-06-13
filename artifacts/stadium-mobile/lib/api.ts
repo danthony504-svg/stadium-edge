@@ -1553,6 +1553,10 @@ export function resolveTennisFlag(
 export type MatchupHistoryEntry = {
   home: unknown;
   away: unknown;
+  // Real possessions pace (NBA / WNBA only) for each team, from StatMuse. Null
+  // for other sports or on any miss — never fabricated.
+  homePace: number | null;
+  awayPace: number | null;
   homeVenueForm: unknown;
   awayVenueForm: unknown;
   homeStreak: unknown;
@@ -1715,6 +1719,8 @@ async function buildMatchupHistoryAndUpsets(
         matchupHistory[t.gameLabel] = {
           home: home10 ? { record: `${home10.wins}-${home10.losses}`, ptsFor: home10.ptsFor, ptsAgainst: home10.ptsAgainst, avgMargin: home10.avgMargin } : null,
           away: away10 ? { record: `${away10.wins}-${away10.losses}`, ptsFor: away10.ptsFor, ptsAgainst: away10.ptsAgainst, avgMargin: away10.avgMargin } : null,
+          homePace: typeof data?.home?.pace === "number" ? data.home.pace : null,
+          awayPace: typeof data?.away?.pace === "number" ? data.away.pace : null,
           homeVenueForm: splitOf(data?.home?.homeSplit),
           awayVenueForm: splitOf(data?.away?.awaySplit),
           homeStreak: data?.home?.streak || null,
@@ -2235,11 +2241,14 @@ export async function buildChatContext(
   // though the server has it. See chatContextPriority.ts (unit-tested).
   const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
   if (phTargets.length > 0) {
+    type HistWindow = { games?: number; averages?: Record<string, number> };
     type HistResp = {
       recent?: { date?: string; opponentName?: string; stats?: Record<string, unknown> }[];
       vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
       homeSplit?: { games?: number } | null;
       awaySplit?: { games?: number } | null;
+      windows?: { last5?: HistWindow; last10?: HistWindow; last20?: HistWindow } | null;
+      minutesTrend?: { l5: number | null; l10: number | null; season: number | null; direction: string } | null;
     };
     await Promise.all(
       phTargets.map(async (t) => {
@@ -2254,6 +2263,16 @@ export async function buildChatContext(
           const awaySplit = data?.awaySplit && (data.awaySplit.games ?? 0) > 0 ? data.awaySplit : null;
           const venue = t.isHome === true ? "home" : t.isHome === false ? "away" : null;
           const tonightSplit = venue === "home" ? homeSplit : venue === "away" ? awaySplit : null;
+          // Recent-form windows: attach the LONGER L10 / L20 per-stat averages
+          // (recent already carries the last 5) so the model can read a current
+          // form trend vs the season line. Only keep buckets that have games.
+          const win: Record<string, { games: number; averages: Record<string, number> }> = {};
+          for (const w of ["last10", "last20"] as const) {
+            const b = data?.windows?.[w];
+            if (b && (b.games ?? 0) > 0 && b.averages && Object.keys(b.averages).length) {
+              win[w] = { games: b.games as number, averages: b.averages };
+            }
+          }
           playerHistory[`${t.player}#${t.athleteId}`] = {
             player: t.player,
             recent: recent.map((g) => ({ date: g.date, opp: g.opponentName, stats: g.stats })),
@@ -2261,6 +2280,8 @@ export async function buildChatContext(
             ...(homeSplit ? { homeSplit } : {}),
             ...(awaySplit ? { awaySplit } : {}),
             ...(tonightSplit ? { tonightVenue: venue, tonightSplit } : {}),
+            ...(Object.keys(win).length ? { windows: win } : {}),
+            ...(data?.minutesTrend ? { minutesTrend: data.minutesTrend } : {}),
           };
         } catch {
           /* honest no-history fallback */
