@@ -158,6 +158,15 @@ components:
           type: array
           description: Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.
           items: { $ref: "#/components/schemas/OddsBookPrice" }
+        noVigFair:
+          type: ["number", "null"]
+          description: Median cross-book no-vig fair win probability for this outcome (0-1). Present only on two-sided main markets with enough two-sided books; null otherwise (never guessed).
+        edge:
+          type: ["number", "null"]
+          description: Value edge in percentage points = noVigFair minus the best price's implied probability. Positive means the best price beats the consensus fair value.
+        bookSpread:
+          type: ["number", "null"]
+          description: Line-shopping advantage in percentage points = median implied probability across books minus the best (lowest) implied probability for this outcome. Higher means more price dispersion to exploit.
     OddsMarket:
       type: object
       required: [key, outcomes]

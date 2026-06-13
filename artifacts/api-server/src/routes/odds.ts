@@ -175,6 +175,13 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     // is 10 min — alt markets are 5x credit cost so we don't want to
     // re-hit them on every poll.
     const americanToProb = (a: number) => (a < 0 ? -a / (-a + 100) : 100 / (a + 100));
+    const median = (arr: number[]) => {
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+    };
+    // Min two-sided books to trust a cross-book no-vig fair value (mirrors props.ts).
+    const MIN_DEVIG_BOOKS = 3;
     const now = Date.now();
     const WINDOW_MS = 48 * 60 * 60 * 1000;
     // Sports without halves/quarters (table tennis, tennis) skip the per-event
@@ -289,9 +296,13 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
           }
         }
       }
-      const mainMarkets = MAIN_MARKETS.filter((key) => mainByMarket.get(key)?.size).map((key) => ({
-        key,
-        outcomes: Array.from(mainByMarket.get(key)!.values()).map((o) => {
+      const mainMarkets = MAIN_MARKETS.filter((key) => mainByMarket.get(key)?.size).map((key) => {
+        const entries = Array.from(mainByMarket.get(key)!.values());
+        // De-vig (no-vig fair) only makes sense for a clean two-sided market
+        // (h2h home/away, spreads ±, totals Over/Under). Anything else stays
+        // null rather than guessed.
+        const twoSided = entries.length === 2;
+        const outcomes = entries.map((o, idx) => {
           // Best price for the bettor = lowest implied probability. Sort
           // books best-first and surface that as the headline price.
           const books = o.books
@@ -299,14 +310,56 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             .sort((a, b) => americanToProb(a.price) - americanToProb(b.price))
             .slice(0, 10);
           const best = books[0];
+
+          // Line-shopping advantage (pct points): how far the BEST price beats
+          // the median price across all books posting this exact outcome.
+          // Needs >= 2 books or there is nothing to shop. Real or null.
+          let bookSpread: number | null = null;
+          if (best && o.books.length >= 2) {
+            const impls = o.books.map((b) => americanToProb(b.price));
+            bookSpread = Math.round((median(impls) - americanToProb(best.price)) * 1000) / 10;
+          }
+
+          // Cross-book no-vig fair value + value edge. De-vig EVERY book that
+          // posted BOTH sides of this two-way market (fair = thisImpl / (this +
+          // other)), take the MEDIAN as the consensus fair win prob, then edge =
+          // fair - best-price implied. Requires >= MIN_DEVIG_BOOKS two-sided
+          // books so one off-market book can't manufacture a phantom edge;
+          // thinner coverage stays null (honest), never guessed.
+          let noVigFair: number | null = null;
+          let edge: number | null = null;
+          if (twoSided && best) {
+            const other = entries[idx === 0 ? 1 : 0]!;
+            const otherByBook = new Map(other.books.map((b) => [b.book, b.price]));
+            const fairs: number[] = [];
+            for (const b of o.books) {
+              const op = otherByBook.get(b.book);
+              if (op == null) continue;
+              const ti = americanToProb(b.price);
+              const oi = americanToProb(op);
+              const tot = ti + oi;
+              if (tot <= 0) continue;
+              fairs.push(ti / tot);
+            }
+            if (fairs.length >= MIN_DEVIG_BOOKS) {
+              const fair = median(fairs);
+              edge = Math.round((fair - americanToProb(best.price)) * 1000) / 10;
+              noVigFair = Math.round(fair * 1000) / 1000;
+            }
+          }
+
           return {
             name: o.name,
             price: best ? best.price : 0,
             point: o.point,
             books,
+            noVigFair,
+            edge,
+            bookSpread,
           };
-        }),
-      }));
+        });
+        return { key, outcomes };
+      });
       const alt = altByEvent.get(g.id);
       const altMarkets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point: number | null }> }> = [];
       if (alt) {

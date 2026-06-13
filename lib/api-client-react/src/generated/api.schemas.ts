@@ -27,6 +27,21 @@ export interface OddsOutcome {
   point?: number | null;
   /** Per-bookmaker prices for this outcome (best first); present on main markets for line shopping. */
   books?: OddsBookPrice[];
+  /**
+     * Median cross-book no-vig fair win probability for this outcome (0-1). Present only on two-sided main markets with enough two-sided books; null otherwise (never guessed).
+     * @nullable
+     */
+  noVigFair?: number | null;
+  /**
+     * Value edge in percentage points = noVigFair minus the best price's implied probability. Positive means the best price beats the consensus fair value.
+     * @nullable
+     */
+  edge?: number | null;
+  /**
+     * Line-shopping advantage in percentage points = median implied probability across books minus the best (lowest) implied probability for this outcome. Higher means more price dispersion to exploit.
+     * @nullable
+     */
+  bookSpread?: number | null;
 }
 
 export interface OddsMarket {

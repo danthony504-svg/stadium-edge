@@ -8,6 +8,8 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
+import type { CombinedPickScore } from "@/lib/pickScore";
+import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
 export type ParsedPick = {
@@ -52,6 +54,13 @@ export type ParsedPick = {
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
   propSide?: string; // "Over" | "Under" | "Yes"
+  // The 5-component pick rubric (Matchup / Trend / Line Value / Injury /
+  // Line-Shopping) rolled into AI Grade + Confidence + Edge. Attached at resolve
+  // time ONLY when real scoring inputs are available (see lib/pickScoreContext);
+  // every sub-score is nullable and the compact breakdown is shown in place of
+  // the prose-derived EdgeReadout when present. Omitted entirely when no signal
+  // grounds — the card then falls back to the existing readout. Never fabricated.
+  scores?: CombinedPickScore | null;
 };
 
 if (
@@ -729,7 +738,9 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : (
+      {hideReadout ? null : pick.scores ? (
+        <ScoreBreakdown data={pick.scores} variant="compact" />
+      ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
 

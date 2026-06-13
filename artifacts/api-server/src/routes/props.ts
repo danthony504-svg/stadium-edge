@@ -465,6 +465,11 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       fairProb?: number | null;
       edge?: number | null;
       books?: number;
+      // Line-shopping spread (pct points) per side: median implied prob across
+      // books MINUS the best (lowest) implied prob. Higher = more dispersion to
+      // exploit. Needs >= 2 books posting that side; null otherwise (honest).
+      overSpread?: number | null;
+      underSpread?: number | null;
     };
     const byKey = new Map<string, PropRow>();
     // Per-book two-sided prices for MAIN lines, used to compute the no-vig
@@ -609,6 +614,28 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       r.fairProb = Math.round(fair * 1000) / 1000;
       r.edge = Math.round((fair - americanToProb(best)) * 1000) / 10; // pct points
       r.books = fairOvers.length;
+    }
+
+    // ---- Line-shopping spread per side (MAIN lines only) -------------------
+    // Independent of the +EV de-vig (needs only 2+ books on a side): how much
+    // the BEST price beats the cross-book median, in implied-prob pct points.
+    // Lets a prop pick ground its line-shopping sub-score honestly; thin sides
+    // stay null (never guessed).
+    for (const r of mains) {
+      const k = `${r.player}|${r.market}|${r.line ?? "_"}`;
+      const bm = bookByKey.get(k);
+      if (!bm) continue;
+      const sideSpread = (pick: (sb: SideBook) => number | undefined): number | null => {
+        const implied = [...bm.values()]
+          .map(pick)
+          .filter((p): p is number => p != null)
+          .map((p) => americanToProb(p));
+        if (implied.length < 2) return null;
+        const best = Math.min(...implied);
+        return Math.round((median(implied) - best) * 1000) / 10; // pct points
+      };
+      r.overSpread = sideSpread((sb) => sb.over);
+      r.underSpread = sideSpread((sb) => sb.under);
     }
 
     // Enrich with player headshot + ESPN athleteId + their team id from

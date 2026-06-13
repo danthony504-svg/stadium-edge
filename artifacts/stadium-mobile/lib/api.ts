@@ -44,6 +44,14 @@ export type OddsOutcome = {
   price: number;
   point?: number | null;
   books?: OddsBookPrice[];
+  // Cross-book no-vig + line-shopping signals (two-sided MAIN markets only;
+  // null otherwise — never guessed). Computed server-side. noVigFair = median
+  // consensus fair win prob (0-1); edge = noVigFair minus the best price's
+  // implied prob (pct points, signed toward value); bookSpread = how much the
+  // best price beats the cross-book median (pct points).
+  noVigFair?: number | null;
+  edge?: number | null;
+  bookSpread?: number | null;
 };
 
 export type OddsMarket = { key: string; outcomes: OddsOutcome[] };
@@ -91,6 +99,12 @@ export type RealOddsEntry = {
   pick: string;
   odds: number;
   startsAt?: string;
+  // Real cross-book scoring inputs carried from the picked outcome (two-sided
+  // MAIN markets only; null otherwise — never fabricated). Used to ground the
+  // pick rubric's Line Value (edge) and Line-Shopping (bookSpread) sub-scores.
+  noVigFair?: number | null;
+  edge?: number | null;
+  bookSpread?: number | null;
 };
 
 export type RealGameEntry = {
@@ -429,6 +443,11 @@ export type PlayerProp = {
   fairProb?: number | null;
   edge?: number | null;
   books?: number;
+  // Line-shopping spread per side (pct points): how much the best price beats
+  // the cross-book median. Needs 2+ books on the side; null otherwise. REAL or
+  // omitted — never fabricated. Grounds the prop rubric's Line-Shopping score.
+  overSpread?: number | null;
+  underSpread?: number | null;
 };
 
 export type PropsResponse = {
@@ -864,24 +883,31 @@ export function buildRealOdds(
   // only qualifying outcomes leaves a clean, fully-eligible pool.
   const mainOk = (price: number | null | undefined) =>
     !oddsThreshold || oddsSatisfiesThreshold(price, oddsThreshold);
+  // Carry the server-computed no-vig / line-shopping inputs onto the entry so
+  // the pick rubric can score Line Value + Line-Shopping from REAL numbers.
+  const scoreInputs = (o: OddsOutcome) => ({
+    noVigFair: o.noVigFair ?? null,
+    edge: o.edge ?? null,
+    bookSpread: o.bookSpread ?? null,
+  });
   if (h2h) {
     for (const o of h2h.outcomes || []) {
       if (!mainOk(o.price)) continue;
-      out.push({ ...base, market: "Moneyline", pick: `${teamLabel(o.name)} ML`, odds: o.price });
+      out.push({ ...base, market: "Moneyline", pick: `${teamLabel(o.name)} ML`, odds: o.price, ...scoreInputs(o) });
     }
   }
   if (spreads) {
     for (const o of spreads.outcomes || []) {
       if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-      out.push({ ...base, market: "Spread", pick: `${teamLabel(o.name)}${pt}`, odds: o.price });
+      out.push({ ...base, market: "Spread", pick: `${teamLabel(o.name)}${pt}`, odds: o.price, ...scoreInputs(o) });
     }
   }
   if (totals) {
     for (const o of totals.outcomes || []) {
       if (!mainOk(o.price)) continue;
       const pt = o.point == null ? "" : ` ${o.point}`;
-      out.push({ ...base, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price });
+      out.push({ ...base, market: "Total", pick: `${o.name}${pt}`.trim(), odds: o.price, ...scoreInputs(o) });
     }
   }
 
@@ -1081,6 +1107,13 @@ export type PropPoolEntry = {
   line: number | null;
   side: "Over" | "Under";
   odds: number;
+  // Real cross-book scoring inputs for THIS side (null otherwise — never
+  // fabricated). edge = no-vig value edge in pct points, present only on the
+  // side the server flagged as the +EV side; bookSpread = line-shopping spread
+  // (pct points) for this side. Ground the prop rubric's Line Value +
+  // Line-Shopping sub-scores. Render-only — NEVER sent to the AI.
+  edge?: number | null;
+  bookSpread?: number | null;
   // Real event kickoff (ISO) carried from RealPropEntry. The today-only salvage
   // date-gates each prop by its OWN kickoff, so a repeated matchup (series play)
   // on a future date can't pass a game-label-only check and inherit today's time.
@@ -2146,10 +2179,10 @@ export async function buildChatContext(
             const marketLabel = propMarketLabel(p.market);
             const athleteId = p.athleteId ?? null;
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
             }
           }
         }

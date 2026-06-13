@@ -15,15 +15,33 @@ import {
   getInjuries,
   getMlbBatterSplits,
   getMlbProbables,
+  getOdds,
   getPlayerHistory,
+  getProps,
   getTeamDefense,
+  PROPS_SPORTS,
   searchTeam,
   type TeamDefense,
 } from "@/lib/api";
-import { findPlayerInjury, injuryTone, teamNameMatches } from "@/lib/injuries";
+import {
+  findPlayerInjury,
+  injuryTone,
+  summarizeTeamInjuries,
+  teamNameMatches,
+} from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
 import { InjuryReport } from "@/components/InjuryReport";
+import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import {
+  combinePickScore,
+  injuryFavorProp,
+  playerTrendMomentum,
+  scoreInjury,
+  scoreLineShopping,
+  scoreLineValue,
+  scoreTrend,
+} from "@/lib/pickScore";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
@@ -136,6 +154,38 @@ export default function PropDetailScreen() {
   const hitGame = (v: number) => (isUnder ? v < threshold : v >= threshold);
   const hits = useMemo(() => games.filter((g) => hitGame(g.value)).length, [games, isUnder, threshold]);
   const hitPct = n > 0 ? Math.round((hits / n) * 100) : null;
+
+  // Resolve THIS prop's real +EV edge + line-shopping spread for the pick rubric.
+  // The nav params don't carry them, so re-find the prop from the live feed:
+  // getOdds → this game's event id → getProps → the matching player/line. Edge is
+  // only valid on the server-flagged +EV side; spread is the side-specific value.
+  // Fail-closed to null so the rubric honestly omits Line Value / Line-Shopping
+  // when the prop can't be re-resolved.
+  const propMetaQ = useQuery({
+    queryKey: ["prop-meta", sport, game, player, marketKey, line, side],
+    enabled: !!sport && !!game && !!player && PROPS_SPORTS.includes(sport),
+    staleTime: 5 * 60_000,
+    queryFn: async ({ signal }) => {
+      const odds = await getOdds(sport, signal);
+      const g = odds.find((o) => `${o.awayTeam} @ ${o.homeTeam}` === game);
+      if (!g) return null;
+      const res = await getProps(
+        { sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam },
+        signal,
+      );
+      const match = res.props.find(
+        (pr) =>
+          pr.player === player &&
+          pr.market === marketKey &&
+          (line == null ? pr.line == null : pr.line === line),
+      );
+      if (!match) return null;
+      return {
+        edge: match.evSide === side ? (match.edge ?? null) : null,
+        bookSpread: isUnder ? (match.underSpread ?? null) : (match.overSpread ?? null),
+      };
+    },
+  });
 
   const chartMax = useMemo(() => {
     const vals = games.map((g) => g.value);
@@ -395,6 +445,34 @@ export default function PropDetailScreen() {
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
   const toneColor =
     injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
+
+  // The 5-component pick rubric for THIS prop, every sub-score real-or-null:
+  //  • Trend       — this player's recent hit-rate vs the line, for the picked side
+  //  • Line Value  — the prop's real +EV edge (only on the flagged value side)
+  //  • Line-Shop   — the side's best-vs-median book spread
+  //  • Injury      — how banged-up the opponent is (gentle; Over benefits)
+  //  • Matchup     — null on a prop card (no team moneyline lean applies)
+  const propScore = useMemo(() => {
+    const trend = scoreTrend(
+      playerTrendMomentum(games.map((g) => g.value), line, side),
+    );
+    const edgePct = propMetaQ.data?.edge ?? null;
+    const lineValue = scoreLineValue(edgePct);
+    const lineShopping = scoreLineShopping(propMetaQ.data?.bookSpread ?? null);
+    let injury = null;
+    if (oppName && injuriesQ.data) {
+      const oppTeam = injuriesQ.data.find((t) => teamNameMatches(t.team, oppName));
+      if (oppTeam) {
+        injury = scoreInjury(
+          injuryFavorProp(summarizeTeamInjuries(sport, oppTeam).highCount, side),
+        );
+      }
+    }
+    return combinePickScore(
+      { matchup: null, trend, lineValue, injury, lineShopping },
+      edgePct,
+    );
+  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -723,6 +801,14 @@ export default function PropDetailScreen() {
             caption={`Who's banged up on ${oppName} for ${player}'s ${marketLabel.toLowerCase()}. Key absences can shift this matchup.`}
             framing="facing"
           />
+        ) : null}
+
+        {/* Pick rubric — the 5-component grade for this prop, real-or-null. Shown
+            only when at least one signal is groundable. */}
+        {propScore.composite != null ? (
+          <Section title="PICK GRADE">
+            <ScoreBreakdown data={propScore} variant="full" />
+          </Section>
         ) : null}
 
         {/* Factors to weigh — real numbers where we have them, else what to check */}

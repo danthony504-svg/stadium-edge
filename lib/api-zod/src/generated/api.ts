@@ -39,7 +39,10 @@ export const GetOddsResponseItem = zod.object({
   "book": zod.string(),
   "price": zod.number(),
   "point": zod.number().nullish()
-})).optional().describe('Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.')
+})).optional().describe('Per-bookmaker prices for this outcome (best first); present on main markets for line shopping.'),
+  "noVigFair": zod.number().nullish().describe('Median cross-book no-vig fair win probability for this outcome (0-1). Present only on two-sided main markets with enough two-sided books; null otherwise (never guessed).'),
+  "edge": zod.number().nullish().describe('Value edge in percentage points = noVigFair minus the best price\'s implied probability. Positive means the best price beats the consensus fair value.'),
+  "bookSpread": zod.number().nullish().describe('Line-shopping advantage in percentage points = median implied probability across books minus the best (lowest) implied probability for this outcome. Higher means more price dispersion to exploit.')
 }))
 }))
 })

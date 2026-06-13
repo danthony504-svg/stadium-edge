@@ -10,12 +10,14 @@ import { AiPickCard } from "@/components/AiPickCard";
 import { GamePropsSection } from "@/components/GamePropsSection";
 import { InjuryReport } from "@/components/InjuryReport";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
+import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { buildChatContext, getFightAnalysis, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
+import { attachPickScores } from "@/lib/pickScoreContext";
 import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -266,9 +268,18 @@ function AiGamePicks({ game }: { game: OddsGame }) {
       const parsed = parsePicks(full, context.realOdds, propPool, gameMeta).filter((p) =>
         sameGame(p.game, gameLabel),
       );
+      // Attach the 5-component pick rubric (real-or-null) so each card and the
+      // full breakdown below can show Matchup / Trend / Line Value / Injury /
+      // Line-Shopping grounded in this game's real odds + matchup feeds.
+      const scored = attachPickScores(parsed, {
+        realOdds: context.realOdds,
+        propPool,
+        matchupHistory: context.matchupHistory,
+        matchupInjuries: context.matchupInjuries,
+      });
       // Only commit if this is still the latest in-flight request (a refresh or
       // unmount aborts the previous controller and swaps abortRef).
-      if (abortRef.current === controller) setPicks(parsed);
+      if (abortRef.current === controller) setPicks(scored);
     } catch {
       if (abortRef.current === controller && !controller.signal.aborted) setError(true);
     } finally {
@@ -363,6 +374,18 @@ function AiGamePicks({ game }: { game: OddsGame }) {
           })}
         </ScrollView>
       )}
+
+      {/* Full 5-component grade for the top recommended pick — real-or-null bars
+          + combined Grade / Confidence / Edge. Shown only when at least one
+          signal is groundable. */}
+      {!loading && picks.length > 0 && picks[0].scores && picks[0].scores.composite != null ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 11, letterSpacing: 0.5 }}>
+            TOP PICK GRADE — {picks[0].pick}
+          </Text>
+          <ScoreBreakdown data={picks[0].scores} variant="full" />
+        </View>
+      ) : null}
 
       <Pressable
         onPress={() =>

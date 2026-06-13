@@ -41,6 +41,7 @@ import {
 } from "@/components/PickCard";
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
+import { attachPickScores } from "@/lib/pickScoreContext";
 import {
   confidenceSatisfiesThreshold,
   deriveConfidenceScore,
@@ -1449,6 +1450,17 @@ export default function CoachScreen() {
           finalContent =
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
+        // Grade each resolved leg with the 5-component pick rubric, from the
+        // SAME real context the legs were resolved against (odds carry edge +
+        // book-spread, props carry their +EV/spread; matchup history + injuries
+        // ground the trend/matchup/injury sub-scores). Honest-or-null: any
+        // signal that can't be grounded for a leg stays absent on its card.
+        picks = attachPickScores(picks, {
+          realOdds: context.realOdds,
+          propPool: mergedPropPool,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+        });
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
