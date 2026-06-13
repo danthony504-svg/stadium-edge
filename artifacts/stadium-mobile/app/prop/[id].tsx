@@ -43,6 +43,7 @@ import {
   scoreTrend,
 } from "@/lib/pickScore";
 import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
+import { computeHrFlags, type HrFlags } from "@/lib/hrFlags";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import { SPORTS } from "@/lib/sports";
@@ -511,6 +512,32 @@ export default function PropDetailScreen() {
     return s.score == null ? null : s;
   }, [isHrMarket, realMlb]);
 
+  // HR GREEN / RED FLAGS — a scannable checklist mirroring the user's HR rubric,
+  // lit only from the SAME real signals as the score. Wind out/in flags can't be
+  // judged (feed has no wind direction) and are omitted with a note.
+  const hrFlags = useMemo<HrFlags | null>(() => {
+    if (!isHrMarket) return null;
+    const m = realMlb;
+    if (!m) return null;
+    const f = computeHrFlags({
+      hrPer9: m.pitcher?.hrPer9 ?? null,
+      oppOPS: m.pitcher?.oppOPS ?? null,
+      flyBallPct: m.pitcher?.flyBallPct ?? null,
+      kPer9: m.pitcher?.kPer9 ?? null,
+      hardHitPctAllowed: m.pitcher?.hardHitPctAllowed ?? null,
+      barrelPctAllowed: m.pitcher?.barrelPctAllowed ?? null,
+      battedBallEvents: m.pitcher?.battedBallEvents ?? null,
+      batterHand: m.platoon?.bats ?? null,
+      pitcherThrows: m.pitcher?.throws ?? null,
+      hrIndex: m.ballpark?.hrIndex ?? null,
+      venue: m.ballpark?.venue ?? null,
+      tempF: m.ballpark?.tempF ?? null,
+      dome: m.ballpark?.dome ?? null,
+    });
+    // Nothing to show if no real flag lit AND no wind note to surface.
+    return f.green.length === 0 && f.red.length === 0 && !f.windOmitted ? null : f;
+  }, [isHrMarket, realMlb]);
+
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
   const toneColor =
     injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
@@ -883,6 +910,11 @@ export default function PropDetailScreen() {
         {/* HR Target Score — MLB batter home-run props only, real-data blend */}
         {hrScore ? <HrTargetScoreCard data={hrScore} /> : null}
 
+        {/* HR Green/Red Flags — the rubric checklist (real-data only). Rendered
+            independently of the score so it still shows in the rare case where no
+            weighted-score factor is present but a flag is computable. */}
+        {hrFlags ? <HrFlagsCard flags={hrFlags} /> : null}
+
         {/* Factors to weigh — real numbers where we have them, else what to check */}
         <Section title="FACTORS TO WEIGH">
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16, marginBottom: 2 }}>
@@ -1071,6 +1103,76 @@ function HrTargetScoreCard({ data }: { data: HrScore }) {
           Not in tonight's feed (excluded, not estimated): {excluded.map((f) => f.label).join(", ")}.
         </Text>
       ) : null}
+    </View>
+  );
+}
+
+// HR GREEN / RED FLAGS card — a scannable checklist mirroring the user's HR
+// rubric. A flag lights ONLY when tonight's REAL data crosses the threshold;
+// a value between green/red thresholds lights nothing, and any missing datum is
+// silently skipped (never guessed). Rendered on its own so it shows even when
+// the weighted HR Target Score has no present factors.
+function HrFlagsCard({ flags }: { flags: HrFlags }) {
+  const colors = useColors();
+  const hasFlags = flags.green.length > 0 || flags.red.length > 0;
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 14,
+        gap: 10,
+        marginBottom: 16,
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 }}>
+        HR GREEN / RED FLAGS
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+        Real matchup conditions for this home-run spot — a flag lights only when tonight's data crosses the threshold,
+        never on a guess.
+      </Text>
+      {flags.green.map((fl) => (
+        <FlagRow key={fl.key} tone={colors.success} icon="check-circle" label={fl.label} value={fl.value} />
+      ))}
+      {flags.red.map((fl) => (
+        <FlagRow key={fl.key} tone={colors.destructive} icon="alert-circle" label={fl.label} value={fl.value} />
+      ))}
+      {!hasFlags ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+          No strong green or red HR flags in tonight's data — a neutral spot.
+        </Text>
+      ) : null}
+      {flags.windOmitted ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 15 }}>
+          Wind direction isn't in our feed, so the "wind blowing out/in" flags are omitted (never guessed).
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+// One green/red HR flag line: a colored icon, the rubric label, and the REAL
+// value that lit it.
+function FlagRow({
+  tone,
+  icon,
+  label,
+  value,
+}: {
+  tone: string;
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  value: string;
+}) {
+  const colors = useColors();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <Feather name={icon} size={14} color={tone} />
+      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12, flex: 1 }}>{label}</Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{value}</Text>
     </View>
   );
 }
