@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   contextDepthForLegs,
+  focalSportsFromText,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority.ts";
 
@@ -62,6 +63,22 @@ test("focal game's players survive the 40-player cap on a busy slate", () => {
     firstMlbIdx === -1 || lastNbaIdx < firstMlbIdx,
     "all named-sport (NBA) players rank ahead of any MLB player",
   );
+});
+
+test("focalSportsFromText recognizes World Cup / FIFA as soccer", () => {
+  // Without these synonyms a "World Cup" ask resolved to no focal sport, so the
+  // soccer h2h pool was never floated and got sliced out by the realOdds cap
+  // (soccer iterates 8th) — leaving the coach with WC props but no match-winner
+  // odds ("I don't have match winner odds posted for those games").
+  assert.ok(
+    focalSportsFromText("What are some underdogs to look at in the World Cup?").has("soccer"),
+    "\"World Cup\" must focus the soccer pool",
+  );
+  assert.ok(focalSportsFromText("fifa underdogs tonight").has("soccer"), "\"fifa\" must focus soccer");
+  // Established league synonyms still work.
+  assert.ok(focalSportsFromText("champions league value bets").has("soccer"));
+  // Unrelated asks must NOT spuriously focus soccer.
+  assert.ok(!focalSportsFromText("give me an NBA parlay").has("soccer"));
 });
 
 test("with no focal game, MLB players keep priority (platoon coverage preserved)", () => {

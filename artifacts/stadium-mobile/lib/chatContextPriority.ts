@@ -11,7 +11,7 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   wnba: ["wnba"],
   nba: ["nba"],
   nhl: ["nhl", "hockey"],
-  soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl"],
+  soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl", "world cup", "fifa"],
   ufc: ["ufc", "mma"],
   tennis: ["tennis", "atp", "wta"],
   nfl: ["nfl"],
