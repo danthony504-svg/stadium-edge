@@ -45,10 +45,10 @@ import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStat
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import { attachPickScores } from "@/lib/pickScoreContext";
+import { americanToImplied, winChancePct } from "@/lib/pickScore";
 import {
   confidenceSatisfiesThreshold,
   deriveConfidenceScore,
-  deriveVariance,
   describeConfidenceThreshold,
   parseConfidenceThreshold,
 } from "@/lib/confidence";
@@ -80,6 +80,7 @@ import {
   type CoachBuildStash,
   type GameMeta,
   type PropPoolEntry,
+  type RealOddsEntry,
   type RealPropEntry,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
@@ -92,6 +93,82 @@ import {
   shouldAbortForHandoff,
   shouldHandOffBuild,
 } from "@/lib/backgroundBuild";
+
+// A leg whose de-vigged win chance is at or below this reads as a coin flip — the
+// only legs worth leaning onto a safer rung (clear favorites need no cushion).
+const COIN_FLIP_MAX_WIN = 56;
+
+// Lean a COIN-FLIP moneyline / player-prop leg onto its safer cushion rung so its
+// win-chance Confidence comes up. Grade (value) may drop to a C — that's the
+// intended trade when the user is asking for win probability over value. STRICTLY
+// honest: the cushion comes from altOptions (already REAL posted rungs, never
+// invented), and we only swap when (a) the main leg is a genuine coin flip and
+// (b) the cushion's REAL de-vigged win chance is strictly higher — so a swap can
+// never lower the displayed confidence or fabricate a number. When the cushion's
+// real edge can't be found, or it isn't actually safer, the main pick is left
+// untouched. Scores are re-derived from the swapped rung by attachPickScores, so
+// the card + slip leg + confidence all stay consistent with what was emitted.
+function leanCoinFlipToCushion(
+  picks: ParsedPick[],
+  realOdds: RealOddsEntry[],
+  propPool: PropPoolEntry[],
+): ParsedPick[] {
+  // REAL backing edge of a resolved GAME leg (exact game/market/pick match, the
+  // same identity parsePicks copied verbatim). null when no real edge is posted.
+  const gameEdge = (game: string, market: string, pick: string): number | null =>
+    realOdds.find((r) => r.game === game && r.market === market && r.pick === pick)?.edge ?? null;
+  // REAL backing edge of a resolved PROP leg (same player+side, preferring the
+  // exact line — the rung machinery's own match order).
+  const propEdge = (
+    game: string,
+    player: string | undefined,
+    side: string | undefined,
+    line: number | null | undefined,
+  ): number | null => {
+    const same = (e: PropPoolEntry) => e.game === game && e.player === player && e.side === side;
+    return (propPool.find((e) => same(e) && e.line === line) ?? propPool.find(same))?.edge ?? null;
+  };
+  return picks.map((p) => {
+    const cushion = p.altOptions?.cushion;
+    if (!cushion) return p; // no real safer rung to lean onto
+    const isML = /\b(?:ml|moneyline)\b/i.test(p.market);
+    if (!isML && !p.isProp) return p; // only moneylines + player props
+    const mainWin = winChancePct(
+      p.odds,
+      p.isProp ? propEdge(p.game, p.player, p.propSide, p.propLine) : gameEdge(p.game, p.market, p.pick),
+    );
+    if (mainWin == null || mainWin > COIN_FLIP_MAX_WIN) return p; // not a coin flip
+    const cMarket = cushion.market ?? p.market;
+    const cushionEdge = p.isProp
+      ? propEdge(p.game, p.player, p.propSide, cushion.line)
+      : gameEdge(p.game, cMarket, cushion.pick);
+    const cWin = winChancePct(cushion.odds, cushionEdge);
+    if (cWin == null || cushionEdge == null || cWin <= mainWin) return p; // only swap when confidence truly rises
+    // Swap the cushion in as the main leg. CRITICAL for honesty: rewrite the EDGE
+    // note to the cushion's OWN real numbers (its de-vigged win chance, the book's
+    // implied %, and the real edge gap from realOdds/propPool) — the original
+    // note described the coin-flip rung, and the card + the confidence filter both
+    // read this note via parseEdgeStats, so leaving it stale would apply the old
+    // rung's edge to the new price and overstate the win chance. With it rewritten,
+    // the card, the confidence filter, and attachPickScores all agree on the
+    // cushion's real win chance. Keep only the higher-payout value rung (if any) as
+    // the alternative; the cushion is now the main so it drops out of altOptions.
+    const cushionImplied = Math.round((americanToImplied(cushion.odds) ?? 0) * 100);
+    const leanedEdge =
+      `Model ~${cWin}% win chance, implies ${cushionImplied}%, ` +
+      `${cushionEdge >= 0 ? "+" : ""}${cushionEdge.toFixed(1)}% edge ` +
+      `(leaned to the safer cushion rung for a higher win chance).`;
+    return {
+      ...p,
+      pick: cushion.pick,
+      odds: cushion.odds,
+      market: cMarket,
+      edge: leanedEdge,
+      ...(p.isProp ? { propLine: cushion.line } : {}),
+      altOptions: p.altOptions?.value ? { value: p.altOptions.value } : undefined,
+    };
+  });
+}
 
 type UIMessage = {
   role: "user" | "assistant";
@@ -1311,23 +1388,40 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        // Coin-flip cushion lean (win-chance asks only). When the user is asking
+        // for a confidence BAND, win probability is what matters — so default any
+        // coin-flip moneyline / prop onto its safer REAL cushion rung when that
+        // rung's de-vigged win chance is genuinely higher (Grade may drop to a C;
+        // the grade floor is off under a confidence ask, so the safer leg survives
+        // and the confidence filter below can clear it). Carved out of the modes
+        // whose own rung intent must win: explicit odds bands, +/- sign locks, an
+        // alt-rung bias, and value / longshot asks. Runs BEFORE the filter so the
+        // filter sees the leaned (higher) confidence; never fabricates a rung.
+        if (
+          confidenceThreshold &&
+          !oddsThreshold &&
+          !altSign &&
+          !altRungBias &&
+          !wantsValueRungs &&
+          !wantsLongshot
+        ) {
+          picks = leanCoinFlipToCushion(picks, context.realOdds, mergedPropPool);
+        }
         // Confidence-threshold lock: drop any resolved leg whose DERIVED confidence
-        // (the same 0–10 score the card shows, computed from the leg's stated edge
-        // + variance) falls outside the requested band. This is the hard guarantee
-        // — the server prompt steers the model toward high-edge legs, but only this
-        // filter makes EVERY rendered card actually sit in the band. A leg with no
-        // stated edge derives a null score (it would read "MARKET PRICE") and is
-        // excluded — there is no confidence to verify. Never fabricates or inflates;
-        // it only drops real, resolved legs that don't clear the bar.
+        // (the same 0–10 score the card shows, now the leg's de-vigged WIN CHANCE =
+        // implied price + real edge) falls outside the requested band. This is the
+        // hard guarantee — the server prompt steers the model toward high-win-chance
+        // legs (heavy chalk / deep cushions), but only this filter makes EVERY
+        // rendered card actually sit in the band. A leg with no real price+edge to
+        // de-vig derives a null score (it would read "MARKET PRICE") and is excluded
+        // — there is no win chance to verify. Never fabricates or inflates; it only
+        // drops real, resolved legs that don't clear the bar.
         let confidenceNote = "";
         if (confidenceThreshold) {
           const before = picks.length;
           picks = picks.filter((p) =>
             confidenceSatisfiesThreshold(
-              deriveConfidenceScore(
-                parseEdgeStats(p.edge).edge,
-                deriveVariance(p.odds, p.isProp),
-              ),
+              deriveConfidenceScore(parseEdgeStats(p.edge).edge, p.odds),
               confidenceThreshold,
             ),
           );
@@ -1336,8 +1430,8 @@ export default function CoachScreen() {
             const band = describeConfidenceThreshold(confidenceThreshold);
             confidenceNote =
               picks.length === 0
-                ? `\n\n_None of tonight's grounded legs project a big enough edge to reach ${band} confidence right now — that score is derived from each leg's real projected edge, and I won't inflate an edge to fake the number. Try a lower confidence or a different market._`
-                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} that project to ${band} confidence; dropped ${dropped} below that bar — I won't pad with lower-confidence or edgeless legs._`;
+                ? `\n\n_None of tonight's grounded legs project a high enough win chance to reach ${band} confidence right now — that score is each leg's real de-vigged win probability, and I won't inflate a price or edge to fake the number. Try a lower confidence or a different market._`
+                : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} that project to ${band} confidence; dropped ${dropped} below that win-chance bar — I won't pad with lower-confidence or edgeless legs._`;
           }
         }
         // Explicit "+ alt" / "- alt" sign lock: drop any resolved leg whose real

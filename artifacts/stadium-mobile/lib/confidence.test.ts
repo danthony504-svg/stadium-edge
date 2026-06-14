@@ -17,21 +17,29 @@ test("deriveVariance: props are High, longshots High, heavy favs Low", () => {
   assert.equal(deriveVariance(undefined, false), "Medium");
 });
 
-test("deriveConfidenceScore: null edge -> null score", () => {
-  assert.equal(deriveConfidenceScore(null, "Medium"), null);
+test("deriveConfidenceScore: null edge -> null score (no de-vig basis)", () => {
+  assert.equal(deriveConfidenceScore(null, -110), null);
 });
 
-test("deriveConfidenceScore: matches the 5.5 + gap*0.45 +/- variance formula", () => {
-  // +6.8% edge, Medium variance -> 5.5 + 3.06 = 8.56 -> 8.6 (the reported card)
-  assert.equal(deriveConfidenceScore(6.8, "Medium"), 8.6);
-  // Low variance adds 0.6
-  assert.equal(deriveConfidenceScore(6.8, "Low"), 9.2);
-  // High variance subtracts 0.6
-  assert.equal(deriveConfidenceScore(6.8, "High"), 8.0);
-  // Clamped to 9.9 ceiling
-  assert.equal(deriveConfidenceScore(40, "Low"), 9.9);
-  // Clamped to 1.0 floor
-  assert.equal(deriveConfidenceScore(-40, "High"), 1);
+test("deriveConfidenceScore: null odds -> null score (no price to de-vig)", () => {
+  assert.equal(deriveConfidenceScore(2.0, null), null);
+  assert.equal(deriveConfidenceScore(2.0, undefined), null);
+});
+
+test("deriveConfidenceScore: win chance = implied(odds) + edge, on the 0-10 scale", () => {
+  // -110 (52.38% implied) + 6.8 edge = 59.18 -> 59% -> 5.9/10.
+  assert.equal(deriveConfidenceScore(6.8, -110), 5.9);
+  // A coin-flip price with no edge honestly reads ~5/10, never inflated.
+  assert.equal(deriveConfidenceScore(0, -110), 5.2);
+  // A heavy favorite (-300 = 75% implied) + 1.0 edge = 76% -> 7.6/10.
+  assert.equal(deriveConfidenceScore(1.0, -300), 7.6);
+});
+
+test("deriveConfidenceScore: clamped to the 5-95% win-chance band", () => {
+  // Huge favorite + edge clamps at 95% -> 9.5/10 (never a certainty).
+  assert.equal(deriveConfidenceScore(10, -2000), 9.5);
+  // Longshot with a negative edge floors at 5% -> 0.5/10.
+  assert.equal(deriveConfidenceScore(-20, 800), 0.5);
 });
 
 test("parseConfidenceThreshold: the reported user phrasing", () => {

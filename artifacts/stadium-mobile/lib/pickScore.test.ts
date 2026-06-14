@@ -16,6 +16,7 @@ import {
   scoreMatchup,
   scoreTrend,
   teamTrendMomentum,
+  winChancePct,
   type PickSubScores,
 } from "./pickScore.ts";
 
@@ -25,6 +26,19 @@ test("americanToImplied: standard conversions", () => {
   assert.equal(Math.round((americanToImplied(200) as number) * 1000), 333);
   assert.equal(americanToImplied(0), null);
   assert.equal(americanToImplied(null), null);
+});
+
+test("winChancePct: implied(odds) + edge, honest-null + clamped 5-95", () => {
+  // -110 (52.38% implied) + 6.8 edge = 59% (de-vigged fair win chance).
+  assert.equal(winChancePct(-110, 6.8), 59);
+  // A coin-flip price with no edge reads ~50%, not an inflated number.
+  assert.equal(winChancePct(-110, 0), 52);
+  // No real price OR no real edge -> null (we never assert a win chance).
+  assert.equal(winChancePct(null, 6.8), null);
+  assert.equal(winChancePct(-110, null), null);
+  // Clamped so nothing reads as a certainty / impossibility.
+  assert.equal(winChancePct(-5000, 5), 95);
+  assert.equal(winChancePct(1000, -20), 5);
 });
 
 test("scoreLineValue: null edge -> null; mirrors 5.5 + edge*0.45", () => {
@@ -129,12 +143,14 @@ test("combinePickScore: renormalizes over present scores only", () => {
     injury: 6,
     lineShopping: 5,
   };
-  const full = combinePickScore(all, 7.8);
+  const full = combinePickScore(all, 7.8, -110);
   // Weighted: .25*8 + .2*7 + .3*9 + .15*6 + .1*5 = 2+1.4+2.7+0.9+0.5 = 7.5
   assert.equal(full.composite, 7.5);
   assert.equal(full.grade, "B+");
   assert.equal(full.edgePct, 7.8);
-  assert.ok(full.confidencePct! > 0 && full.confidencePct! <= 95);
+  // Confidence is the de-vigged win chance, INDEPENDENT of the value composite:
+  // implied(-110)=52.38% + 7.8 edge = 60%.
+  assert.equal(full.confidencePct, 60);
 
   // Only line value present -> composite equals that score (renormalized to 1).
   const partial = combinePickScore(

@@ -567,8 +567,9 @@ export default function PropDetailScreen() {
     return combinePickScore(
       { matchup: null, trend, lineValue, injury, lineShopping },
       edgePct,
+      odds,
     );
-  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport]);
+  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

@@ -5,7 +5,7 @@ import { LayoutAnimation, Platform, Pressable, Text, UIManager, View } from "rea
 
 import { useColors } from "@/hooks/useColors";
 import { useBetSlip } from "@/context/BetSlipContext";
-import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
+import { deriveConfidenceScore } from "@/lib/confidence";
 import {
   chooseMlCushionTwoBand,
   ML_CUSHION_MIN_PTS,
@@ -13,7 +13,7 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
-import type { CombinedPickScore } from "@/lib/pickScore";
+import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -362,8 +362,9 @@ export function parseEdgeStats(edge?: string): {
   return { projected, implied, edge: edgeGap };
 }
 
-// AI Grade is just the confidence score re-expressed as a familiar letter — same
-// underlying signal, no new data. Null score (no edge) means no grade.
+// AI Grade is the VALUE rating re-expressed as a familiar letter — the leg's
+// edge-based value score (NOT its win-chance confidence; the two are decoupled).
+// Null score (no edge) means no grade.
 function deriveGrade(score: number | null): string | null {
   if (score === null) return null;
   if (score >= 9.0) return "A+";
@@ -419,20 +420,22 @@ export function EdgeReadout({
 }) {
   const colors = useColors();
   const { edge: gap } = parseEdgeStats(edge);
-  const variance = deriveVariance(odds, isProp);
-  // AI Grade + Confidence are one derived rating of the model's OWN stated edge
-  // (nudged by the bet's variance), re-expressed as a 0–10 score and a letter.
-  const score = deriveConfidenceScore(gap, variance);
-  const grade = deriveGrade(score);
+  // Grade rates VALUE (the edge-based line-value score); Confidence is the leg's
+  // de-vigged WIN CHANCE (implied price + edge). The two are decoupled, so a
+  // strong-value coin flip reads a high grade but a ~50% confidence. Confidence
+  // is null when there's no real price to de-vig (it reads "—").
+  const valueScore = scoreLineValue(gap);
+  const grade = deriveGrade(valueScore);
+  const confScore = deriveConfidenceScore(gap, odds);
   const edgeText = gap === null ? null : `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%`;
   const gapColor =
     gap === null ? colors.mutedForeground : gap >= 0 ? colors.success : colors.destructive;
   const gradeColor =
-    score === null
+    valueScore === null
       ? colors.mutedForeground
-      : score >= 7
+      : valueScore >= 7
         ? colors.success
-        : score >= 5.5
+        : valueScore >= 5.5
           ? colors.primary
           : colors.mutedForeground;
 
@@ -498,12 +501,19 @@ export function EdgeReadout({
       </View>
     );
     if (gap === null) return null;
-    const s = score ?? 0;
+    const vs = valueScore ?? 0;
     return (
       <View style={{ flexDirection: "row", gap: 8 }}>
-        {cell("award", "AI Grade", grade ?? "—", gradeColor, gradeBlurb(s))}
+        {cell("award", "AI Grade", grade ?? "—", gradeColor, gradeBlurb(vs))}
         {cell("trending-up", "Edge", edgeText ?? "—", gapColor, edgeBlurb(gap))}
-        {cell("target", "Confidence", s.toFixed(1), colors.primary, confidenceBlurb(s), "/10")}
+        {cell(
+          "target",
+          "Confidence",
+          confScore === null ? "—" : String(Math.round(confScore * 10)),
+          colors.primary,
+          confScore === null ? "Win chance" : confidenceBlurb(confScore),
+          confScore === null ? undefined : "%",
+        )}
       </View>
     );
   }
@@ -530,7 +540,11 @@ export function EdgeReadout({
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
       {chip(`AI Grade: ${grade ?? "—"}`, gradeColor, gradeColor)}
       {chip(`Edge: ${edgeText ?? "—"}`, gapColor, gapColor)}
-      {chip(`Confidence: ${(score ?? 0).toFixed(1)}/10`, colors.primary, colors.border)}
+      {chip(
+        `Confidence: ${confScore === null ? "—" : `${Math.round(confScore * 10)}%`}`,
+        colors.primary,
+        colors.border,
+      )}
     </View>
   );
 }

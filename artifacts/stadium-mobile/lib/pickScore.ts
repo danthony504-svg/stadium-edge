@@ -57,6 +57,23 @@ export function americanToImplied(american: number | null | undefined): number |
   return american > 0 ? 100 / (american + 100) : -american / (-american + 100);
 }
 
+// The de-vigged fair WIN CHANCE of the picked rung, as a 0–100 percentage. This
+// is the price's implied probability PLUS the real no-vig edge (edge = fair prob
+// minus implied prob, in pct points), i.e. the honest fair win probability of
+// the bet. This is the CONFIDENCE metric — deliberately DISTINCT from Grade,
+// which measures VALUE. Null when we lack a real price or a real edge: without a
+// de-vig basis we never assert a win chance. Clamped 5–95 so nothing reads as a
+// certainty. A coin-flip price (~ -110) with no edge is exactly the kind of leg
+// that returns ~50, not an inflated number.
+export function winChancePct(
+  oddsAmerican: number | null | undefined,
+  edgePct: number | null | undefined,
+): number | null {
+  const implied = americanToImplied(oddsAmerican);
+  if (implied == null || edgePct == null || !Number.isFinite(edgePct)) return null;
+  return clamp(Math.round(implied * 100 + edgePct), 5, 95);
+}
+
 // ---------- Primitive scorers (normalized input -> 1-10 | null) ----------
 
 // Line Value: the no-vig edge in pct points, SIGNED toward the picked side
@@ -249,13 +266,17 @@ export function gradeFromComposite(composite: number | null): string | null {
   return "F";
 }
 
-// Roll the present sub-scores into a composite + grade + confidence%. edgePct is
-// passed through from the real line-value edge — NOT manufactured from the
-// composite. confidencePct maps the 1-10 composite onto a 0-100 scale, capped at
-// 95 so nothing ever reads as false certainty.
+// Roll the present sub-scores into a composite + grade + confidence%. Grade comes
+// from the composite (a VALUE rating). Confidence is DECOUPLED from the grade: it
+// is the de-vigged fair WIN CHANCE (winChancePct = implied price + real edge), so
+// a strong-value pick that is still a coin flip honestly reads a high grade but a
+// ~50% confidence. edgePct is passed through from the real line-value edge — NOT
+// manufactured from the composite. confidencePct is null when there is no real
+// price+edge to de-vig (never inflated to match the grade).
 export function combinePickScore(
   scores: PickSubScores,
   edgePct: number | null,
+  oddsAmerican?: number | null,
 ): CombinedPickScore {
   let wSum = 0;
   let acc = 0;
@@ -267,13 +288,11 @@ export function combinePickScore(
     }
   });
   const composite = wSum > 0 ? round1(acc / wSum) : null;
-  const confidencePct =
-    composite == null ? null : clamp(Math.round(composite * 9), 5, 95);
   return {
     scores,
     composite,
     grade: gradeFromComposite(composite),
-    confidencePct,
+    confidencePct: winChancePct(oddsAmerican, edgePct),
     edgePct: edgePct != null && Number.isFinite(edgePct) ? round1(edgePct) : null,
   };
 }

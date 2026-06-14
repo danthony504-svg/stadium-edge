@@ -152,7 +152,8 @@ function scoreGamePick(
   }
 
   const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping };
-  const combined = combinePickScore(scores, edgePct);
+  // Pass the leg's real price so Confidence reads its de-vigged win chance.
+  const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
 }
 
@@ -183,7 +184,8 @@ function scorePropPick(
     injury: null,
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
   };
-  const combined = combinePickScore(scores, edgePct);
+  // Pass the prop's real price so Confidence reads its de-vigged win chance.
+  const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
 }
 

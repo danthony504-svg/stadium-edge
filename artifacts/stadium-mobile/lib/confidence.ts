@@ -1,15 +1,19 @@
 // Single source of truth for the Coach's 0–10 Confidence score and the
-// "N confidence"/"9 to 10 confidence" request bound. The score is NOT a free
-// number the model invents — it is DERIVED from the model's OWN stated edge gap
-// (projected % minus the book's implied %), nudged by the bet's variance. So a
-// "9–10 confidence" ask is really a request for legs that genuinely project a
-// large edge; the honest enforcement is to keep only legs that clear that bar
-// and to NEVER inflate an edge to manufacture a higher score.
+// "N confidence"/"9 to 10 confidence" request bound. Confidence is the leg's
+// de-vigged fair WIN CHANCE (the price's implied probability plus its real edge),
+// expressed on the 0–10 scale — so 9–10 confidence ≈ a ~90%+ win chance. It is
+// DECOUPLED from Grade (which rates VALUE): a strong-value coin flip reads a high
+// grade but a ~5/10 confidence. So a "9–10 confidence" ask is a request for legs
+// that genuinely project a high win chance (heavy chalk / deep cushions), NOT
+// merely high edge. The number is never invented — no real price+edge to de-vig
+// means a null score, and we NEVER inflate to manufacture a higher one.
 //
 // PickCard.tsx renders the badge from deriveConfidenceScore(); coach.tsx filters
 // resolved legs with the SAME function so every card it shows truly meets the
 // requested band. Keep that single source of truth — do not re-derive the score
 // anywhere else.
+
+import { winChancePct } from "./pickScore.ts";
 
 export type Variance = "High" | "Medium" | "Low";
 
@@ -26,22 +30,19 @@ export function deriveVariance(odds?: number, isProp?: boolean): Variance {
   return "Medium";
 }
 
-// Confidence is a 0–10 score for HOW MUCH edge the model claimed on this leg —
-// derived purely from the edge gap the model itself stated (nudged by the bet's
-// variance), so it never asserts more certainty than the model's own numbers.
-// No stated edge = no score (the leg is a market-price play with nothing to
-// grade). Centered at 5.5 with ~0.45 pt per point of edge, clamped to 1.0–9.9 so
-// nothing ever reads as a false certainty.
+// Confidence is the leg's de-vigged fair WIN CHANCE on a 0–10 scale: the price's
+// implied probability plus the leg's real edge gap, divided by 10 (so 58% -> 5.8).
+// It needs BOTH a real price (the leg's American odds) and a real edge gap to
+// de-vig — without either we cannot ground a win chance and return null (the leg
+// reads "Market price", and a null score can never satisfy a confidence floor).
+// Never inflated: a coin-flip price with a thin edge honestly reads ~5/10.
 export function deriveConfidenceScore(
   gap: number | null,
-  variance: Variance,
+  oddsAmerican: number | null | undefined,
 ): number | null {
-  if (gap === null) return null;
-  let score = 5.5 + gap * 0.45;
-  if (variance === "High") score -= 0.6;
-  else if (variance === "Low") score += 0.6;
-  score = Math.max(1, Math.min(9.9, score));
-  return Math.round(score * 10) / 10;
+  const wc = winChancePct(oddsAmerican, gap);
+  if (wc === null) return null;
+  return Math.round((wc / 10) * 10) / 10;
 }
 
 export type ConfidenceThreshold = { min: number; max: number };

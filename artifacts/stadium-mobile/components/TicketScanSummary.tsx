@@ -9,8 +9,7 @@ import {
   type TicketLegRef,
 } from "@/lib/ticketScan";
 import { parseEdgeStats } from "@/components/PickCard";
-import { deriveConfidenceScore, deriveVariance } from "@/lib/confidence";
-import { slipPropPlayerName } from "@/lib/slipPlayer";
+import { deriveConfidenceScore } from "@/lib/confidence";
 
 export type TicketScanLeg = {
   pick: string;
@@ -35,13 +34,9 @@ export function TicketScanSummary({
   const scan = computeTicketScan(
     legs.map<TicketLeg>((l) => {
       const edgePct = parseEdgeStats(l.edge).edge;
-      // Grade each leg with the SAME edge-derived confidence the pick cards use,
-      // so "Highest Confidence Leg" stays consistent with the rest of the app.
-      const isProp = slipPropPlayerName(l.pick) != null;
-      const confidence =
-        edgePct == null
-          ? null
-          : deriveConfidenceScore(edgePct, deriveVariance(l.odds, isProp));
+      // Grade each leg with the SAME win-chance confidence the pick cards use, so
+      // "Highest Confidence Leg" stays consistent with the rest of the app.
+      const confidence = deriveConfidenceScore(edgePct, l.odds);
       return { pick: l.pick, odds: l.odds, edgePct, confidence };
     }),
   );
