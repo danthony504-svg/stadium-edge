@@ -4,10 +4,17 @@ description: How Apple SSO is wired on the Expo auth screens and the non-obvious
 ---
 
 Mobile "Sign in with Apple" was added to satisfy App Store Guideline 4.8 (app offers
-third-party/Google login via Clerk, so it must offer an equivalent Apple option).
+third-party/social login via Clerk, so it must offer an equivalent Apple option).
 
-Implementation = WEB OAuth via Clerk Expo `useSSO().startSSOFlow({ strategy: "oauth_apple" })`,
-mirroring the existing Google button (`AppleAuthButton` next to `GoogleAuthButton`).
+**UPDATE — Google sign-in REMOVED (mobile):** per user request the `GoogleAuthButton`
+(and `GoogleG` glyph) were deleted from `components/auth.tsx` and pulled from welcome/
+sign-in/sign-up. Apple + email/password remain. Apple still satisfies 4.8 because it is
+itself a third-party login. Do NOT re-add Google as a "parity" requirement — there is no
+Google button to mirror anymore. Web (stadium-edge) Google is a separate concern: it's a
+Clerk Auth-pane provider toggle on the hosted `<SignIn>/<SignUp>`, not code — disable it
+there to remove it from web.
+
+Implementation = WEB OAuth via Clerk Expo `useSSO().startSSOFlow({ strategy: "oauth_apple" })`.
 
 **Why web OAuth, not native `expo-apple-authentication`:** web OAuth is JS-only — it needs
 NO native entitlement (`usesAppleSignIn`), NO new package, and NO native rebuild, and it
@@ -20,8 +27,7 @@ cannot enable it programmatically — the user must toggle it. Until then the bu
 the flow errors on press.
 
 **How to apply:**
-- 4.8 equivalence = Apple must appear EVERYWHERE Google does. Currently rendered on
-  `welcome.tsx`, `sign-in.tsx`, AND `sign-up.tsx`. If a new social-login surface is added, add Apple too.
+- Apple is currently rendered on `welcome.tsx`, `sign-in.tsx`, AND `sign-up.tsx`. If any new
+  third-party/social-login surface is added, add Apple alongside it to keep 4.8 compliance.
 - Button styling follows Apple guidelines: white button + black Apple glyph + "Continue with Apple"
   (white is the Apple-approved style for dark backgrounds; the auth UI is dark navy).
-- Keep it in lockstep with `GoogleAuthButton` (same SSO/session/navigate logic).

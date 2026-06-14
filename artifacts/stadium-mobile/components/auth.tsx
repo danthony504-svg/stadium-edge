@@ -277,30 +277,6 @@ export function AuthDivider() {
   );
 }
 
-// Multicolor Google "G" mark.
-function GoogleG({ size = 18 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 48 48">
-      <Path
-        fill="#FFC107"
-        d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
-      />
-      <Path
-        fill="#FF3D00"
-        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
-      />
-      <Path
-        fill="#4CAF50"
-        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
-      />
-      <Path
-        fill="#1976D2"
-        d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
-      />
-    </Svg>
-  );
-}
-
 // Apple logo glyph (solid). Rendered black on the white Apple-branded button.
 function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: string }) {
   return (
@@ -314,7 +290,7 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
 }
 
 // Sign in with Apple button. Required by App Store Guideline 4.8 as an equivalent
-// login option alongside the third-party (Google) sign-in. Uses Clerk's
+// privacy-focused login option whenever third-party/social sign-in is offered. Uses Clerk's
 // oauth_apple SSO flow (startSSOFlow signs up AND signs in). Styled per Apple's
 // button guidelines: a white button with the black Apple glyph stands out on the
 // dark auth UI (white is an Apple-approved style for dark backgrounds).
@@ -379,68 +355,3 @@ export function AppleAuthButton() {
   );
 }
 
-// Google SSO button. startSSOFlow signs up AND signs in, so a single button
-// covers both flows. On success it sets the active session and returns home.
-export function GoogleAuthButton() {
-  useWarmUpBrowser();
-  const colors = useColors();
-  const router = useRouter();
-  const { startSSOFlow } = useSSO();
-  const [busy, setBusy] = useState(false);
-
-  const onPress = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: "oauth_google",
-        redirectUrl: AuthSession.makeRedirectUri(),
-      });
-      if (createdSessionId && setActive) {
-        await setActive({
-          session: createdSessionId,
-          navigate: async ({ session, decorateUrl }) => {
-            if (session?.currentTask) return;
-            router.replace(decorateUrl("/") as Href);
-          },
-        });
-      }
-    } catch (err) {
-      console.error("Google SSO failed", JSON.stringify(err, null, 2));
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, router, startSSOFlow]);
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={busy}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 12,
-        paddingVertical: 15,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      {busy ? (
-        <ActivityIndicator color={colors.foreground} />
-      ) : (
-        <>
-          <GoogleG size={18} />
-          <Text
-            style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}
-          >
-            Continue with Google
-          </Text>
-        </>
-      )}
-    </Pressable>
-  );
-}

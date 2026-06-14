@@ -10,7 +10,6 @@ import {
   AuthDivider,
   AuthField,
   AuthShell,
-  GoogleAuthButton,
   PrimaryButton,
 } from "@/components/auth";
 import { FONT } from "@/components/ui";
@@ -531,8 +530,6 @@ export default function SignInScreen() {
       />
 
       <AuthDivider />
-      <GoogleAuthButton />
-      <View style={{ height: 12 }} />
       <AppleAuthButton />
 
       <View
