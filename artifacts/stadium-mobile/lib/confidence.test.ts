@@ -35,6 +35,15 @@ test("deriveConfidenceScore: win chance = implied(odds) + edge, on the 0-10 scal
   assert.equal(deriveConfidenceScore(1.0, -300), 7.6);
 });
 
+test("deriveConfidenceScore: real no-vig fair prob grounds confidence even with null edge", () => {
+  // The non-+EV side of a main market carries no edge but does carry a fair prob,
+  // so it reads a real confidence instead of null ("Market price").
+  assert.equal(deriveConfidenceScore(null, -110, 0.46), 4.6);
+  assert.equal(deriveConfidenceScore(null, -110, 0.58), 5.8);
+  // fairProb is preferred over the price+edge basis when present.
+  assert.equal(deriveConfidenceScore(6.8, -110, 0.55), 5.5);
+});
+
 test("deriveConfidenceScore: clamped to the 5-95% win-chance band", () => {
   // Huge favorite + edge clamps at 95% -> 9.5/10 (never a certainty).
   assert.equal(deriveConfidenceScore(10, -2000), 9.5);

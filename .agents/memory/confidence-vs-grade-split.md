@@ -6,21 +6,37 @@ description: Grade=value/edge, Confidence=real de-vigged win chance; the parseEd
 # Confidence vs Grade are decoupled (mobile)
 
 - **Grade** = VALUE/edge rating (`scoreLineValue`/composite, unchanged). **Confidence** = REAL
-  de-vigged win chance = `winChancePct(odds, edge)` = `americanToImplied(odds)*100 + edgePct`,
-  clamped 5–95, **null** when there's no real price+edge to de-vig. `deriveConfidenceScore(gap, odds)`
-  = `winChancePct/10` (0–10). A strong-value coin flip → high grade but ~50% confidence.
+  de-vigged win chance from `winChancePct(odds, edge, fairProb?)`, clamped 5–95, **null** when no
+  real basis. `deriveConfidenceScore(gap, odds, fairProb?)` = `winChancePct/10` (0–10). A strong-value
+  coin flip → high grade but ~50% confidence.
 - **Why:** users asked "9–10 confidence" to mean win-chance bands, and a value grade was being
   read as a win-probability. The two must move independently.
 
+## Win-chance has TWO real bases (fairProb wins)
+- `winChancePct` prefers the picked side's no-vig consensus fair WIN PROB `fairProb` (0–1) when valid,
+  else falls back to `implied(odds) + edge`. **Why this matters (the non-+EV-side bug):** the server
+  attaches `edge` ONLY to the +EV side of a two-sided main market, so the OTHER side (e.g. a -1 spread
+  @ -110) had `edge=null` → Confidence "—" while Grade still rendered (composite averages the other
+  present sub-scores). It looked broken.
+- **Fix:** `RealOddsEntry.noVigFair` is present on BOTH sides of a two-sided main market, so game picks
+  pass it through (`scoreGamePick` → `combinePickScore(..., ro.noVigFair)`). **Props stay edge-only** —
+  `PropPoolEntry` carries NO both-sides fair prob, so adding one would be fabrication. `fairProb` is an
+  OPTIONAL last param everywhere (`winChancePct`/`combinePickScore`/`deriveConfidenceScore`) so the
+  edge-only callers (coin-flip cushion lean on alt rungs, which lack noVigFair) are untouched.
+
 ## Two-track edge gotcha (the real trap)
-- The card **EdgeReadout** AND the Coach **confidence-threshold filter** both derive grade+confidence
-  from `parseEdgeStats(p.edge).edge` (the model's STATED edge prose) + `p.odds`. They are consistent
-  with each other but are a SEPARATE track from `attachPickScores`, which re-resolves the REAL backing
-  edge from realOdds/propPool and feeds `ScoreBreakdown`. This split is pre-existing — don't "unify" it
-  as part of an unrelated change.
+- The card **EdgeReadout** AND the Coach **confidence-threshold filter** historically derived
+  grade+confidence from `parseEdgeStats(p.edge).edge` (the model's STATED edge prose) + `p.odds` — a
+  SEPARATE track from `attachPickScores`/`ScoreBreakdown`, which re-resolve the REAL backing entry from
+  realOdds/propPool. This split is pre-existing — don't "unify" it as part of an unrelated change.
+- The confidence FILTER now reads the same real backing entry the card scores via
+  `pickWinChanceInputs(pick, realOdds, propPool)` → `{edge, fairProb}` (game: realOdds match →
+  noVigFair+edge; prop: propPool match → edge only), with the prose-edge `parseEdgeStats(p.edge)` kept
+  as the fallback: `deriveConfidenceScore(edge ?? parseEdgeStats(p.edge).edge, p.odds, fairProb)`. Keep
+  the prose fallback so the cushion-lean rewrite path still works.
 - **How to apply:** anything that swaps a leg's pick/odds/market AFTER the model emitted its EDGE prose
-  MUST rewrite `p.edge` too, or the parseEdgeStats track applies the OLD rung's edge to the NEW odds and
-  lies about win chance.
+  MUST rewrite `p.edge` too, or the parseEdgeStats fallback applies the OLD rung's edge to the NEW odds
+  and lies about win chance.
 
 ## Coin-flip cushion lean
 - `leanCoinFlipToCushion(picks, realOdds, propPool)` in coach.tsx swaps a coin-flip (`mainWin <= ~56`)

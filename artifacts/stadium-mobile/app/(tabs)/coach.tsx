@@ -44,7 +44,7 @@ import {
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
-import { attachPickScores } from "@/lib/pickScoreContext";
+import { attachPickScores, pickWinChanceInputs } from "@/lib/pickScoreContext";
 import { americanToImplied, winChancePct } from "@/lib/pickScore";
 import {
   confidenceSatisfiesThreshold,
@@ -1419,12 +1419,18 @@ export default function CoachScreen() {
         let confidenceNote = "";
         if (confidenceThreshold) {
           const before = picks.length;
-          picks = picks.filter((p) =>
-            confidenceSatisfiesThreshold(
-              deriveConfidenceScore(parseEdgeStats(p.edge).edge, p.odds),
+          picks = picks.filter((p) => {
+            // Score the SAME de-vigged win chance the card shows: prefer the
+            // picked side's real no-vig fair prob (present on both sides of a
+            // two-sided main market, so a non-+EV-side leg isn't wrongly dropped),
+            // then the leg's real backing edge, then the model's prose edge note
+            // (which the cushion lean rewrites to the swapped rung's real numbers).
+            const { edge, fairProb } = pickWinChanceInputs(p, context.realOdds, mergedPropPool);
+            return confidenceSatisfiesThreshold(
+              deriveConfidenceScore(edge ?? parseEdgeStats(p.edge).edge, p.odds, fairProb),
               confidenceThreshold,
-            ),
-          );
+            );
+          });
           const dropped = before - picks.length;
           if (dropped > 0 || (picks.length === 0 && emittedPickLines > 0)) {
             const band = describeConfidenceThreshold(confidenceThreshold);

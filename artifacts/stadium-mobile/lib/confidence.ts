@@ -30,17 +30,19 @@ export function deriveVariance(odds?: number, isProp?: boolean): Variance {
   return "Medium";
 }
 
-// Confidence is the leg's de-vigged fair WIN CHANCE on a 0–10 scale: the price's
-// implied probability plus the leg's real edge gap, divided by 10 (so 58% -> 5.8).
-// It needs BOTH a real price (the leg's American odds) and a real edge gap to
-// de-vig — without either we cannot ground a win chance and return null (the leg
+// Confidence is the leg's de-vigged fair WIN CHANCE on a 0–10 scale (so 58% ->
+// 5.8). The honest win chance comes from the picked side's no-vig fair win
+// probability (`fairProb`, present on both sides of a two-sided main market) when
+// available, else the price's implied probability plus the leg's real edge gap.
+// Without either basis we cannot ground a win chance and return null (the leg
 // reads "Market price", and a null score can never satisfy a confidence floor).
 // Never inflated: a coin-flip price with a thin edge honestly reads ~5/10.
 export function deriveConfidenceScore(
   gap: number | null,
   oddsAmerican: number | null | undefined,
+  fairProb?: number | null,
 ): number | null {
-  const wc = winChancePct(oddsAmerican, gap);
+  const wc = winChancePct(oddsAmerican, gap, fairProb);
   if (wc === null) return null;
   return Math.round((wc / 10) * 10) / 10;
 }

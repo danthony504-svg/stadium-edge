@@ -57,18 +57,30 @@ export function americanToImplied(american: number | null | undefined): number |
   return american > 0 ? 100 / (american + 100) : -american / (-american + 100);
 }
 
-// The de-vigged fair WIN CHANCE of the picked rung, as a 0–100 percentage. This
-// is the price's implied probability PLUS the real no-vig edge (edge = fair prob
-// minus implied prob, in pct points), i.e. the honest fair win probability of
-// the bet. This is the CONFIDENCE metric — deliberately DISTINCT from Grade,
-// which measures VALUE. Null when we lack a real price or a real edge: without a
-// de-vig basis we never assert a win chance. Clamped 5–95 so nothing reads as a
-// certainty. A coin-flip price (~ -110) with no edge is exactly the kind of leg
-// that returns ~50, not an inflated number.
+// The de-vigged fair WIN CHANCE of the picked rung, as a 0–100 percentage — the
+// honest fair win probability of the bet. This is the CONFIDENCE metric,
+// deliberately DISTINCT from Grade (which measures VALUE). Two real bases, in
+// order of preference:
+//   1. `fairProb` — the server's no-vig consensus fair win probability of THIS
+//      exact picked outcome (0–1). It is present on BOTH sides of a two-sided
+//      main market, so a pick on the non-+EV side (which carries no `edge`)
+//      still gets a real win chance instead of reading "—".
+//   2. price + edge — the price's implied probability PLUS the real no-vig edge
+//      (edge = fair prob minus implied prob, in pct points). Used for props /
+//      alt rungs, where only the +EV side carries an edge and there is no
+//      both-sides fair prob in the feed.
+// Null when neither basis is available: without a de-vig basis we never assert a
+// win chance. Clamped 5–95 so nothing reads as a certainty. A coin-flip price
+// (~ -110) with no edge is exactly the kind of leg that returns ~50, not an
+// inflated number.
 export function winChancePct(
   oddsAmerican: number | null | undefined,
   edgePct: number | null | undefined,
+  fairProb?: number | null,
 ): number | null {
+  if (fairProb != null && Number.isFinite(fairProb) && fairProb > 0 && fairProb <= 1) {
+    return clamp(Math.round(fairProb * 100), 5, 95);
+  }
   const implied = americanToImplied(oddsAmerican);
   if (implied == null || edgePct == null || !Number.isFinite(edgePct)) return null;
   return clamp(Math.round(implied * 100 + edgePct), 5, 95);
@@ -277,6 +289,7 @@ export function combinePickScore(
   scores: PickSubScores,
   edgePct: number | null,
   oddsAmerican?: number | null,
+  fairProb?: number | null,
 ): CombinedPickScore {
   let wSum = 0;
   let acc = 0;
@@ -292,7 +305,7 @@ export function combinePickScore(
     scores,
     composite,
     grade: gradeFromComposite(composite),
-    confidencePct: winChancePct(oddsAmerican, edgePct),
+    confidencePct: winChancePct(oddsAmerican, edgePct, fairProb),
     edgePct: edgePct != null && Number.isFinite(edgePct) ? round1(edgePct) : null,
   };
 }

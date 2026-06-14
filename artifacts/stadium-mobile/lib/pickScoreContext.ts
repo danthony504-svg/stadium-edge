@@ -152,8 +152,11 @@ function scoreGamePick(
   }
 
   const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping };
-  // Pass the leg's real price so Confidence reads its de-vigged win chance.
-  const combined = combinePickScore(scores, edgePct, pick.odds);
+  // Pass the leg's real price AND the picked side's no-vig fair win probability so
+  // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
+  // of a two-sided main market, so a pick on the non-+EV side (which carries no
+  // `edge`) still gets a real win chance instead of reading "—".
+  const combined = combinePickScore(scores, edgePct, pick.odds, ro?.noVigFair ?? null);
   return combined.composite == null ? null : combined;
 }
 
@@ -187,6 +190,30 @@ function scorePropPick(
   // Pass the prop's real price so Confidence reads its de-vigged win chance.
   const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
+}
+
+// The win-chance inputs for a leg, resolved from its REAL backing entry — the
+// SAME entry scoreGamePick / scorePropPick read, so the Coach confidence filter
+// scores the identical de-vigged win chance the card shows. A game pick gets the
+// picked side's no-vig fair prob (both sides of a two-sided main market) plus the
+// edge; a prop gets only the edge (that feed carries no both-sides fair prob).
+// Both null when no backing entry is found.
+export function pickWinChanceInputs(
+  pick: ParsedPick,
+  realOdds: RealOddsEntry[],
+  propPool: PropPoolEntry[],
+): { edge: number | null; fairProb: number | null } {
+  if (pick.isProp) {
+    const same = (e: PropPoolEntry) =>
+      e.game === pick.game && e.player === pick.player && e.side === pick.propSide;
+    const entry =
+      propPool.find((e) => same(e) && e.line === pick.propLine) ?? propPool.find(same);
+    return { edge: entry?.edge ?? null, fairProb: null };
+  }
+  const ro = realOdds.find(
+    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
+  );
+  return { edge: ro?.edge ?? null, fairProb: ro?.noVigFair ?? null };
 }
 
 // Attach a `scores` rubric to each pick from the REAL context. Returns new pick

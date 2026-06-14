@@ -41,6 +41,25 @@ test("winChancePct: implied(odds) + edge, honest-null + clamped 5-95", () => {
   assert.equal(winChancePct(1000, -20), 5);
 });
 
+test("winChancePct: fairProb (no-vig win prob) wins over price+edge, even with null edge", () => {
+  // A real no-vig fair win prob is the honest win chance — used directly.
+  assert.equal(winChancePct(-110, null, 0.58), 58);
+  // The non-+EV side of a main market has NO edge but DOES carry a fair prob,
+  // so it still reads a real win chance instead of "—".
+  assert.equal(winChancePct(-110, null, 0.46), 46);
+  // fairProb is preferred even when an edge is also present.
+  assert.equal(winChancePct(-110, 6.8, 0.55), 55);
+  // Clamped 5-95 so nothing reads as a certainty.
+  assert.equal(winChancePct(-2000, null, 0.99), 95);
+  assert.equal(winChancePct(800, null, 0.01), 5);
+  // Invalid fairProb falls back to the price+edge basis.
+  assert.equal(winChancePct(-110, 6.8, 0), 59);
+  assert.equal(winChancePct(-110, 6.8, 1.5), 59);
+  assert.equal(winChancePct(-110, 6.8, null), 59);
+  // Invalid fairProb AND no edge basis -> null.
+  assert.equal(winChancePct(-110, null, null), null);
+});
+
 test("scoreLineValue: null edge -> null; mirrors 5.5 + edge*0.45", () => {
   assert.equal(scoreLineValue(null), null);
   assert.equal(scoreLineValue(undefined), null);
@@ -159,6 +178,19 @@ test("combinePickScore: renormalizes over present scores only", () => {
   );
   assert.equal(partial.composite, 8.6);
   assert.equal(partial.grade, "A");
+
+  // A pick on the non-+EV side of a main market: NO edge (so grade falls to the
+  // other present sub-scores) but a real no-vig fair prob still grounds a real
+  // Confidence instead of "—".
+  const noEdgeSide = combinePickScore(
+    { matchup: 7, trend: null, lineValue: null, injury: null, lineShopping: null },
+    null,
+    -110,
+    0.46,
+  );
+  assert.equal(noEdgeSide.composite, 7);
+  assert.equal(noEdgeSide.edgePct, null);
+  assert.equal(noEdgeSide.confidencePct, 46);
 
   // Nothing present -> null everything except a null edge.
   const none = combinePickScore(
