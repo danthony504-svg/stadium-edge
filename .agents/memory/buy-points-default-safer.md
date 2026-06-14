@@ -1,40 +1,50 @@
 ---
-name: Buy points by default (safer game-side picks)
-description: Coach defaults game-side legs to a safer real alt rung (buy points); confidence is left as-is, not raised by buying points.
+name: Safe vs Value line options (game-side picks)
+description: Coach shows Safe (bought-points) and Value rungs as SEPARATE options; the BEST pick stays the edge line; buying points must never inflate Confidence or AI Grade.
 ---
 
-# Buy points by default — make game-side picks safer
+# Safe vs Value line options — never fold safety into the numbers
 
-The Coach DEFAULTS every full-game game-side leg (Spread / Total / Moneyline) to a
-real safer alt rung instead of the riskier main line: favorite lays fewer points,
-dog gets more points, Over a lower number, Under a higher number, plus-money dog ML
-→ its cushion Alt Spread.
+For full-game game-side legs (Spread / Total / Moneyline) the Coach SURFACES a
+cushion as a separate OPTION rather than forcing it as the pick:
+- **BEST** = the line the real signals/edge support — the actual PICK stays here on
+  ordinary "give me a pick / build a parlay" requests (do NOT default-swap the pick
+  onto the cushion).
+- **SAFE** = a real same-side rung that buys points (favorite fewer points, dog more
+  points, Over lower, Under higher, plus-money dog ML → cushion Alt Spread) — lower
+  variance but LOWER edge and a SHORTER price.
+- **VALUE** = a real same-side rung at a tougher number for a BIGGER payout.
 
-**Why:** user asked "can you increase confidence by buying points?" and chose to
-KEEP confidence as-is (signals-based conviction, NOT win-chance) while still having
-the Coach actively buy points to make picks safer. So buying points lowers variance
-but is explicitly told NOT to raise grade/confidence (a worse price can lower them —
-it buys win probability, not a better grade). This is the honest reconciliation of
-"safer picks" with the signals-based confidence model (see confidence-vs-grade-split).
+Safe and Value are shown as separate PROSE options beside the pick (one short
+"Safe / Value:" line, like the prop "Alt options:" line) — never as extra PICK lines
+and never changing the leg count.
 
-**How it was done:** PROMPT-ONLY in api-server chat.ts SYSTEM_PROMPT (rule "BUY
-POINTS BY DEFAULT", placed right after COIN-FLIP DE-RISK). It generalizes the
-previously CONDITIONAL cushion rules (COIN-FLIP DE-RISK, SAFE UNDERDOG) into a
-default. No client change — alt rungs are already in mobile context and the
-never-fabricate matcher resolves them; governs web + mobile together. Restart
-api-server after the prompt edit (build+start, no watcher).
+**Why:** user policy — "Keep Confidence based on real signals only (matchup, form,
+injuries, line value, market agreement). Do NOT increase Confidence simply because
+points were bought. Instead, show Safe and Value line options separately. Buying
+points should generally reduce edge while increasing cushion, but it must not inflate
+Confidence or AI Grade." This REFINED an earlier turn that had the Coach buy points
+*as the default pick*; that conflated "safer" with "more confident" and biased to
+chalk, so it was replaced with show-both-options. Confidence stays signals-based and
+the Grade stays a value composite — a worse (bought-points) price LOWERS edge, so it
+can only lower those numbers, never raise them (see confidence-vs-grade-split,
+pick-score-rubric).
 
-**Invariants that constrain it (don't break):**
-- Real rungs only (verbatim from realOdds); no rung → keep the main line, say no
-  cushion was posted. Never fabricate a point/price.
+**How it was done:** PROMPT-ONLY in api-server chat.ts SYSTEM_PROMPT (rule "SAFE vs
+VALUE LINE OPTIONS", right after COIN-FLIP DE-RISK). No client/scoring change — the
+mobile PickCard already renders a Safe·Best·Value ladder where BEST = the model's
+pick and the displayed Grade/Confidence are scored on the BEST parent pick, so
+showing Safe/Value rungs cannot inflate them. Restart api-server after the edit
+(build+start, no watcher). Reaches the published mobile app only via OTA/new build.
+
+**Invariants / carve-outs:**
+- Real rungs only (verbatim from realOdds); no rung → omit the options line, keep the
+  main line, say so. Never fabricate a point/price.
 - Changes RUNG not WHO — MONEYLINE CONSISTENCY (mlLean.side) still fixes the winner.
-- Price sanity: roughly -110..-350, never worse than -550; skip a cushion too deep
-  to add equity.
-- Scope: full-game game-side legs ONLY. Excludes PROPS (own balanced cushion/value
-  ladder — do NOT cushion-bias the whole prop ticket) and PERIOD legs (use mains per
-  PERIOD ALT-RUNG DISCIPLINE).
-- Overridden by explicit VALUE intent (value/plus-money/longshot/boom/lottery/+alt/
-  upside, odds-bound plus-money, or an UPSET ALERT spot) — there the aggressive
-  line/plus price is the point.
-- Takes precedence over value-over-chalk's RUNG preference for game-side legs on
-  ordinary "give me a pick / build a parlay / safer" requests.
+- Excludes PROPS (own balanced cushion/value ladder — don't cushion-bias the ticket)
+  and PERIOD legs (mains per PERIOD ALT-RUNG DISCIPLINE).
+- Pick-side preference by intent: explicit "safe"/"low-risk" → Safe rung becomes the
+  pick; explicit value/plus-money/longshot/+alt/upside or odds-bound plus-money or an
+  UPSET ALERT spot → Value/aggressive line becomes the pick; otherwise BEST.
+- COIN-FLIP DE-RISK remains a narrower carve-out that still prefers the safer rung as
+  the PICK for genuine coin-flip legs.
