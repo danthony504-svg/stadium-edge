@@ -659,6 +659,11 @@ router.post("/chat", async (req, res): Promise<void> => {
     // numeric line like "25.5") within ~40 chars so it only fires on real
     // market-lock intent.
     { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"], label: "points" },
+    // Hits+Runs+RBIs (MLB combo) MUST precede the single-stat "hits" entry: the
+    // combo regex matches+blanks the whole "hits + runs + rbis" span, so the
+    // bare "hits" keyword below can't also re-match it. There is no standalone
+    // runs or RBI market, so those words lock nothing on their own.
+    { re: /\bhits?\s*[\+&,]?\s*runs?\s*[\+&,]?\s*(?:and\s+)?rbis?\b|\bh\s*\+\s*r\s*\+\s*rbis?\b/i, markets: ["batter_hits_runs_rbis"], label: "hits+runs+RBIs" },
     { re: /\bhits?\b/i, markets: ["batter_hits"], label: "hits" },
     { re: /\btotal bases?\b/i, markets: ["batter_total_bases"], label: "total bases" },
   ];

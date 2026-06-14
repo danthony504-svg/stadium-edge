@@ -45,7 +45,7 @@ export const MARKETS_BY_SPORT: Record<string, string[]> = {
   ncaab: ["player_points", "player_rebounds", "player_assists"],
   nfl: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions", "player_anytime_td", "player_sacks"],
   ncaaf: ["player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_anytime_td"],
-  mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts", "batter_stolen_bases"],
+  mlb: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts", "batter_stolen_bases", "batter_hits_runs_rbis"],
   nhl: ["player_points", "player_goals", "player_assists", "player_shots_on_goal"],
   // Soccer: only the FIFA World Cup currently carries player props on our feed
   // (anytime goalscorer is a YES/NO market like anytime TD; shots / shots on
@@ -102,7 +102,7 @@ const ALT_MARKETS_BY_SPORT: Record<string, string[]> = {
   ncaab: ["player_points_alternate", "player_rebounds_alternate", "player_assists_alternate"],
   nfl: ["player_pass_yds_alternate", "player_pass_tds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate", "player_receptions_alternate"],
   ncaaf: ["player_pass_yds_alternate", "player_rush_yds_alternate", "player_reception_yds_alternate"],
-  mlb: ["batter_hits_alternate", "batter_total_bases_alternate", "batter_home_runs_alternate", "pitcher_strikeouts_alternate"],
+  mlb: ["batter_hits_alternate", "batter_total_bases_alternate", "batter_home_runs_alternate", "pitcher_strikeouts_alternate", "batter_hits_runs_rbis_alternate"],
   nhl: ["player_points_alternate", "player_assists_alternate", "player_shots_on_goal_alternate"],
 };
 

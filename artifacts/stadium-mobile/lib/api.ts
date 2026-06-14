@@ -870,6 +870,7 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   batter_hits: "Hits",
   batter_total_bases: "Total Bases",
   batter_home_runs: "Home Runs",
+  batter_hits_runs_rbis: "Hits+Runs+RBIs",
   batter_stolen_bases: "Stolen Bases",
   player_sacks: "Sacks",
   pitcher_strikeouts: "Strikeouts",

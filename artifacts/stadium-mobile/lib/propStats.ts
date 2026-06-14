@@ -13,6 +13,7 @@ const MARKET_COMBO: Record<string, string[]> = {
   player_points_assists: ["PTS", "AST"],
   player_rebounds_assists: ["REB", "AST"],
   player_blocks_steals: ["BLK", "STL"],
+  batter_hits_runs_rbis: ["H", "R", "RBI"],
 };
 
 // Markets that map to a single ESPN stat column. The array is a fallback list —

@@ -3209,6 +3209,7 @@ export default function ParlayBuilder() {
       batter_hits: "Hits",
       batter_total_bases: "Total Bases",
       batter_stolen_bases: "Stolen Bases",
+      batter_hits_runs_rbis: "Hits+Runs+RBIs",
       pitcher_strikeouts: "Strikeouts",
       player_points: "Points",
       player_rebounds: "Rebounds",
@@ -4327,7 +4328,7 @@ export default function ParlayBuilder() {
         player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
         player_reception_yds_h1: "1H Receiving Yards",
         batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
-        batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
+        batter_stolen_bases: "Stolen Bases", batter_hits_runs_rbis: "Hits+Runs+RBIs", player_sacks: "Sacks",
         pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
       };
       for (const pr of liveProps.props) {
@@ -7862,6 +7863,8 @@ export default function ParlayBuilder() {
       { re: /\b(steals?|stl\b)\b/i, markets: ["player_steals"] },
       { re: /\bturnovers?\b/i, markets: ["player_turnovers"] },
       { re: /\b(points|pts)\b(?=[^\n]{0,40}\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b)|\b(props?|prop bet|parlay|legs?|over|under|line|ticket|\d+(?:\.\d+)?)\b[^\n]{0,40}\b(points|pts)\b/i, markets: ["player_points"] },
+      // H+R+RBI combo before bare "hits" so "hits + runs + rbis" maps to the combo.
+      { re: /\bhits?\s*[\+&,]?\s*runs?\s*[\+&,]?\s*(?:and\s+)?rbis?\b|\bh\s*\+\s*r\s*\+\s*rbis?\b/i, markets: ["batter_hits_runs_rbis"] },
       { re: /\bhits?\b/i, markets: ["batter_hits"] },
       { re: /\btotal bases?\b/i, markets: ["batter_total_bases"] },
     ];
@@ -10381,7 +10384,7 @@ export default function ParlayBuilder() {
                   player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
-                  batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
+                  batter_stolen_bases: "Stolen Bases", batter_hits_runs_rbis: "Hits+Runs+RBIs", player_sacks: "Sacks",
                   pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
                 };
                 const propPool = [];
@@ -12671,7 +12674,7 @@ export default function ParlayBuilder() {
                   player_pass_yds_h1: "1H Passing Yards", player_rush_yds_h1: "1H Rushing Yards",
                   player_reception_yds_h1: "1H Receiving Yards",
                   batter_hits: "Hits", batter_total_bases: "Total Bases", batter_home_runs: "Home Runs",
-                  batter_stolen_bases: "Stolen Bases", player_sacks: "Sacks",
+                  batter_stolen_bases: "Stolen Bases", batter_hits_runs_rbis: "Hits+Runs+RBIs", player_sacks: "Sacks",
                   pitcher_strikeouts: "Strikeouts", player_goals: "Goals", player_shots_on_goal: "Shots on Goal", player_goal_scorer_anytime: "Anytime Goal", player_shots_on_target: "Shots on Target", player_shots: "Shots",
                 };
                 // Score every live prop and pick the single best edge to
@@ -12685,7 +12688,7 @@ export default function ParlayBuilder() {
                   player_points_rebounds: null, player_points_assists: null, player_rebounds_assists: null,
                   player_pass_yds: "passYds", player_rush_yds: "rushYds",
                   player_reception_yds: "recYds", player_receptions: "rec",
-                  batter_hits: null, batter_total_bases: null, batter_home_runs: "hrPerGame",
+                  batter_hits: null, batter_total_bases: null, batter_home_runs: "hrPerGame", batter_hits_runs_rbis: null,
                   batter_stolen_bases: null, player_sacks: null,
                   pitcher_strikeouts: null, player_goals: null, player_shots_on_goal: "shots",
                 };
