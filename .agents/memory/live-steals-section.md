@@ -29,6 +29,16 @@ of one game, so dedupe still works.
 on lib/db/src/schema — same class as the mobile expo-fetch case. Keep the pure layer
 separate from the impure (fetch/persist/grade/cron) layer.
 
+**LIVE pool is PREGAME-ONLY:** `nearTerm()` in liveStealsCore.ts must surface only games
+that have NOT started (`t > now && t < now + NEAR_TERM_MS`). **Why:** a "+500 steal" is a
+pregame longshot — once the game tips, its pregame line is frozen/unactionable, so a started
+or finished game lingering in LIVE STEALS is a stale, misleading bet (user reported MLB games
+~2.7h into play still shown). An earlier 4h `STARTED_GRACE_MS` grace caused exactly this; it
+was removed. **Safe because** grading is independent: `fetchSteals` captures each steal ONCE
+into the DB ledger while pregame, and `gradePending` settles those pending rows after tip-off
+on its own — dropping started games from the fetch/display never loses a result. (Same lesson
+as the Coach `isPregameBettable` switch away from isPickable's grace window.)
+
 **Operational gotcha:** api-server is autoscale + one-shot build/start (no setInterval, no
 hot reload) → the grading cron only fires via the Scheduled Deployment, and you MUST
 restart the API workflow after server edits or it serves stale compiled code.

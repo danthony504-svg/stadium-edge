@@ -5,7 +5,9 @@ import {
   findGameSteals,
   findPropSteals,
   inStealBand,
+  nearTerm,
   stealKey,
+  NEAR_TERM_MS,
 } from "../src/lib/liveStealsCore.ts";
 
 // A minimal odds row carrying one in-band moneyline outcome with a real edge.
@@ -67,6 +69,21 @@ test("stealKey direct: eventId is part of identity", () => {
   const k1 = stealKey("mlb", "evt_game2", "Moneyline", "Minnesota Twins ML");
   const k2 = stealKey("mlb", "evt_game3", "Moneyline", "Minnesota Twins ML");
   assert.notEqual(k1, k2);
+});
+
+test("nearTerm is PREGAME-only: started/in-progress/over games drop out of the live pool", () => {
+  const now = Date.parse("2026-06-14T04:48:00Z");
+  // A real failure to avoid: an MLB game that tipped ~2.7h ago. Its pregame line
+  // is frozen and can no longer be taken, so it must NOT linger in LIVE STEALS.
+  assert.equal(nearTerm("2026-06-14T02:08:00Z", now), false);
+  // A game that started even one minute ago is no longer actionable.
+  assert.equal(nearTerm(new Date(now - 60_000).toISOString(), now), false);
+  // A genuinely upcoming game inside the 48h horizon is surfaced.
+  assert.equal(nearTerm(new Date(now + 3 * 60 * 60 * 1000).toISOString(), now), true);
+  // Days out is stale/unactionable — excluded.
+  assert.equal(nearTerm(new Date(now + NEAR_TERM_MS + 60_000).toISOString(), now), false);
+  // Garbage timestamps never qualify.
+  assert.equal(nearTerm("not-a-date", now), false);
 });
 
 function propGame(eventId: string) {

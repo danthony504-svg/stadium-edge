@@ -35,7 +35,6 @@ export const MAX_PROP_GAMES = 12;
 // Only consider games tipping within this window (matches the app's pickable
 // horizon); steals days out are stale and unactionable.
 export const NEAR_TERM_MS = 48 * 60 * 60 * 1000;
-export const STARTED_GRACE_MS = 4 * 60 * 60 * 1000;
 
 export const FRESH_TTL_MS = 5 * 60 * 1000;
 export const MAX_STEALS = 40;
@@ -236,8 +235,12 @@ export function findPropSteals(games: PropGame[]): Steal[] {
   return out;
 }
 
-// Within the app's pickable horizon (recently started → 48h out).
+// A "+500 steal" is a PREGAME longshot: once the game starts its pregame line is
+// frozen and can no longer be taken, so a started/in-progress/over game must drop
+// out of the LIVE pool. It was already captured in the ledger while pregame and
+// settles after tip-off via gradePending — dropping it here never loses a result.
+// Surface only games that have NOT started yet and tip within the pickable horizon.
 export function nearTerm(commence: string, now: number): boolean {
   const t = Date.parse(commence);
-  return !Number.isNaN(t) && t > now - STARTED_GRACE_MS && t < now + NEAR_TERM_MS;
+  return !Number.isNaN(t) && t > now && t < now + NEAR_TERM_MS;
 }
