@@ -43,6 +43,18 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
     return;
   }
+  // The generic ESPN soccer path only covers ONE club league (Champions
+  // League). During the FIFA World Cup that league is in its off-season, so the
+  // soccer scoreboard comes back essentially empty even though the betting feed
+  // (the-odds-api) is full of WC fixtures. That left the AI coach with WC
+  // goalscorer prices on the prop board but NO corresponding game in
+  // realGames/matchupHistory, so it honestly refused to build legs ("those
+  // matches aren't on the live game slate"). Pull ESPN's FIFA World Cup
+  // scoreboard too and merge it in so national-team fixtures appear on the slate
+  // alongside the club league. Harmless year-round: whichever competition is
+  // off-season simply returns no events. Real ESPN data only.
+  const extraPaths = sportId === "soccer" ? ["soccer/fifa.world"] : [];
+  const allPaths = [path, ...extraPaths].filter((p, i, a) => a.indexOf(p) === i);
 
   // ESPN's scoreboard endpoint defaults to *today's UTC date only*, which gives
   // ~1 NBA/NHL game and ~13 MLB games — making the app feel stale. Pulling a
@@ -60,21 +72,40 @@ router.get("/sports/games", async (req, res): Promise<void> => {
 
   try {
     const data = await cachedJson(
-      `games:${path}:${dateRange}`,
+      `games:${allPaths.join("+")}:${dateRange}`,
       60 * 1000,
       async () => {
-        const fetchEspn = async (qs: string) => {
-          const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard${qs}`;
+        const fetchEspn = async (p: string, qs: string) => {
+          const url = `https://site.api.espn.com/apis/site/v2/sports/${p}/scoreboard${qs}`;
           const r = await fetch(url);
           if (!r.ok) throw new Error(`ESPN ${r.status}`);
           return (await r.json()) as { events?: EspnEvent[] };
         };
-        // Primary: 7-day window (in-season leagues — NBA playoffs, MLB, NHL).
-        const ranged = await fetchEspn(`?dates=${dateRange}&limit=200`);
-        if ((ranged.events?.length ?? 0) > 0) return ranged;
-        // Fallback: ESPN's default response (gives the next scheduled batch
-        // for off-season leagues — e.g. NFL preseason/season opener).
-        return await fetchEspn("");
+        const loadPath = async (p: string): Promise<EspnEvent[]> => {
+          // Primary: 7-day window (in-season leagues — NBA playoffs, MLB, NHL).
+          const ranged = await fetchEspn(p, `?dates=${dateRange}&limit=200`);
+          if ((ranged.events?.length ?? 0) > 0) return ranged.events ?? [];
+          // Fallback: ESPN's default response (gives the next scheduled batch
+          // for off-season leagues — e.g. NFL preseason/season opener).
+          const def = await fetchEspn(p, "");
+          return def.events ?? [];
+        };
+        // The configured league keeps the original throw-on-error semantics (a
+        // transient ESPN hiccup → outer catch → []). Extra paths (World Cup) are
+        // best-effort so an error there can never wipe the primary feed.
+        const primary = await loadPath(path);
+        const extra = (
+          await Promise.all(extraPaths.map((p) => loadPath(p).catch(() => [] as EspnEvent[])))
+        ).flat();
+        const seen = new Set<string>();
+        const events: EspnEvent[] = [];
+        for (const e of [...primary, ...extra]) {
+          if (e?.id && !seen.has(e.id)) {
+            seen.add(e.id);
+            events.push(e);
+          }
+        }
+        return { events };
       },
     );
 
