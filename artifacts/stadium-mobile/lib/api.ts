@@ -1343,6 +1343,20 @@ function balancePropsCore(props: RealPropEntry[], cap: number): RealPropEntry[] 
   return out;
 }
 
+// Does a realProps player name match any free-text player the user NAMED?
+// Diacritic-insensitive (reuses normTennisName so "suarez" hits "Suárez"), and
+// requires EVERY candidate name token of length >= 3 to be a whole word in the
+// player name, so "schwarber" / "kyle schwarber" both hit Kyle Schwarber while a
+// stray short filler token can't false-match an unrelated player.
+function propPlayerMatchesNamed(player: string, candidates: string[]): boolean {
+  const words = new Set(normTennisName(player).split(" ").filter(Boolean));
+  if (!words.size) return false;
+  return candidates.some((c) => {
+    const toks = normTennisName(c).split(" ").filter((t) => t.length >= 3);
+    return toks.length > 0 && toks.every((t) => words.has(t));
+  });
+}
+
 // Breadth-balance props under `cap`, but when the user named a sport or game
 // (focalText) give that focal slate PRIORITY for the cap. realOdds is already
 // focal-ranked (see rankedOdds); realProps was NOT, so a single prop-rich focal
@@ -1356,6 +1370,28 @@ function balancePropsCore(props: RealPropEntry[], cap: number): RealPropEntry[] 
 function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: string | null): RealPropEntry[] {
   if (props.length <= cap) return props;
   if (focalText) {
+    // FLOAT NAMED PLAYERS FIRST: a bare player name in the question (e.g. "is
+    // Schwarber a good HR play?" or "Suarez, Buxton, Schwarber, Freeman for HR")
+    // is NOT caught by the sport/game focal match below, so on a busy slate a
+    // named hitter's line was round-robined out of the 400-cap pool and the coach
+    // wrongly reported "I don't have him on tonight's board." Reserve cap room so
+    // any player the user named always survives, then balance the rest normally.
+    const named = extractNamedCandidates(focalText);
+    if (named.length) {
+      const isNamed = (p: RealPropEntry) => propPlayerMatchesNamed(String(p.player || ""), named);
+      const namedProps = props.filter(isNamed);
+      if (namedProps.length) {
+        const rest = props.filter((p) => !isNamed(p));
+        // If the named players alone exceed the cap (very long name list),
+        // breadth-balance WITHIN the named set so it still spans their games
+        // rather than overflowing in arrival order. Otherwise keep all named
+        // rows and backfill the remaining cap with the normally-balanced rest.
+        const out =
+          namedProps.length >= cap ? balancePropsCore(namedProps, cap) : namedProps.slice(0, cap);
+        if (out.length < cap) out.push(...balancePropsByGame(rest, cap - out.length, focalText));
+        return out.slice(0, cap);
+      }
+    }
     const focalSports = focalSportsFromText(focalText);
     const isFocal = (p: RealPropEntry) =>
       gameMatchesFocalText(p.game, focalText) || focalSports.has(p.sport);
