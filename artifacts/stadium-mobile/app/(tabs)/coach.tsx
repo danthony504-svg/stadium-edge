@@ -1056,9 +1056,9 @@ export default function CoachScreen() {
         // SAME signals score so every card truly meets the band — never inventing a
         // signal, honest-short if too few qualify.
         const confidenceThreshold = parseConfidenceThreshold(trimmed);
-        // Default-mode opt-out for the B+ grade floor below: a longshot / lottery /
-        // moonshot ask is explicitly a low-grade, high-variance ticket, so the
-        // floor must not gut it. (An explicit odds band and the user's own
+        // Default-mode opt-out for the D-to-A+ grade floor below: a longshot /
+        // lottery / moonshot ask is explicitly a low-grade, high-variance ticket,
+        // so the floor must not gut it. (An explicit odds band and the user's own
         // confidence bar are handled by their own filters — see gradeFloorActive.)
         const wantsLongshot =
           /\b(?:lottery|moon\s?shots?|long\s?shots?)\b/i.test(trimmed);
@@ -1618,60 +1618,67 @@ export default function CoachScreen() {
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
         });
-        // DEFAULT CHAT GRADE FLOOR — only surface B+ to A+ picks. By default the
-        // Coach shows only picks it can honestly grade B+ or better (composite
-        // >= 7.5, the SAME B+ threshold gradeFromComposite uses). The server prompt
-        // steers the model to lean on real alt rungs that add edge so each pick
-        // earns that grade; this is the hard guarantee that DROPS any resolved leg
-        // whose real edge / matchup / line value can't reach B+ — it only ever
-        // removes real, graded legs, never inflates a score to keep a weak pick. A
-        // leg that can't be graded at all (composite null — a pure market-price
-        // play with no stated edge) cannot clear the bar and is dropped too.
+        // DEFAULT CHAT GRADE FLOOR — surface the full honest grade range D to A+.
+        // Per the user's explicit choice, the Coach shows every pick it can
+        // honestly grade D or better (composite >= 4.0, the SAME D threshold
+        // gradeFromComposite uses) — not just the B+ and up it used to keep, so a
+        // requested ticket fills out across the real grade spectrum (D / C / B /
+        // A …) instead of collapsing to the handful of B+ legs. The server prompt
+        // still steers the model to lean on real alt rungs that add edge so it
+        // PREFERS higher grades, but lower-but-real grades are fine to show. This
+        // hard guarantee only DROPS a resolved leg that grades below D (an F —
+        // real, but with no honest edge to stand on); it never inflates a score to
+        // keep a weak pick. A leg that can't be graded at all (composite null — a
+        // pure market-price play with no stated edge) cannot clear the bar and is
+        // dropped too when stronger legs exist.
         // Skipped when the user opted into a mode whose own rules govern: an
         // explicit odds band, their own confidence bar, or a longshot/lottery ask
         // (a deliberately low-grade, high-variance ticket).
-        // NEVER-EMPTY behaviour (user's explicit choice): if some legs clear B+,
-        // keep only those; if NONE do, keep the best-available legs (sorted by
-        // composite, ungradeable ones last) labeled with their REAL grade rather
-        // than refusing to an empty ticket — we never inflate a grade. Either way
-        // picks stays non-empty, the bubble is suppressed (assistantBubbleText
-        // returns "" once picks exist), and gradeLegNote (plain text) is the ONLY
-        // visible channel beside the cards.
+        // NEVER-EMPTY behaviour (user's explicit choice): if some legs clear D,
+        // keep only those (sorted strongest-first); if NONE do, keep the
+        // best-available legs (sorted by composite, ungradeable ones last) labeled
+        // with their REAL grade rather than refusing to an empty ticket — we never
+        // inflate a grade. Either way picks stays non-empty, the bubble is
+        // suppressed (assistantBubbleText returns "" once picks exist), and
+        // gradeLegNote (plain text) is the ONLY visible channel beside the cards.
         let gradeLegNote = "";
         const gradeFloorActive =
           !oddsThreshold && !confidenceThreshold && !wantsLongshot;
         if (gradeFloorActive && emittedPickLines > 0) {
           const before = picks.length;
-          const passed = picks.filter((p) => {
-            const c = p.scores?.composite;
-            return typeof c === "number" && c >= 7.5;
-          });
+          const byCompositeDesc = (a: (typeof picks)[number], b: (typeof picks)[number]) => {
+            const ca = a.scores?.composite;
+            const cb = b.scores?.composite;
+            const va = typeof ca === "number" ? ca : -Infinity;
+            const vb = typeof cb === "number" ? cb : -Infinity;
+            return vb - va;
+          };
+          const passed = picks
+            .filter((p) => {
+              const c = p.scores?.composite;
+              return typeof c === "number" && c >= 4.0;
+            })
+            .sort(byCompositeDesc);
           if (passed.length > 0) {
-            // At least one leg clears the B+ bar: surface only those and note how
-            // many weaker legs were dropped to hold the ticket at that bar.
+            // At least one leg clears the D bar: surface those (strongest-first)
+            // and, only if any junk (F / ungradeable) legs were removed, note it.
             const dropped = before - passed.length;
             picks = passed;
             if (dropped > 0) {
-              gradeLegNote = `Showing the ${picks.length} pick${picks.length === 1 ? "" : "s"} that grade B+ or better; dropped ${dropped} that couldn't reach that bar on real edge.`;
+              gradeLegNote = `Showing the ${picks.length} pick${picks.length === 1 ? "" : "s"} that grade D or better; dropped ${dropped} that couldn't reach that bar on real edge.`;
             }
           } else if (before > 0) {
-            // No leg reaches B+ on tonight's board (thin slate, or market-price
-            // plays with no real edge to grade). Per the user's preference, never
-            // refuse down to an empty ticket: keep the night's BEST-graded legs,
-            // ranked strongest-first, and label them with their REAL grades. We
-            // never inflate a grade — each card shows exactly what the leg earned
-            // (B, B-, or "no edge" when it can't be graded at all).
-            picks = [...picks].sort((a, b) => {
-              const ca = a.scores?.composite;
-              const cb = b.scores?.composite;
-              const va = typeof ca === "number" ? ca : -Infinity;
-              const vb = typeof cb === "number" ? cb : -Infinity;
-              return vb - va;
-            });
+            // Nothing reaches even a D on tonight's board (thin slate, or
+            // market-price plays with no real edge to grade). Per the user's
+            // preference, never refuse down to an empty ticket: keep the night's
+            // BEST-graded legs, ranked strongest-first, labeled with their REAL
+            // grades. We never inflate a grade — each card shows exactly what the
+            // leg earned ("no edge" when it can't be graded at all).
+            picks = [...picks].sort(byCompositeDesc);
             const topGrade = picks[0]?.scores?.grade;
             gradeLegNote = topGrade
-              ? `None reached B+ tonight, so here are the ${picks.length} strongest legs the real board supports — top grade ${topGrade}. I won't inflate a grade to fake a B+.`
-              : `None reached B+ tonight — here are the ${picks.length} strongest real legs the board supports right now; it's too thin to ground an edge grade on them, and I won't invent one.`;
+              ? `Here are the ${picks.length} strongest legs the real board supports — top grade ${topGrade}. I won't inflate a grade.`
+              : `Here are the ${picks.length} strongest real legs the board supports right now; it's too thin to ground an edge grade on them, and I won't invent one.`;
           }
         }
         // Transparency note. When the user asked for a specific leg count and we
