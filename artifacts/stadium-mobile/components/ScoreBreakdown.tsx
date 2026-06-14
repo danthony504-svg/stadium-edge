@@ -6,7 +6,7 @@ import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 
 // Renders the 5-component pick rubric (Matchup / Trend / Line Value / Injury /
-// Line-Shopping) plus the combined AI Grade, Confidence %, and Edge % it rolls
+// Line-Shopping) plus the combined AI Grade, Confidence, and Edge % it rolls
 // up into. EVERY value here is real or honestly absent: a sub-score the surface
 // could not ground shows "no data" with an empty track, and the header omits
 // Edge when there is no real betting edge to report. Nothing is fabricated.
@@ -113,7 +113,7 @@ function confidenceBlurb(pct: number | null): string {
   return "Low Confidence";
 }
 
-// The header row of combined metrics: AI Grade, Confidence %, and (when real)
+// The header row of combined metrics: AI Grade, Confidence, and (when real)
 // Edge %. Edge is omitted rather than shown as "—" when there is no genuine
 // betting edge to report.
 function HeaderTiles({ data }: { data: CombinedPickScore }) {
@@ -138,7 +138,6 @@ function HeaderTiles({ data }: { data: CombinedPickScore }) {
         value={data.confidencePct == null ? "—" : String(data.confidencePct)}
         valueColor={colors.primary}
         caption={confidenceBlurb(data.confidencePct)}
-        suffix={data.confidencePct == null ? undefined : "%"}
       />
       {edge != null ? (
         <MetricTile

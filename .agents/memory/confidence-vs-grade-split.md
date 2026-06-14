@@ -1,57 +1,48 @@
 ---
 name: Confidence vs Grade split (mobile Coach)
-description: Grade=value/edge, Confidence=real de-vigged win chance; the parseEdgeStats two-track gotcha and the coin-flip cushion lean.
+description: Grade=weighted-avg value composite; Confidence=additive points from REAL rubric signals (NOT win chance). Coin-flip cushion lean was REMOVED.
 ---
 
-# Confidence vs Grade are decoupled (mobile)
+# Confidence vs Grade are two readings of the SAME real signals (mobile)
 
-- **Grade** = VALUE/edge rating (`scoreLineValue`/composite, unchanged). **Confidence** = REAL
-  de-vigged win chance from `winChancePct(odds, edge, fairProb?)`, clamped 5–95, **null** when no
-  real basis. `deriveConfidenceScore(gap, odds, fairProb?)` = `winChancePct/10` (0–10). A strong-value
-  coin flip → high grade but ~50% confidence.
-- **Why:** users asked "9–10 confidence" to mean win-chance bands, and a value grade was being
-  read as a win-probability. The two must move independently.
+- **Grade** = weighted-AVERAGE VALUE composite (`combinePickScore.composite` → `gradeFromComposite`,
+  WEIGHTS lineValue.3/matchup.25/trend.2/injury.15/lineShopping.1), unchanged.
+- **Confidence** = `confidenceFromSignals(scores)` (pickScore.ts): baseline 50 + Σ per-PRESENT-factor
+  `((s-5.5)/4.5)*10`, clamp 5–95, round, **null when 0 signals present**. So Grade rates the AVERAGE
+  quality of the signals; Confidence rewards BREADTH — more strong aligned signals = higher confidence.
+- **Why:** users read a value Grade as a win-probability; the chosen fix (via user_query) is that
+  Confidence should be BUILT UP additively from how many real signals back a pick, not a win chance.
+- Honest by construction: a signal we can't ground (null sub-score) adds nothing; a sub-score below the
+  5.5 neutral SUBTRACTS (weak/contrary signal lowers confidence — not inflation-only). Never fabricated.
 
-## Win-chance has TWO real bases (fairProb wins)
-- `winChancePct` prefers the picked side's no-vig consensus fair WIN PROB `fairProb` (0–1) when valid,
-  else falls back to `implied(odds) + edge`. **Why this matters (the non-+EV-side bug):** the server
-  attaches `edge` ONLY to the +EV side of a two-sided main market, so the OTHER side (e.g. a -1 spread
-  @ -110) had `edge=null` → Confidence "—" while Grade still rendered (composite averages the other
-  present sub-scores). It looked broken.
-- **Fix:** `RealOddsEntry.noVigFair` is present on BOTH sides of a two-sided main market, so game picks
-  pass it through (`scoreGamePick` → `combinePickScore(..., ro.noVigFair)`). **Props stay edge-only** —
-  `PropPoolEntry` carries NO both-sides fair prob, so adding one would be fabrication. `fairProb` is an
-  OPTIONAL last param everywhere (`winChancePct`/`combinePickScore`/`deriveConfidenceScore`) so the
-  edge-only callers (coin-flip cushion lean on alt rungs, which lack noVigFair) are untouched.
+## Scale + where it's read
+- `combinePickScore.confidencePct` now = `confidenceFromSignals(scores)` (0–100). `oddsAmerican`/
+  `fairProb` params are KEPT (void'd) for call-site compatibility + the edge passthrough; confidence no
+  longer derives from price.
+- `confidenceScoreFromSignals(scores)` (confidence.ts) = `Math.round(confidenceFromSignals)/10` → the
+  0–10 BAND used by the "9–10 confidence" threshold. null propagates (ungroundable leg can't clear a floor).
+- Card display: `ScoreBreakdown.tsx` HeaderTiles renders `data.confidencePct` 0–100 with NO "%" suffix
+  (it is a conviction score, not a probability). `confidenceBlurb` thresholds 75/60/45 unchanged.
+- Coach filter (coach.tsx, confidence-threshold branch): scores legs via
+  `attachPickScores(picks,{realOdds,propPool,matchupHistory,matchupInjuries})` then filters by
+  `confidenceScoreFromSignals(p.scores?.scores)` (note: attached `p.scores` is a `CombinedPickScore`; its
+  nested `.scores` is the `PickSubScores`). Filter & card both flow from `confidenceFromSignals`, so the
+  pass/fail and the displayed number agree (card shows 0–100, filter compares the same value on 0–10).
 
-## Two-track edge gotcha (the real trap)
-- The card **EdgeReadout** AND the Coach **confidence-threshold filter** historically derived
-  grade+confidence from `parseEdgeStats(p.edge).edge` (the model's STATED edge prose) + `p.odds` — a
-  SEPARATE track from `attachPickScores`/`ScoreBreakdown`, which re-resolve the REAL backing entry from
-  realOdds/propPool. This split is pre-existing — don't "unify" it as part of an unrelated change.
-- The confidence FILTER now reads the same real backing entry the card scores via
-  `pickWinChanceInputs(pick, realOdds, propPool)` → `{edge, fairProb}` (game: realOdds match →
-  noVigFair+edge; prop: propPool match → edge only), with the prose-edge `parseEdgeStats(p.edge)` kept
-  as the fallback: `deriveConfidenceScore(edge ?? parseEdgeStats(p.edge).edge, p.odds, fairProb)`. Keep
-  the prose fallback so the cushion-lean rewrite path still works.
-- **How to apply:** anything that swaps a leg's pick/odds/market AFTER the model emitted its EDGE prose
-  MUST rewrite `p.edge` too, or the parseEdgeStats fallback applies the OLD rung's edge to the NEW odds
-  and lies about win chance.
+## deriveConfidenceScore (win-chance) is now a FALLBACK ONLY
+- `deriveConfidenceScore(gap, odds, fairProb?)` = `winChancePct/10` STILL EXISTS but is used only by
+  surfaces with NO rubric to score: PickCard `EdgeReadout` fallback (game-detail) + `TicketScanSummary`
+  (a user's arbitrary slip). Those have just price+edge, so de-vigged win chance is the honest reading
+  available there. Its old tests stay valid. Don't delete it.
 
-## Coin-flip cushion lean
-- `leanCoinFlipToCushion(picks, realOdds, propPool)` in coach.tsx swaps a coin-flip (`mainWin <= ~56`)
-  ML or player-prop leg onto its safer REAL cushion rung (`altOptions.cushion`) so win-chance Confidence
-  rises while Grade may stay C. Only swaps when `cushionEdge != null` AND `cWin > mainWin` (strictly).
-- Gated to confidence-band asks only: runs when `confidenceThreshold` is set AND not
-  oddsThreshold/altSign/altRungBias/wantsValueRungs/wantsLongshot. Placed BEFORE the confidence filter.
-- On swap it rewrites `p.edge` to the cushion's OWN real numbers (`Model ~{cWin}% win chance, implies
-  {x}%, {±}{e}% edge …`) shaped to satisfy parseEdgeStats' projected/implied/edge regexes — so card,
-  filter, and attachPickScores all agree on the cushion's real win chance. Never fabricates: every number
-  traces to the real cushion odds + the realOdds/propPool edge.
+## Coin-flip cushion lean was REMOVED
+- The old `leanCoinFlipToCushion` + `COIN_FLIP_MAX_WIN` (coach.tsx) swapped a coin-flip ML/prop onto a
+  safer cushion rung to RAISE win-chance confidence. Under signals-based confidence a cushion rung has a
+  WORSE price → LOWER lineValue sub-score → LOWER confidence, so the lean became counterproductive.
+  Deleted (const + function + gated call). Cleaned now-unused coach imports: `winChancePct`,
+  `americanToImplied`, `deriveConfidenceScore`, `parseEdgeStats`, `pickWinChanceInputs`.
 
-## Web parity (deferred)
-- api-server `src/routes/chat.ts` confidence addendum still describes the OLD edge/variance confidence
-  math (≈ `5.5 + edge*0.45 ± variance`). chat.ts is SHARED web+mobile and the web client still uses
-  edge-based confidence, so flipping the prompt now would break web. Flip the server addendum + web
-  PickCard confidence TOGETHER in a web-parity pass. The mobile lean + win-chance filter bridge the gap
-  meanwhile (model aims edge; lean raises coin-flip win chance; win-chance filter enforces the band).
+## Web parity (still deferred)
+- Mobile only. api-server `src/routes/chat.ts` confidence addendum + web PickCard still use the OLD
+  edge/win-chance confidence; chat.ts is SHARED, so flip the server addendum + web client TOGETHER in a
+  web-parity pass. Mobile is self-consistent meanwhile.

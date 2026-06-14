@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   americanToImplied,
   combinePickScore,
+  confidenceFromSignals,
   gradeFromComposite,
   injuryFavorGame,
   injuryFavorProp,
@@ -167,9 +168,10 @@ test("combinePickScore: renormalizes over present scores only", () => {
   assert.equal(full.composite, 7.5);
   assert.equal(full.grade, "B+");
   assert.equal(full.edgePct, 7.8);
-  // Confidence is the de-vigged win chance, INDEPENDENT of the value composite:
-  // implied(-110)=52.38% + 7.8 edge = 60%.
-  assert.equal(full.confidencePct, 60);
+  // Confidence is BUILT from the signals (baseline 50 + Σ ((s-5.5)/4.5)*10):
+  // 8->+5.56, 7->+3.33, 9->+7.78, 6->+1.11, 5->-1.11 = +16.67 -> round(66.67)=67.
+  // Independent of the win-chance price now.
+  assert.equal(full.confidencePct, 67);
 
   // Only line value present -> composite equals that score (renormalized to 1).
   const partial = combinePickScore(
@@ -179,9 +181,9 @@ test("combinePickScore: renormalizes over present scores only", () => {
   assert.equal(partial.composite, 8.6);
   assert.equal(partial.grade, "A");
 
-  // A pick on the non-+EV side of a main market: NO edge (so grade falls to the
-  // other present sub-scores) but a real no-vig fair prob still grounds a real
-  // Confidence instead of "—".
+  // A pick with only one grounded signal: NO edge (so grade falls to that one
+  // present sub-score) and Confidence is built off just that signal — baseline
+  // 50 + ((7-5.5)/4.5)*10 = +3.33 -> round(53.33) = 53. Price no longer factors.
   const noEdgeSide = combinePickScore(
     { matchup: 7, trend: null, lineValue: null, injury: null, lineShopping: null },
     null,
@@ -190,7 +192,7 @@ test("combinePickScore: renormalizes over present scores only", () => {
   );
   assert.equal(noEdgeSide.composite, 7);
   assert.equal(noEdgeSide.edgePct, null);
-  assert.equal(noEdgeSide.confidencePct, 46);
+  assert.equal(noEdgeSide.confidencePct, 53);
 
   // Nothing present -> null everything except a null edge.
   const none = combinePickScore(
@@ -201,6 +203,41 @@ test("combinePickScore: renormalizes over present scores only", () => {
   assert.equal(none.grade, null);
   assert.equal(none.confidencePct, null);
   assert.equal(none.edgePct, null);
+});
+
+test("confidenceFromSignals: additive points from real signals", () => {
+  // All neutral (5.5) -> exactly the baseline, no movement.
+  assert.equal(
+    confidenceFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5 }),
+    50,
+  );
+  // One strong signal lifts off the baseline; a weak one pulls below it (honest,
+  // not inflation-only): matchup 10 -> +10, lineShopping 1 -> -10 => stays 50.
+  assert.equal(
+    confidenceFromSignals({ matchup: 10, trend: null, lineValue: null, injury: null, lineShopping: 1 }),
+    50,
+  );
+  // MORE aligned strong signals = higher confidence (breadth rewarded). Two top
+  // signals: 50 + 10 + 10 = 70.
+  assert.equal(
+    confidenceFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null }),
+    70,
+  );
+  // Clamp ceiling at 95 even when every signal maxes out (5 * +10 = +50 -> 100).
+  assert.equal(
+    confidenceFromSignals({ matchup: 10, trend: 10, lineValue: 10, injury: 10, lineShopping: 10 }),
+    95,
+  );
+  // Clamp floor at 5 when every signal is the worst (5 * -10 = -50 -> 0).
+  assert.equal(
+    confidenceFromSignals({ matchup: 1, trend: 1, lineValue: 1, injury: 1, lineShopping: 1 }),
+    5,
+  );
+  // No groundable signal -> null (never invented), same honesty bar as composite.
+  assert.equal(
+    confidenceFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null }),
+    null,
+  );
 });
 
 test("gradeFromComposite: threshold boundaries", () => {

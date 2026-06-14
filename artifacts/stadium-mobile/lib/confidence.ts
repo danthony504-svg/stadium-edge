@@ -1,19 +1,35 @@
 // Single source of truth for the Coach's 0–10 Confidence score and the
-// "N confidence"/"9 to 10 confidence" request bound. Confidence is the leg's
-// de-vigged fair WIN CHANCE (the price's implied probability plus its real edge),
-// expressed on the 0–10 scale — so 9–10 confidence ≈ a ~90%+ win chance. It is
-// DECOUPLED from Grade (which rates VALUE): a strong-value coin flip reads a high
-// grade but a ~5/10 confidence. So a "9–10 confidence" ask is a request for legs
-// that genuinely project a high win chance (heavy chalk / deep cushions), NOT
-// merely high edge. The number is never invented — no real price+edge to de-vig
-// means a null score, and we NEVER inflate to manufacture a higher one.
+// "N confidence"/"9 to 10 confidence" request bound.
 //
-// PickCard.tsx renders the badge from deriveConfidenceScore(); coach.tsx filters
-// resolved legs with the SAME function so every card it shows truly meets the
-// requested band. Keep that single source of truth — do not re-derive the score
-// anywhere else.
+// Confidence is BUILT UP from the leg's real rubric signals (matchup, trend, line
+// value, injury, line shopping): a baseline plus points for each strong factor —
+// the MORE real signals back the pick, the higher the confidence. It is a SEPARATE
+// reading from Grade (a weighted-average VALUE rating of the same signals): Grade
+// rates average quality, Confidence rewards breadth of conviction. So a "9–10
+// confidence" ask is a request for legs with several strong, aligned signals —
+// never invented: a leg we can't ground returns a null score and we NEVER inflate.
+//
+// confidenceScoreFromSignals() is that score on the 0–10 scale (the rubric runs
+// off the SAME real context the cards display, via attachPickScores). coach.tsx
+// filters resolved legs with it so every card it shows truly meets the band.
+//
+// deriveConfidenceScore() below is the LEGACY win-chance score, kept ONLY for the
+// surfaces that have no rubric to score (the EdgeReadout fallback on game-detail
+// cards and the Ticket Scan of a user's arbitrary slip): there we have just a
+// price + edge, so a de-vigged win chance is the honest reading available.
 
-import { winChancePct } from "./pickScore.ts";
+import { confidenceFromSignals, winChancePct, type PickSubScores } from "./pickScore.ts";
+
+// The signals-based Confidence on the 0–10 band scale (confidenceFromSignals is
+// 0–100). null when no rubric signal could be grounded — a null score can never
+// satisfy a confidence floor, so an ungroundable leg is honestly excluded.
+export function confidenceScoreFromSignals(
+  scores: PickSubScores | null | undefined,
+): number | null {
+  if (!scores) return null;
+  const pct = confidenceFromSignals(scores);
+  return pct == null ? null : Math.round(pct) / 10;
+}
 
 export type Variance = "High" | "Medium" | "Low";
 

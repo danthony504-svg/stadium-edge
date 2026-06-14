@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   confidenceSatisfiesThreshold,
+  confidenceScoreFromSignals,
   deriveConfidenceScore,
   deriveVariance,
   describeConfidenceThreshold,
@@ -126,4 +127,25 @@ test("describeConfidenceThreshold: readable bands", () => {
   assert.equal(describeConfidenceThreshold({ min: 1, max: 7 }), "7/10 or lower");
   // A true interior range keeps both bounds.
   assert.equal(describeConfidenceThreshold({ min: 8, max: 9 }), "8–9/10");
+});
+
+test("confidenceScoreFromSignals: 0-10 band wrap of the signals score", () => {
+  // 50 baseline / 10 = 5.0 when all signals sit neutral.
+  assert.equal(
+    confidenceScoreFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5 }),
+    5,
+  );
+  // Two top signals -> 70 -> 7.0 on the band scale.
+  assert.equal(
+    confidenceScoreFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null }),
+    7,
+  );
+  // No groundable signal (or no scores at all) -> null, so it can never satisfy a
+  // confidence floor (an ungroundable leg is honestly excluded).
+  assert.equal(
+    confidenceScoreFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null }),
+    null,
+  );
+  assert.equal(confidenceScoreFromSignals(null), null);
+  assert.equal(confidenceScoreFromSignals(undefined), null);
 });

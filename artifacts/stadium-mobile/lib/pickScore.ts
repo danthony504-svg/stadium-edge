@@ -261,6 +261,35 @@ const WEIGHTS: Record<keyof PickSubScores, number> = {
   lineShopping: 0.1,
 };
 
+// Confidence is BUILT UP from the real signals: it starts at a neutral baseline
+// and AWARDS points for every strong factor we could ground (a good matchup, hot
+// form, genuine line value, a healthier roster, the best price). The MORE real
+// signals point the pick's way, the higher the confidence — so unlike Grade
+// (a weighted AVERAGE that rates value regardless of how many signals exist),
+// Confidence rewards BREADTH: five aligned signals out-confidence one. Honest by
+// construction — a signal we can't ground (null) simply adds nothing, and a
+// signal pointing AGAINST the pick (below the 5.5 neutral) subtracts, so the
+// number is never inflated. Each present 1-10 sub-score moves confidence by up to
+// ±10 points around the 50 baseline; the result is clamped 5-95 and rounded.
+// Returns null when not a single signal could be grounded (same honesty bar as
+// the composite). Scale is 0-100 — NOT a win probability; it's a conviction score.
+const CONFIDENCE_BASELINE = 50;
+const CONFIDENCE_NEUTRAL = 5.5; // a 1-10 sub-score at/below this adds nothing/subtracts
+const CONFIDENCE_PER_FACTOR = 10; // max points one strong factor can add or remove
+export function confidenceFromSignals(scores: PickSubScores): number | null {
+  let present = 0;
+  let pts = CONFIDENCE_BASELINE;
+  (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
+    const s = scores[k];
+    if (s != null && Number.isFinite(s)) {
+      present += 1;
+      pts += ((s - CONFIDENCE_NEUTRAL) / (10 - CONFIDENCE_NEUTRAL)) * CONFIDENCE_PER_FACTOR;
+    }
+  });
+  if (present === 0) return null;
+  return clamp(Math.round(pts), 5, 95);
+}
+
 // Letter grade from the 1-10 composite — same thresholds the existing card uses,
 // so a "B+" still means the same thing. Null composite -> null grade.
 export function gradeFromComposite(composite: number | null): string | null {
@@ -278,19 +307,23 @@ export function gradeFromComposite(composite: number | null): string | null {
   return "F";
 }
 
-// Roll the present sub-scores into a composite + grade + confidence%. Grade comes
-// from the composite (a VALUE rating). Confidence is DECOUPLED from the grade: it
-// is the de-vigged fair WIN CHANCE (winChancePct = implied price + real edge), so
-// a strong-value pick that is still a coin flip honestly reads a high grade but a
-// ~50% confidence. edgePct is passed through from the real line-value edge — NOT
-// manufactured from the composite. confidencePct is null when there is no real
-// price+edge to de-vig (never inflated to match the grade).
+// Roll the present sub-scores into a composite + grade + confidence. Grade comes
+// from the composite (a weighted-AVERAGE VALUE rating). Confidence is a SEPARATE
+// reading of the SAME real signals: confidenceFromSignals starts at a baseline and
+// ADDS points for each strong factor, so it rewards how MANY signals back the pick
+// (breadth), where Grade rewards their average quality. edgePct is passed through
+// from the real line-value edge — NOT manufactured from the composite. Both are
+// null when no signal could be grounded; never inflated. (oddsAmerican / fairProb
+// are retained for call-site compatibility and the edge passthrough; confidence no
+// longer derives from price — it is built from the grounded rubric signals.)
 export function combinePickScore(
   scores: PickSubScores,
   edgePct: number | null,
   oddsAmerican?: number | null,
   fairProb?: number | null,
 ): CombinedPickScore {
+  void oddsAmerican;
+  void fairProb;
   let wSum = 0;
   let acc = 0;
   (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
@@ -305,7 +338,7 @@ export function combinePickScore(
     scores,
     composite,
     grade: gradeFromComposite(composite),
-    confidencePct: winChancePct(oddsAmerican, edgePct, fairProb),
+    confidencePct: confidenceFromSignals(scores),
     edgePct: edgePct != null && Number.isFinite(edgePct) ? round1(edgePct) : null,
   };
 }
