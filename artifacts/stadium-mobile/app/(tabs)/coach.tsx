@@ -1387,8 +1387,11 @@ export default function CoachScreen() {
           // leg is real, today, and upcoming. One soccer match can't honestly
           // yield 7 uncorrelated legs, so this often lands short of the requested
           // count — the honest leg-count note below says exactly how many held up.
-          // Gated to a NAMED sport (a generic "today" ask keeps prior behavior)
-          // and skipped under the odds/confidence locks whose own filters stay
+          // Runs for a NAMED sport AND for a generic "N-leg ... tonight" ask: a
+          // late-evening generic ask whose only remaining today game(s) can't fill
+          // the count (the model grounds legs on non-today backfill that then gets
+          // filtered) would otherwise fall through to a flat refusal. Skipped under
+          // the odds/confidence locks whose own filters stay
           // authoritative. backfillPicks' own (game, market-family) dedup keeps the
           // salvage to one main per family per game, so it never stacks correlated
           // same-line sides even when the whole ticket sits on one game.
@@ -1398,8 +1401,8 @@ export default function CoachScreen() {
           // than return legs that then get filtered — so an `emittedPickLines > 0`
           // gate would skip the salvage exactly when it's needed and the user just
           // sees the generic "board is thin" refusal. A genuine build request is
-          // signalled by an explicit leg count (requestedLegs > 0) plus a named
-          // sport (checked just below), which is enough to safely build.
+          // signalled by an explicit leg count (requestedLegs > 0), which is enough
+          // to safely build from today's already-filtered real odds.
           const salvageEligible =
             picks.length === 0 &&
             requestedLegs > 0 &&
@@ -1414,10 +1417,16 @@ export default function CoachScreen() {
           const salvageSports = salvageEligible
             ? focalSportsFromText(trimmed)
             : new Set<string>();
-          if (salvageEligible && salvageSports.size > 0) {
-            const salvagePool = context.realOdds.filter((e) =>
-              salvageSports.has(e.sport),
-            );
+          if (salvageEligible) {
+            // Named sport → salvage only that sport's remaining today games; a
+            // GENERIC "N-leg parlay for tonight" (no sport named) → salvage from
+            // EVERY today-upcoming game on the board. context.realOdds is already
+            // startsTodayUpcoming-filtered here, so either pool is real + today +
+            // upcoming and nothing is invented.
+            const salvagePool =
+              salvageSports.size > 0
+                ? context.realOdds.filter((e) => salvageSports.has(e.sport))
+                : context.realOdds;
             if (salvagePool.length > 0) {
               const tgt = Math.min(requestedLegs, MAX_LEGS);
               picks = backfillPicks([], salvagePool, gameMeta, {
@@ -1449,14 +1458,14 @@ export default function CoachScreen() {
             todayNote = todayBuildNote({
               before,
               surviving: picks.length,
-              // Treat a genuine-but-refused build (the model returned zero PICK
-              // lines) the same as an emitted one so the note is the honest
-              // "slate too thin / nothing today" message instead of silence —
-              // silence would fall through to the generic backstop refusal. Only
-              // when the user actually NAMED a sport (a targeted build that just
-              // had no real today game), so a generic no-sport refusal keeps the
-              // generic backstop.
-              emittedPickLines: emittedPickLines || (salvageSports.size > 0 ? requestedLegs : 0),
+              // Treat any salvage-eligible build (named OR generic) that still
+              // produced nothing the same as an emitted one so the note is the
+              // honest "slate too thin / nothing today" message instead of silence
+              // — silence would fall through to the generic backstop refusal. This
+              // only reaches here when the salvage above also came up empty (no real
+              // today odds at all), which is rare since todayOnly guarantees a
+              // qualifying start time, but possible if that game carried no odds.
+              emittedPickLines: emittedPickLines || (salvageEligible ? requestedLegs : 0),
             });
           }
         }

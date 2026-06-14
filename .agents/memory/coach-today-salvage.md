@@ -15,10 +15,13 @@ is on the board. Two causes compound:
 2. The reach-the-count backfill is gated on `picks.length > 0`, so once everything
    is filtered out it never runs — nothing gets rebuilt from today's real games.
 
-**The fix (salvage):** right after the today filter, when `picks` emptied AND the
-user NAMED a sport that still has real upcoming-today games, rebuild from
-`context.realOdds` filtered to that sport (it's already today-filtered, `.sport`
-is the app id e.g. "soccer" which `focalSportsFromText` returns) via
+**The fix (salvage):** right after the today filter, when `picks` emptied, rebuild
+from `context.realOdds` (already today-filtered). If the user NAMED a sport, filter
+the pool to that sport (`.sport` is the app id e.g. "soccer" which
+`focalSportsFromText` returns); for a GENERIC "N-leg ... tonight" ask (no sport
+named) salvage from ALL of `context.realOdds` — same late-evening one-game-left
+trap hits generic asks too (the lone today game can't fill N → model grounds on
+non-today backfill → post-parse filter drops all → flat refusal). Build via
 `backfillPicks([], pool, GENERIC_BACKFILL_ORDER)`. That only ever appends REAL
 posted lines (one per game×market-family), so it never fabricates and never stacks
 correlated same-line sides. It often lands short of N (one match can't honestly
@@ -31,7 +34,8 @@ real game can't honestly fill, the model REFUSES OUTRIGHT with zero PICK lines
 (`emittedPickLines === 0`) instead of returning legs that then get filtered. An
 `emittedPickLines > 0` gate skips the salvage exactly when it's needed, and the
 user just sees the generic "board is thin" backstop. The build-intent signal is
-`requestedLegs > 0` + a named sport — NOT whether the model emitted picks. When
+`requestedLegs > 0` (named sport NOT required — generic asks salvage too) — NOT
+whether the model emitted picks. When
 the salvage builds picks out of a refusal, the model's streamed prose (`full`) is
 a refusal / stripped scaffold that CONTRADICTS the real cards, so a `salvageBuilt`
 flag replaces `finalContent` with a clean lead-in (legNote still carries the
@@ -86,7 +90,11 @@ dedupe, AI context) sees the same corrected string — no per-surface patching.
 - `oddsThreshold` / `confidenceThreshold`: their own filters stay authoritative.
 - `mentionsPropIntent(trimmed)`: a props-only / prop-market ask wants players, not
   game moneylines — don't silently fall back to game mains.
-Skip it when no sport is named (generic "today" ask keeps prior behavior).
+Generic (no-sport-named) asks DO salvage now (from all today realOdds); the only
+hard skips are the locks above (`oddsThreshold`/`confidenceThreshold`/`altSign`/
+`mentionsPropIntent`). The `todayBuildNote` `emittedPickLines` fallback keys on
+`salvageEligible` (was `salvageSports.size > 0`) so a still-empty generic salvage
+shows the honest thin-slate note instead of silence.
 
 `mentionsPropIntent` is a pure helper in `lib/slate.ts` (re-exported via api.ts),
 shared by BOTH the salvage gate and the reach-count backfill's `mentionsProps`
