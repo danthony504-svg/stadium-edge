@@ -342,6 +342,9 @@ export type NotifPrefs = {
   oddsMovement: boolean;
   gameReminders: boolean;
   upsetAlerts: boolean;
+  // Daily "Edge Lock" alert: real guaranteed arbitrage + +EV value bets found on
+  // today's near-term board (taps through to the Edge Lock screen).
+  edgeLockAlerts: boolean;
   // "Your AI Coach finished a parlay you walked away from." Sent from the /chat
   // background-finish path (not the cron jobs).
   coachReady: boolean;

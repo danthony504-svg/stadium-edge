@@ -33,6 +33,7 @@ const DEFAULT_PREFS: NotifPrefs = {
   oddsMovement: true,
   gameReminders: true,
   upsetAlerts: true,
+  edgeLockAlerts: true,
   coachReady: true,
 };
 
@@ -68,6 +69,12 @@ const CATEGORIES: { key: CategoryKey; icon: FeatherName; title: string; subtitle
     icon: "target",
     title: "Underdog watch",
     subtitle: "A daily heads-up when our model likes a live underdog.",
+  },
+  {
+    key: "edgeLockAlerts",
+    icon: "lock",
+    title: "Edge Lock alerts",
+    subtitle: "A daily heads-up when we find guaranteed arbitrage or +EV value bets.",
   },
   {
     key: "coachReady",

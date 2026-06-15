@@ -11,6 +11,17 @@ import { sendPush, type PushMessage } from "./push";
 import { sweepAbandonedCoachBuilds, pruneOldCoachBuilds } from "./coachBuild";
 import { runLiveStealsJob } from "./liveSteals";
 import {
+  findGameLineArbs,
+  findGameLineValueBets,
+  findPropArbs,
+  findPropValueBets,
+  type ArbGame,
+  type ArbOpportunity,
+  type ArbPropGame,
+  type ArbPropInput,
+  type ValueBet,
+} from "./edgeLock";
+import {
   CRON_STALE_AFTER_MS,
   deriveCronHealth,
   type CronHeartbeat,
@@ -38,6 +49,9 @@ export type Prefs = {
   oddsMovement: boolean;
   gameReminders: boolean;
   upsetAlerts: boolean;
+  // Daily "Edge Lock" alert: real guaranteed arbitrage + +EV value bets found
+  // on today's near-term board (the same engine the in-app Edge Lock screen runs).
+  edgeLockAlerts: boolean;
   // "Your AI Coach finished a parlay you walked away from." Sent from the /chat
   // route (not the cron jobs), but lives here so it's part of the shared Prefs
   // shape and auto-whitelisted by PREF_KEYS in the notifications route.
@@ -51,6 +65,7 @@ export const DEFAULT_PREFS: Prefs = {
   oddsMovement: true,
   gameReminders: true,
   upsetAlerts: true,
+  edgeLockAlerts: true,
   coachReady: true,
 };
 
@@ -499,6 +514,115 @@ async function computeDailyUpsets(): Promise<UpsetSpot[]> {
   return spots;
 }
 
+// ---- Edge Lock engine (server port of the in-app Edge Lock screen) ----------
+// Scans the near-term board for REAL guaranteed arbitrage and +EV value bets via
+// the shared edgeLock module, so the daily push reflects exactly what the screen
+// shows. Real prices only — empty result is honest, never fabricated.
+
+// Game-line edges (h2h/spreads/totals) are cheap — one cached odds fetch per
+// sport — so we scan a broad slate. Prop edges need a per-game props fetch, so
+// they're limited to the prop-eligible sports and a small per-sport game cap.
+const EDGE_GAME_SPORTS = [
+  "mlb",
+  "wnba",
+  "nba",
+  "nhl",
+  "nfl",
+  "ncaaf",
+  "ncaab",
+  "soccer",
+  "ufc",
+  "tennis",
+];
+const EDGE_PROP_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab", "soccer"];
+// Only scan imminent games (matches the in-app screen's NEAR_TERM window): books
+// post some slates months early and edges days out are stale and unactionable.
+const EDGE_NEAR_TERM_MS = 48 * 60 * 60 * 1000;
+const EDGE_MAX_PROP_GAMES = 6;
+
+type EdgeScan = {
+  arbs: number;
+  values: number;
+  topArbPct: number | null;
+  topValuePct: number | null;
+};
+
+function edgeNearTerm(iso: string, now: number): boolean {
+  const t = Date.parse(iso);
+  return !Number.isNaN(t) && t > now - 4 * 3600_000 && t < now + EDGE_NEAR_TERM_MS;
+}
+
+async function computeDailyEdges(): Promise<EdgeScan> {
+  const now = Date.now();
+  const arbs: ArbOpportunity[] = [];
+  const values: ValueBet[] = [];
+
+  // Game-line edges: one (cached) odds fetch per sport, near-term only.
+  const oddsBySport = await Promise.all(
+    EDGE_GAME_SPORTS.map((sp) =>
+      fetchJson<ArbGame[]>(`/sports/odds?sport=${sp}`).then((r) => r ?? []),
+    ),
+  );
+  const nearTermBySport = new Map<string, ArbGame[]>();
+  EDGE_GAME_SPORTS.forEach((sp, i) => {
+    const nearTerm = (oddsBySport[i] ?? []).filter((g) =>
+      edgeNearTerm(g.commenceTime, now),
+    );
+    nearTermBySport.set(sp, nearTerm);
+    arbs.push(...findGameLineArbs(nearTerm));
+    values.push(...findGameLineValueBets(nearTerm));
+  });
+
+  // Prop edges: bounded per-game props fetch for the prop-eligible sports.
+  await Promise.all(
+    EDGE_PROP_SPORTS.map(async (sp) => {
+      const pickable = (nearTermBySport.get(sp) ?? [])
+        .slice()
+        .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime))
+        .slice(0, EDGE_MAX_PROP_GAMES);
+      if (!pickable.length) return;
+      const propGames = await Promise.all(
+        pickable.map(async (g): Promise<ArbPropGame> => {
+          const r = await fetchJson<{ props?: ArbPropInput[] }>(
+            `/sports/props?sport=${encodeURIComponent(sp)}&eventId=${encodeURIComponent(g.id)}&home=${encodeURIComponent(g.homeTeam)}&away=${encodeURIComponent(g.awayTeam)}`,
+          );
+          return {
+            game: `${g.awayTeam} @ ${g.homeTeam}`,
+            sport: sp,
+            startsAt: g.commenceTime,
+            props: (r?.props ?? []).filter((p) => !p.alt),
+          };
+        }),
+      );
+      arbs.push(...findPropArbs(propGames));
+      values.push(...findPropValueBets(propGames));
+    }),
+  );
+
+  const topArbPct = arbs.length ? Math.max(...arbs.map((a) => a.profitPct)) : null;
+  const topValuePct = values.length ? Math.max(...values.map((v) => v.edgePct)) : null;
+  return { arbs: arbs.length, values: values.length, topArbPct, topValuePct };
+}
+
+const plural = (n: number) => (n === 1 ? "" : "s");
+
+// Honest, screen-anchored copy: the notification points to the live Edge Lock
+// screen (the source of truth) rather than promising a specific bet is still up.
+function edgeLockBody(scan: EdgeScan): string {
+  if (scan.arbs > 0) {
+    const arbPart =
+      `${scan.arbs} guaranteed arbitrage play${plural(scan.arbs)}` +
+      (scan.topArbPct != null ? ` (up to ${scan.topArbPct}% locked profit)` : "");
+    const valPart =
+      scan.values > 0 ? ` plus ${scan.values} +EV value bet${plural(scan.values)}` : "";
+    return `Edge Lock found ${arbPart}${valPart} on today's board — open it before the lines move.`;
+  }
+  const valPart =
+    `${scan.values} +EV value bet${plural(scan.values)}` +
+    (scan.topValuePct != null ? ` (up to +${scan.topValuePct}% edge)` : "");
+  return `Edge Lock found ${valPart} on today's board. Open Edge Lock for the edges.`;
+}
+
 type QueuedItem = {
   userId: string;
   dedupeKey: string;
@@ -515,6 +639,7 @@ export async function runNotificationJobs(): Promise<{
     daily: 0,
     oddsMoves: 0,
     upsets: 0,
+    edges: 0,
     sent: 0,
     coachSwept: 0,
     coachPrunedStashes: 0,
@@ -801,6 +926,46 @@ export async function runNotificationJobs(): Promise<{
     }
   }
 
+  // ---- Edge Lock — once-a-day real arbitrage + +EV value bets -------------
+  // GLOBAL scan of the near-term board for GUARANTEED cross-book arbitrage and
+  // +EV value bets (the same engine the in-app Edge Lock screen runs). The
+  // per-game prop fan-out is expensive, so the scan runs ONCE per day (KV-cached)
+  // and per-user dedupe keeps each user to a single send. Fail-CLOSED: no real
+  // edges → store the empty result and send nothing rather than manufacture one.
+  const wantEdge = users.some((u) => u.prefs.edgeLockAlerts);
+  if (wantEdge && new Date().getUTCHours() >= DAILY_HOUR_UTC) {
+    const today = new Date().toISOString().slice(0, 10);
+    const cacheKey = `edgelockdaily:${today}`;
+    let scan = await kvGet<EdgeScan>(cacheKey);
+    if (scan === undefined) {
+      try {
+        scan = await computeDailyEdges();
+      } catch (err) {
+        logger.warn(
+          { err: (err as Error)?.message },
+          "notify: edge-lock scan failed",
+        );
+        scan = { arbs: 0, values: 0, topArbPct: null, topValuePct: null };
+      }
+      await kvSet(cacheKey, scan);
+    }
+    if (scan && (scan.arbs > 0 || scan.values > 0)) {
+      const body = edgeLockBody(scan);
+      for (const { uid, prefs } of users) {
+        if (!prefs.edgeLockAlerts) continue;
+        queue.push({
+          userId: uid,
+          dedupeKey: `edgelock:${today}`,
+          msg: {
+            title: "🔒 Edge Lock",
+            body,
+            data: { type: "edgeLock" },
+          },
+        });
+      }
+    }
+  }
+
   // ---- Claim (dedupe) then expand to device tokens and send --------------
   const messages: PushMessage[] = [];
   for (const item of queue) {
@@ -821,6 +986,7 @@ export async function runNotificationJobs(): Promise<{
     else if (type === "dailyPicks") summary.daily++;
     else if (type === "oddsMovement") summary.oddsMoves++;
     else if (type === "upsetAlert") summary.upsets++;
+    else if (type === "edgeLock") summary.edges++;
     for (const tok of tokensByUser.get(item.userId) ?? [])
       messages.push({ to: tok, ...item.msg });
   }

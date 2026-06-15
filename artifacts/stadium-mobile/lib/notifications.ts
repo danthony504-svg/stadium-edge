@@ -102,7 +102,7 @@ export function addNotificationResponseListener(
     // Must mirror the `data.type` values the backend sends (see notifyJobs.ts
     // and the /chat background-finish path):
     // "dailyPicks" | "result" | "reminder" | "oddsMovement" | "upsetAlert"
-    // | "coachReady" | "test".
+    // | "edgeLock" | "coachReady" | "test".
     switch (data?.type) {
       case "dailyPicks":
         navigate("/props");
@@ -115,6 +115,10 @@ export function addNotificationResponseListener(
       case "upsetAlert":
         // Upset Watch card lives on the home screen.
         navigate("/");
+        break;
+      case "edgeLock":
+        // The Edge Lock screen (route file stays `arbitrage`).
+        navigate("/arbitrage");
         break;
       case "coachReady":
         // The AI Coach finished a parlay the user walked away from. Open Coach
