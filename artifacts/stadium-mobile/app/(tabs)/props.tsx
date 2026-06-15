@@ -33,9 +33,11 @@ import {
   isPickable,
   propMarketLabel,
   PROPS_SPORTS,
+  searchPlayer,
   type EspnGame,
   type OddsGame,
   type PlayerProp,
+  type PlayerSearchResult,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
@@ -56,6 +58,18 @@ const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop
 // search sports stay at the initial batch (bounded breadth across leagues).
 const INITIAL_GAMES = 6;
 const GAMES_STEP = 6;
+
+// When a player is opened from a name search (no posted prop), seed the sheet's
+// recent-performance chart to a clean single-stat market per sport so it has a
+// real game-log column to plot. Sports without an unambiguous default (NFL/CFB
+// yardage, soccer) are left blank — the season-stats grid still renders.
+const DEFAULT_SEARCH_MARKET: Record<string, string> = {
+  nba: "player_points",
+  wnba: "player_points",
+  ncaab: "player_points",
+  mlb: "batter_hits",
+  nhl: "player_goals",
+};
 
 // AI RECOMMENDED grading. The "AI grade" is NOT a fabricated model rating (the
 // app has no edge/confidence feed) — it's a transparent letter derived ONLY from
@@ -251,6 +265,49 @@ function PlayerResultRow({
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 1 }}>
           {marketCount} market{marketCount === 1 ? "" : "s"} · tap to view
+        </Text>
+      </View>
+      <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+    </Pressable>
+  );
+}
+
+// A tappable ESPN player-search hit → opens the player sheet on real season
+// stats + game log even when the player has NO posted props in the current
+// window (so a star can always be found by name). Used only while searching,
+// as a fallback after the live props feed yields no match.
+function SearchedPlayerRow({
+  result,
+  onOpen,
+}: {
+  result: PlayerSearchResult;
+  onOpen: () => void;
+}) {
+  const colors = useColors();
+  const sportLabel = SPORTS.find((s) => s.id === result.sport)?.label ?? result.sport.toUpperCase();
+  const sub = [result.team, sportLabel].filter(Boolean).join(" · ");
+  return (
+    <Pressable
+      onPress={onOpen}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 12,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Avatar headshot={result.headshot} name={result.name} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }} numberOfLines={1}>
+          {result.name}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
+          {sub ? `${sub} · ` : ""}stats and game log
         </Text>
       </View>
       <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
@@ -508,6 +565,20 @@ export default function PropsScreen() {
     [dataStamp],
   );
   const searchBusy = sportQueries.some((q) => q.isFetching);
+
+  // Fallback name search. The props feed only carries players with a POSTED prop
+  // in the current window, so a star with no active props (or whose league has
+  // no games yet) can't be found there. While searching we ALSO hit the real
+  // ESPN player-search endpoint; if the feed yields no player match we surface
+  // these hits, and tapping one opens the sheet on the player's REAL season
+  // stats + game log (no posted prop required, nothing fabricated).
+  const playerSearchQ = useQuery({
+    queryKey: ["prop-player-search", debouncedQuery.trim().toLowerCase()],
+    queryFn: ({ signal }: { signal?: AbortSignal }) => searchPlayer(debouncedQuery.trim(), signal),
+    enabled: fetchAllSports && debouncedQuery.trim().length >= 2,
+    staleTime: 10 * 60_000,
+    gcTime: 30 * 60_000,
+  });
 
   // Moneyline-only browse sports (tennis / table tennis) have no prop feed, so
   // instead of the props rails we list their REAL posted matches. Odds only —
@@ -918,6 +989,49 @@ export default function PropsScreen() {
     [playerResults],
   );
 
+  // Real ESPN player-search hits to fall back on, restricted to leagues we can
+  // open and de-duped against players already shown from the live props feed.
+  const fallbackPlayers = useMemo(() => {
+    const results = playerSearchQ.data?.results ?? [];
+    if (results.length === 0) return [] as PlayerSearchResult[];
+    const supported = new Set(SPORTS.map((s) => s.id));
+    const shown = new Set<string>();
+    for (const grp of playerResults) for (const p of grp.players) shown.add(p.prop.player.toLowerCase());
+    const seen = new Set<string>();
+    const out: PlayerSearchResult[] = [];
+    for (const r of results) {
+      if (!supported.has(r.sport)) continue;
+      // Skip players already shown from the live feed (name-only there), but key
+      // result-vs-result dedupe on the unique athlete id so two distinct players
+      // who share a name aren't collapsed into one row.
+      if (shown.has(r.name.toLowerCase())) continue;
+      const key = `${r.sport}-${r.athleteId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    return out;
+  }, [playerSearchQ.data, playerResults]);
+
+  // Open the sheet for a searched player with NO posted prop. The sheet pulls
+  // its own real season stats + game log by athleteId; we seed a sensible
+  // single-stat market per sport so the recent-performance chart has something
+  // to plot (sports without a clean default just show the season grid).
+  const openSearchedPlayer = (r: PlayerSearchResult) => {
+    setSheet({
+      player: r.name,
+      athleteId: r.athleteId,
+      headshot: r.headshot,
+      playerTeamId: null,
+      teamAbbr: r.team,
+      sport: r.sport,
+      gameLabel: "",
+      startsAt: "",
+      initialMarket: DEFAULT_SEARCH_MARKET[r.sport] ?? "",
+      props: [],
+    });
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -1124,8 +1238,21 @@ export default function PropsScreen() {
             // TEAMS section (if any team name matches) above one compact tappable
             // row per matching player.
             totalPlayerMatches === 0 && teamResults.length === 0 ? (
-              searchBusy ? (
+              searchBusy || playerSearchQ.isFetching ? (
                 <Loading label="Searching all leagues…" />
+              ) : fallbackPlayers.length > 0 ? (
+                // No posted props match, but real ESPN athletes do — surface
+                // them so a star is always findable (sheet shows real stats).
+                <View style={{ gap: 10 }}>
+                  <SearchSectionLabel>Players</SearchSectionLabel>
+                  {fallbackPlayers.map((r) => (
+                    <SearchedPlayerRow
+                      key={`fb-${r.sport}-${r.athleteId}`}
+                      result={r}
+                      onOpen={() => openSearchedPlayer(r)}
+                    />
+                  ))}
+                </View>
               ) : (
                 <EmptyState
                   icon="search"

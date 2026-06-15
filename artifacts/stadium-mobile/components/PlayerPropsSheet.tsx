@@ -522,7 +522,9 @@ export function PlayerPropsSheet({
               </Text>
             ) : bars.length === 0 ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
-                No per-game data for {propMarketLabel(market)} in the recent log.
+                {market
+                  ? `No per-game data for ${propMarketLabel(market)} in the recent log.`
+                  : "No betting props are posted for this player right now — season stats are shown above."}
               </Text>
             ) : (
               <View>
