@@ -10,15 +10,16 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
-import { ClerkLoaded, ClerkProvider, useAuth } from "@clerk/expo";
+import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import React, { useEffect } from "react";
-import { View } from "react-native";
+import * as Updates from "expo-updates";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -78,6 +79,62 @@ SystemUI.setBackgroundColorAsync("#0f172a");
 const queryClient = new QueryClient();
 const DARK_BG = "#0f172a";
 
+// Shown while Clerk is still initializing. If init never completes (e.g. the
+// auth backend is unreachable), surface a retry after a timeout instead of
+// leaving the user on a silent blank navy screen forever.
+function BootScreen() {
+  const [showRetry, setShowRetry] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setShowRetry(true), 15000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: DARK_BG,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 32,
+      }}
+    >
+      <ActivityIndicator size="large" color="#38bdf8" />
+      {showRetry ? (
+        <>
+          <Text
+            style={{
+              color: "#e2e8f0",
+              fontSize: 15,
+              lineHeight: 21,
+              textAlign: "center",
+              marginTop: 22,
+            }}
+          >
+            Having trouble connecting. Check your internet connection and try
+            again.
+          </Text>
+          <Pressable
+            onPress={() => {
+              Updates.reloadAsync().catch(() => {});
+            }}
+            style={{
+              marginTop: 18,
+              paddingVertical: 11,
+              paddingHorizontal: 28,
+              backgroundColor: "#1e293b",
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ color: "#38bdf8", fontSize: 15, fontWeight: "600" }}>
+              Retry
+            </Text>
+          </Pressable>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 function RootLayoutNav() {
   return (
     <Stack
@@ -125,6 +182,9 @@ export default function RootLayout() {
           tokenCache={tokenCache}
           proxyUrl={proxyUrl}
         >
+          <ClerkLoading>
+            <BootScreen />
+          </ClerkLoading>
           <ClerkLoaded>
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />

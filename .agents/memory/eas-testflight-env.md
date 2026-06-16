@@ -22,8 +22,12 @@ profile had no `env` block, so the two values the native app reads were empty.
   https://${DOMAIN}/api`). Empty → falls back to relative `/api`, which is
   meaningless on a phone → no backend.
   (`EXPO_PUBLIC_REPL_ID` is only used by `scripts/build.js`, not the native
-  runtime; `EXPO_PUBLIC_CLERK_PROXY_URL` is optional — empty matches the working
-  dev config which hits Clerk FAPI directly.)
+  runtime.)
+- `EXPO_PUBLIC_CLERK_PROXY_URL` — **MANDATORY on the `production` profile (pk_live)**;
+  see "Production Clerk is proxy-only" below. Omitting it = permanent blank navy
+  screen on launch. It stays EMPTY only on `preview`/dev (pk_test → dev instance
+  has a real direct FAPI). The earlier "it's optional" note was WRONG and caused
+  blank installed builds.
 
 **Correct values:**
 - `EXPO_PUBLIC_DOMAIN` = the PUBLISHED deployment host, host-only no scheme
@@ -75,3 +79,28 @@ is attached server-side and runs hands-off when the build finishes.
 - **Fix:** run `eas build … --auto-submit --non-interactive --no-wait` in the FOREGROUND. With `--no-wait` it returns in ~1–2 min after the upload + fingerprint + submission scheduling, well within a single command timeout. It prints the build URL, build number, and "Scheduled iOS submission" with a submission URL.
 - Archive size: with `attached_assets` (336 MB) removed from the workspace the upload was only **8.5 MB** and instant. The slow/never-finishing uploads earlier were the dead detached process, not bandwidth. `.easignore` at the monorepo root is still good hygiene, but the decisive lever was the foreground run + small archive.
 - attached_assets is referenced ONLY by `artifacts/stadium-edge/vite.config.ts` (`@assets` alias) — safe to stash to /tmp during a mobile build, but RESTORE it immediately after.
+- UPDATE: the foreground trigger can intermittently HANG at the project-archive step (>120s, only the eas-cli version banner prints) on a cold FS cache, exceeding the command timeout. `eas whoami` confirms auth/network are fine. Mitigations that worked: pass `EAS_SKIP_AUTO_FINGERPRINT=1` (runtimeVersion is a fixed string `1.0.0`, not a fingerprint policy, so the fingerprint is pure overhead), warm the FS cache first (a prior `eas whoami` / `ls`), then re-run foreground — it then schedules in <60s. Detached/`setsid`/`nohup` runs are KILLED by the sandbox between tool calls (empty log, gone PID) — do NOT rely on them. A timed-out (killed-mid-archive) run still BURNS a remote build number via `autoIncrement` (appVersionSource:remote), so build numbers can jump with gaps. Always confirm the real result via the Expo GraphQL `buildsPaginated` query, never the buffered CLI log.
+
+## Production Clerk is PROXY-ONLY → mobile prod build MUST set EXPO_PUBLIC_CLERK_PROXY_URL
+**Rule:** Stadium Edge's PRODUCTION Clerk instance has NO reachable direct Frontend
+API. The pk_live key encodes `clerk.stadium-edge-1.replit.app`, but that host
+resolves only to an internal `172.24.x` address and a direct request returns
+HTTP 000 (no real FAPI). Clerk is reached ONLY through the api-server proxy at
+`/api/__clerk` (clerkProxyMiddleware, `CLERK_PROXY_PATH`), which returns 200. The
+deployed WEB app already works this way via `VITE_CLERK_PROXY_URL` +
+`proxyUrl={clerkProxyUrl}`.
+**So the mobile `production` profile in eas.json MUST set**
+`EXPO_PUBLIC_CLERK_PROXY_URL = https://stadium-edge-1.replit.app/api/__clerk`
+(host = EXPO_PUBLIC_DOMAIN, path = CLERK_PROXY_PATH). `_layout.tsx` reads it into
+`proxyUrl` and passes it to `<ClerkProvider>`.
+**Why it bit us:** prod profile had pk_live but NO proxy URL → `proxyUrl=undefined`
+→ Clerk tried the dead direct FAPI → never loaded → `<ClerkLoaded>` (which renders
+nothing while not-loaded) → **permanent silent blank navy screen** on installed
+iOS builds. Swapping pk_test→pk_live alone was INSUFFICIENT.
+**Belt-and-braces:** `<ClerkProvider>` now also renders `<ClerkLoading><BootScreen/></ClerkLoading>`
+beside `<ClerkLoaded>` — BootScreen shows a spinner and, after a 15s timeout, a
+Retry button (`expo-updates` `Updates.reloadAsync()`), so a future Clerk-load
+failure can never again be a silent blank.
+**dev/Expo Go (pk_test) is unaffected** — the Clerk DEV instance has a real direct
+FAPI (`*.clerk.accounts.dev`), so no proxy is needed there; preview profile + the
+`dev` script correctly leave the proxy URL empty.
