@@ -299,9 +299,11 @@ export function AppleAuthButton() {
   const router = useRouter();
   const { startSSOFlow } = useSSO();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const onPress = useCallback(async () => {
     if (busy) return;
+    setError(null);
     setBusy(true);
     try {
       const { createdSessionId, setActive } = await startSSOFlow({
@@ -316,42 +318,60 @@ export function AppleAuthButton() {
             router.replace(decorateUrl("/") as Href);
           },
         });
+      } else {
+        // No session and no thrown error means the user dismissed the
+        // Apple sheet before completing. Stay silent — not an error.
       }
     } catch (err) {
       console.error("Apple SSO failed", JSON.stringify(err, null, 2));
+      setError("Couldn't continue with Apple. Please try again.");
     } finally {
       setBusy(false);
     }
   }, [busy, router, startSSOFlow]);
 
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={busy}
-      accessibilityRole="button"
-      accessibilityLabel="Continue with Apple"
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 10,
-        backgroundColor: "#ffffff",
-        borderRadius: 12,
-        paddingVertical: 15,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      {busy ? (
-        <ActivityIndicator color="#000" />
-      ) : (
-        <>
-          <AppleLogo size={18} color="#000" />
-          <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: "#000" }}>
-            Continue with Apple
-          </Text>
-        </>
-      )}
-    </Pressable>
+    <View style={{ gap: 8 }}>
+      <Pressable
+        onPress={onPress}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Continue with Apple"
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          backgroundColor: "#ffffff",
+          borderRadius: 12,
+          paddingVertical: 15,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        {busy ? (
+          <ActivityIndicator color="#000" />
+        ) : (
+          <>
+            <AppleLogo size={18} color="#000" />
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: "#000" }}>
+              Continue with Apple
+            </Text>
+          </>
+        )}
+      </Pressable>
+      {error ? (
+        <Text
+          style={{
+            fontFamily: FONT.medium,
+            fontSize: 13,
+            color: "#fca5a5",
+            textAlign: "center",
+          }}
+        >
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
