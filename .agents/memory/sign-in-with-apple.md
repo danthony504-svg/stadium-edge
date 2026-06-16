@@ -31,3 +31,19 @@ the flow errors on press.
   third-party/social-login surface is added, add Apple alongside it to keep 4.8 compliance.
 - Button styling follows Apple guidelines: white button + black Apple glyph + "Continue with Apple"
   (white is the Apple-approved style for dark backgrounds; the auth UI is dark navy).
+
+**CRITICAL — which Clerk instance the SHIPPED app uses:** `eas.json` bakes a `pk_test_…`
+publishable key into BOTH the `preview` AND `production` build profiles, so TestFlight/App-Store
+builds talk to the Clerk **development** instance, not production. Consequences:
+- Apple sign-in in the shipped app works iff Apple is **enabled on the DEV instance** (dev uses
+  Replit-managed/shared Apple credentials — no Apple Developer account needed; consent screen shows
+  Replit branding). The PRODUCTION Apple credentials (Services ID/Key/Team ID in the Auth pane
+  prod setup) are **NOT used** by the mobile app while it ships on `pk_test`.
+- Because preview also uses the dev instance, an Apple failure reproduces in the Expo preview — no
+  rebuild needed to diagnose.
+- Do NOT blindly switch eas.json to `pk_live`: the api-server verifies Clerk tokens with a secret
+  key bound to ONE instance; flipping the app's publishable key without matching the server's secret
+  key instance breaks ALL authenticated API calls. It's a coordinated change.
+- The Apple button's `catch` must stay non-throwing (a thrown `JSON.stringify` on a circular error
+  re-creates the "unresponsive button" App-Review rejection); it surfaces Clerk's real error via
+  `describeSsoError` so the exact cause (e.g. provider-not-enabled) is visible.

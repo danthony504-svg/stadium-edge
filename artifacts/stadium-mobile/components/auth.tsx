@@ -294,6 +294,29 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
 // oauth_apple SSO flow (startSSOFlow signs up AND signs in). Styled per Apple's
 // button guidelines: a white button with the black Apple glyph stands out on the
 // dark auth UI (white is an Apple-approved style for dark backgrounds).
+// Pulls a human-readable reason out of whatever Clerk / the SSO flow throws.
+// Clerk API errors arrive as { errors: [{ code, message, longMessage }] };
+// other failures may only have `.message`. Surfacing this turns an opaque
+// "Apple SSO failed" into the actual cause (e.g. provider not enabled,
+// invalid redirect URL), which is what we need to diagnose App Review issues.
+function describeSsoError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as {
+      errors?: Array<{ code?: string; message?: string; longMessage?: string }>;
+      message?: string;
+    };
+    const first = e.errors?.[0];
+    if (first) {
+      const parts = [first.longMessage || first.message, first.code]
+        .filter(Boolean)
+        .join(" ");
+      if (parts) return parts;
+    }
+    if (typeof e.message === "string" && e.message) return e.message;
+  }
+  return "Unknown error";
+}
+
 export function AppleAuthButton() {
   useWarmUpBrowser();
   const router = useRouter();
@@ -323,8 +346,17 @@ export function AppleAuthButton() {
         // Apple sheet before completing. Stay silent — not an error.
       }
     } catch (err) {
-      console.error("Apple SSO failed", JSON.stringify(err, null, 2));
-      setError("Couldn't continue with Apple. Please try again.");
+      // Keep everything in this block non-throwing — if it throws, the button
+      // goes silent/unresponsive again, which is the exact bug we're fixing.
+      const detail = describeSsoError(err);
+      let raw = "";
+      try {
+        raw = JSON.stringify(err, null, 2);
+      } catch {
+        raw = String(err);
+      }
+      console.error("Apple SSO failed:", detail, raw);
+      setError(`Apple sign-in failed: ${detail}`);
     } finally {
       setBusy(false);
     }
