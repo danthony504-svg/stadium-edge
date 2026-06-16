@@ -44,6 +44,20 @@ builds talk to the Clerk **development** instance, not production. Consequences:
 - Do NOT blindly switch eas.json to `pk_live`: the api-server verifies Clerk tokens with a secret
   key bound to ONE instance; flipping the app's publishable key without matching the server's secret
   key instance breaks ALL authenticated API calls. It's a coordinated change.
+- RESOLVED (App-Store Apple rejection): Apple would NOT enable on the Replit-managed **development**
+  Clerk instance (Google enables fine; the Apple toggle never sticks — verified by live env query:
+  dev `oauth_apple.enabled = undefined` across repeated saves). So Option A (enable on dev) is a
+  dead end for Apple specifically. FIX SHIPPED = point the `production` build profile in `eas.json`
+  at the **production** instance key `pk_live_…` (`clerk.stadium-edge-1.replit.app`), where Apple is
+  enabled + branded. This is SAFE for auth calls because the DEPLOYED api-server already uses the
+  production Clerk secret (publish swaps to live keys), so prod-instance tokens now verify — it
+  ALIGNS app↔server instead of breaking them, and fixes the latent mismatch where the dev-instance
+  app's tokens couldn't be verified by the prod server (sync/saved-slips/push degraded).
+- `preview` profile intentionally stays on `pk_test` (dev instance) → Apple does NOT work in Expo
+  preview; verify Apple on a TestFlight build. Requires a NEW production build + resubmit (key is
+  baked at build time). Live verification technique: dev = `POST /v1/dev_browser` then
+  `/v1/environment?__clerk_db_jwt=TOKEN` on `profound-raptor-92.clerk.accounts.dev`; prod = deployed
+  proxy `https://stadium-edge-1.replit.app/api/__clerk/v1/environment`.
 - The Apple button's `catch` must stay non-throwing (a thrown `JSON.stringify` on a circular error
   re-creates the "unresponsive button" App-Review rejection); it surfaces Clerk's real error via
   `describeSsoError` so the exact cause (e.g. provider-not-enabled) is visible.
