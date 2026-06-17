@@ -3,7 +3,16 @@ import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, useRouter } from "expo-router";
 import React from "react";
-import { Alert, Pressable, Share, Switch, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  Share,
+  Switch,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
@@ -13,6 +22,7 @@ import {
   getBiometricCapability,
   getSavedLoginEmail,
 } from "@/lib/biometricLogin";
+import { deleteAccount } from "@/lib/api";
 import { buildReferralLink } from "@/lib/referral";
 
 export default function AccountScreen() {
@@ -27,6 +37,28 @@ export default function AccountScreen() {
     supported: false,
     label: "Face ID",
   });
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+
+  const onConfirmDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      // Server deletes the auth user (incl. linked Google/Apple logins) and all
+      // stored data, then we drop saved credentials, sign out, and land on the
+      // public welcome screen.
+      await deleteAccount();
+      await clearBiometricLogin().catch(() => {});
+      await signOut();
+      router.replace("/welcome");
+    } catch {
+      setDeleting(false);
+      setDeleteError(
+        "We couldn't delete your account. Check your connection and try again.",
+      );
+    }
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -330,7 +362,182 @@ export default function AccountScreen() {
             Sign out
           </Text>
         </Pressable>
+
+        <Pressable
+          onPress={() => {
+            setDeleteError(null);
+            setConfirmDeleteOpen(true);
+          }}
+          hitSlop={8}
+          accessibilityLabel="Delete account"
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            paddingVertical: 10,
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Feather name="trash-2" size={15} color={colors.mutedForeground} />
+          <Text
+            style={{
+              fontFamily: FONT.semibold,
+              fontSize: 13,
+              color: colors.mutedForeground,
+            }}
+          >
+            Delete account
+          </Text>
+        </Pressable>
       </View>
+
+      <Modal
+        visible={confirmDeleteOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!deleting) setConfirmDeleteOpen(false);
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.72)",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 22,
+              gap: 14,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.background,
+                  borderWidth: 1,
+                  borderColor: colors.destructive,
+                }}
+              >
+                <Feather name="alert-triangle" size={22} color={colors.destructive} />
+              </View>
+              <Text
+                style={{
+                  fontFamily: FONT.display,
+                  fontSize: 20,
+                  color: colors.foreground,
+                  flex: 1,
+                }}
+              >
+                Delete your account?
+              </Text>
+            </View>
+
+            <Text
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 14,
+                lineHeight: 21,
+                color: colors.mutedForeground,
+              }}
+            >
+              This permanently deletes your Stadium Edge account and all of your
+              data — saved slips, pick tracker, results and preferences. It
+              applies to email, Google and Apple sign-ins.
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT.semibold,
+                fontSize: 14,
+                lineHeight: 21,
+                color: colors.foreground,
+              }}
+            >
+              This can't be undone.
+            </Text>
+
+            {deleteError ? (
+              <Text
+                style={{
+                  fontFamily: FONT.medium,
+                  fontSize: 13,
+                  color: colors.destructive,
+                }}
+              >
+                {deleteError}
+              </Text>
+            ) : null}
+
+            <View style={{ gap: 10, marginTop: 4 }}>
+              <Pressable
+                onPress={onConfirmDelete}
+                disabled={deleting}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 10,
+                  backgroundColor: colors.destructive,
+                  borderRadius: 12,
+                  paddingVertical: 14,
+                  opacity: deleting ? 0.7 : pressed ? 0.85 : 1,
+                })}
+              >
+                {deleting ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Feather name="trash-2" size={17} color="#ffffff" />
+                )}
+                <Text
+                  style={{ fontFamily: FONT.bold, fontSize: 15, color: "#ffffff" }}
+                >
+                  {deleting ? "Deleting…" : "Permanently delete"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setConfirmDeleteOpen(false)}
+                disabled={deleting}
+                style={({ pressed }) => ({
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 12,
+                  paddingVertical: 14,
+                  opacity: deleting ? 0.5 : pressed ? 0.85 : 1,
+                })}
+              >
+                <Text
+                  style={{
+                    fontFamily: FONT.semibold,
+                    fontSize: 15,
+                    color: colors.foreground,
+                  }}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

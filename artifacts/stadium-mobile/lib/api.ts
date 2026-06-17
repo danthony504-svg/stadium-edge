@@ -331,6 +331,18 @@ export async function putSync<T>(
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+// ---------- Account deletion (Clerk-authed; routes/account.ts) ----------
+
+// Permanently delete the signed-in user's account and ALL associated data: the
+// auth identity (including linked Google / Apple / password logins) plus saved
+// slips, pick tracker, results, preferences and push tokens. Throws on any
+// non-2xx so the caller keeps the user signed in and shows an error instead of
+// a false success.
+export async function deleteAccount(): Promise<void> {
+  const res = await authedFetch(`/account`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 // ---------- Push notifications (Clerk-authed; routes/notifications.ts) ----------
 
 // Per-user notification preferences. All default true; when `master` is false
