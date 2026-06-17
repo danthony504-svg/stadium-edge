@@ -52,3 +52,18 @@ triggers from a SECURED cron endpoint.
   deep-linking silently).
 - api-server has NO file watcher — restart the workflow after editing these
   files or it serves stale compiled code.
+
+## Diagnosing "background build / pushes stopped working" in prod
+- The whole time-based layer (sweeper + 4 triggers) is DARK unless a Scheduled
+  Deployment runs `bash scripts/notifications-cron.sh` (~15 min). The inline
+  "ready" push from a SURVIVING handler does NOT need cron, but the SWEEPER that
+  recovers an autoscale-killed handler DOES — so a closed-app build whose socket
+  dropped only gets its push via cron.
+- **First check, always:** `GET https://<published>/api/notifications/cron/status`
+  with header `x-cron-key: $NOTIFY_CRON_KEY`. `everRan:false` / `lastRunAt:null`
+  / 503 stale ⇒ the Scheduled Deployment was never created or is failing. This is
+  an OPERATIONAL gap (Publishing UI), not a code bug — confirmed here once with
+  key set, tokens registered, code deployed, yet `everRan:false`.
+- Cannot create a Scheduled Deployment programmatically (no agent tool); the user
+  must add it in the Publishing tool. `scripts/notifications-cron.sh` mirrors
+  `prebuild-cron.sh` so the run command is turnkey.

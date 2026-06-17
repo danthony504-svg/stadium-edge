@@ -22,7 +22,15 @@ can't be trusted to run. Time-based work is driven by **Scheduled Deployments**
 that POST to secured cron endpoints (guarded by the `x-cron-key` header vs
 `NOTIFY_CRON_KEY` / `PREBUILD_CRON_KEY`):
 
-- **Notifications** — `POST /api/notifications/cron`, ~every 15 min.
+- **Notifications + background-build sweeper** — `POST /api/notifications/cron`,
+  ~every 15 min. Run command: `bash scripts/notifications-cron.sh` (reads
+  `NOTIFY_CRON_URL` defaulting to the published api-server, and `NOTIFY_CRON_KEY`).
+  Drives the abandoned-Coach-build sweeper (so a parlay built while the app is
+  closed still sends its "ready"/"couldn't finish" push) plus all four push
+  triggers and retention pruning. **Required** — without this schedule none of
+  the time-based notifications fire. Verify it is live via
+  `GET /api/notifications/cron/status` (same `x-cron-key` guard): `everRan:false`
+  / 503 means the schedule was never set up or is failing.
 - **Cache pre-warming** — `POST /api/prebuild/cron`, every few minutes (the
   warmed odds/games/props caches have ~5 min TTLs). Run command:
   `bash scripts/prebuild-cron.sh` (reads `PREBUILD_CRON_URL` defaulting to the
@@ -30,10 +38,11 @@ that POST to secured cron endpoints (guarded by the `x-cron-key` header vs
   `NOTIFY_CRON_KEY`). The endpoint makes the live instance warm its caches over
   loopback, so it adds no extra Odds API quota beyond a normal page load.
 
-To set up the pre-warming schedule: from the published project, create a
-**Scheduled Deployment** (Publishing tool) with run command
-`bash scripts/prebuild-cron.sh` on a few-minute interval. `NOTIFY_CRON_KEY` is
-already a shared env var, so no extra secret is required.
+To set up each schedule: from the published project, create a **Scheduled
+Deployment** (Publishing tool) with the run command above
+(`bash scripts/notifications-cron.sh` on a ~15-min interval for notifications;
+`bash scripts/prebuild-cron.sh` on a few-minute interval for pre-warming).
+`NOTIFY_CRON_KEY` is already a shared env var, so no extra secret is required.
 
 ### Paging when the cron stalls
 
