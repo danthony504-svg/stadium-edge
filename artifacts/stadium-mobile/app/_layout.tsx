@@ -34,8 +34,9 @@ import {
 
 // Clerk publishable key + proxy URL come from the environment (dev script /
 // build.js). Empty in dev for the proxy (Clerk hits dev FAPI directly), set in
-// prod. Auth is REQUIRED — the (tabs) layout gates the app behind sign-in, so on
-// first open a signed-out user is sent to the login screen.
+// prod. Auth is OPTIONAL — the app is freely browsable without an account; only
+// account-based features (cloud sync, push, the Account screen) require sign-in,
+// and those screens gate themselves. The app opens directly to the home tab.
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
 const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 
