@@ -16,9 +16,19 @@ signal is real. Cyan (#22d3ee) is LOCAL to this component, not a theme token.
 
 **Gating in coach.tsx:** render `<AnalysisProgress mode="build" .../>` while
 `isBuildingParlay`, else `mode="analyze"` while
-`analyzeWaiting = isWaiting && !!m.analyzeSlip?.length`. Both build+analyze
-waiting are excluded from `showBubble` so no empty spinner bubble flashes
-alongside the card.
+`analyzeWaiting = isWaiting && !!m.analyzeSlip?.length`, else `mode="ask"`
+while `askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting` (a
+PLAIN question — the box now shows for ANY wait, not just build/analyze).
+All three waiting states are excluded from `showBubble` so no empty spinner
+bubble flashes alongside the card. The old rotating `ThinkingStages` pill that
+used to cover plain-question waits is GONE (fully replaced by ask mode).
+
+**"ask" mode honesty:** has its OWN stage/checklist set (ASK_STAGES/
+ASK_TARGETS/ASK_CHECKLIST, 9 stages) because a plain question has no ticket —
+copy must NOT claim ticket/correlation/weak-leg work; only generic real work
+(pull live odds+props+matchup context, reason, write answer). Walks to its
+final stage on its own like analyze (no legCount). build+analyze still share
+the ticket-oriented STAGES/TARGETS/CHECKLIST.
 
 **Why:** users perceived the old "Building…" pill as a dead spinner on long
 (19–65s TTFT) model waits. The card must feel like real analysis but must

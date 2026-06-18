@@ -44,6 +44,34 @@ const CHECKLIST: { label: string; doneAt: number }[] = [
   { label: "Final ticket ready", doneAt: 9 },
 ];
 
+// "ask" mode: a plain question (not a parlay build / ticket analysis). The Coach
+// still does real work — it pulls live odds + props + matchup context and the
+// model reasons over it — but there is no ticket, no correlation, and no weak-leg
+// pass, so the copy stays generic and honest (no ticket-specific claims). Like
+// analyze mode there is no leg stream, so it walks to the final stage on its own
+// and is replaced the moment the answer streams in.
+const ASK_STAGES = [
+  "Reading your question…",
+  "Pulling live odds and props…",
+  "Checking player matchups…",
+  "Processing recent stats…",
+  "Comparing odds across sportsbooks…",
+  "Identifying key factors…",
+  "Calculating edge and value…",
+  "Running AI analysis…",
+  "Writing your answer…",
+] as const;
+
+const ASK_TARGETS = [8, 20, 32, 44, 56, 68, 80, 91, 100] as const;
+
+const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
+  { label: "Question understood", doneAt: 1 },
+  { label: "Live data pulled", doneAt: 4 },
+  { label: "Key factors identified", doneAt: 5 },
+  { label: "Value calculated", doneAt: 7 },
+  { label: "Answer ready", doneAt: 8 },
+];
+
 /**
  * A step-by-step "AI is analyzing real data" loading screen shown while the
  * Coach builds a parlay or analyzes a ticket. Shows the current stage, a
@@ -59,20 +87,27 @@ export function AnalysisProgress({
   mode = "build",
   legCount = 0,
 }: {
-  mode?: "build" | "analyze";
+  mode?: "build" | "analyze" | "ask";
   legCount?: number;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
   const [pct, setPct] = useState(0);
 
+  // "ask" (plain question) has its own generic, honest stage set; build + analyze
+  // share the ticket-oriented one.
+  const isAsk = mode === "ask";
+  const stageList = isAsk ? ASK_STAGES : STAGES;
+  const targetList = isAsk ? ASK_TARGETS : TARGETS;
+  const checklist = isAsk ? ASK_CHECKLIST : CHECKLIST;
+
   // In build mode the auto-timer holds on "Building final AI grade…" (index 8)
   // until real picks stream — the finalize stage is driven by `legCount`, not a
-  // clock. In analyze mode there is no leg signal, so it walks all the way to
-  // the finalize stage on its own.
-  const maxAuto = mode === "build" ? 8 : STAGES.length - 1;
-  const effectiveIndex = mode === "build" && legCount > 0 ? STAGES.length - 1 : autoIndex;
-  const target = TARGETS[effectiveIndex];
+  // clock. In analyze + ask modes there is no leg signal, so it walks all the way
+  // to the finalize stage on its own.
+  const maxAuto = mode === "build" ? 8 : stageList.length - 1;
+  const effectiveIndex = mode === "build" && legCount > 0 ? stageList.length - 1 : autoIndex;
+  const target = targetList[effectiveIndex];
 
   // Advance the stage on a steady cadence (capped at maxAuto).
   useEffect(() => {
@@ -122,7 +157,7 @@ export function AnalysisProgress({
 
   const displayPct = Math.round(pct);
   // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = CHECKLIST.findIndex((c) => effectiveIndex < c.doneAt);
+  const activeChecklist = checklist.findIndex((c) => effectiveIndex < c.doneAt);
 
   return (
     <View
@@ -169,7 +204,7 @@ export function AnalysisProgress({
             fontSize: 14,
           }}
         >
-          {STAGES[effectiveIndex]}
+          {stageList[effectiveIndex]}
         </Text>
         <Text
           style={{
@@ -218,7 +253,7 @@ export function AnalysisProgress({
           gap: 9,
         }}
       >
-        {CHECKLIST.map((item, idx) => {
+        {checklist.map((item, idx) => {
           const done = effectiveIndex >= item.doneAt;
           const active = idx === activeChecklist;
           return (

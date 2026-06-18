@@ -338,56 +338,6 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 const PARLAY_BUILD_RE =
   /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
 
-// Cosmetic "thinking" labels cycled while a plain Q&A answer is on its way (the
-// non-parlay waiting state). Unlike the parlay-build / analyze flow (which uses
-// the staged AnalysisProgress card), plain answers stream as one shot, so these
-// simply rotate to signal that work is happening instead of a bare spinner. They
-// loop continuously so a long wait never looks frozen.
-const THINKING_STAGES = [
-  "🧠 Reading your question…",
-  "📡 Pulling live market data…",
-  "📊 Processing statistics…",
-  "🎯 Identifying key factors…",
-  "⚖️ Evaluating risk vs reward…",
-  "🔥 Detecting value spots…",
-  "📈 Calculating edge…",
-  "🤖 Running AI analysis…",
-  "🏆 Generating best answer…",
-] as const;
-
-function ThinkingStages() {
-  const colors = useColors();
-  const [idx, setIdx] = useState(0);
-  const fade = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    const id = setInterval(() => {
-      setIdx((i) => (i + 1) % THINKING_STAGES.length);
-    }, 1500);
-    return () => clearInterval(id);
-  }, []);
-  useEffect(() => {
-    fade.setValue(0);
-    Animated.timing(fade, {
-      toValue: 1,
-      duration: 280,
-      useNativeDriver: true,
-    }).start();
-  }, [idx, fade]);
-  return (
-    <Animated.Text
-      style={{
-        opacity: fade,
-        color: colors.mutedForeground,
-        fontFamily: FONT.medium,
-        fontSize: 13,
-        lineHeight: 19,
-      }}
-    >
-      {THINKING_STAGES[idx]}
-    </Animated.Text>
-  );
-}
-
 // "Improve THIS slip" intent (mirror of the server's improveWording in chat.ts).
 // When the user uploaded a bet-slip photo and then asks for "a better one", they
 // want a BETTER version of THAT SAME slip — same games, same leg count. The slip
@@ -1928,6 +1878,11 @@ export default function CoachScreen() {
             // so we can show the rich step-by-step AnalysisProgress instead of a
             // plain spinner — the analysis text replaces it the moment it arrives.
             const analyzeWaiting = isWaiting && !!m.analyzeSlip?.length;
+            // A plain question (not a parlay build, not a ticket analysis) in its
+            // waiting phase. Show the same rich step-by-step AnalysisProgress card
+            // (generic, honest "ask" copy) instead of the small rotating pill so
+            // every question gets the analyzing box.
+            const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
             const bubbleText =
               m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
@@ -1941,7 +1896,8 @@ export default function CoachScreen() {
               !m.teamCard &&
               !isBuildingParlay &&
               !analyzeWaiting &&
-              (isWaiting || bubbleText.length > 0 || !!m.imageUris?.length);
+              !askWaiting &&
+              (bubbleText.length > 0 || !!m.imageUris?.length);
             return (
               <View key={i}>
                 {m.analyzeSlip?.length ? (
@@ -1993,9 +1949,7 @@ export default function CoachScreen() {
                         ))}
                       </View>
                     ) : null}
-                    {isWaiting ? (
-                      <ThinkingStages />
-                    ) : bubbleText.length > 0 ? (
+                    {bubbleText.length > 0 ? (
                       m.role === "assistant" ? (
                         <ChatMarkdown
                           text={bubbleText}
@@ -2026,6 +1980,8 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="build" legCount={buildingLegCount} />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
+                ) : askWaiting ? (
+                  <AnalysisProgress mode="ask" />
                 ) : null}
 
                 {hasPicks ? (
