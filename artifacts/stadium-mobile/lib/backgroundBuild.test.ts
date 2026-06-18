@@ -176,3 +176,52 @@ test("terminal failure status surfaces a recovery decision carrying the prompt",
     assert.equal(decision.retryText, samplePending.userText);
   }
 });
+
+test("a stash that never arrives stays not-ready until the wait window elapses", () => {
+  const created = samplePending.createdAt;
+  // Still inside the wait window → keep waiting (server build may be in flight).
+  assert.equal(
+    decideBackgroundRestore("abc123", samplePending, null, {
+      now: created + 60_000,
+      maxWaitMs: 120_000,
+    }).action,
+    "not-ready",
+  );
+  // Past the window with no stash → treat as a timed-out stall so the caller can
+  // offer a retry instead of an endless "still building". Never fabricates.
+  const decision = decideBackgroundRestore("abc123", samplePending, null, {
+    now: created + 120_001,
+    maxWaitMs: 120_000,
+  });
+  assert.equal(decision.action, "failed");
+  if (decision.action !== "failed") return;
+  assert.equal(decision.status, "timedOut");
+  assert.equal(decision.retryText, samplePending.userText);
+});
+
+test("an empty stash past the wait window also times out to a retry", () => {
+  const decision = decideBackgroundRestore(
+    "abc123",
+    samplePending,
+    { buildId: "abc123", status: "ready", full: "   " },
+    { now: samplePending.createdAt + 200_000, maxWaitMs: 120_000 },
+  );
+  assert.equal(decision.action, "failed");
+  if (decision.action !== "failed") return;
+  assert.equal(decision.status, "timedOut");
+});
+
+test("a ready stash still replays even after the wait window (result wins over timeout)", () => {
+  const decision = decideBackgroundRestore("abc123", samplePending, readyStash, {
+    now: samplePending.createdAt + 500_000,
+    maxWaitMs: 120_000,
+  });
+  assert.equal(decision.action, "replay");
+});
+
+test("without timing opts the original wait-forever not-ready behavior is preserved", () => {
+  assert.equal(
+    decideBackgroundRestore("abc123", samplePending, null).action,
+    "not-ready",
+  );
+});

@@ -58,3 +58,23 @@ in `auto` mode. `CoachBuildStash.status` is optional (older stashes = ready).
 On autoscale prod a TCP drop may kill the in-flight handler before EITHER finish
 path runs (dev won't reproduce) — that still leaves no stash. The terminal-status
 path only covers stalls/errors the handler itself observes.
+
+## Client must self-heal a never-arriving stash (no endless "still building")
+When the handler dies and NO stash (not even a terminal status) is written, the
+old client sat on the "Still building your ticket… I'll notify you" line forever:
+on foreground `restoreBackgroundBuild(auto)` saw `not-ready` and returned silently.
+**Fix = client-side wait-timeout + poll, no infra needed:**
+- `decideBackgroundRestore` takes `{now, maxWaitMs}`; a missing/empty stash whose
+  `pending.createdAt + maxWaitMs <= now` becomes `failed/timedOut` (reuses the
+  recovery + Try-again UI). A real terminal status or a ready result still WINS
+  over the timeout. No opts = original wait-forever (keeps existing tests green).
+- On hand-off, start a `setInterval` poll (`bgWatchId` state, ~10s) that re-checks
+  the stash even if the user never re-foregrounds; cleared in replay/failed
+  branches AND at the top of a fresh non-replay `send`.
+- **Restore is MULTI-TRIGGER (poll + AppState "active" + push-tap) → needs an
+  in-flight lock.** `restoredBuildRef` is checked BEFORE the async stash fetch so
+  it can't stop two interleaved entrants from both replaying → add `restoringRef`
+  (bail if set, acquire before await, release in `finally`) + a post-await recheck
+  of `streamingRef`/`restoredBuildRef`. Window sized ~120s so a legitimately
+  in-flight server build is never cut off. Client change → needs OTA/native build
+  to reach installed app.

@@ -134,6 +134,13 @@ type StatCardResult = {
 // through the normal parse/render path.
 const PENDING_BUILD_KEY = "coach.pendingBuild";
 
+// How long we'll wait for a handed-off build's result before treating it as a
+// stall and offering a retry (instead of an endless "still building"). Sized
+// well past a real build's worst case so a genuinely in-flight server build is
+// never cut off. The poll re-checks the stash at PENDING_POLL_MS while we wait.
+const PENDING_BUILD_MAX_WAIT_MS = 120_000;
+const PENDING_POLL_MS = 10_000;
+
 type PendingBuild = {
   buildId: string;
   userText: string;
@@ -768,6 +775,15 @@ export default function CoachScreen() {
   // buildIds we've already replayed, so a re-render / repeated AppState event
   // doesn't double-restore the same finished ticket.
   const restoredBuildRef = useRef<string | null>(null);
+  // In-flight lock: restore can be triggered concurrently (poll + AppState
+  // "active" + push tap). restoredBuildRef is checked BEFORE the async stash
+  // fetch, so it can't prevent two interleaved calls from both replaying. This
+  // ref serializes them — a second entrant bails until the first finishes.
+  const restoringRef = useRef(false);
+  // Drives a poll while a build is handed off to the server: it re-checks the
+  // stash so a finished ticket replays (or a stalled one surfaces a retry) even
+  // if the user just sits on the "still building" screen and never re-foregrounds.
+  const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.prefill) setInput(String(params.prefill));
@@ -884,6 +900,10 @@ export default function CoachScreen() {
       Keyboard.dismiss();
       setInput("");
       setAttachedImages([]);
+      // A brand-new message supersedes any prior handed-off build's poll, so stop
+      // that watcher (the new send manages its own hand-off/watch below). A replay
+      // already cleared it before reaching here.
+      if (!replay) setBgWatchId(null);
 
       // Resolve the image(s) actually SENT to the vision model. A FRESH
       // attachment is sent as-is and remembered as the current slip. With NO
@@ -1658,6 +1678,10 @@ export default function CoachScreen() {
           // line instead of a connection-error line. pendingBgRef stays set so
           // the AppState "active" handler auto-restores the finished ticket.
           handedOffRef.current = false;
+          // Start polling the server stash so the finished ticket replays (or a
+          // stalled build surfaces a retry) even if the user just stays on this
+          // screen and never re-foregrounds the app.
+          if (pendingBgRef.current) setBgWatchId(pendingBgRef.current.buildId);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -1697,6 +1721,9 @@ export default function CoachScreen() {
     async (buildId: string, opts?: { auto?: boolean }) => {
       if (!buildId || streamingRef.current) return;
       if (restoredBuildRef.current === buildId) return;
+      // Serialize concurrent triggers (poll + AppState "active" + push tap).
+      if (restoringRef.current) return;
+      restoringRef.current = true;
       try {
         const pending = await loadPendingBuild();
         // Only fetch the server stash when there's a local pending record to
@@ -1704,9 +1731,15 @@ export default function CoachScreen() {
         const stash = pending
           ? (await getSync<CoachBuildStash>("coachBuild")).data
           : null;
+        // Re-check after the awaits: another path may have started a stream or
+        // already restored this build while we were fetching.
+        if (streamingRef.current || restoredBuildRef.current === buildId) return;
         // Pure decision (lib/backgroundBuild.ts): which of wrong-device /
         // not-ready / failed / replay applies. The side effects below stay here.
-        const decision = decideBackgroundRestore(buildId, pending, stash);
+        const decision = decideBackgroundRestore(buildId, pending, stash, {
+          now: Date.now(),
+          maxWaitMs: PENDING_BUILD_MAX_WAIT_MS,
+        });
         if (decision.action === "wrong-device") {
           if (!opts?.auto) {
             setMessages((prev) => [
@@ -1741,6 +1774,7 @@ export default function CoachScreen() {
           // user always learns the build didn't make it.
           restoredBuildRef.current = buildId;
           pendingBgRef.current = null;
+          setBgWatchId(null);
           const retryText = decision.retryText;
           await clearPendingBuild();
           setMessages((prev) => [
@@ -1758,11 +1792,14 @@ export default function CoachScreen() {
         }
         restoredBuildRef.current = buildId;
         pendingBgRef.current = null;
+        setBgWatchId(null);
         await clearPendingBuild();
         await send(pending!.userText, { replay: decision.payload });
       } catch {
         // Transient (token not ready / offline / 401) — leave the pending record
         // so a later foreground or notification tap can retry. Never fabricate.
+      } finally {
+        restoringRef.current = false;
       }
     },
     [send],
@@ -1794,6 +1831,22 @@ export default function CoachScreen() {
     });
     return () => sub.remove();
   }, [restoreBackgroundBuild]);
+
+  // While a build is handed off, poll the server stash on a timer so the result
+  // replays the moment it's ready — and, if it never arrives, the wait-timeout in
+  // decideBackgroundRestore turns it into a "couldn't finish — try again" recovery
+  // instead of an endless "still building". Covers the case where the user just
+  // sits on the screen and never re-foregrounds the app. Cleared once the build
+  // resolves (replay/failed clear bgWatchId) or a new stream starts.
+  useEffect(() => {
+    if (!bgWatchId) return;
+    const id = setInterval(() => {
+      const pend = pendingBgRef.current;
+      if (!pend || streamingRef.current) return;
+      void restoreBackgroundBuild(pend.buildId, { auto: true });
+    }, PENDING_POLL_MS);
+    return () => clearInterval(id);
+  }, [bgWatchId, restoreBackgroundBuild]);
 
   // Tapping the "your ticket is ready" push opens Coach with ?buildId=… — load
   // and replay that finished build. restoredBuildRef guards against re-running.

@@ -60,6 +60,8 @@ export function shouldAbortForHandoff(opts: {
 }
 
 // The minimal shape of a locally-saved pending build the restore logic needs.
+// `createdAt` (epoch ms) lets the restore decide when a build that never came
+// back has waited long enough to be treated as a stall (see decideBackgroundRestore).
 export type PendingBuildShape<TContext, TProp, TMeta> = {
   buildId: string;
   userText: string;
@@ -67,6 +69,7 @@ export type PendingBuildShape<TContext, TProp, TMeta> = {
   propPool: TProp[];
   gameMeta: TMeta[];
   todayOnly: boolean;
+  createdAt: number;
 };
 
 // The minimal shape of the server's stashed build result.
@@ -110,22 +113,43 @@ export function decideBackgroundRestore<TContext, TProp, TMeta, TStashProp>(
   buildId: string,
   pending: PendingBuildShape<TContext, TProp, TMeta> | null | undefined,
   stash: CoachBuildStashShape<TStashProp> | null | undefined,
+  // `now` + `maxWaitMs` let a build whose stash NEVER arrives stop hanging on an
+  // endless "still building" line: once we've waited longer than a real build
+  // could take, a missing/empty stash is treated as a stall (timedOut) so the
+  // caller can offer a retry. Omit them to keep the original wait-forever behavior.
+  opts?: { now?: number; maxWaitMs?: number },
 ): BackgroundRestoreDecision<TContext, TProp, TMeta, TStashProp> {
   if (!pending || pending.buildId !== buildId) return { action: "wrong-device" };
-  if (!stash || stash.buildId !== buildId) return { action: "not-ready" };
-  if (stash.status === "failed" || stash.status === "timedOut") {
+  // A terminal status the server actually recorded always wins (honest failure).
+  if (stash && stash.buildId === buildId && (stash.status === "failed" || stash.status === "timedOut")) {
     return { action: "failed", status: stash.status, retryText: pending.userText };
   }
-  if (!stash.full.trim()) return { action: "not-ready" };
-  return {
-    action: "replay",
-    payload: {
-      full: stash.full,
-      props: stash.props ?? [],
-      context: pending.context,
-      propPool: pending.propPool,
-      gameMeta: pending.gameMeta,
-      todayOnly: pending.todayOnly,
-    },
-  };
+  // A real, non-empty result is ready to replay.
+  if (stash && stash.buildId === buildId && stash.full.trim()) {
+    return {
+      action: "replay",
+      payload: {
+        full: stash.full,
+        props: stash.props ?? [],
+        context: pending.context,
+        propPool: pending.propPool,
+        gameMeta: pending.gameMeta,
+        todayOnly: pending.todayOnly,
+      },
+    };
+  }
+  // The stash is missing, for a different build, or still empty. If we've now
+  // waited longer than a build could reasonably take, the server build never
+  // made it back (it died on the dropped socket and there's no keep-warm/sweeper
+  // to finish it) — treat it as a stall so the user gets a retry, not a forever
+  // "still building". We never fabricate a ticket; this only ends the wait.
+  if (
+    opts?.now != null &&
+    opts?.maxWaitMs != null &&
+    pending.createdAt != null &&
+    pending.createdAt + opts.maxWaitMs <= opts.now
+  ) {
+    return { action: "failed", status: "timedOut", retryText: pending.userText };
+  }
+  return { action: "not-ready" };
 }
