@@ -1115,6 +1115,40 @@ function matchProp(
     }
   }
   if (!best) return null;
+  // HOME-RUN HONESTY CAP (fail-closed safety net). A multi-home-run OVER — Over
+  // 1.5 (2+ HR in a game) or Over 2.5 (3+) — is a lottery longshot no hitter's
+  // real projection (~0.1-0.4 HR/game) or recent form can defensibly support, yet
+  // the server LLM can still emit one under scarcity. The mobile context carries
+  // no per-player game log to overrule it here, so never let a multi-HR rung be
+  // the PICK: snap it down to the player's REAL anytime-HR rung (Over 0.5 / yes
+  // leg) on the SAME game when one exists, else drop the leg entirely — never
+  // render a 2+ HR recommendation. The deeper rungs still surface as display-only
+  // "Value" alt options below (built from the capped anytime-HR rung).
+  if (
+    String(best.marketKey || "") === "batter_home_runs" &&
+    best.side === "Over" &&
+    best.line != null &&
+    best.line >= 1.5
+  ) {
+    const bn = norm(best.player);
+    const bg = best.game;
+    let anytime: PropPoolEntry | null = null;
+    for (const e of propPool) {
+      if (String(e.marketKey || "") !== "batter_home_runs") continue;
+      if (norm(e.player) !== bn || !sameGame(e.game, bg)) continue;
+      if (e.line == null) {
+        if (e.side === "Under") continue; // affirmative (To-Hit-a-HR) leg only, never the No/Under side
+        anytime = e; // yes/no anytime-HR leg
+        break;
+      }
+      if (e.line === 0.5 && e.side === "Over") {
+        anytime = e; // posted Over 0.5 = anytime HR
+        break;
+      }
+    }
+    if (!anytime) return null;
+    best = anytime;
+  }
   // BARE-ALT PLUS-MONEY UPGRADE. The shared chat prompt steers bare-alt props to
   // their plus-money value rung using playerHistory reachability — but the MOBILE
   // context carries no per-player game log, so the model has no basis to step up
