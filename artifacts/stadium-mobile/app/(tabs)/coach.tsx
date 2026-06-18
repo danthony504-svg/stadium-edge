@@ -53,6 +53,7 @@ import {
 } from "@/lib/confidence";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
+import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -337,25 +338,11 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 const PARLAY_BUILD_RE =
   /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
 
-// Ordered progress labels shown while a parlay builds. They are tied to the REAL
-// phases of the build, not a cosmetic timer: 0-2 cover buildChatContext fetching
-// odds → props → matchups (cycled while it runs), 3 ("Building correlation") is
-// locked in once that data is in and the model is reasoning, and 4 ("Finalizing
-// parlay") only appears once real PICK lines actually stream back (derived from
-// the live leg count). Every label describes work that genuinely happens.
-const BUILD_STAGES = [
-  "Scanning odds",
-  "Finding value props",
-  "Checking matchups",
-  "Building correlation",
-  "Finalizing parlay",
-] as const;
-
 // Cosmetic "thinking" labels cycled while a plain Q&A answer is on its way (the
-// non-parlay waiting state). Unlike BUILD_STAGES these are not tied to discrete
-// backend phases — answers stream as one shot — so they simply rotate to signal
-// that work is happening instead of a bare spinner. They loop continuously so a
-// long wait never looks frozen.
+// non-parlay waiting state). Unlike the parlay-build / analyze flow (which uses
+// the staged AnalysisProgress card), plain answers stream as one shot, so these
+// simply rotate to signal that work is happening instead of a bare spinner. They
+// loop continuously so a long wait never looks frozen.
 const THINKING_STAGES = [
   "🧠 Reading your question…",
   "📡 Pulling live market data…",
@@ -781,8 +768,6 @@ export default function CoachScreen() {
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [waiting, setWaiting] = useState(false);
-  // Index into BUILD_STAGES for the live parlay-build progress indicator.
-  const [buildStage, setBuildStage] = useState(0);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -816,8 +801,6 @@ export default function CoachScreen() {
   }, []);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
-  // Interval that cycles the first build stages while the context fetch runs.
-  const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Mirror of `streaming` readable synchronously from the AppState listener
   // (which can't see React state directly).
   const streamingRef = useRef(false);
@@ -1192,14 +1175,6 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
-          // Staged build progress while the context fetch runs.
-          if (isParlayBuild) {
-            setBuildStage(0);
-            if (stageTimerRef.current) clearInterval(stageTimerRef.current);
-            stageTimerRef.current = setInterval(() => {
-              setBuildStage((s) => (s < 2 ? s + 1 : s));
-            }, 1200);
-          }
           ({ context, propPool, gameMeta, todayOnly } = await buildChatContext(
             DEFAULT_SPORTS,
             slipForContext,
@@ -1211,15 +1186,6 @@ export default function CoachScreen() {
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
           ));
-          // Context (odds/props/matchups) is in — stop cycling and hold the indicator
-          // on "Building correlation" for the model-reasoning wait (the long phase).
-          if (isParlayBuild) {
-            if (stageTimerRef.current) {
-              clearInterval(stageTimerRef.current);
-              stageTimerRef.current = null;
-            }
-            setBuildStage(3);
-          }
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1762,11 +1728,6 @@ export default function CoachScreen() {
           });
         }
       } finally {
-        if (stageTimerRef.current) {
-          clearInterval(stageTimerRef.current);
-          stageTimerRef.current = null;
-        }
-        setBuildStage(0);
         setWaiting(false);
         setStreaming(false);
         abortRef.current = null;
@@ -1911,7 +1872,6 @@ export default function CoachScreen() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
-      if (stageTimerRef.current) clearInterval(stageTimerRef.current);
     };
   }, []);
 
@@ -1963,17 +1923,24 @@ export default function CoachScreen() {
                   // total never transiently overshoots a half-emitted line.
                   .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length
               : 0;
+            // An "analyze my ticket" reply is in its waiting phase (request sent,
+            // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
+            // so we can show the rich step-by-step AnalysisProgress instead of a
+            // plain spinner — the analysis text replaces it the moment it arrives.
+            const analyzeWaiting = isWaiting && !!m.analyzeSlip?.length;
             const bubbleText =
               m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
             // the cards (and their EDGE notes) carry everything. Also hide it while
-            // a parlay is building so only the "Building your parlay…" indicator
-            // shows (no intro prose lands in the chat ahead of the cards).
+            // a parlay is building (the AnalysisProgress card stands in) or while an
+            // analyze request is waiting, so no empty/spinner bubble flashes ahead
+            // of the dedicated progress UI.
             const showBubble =
               !m.statCard &&
               !m.periodGameLog &&
               !m.teamCard &&
               !isBuildingParlay &&
+              !analyzeWaiting &&
               (isWaiting || bubbleText.length > 0 || !!m.imageUris?.length);
             return (
               <View key={i}>
@@ -2052,53 +2019,13 @@ export default function CoachScreen() {
                   </Pressable>
                 ) : null}
 
+                {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
+                    in the live leg count so it finalizes when real picks stream)
+                    or while an "analyze my ticket" request is WAITING. */}
                 {isBuildingParlay ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                      alignSelf: "flex-start",
-                      marginTop: 10,
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: 999,
-                      paddingHorizontal: 12,
-                      paddingVertical: 8,
-                    }}
-                  >
-                    <ActivityIndicator color={colors.accent} size="small" />
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: FONT.medium,
-                        fontSize: 13,
-                      }}
-                    >
-                      {(() => {
-                        // Real PICK lines streaming => Finalizing; otherwise show
-                        // the current fetch/reason stage. Suffix is the leg count
-                        // once finalizing, else the N/5 step so the staging reads.
-                        // When the build was detected only via streamed PICK
-                        // scaffolding (parlayBuildIntent false), the stage timer
-                        // never ran, so buildStage is still 0 — floor to 3
-                        // ("Building correlation") rather than show a stale
-                        // "Scanning odds" before picks land.
-                        const stageIdx =
-                          buildingLegCount > 0
-                            ? 4
-                            : parlayBuildIntent
-                              ? Math.min(buildStage, 3)
-                              : 3;
-                        const suffix =
-                          stageIdx === 4 && buildingLegCount > 0
-                            ? `${buildingLegCount} leg${buildingLegCount === 1 ? "" : "s"}`
-                            : `${stageIdx + 1}/5`;
-                        return `${BUILD_STAGES[stageIdx]}… ${suffix}`;
-                      })()}
-                    </Text>
-                  </View>
+                  <AnalysisProgress mode="build" legCount={buildingLegCount} />
+                ) : analyzeWaiting ? (
+                  <AnalysisProgress mode="analyze" />
                 ) : null}
 
                 {hasPicks ? (
