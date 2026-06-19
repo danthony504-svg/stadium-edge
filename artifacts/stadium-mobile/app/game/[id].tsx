@@ -18,6 +18,8 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { buildChatContext, getFightAnalysis, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
+import { perfMapFromByFamily } from "@/lib/marketWeighting";
+import { computeAnalytics } from "@/lib/modelReport";
 import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -233,6 +235,14 @@ function pickedTeam(
 function AiGamePicks({ game }: { game: OddsGame }) {
   const colors = useColors();
   const router = useRouter();
+  const { results } = useBetSlip();
+  // Real settled hit-rate per market family (same ledger as the Model Report),
+  // feeding the market-weighting layer so each card's Confidence reflects the
+  // user's market priorities + real history. Recomputed only on ledger change.
+  const marketPerf = useMemo(
+    () => perfMapFromByFamily(computeAnalytics(results).byFamily),
+    [results],
+  );
   const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
   const [loading, setLoading] = useState(false);
   const [tried, setTried] = useState(false);
@@ -276,6 +286,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
         propPool,
         matchupHistory: context.matchupHistory,
         matchupInjuries: context.matchupInjuries,
+        perfByFamily: marketPerf,
       });
       // Only commit if this is still the latest in-flight request (a refresh or
       // unmount aborts the previous controller and swaps abortRef).
@@ -285,7 +296,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
     } finally {
       if (abortRef.current === controller && !controller.signal.aborted) setLoading(false);
     }
-  }, [game.sport, gameLabel]);
+  }, [game.sport, gameLabel, marketPerf]);
 
   // Abort any in-flight AI request when leaving the screen so it can't update
   // state after unmount.

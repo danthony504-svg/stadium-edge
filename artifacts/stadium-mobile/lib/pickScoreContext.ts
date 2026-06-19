@@ -22,6 +22,7 @@ import {
   type CombinedPickScore,
   type PickSubScores,
 } from "@/lib/pickScore";
+import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 
 // Words that never identify a team and would create false token overlaps when
 // matching a pick selection to a game label's away/home names.
@@ -226,14 +227,20 @@ export function attachPickScores(
     propPool?: PropPoolEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    // Real settled hit-rate by market family (Model Report's byFamily). When
+    // present, a market above/below the user's historical thresholds nudges that
+    // leg's Confidence. The fixed market-priority prior applies regardless; only
+    // a grounded (non-null) Confidence is ever adjusted — never fabricated.
+    perfByFamily?: Map<string, MarketPerf>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
   const propPool = opts.propPool ?? [];
   return picks.map((p) => {
-    const scores = p.isProp
+    const raw = p.isProp
       ? scorePropPick(p, propPool)
       : scoreGamePick(p, realOdds, opts.matchupHistory, opts.matchupInjuries);
+    const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     return { ...p, scores };
   });
 }

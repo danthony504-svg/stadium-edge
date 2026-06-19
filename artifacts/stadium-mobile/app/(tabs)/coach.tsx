@@ -57,7 +57,8 @@ import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { computeModelStrengths } from "@/lib/modelReport";
+import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
+import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { focalSportsFromText } from "@/lib/chatContextPriority";
 import {
@@ -635,6 +636,15 @@ export default function CoachScreen() {
   // context so the Coach can lean into hot categories — advisory only, omitted
   // when nothing has settled. Recomputed only when the results ledger changes.
   const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
+  // Real settled hit-rate per market family, from the SAME results ledger the
+  // Model Report uses. Feeds the market-weighting layer so a market above/below
+  // the user's historical thresholds nudges its legs' Confidence (real data only;
+  // markets without a sufficient sample contribute nothing). Recomputed only when
+  // the ledger changes.
+  const marketPerf = useMemo(
+    () => perfMapFromByFamily(computeAnalytics(results).byFamily),
+    [results],
+  );
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>();
@@ -1311,6 +1321,7 @@ export default function CoachScreen() {
             propPool: mergedPropPool,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
+            perfByFamily: marketPerf,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -1607,6 +1618,7 @@ export default function CoachScreen() {
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
+          perfByFamily: marketPerf,
         });
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -1708,7 +1720,16 @@ export default function CoachScreen() {
         scrollToEnd();
       }
     },
-    [messages, slipForContext, streaming, scrollToEnd, attachedImages, isSignedIn],
+    [
+      messages,
+      slipForContext,
+      streaming,
+      scrollToEnd,
+      attachedImages,
+      isSignedIn,
+      modelStrengths,
+      marketPerf,
+    ],
   );
 
   // Restore a parlay the server finished in the background: marry the LOCAL
