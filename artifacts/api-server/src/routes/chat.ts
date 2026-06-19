@@ -2215,8 +2215,19 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
   }
 
   try {
-    const stream = await client.chat.completions.create({
-      model: "gpt-5.4",
+    // The upstream CONNECT phase (before any token streams) occasionally fails
+    // transiently — a 429 / 5xx / timeout from the AI proxy. A single blip used
+    // to surface to the user as "AI service is temporarily unavailable" (the
+    // catch below). Retry ONLY the initial create — no tokens have streamed yet,
+    // so a retry is transparent — ONLY for transient errors, and NEVER when our
+    // own abort fired (client gone / background watchdog). Backoff+jitter mirrors
+    // the bounded Odds API retry in props.ts.
+    const stream = await (async () => {
+      const CHAT_CONNECT_ATTEMPTS = 3;
+      for (let connectAttempt = 0; ; connectAttempt++) {
+        try {
+          return await client.chat.completions.create({
+            model: "gpt-5.4",
       // gpt-5.4 is a reasoning model — internal reasoning tokens count
       // against this budget. With the ANALYTICS rules requiring real
       // matchup-history + player-history citations on EVERY leg, a single
@@ -2247,7 +2258,26 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       reasoning_effort: "low",
       messages,
       stream: true,
-    }, { signal: upstreamAbort.signal });
+          }, { signal: upstreamAbort.signal });
+        } catch (e) {
+          // Our own abort (client disconnected / background watchdog) — never retry.
+          if (upstreamAbort.signal.aborted) throw e;
+          // Transient = no HTTP status (connection/timeout) or 429 / 5xx. A static
+          // 4xx (e.g. a bad param) is not transient and fails fast, exactly as before.
+          const status = (e as { status?: number } | null)?.status;
+          const transient =
+            status === undefined || status === 429 || status >= 500;
+          if (!transient || connectAttempt >= CHAT_CONNECT_ATTEMPTS - 1) throw e;
+          const backoff =
+            400 * 2 ** connectAttempt + Math.floor(Math.random() * 200);
+          req.log.warn(
+            { err: e, attempt: connectAttempt + 1 },
+            "chat upstream connect failed; retrying",
+          );
+          await new Promise((r) => setTimeout(r, backoff));
+        }
+      }
+    })();
 
     // Accumulate the full reply so a background-finished build can be stashed
     // verbatim after the client socket is gone (same text the live client would

@@ -44,3 +44,24 @@ swap, check this enum first — provider value sets drift. There is exactly ONE
 `reasoning_effort` site in the codebase (`rg "reasoning_effort"`). The api-server
 has NO watcher — **restart the API workflow** after editing chat.ts or it serves
 stale compiled code.
+
+## Same symptom, different cause: transient upstream blips now retried
+
+"AI service is temporarily unavailable" is the catch-all the `/api/chat` handler
+streams whenever the upstream `client.chat.completions.create` (or the stream
+loop) throws — so it has TWO distinct causes: (a) a systematic 400 like the
+`reasoning_effort` enum above (fails EVERY chat, <1s), vs (b) a one-off TRANSIENT
+upstream blip (429 / 5xx / connection-timeout from the AI Integrations proxy) that
+hits a single request and clears on its own. Tell them apart by reproducing: if a
+no-context curl to `/api/chat` streams a reply, the pipeline is healthy and the
+user hit (b).
+
+The connect phase (the initial `create`, before any token streams) now has a
+**bounded retry** (3 attempts, backoff+jitter) so a single (b) blip no longer
+surfaces to the user. It retries ONLY transient errors (no HTTP status, 429, or
+≥500), NEVER when `upstreamAbort` already fired (client disconnect / background
+watchdog), and ONLY the create — never mid-stream, so it can't duplicate emitted
+tokens or re-fire the background-build finalize path. A static 4xx (e.g. a bad
+param) is not transient and still fails fast, so cause (a) is unaffected.
+**Why:** without the retry, one momentary proxy hiccup = a hard user-facing error
+on a perfectly buildable request.
