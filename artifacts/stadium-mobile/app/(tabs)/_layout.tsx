@@ -1,4 +1,5 @@
-import { Stack } from "expo-router";
+import { useAuth } from "@clerk/expo";
+import { Redirect, Stack } from "expo-router";
 import React from "react";
 import { View } from "react-native";
 
@@ -8,12 +9,13 @@ import { SlipBar } from "@/components/SlipBar";
 const DARK_BG = "#0f172a";
 
 export default function TabLayout() {
-  // No auth gate: the app is freely browsable. Signing in is OPTIONAL and only
-  // unlocks account-based features (cloud sync of saved slips / pick tracker,
-  // push notifications, the Account screen). Those screens gate themselves and
-  // route to /sign-in when a signed-out user opens them. Guests get the full
-  // browsing experience — games, odds, props, the AI Coach, and a local bet
-  // slip — without ever creating an account.
+  // Hard auth gate: the main app requires sign-in. Clerk is already loaded by the
+  // time this renders (ClerkLoaded wraps the root), so isSignedIn is reliable and
+  // there is no signed-in flash. Unauthenticated users land on the welcome screen
+  // on first open; signing in returns them here via router.replace("/").
+  const { isSignedIn } = useAuth();
+  if (!isSignedIn) return <Redirect href="/welcome" />;
+
   return (
     <View style={{ flex: 1, backgroundColor: DARK_BG }}>
       <Stack
