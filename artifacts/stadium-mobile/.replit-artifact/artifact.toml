@@ -18,9 +18,13 @@ localPort = 22502
 [services.development]
 run = "pnpm --filter @workspace/stadium-mobile run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/stadium-mobile", "run", "build" ]
-run = [ "pnpm", "--filter", "@workspace/stadium-mobile", "run", "serve" ]
+# NOTE: stadium-mobile is intentionally DEV-ONLY (no [services.production]).
+# The real mobile app ships through the App Store via EAS builds and talks to
+# the deployed api-server directly — it does not need a production web service.
+# Building the Expo static bundle during publish (Metro bundling iOS+Android)
+# was the slow single point of failure that timed out the autoscale deploy, so
+# it is excluded from production. This mirrors the mockup-sandbox artifact, which
+# also has no production service. Local dev (the workflow above) is unaffected.
 
 [services.env]
 PORT = "22502"
