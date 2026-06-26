@@ -1,12 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { type ParsedPick } from "@/components/PickCard";
+import { ConfidenceRing, ProjectedRangeBar, TrendBarChart } from "@/components/PropVisuals";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { ErrorState, FONT, Loading } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
@@ -571,6 +573,23 @@ export default function PropDetailScreen() {
     );
   }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds]);
 
+  // Tier colors for the AI-breakdown hero — same thresholds the rubric uses, so
+  // the glanceable hero and the full breakdown below always agree.
+  const gradeColor =
+    propScore.composite == null
+      ? colors.mutedForeground
+      : propScore.composite >= 7
+        ? colors.success
+        : propScore.composite >= 5.5
+          ? colors.primary
+          : colors.mutedForeground;
+  const edgeColor =
+    propScore.edgePct == null
+      ? colors.mutedForeground
+      : propScore.edgePct >= 0
+        ? colors.success
+        : colors.destructive;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       {/* Header */}
@@ -676,6 +695,99 @@ export default function PropDetailScreen() {
           ) : null}
         </View>
 
+        {/* AI breakdown hero — a glanceable confidence ring + AI Grade + edge,
+            rolled up from the SAME real rubric shown in full lower down. Hidden
+            entirely when the pick can't be graded from real data. */}
+        {propScore.composite != null ? (
+          <View
+            style={{
+              borderRadius: 18,
+              overflow: "hidden",
+              borderWidth: 1,
+              borderColor: "rgba(59,130,246,0.35)",
+            }}
+          >
+            <LinearGradient
+              colors={["rgba(59,130,246,0.16)", "rgba(2,6,23,0.25)"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 16,
+                padding: 16,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <ConfidenceRing value={propScore.confidencePct} size={94} centerSub="Win %" />
+              <View style={{ flex: 1, gap: 8 }}>
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontFamily: FONT.bold,
+                    fontSize: 10,
+                    letterSpacing: 0.8,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  AI Breakdown
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
+                  <Text style={{ color: gradeColor, fontFamily: FONT.display, fontSize: 38, lineHeight: 40 }}>
+                    {propScore.grade ?? "—"}
+                  </Text>
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginBottom: 6 }}>
+                    AI Grade
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                  {propScore.edgePct != null ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        paddingVertical: 4,
+                        paddingHorizontal: 9,
+                        borderRadius: 999,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: edgeColor,
+                      }}
+                    >
+                      <Feather name="trending-up" size={11} color={edgeColor} />
+                      <Text style={{ color: edgeColor, fontFamily: FONT.bold, fontSize: 11 }}>
+                        {propScore.edgePct >= 0 ? "+" : ""}
+                        {propScore.edgePct.toFixed(1)}% edge
+                      </Text>
+                    </View>
+                  ) : null}
+                  {n > 0 ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        paddingVertical: 4,
+                        paddingHorizontal: 9,
+                        borderRadius: 999,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <Feather name="activity" size={11} color={colors.mutedForeground} />
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 11 }}>
+                        {hits}/{n} cleared {lineLabel}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </LinearGradient>
+          </View>
+        ) : null}
+
         {!enabled ? (
           <EmptyNote
             text={`No game log feed is available for ${player || "this player"} in ${sportLabel}, so we can't show real numbers here. The line and price above are live.`}
@@ -740,52 +852,40 @@ export default function PropDetailScreen() {
               </View>
             </Section>
 
-            {/* Recent games — real per-game values against the line */}
-            <Section title={`RECENT GAMES · ${hitPct ?? 0}% HIT ${lineLabel.toUpperCase()}`}>
-              <View style={{ gap: 8 }}>
-                {games.map((g, i) => {
-                  const hit = hitGame(g.value);
-                  const w = `${Math.max(6, Math.round((g.value / chartMax) * 100))}%`;
-                  return (
-                    <View key={i} style={{ gap: 3 }}>
-                      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                          {(g.isHome === false ? "@ " : g.isHome === true ? "vs " : "") + (g.opp ?? "—")}
-                          {g.date ? ` · ${g.date}` : ""}
-                        </Text>
-                        <Text
-                          style={{
-                            color: hit ? colors.success : colors.mutedForeground,
-                            fontFamily: FONT.bold,
-                            fontSize: 12,
-                          }}
-                        >
-                          {g.value}
-                        </Text>
-                      </View>
-                      <View
-                        style={{
-                          height: 7,
-                          borderRadius: 4,
-                          backgroundColor: colors.card,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <View
-                          style={{
-                            width: w as `${number}%`,
-                            height: "100%",
-                            borderRadius: 4,
-                            backgroundColor: hit ? colors.success : colors.border,
-                          }}
-                        />
-                      </View>
-                    </View>
-                  );
-                })}
+            {/* Recent form — larger real per-game chart with the posted line
+                marked, plus the player's real low→high projected range. */}
+            <Section title={`RECENT FORM · ${hitPct ?? 0}% HIT ${lineLabel.toUpperCase()}`}>
+              <View style={{ gap: 16 }}>
+                <TrendBarChart
+                  games={games}
+                  threshold={threshold}
+                  max={chartMax}
+                  isUnder={isUnder}
+                />
+                <View style={{ height: 1, backgroundColor: colors.border }} />
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.mutedForeground,
+                      fontFamily: FONT.bold,
+                      fontSize: 10,
+                      letterSpacing: 0.6,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Projected range · last {n}
+                  </Text>
+                  <ProjectedRangeBar
+                    values={games.map((g) => g.value)}
+                    projection={projection}
+                    threshold={threshold}
+                    max={chartMax}
+                  />
+                </View>
                 {line != null ? (
-                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 2 }}>
-                    Bars are real per-game {marketLabel.toLowerCase()}. Green = the game cleared {lineLabel}.
+                  <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+                    Bars are real per-game {marketLabel.toLowerCase()}. Green cleared {lineLabel}; the dashed line is
+                    the posted number.
                   </Text>
                 ) : null}
               </View>

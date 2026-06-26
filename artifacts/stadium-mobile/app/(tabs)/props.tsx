@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
+import { MiniStat } from "@/components/PropVisuals";
 import { Avatar, PropRow } from "@/components/PlayerPropRow";
 import { PlayerPropsSheet, type PlayerSheetData } from "@/components/PlayerPropsSheet";
 import { useSlipClearance } from "@/components/SlipBar";
@@ -732,6 +733,8 @@ export default function PropsScreen() {
     pick: ParsedPick;
     badge: RecBadge | null;
     upset?: { team: string; opp: string; isHome: boolean };
+    // Real grade stats for the premium footer strip (grade items only).
+    stats?: { grade: string; hits: number; n: number; hitPct: number };
   };
   const recommended = useMemo<RecItem[]>(() => {
     const grades = gradesQ.data;
@@ -744,7 +747,8 @@ export default function PropsScreen() {
         aTier.push({
           item: {
             pick: c.pick,
-            badge: { text: g.grade, caption: `Hit ${g.hits}/${g.n} recent games`, tone: "grade" },
+            badge: { text: g.grade, tone: "grade" },
+            stats: { grade: g.grade, hits: g.hits, n: g.n, hitPct: Math.round((g.hits / g.n) * 100) },
           },
           rank: order * 100 + (g.hits / g.n) * 10,
         });
@@ -804,7 +808,7 @@ export default function PropsScreen() {
   // we only read them — never recompute or guess. We show the side that carries
   // the edge (evSide) at its offered price, ranked by EV descending, capped, with
   // a plain-English caption ("+3.2% edge • fair ~48%"). Hidden when none qualify.
-  type ValueItem = { pick: ParsedPick; ev: number; caption: string };
+  type ValueItem = { pick: ParsedPick; ev: number; caption: string; edge: number | null; fairPct: number | null; price: number };
   const valueProps = useMemo<ValueItem[]>(() => {
     if (isBrowseSport) return [];
     const data = propsQ.data?.games ?? [];
@@ -834,6 +838,9 @@ export default function PropsScreen() {
         out.push({
           ev,
           caption,
+          edge: p.edge ?? null,
+          fairPct,
+          price,
           pick: {
             game: g.gameLabel,
             market: label,
@@ -1137,9 +1144,49 @@ export default function PropsScreen() {
                 <View key={`${item.pick.game}|${item.pick.pick}|${i}`} style={{ width: 290 }}>
                   <PickCard
                     pick={item.pick}
+                    badge={item.badge}
                     hideReadout
                     onPress={() => openRecommended(item)}
                   />
+                  {item.stats ? (
+                    <View
+                      style={{
+                        marginTop: 8,
+                        flexDirection: "row",
+                        gap: 8,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderRadius: 14,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <MiniStat
+                        label="AI Grade"
+                        value={item.stats.grade}
+                        valueColor={item.stats.grade.startsWith("A") ? colors.success : colors.primary}
+                        icon="award"
+                      />
+                      <MiniStat
+                        label="Recent"
+                        value={`${item.stats.hits}/${item.stats.n}`}
+                        icon="activity"
+                      />
+                      <MiniStat
+                        label="Hit %"
+                        value={`${item.stats.hitPct}%`}
+                        valueColor={item.stats.hitPct >= 60 ? colors.success : colors.foreground}
+                        icon="target"
+                      />
+                      <MiniStat
+                        label="Best"
+                        value={formatAmerican(item.pick.odds)}
+                        valueColor={colors.accent}
+                        icon="tag"
+                      />
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </ScrollView>
@@ -1184,9 +1231,40 @@ export default function PropsScreen() {
                   <PickCard
                     pick={item.pick}
                     hideReadout
-                    badge={{ text: `+${item.ev.toFixed(1)}% EV`, caption: item.caption, tone: "value" }}
+                    badge={{ text: `+${item.ev.toFixed(1)}% EV`, tone: "value" }}
                     onPress={() => openPropDetail(item.pick)}
                   />
+                  <View
+                    style={{
+                      marginTop: 8,
+                      flexDirection: "row",
+                      gap: 8,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 14,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    <MiniStat
+                      label="Edge"
+                      value={item.edge != null ? `+${item.edge.toFixed(1)}%` : "—"}
+                      valueColor={item.edge != null ? colors.success : colors.mutedForeground}
+                      icon="trending-up"
+                    />
+                    <MiniStat
+                      label="Fair"
+                      value={item.fairPct != null ? `~${item.fairPct}%` : "—"}
+                      icon="percent"
+                    />
+                    <MiniStat
+                      label="Best"
+                      value={formatAmerican(item.price)}
+                      valueColor={colors.accent}
+                      icon="tag"
+                    />
+                  </View>
                 </View>
               ))}
             </ScrollView>
