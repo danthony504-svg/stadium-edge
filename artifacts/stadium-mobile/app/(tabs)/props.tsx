@@ -29,7 +29,6 @@ import {
   fetchUpsetSpots,
   getGames,
   getOdds,
-  getPlayerHistory,
   getProps,
   isPickable,
   propMarketLabel,
@@ -41,7 +40,7 @@ import {
   type PlayerSearchResult,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
 import { SPORTS } from "@/lib/sports";
 // Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
@@ -75,9 +74,6 @@ const DEFAULT_SEARCH_MARKET: Record<string, string> = {
 // AI RECOMMENDED grading. The "AI grade" is NOT a fabricated model rating (the
 // app has no edge/confidence feed) — it's a transparent letter derived ONLY from
 // how often the player has cleared THIS posted line in their real recent games.
-const GRADE_WINDOW = 10; // most-recent real games read for the hit-rate
-const GRADE_MIN_SAMPLE = 5; // need at least this many real games to grade at all
-const GRADE_POOL = 12; // candidate players we pull game logs for per sport
 const REC_CAP = 6; // cards shown in the rail
 
 // VALUE (+EV) rail. A prop is "mispriced" when the best posted price beats the
@@ -87,15 +83,6 @@ const REC_CAP = 6; // cards shown in the rail
 // is genuinely "value", not noise; empty (hidden) when nothing qualifies.
 const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
 const VALUE_CAP = 8; // cards shown in the value rail
-
-type Grade = "A+" | "A" | "A-";
-// Map a real hit-rate (cleared / sample) to a letter. Below A- we don't grade.
-function gradeFromHitPct(pct: number): Grade | null {
-  if (pct >= 80) return "A+";
-  if (pct >= 70) return "A";
-  if (pct >= 60) return "A-";
-  return null;
-}
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
@@ -142,20 +129,6 @@ function teamAbbrFor(prop: PlayerProp, teams: TeamInfo | null): string | null {
   if (!teams || !prop.playerTeamId) return null;
   if (prop.playerTeamId === teams.homeTeamId) return teams.homeAbbr;
   if (prop.playerTeamId === teams.awayTeamId) return teams.awayAbbr;
-  return null;
-}
-
-// Pick the side to recommend for a prop from its REAL posted prices only.
-// When both sides are priced, take the higher American number (the shorter-juice
-// / better-return side) — a transparent rule, never a fabricated lean. Yes/no
-// markets (line null) only carry an Over/"Yes" price, so that side is used.
-// Returns null when no real price exists (nothing to honestly recommend).
-function recommendSide(p: PlayerProp): { side: "Over" | "Under"; price: number } | null {
-  const o = p.overPrice;
-  const u = p.underPrice;
-  if (o != null && u != null) return o >= u ? { side: "Over", price: o } : { side: "Under", price: u };
-  if (o != null) return { side: "Over", price: o };
-  if (u != null) return { side: "Under", price: u };
   return null;
 }
 
@@ -671,7 +644,6 @@ export default function PropsScreen() {
   // log and count how often they cleared THIS posted line over their last
   // GRADE_WINDOW games. Players with too few real games (or no game-log feed,
   // e.g. tennis/ufc) are simply not graded — never given a fabricated grade.
-  const isSoccer = sport === "soccer";
   const gradeKey = gradeCandidates
     .map((c) => `${c.player}|${c.marketKey}|${c.line}|${c.side}`)
     .join(",");
@@ -679,40 +651,19 @@ export default function PropsScreen() {
     queryKey: ["prop-grades", sport, gradeKey],
     enabled: gradeCandidates.length > 0,
     staleTime: 10 * 60_000,
-    queryFn: async ({ signal }) => {
-      const results = new Map<string, { grade: Grade; hits: number; n: number }>();
-      const queue = [...gradeCandidates];
-      // Bounded concurrency so we don't fan out a dozen requests at once.
-      const worker = async () => {
-        for (;;) {
-          const c = queue.shift();
-          if (!c) return;
-          if (!c.athleteId && !(isSoccer && c.player)) continue;
-          try {
-            const h = await getPlayerHistory(
-              { sport, athleteId: c.athleteId, name: isSoccer ? c.player : null },
-              signal,
-            );
-            const ambiguous = computeAmbiguous(h.labels);
-            const vals = (h.recent ?? [])
-              .map((g) => gameValueForMarket(c.marketKey, g.stats, ambiguous))
-              .filter((v): v is number => v != null)
-              .slice(0, GRADE_WINDOW);
-            const n = vals.length;
-            if (n < GRADE_MIN_SAMPLE) continue;
-            const threshold = c.line != null ? c.line : 0.5;
-            const isUnder = c.side === "Under";
-            const hits = vals.filter((v) => (isUnder ? v < threshold : v >= threshold)).length;
-            const grade = gradeFromHitPct((hits / n) * 100);
-            if (grade) results.set(`${c.pick.game}|${c.pick.pick}`, { grade, hits, n });
-          } catch {
-            // No game log / fetch error — skip this player, never fabricate.
-          }
-        }
-      };
-      await Promise.all([worker(), worker(), worker(), worker()]);
-      return results;
-    },
+    queryFn: ({ signal }) =>
+      gradePropCands(
+        gradeCandidates.map((c) => ({
+          key: `${c.pick.game}|${c.pick.pick}`,
+          player: c.player,
+          athleteId: c.athleteId,
+          marketKey: c.marketKey,
+          line: c.line,
+          side: c.side,
+        })),
+        sport,
+        signal,
+      ),
   });
 
   // Model-backed confident upsets for this sport (same real mlLean engine the
