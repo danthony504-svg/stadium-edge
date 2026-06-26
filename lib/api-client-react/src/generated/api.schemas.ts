@@ -121,6 +121,64 @@ export interface WeatherSnapshot {
   city?: string | null;
 }
 
+export interface ParkWeatherCurrent {
+  /** @nullable */
+  tempF: number | null;
+  /** @nullable */
+  feelsLikeF: number | null;
+  /** @nullable */
+  condition: string | null;
+  /** @nullable */
+  windMph: number | null;
+  /** @nullable */
+  windDeg: number | null;
+  /** @nullable */
+  windDir: string | null;
+  /** @nullable */
+  gustMph: number | null;
+  /** @nullable */
+  humidity: number | null;
+  /** @nullable */
+  pressureInHg: number | null;
+  /** @nullable */
+  cloudCoverPct: number | null;
+  /** @nullable */
+  precipChancePct: number | null;
+}
+
+export interface ParkWeatherDay {
+  date: string;
+  label: string;
+  hiF: number;
+  loF: number;
+  /** @nullable */
+  condition: string | null;
+  /** @nullable */
+  precipChancePct: number | null;
+  /** @nullable */
+  windMph: number | null;
+}
+
+export interface ParkWeatherImpact {
+  rating: string;
+  summary: string;
+}
+
+export interface ParkWeatherReport {
+  gameId: string;
+  homeAbbr: string;
+  awayAbbr: string;
+  homeTeam: string;
+  awayTeam: string;
+  parkName: string;
+  city: string;
+  commenceTime: string;
+  climateControlled: boolean;
+  current: ParkWeatherCurrent;
+  impact: ParkWeatherImpact;
+  forecast: ParkWeatherDay[];
+}
+
 export type ChatMessageRole = typeof ChatMessageRole[keyof typeof ChatMessageRole];
 
 
@@ -174,5 +232,9 @@ sport: string;
 export type GetWeatherParams = {
 lat: number;
 lon: number;
+};
+
+export type GetParkWeatherParams = {
+sport?: string;
 };
 

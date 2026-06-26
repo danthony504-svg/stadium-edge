@@ -109,6 +109,29 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WeatherSnapshot" }
+  /weather/parks:
+    get:
+      operationId: getParkWeather
+      tags: [weather]
+      summary: Real per-park weather reports for today's MLB slate
+      description: |
+        Returns a REAL OpenWeather current-conditions reading plus a multi-day
+        forecast for every game on today's MLB schedule, along with a
+        deterministic "AI Weather Impact" rating computed from those real
+        values. Games whose home park cannot be resolved are omitted.
+      parameters:
+        - in: query
+          name: sport
+          required: false
+          schema: { type: string, default: mlb }
+      responses:
+        "200":
+          description: Park weather reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ParkWeatherReport" }
   /chat:
     post:
       operationId: sendChatMessage
@@ -239,6 +262,58 @@ components:
         humidity: { type: integer }
         precipChance: { type: integer }
         city: { type: ["string", "null"] }
+    ParkWeatherCurrent:
+      type: object
+      required:
+        [tempF, feelsLikeF, condition, windMph, windDeg, windDir, gustMph, humidity, pressureInHg, cloudCoverPct, precipChancePct]
+      properties:
+        tempF: { type: ["number", "null"] }
+        feelsLikeF: { type: ["number", "null"] }
+        condition: { type: ["string", "null"] }
+        windMph: { type: ["number", "null"] }
+        windDeg: { type: ["integer", "null"] }
+        windDir: { type: ["string", "null"] }
+        gustMph: { type: ["number", "null"] }
+        humidity: { type: ["integer", "null"] }
+        pressureInHg: { type: ["number", "null"] }
+        cloudCoverPct: { type: ["integer", "null"] }
+        precipChancePct: { type: ["integer", "null"] }
+    ParkWeatherDay:
+      type: object
+      required: [date, label, hiF, loF, condition, precipChancePct, windMph]
+      properties:
+        date: { type: string }
+        label: { type: string }
+        hiF: { type: number }
+        loF: { type: number }
+        condition: { type: ["string", "null"] }
+        precipChancePct: { type: ["integer", "null"] }
+        windMph: { type: ["number", "null"] }
+    ParkWeatherImpact:
+      type: object
+      required: [rating, summary]
+      properties:
+        rating: { type: string }
+        summary: { type: string }
+    ParkWeatherReport:
+      type: object
+      required:
+        [gameId, homeAbbr, awayAbbr, homeTeam, awayTeam, parkName, city, commenceTime, climateControlled, current, impact, forecast]
+      properties:
+        gameId: { type: string }
+        homeAbbr: { type: string }
+        awayAbbr: { type: string }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        parkName: { type: string }
+        city: { type: string }
+        commenceTime: { type: string }
+        climateControlled: { type: boolean }
+        current: { $ref: "#/components/schemas/ParkWeatherCurrent" }
+        impact: { $ref: "#/components/schemas/ParkWeatherImpact" }
+        forecast:
+          type: array
+          items: { $ref: "#/components/schemas/ParkWeatherDay" }
     ChatMessage:
       type: object
       required: [role, content]

@@ -453,6 +453,63 @@ export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
 }
 
+// ---------- Park weather ----------
+
+// REAL OpenWeather current-conditions reading for a ballpark. Every value comes
+// straight from OpenWeather and is null when the feed omits it — never
+// fabricated. Matches artifacts/api-server weather.ts ParkWeatherCurrent.
+export type ParkWeatherCurrent = {
+  tempF: number | null;
+  feelsLikeF: number | null;
+  condition: string | null;
+  windMph: number | null;
+  windDeg: number | null;
+  windDir: string | null;
+  gustMph: number | null;
+  humidity: number | null;
+  pressureInHg: number | null;
+  cloudCoverPct: number | null;
+  precipChancePct: number | null;
+};
+
+// A single forecast day aggregated from OpenWeather's 3-hour forecast slots.
+// Fields are null when the feed gave us nothing to aggregate — never invented.
+export type ParkWeatherDay = {
+  date: string;
+  label: string;
+  hiF: number;
+  loF: number;
+  condition: string | null;
+  precipChancePct: number | null;
+  windMph: number | null;
+};
+
+// Per-game park weather report with a deterministic, calc-only impact rating.
+export type ParkWeatherReport = {
+  gameId: string;
+  homeAbbr: string;
+  awayAbbr: string;
+  homeTeam: string;
+  awayTeam: string;
+  parkName: string;
+  city: string;
+  commenceTime: string;
+  climateControlled: boolean;
+  current: ParkWeatherCurrent;
+  impact: { rating: string; summary: string };
+  forecast: ParkWeatherDay[];
+};
+
+export function getParkWeather(
+  sport = "mlb",
+  signal?: AbortSignal,
+): Promise<ParkWeatherReport[]> {
+  return getJson<ParkWeatherReport[]>(
+    `/weather/parks?sport=${encodeURIComponent(sport)}`,
+    signal,
+  );
+}
+
 // ---------- Player props ----------
 
 // A single bookmaker player-prop line (matches artifacts/api-server props.ts).

@@ -121,6 +121,60 @@ export const GetWeatherResponse = zod.object({
 
 
 /**
+ * Returns a REAL OpenWeather current-conditions reading plus a multi-day
+forecast for every game on today's MLB schedule, along with a
+deterministic "AI Weather Impact" rating computed from those real
+values. Games whose home park cannot be resolved are omitted.
+
+ * @summary Real per-park weather reports for today's MLB slate
+ */
+export const getParkWeatherQuerySportDefault = `mlb`;
+
+export const GetParkWeatherQueryParams = zod.object({
+  "sport": zod.coerce.string().default(getParkWeatherQuerySportDefault)
+})
+
+export const GetParkWeatherResponseItem = zod.object({
+  "gameId": zod.string(),
+  "homeAbbr": zod.string(),
+  "awayAbbr": zod.string(),
+  "homeTeam": zod.string(),
+  "awayTeam": zod.string(),
+  "parkName": zod.string(),
+  "city": zod.string(),
+  "commenceTime": zod.string(),
+  "climateControlled": zod.boolean(),
+  "current": zod.object({
+  "tempF": zod.number().nullable(),
+  "feelsLikeF": zod.number().nullable(),
+  "condition": zod.string().nullable(),
+  "windMph": zod.number().nullable(),
+  "windDeg": zod.number().nullable(),
+  "windDir": zod.string().nullable(),
+  "gustMph": zod.number().nullable(),
+  "humidity": zod.number().nullable(),
+  "pressureInHg": zod.number().nullable(),
+  "cloudCoverPct": zod.number().nullable(),
+  "precipChancePct": zod.number().nullable()
+}),
+  "impact": zod.object({
+  "rating": zod.string(),
+  "summary": zod.string()
+}),
+  "forecast": zod.array(zod.object({
+  "date": zod.string(),
+  "label": zod.string(),
+  "hiF": zod.number(),
+  "loF": zod.number(),
+  "condition": zod.string().nullable(),
+  "precipChancePct": zod.number().nullable(),
+  "windMph": zod.number().nullable()
+}))
+})
+export const GetParkWeatherResponse = zod.array(GetParkWeatherResponseItem)
+
+
+/**
  * Streams an OpenAI completion as SSE. Each event is `data: {"content": "..."}` and ends with `data: {"done": true}`.
 Response codegen will be `unknown`; clients must use fetch + ReadableStream, not generated hooks.
 

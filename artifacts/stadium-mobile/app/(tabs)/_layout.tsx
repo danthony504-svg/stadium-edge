@@ -26,6 +26,7 @@ export default function TabLayout() {
         }}
       >
         <Stack.Screen name="index" />
+        <Stack.Screen name="weather" />
         <Stack.Screen name="coach" />
         <Stack.Screen name="props" />
         <Stack.Screen name="golf" />

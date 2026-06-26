@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { cachedJson } from "../lib/sports";
 import { getPitcherStatcastMap, lookupPitcherStatcast } from "../lib/statcast";
+import { MLB_PARKS } from "../lib/parks";
 
 const router: IRouter = Router();
 
@@ -175,48 +176,6 @@ async function fetchPitcherTendency(athleteId: string): Promise<PitcherTendency 
 }
 
 // ----------------------------------------------------------------------------
-// Ballpark HR park factors + altitude + coordinates (static public reference).
-// hrIndex is a multi-year HR park-factor index where 100 = MLB average (>100
-// boosts home runs, <100 suppresses). These are established public reference
-// values, NOT a fabricated per-game number. altitudeFt and lat/lon are real
-// stadium facts; dome marks fixed/retractable-roof parks (weather neutral).
-// Keyed by ESPN team abbreviation.
-// ----------------------------------------------------------------------------
-type Park = { hrIndex: number; altitudeFt: number; dome: boolean; lat: number; lon: number };
-const MLB_PARKS: Record<string, Park> = {
-  ARI: { hrIndex: 103, altitudeFt: 1059, dome: true, lat: 33.4455, lon: -112.0667 },
-  ATL: { hrIndex: 101, altitudeFt: 1050, dome: false, lat: 33.8907, lon: -84.4677 },
-  BAL: { hrIndex: 104, altitudeFt: 33, dome: false, lat: 39.2839, lon: -76.6217 },
-  BOS: { hrIndex: 108, altitudeFt: 20, dome: false, lat: 42.3467, lon: -71.0972 },
-  CHC: { hrIndex: 103, altitudeFt: 600, dome: false, lat: 41.9484, lon: -87.6553 },
-  CHW: { hrIndex: 104, altitudeFt: 595, dome: false, lat: 41.83, lon: -87.6339 },
-  CIN: { hrIndex: 112, altitudeFt: 490, dome: false, lat: 39.0975, lon: -84.5069 },
-  CLE: { hrIndex: 98, altitudeFt: 660, dome: false, lat: 41.4962, lon: -81.6852 },
-  COL: { hrIndex: 115, altitudeFt: 5200, dome: false, lat: 39.7559, lon: -104.9942 },
-  DET: { hrIndex: 94, altitudeFt: 600, dome: false, lat: 42.339, lon: -83.0485 },
-  HOU: { hrIndex: 104, altitudeFt: 40, dome: true, lat: 29.7572, lon: -95.3556 },
-  KC: { hrIndex: 95, altitudeFt: 750, dome: false, lat: 39.0517, lon: -94.4803 },
-  LAA: { hrIndex: 101, altitudeFt: 153, dome: false, lat: 33.8003, lon: -117.8827 },
-  LAD: { hrIndex: 101, altitudeFt: 522, dome: false, lat: 34.0739, lon: -118.24 },
-  MIA: { hrIndex: 93, altitudeFt: 10, dome: true, lat: 25.7781, lon: -80.2197 },
-  MIL: { hrIndex: 105, altitudeFt: 635, dome: true, lat: 43.0280, lon: -87.9712 },
-  MIN: { hrIndex: 99, altitudeFt: 815, dome: false, lat: 44.9817, lon: -93.2776 },
-  NYM: { hrIndex: 97, altitudeFt: 20, dome: false, lat: 40.7571, lon: -73.8458 },
-  NYY: { hrIndex: 110, altitudeFt: 55, dome: false, lat: 40.8296, lon: -73.9262 },
-  OAK: { hrIndex: 92, altitudeFt: 30, dome: false, lat: 38.5803, lon: -121.5133 },
-  ATH: { hrIndex: 92, altitudeFt: 30, dome: false, lat: 38.5803, lon: -121.5133 },
-  PHI: { hrIndex: 107, altitudeFt: 60, dome: false, lat: 39.9061, lon: -75.1665 },
-  PIT: { hrIndex: 96, altitudeFt: 730, dome: false, lat: 40.4469, lon: -80.0057 },
-  SD: { hrIndex: 95, altitudeFt: 62, dome: false, lat: 32.7073, lon: -117.157 },
-  SEA: { hrIndex: 92, altitudeFt: 10, dome: true, lat: 47.5914, lon: -122.3325 },
-  SF: { hrIndex: 90, altitudeFt: 10, dome: false, lat: 37.7786, lon: -122.3893 },
-  STL: { hrIndex: 96, altitudeFt: 465, dome: false, lat: 38.6226, lon: -90.1928 },
-  TB: { hrIndex: 96, altitudeFt: 15, dome: true, lat: 27.7682, lon: -82.6534 },
-  TEX: { hrIndex: 102, altitudeFt: 545, dome: true, lat: 32.7473, lon: -97.0832 },
-  TOR: { hrIndex: 103, altitudeFt: 250, dome: true, lat: 43.6414, lon: -79.3894 },
-  WSH: { hrIndex: 100, altitudeFt: 25, dome: false, lat: 38.873, lon: -77.0074 },
-};
-
 type ParkWeather = { tempF: number | null; condition: string | null; windMph: number | null; humidity: number | null } | null;
 type OWMResp = {
   weather?: Array<{ main?: string; description?: string }>;

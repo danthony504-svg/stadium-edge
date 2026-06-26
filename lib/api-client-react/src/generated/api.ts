@@ -26,10 +26,12 @@ import type {
   GetGamesParams,
   GetInjuriesParams,
   GetOddsParams,
+  GetParkWeatherParams,
   GetWeatherParams,
   HealthStatus,
   InjuryReport,
   OddsGame,
+  ParkWeatherReport,
   WeatherSnapshot
 } from './api.schemas';
 
@@ -446,6 +448,95 @@ export function useGetWeather<TData = Awaited<ReturnType<typeof getWeather>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetWeatherQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetParkWeatherUrl = (params?: GetParkWeatherParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/weather/parks?${stringifiedParams}` : `/api/weather/parks`
+}
+
+/**
+ * Returns a REAL OpenWeather current-conditions reading plus a multi-day
+forecast for every game on today's MLB schedule, along with a
+deterministic "AI Weather Impact" rating computed from those real
+values. Games whose home park cannot be resolved are omitted.
+
+ * @summary Real per-park weather reports for today's MLB slate
+ */
+export const getParkWeather = async (params?: GetParkWeatherParams, options?: RequestInit): Promise<ParkWeatherReport[]> => {
+
+  return customFetch<ParkWeatherReport[]>(getGetParkWeatherUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetParkWeatherQueryKey = (params?: GetParkWeatherParams,) => {
+    return [
+    `/api/weather/parks`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetParkWeatherQueryOptions = <TData = Awaited<ReturnType<typeof getParkWeather>>, TError = ErrorType<unknown>>(params?: GetParkWeatherParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getParkWeather>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetParkWeatherQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getParkWeather>>> = ({ signal }) => getParkWeather(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getParkWeather>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetParkWeatherQueryResult = NonNullable<Awaited<ReturnType<typeof getParkWeather>>>
+export type GetParkWeatherQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Real per-park weather reports for today's MLB slate
+ */
+
+export function useGetParkWeather<TData = Awaited<ReturnType<typeof getParkWeather>>, TError = ErrorType<unknown>>(
+ params?: GetParkWeatherParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getParkWeather>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetParkWeatherQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
