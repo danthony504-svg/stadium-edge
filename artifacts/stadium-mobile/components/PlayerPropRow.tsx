@@ -3,11 +3,12 @@ import * as Haptics from "expo-haptics";
 import { useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 
+import { ConfidenceRing } from "@/components/PropVisuals";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { propMarketLabel, type PlayerProp } from "@/lib/api";
-import { formatAmerican } from "@/lib/format";
+import { formatAmerican, impliedProb } from "@/lib/format";
 
 // Shared presentational pieces for player-prop rows. Kept in one place so the
 // pick-string format below stays a SINGLE SOURCE OF TRUTH — it must byte-match
@@ -115,6 +116,17 @@ function PropChip({
       >
         {formatAmerican(price)}
       </Text>
+      {/* Implied probability of the posted price — a real, deterministic
+          conversion of the odds, not a model number. */}
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.medium,
+          fontSize: 9,
+        }}
+      >
+        {Math.round(impliedProb(price) * 100)}%
+      </Text>
     </Pressable>
   );
 }
@@ -137,6 +149,12 @@ export function PropRow({
   const [showAlts, setShowAlts] = useState(false);
   const label = propMarketLabel(prop.market);
   const lineTxt = prop.line != null ? ` ${prop.line}` : "";
+
+  // Right-rail gauge = the REAL no-vig consensus fair win probability for the
+  // edge side (server-computed; absent for thin/longshot markets). We never
+  // fabricate a confidence number — when fairProb is missing the ring renders a
+  // muted "—" so the absence reads as "no data", not a fake percentage.
+  const winProb = prop.fairProb != null ? Math.round(prop.fairProb * 100) : null;
 
   // Always include the side token (matches the web app's pick format), even for
   // yes/no markets with no line (e.g. Anytime TD) — lineTxt is "" in that case.
@@ -180,7 +198,26 @@ export function PropRow({
             {prop.line != null ? ` · ${prop.line}` : ""}
           </Text>
         </View>
-        <Feather name="bar-chart-2" size={16} color={colors.primary} />
+        {/* Right rail: real fair-win-probability gauge + the side it favors.
+            Hidden entirely when we have no consensus to show, so the row never
+            implies a number we don't have. */}
+        {winProb != null ? (
+          <View style={{ alignItems: "center", gap: 2 }}>
+            <ConfidenceRing value={winProb} size={46} stroke={5} />
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 8,
+                letterSpacing: 0.4,
+              }}
+            >
+              {prop.evSide ? `${prop.evSide.toUpperCase()} WIN` : "WIN PROB"}
+            </Text>
+          </View>
+        ) : (
+          <Feather name="bar-chart-2" size={16} color={colors.primary} />
+        )}
       </Pressable>
       <View style={{ flexDirection: "row", gap: 8 }}>
         <PropChip

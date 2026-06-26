@@ -1,5 +1,7 @@
-import { Feather } from "@expo/vector-icons";
+import { useAuth } from "@clerk/expo";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -38,6 +40,38 @@ import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
+
+// A concise, human leg label for the hero parlay title — e.g. "PCA 1+ SB",
+// "Judge HR", "Edwards O27.5 PTS". Built only from REAL prop fields (player,
+// market, side, line); falls back to the full market label for anything we
+// don't have a short form for. Never fabricates a value.
+function heroLegTitle(p: PlayerProp): string {
+  const name = nickname(p.player);
+  const side = p.evSide ?? "Over";
+  const mk = (p.market || "").toLowerCase();
+  const short =
+    /home_?run/.test(mk) ? "HR" :
+    /stolen_?base/.test(mk) ? "SB" :
+    /total_?bases/.test(mk) ? "TB" :
+    /\brbi/.test(mk) ? "RBI" :
+    /strikeout/.test(mk) ? "Ks" :
+    /\bhits\b|batter_hits/.test(mk) ? "Hits" :
+    /points/.test(mk) ? "PTS" :
+    /rebound/.test(mk) ? "REB" :
+    /assist/.test(mk) ? "AST" :
+    /three|3pt|threes/.test(mk) ? "3PM" :
+    /passing_yard/.test(mk) ? "Pass Yds" :
+    /rushing_yard/.test(mk) ? "Rush Yds" :
+    /receiving_yard/.test(mk) ? "Rec Yds" :
+    /reception/.test(mk) ? "Rec" :
+    null;
+  const label = short ?? propMarketLabel(p.market);
+  if (p.line == null) return `${name} ${label}`;
+  if (side === "Over" && short && Number.isFinite(p.line)) {
+    return `${name} ${Math.ceil(p.line)}+ ${short}`;
+  }
+  return `${name} ${side === "Under" ? "U" : "O"}${p.line} ${label}`;
+}
 
 // Top Value Props rail: a prop is "value" when the best posted price beats the
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
@@ -151,6 +185,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const { isSignedIn } = useAuth();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
 
   const oddsQ = useQuery({
@@ -491,6 +526,31 @@ export default function HomeScreen() {
     return out;
   })();
 
+  // Best (highest server-EV) prop per featured game — drives the honest "BEST
+  // PROP / EDGE" cells under each Upcoming card. Only games whose props we've
+  // already fetched appear here; everything else simply shows no insight cells
+  // (we never fabricate an AI favorite or value side we can't compute).
+  const bestPropByGame = (() => {
+    const map = new Map<
+      string,
+      { player: string; side: "Over" | "Under"; line: number | null; label: string; ev: number }
+    >();
+    for (const e of propEntries) {
+      if (e.prop.ev == null) continue;
+      const cur = map.get(e.gameLabel);
+      if (!cur || e.prop.ev > cur.ev) {
+        map.set(e.gameLabel, {
+          player: e.prop.player,
+          side: e.prop.evSide ?? "Over",
+          line: e.prop.line,
+          label: propMarketLabel(e.prop.market),
+          ev: e.prop.ev,
+        });
+      }
+    }
+    return map;
+  })();
+
   // UPSET WATCH: real spots where the app's analytics (mlLean) favor the betting
   // underdog, scoped to the selected sport. Same engine as the coach used to use
   // (matchup-history → mlLean → dog-lean detection); every number is real (dog ML
@@ -517,23 +577,44 @@ export default function HomeScreen() {
 
   const quickActions: {
     label: string;
-    icon: keyof typeof Feather.glyphMap;
+    subtitle: string;
+    icon: React.ComponentProps<typeof MaterialCommunityIcons>["name"];
     color: string;
     onPress: () => void;
   }[] = [
-    { label: "Hot Picks", icon: "zap", color: "#fb923c", onPress: () => askCoach("Build me the best parlay") },
-    { label: "Easy Money", icon: "dollar-sign", color: "#34d399", onPress: () => askCoach("Build me a safe parlay") },
+    {
+      label: "Hot Picks",
+      subtitle: "Daily top picks",
+      icon: "flash",
+      color: "#fb923c",
+      onPress: () => askCoach("Build me the best parlay"),
+    },
+    {
+      label: "Easy Money",
+      subtitle: "High win rate",
+      icon: "currency-usd",
+      color: "#34d399",
+      onPress: () => askCoach("Build me a safe parlay"),
+    },
     {
       label: "Best Value",
-      icon: "trending-up",
+      subtitle: "Top projected edge",
+      icon: "bullseye-arrow",
       color: colors.primary,
       onPress: () =>
         router.push({ pathname: "/props", params: featuredEnabled ? { sp: sport } : {} }),
     },
-    { label: "Longshots", icon: "target", color: "#a78bfa", onPress: () => router.push("/steals") },
+    {
+      label: "Longshots",
+      subtitle: "High upside plays",
+      icon: "rocket-launch",
+      color: "#a78bfa",
+      onPress: () => router.push("/steals"),
+    },
     {
       label: "AI Parlays",
-      icon: "message-circle",
+      subtitle: "Smart combos",
+      icon: "robot",
       color: "#22d3ee",
       onPress: () => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } }),
     },
@@ -546,16 +627,60 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo — full Stadium Edge logo at its original size, pinned to the top
-            and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
+        {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
+            the logo cluster is padded clear of it. Logo left; the PLAYER PROPS
+            wordmark + brand tagline on the right; a bell that routes to alerts
+            (or sign-in when signed out). */}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingLeft: 60,
+            paddingRight: 16,
+            marginBottom: 14,
+          }}
+        >
           <Image
             source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 130, marginTop: -8 }}
+            style={{ width: 150, height: 42 }}
             resizeMode="contain"
             fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
+          <View style={{ flex: 1 }} />
+          <View style={{ alignItems: "flex-end", marginRight: 10 }}>
+            <Text
+              style={{
+                color: colors.foreground,
+                fontFamily: FONT.display,
+                fontSize: 17,
+                letterSpacing: 0.2,
+              }}
+            >
+              PLAYER PROPS
+            </Text>
+            <Text style={{ fontSize: 9, fontFamily: FONT.semibold, letterSpacing: 0.2, marginTop: 2 }}>
+              <Text style={{ color: colors.mutedForeground }}>AI POWERED. DATA DRIVEN. </Text>
+              <Text style={{ color: colors.primary }}>REAL EDGE.</Text>
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              width: 38,
+              height: 38,
+              borderRadius: 19,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.card,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Feather name="bell" size={17} color={colors.foreground} />
+          </Pressable>
         </View>
 
         {/* Search bar → Player Props search */}
@@ -586,15 +711,60 @@ export default function HomeScreen() {
           </Text>
         </Pressable>
 
-        {/* Sport selector — pinned with the logo and search above the rails. */}
+        {/* Sport selector — icon pills, active = solid blue. Pinned with the logo
+            and search above the scrolling rails. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 16 }}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
         >
-          {SPORTS.map((s) => (
-            <Pill key={s.id} label={s.label} active={sport === s.id} onPress={() => setSport(s.id)} />
-          ))}
+          {SPORTS.map((s) => {
+            const active = sport === s.id;
+            return (
+              <Pressable
+                key={s.id}
+                onPress={() => setSport(s.id)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 7,
+                  backgroundColor: active ? colors.primary : colors.card,
+                  borderWidth: 1,
+                  borderColor: active ? colors.primary : colors.border,
+                  borderRadius: 999,
+                  paddingVertical: 6,
+                  paddingLeft: 6,
+                  paddingRight: 14,
+                }}
+              >
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: active ? "rgba(255,255,255,0.22)" : colors.surface,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name={s.icon}
+                    size={15}
+                    color={active ? "#fff" : colors.mutedForeground}
+                  />
+                </View>
+                <Text
+                  style={{
+                    color: active ? "#fff" : colors.foreground,
+                    fontFamily: FONT.semibold,
+                    fontSize: 13,
+                  }}
+                >
+                  {s.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -619,168 +789,152 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Tagline */}
-        <Text
-          style={{
-            color: colors.mutedForeground,
-            fontFamily: FONT.body,
-            fontSize: 14,
-            textAlign: "center",
-            lineHeight: 20,
-            marginTop: 16,
-            marginBottom: 16,
-            paddingHorizontal: 32,
-          }}
-        >
-          Your parlay assistant. Build picks, analyze odds, track your slips.
-        </Text>
-
         {/* Hero — Today's Best AI Parlay. Built from REAL top-EV props (one per
             distinct game). Combined odds, model win prob and avg edge are all
             derived from real per-leg values; falls back to a plain Build button
             when fewer than 2 EV legs are available (never a fabricated card). */}
         {heroReady ? (
-          <View style={{ marginHorizontal: 16, marginBottom: 18 }}>
-            <Pressable
-              onPress={() => askCoach("Build me the best parlay")}
-              style={({ pressed }) => ({
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.primary,
-                borderRadius: colors.radius,
-                padding: 16,
-                gap: 14,
-                opacity: pressed ? 0.92 : 1,
-              })}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Feather name="zap" size={15} color={colors.primary} />
-                <Text
+          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
+            <Pressable onPress={() => askCoach("Build me the best parlay")}>
+              {({ pressed }) => (
+                <LinearGradient
+                  colors={["#10294f", "#0a1628"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                   style={{
-                    color: colors.primary,
-                    fontFamily: FONT.bold,
-                    fontSize: 11,
-                    letterSpacing: 0.6,
-                    textTransform: "uppercase",
-                    flex: 1,
+                    borderWidth: 1,
+                    borderColor: colors.primary,
+                    borderRadius: colors.radius,
+                    padding: 16,
+                    gap: 14,
+                    opacity: pressed ? 0.92 : 1,
                   }}
                 >
-                  Today's Best AI Parlay
-                </Text>
-                {heroOdds != null ? (
-                  <View
-                    style={{
-                      backgroundColor: colors.primary,
-                      borderRadius: 999,
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                    }}
-                  >
-                    <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 13 }}>
-                      {formatAmerican(heroOdds)}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <View style={{ gap: 10 }}>
-                {heroLegs.map((e, i) => {
-                  const side = e.prop.evSide ?? "Over";
-                  const price = side === "Under" ? e.prop.underPrice : e.prop.overPrice;
-                  return (
-                    <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <FeaturedAvatar
-                        headshot={e.prop.headshot}
-                        teamLogo={e.teamLogo}
-                        name={e.prop.player}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
-                          numberOfLines={1}
-                        >
-                          {e.prop.player}
-                        </Text>
-                        <Text
-                          style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}
-                          numberOfLines={1}
-                        >
-                          {e.prop.line != null
-                            ? `${side} ${e.prop.line} ${propMarketLabel(e.prop.market)}`
-                            : propMarketLabel(e.prop.market)}
-                        </Text>
-                      </View>
-                      {price != null ? (
-                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
-                          {formatAmerican(price)}
-                        </Text>
-                      ) : null}
-                    </View>
-                  );
-                })}
-              </View>
-
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                {[
-                  heroWinProb != null
-                    ? { val: `${Math.round(heroWinProb * 100)}%`, label: "Fair win prob" }
-                    : null,
-                  heroAvgEdge != null
-                    ? { val: `+${heroAvgEdge.toFixed(1)}%`, label: "Avg edge" }
-                    : null,
-                  { val: String(heroLegs.length), label: "Legs" },
-                ]
-                  .filter(Boolean)
-                  .map((m, i) => (
-                    <View
-                      key={i}
-                      style={{
-                        flex: 1,
-                        backgroundColor: colors.surface,
-                        borderRadius: 10,
-                        paddingVertical: 10,
-                        alignItems: "center",
-                        gap: 2,
-                      }}
-                    >
-                      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
-                        {m!.val}
-                      </Text>
-                      <Text
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+                    <View style={{ flex: 1, gap: 10 }}>
+                      <View
                         style={{
-                          color: colors.mutedForeground,
-                          fontFamily: FONT.medium,
-                          fontSize: 10,
-                          letterSpacing: 0.4,
-                          textTransform: "uppercase",
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 6,
+                          alignSelf: "flex-start",
+                          backgroundColor: "rgba(59,130,246,0.18)",
+                          borderRadius: 999,
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
                         }}
                       >
-                        {m!.label}
+                        <Feather name="zap" size={12} color={colors.primary} />
+                        <Text
+                          style={{
+                            color: colors.primary,
+                            fontFamily: FONT.bold,
+                            fontSize: 10,
+                            letterSpacing: 0.6,
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Today's Best AI Parlay
+                        </Text>
+                      </View>
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: FONT.display,
+                          fontSize: 20,
+                          lineHeight: 26,
+                        }}
+                        numberOfLines={3}
+                      >
+                        {heroLegs.map((e) => heroLegTitle(e.prop)).join(", ")}
                       </Text>
                     </View>
-                  ))}
-              </View>
+                    {/* Overlapping REAL headshots (FeaturedAvatar falls back to
+                        team logo / initials — never a fabricated face). */}
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingTop: 2 }}>
+                      {heroLegs.slice(0, 3).map((e, i) => (
+                        <View key={i} style={{ marginLeft: i === 0 ? 0 : -14 }}>
+                          <FeaturedAvatar
+                            headshot={e.prop.headshot}
+                            teamLogo={e.teamLogo}
+                            name={e.prop.player}
+                          />
+                        </View>
+                      ))}
+                    </View>
+                  </View>
 
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  backgroundColor: colors.primary,
-                  borderRadius: 999,
-                  paddingVertical: 13,
-                }}
-              >
-                <Text style={{ color: "#020617", fontFamily: FONT.display, fontSize: 15 }}>
-                  Build this parlay
-                </Text>
-                <Feather name="arrow-right" size={16} color="#020617" />
-              </View>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      backgroundColor: "rgba(2,6,23,0.55)",
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                    }}
+                  >
+                    {[
+                      heroWinProb != null
+                        ? { val: `${Math.round(heroWinProb * 100)}%`, label: "Fair Win %", tint: "#34d399" }
+                        : null,
+                      heroAvgEdge != null
+                        ? { val: `+${heroAvgEdge.toFixed(1)}%`, label: "Avg Edge", tint: "#34d399" }
+                        : null,
+                      heroOdds != null
+                        ? { val: formatAmerican(heroOdds), label: "Projected Odds", tint: colors.primary }
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .map((m, i, arr) => (
+                        <View
+                          key={i}
+                          style={{
+                            flex: 1,
+                            alignItems: "center",
+                            gap: 3,
+                            borderLeftWidth: i === 0 ? 0 : 1,
+                            borderLeftColor: "rgba(148,163,184,0.18)",
+                          }}
+                        >
+                          <Text style={{ color: m!.tint, fontFamily: FONT.display, fontSize: 19 }}>
+                            {m!.val}
+                          </Text>
+                          <Text
+                            style={{
+                              color: colors.mutedForeground,
+                              fontFamily: FONT.medium,
+                              fontSize: 9.5,
+                              letterSpacing: 0.4,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {m!.label}
+                          </Text>
+                        </View>
+                      ))}
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      backgroundColor: colors.primary,
+                      borderRadius: 999,
+                      paddingVertical: 13,
+                    }}
+                  >
+                    <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 15 }}>
+                      Build this parlay
+                    </Text>
+                    <Feather name="arrow-right" size={16} color="#fff" />
+                  </View>
+                </LinearGradient>
+              )}
             </Pressable>
           </View>
         ) : (
-          <View style={{ alignItems: "center", marginBottom: 18 }}>
+          <View style={{ alignItems: "center", marginTop: 18, marginBottom: 18 }}>
             <Pressable
               onPress={() => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } })}
               style={({ pressed }) => ({
@@ -794,49 +948,67 @@ export default function HomeScreen() {
                 opacity: pressed ? 0.9 : 1,
               })}
             >
-              <Text style={{ color: "#020617", fontFamily: FONT.display, fontSize: 17 }}>
+              <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 17 }}>
                 Build best parlay
               </Text>
-              <Feather name="arrow-right" size={18} color="#020617" />
+              <Feather name="arrow-right" size={18} color="#fff" />
             </Pressable>
           </View>
         )}
 
-        {/* Quick actions — horizontally scrollable chips routing to the real
-            Coach / Props / Steals surfaces. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
-          style={{ marginBottom: 22 }}
+        {/* Quick actions — labeled shortcut cards routing to the real Coach /
+            Props / Steals surfaces. */}
+        <View
+          style={{
+            flexDirection: "row",
+            paddingHorizontal: 16,
+            gap: 8,
+            marginBottom: 22,
+          }}
         >
           {quickActions.map((a) => (
             <Pressable
               key={a.label}
               onPress={a.onPress}
               style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 7,
+                flex: 1,
                 backgroundColor: colors.card,
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 999,
-                paddingVertical: 11,
-                paddingHorizontal: 16,
+                borderRadius: 14,
+                paddingVertical: 12,
+                paddingHorizontal: 8,
+                gap: 8,
                 opacity: pressed ? 0.85 : 1,
               })}
             >
-              <Feather name={a.icon} size={14} color={a.color} />
+              <View
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 9,
+                  backgroundColor: `${a.color}22`,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MaterialCommunityIcons name={a.icon} size={17} color={a.color} />
+              </View>
               <Text
-                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}
+                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11.5 }}
                 numberOfLines={1}
               >
                 {a.label}
               </Text>
+              <Text
+                style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}
+                numberOfLines={2}
+              >
+                {a.subtitle}
+              </Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
 
         {/* Hot Picks Today — real props ranked by how often the player has
             cleared THIS posted line in their recent games (a transparent letter
@@ -886,75 +1058,111 @@ export default function HomeScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
               >
-                {topHot.map((c) => (
-                  <Pressable
-                    key={c.key}
-                    onPress={() =>
-                      router.push({ pathname: "/props", params: { q: nickname(c.player), sp: sport } })
-                    }
-                    style={({ pressed }) => ({
-                      width: 172,
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: colors.radius,
-                      padding: 14,
-                      gap: 8,
-                      opacity: pressed ? 0.85 : 1,
-                    })}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                {topHot.map((c) => {
+                  const hitPct = Math.round((c.hits / c.n) * 100);
+                  const gradeA = c.grade.startsWith("A");
+                  return (
+                    <Pressable
+                      key={c.key}
+                      onPress={() =>
+                        router.push({ pathname: "/props", params: { q: nickname(c.player), sp: sport } })
+                      }
+                      style={({ pressed }) => ({
+                        width: 168,
+                        backgroundColor: colors.card,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        borderRadius: colors.radius,
+                        padding: 14,
+                        gap: 8,
+                        alignItems: "center",
+                        opacity: pressed ? 0.85 : 1,
+                      })}
+                    >
                       <FeaturedAvatar headshot={c.headshot} teamLogo={c.teamLogo} name={c.player} />
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: FONT.semibold,
+                          fontSize: 14,
+                          textAlign: "center",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {c.player}
+                      </Text>
+                      <Text
+                        style={{
+                          color: colors.mutedForeground,
+                          fontFamily: FONT.medium,
+                          fontSize: 11.5,
+                          textAlign: "center",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {c.line != null ? `${c.side} ${c.line} ${c.label}` : c.label}
+                      </Text>
                       <View
                         style={{
-                          backgroundColor: c.grade.startsWith("A")
-                            ? "rgba(52,211,153,0.16)"
-                            : colors.surface,
-                          borderRadius: 8,
-                          paddingHorizontal: 9,
-                          paddingVertical: 5,
+                          flexDirection: "row",
+                          alignItems: "center",
+                          marginTop: 2,
+                          borderTopWidth: 1,
+                          borderTopColor: colors.border,
+                          paddingTop: 10,
+                          width: "100%",
                         }}
                       >
-                        <Text
-                          style={{
-                            color: c.grade.startsWith("A") ? "#34d399" : colors.foreground,
-                            fontFamily: FONT.bold,
-                            fontSize: 15,
-                          }}
-                        >
-                          {c.grade}
-                        </Text>
+                        <View style={{ flex: 1, alignItems: "center", gap: 2 }}>
+                          <Text
+                            style={{
+                              color: gradeA ? "#34d399" : colors.foreground,
+                              fontFamily: FONT.bold,
+                              fontSize: 15,
+                            }}
+                          >
+                            {c.grade}
+                          </Text>
+                          <Text
+                            style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5, letterSpacing: 0.3 }}
+                          >
+                            GRADE
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, alignItems: "center", gap: 2, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+                          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+                            {hitPct}%
+                          </Text>
+                          <Text
+                            style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5, letterSpacing: 0.3 }}
+                          >
+                            L{c.n} HIT
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, alignItems: "center", gap: 2, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+                          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 15 }}>
+                            {formatAmerican(c.price)}
+                          </Text>
+                          <Text
+                            style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5, letterSpacing: 0.3 }}
+                          >
+                            ODDS
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                    <Text
-                      style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
-                      numberOfLines={1}
-                    >
-                      {c.player}
-                    </Text>
-                    <Text
-                      style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}
-                      numberOfLines={1}
-                    >
-                      {c.line != null ? `${c.side} ${c.line} ${c.label}` : c.label}{" "}
-                      {formatAmerican(c.price)}
-                    </Text>
-                    <Text
-                      style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
-                      numberOfLines={1}
-                    >
-                      Hit {c.hits}/{c.n} ({Math.round((c.hits / c.n) * 100)}%) last {c.n}
-                    </Text>
-                  </Pressable>
-                ))}
+                    </Pressable>
+                  );
+                })}
               </ScrollView>
             )}
           </View>
         ) : null}
 
-        {/* AI Track Record — auto-graded W/L of the app's OWN longshot "steal"
-            picks (NOT the user's bets). Win rate excludes pushes. Shown only when
-            there are real graded results; tap to open the full ledger. */}
+        {/* AI Performance — auto-graded W/L of the app's OWN longshot "steal"
+            picks (NOT the user's bets). Win rate excludes pushes. Three real
+            stats only (Win Rate / Record / Graded) — no units-profit number and
+            no profit chart, because we don't track stake or an ordered P&L
+            series. Shown only when there are real graded results. */}
         {showTrack ? (
           <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
             <Pressable
@@ -965,60 +1173,71 @@ export default function HomeScreen() {
                 borderColor: colors.border,
                 borderRadius: colors.radius,
                 padding: 16,
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 16,
+                gap: 14,
                 opacity: pressed ? 0.9 : 1,
               })}
             >
-              <View style={{ alignItems: "center" }}>
-                <Text style={{ color: "#34d399", fontFamily: FONT.display, fontSize: 30 }}>
-                  {stealWinPct}%
-                </Text>
-                <Text
-                  style={{
-                    color: colors.mutedForeground,
-                    fontFamily: FONT.medium,
-                    fontSize: 10,
-                    letterSpacing: 0.4,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Win rate
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Feather name="bar-chart-2" size={16} color={colors.primary} />
                 <Text
                   style={{
                     color: colors.foreground,
                     fontFamily: FONT.display,
                     fontSize: 16,
-                    marginBottom: 3,
+                    flex: 1,
                   }}
                 >
-                  AI Track Record
+                  AI Performance
                 </Text>
-                <Text
-                  style={{
-                    color: colors.mutedForeground,
-                    fontFamily: FONT.body,
-                    fontSize: 12,
-                    lineHeight: 17,
-                  }}
-                  numberOfLines={2}
-                >
-                  {stealRec!.wins}-{stealRec!.losses}
-                  {stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""} on auto-graded longshot value
-                  picks.
-                </Text>
+                <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
               </View>
-              <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+              <View style={{ flexDirection: "row" }}>
+                {[
+                  { val: `${stealWinPct}%`, label: "Win Rate", tint: "#34d399" },
+                  {
+                    val: `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`,
+                    label: "Record",
+                    tint: colors.foreground,
+                  },
+                  { val: String(stealRec!.graded), label: "Graded", tint: colors.foreground },
+                ].map((m, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      flex: 1,
+                      alignItems: "center",
+                      gap: 3,
+                      borderLeftWidth: i === 0 ? 0 : 1,
+                      borderLeftColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.medium,
+                        fontSize: 10,
+                        letterSpacing: 0.4,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {m.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <Text
+                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
+              >
+                Auto-graded record of the app's own longshot value picks. Tap to view the full ledger.
+              </Text>
             </Pressable>
           </View>
         ) : null}
 
-        {/* Top Value Props — server-computed +EV props (best posted price beats
-            the de-vigged cross-book consensus). Real ev only; hidden when empty. */}
+        {/* Top AI Props — our own ranking (replaces a "most bet" list). Ranked by
+            the server-computed +EV (best posted price vs the de-vigged cross-book
+            consensus fair value). Real ev only; numbered; hidden when empty. */}
         {featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
@@ -1029,7 +1248,7 @@ export default function HomeScreen() {
                 marginBottom: 4,
               }}
             >
-              <Feather name="dollar-sign" size={16} color="#34d399" />
+              <Feather name="award" size={16} color={colors.primary} />
               <Text
                 style={{
                   color: colors.foreground,
@@ -1039,7 +1258,7 @@ export default function HomeScreen() {
                   flex: 1,
                 }}
               >
-                Top Value Props
+                Top AI Props
               </Text>
               <Pressable
                 hitSlop={8}
@@ -1061,7 +1280,7 @@ export default function HomeScreen() {
                 marginBottom: 12,
               }}
             >
-              Props priced above the cross-book consensus fair value.
+              Ranked by the model's edge over the market price.
             </Text>
             <View style={{ paddingHorizontal: 16, gap: 10 }}>
               {valueProps.map((v, i) => (
@@ -1082,6 +1301,26 @@ export default function HomeScreen() {
                     opacity: pressed ? 0.85 : 1,
                   })}
                 >
+                  <View
+                    style={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: 13,
+                      backgroundColor: i === 0 ? colors.primary : colors.surface,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: i === 0 ? "#fff" : colors.mutedForeground,
+                        fontFamily: FONT.bold,
+                        fontSize: 13,
+                      }}
+                    >
+                      {i + 1}
+                    </Text>
+                  </View>
                   <FeaturedAvatar headshot={v.headshot} teamLogo={v.teamLogo} name={v.player} />
                   <View style={{ flex: 1 }}>
                     <Text
@@ -1325,28 +1564,145 @@ export default function HomeScreen() {
             />
           </View>
         ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
-          >
-            {games.map((g) => {
-              const baseMeta = metaMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+          <View style={{ paddingHorizontal: 16, gap: 10 }}>
+            {games.slice(0, 8).map((g) => {
+              const baseMeta = metaMap.get(
+                `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
+              );
               const meta =
-                sport === "tennis"
-                  ? withTennisFlags(baseMeta, tennisFlagsQ.data, g)
-                  : baseMeta;
+                sport === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
+              const h2h = g.markets.find((m) => m.key === "h2h");
+              const awayML = h2h?.outcomes.find((o) => o.name === g.awayTeam)?.price;
+              const homeML = h2h?.outcomes.find((o) => o.name === g.homeTeam)?.price;
+              const best = bestPropByGame.get(`${g.awayTeam} @ ${g.homeTeam}`);
+              const rows = [
+                { name: g.awayTeam, logo: meta?.awayLogo, ml: awayML },
+                { name: g.homeTeam, logo: meta?.homeLogo, ml: homeML },
+              ];
               return (
-                <View key={g.id} style={{ width: 300 }}>
-                  <GameCard
-                    game={g}
-                    meta={meta}
-                    onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
-                  />
-                </View>
+                <Pressable
+                  key={g.id}
+                  onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
+                  style={({ pressed }) => ({
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                    padding: 14,
+                    gap: 10,
+                    opacity: pressed ? 0.9 : 1,
+                  })}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.semibold,
+                        fontSize: 12,
+                        flex: 1,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {nickname(g.awayTeam)} @ {nickname(g.homeTeam)}
+                    </Text>
+                    {g.commenceTime ? (
+                      <Text
+                        style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}
+                      >
+                        {new Date(g.commenceTime).toLocaleString([], {
+                          weekday: "short",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  {rows.map((t, i) => (
+                    <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      {t.logo ? (
+                        <Image
+                          source={{ uri: t.logo }}
+                          style={{ width: 24, height: 24 }}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={{ width: 24, height: 24 }} />
+                      )}
+                      <Text
+                        style={{
+                          color: colors.foreground,
+                          fontFamily: FONT.semibold,
+                          fontSize: 15,
+                          flex: 1,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {t.name}
+                      </Text>
+                      {t.ml != null ? (
+                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+                          {formatAmerican(t.ml)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+
+                  {best ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        borderTopWidth: 1,
+                        borderTopColor: colors.border,
+                        paddingTop: 10,
+                        gap: 12,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.medium,
+                            fontSize: 9,
+                            letterSpacing: 0.4,
+                            textTransform: "uppercase",
+                            marginBottom: 2,
+                          }}
+                        >
+                          Best Prop
+                        </Text>
+                        <Text
+                          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}
+                          numberOfLines={1}
+                        >
+                          {nickname(best.player)}{" "}
+                          {best.line != null ? `${best.side} ${best.line} ` : ""}
+                          {best.label}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end" }}>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.medium,
+                            fontSize: 9,
+                            letterSpacing: 0.4,
+                            textTransform: "uppercase",
+                            marginBottom: 2,
+                          }}
+                        >
+                          Edge
+                        </Text>
+                        <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 12 }}>
+                          +{best.ev.toFixed(1)}%
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
         )}
 
         {/* Upset Watch — real spots where the app's analytics (mlLean) favor the
