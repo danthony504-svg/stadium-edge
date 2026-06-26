@@ -29,7 +29,32 @@ To edit artifact.toml you MUST write a sibling `*.edit.toml` and call
 `verifyAndReplaceArtifactToml({tempFilePath, artifactTomlPath})` (absolute paths) — direct
 edits are blocked.
 
-# "AI service is temporarily unavailable" on IMAGE uploads only = stale prod deploy
+# "AI service is temporarily unavailable" — FIRST check for a hard 401 (account-level)
+
+There are TWO distinct causes. ALWAYS check the api-server logs for the actual upstream error
+before theorizing — `rg "Chat stream failed" / "AuthenticationError"`.
+
+## Cause 0 (check FIRST): upstream 401 AuthenticationError = AI Integrations proxy rejected
+
+If the server log shows `Chat stream failed ... AuthenticationError ... 401 status code (no
+body)`, the Replit AI Integrations proxy is rejecting auth. Symptoms: **EVERY** chat fails —
+text AND photos, in BOTH dev and prod (reproduce by curling
+`POST https://$REPLIT_DEV_DOMAIN/api/chat` with `{"messages":[{"role":"user","content":"hi"}]}`
+— a 401 returns the `_AI service is temporarily unavailable._` content frame). This is NOT a
+code/deploy/reasoning_effort bug.
+
+**Why re-provisioning does NOT fix it:** `setupReplitAIIntegrations({providerSlug:"openai"...})`
+returns `success:true` and the env vars (`AI_INTEGRATIONS_OPENAI_BASE_URL` /
+`..._API_KEY`) are present, but the proxy still 401s after a server restart. The key is a
+dummy; auth is the account's AI-integration access itself. There is NO OpenAI connector in
+`searchIntegrations` to re-bind — OpenAI is proxy-only. So a persistent 401 is **account-level**
+(AI credits/usage/billing or the AI Integrations feature being unavailable for the account) and
+is **not fixable from the repl** — the user must check their Replit AI usage/billing or contact
+Replit support. Don't speculate on cost/refunds. Fallback option: rewire to the user's OWN
+OpenAI API key (note: the proxy model name `gpt-5.4` is Replit-specific — direct OpenAI needs a
+real model id, so it's a non-trivial migration).
+
+## Cause 1: IMAGE-upload-only failure while text works = stale prod deploy
 
 When the published mobile app shows "AI service is temporarily unavailable" specifically on a
 **photo/vision** Coach request while **text** chats still work, the cause is a **stale
