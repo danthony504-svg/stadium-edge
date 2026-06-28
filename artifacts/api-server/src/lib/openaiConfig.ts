@@ -157,6 +157,15 @@ export async function probeOpenAI(): Promise<OpenAIProbeResult> {
       messages: [{ role: "user", content: "ping" }],
       max_tokens: 5,
     });
+    const stream = await client.chat.completions.create({
+      model: config.model,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 5,
+      stream: true,
+    });
+    for await (const chunk of stream) {
+      if (chunk.choices[0]?.delta?.content) break;
+    }
     const result: OpenAIProbeResult = {
       ok: true,
       model: config.model,
