@@ -45,6 +45,7 @@ import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStat
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import { attachPickScores } from "@/lib/pickScoreContext";
+import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1275,6 +1276,19 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        // Belt-and-braces: when matchupHistory.mlLean names a winner, never render
+        // an opposing ML/spread card — swap to the real posted line on the lean
+        // side or drop. Variety rotates games/props/markets, not WHO wins.
+        let mlLeanNote = "";
+        if (!isAnalyze && picks.length > 0 && context.matchupHistory) {
+          const enforced = enforceMlLeanOnPicks(picks, {
+            matchupHistory: context.matchupHistory,
+            realOdds: context.realOdds,
+            gameMeta,
+          });
+          picks = enforced.picks;
+          mlLeanNote = mlLeanEnforcementNote(enforced);
+        }
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
@@ -1640,6 +1654,9 @@ export default function CoachScreen() {
             requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
               : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against tonight's real odds — that's the honest ticket, I won't pad it with invented legs.`;
+        }
+        if (mlLeanNote) {
+          legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
