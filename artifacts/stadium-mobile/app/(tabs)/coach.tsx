@@ -77,6 +77,7 @@ import {
   mentionsPropIntent,
   wantsPropsOnly,
   wantsTodayOnly,
+  explicitSingleGameIntent,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
@@ -1101,6 +1102,8 @@ export default function CoachScreen() {
             /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(
               trimmed,
             ));
+        const explicitSingleGame =
+          explicitSingleGameIntent(trimmed) || singleGameDepth;
         const thinSlateDepth = requestedLegs >= 9 && wantsTodayOnly(trimmed);
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
@@ -1554,7 +1557,7 @@ export default function CoachScreen() {
               : null;
           const lockedGame =
             onlyGameLabel &&
-            (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
+            (explicitSingleGame || gameMatchesFocalText(onlyGameLabel, trimmed))
               ? norm(onlyGameLabel)
               : null;
           const namedSports = focalSportsFromText(trimmed);
@@ -1578,25 +1581,14 @@ export default function CoachScreen() {
               altSign,
               order: ALT_BACKFILL_ORDER,
             });
-          } else if (includePeriods) {
-            // Period / same-game (and single-game high-leg) ticket: fill from the
-            // locked game's period ladder (Q1–Q4 / 1H / 2H sides + totals + the
-            // period MLs the model most often skips) and full-game alt rungs —
-            // every entry a real realOdds line, scoped by backfillPool to the
-            // locked game so a single-game ask never widens to other matchups.
-            picks = backfillPicks(picks, backfillPool, gameMeta, {
-              target,
-              order: PERIOD_BACKFILL_ORDER,
-            });
           } else {
-            // PLAIN N-leg parlay (no alt / period / threshold lock). The model
-            // routinely returns a leg or two short even when the board has plenty
-            // more real games — a "4 leg" ask coming back with 3 is the reported
-            // failure. Deterministically fill toward N from the SAME real context.
-            // When the user asked for props, fill from realProps FIRST. If they
-            // said "props only", stop there. If they said "with player props",
-            // top up with team/game props after the prop pool is exhausted.
-            if (mentionsProps) {
+            // High-leg "tonight" asks must reach N across the FULL slate — props
+            // first (the board has hundreds), then game mains, then period markets.
+            // Do NOT infer a single-game lock just because the model's first legs
+            // landed on one matchup (the reported 15-leg → 3-leg bug).
+            const deepTonightFill =
+              thinSlateDepth && !explicitSingleGame && requestedLegs >= 9;
+            if (mentionsProps || deepTonightFill) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
               });
@@ -1606,38 +1598,21 @@ export default function CoachScreen() {
                   order: GENERIC_BACKFILL_ORDER,
                 });
               }
+            } else if (explicitSingleGame && includePeriods) {
+              picks = backfillPicks(picks, backfillPool, gameMeta, {
+                target,
+                order: PERIOD_BACKFILL_ORDER,
+              });
             } else {
               const allProps = picks.every((p) => p.isProp);
-              // Did the USER express prop intent? A GENERIC "6-leg parlay for
-              // tonight" carries none of these words, so when the model merely
-              // HAPPENS to return all props we must still backfill toward N with
-              // real game mains — otherwise "6-leg parlay" → 2 props → "only 2
-              // held up" on a full board (the reported bug). Mirrors (loosely) the
-              // server's MARKET_KEYWORDS so a real props-only / prop-market lock
-              // ("player props only", "6 home run hitters", "strikeout parlay")
-              // still skips the game-main fill and stays in props.
               if (!allProps) {
                 const gameLegs = picks.filter((p) => !p.isProp);
-                // The single-game / sport lock that scopes the fill pool is computed
-                // ONCE above (backfillPool) and shared by every branch. Infer on top
-                // of it an implicit MARKET lock from the model's own resolved
-                // legs: if every game-level leg sits in ONE full-game family
-                // (e.g. a "spread parlay" or "moneyline parlay" that came back
-                // all spreads / all MLs), constrain the fill to that same family
-                // so we never widen the ticket into other markets. Otherwise fill
-                // from full-game mains across all three families.
                 const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
                 const FAMILY_ORDER: Record<string, RegExp[]> = {
                   moneyline: [/^Moneyline$/],
                   spread: [/^Spread$/],
                   total: [/^Total$/],
                 };
-                // IMPLICIT MARKET-FAMILY LOCK — only infer a "spread/ML/total
-                // parlay" when the model resolved AT LEAST TWO game-level legs all in
-                // ONE family. A single leaked game leg (e.g. one Phillies ML beside
-                // two props) does NOT establish a market-lock intent, so it must fall
-                // through to the generic mains order and fill across all three
-                // families — not stay stuck on that lone leg's family.
                 const lockedFam =
                   gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
                 const order =
@@ -1646,6 +1621,12 @@ export default function CoachScreen() {
                     : GENERIC_BACKFILL_ORDER;
                 picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
               }
+            }
+            if (includePeriods && picks.length < target) {
+              picks = backfillPicks(picks, backfillPool, gameMeta, {
+                target,
+                order: PERIOD_BACKFILL_ORDER,
+              });
             }
           }
         }

@@ -18,6 +18,7 @@ import {
   todayBuildNote,
   mentionsPropIntent,
   wantsPropsOnly,
+  explicitSingleGameIntent,
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
@@ -33,6 +34,7 @@ export {
   todayBuildNote,
   mentionsPropIntent,
   wantsPropsOnly,
+  explicitSingleGameIntent,
 };
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev

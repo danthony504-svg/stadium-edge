@@ -42,6 +42,25 @@ export function wantsTodayOnly(text?: string | null): boolean {
   return /\b(?:today|tonight)\b/.test(t);
 }
 
+// True when the user explicitly asked for ONE game's ticket (same-game parlay,
+// SGP, "for Team A @ Team B", etc.). Used to scope backfill to a single matchup.
+// A generic "15-leg parlay for tonight" is NOT single-game even if the model's
+// first few legs happen to land on one game — widening to the full slate is required.
+export function explicitSingleGameIntent(text?: string | null): boolean {
+  const t = String(text || "");
+  if (!t) return false;
+  if (/\bsame[\s-]?game\b/i.test(t)) return true;
+  if (/\bsgp\b/i.test(t)) return true;
+  if (/\b(this|that|the|one|single)\s+game\b/i.test(t)) return true;
+  if (/\bgame\s*#?\s*\d+\b/i.test(t)) return true;
+  if (
+    /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // A game is "today & upcoming" when it tips off later on the device's current
 // calendar day (LOCAL time). Excludes already-started games and any game on a
 // different date — matching the Today / Tomorrow labels the cards show, so a
