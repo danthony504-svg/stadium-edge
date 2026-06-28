@@ -37,11 +37,6 @@ function isReplitHost(): boolean {
   );
 }
 
-function looksLikeReplitIntegrationBaseUrl(baseURL: string): boolean {
-  const lower = baseURL.toLowerCase();
-  return lower.includes("replit") || lower.includes("ai-integrations");
-}
-
 export function parseReasoningEffort(
   raw: string | undefined,
 ): ReasoningEffort | undefined {
