@@ -19,6 +19,7 @@ import {
   mentionsPropIntent,
   wantsPropsOnly,
   explicitSingleGameIntent,
+  tonightExhaustedNote,
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
@@ -35,6 +36,7 @@ export {
   mentionsPropIntent,
   wantsPropsOnly,
   explicitSingleGameIntent,
+  tonightExhaustedNote,
 };
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev

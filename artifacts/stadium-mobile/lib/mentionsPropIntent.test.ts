@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -35,4 +35,33 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
+});
+
+test("explicitSingleGameIntent: generic tonight parlay is NOT single-game", () => {
+  assert.equal(explicitSingleGameIntent("Build me a 15-leg longshot parlay for tonight"), false);
+  assert.equal(explicitSingleGameIntent("6-leg parlay for tonight"), false);
+  assert.equal(explicitSingleGameIntent("same game parlay for Yankees @ Red Sox"), true);
+  assert.equal(explicitSingleGameIntent("build a 6 leg for Yankees vs Red Sox"), true);
+});
+
+test("tonightExhaustedNote: blocks silent tomorrow padding when tonight slate is gone", () => {
+  const { tonightExhaustedNote } = await import("./slate.ts");
+  assert.match(
+    tonightExhaustedNote({
+      tonightRequested: true,
+      todayOnlyApplied: false,
+      surviving: 0,
+      requestedLegs: 15,
+    }),
+    /tomorrow/i,
+  );
+  assert.equal(
+    tonightExhaustedNote({
+      tonightRequested: true,
+      todayOnlyApplied: true,
+      surviving: 0,
+      requestedLegs: 15,
+    }),
+    "",
+  );
 });

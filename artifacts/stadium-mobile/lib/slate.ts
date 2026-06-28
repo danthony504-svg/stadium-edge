@@ -132,7 +132,25 @@ export function todayBuildNote(opts: {
   return "";
 }
 
-// Does the user's message express PROP intent (explicit "props"/"player props",
+// When the user asked for "tonight" but resolveTodayOnly dropped the pool
+// restriction (every today game already started), explain why tomorrow legs are
+// NOT shown and how to get them.
+export function tonightExhaustedNote(opts: {
+  tonightRequested: boolean;
+  todayOnlyApplied: boolean;
+  surviving: number;
+  requestedLegs: number;
+}): string {
+  const { tonightRequested, todayOnlyApplied, surviving, requestedLegs } = opts;
+  if (!tonightRequested || todayOnlyApplied) return "";
+  if (surviving === 0) {
+    return `\n\n_Tonight's games have already started and nothing is left on today's board. I won't pad this with tomorrow's slate — ask for a **tomorrow** parlay if you want those matchups._`;
+  }
+  if (requestedLegs > 0 && surviving < requestedLegs) {
+    return `\n\n_Only legs from games still to play **today** — I won't add tomorrow's matchups to a "tonight" ticket._`;
+  }
+  return "";
+}
 // a specific prop market like strikeouts / home runs / shots / receptions, or a
 // points-as-prop phrasing)? Used to keep a real props-only / prop-market ask from
 // falling back to GAME-LEVEL mains: both the reach-the-count backfill and the

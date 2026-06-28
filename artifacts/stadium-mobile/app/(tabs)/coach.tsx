@@ -78,6 +78,7 @@ import {
   wantsPropsOnly,
   wantsTodayOnly,
   explicitSingleGameIntent,
+  tonightExhaustedNote,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
@@ -1411,13 +1412,15 @@ export default function CoachScreen() {
         // this guarantees none reaches the slip. Runs BEFORE the reach-the-count
         // backfill so any top-up draws only from today's remaining real games.
         let todayNote = "";
+        let tonightNote = "";
         // Set when the today-only salvage below actually built a real ticket out
         // of nothing (the model refused / its legs were all filtered). The
         // model's streamed prose (`full`) is then a refusal or stripped scaffold
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
-        if (todayOnly) {
+        const tonightRequested = wantsTodayOnly(trimmed);
+        if (tonightRequested) {
           const before = picks.length;
           picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
           // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
@@ -1462,10 +1465,11 @@ export default function CoachScreen() {
           if (salvageEligible) {
             const tgt = Math.min(requestedLegs, MAX_LEGS);
             if (mentionsPropIntent(trimmed)) {
-              const salvagePool =
+              const salvagePool = (
                 salvageSports.size > 0
                   ? context.realOdds.filter((e) => salvageSports.has(e.sport))
-                  : context.realOdds;
+                  : context.realOdds
+              ).filter((e) => startsTodayUpcoming(e.startsAt));
               picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
                 ...propBackfillOpts,
@@ -1483,10 +1487,11 @@ export default function CoachScreen() {
             // EVERY today-upcoming game on the board. context.realOdds is already
             // startsTodayUpcoming-filtered here, so either pool is real + today +
             // upcoming and nothing is invented.
-            const salvagePool =
+            const salvagePool = (
               salvageSports.size > 0
                 ? context.realOdds.filter((e) => salvageSports.has(e.sport))
-                : context.realOdds;
+                : context.realOdds
+            ).filter((e) => startsTodayUpcoming(e.startsAt));
             if (salvagePool.length > 0) {
               picks = backfillPicks([], salvagePool, gameMeta, {
                 target: tgt,
@@ -1589,6 +1594,9 @@ export default function CoachScreen() {
             : context.realOdds;
           if (lockedSports)
             backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
+          if (tonightRequested) {
+            backfillPool = backfillPool.filter((e) => startsTodayUpcoming(e.startsAt));
+          }
           if (altSign) {
             picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
@@ -1645,6 +1653,15 @@ export default function CoachScreen() {
             }
           }
         }
+        if (tonightRequested) {
+          picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          tonightNote = tonightExhaustedNote({
+            tonightRequested,
+            todayOnlyApplied: todayOnly,
+            surviving: picks.length,
+            requestedLegs,
+          });
+        }
         // Belt-and-braces for the 15-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
         // (e.g. a "100 leg" ask), never RENDER or OFFER more cards than the slip
@@ -1687,6 +1704,9 @@ export default function CoachScreen() {
         }
         if (propsOnlyNote) {
           legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
+        }
+        if (tonightNote) {
+          legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
