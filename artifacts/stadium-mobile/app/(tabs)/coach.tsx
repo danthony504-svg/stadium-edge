@@ -1087,16 +1087,12 @@ export default function CoachScreen() {
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
         //
-        // ALSO unlock periods for a SINGLE-GAME high-leg ask even without explicit
-        // period words ("safe 15 leg alt for game 4 of the nba"): one game's
-        // full-game markets (ML / Spread / Total + their alt rungs) top out at a
-        // handful of independent legs, so the only honest way to reach a big count
-        // from ONE game is its period ladder (Q1–Q4 / 1H / 2H) plus that game's
-        // player props. Without this the period markets never enter realOdds, so
-        // neither the model nor the deterministic backfill can use them and the
-        // ticket stalls at ~3 legs (the reported bug). Gated on a real leg count
-        // AND a single-game cue (a named matchup, "game N", or "this/that/the/
-        // same/one/single game") so a generic multi-game ask is unaffected.
+        // ALSO unlock periods for high-leg thin-slate asks even without explicit
+        // period words. One remaining "tonight" game can only supply three
+        // full-game mains (ML / spread / total), so a 15-leg tonight ask otherwise
+        // stalls at ~3 even when real F5/1H/Q markets exist. Gated on a real leg
+        // count plus either a single-game cue OR a today/tonight high-leg cue so
+        // ordinary small generic builds stay lean.
         const singleGameDepth =
           requestedLegs >= 6 &&
           (/\bgame\s*#?\s*\d+\b/i.test(trimmed) ||
@@ -1104,7 +1100,8 @@ export default function CoachScreen() {
             /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(
               trimmed,
             ));
-        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth;
+        const thinSlateDepth = requestedLegs >= 9 && wantsTodayOnly(trimmed);
+        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
         // forces minus-money rungs (safer cushion). The sign is recognised three

@@ -1716,6 +1716,10 @@ export const GENERIC_BACKFILL_ORDER: RegExp[] = [
 // keeps every period distinct so these never collide with each other.
 export const PERIOD_BACKFILL_ORDER: RegExp[] = [
   /^Alt Spread$/,
+  /^F5 Moneyline$/,
+  /^F5 Run Line$/,
+  /^F5 Total$/,
+  /^1st Inning Total$/,
   /^(1H|2H|Q1) Moneyline$/,
   /^(1H|2H|Q1) (Spread|Total)$/,
   /^1H Alt (Spread|Total)$/,
