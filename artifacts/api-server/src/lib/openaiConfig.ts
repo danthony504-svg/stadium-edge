@@ -28,6 +28,15 @@ function trimEnv(name: string): string | undefined {
   return value || undefined;
 }
 
+function isReplitHost(): boolean {
+  return !!(
+    process.env.REPL_ID ||
+    process.env.REPLIT_DEPLOYMENT ||
+    process.env.REPLIT_CLUSTER_URL ||
+    process.env.REPLIT_DEV_DOMAIN
+  );
+}
+
 function looksLikeReplitIntegrationBaseUrl(baseURL: string): boolean {
   const lower = baseURL.toLowerCase();
   return lower.includes("replit") || lower.includes("ai-integrations");
@@ -75,11 +84,10 @@ export function resolveOpenAIConfig():
   }
 
   if (replitKey && replitBase) {
-    const onRender = process.env.RENDER === "true";
-    if (onRender && looksLikeReplitIntegrationBaseUrl(replitBase)) {
+    if (!isReplitHost()) {
       return {
         error:
-          "Replit AI Integrations credentials do not work on Render. Set OPENAI_API_KEY (and optionally OPENAI_BASE_URL, OPENAI_CHAT_MODEL) in the Render dashboard.",
+          "Replit AI Integrations credentials only work on Replit infrastructure. Set OPENAI_API_KEY (and optionally OPENAI_BASE_URL, OPENAI_CHAT_MODEL) in the Render dashboard.",
       };
     }
 

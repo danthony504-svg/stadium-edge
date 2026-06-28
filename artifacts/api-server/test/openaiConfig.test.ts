@@ -12,7 +12,10 @@ const ENV_KEYS = [
   "OPENAI_REASONING_EFFORT",
   "AI_INTEGRATIONS_OPENAI_API_KEY",
   "AI_INTEGRATIONS_OPENAI_BASE_URL",
-  "RENDER",
+  "REPL_ID",
+  "REPLIT_DEPLOYMENT",
+  "REPLIT_CLUSTER_URL",
+  "REPLIT_DEV_DOMAIN",
 ] as const;
 
 function withEnv(
@@ -66,6 +69,7 @@ test("OPENAI_API_KEY takes precedence over Replit integration vars", () => {
 test("Replit integration vars resolve on non-Render hosts", () => {
   withEnv(
     {
+      REPL_ID: "abc123",
       AI_INTEGRATIONS_OPENAI_API_KEY: "replit-key",
       AI_INTEGRATIONS_OPENAI_BASE_URL: "https://ai-integrations.replit.com/v1",
     },
@@ -79,10 +83,9 @@ test("Replit integration vars resolve on non-Render hosts", () => {
   );
 });
 
-test("Replit integration vars on Render fail fast with a helpful error", () => {
+test("Replit integration vars off Replit fail fast with a helpful error", () => {
   withEnv(
     {
-      RENDER: "true",
       AI_INTEGRATIONS_OPENAI_API_KEY: "replit-key",
       AI_INTEGRATIONS_OPENAI_BASE_URL: "https://ai-integrations.replit.com/v1",
     },
@@ -90,6 +93,21 @@ test("Replit integration vars on Render fail fast with a helpful error", () => {
       const config = resolveOpenAIConfig();
       assert.ok("error" in config);
       assert.match(config.error, /OPENAI_API_KEY/);
+    },
+  );
+});
+
+test("Replit integration vars resolve when REPL_ID is present", () => {
+  withEnv(
+    {
+      REPL_ID: "abc123",
+      AI_INTEGRATIONS_OPENAI_API_KEY: "replit-key",
+      AI_INTEGRATIONS_OPENAI_BASE_URL: "https://ai-integrations.replit.com/v1",
+    },
+    () => {
+      const config = resolveOpenAIConfig();
+      assert.ok(!("error" in config));
+      assert.equal(config.provider, "replit");
     },
   );
 });
