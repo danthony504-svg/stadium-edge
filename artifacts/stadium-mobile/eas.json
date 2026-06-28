@@ -30,9 +30,9 @@
         "resourceClass": "m-medium"
       },
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "stadium-edge-1.replit.app",
+        "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuc3RhZGl1bS1lZGdlLTEucmVwbGl0LmFwcCQ",
-        "EXPO_PUBLIC_CLERK_PROXY_URL": "https://stadium-edge-1.replit.app/api/__clerk"
+        "EXPO_PUBLIC_CLERK_PROXY_URL": "https://stadium-edge.onrender.com/api/__clerk"
       }
     }
   },

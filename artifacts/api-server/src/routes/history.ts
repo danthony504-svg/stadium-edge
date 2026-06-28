@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
 import { ESPN_SPORT_PATHS, cachedJson } from "../lib/sports";
 import { soccerPlayerGameLog, teamPace } from "../lib/statmuse";
+import {
+  isCoachRecommendationQuestion,
+  looksLikeComparisonNameMash,
+} from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
 
@@ -868,8 +872,19 @@ router.get("/sports/player-history", async (req, res): Promise<void> => {
 // athletes whose league maps to a sport we can pull a game log for.
 router.get("/sports/player-search", async (req, res): Promise<void> => {
   const query = String(req.query.query || req.query.name || "").trim();
+  const rawMessage = String(req.query.raw || "").trim();
   if (query.length < 2) {
     res.status(400).json({ error: "query (>= 2 chars) required" });
+    return;
+  }
+  // Comparison asks ("Adames or Ramos to hit a HR") must reach the AI coach, not
+  // a single-player stat card. Older mobile builds only pass `raw` on some
+  // searches; the name-mash heuristic covers the rest.
+  if (
+    (rawMessage && isCoachRecommendationQuestion(rawMessage)) ||
+    looksLikeComparisonNameMash(query)
+  ) {
+    res.json({ query, results: [] });
     return;
   }
   type SearchItem = {

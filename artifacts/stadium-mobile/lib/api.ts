@@ -655,8 +655,11 @@ export type PlayerSearchResult = {
 export function searchPlayer(
   query: string,
   signal?: AbortSignal,
+  opts?: { rawMessage?: string },
 ): Promise<{ query: string; results: PlayerSearchResult[] }> {
-  return getJson(`/sports/player-search?query=${encodeURIComponent(query)}`, signal);
+  const raw = opts?.rawMessage?.trim();
+  const rawQ = raw ? `&raw=${encodeURIComponent(raw)}` : "";
+  return getJson(`/sports/player-search?query=${encodeURIComponent(query)}${rawQ}`, signal);
 }
 
 // Real per-game game log + season aggregates from ESPN (artifacts/api-server

@@ -186,10 +186,13 @@ async function clearPendingBuild(): Promise<void> {
 // fabricates: every value comes from ESPN (player-history) or StatMuse's real
 // results grid (statmuse-gamelog).
 async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardResult | null> {
+  if (isCoachRecommendationQuestion(text)) return null;
+
   const lookup = parseStatLookup(text);
   if (!lookup) return null;
 
-  const sr = await searchPlayer(lookup.name, signal);
+  const searchOpts = { rawMessage: text };
+  const sr = await searchPlayer(lookup.name, signal, searchOpts);
   // ESPN search is relevance-ranked; trust the top hit so historical/retired
   // queries resolve to the right athlete instead of being overridden by any
   // active player further down the list.
@@ -203,7 +206,7 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
   // This rescues forward-looking phrasings ("how many points will X score
   // tonight?") without over-stripping real names like "Will Smith" (which
   // resolve on the first try, so this fallback never runs for them).
-  if (!top && !lookup.bareName) {
+  if (!top && !lookup.bareName && !/\b or \b/i.test(text)) {
     const toks = String(lookup.name)
       .toLowerCase()
       .replace(/[^a-z'.\- ]/g, " ")
@@ -218,7 +221,7 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
         if (cand === fullLow || cand.length < 3) continue;
         if (len === 1 && NAME_FALLBACK_SKIP.has(cand)) continue;
         try {
-          const fr = await searchPlayer(cand, signal);
+          const fr = await searchPlayer(cand, signal, searchOpts);
           const hit = (fr.results || [])[0];
           // Guard against ESPN's fuzzy single-token search returning an
           // unrelated player: the candidate must match a WHOLE WORD in the

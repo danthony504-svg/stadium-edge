@@ -172,6 +172,22 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
+  // Pull JS-only fixes (coach logic, API URL, etc.) without a new App Store build.
+  useEffect(() => {
+    if (__DEV__) return;
+    (async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch {
+        // Offline or expo-updates disabled — keep running the embedded bundle.
+      }
+    })();
+  }, []);
+
   if (!fontsLoaded && !fontError) return null;
 
   return (
