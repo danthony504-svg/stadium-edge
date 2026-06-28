@@ -667,8 +667,7 @@ export default function HomeScreen() {
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
         {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
-            the logo cluster is padded clear of it. Logo left; Home title + brand
-            tagline on the right; a bell that routes to alerts (or sign-in). */}
+            the larger Stadium Edge wordmark is padded clear of it. */}
         <View
           style={{
             flexDirection: "row",
@@ -679,29 +678,13 @@ export default function HomeScreen() {
           }}
         >
           <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: 150, height: 42 }}
+            source={require("@/assets/images/logo-wordmark.png")}
+            style={{ width: Math.min(260, Math.max(205, width - 132)), height: 48 }}
             resizeMode="contain"
             fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
           <View style={{ flex: 1 }} />
-          <View style={{ alignItems: "flex-end", marginRight: 10 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: FONT.display,
-                fontSize: 17,
-                letterSpacing: 0.2,
-              }}
-            >
-              HOME
-            </Text>
-            <Text style={{ fontSize: 9, fontFamily: FONT.semibold, letterSpacing: 0.2, marginTop: 2 }}>
-              <Text style={{ color: colors.mutedForeground }}>AI POWERED. DATA DRIVEN. </Text>
-              <Text style={{ color: colors.primary }}>REAL EDGE.</Text>
-            </Text>
-          </View>
           <Pressable
             onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
             hitSlop={8}
