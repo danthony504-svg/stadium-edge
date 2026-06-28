@@ -75,10 +75,33 @@ export type StatLookup = {
   bareName?: boolean;
 };
 
+// Either-or / comparison asks want the coach's recommendation (and often a PICK
+// card), not a single-player ESPN stat dump. Examples: "Adames or Ramos to hit a
+// HR", "Curry or LeBron tonight", "which is better to score".
+export function isCoachRecommendationQuestion(raw: string): boolean {
+  const t = String(raw || "").trim();
+  const low = t.toLowerCase();
+  if (!t) return false;
+  if (
+    /\b or \b/i.test(t) &&
+    /\b(hit|hr|home runs?|homers?|score|get|have|reach|strikeouts?|touchdowns?|goals?|points?|pts|better|more likely)\b/.test(
+      low,
+    )
+  )
+    return true;
+  if (
+    /\b(which|who|compare|better|versus|vs\.?)\b/.test(low) &&
+    /\b(hit|hr|bet|pick|play|take|score|get)\b/.test(low)
+  )
+    return true;
+  return false;
+}
+
 export function parseStatLookup(raw: string): StatLookup | null {
   const t = String(raw || "").trim();
   if (!t) return null;
   const low = t.toLowerCase();
+  if (isCoachRecommendationQuestion(t)) return null;
   // Never hijack parlay / betting-build requests.
   if (
     /\b(parlay|build|wager|slip|leg|legs|prop bet|bet on|place a bet|moneyline|spread|over\/under|pick'?em|sgp|same game)\b/.test(

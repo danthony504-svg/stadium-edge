@@ -2654,6 +2654,9 @@ function parseStatLookup(raw) {
   // (the reported bug: "most likely to hit a home run" → NFL TE Isaiah Likely).
   if (/\bmost likely\b/.test(low)) return null;
   if (/^\s*(who|who'?s|whos|which)\b/.test(low)) return null;
+  // Either-or / comparison asks want a coach recommendation, not one stat card.
+  if (/\b or \b/i.test(t) && /\b(hit|hr|home runs?|homers?|score|get|have|reach|strikeouts?|touchdowns?|goals?|points?|pts|better|more likely)\b/.test(low)) return null;
+  if (/\b(which|who|compare|better|versus|vs\.?)\b/.test(low) && /\b(hit|hr|bet|pick|play|take|score|get)\b/.test(low)) return null;
   // ROLE/POSITION SUBJECT guard: a message that LEADS with a generic role word
   // ("pitcher strikeouts for the Brewers", "best hitters tonight", "batters to
   // hit a HR") names a CLASS of players, not a single player — it's a

@@ -86,7 +86,7 @@ import {
   type RealPropEntry,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { NAME_FALLBACK_SKIP, parseStatLookup } from "@/lib/statLookup";
+import { NAME_FALLBACK_SKIP, parseStatLookup, isCoachRecommendationQuestion } from "@/lib/statLookup";
 import {
   decideBackgroundRestore,
   deserializePendingBuild,
@@ -960,7 +960,10 @@ export default function CoachScreen() {
       try {
         // A photo attachment goes straight to the vision model — the text-only
         // stat-card lookup can't read an image, so skip it when one is attached.
-        const card = (replay || hasOutgoingImages) ? null : await tryStatCard(trimmed, controller.signal);
+        const card =
+          replay || hasOutgoingImages || isCoachRecommendationQuestion(trimmed)
+            ? null
+            : await tryStatCard(trimmed, controller.signal);
         if (card) {
           setMessages((prev) => {
             const copy = [...prev];
