@@ -877,7 +877,7 @@ router.get("/sports/player-search", async (req, res): Promise<void> => {
   // Comparison asks ("Adames or Ramos to hit a HR") must reach the AI coach, not
   // a single-player stat card. Older mobile builds only pass `raw` on some
   // searches; the name-mash heuristic covers the rest.
-  if (shouldBlockPlayerSearch(query, rawMessage || undefined)) {
+  if (await shouldBlockPlayerSearch(query, rawMessage || undefined)) {
     res.json({ query, results: [] });
     return;
   }

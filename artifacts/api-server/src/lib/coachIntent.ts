@@ -1,5 +1,7 @@
 /** Shared coach intent helpers (mirrors stadium-mobile/lib/statLookup.ts). */
 
+import { cacheGet, cacheSet } from "./store.js";
+
 export function isCoachRecommendationQuestion(raw: string): boolean {
   const t = String(raw || "").trim();
   const low = t.toLowerCase();
@@ -25,39 +27,29 @@ export function looksLikeComparisonNameMash(query: string): boolean {
   return toks.length >= 4;
 }
 
-// When a 4+ token mash is blocked, remember its 2–3 token sub-spans briefly so
-// the mobile stat-card span-search fallback (old builds) cannot bind the first
-// player and stop before the AI coach path runs.
 const MASH_SUBQUERY_TTL_MS = 120_000;
-const mashSubqueryBlocks = new Map<string, number>();
 
-function rememberMashSubqueries(query: string): void {
+async function rememberMashSubqueries(query: string): Promise<void> {
   const toks = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (toks.length < 4) return;
-  const now = Date.now();
   for (let len = 2; len <= 3; len++) {
     for (let i = 0; i + len <= toks.length; i++) {
-      mashSubqueryBlocks.set(toks.slice(i, i + len).join(" "), now + MASH_SUBQUERY_TTL_MS);
+      const sub = toks.slice(i, i + len).join(" ");
+      await cacheSet(`coach-mash-sub:${sub}`, "1", MASH_SUBQUERY_TTL_MS);
     }
   }
 }
 
-function isBlockedMashSubquery(query: string): boolean {
-  const key = query.trim().toLowerCase();
-  const exp = mashSubqueryBlocks.get(key);
-  if (!exp) return false;
-  if (Date.now() > exp) {
-    mashSubqueryBlocks.delete(key);
-    return false;
-  }
-  return true;
-}
-
-export function shouldBlockPlayerSearch(query: string, rawMessage?: string): boolean {
+export async function shouldBlockPlayerSearch(
+  query: string,
+  rawMessage?: string,
+): Promise<boolean> {
   if (rawMessage && isCoachRecommendationQuestion(rawMessage)) return true;
+  const key = query.trim().toLowerCase();
   if (looksLikeComparisonNameMash(query)) {
-    rememberMashSubqueries(query);
+    await rememberMashSubqueries(query);
     return true;
   }
-  return isBlockedMashSubquery(query);
+  const blocked = await cacheGet<string>(`coach-mash-sub:${key}`);
+  return blocked != null;
 }
