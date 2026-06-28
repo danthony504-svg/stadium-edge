@@ -1356,7 +1356,7 @@ function moneylineCushionOptions(
   return out;
 }
 
-function gameAltOptions(
+export function gameAltOptions(
   best: RealOddsLike,
   pool: RealOddsLike[],
 ): ParsedPick["altOptions"] | undefined {

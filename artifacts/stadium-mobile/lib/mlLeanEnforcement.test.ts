@@ -11,6 +11,20 @@ import {
 const GAME = "New York Yankees @ Boston Red Sox";
 const HISTORY = {
   [GAME]: {
+    home: null,
+    away: null,
+    homePace: null,
+    awayPace: null,
+    homeVenueForm: null,
+    awayVenueForm: null,
+    homeStreak: null,
+    awayStreak: null,
+    homeSeason: null,
+    awaySeason: null,
+    homeRest: null,
+    awayRest: null,
+    h2h: null,
+    lastMeeting: null,
     mlLean: { side: "Boston Red Sox", edge: 11.8, reasons: ["Sox 6-4 L10"] },
   },
 };

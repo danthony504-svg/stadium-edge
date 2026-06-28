@@ -29,8 +29,8 @@ test("points-as-prop phrasing => true", () => {
   assert.equal(mentionsPropIntent("3 legs of player points"), true);
 });
 
-test("wantsPropsOnly: explicit and N-leg-with-props phrasing", () => {
-  assert.equal(wantsPropsOnly("Build me a 15 leg with player props"), true);
+test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", () => {
+  assert.equal(wantsPropsOnly("Build me a 15 leg with player props"), false);
   assert.equal(wantsPropsOnly("player props only parlay"), true);
   assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);

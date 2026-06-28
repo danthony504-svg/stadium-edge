@@ -1456,6 +1456,12 @@ export default function CoachScreen() {
               picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
               });
+              if (!propsOnlyTicket && picks.length < tgt) {
+                picks = backfillPicks(picks, salvagePool, gameMeta, {
+                  target: tgt,
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
               if (picks.length > 0) salvageBuilt = true;
             } else {
             // Named sport → salvage only that sport's remaining today games; a
@@ -1589,54 +1595,59 @@ export default function CoachScreen() {
             // routinely returns a leg or two short even when the board has plenty
             // more real games — a "4 leg" ask coming back with 3 is the reported
             // failure. Deterministically fill toward N from the SAME real context.
-            // When the user asked for PLAYER PROPS, fill ONLY from realProps —
-            // never pad with game moneylines (the reported "15 leg with player
-            // props" → all MLs bug). A generic parlay with no prop words still
-            // uses full-game mains.
+            // When the user asked for props, fill from realProps FIRST. If they
+            // said "props only", stop there. If they said "with player props",
+            // top up with team/game props after the prop pool is exhausted.
             if (mentionsProps) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
               });
+              if (!propsOnlyTicket && picks.length < target) {
+                picks = backfillPicks(picks, backfillPool, gameMeta, {
+                  target,
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
             } else {
-            const allProps = picks.every((p) => p.isProp);
-            // Did the USER express prop intent? A GENERIC "6-leg parlay for
-            // tonight" carries none of these words, so when the model merely
-            // HAPPENS to return all props we must still backfill toward N with
-            // real game mains — otherwise "6-leg parlay" → 2 props → "only 2
-            // held up" on a full board (the reported bug). Mirrors (loosely) the
-            // server's MARKET_KEYWORDS so a real props-only / prop-market lock
-            // ("player props only", "6 home run hitters", "strikeout parlay")
-            // still skips the game-main fill and stays in props.
-            if (!allProps) {
-              const gameLegs = picks.filter((p) => !p.isProp);
-              // The single-game / sport lock that scopes the fill pool is computed
-              // ONCE above (backfillPool) and shared by every branch. Infer on top
-              // of it an implicit MARKET lock from the model's own resolved
-              // legs: if every game-level leg sits in ONE full-game family
-              // (e.g. a "spread parlay" or "moneyline parlay" that came back
-              // all spreads / all MLs), constrain the fill to that same family
-              // so we never widen the ticket into other markets. Otherwise fill
-              // from full-game mains across all three families.
-              const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
-              const FAMILY_ORDER: Record<string, RegExp[]> = {
-                moneyline: [/^Moneyline$/],
-                spread: [/^Spread$/],
-                total: [/^Total$/],
-              };
-              // IMPLICIT MARKET-FAMILY LOCK — only infer a "spread/ML/total
-              // parlay" when the model resolved AT LEAST TWO game-level legs all in
-              // ONE family. A single leaked game leg (e.g. one Phillies ML beside
-              // two props) does NOT establish a market-lock intent, so it must fall
-              // through to the generic mains order and fill across all three
-              // families — not stay stuck on that lone leg's family.
-              const lockedFam =
-                gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
-              const order =
-                lockedFam && FAMILY_ORDER[lockedFam]
-                  ? FAMILY_ORDER[lockedFam]
-                  : GENERIC_BACKFILL_ORDER;
-              picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
-            }
+              const allProps = picks.every((p) => p.isProp);
+              // Did the USER express prop intent? A GENERIC "6-leg parlay for
+              // tonight" carries none of these words, so when the model merely
+              // HAPPENS to return all props we must still backfill toward N with
+              // real game mains — otherwise "6-leg parlay" → 2 props → "only 2
+              // held up" on a full board (the reported bug). Mirrors (loosely) the
+              // server's MARKET_KEYWORDS so a real props-only / prop-market lock
+              // ("player props only", "6 home run hitters", "strikeout parlay")
+              // still skips the game-main fill and stays in props.
+              if (!allProps) {
+                const gameLegs = picks.filter((p) => !p.isProp);
+                // The single-game / sport lock that scopes the fill pool is computed
+                // ONCE above (backfillPool) and shared by every branch. Infer on top
+                // of it an implicit MARKET lock from the model's own resolved
+                // legs: if every game-level leg sits in ONE full-game family
+                // (e.g. a "spread parlay" or "moneyline parlay" that came back
+                // all spreads / all MLs), constrain the fill to that same family
+                // so we never widen the ticket into other markets. Otherwise fill
+                // from full-game mains across all three families.
+                const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
+                const FAMILY_ORDER: Record<string, RegExp[]> = {
+                  moneyline: [/^Moneyline$/],
+                  spread: [/^Spread$/],
+                  total: [/^Total$/],
+                };
+                // IMPLICIT MARKET-FAMILY LOCK — only infer a "spread/ML/total
+                // parlay" when the model resolved AT LEAST TWO game-level legs all in
+                // ONE family. A single leaked game leg (e.g. one Phillies ML beside
+                // two props) does NOT establish a market-lock intent, so it must fall
+                // through to the generic mains order and fill across all three
+                // families — not stay stuck on that lone leg's family.
+                const lockedFam =
+                  gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
+                const order =
+                  lockedFam && FAMILY_ORDER[lockedFam]
+                    ? FAMILY_ORDER[lockedFam]
+                    : GENERIC_BACKFILL_ORDER;
+                picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
+              }
             }
           }
         }

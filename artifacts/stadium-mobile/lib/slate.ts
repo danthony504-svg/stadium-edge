@@ -135,17 +135,16 @@ export function mentionsPropIntent(text?: string | null): boolean {
 }
 
 // True when the user wants an ALL-PROP ticket (no game-level ML/spread/total legs).
-// Broader than the literal phrase "props only" — e.g. "15 leg with player props",
-// "player props parlay", or a market-locked prop parlay ("6 leg strikeout parlay").
+// Keep "with player props" OUT of this helper: that means a prop-heavy mixed
+// ticket, where player props should be included first but team/game props can
+// still fill the requested count.
 export function wantsPropsOnly(text?: string | null): boolean {
   if (!mentionsPropIntent(text)) return false;
   const t = String(text || "").toLowerCase();
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
-  if (/\bwith\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
   if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
-  if (/\b\d{1,2}[-\s]?leg\b/.test(t) && /\b(?:player\s+)?props?\b/.test(t)) return true;
   if (
     /\bparlay\b/.test(t) &&
     /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/.test(t)
