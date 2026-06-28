@@ -667,9 +667,8 @@ export default function HomeScreen() {
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
         {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
-            the logo cluster is padded clear of it. Logo left; the PLAYER PROPS
-            wordmark + brand tagline on the right; a bell that routes to alerts
-            (or sign-in when signed out). */}
+            the logo cluster is padded clear of it. Logo left; Home title + brand
+            tagline on the right; a bell that routes to alerts (or sign-in). */}
         <View
           style={{
             flexDirection: "row",
@@ -696,7 +695,7 @@ export default function HomeScreen() {
                 letterSpacing: 0.2,
               }}
             >
-              PLAYER PROPS
+              HOME
             </Text>
             <Text style={{ fontSize: 9, fontFamily: FONT.semibold, letterSpacing: 0.2, marginTop: 2 }}>
               <Text style={{ color: colors.mutedForeground }}>AI POWERED. DATA DRIVEN. </Text>
@@ -722,7 +721,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Search bar → Player Props search */}
+        {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
             router.push({
