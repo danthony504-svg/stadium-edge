@@ -12,7 +12,7 @@ export type ResolvedOpenAIConfig = {
 };
 
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_DIRECT_MODEL = "gpt-4.1";
+const DEFAULT_DIRECT_MODEL = "gpt-4o";
 const DEFAULT_REPLIT_MODEL = "gpt-5.4";
 
 const REASONING_EFFORTS = new Set<ReasoningEffort>([
