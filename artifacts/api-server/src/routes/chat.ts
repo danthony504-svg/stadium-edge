@@ -773,6 +773,11 @@ router.post("/chat", async (req, res): Promise<void> => {
   // ladders, so without harvesting these a same-game ticket is capped at a
   // few side legs + one-prop-per-player. We append them to realOdds below.
   const sameGameIntent = /\b(same[-\s]?game|sgp)\b/i.test(latestUser);
+  const requestedLegMatch = latestUser.match(/\b(\d{1,2})[-\s]?leg\b/i);
+  const requestedLegCount = requestedLegMatch
+    ? Math.min(15, Math.max(0, parseInt(requestedLegMatch[1], 10) || 0))
+    : 0;
+  const highLegTodayIntent = requestedLegCount >= 9 && /\b(?:today|tonight)\b/i.test(latestUser);
   // IMPROVE-THE-TICKET intent: the user is responding to a ticket they are
   // already discussing (the current slip / one you just critiqued) and asking
   // for a BETTER version of it — "give me a better one", "a better ticket",
@@ -1110,16 +1115,14 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
 
     lockedContext = { ...ctx, realProps: filteredProps, realOdds: filteredOdds };
-  } else if (sameGameIntent && parsed.data.context && Array.isArray((parsed.data.context as { realOdds?: unknown[] }).realOdds)) {
-    // SAME-GAME parlay (no explicit period intent): harvest game-level period
-    // markets (1H/2H/Q1-Q4 spreads/totals/MLs) for the games already in
-    // realOdds and APPEND them as additional legs. These settle on different
-    // windows than the full game, so per the HARD BAN they are NOT duplicates
-    // — they let the assistant build a longer same-game card without forcing
-    // correlated/duplicate full-game legs. The markets already live in each
-    // event's .markets array on /api/sports/odds (odds.ts fetches them); we
-    // curate to ONE best-priced rung per (market, side) to keep context lean
-    // and avoid handing the model multiple same-family rungs.
+  } else if ((sameGameIntent || highLegTodayIntent) && parsed.data.context && Array.isArray((parsed.data.context as { realOdds?: unknown[] }).realOdds)) {
+    // SAME-GAME or HIGH-LEG THIN-SLATE parlay (no explicit period intent): harvest
+    // game-level period markets (1H/2H/Q1-Q4 and MLB F5/1st-inning) for the games
+    // already in realOdds and APPEND them as additional legs. These settle on
+    // different windows than the full game, so per the HARD BAN they are NOT
+    // duplicates. Older mobile builds only send full-game sides + alt ladders, so
+    // without server-side harvesting a late "15-leg tonight" request can be capped
+    // at 3 or 6 full-game legs.
     const ctx = parsed.data.context as { realOdds?: Array<{ sport?: string; game?: string; market?: string; pick?: string; odds?: number; startsAt?: string }> } & Record<string, unknown>;
     const existingOdds = ctx.realOdds || [];
     const gamesBySport = new Map<string, Set<string>>();
@@ -1860,8 +1863,8 @@ Rank ALL candidates by your composite score and return the TOP N (where N = the 
     : "";
 
   const sameGameSystemAddendum = sameGamePeriodsInjected
-    ? `\n\n*** SAME-GAME PARLAY FOR THIS TURN ***
-The user wants a SAME-GAME parlay. realOdds now ALSO includes GAME-LEVEL PERIOD MARKETS for the game(s) in context — labeled "1H Spread", "1H Total", "1H Moneyline", "2H Spread", "2H Total", "Q1 Spread", "Q1 Total", "Q1 Moneyline", "Q2 …", "Q3 …", "Q4 …". These settle on DIFFERENT windows than the full game, so per the HARD BAN they are NOT duplicates of the full-game side/total/ML — treat them as first-class legs and use them to extend the same-game card toward the requested count. Copy the friendly label verbatim into the PICK line.
+    ? `\n\n*** GAME-LEVEL PERIOD MARKETS AVAILABLE FOR THIS TURN ***
+realOdds now ALSO includes GAME-LEVEL PERIOD MARKETS for the game(s) in context — labeled "1H Spread", "1H Total", "1H Moneyline", "2H Spread", "2H Total", "Q1 Spread", "Q1 Total", "Q1 Moneyline", "Q2 …", "Q3 …", "Q4 …" and, for MLB, "F5 Moneyline", "F5 Run Line", "F5 Total", "1st Inning Total". These settle on DIFFERENT windows than the full game, so per the HARD BAN they are NOT duplicates of the full-game side/total/ML — treat them as first-class legs and use them to extend the ticket toward the requested count when the normal full-game board is too thin. Copy the friendly label verbatim into the PICK line.
 STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × game) for GAME-LEVEL markets — never two Q1 totals, never a full-game spread plus the same team's full-game ML, etc. This per-family cap does NOT apply to player props: different players on the SAME stat are each independent legs (e.g. three different batters each Hits Over 1.5 = three valid legs). For player props, ban duplicate exposure on the SAME player+stat+rung; different stat markets on the same player are allowed only when needed for a deep prop-heavy request and should be called out as correlated. So if this game's realProps lists many distinct players or distinct player/stat props, use them to reach the requested leg count — do NOT collapse a stat market to one leg or claim scarcity when distinct props are available. Also never combine correlated or anti-correlated legs within the same game/period (ML + same-team spread, both teams' spreads, an Over total + a star's points-Over that the total already implies, a period ML + a full-game spread that contradicts it, …).
 HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
     : "";
