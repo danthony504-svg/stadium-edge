@@ -1277,11 +1277,20 @@ router.post("/chat", async (req, res): Promise<void> => {
     // the trim still leaves usable data — a label-format mismatch that wiped
     // both props and odds means we keep the full context rather than starve
     // the model into a false "no data" answer.
-    if (
+    // Fail open only when naming didn't actually narrow the slate. If the user
+    // named a game but label formats left props/odds empty, still drop OTHER
+    // games' bulk (history/matchups/games) so a focal HR ask doesn't ship the
+    // entire 500KB mobile context and 429 the OpenAI TPM limit on Render.
+    const namedGameFocus =
       namedLabels.size > 0 &&
       namedLabels.size < allLabels.size &&
-      (trimmedProps.length > 0 || trimmedOdds.length > 0)
-    ) {
+      (trimmedProps.length > 0 || trimmedOdds.length > 0);
+    const namedGameStripOnly =
+      namedLabels.size > 0 &&
+      namedLabels.size < allLabels.size &&
+      trimmedProps.length === 0 &&
+      trimmedOdds.length === 0;
+    if (namedGameFocus || namedGameStripOnly) {
       // playerHistory is keyed "Player Name#athleteId"; keep only players still
       // present in the trimmed props so the model keeps the stats it can cite.
       let trimmedPlayerHistory = ctxAny["playerHistory"];
@@ -1303,8 +1312,8 @@ router.post("/chat", async (req, res): Promise<void> => {
       }
       lockedContext = {
         ...ctxAny,
-        realProps: trimmedProps,
-        realOdds: trimmedOdds,
+        realProps: namedGameStripOnly ? [] : trimmedProps,
+        realOdds: namedGameStripOnly ? [] : trimmedOdds,
         realGames: trimmedGames,
         ...(trimmedPlayerHistory ? { playerHistory: trimmedPlayerHistory } : {}),
         ...(trimmedMatchup ? { matchupHistory: trimmedMatchup } : {}),
@@ -1757,6 +1766,7 @@ router.post("/chat", async (req, res): Promise<void> => {
   if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
     lockedContext = trimLockedContextForDirectOpenAI(
       lockedContext as Record<string, unknown>,
+      { namedGameLabels },
     ) as typeof lockedContext;
   }
 
