@@ -2225,35 +2225,30 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     // so a retry is transparent — ONLY for transient errors, and NEVER when our
     // own abort fired (client gone / background watchdog). Backoff+jitter mirrors
     // the bounded Odds API retry in props.ts.
-    const stream = await (async () => {
+    const tokenLimit =
+      aiConfig.provider === "openai"
+        ? { max_tokens: 4096 }
+        : { max_completion_tokens: 16384 };
+    const useStream = aiConfig.provider !== "openai";
+    const completionBase = {
+      model: aiConfig.model,
+      ...tokenLimit,
+      messages,
+      ...(aiConfig.reasoningEffort
+        ? { reasoning_effort: aiConfig.reasoningEffort }
+        : {}),
+    };
+
+    const upstream = await (async () => {
       const CHAT_CONNECT_ATTEMPTS = 3;
       for (let connectAttempt = 0; ; connectAttempt++) {
         try {
-          const tokenLimit =
-            aiConfig.provider === "openai"
-              ? { max_tokens: 4096 }
-              : { max_completion_tokens: 16384 };
-          const completionParams = {
-            model: aiConfig.model,
-            ...tokenLimit,
-            messages,
-            stream: true as const,
-            // reasoning_effort is only valid on Replit's gpt-5.4 proxy and other
-            // reasoning models — passing it to a standard OpenAI model 400s and
-            // surfaces as "AI service is temporarily unavailable" on Render.
-            ...(aiConfig.reasoningEffort
-              ? { reasoning_effort: aiConfig.reasoningEffort }
-              : {}),
-          };
           return await client.chat.completions.create(
-            completionParams,
+            { ...completionBase, stream: useStream },
             { signal: upstreamAbort.signal },
           );
         } catch (e) {
-          // Our own abort (client disconnected / background watchdog) — never retry.
           if (upstreamAbort.signal.aborted) throw e;
-          // Transient = no HTTP status (connection/timeout) or 429 / 5xx. A static
-          // 4xx (e.g. a bad param) is not transient and fails fast, exactly as before.
           const status = (e as { status?: number } | null)?.status;
           const transient =
             status === undefined || status === 429 || status >= 500;
@@ -2269,31 +2264,28 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       }
     })();
 
-    // Accumulate the full reply so a background-finished build can be stashed
-    // verbatim after the client socket is gone (same text the live client would
-    // have rendered). Only meaningful in background mode but cheap to always do.
     let fullText = "";
-    for await (const chunk of stream) {
-      // In background mode keep consuming to completion even after the client
-      // left (clientGone) — we stash + push the result below. Otherwise a
-      // disconnect means nobody's reading, so stop early to save tokens.
-      if (clientGone && !bgUserId) break;
-      const content = chunk.choices[0]?.delta?.content;
-      if (content) {
-        fullText += content;
-        // Mark real upstream progress on EVERY token, even after the client has
-        // left — this is what the background watchdog measures, so a long build
-        // that is still streaming is never falsely aborted.
-        lastUpstreamChunk = Date.now();
-        // Record activity but KEEP the heartbeat running — a mid-stream pause
-        // between picks must still emit keep-alives or the proxy drops the
-        // connection and truncates the ticket. The idle-aware heartbeat only
-        // fires after >=1s of silence; ping frames are ignored client-side.
-        // Guard the write: in background mode the socket may already be gone.
-        if (!clientGone) {
-          lastActivity = Date.now();
-          res.write(`data: ${JSON.stringify({ content })}\n\n`);
+    if (useStream) {
+      const stream = upstream as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+      for await (const chunk of stream) {
+        if (clientGone && !bgUserId) break;
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          fullText += content;
+          lastUpstreamChunk = Date.now();
+          if (!clientGone) {
+            lastActivity = Date.now();
+            res.write(`data: ${JSON.stringify({ content })}\n\n`);
+          }
         }
+      }
+    } else {
+      const completion = upstream as OpenAI.Chat.Completions.ChatCompletion;
+      fullText = completion.choices[0]?.message?.content ?? "";
+      lastUpstreamChunk = Date.now();
+      if (fullText && !clientGone) {
+        lastActivity = Date.now();
+        res.write(`data: ${JSON.stringify({ content: fullText })}\n\n`);
       }
     }
     stopHeartbeat();
