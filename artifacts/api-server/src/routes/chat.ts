@@ -9,6 +9,7 @@ import {
   finalizeErroredBuild,
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
+import { resolveOpenAIConfig } from "../lib/openaiConfig.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -586,14 +587,16 @@ router.post("/chat", async (req, res): Promise<void> => {
     return;
   }
 
-  const baseUrl = process.env["AI_INTEGRATIONS_OPENAI_BASE_URL"];
-  const apiKey = process.env["AI_INTEGRATIONS_OPENAI_API_KEY"];
-  if (!baseUrl || !apiKey) {
-    res.status(502).json({ error: "AI integration not configured" });
+  const aiConfig = resolveOpenAIConfig();
+  if ("error" in aiConfig) {
+    res.status(502).json({ error: aiConfig.error });
     return;
   }
 
-  const client = new OpenAI({ baseURL: baseUrl, apiKey });
+  const client = new OpenAI({
+    baseURL: aiConfig.baseURL,
+    apiKey: aiConfig.apiKey,
+  });
 
   // Background-finish opt-in (mobile AI Coach). These are read RAW off the body
   // (not part of the zod schema, which strips unknown top-level keys to the
@@ -2226,39 +2229,30 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       const CHAT_CONNECT_ATTEMPTS = 3;
       for (let connectAttempt = 0; ; connectAttempt++) {
         try {
-          return await client.chat.completions.create({
-            model: "gpt-5.4",
-      // gpt-5.4 is a reasoning model — internal reasoning tokens count
-      // against this budget. With the ANALYTICS rules requiring real
-      // matchup-history + player-history citations on EVERY leg, a single
-      // 6-leg parlay can easily need 4-6k output tokens once you add
-      // reasoning. The old 2048 cap was cutting the stream off after just
-      // 1-2 PICK lines (visible to the user as "I asked for a 6-leg parlay
-      // but only got 1 leg"). 16k is generous but the upstream service
-      // won't bill for what isn't generated.
-      max_completion_tokens: 16384,
-      // gpt-5.4 defaults to HEAVY internal reasoning, which on this prompt
-      // meant 35-80s of SILENT thinking before the first visible token — the
-      // user saw a blank screen and gave up ("not loading"). The picks come
-      // straight from the real-data context block and the rules are spelled
-      // out explicitly in the system prompt. We previously ran this at "minimal"
-      // for fast time-to-first-token, but the model DROPPED support for "minimal"
-      // (now 400s with unsupported_value, which surfaced to users as "AI service
-      // is temporarily unavailable" on every chat). The supported ladder is
-      // none | low | medium | high | xhigh. We first dropped to "none", but with
-      // ZERO reasoning the model could not reliably execute the multi-step
-      // thin-slate / sport-scope build logic — on a thin soccer "today" slate it
-      // returned a self-contradictory zero-leg refusal ("I can build the safest
-      // 7-leg... [then] nothing is upcoming") instead of the short honest ticket
-      // the prompt mandates. "low" restores enough reasoning for that logic while
-      // staying near the bottom of the ladder; the SSE heartbeat (250ms pings)
-      // plus the early "Pulling real odds…" status frame already mask the longer
-      // silent time-to-first-token that originally pushed us off "low", so the
-      // user no longer sees a blank screen. Bump further only if quality regresses.
-      reasoning_effort: "low",
-      messages,
-      stream: true,
-          }, { signal: upstreamAbort.signal });
+          const completionParams = {
+            model: aiConfig.model,
+            // Reasoning models count internal reasoning tokens against this
+            // budget. With the ANALYTICS rules requiring real matchup-history +
+            // player-history citations on EVERY leg, a single 6-leg parlay can
+            // easily need 4-6k output tokens once you add reasoning. The old 2048
+            // cap was cutting the stream off after just 1-2 PICK lines (visible
+            // to the user as "I asked for a 6-leg parlay but only got 1 leg").
+            // 16k is generous but the upstream service won't bill for what isn't
+            // generated.
+            max_completion_tokens: 16384,
+            messages,
+            stream: true as const,
+            // reasoning_effort is only valid on Replit's gpt-5.4 proxy and other
+            // reasoning models — passing it to a standard OpenAI model 400s and
+            // surfaces as "AI service is temporarily unavailable" on Render.
+            ...(aiConfig.reasoningEffort
+              ? { reasoning_effort: aiConfig.reasoningEffort }
+              : {}),
+          };
+          return await client.chat.completions.create(
+            completionParams,
+            { signal: upstreamAbort.signal },
+          );
         } catch (e) {
           // Our own abort (client disconnected / background watchdog) — never retry.
           if (upstreamAbort.signal.aborted) throw e;
@@ -2359,7 +2353,15 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     if (outcome.kind === "silent") return;
     // Live-client error: the user is still watching and gets the inline error
     // below (they can retry). The in-flight marker was already retired above.
-    req.log.error({ err }, "Chat stream failed");
+    req.log.error(
+      {
+        err,
+        upstreamStatus: (err as { status?: number } | null)?.status,
+        aiProvider: aiConfig.provider,
+        aiModel: aiConfig.model,
+      },
+      "Chat stream failed",
+    );
     res.write(
       `data: ${JSON.stringify({
         content: "\n\n_AI service is temporarily unavailable. Please try again._",
