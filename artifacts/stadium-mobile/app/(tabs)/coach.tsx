@@ -76,6 +76,7 @@ import {
   todayBuildNote,
   mentionsPropIntent,
   wantsPropsOnly,
+  wantsTodayOnly,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
