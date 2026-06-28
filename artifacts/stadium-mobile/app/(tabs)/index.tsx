@@ -355,6 +355,7 @@ export default function HomeScreen() {
   type PropEntry = {
     prop: PlayerProp;
     gameLabel: string;
+    startsAt: string;
     teamAbbr: string | null;
     teamLogo: string | null;
   };
@@ -375,7 +376,7 @@ export default function HomeScreen() {
         const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
         const teamLogo =
           p.teamLogo ?? (isHome ? info!.homeLogo : isAway ? info!.awayLogo : null);
-        out.push({ prop: p, gameLabel, teamAbbr, teamLogo });
+        out.push({ prop: p, gameLabel, startsAt: g.commenceTime, teamAbbr, teamLogo });
       }
     });
     return out;
@@ -526,9 +527,13 @@ export default function HomeScreen() {
   // by player. Real ev/edge only; empty (hidden) when nothing qualifies.
   type ValueProp = {
     player: string;
+    athleteId: string | null;
     headshot: string | null;
     teamLogo: string | null;
     teamAbbr: string | null;
+    gameLabel: string;
+    startsAt: string;
+    marketKey: string;
     side: "Over" | "Under";
     line: number | null;
     label: string;
@@ -551,9 +556,13 @@ export default function HomeScreen() {
       seen.add(pl);
       out.push({
         player: p.player,
+        athleteId: p.athleteId ?? null,
         headshot: p.headshot ?? null,
         teamLogo: e.teamLogo,
         teamAbbr: e.teamAbbr,
+        gameLabel: e.gameLabel,
+        startsAt: e.startsAt,
+        marketKey: p.market,
         side,
         line: p.line,
         label: propMarketLabel(p.market),
@@ -564,6 +573,29 @@ export default function HomeScreen() {
     }
     return out;
   })();
+
+  const openValuePropDetail = (v: ValueProp) => {
+    const pick =
+      v.line != null ? `${v.player} ${v.side} ${v.line} ${v.label}` : `${v.player} ${v.label}`;
+    router.push({
+      pathname: "/prop/[id]",
+      params: {
+        id: v.athleteId ?? v.player,
+        player: v.player,
+        marketKey: v.marketKey,
+        marketLabel: v.label,
+        line: v.line != null ? String(v.line) : "",
+        side: v.side,
+        odds: String(v.price),
+        game: v.gameLabel,
+        sport,
+        athleteId: v.athleteId ?? "",
+        headshot: v.headshot ?? "",
+        startsAt: v.startsAt,
+        pick,
+      },
+    });
+  };
 
   // Best (highest server-EV) prop per featured game — drives the honest "BEST
   // PROP / EDGE" cells under each Upcoming card. Only games whose props we've
@@ -1327,9 +1359,7 @@ export default function HomeScreen() {
               {valueProps.map((v, i) => (
                 <Pressable
                   key={`${v.player}-${i}`}
-                  onPress={() =>
-                    router.push({ pathname: "/props", params: { q: nickname(v.player), sp: sport } })
-                  }
+                  onPress={() => openValuePropDetail(v)}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
