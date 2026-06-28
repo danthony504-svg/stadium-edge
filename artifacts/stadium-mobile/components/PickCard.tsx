@@ -1812,14 +1812,56 @@ export function backfillPicks(
 // never slip in. Each leg's odds are the rung closest to even money among that
 // prop's real posted rungs (the most "main" line), skipping no-equity juice
 // (<= -1000). The edge note is honest — added to reach the size, not a model read.
+// When `diversify` is true (default), legs are round-robined across stat markets
+// so a deep fill doesn't stack one thin market (e.g. 12 stolen-base overs on one
+// game) when hits / HR / K props are also posted.
+const PROP_BACKFILL_MARKET_ORDER = [
+  "hits",
+  "total bases",
+  "home runs",
+  "strikeouts",
+  "hits+runs+rbis",
+  "points",
+  "rebounds",
+  "assists",
+  "3-pointers",
+  "pass yds",
+  "rush yds",
+  "rec yds",
+  "receptions",
+  "anytime td",
+  "goals",
+  "shots on goal",
+  "stolen bases",
+];
+
+function propBackfillMarketRank(label: string): number {
+  const n = norm(label).replace(/\s+/g, " ");
+  const idx = PROP_BACKFILL_MARKET_ORDER.findIndex(
+    (m) => n === m || n.startsWith(m + " "),
+  );
+  return idx >= 0 ? idx : 40;
+}
+
 export function backfillProps(
   existing: ParsedPick[],
   propPool: PropPoolEntry[],
   realToday: RealOddsLike[],
   gameMeta: GameMeta[],
-  opts: { target: number },
+  opts: {
+    target: number;
+    /** Prefer plus-money rungs when choosing among same-market candidates. */
+    plusMoneyBias?: boolean;
+    /** Round-robin across stat markets instead of walking the pool in feed order. */
+    diversify?: boolean;
+    /** Max prop legs per stat market on the finished ticket (existing + new). */
+    maxPerMarket?: number;
+  },
 ): ParsedPick[] {
-  const { target } = opts;
+  const { target, plusMoneyBias = false, diversify = true } = opts;
+  const maxPerMarket =
+    opts.maxPerMarket ??
+    (target >= 12 ? 3 : target >= 8 ? 4 : target >= 5 ? 5 : 99);
   if (existing.length >= target) return existing;
   const out = [...existing];
   // Allowed games come from realToday (= the salvage's sport-filtered,
@@ -1875,15 +1917,24 @@ export function backfillProps(
       byKey.set(key, e);
     }
   }
-  for (const e of byKey.values()) {
-    if (out.length >= target) break;
+  const marketCounts = new Map<string, number>();
+  for (const p of out) {
+    if (!p.isProp) continue;
+    const mk = norm(p.market);
+    marketCounts.set(mk, (marketCounts.get(mk) ?? 0) + 1);
+  }
+  const tryAdd = (e: PropPoolEntry): boolean => {
+    if (out.length >= target) return false;
+    const mk = norm(e.marketLabel);
+    if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
     const pick =
       e.line != null
         ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
         : `${e.player} ${e.marketLabel}`;
     const legKey = `${e.game}|${e.marketLabel}|${pick}`.toLowerCase();
-    if (legSeen.has(legKey)) continue;
+    if (legSeen.has(legKey)) return false;
     legSeen.add(legKey);
+    marketCounts.set(mk, (marketCounts.get(mk) ?? 0) + 1);
     out.push(
       enrichPickMeta(
         {
@@ -1893,8 +1944,6 @@ export function backfillProps(
           odds: e.odds,
           sport: e.sport,
           isProp: true,
-          // Prefer the prop's OWN real kickoff; fall back to the game's
-          // representative kickoff only when the feed didn't carry one.
           startsAt: e.startsAt ?? startsAtByGame.get(norm(e.game)) ?? null,
           headshot: e.headshot ?? null,
           teamAbbr: e.teamAbbr ?? null,
@@ -1909,6 +1958,44 @@ export function backfillProps(
         gameMeta,
       ),
     );
+    return true;
+  };
+  const candidates = [...byKey.values()];
+  if (!diversify) {
+    for (const e of candidates) {
+      if (out.length >= target) break;
+      tryAdd(e);
+    }
+    return out;
+  }
+  const buckets = new Map<string, PropPoolEntry[]>();
+  for (const e of candidates) {
+    const mk = norm(e.marketLabel);
+    const arr = buckets.get(mk) ?? [];
+    arr.push(e);
+    buckets.set(mk, arr);
+  }
+  for (const arr of buckets.values()) {
+    arr.sort((a, b) =>
+      plusMoneyBias
+        ? b.odds - a.odds
+        : Math.abs(ip(a.odds) - 0.5) - Math.abs(ip(b.odds) - 0.5),
+    );
+  }
+  const marketKeys = [...buckets.keys()].sort(
+    (a, b) => propBackfillMarketRank(a) - propBackfillMarketRank(b),
+  );
+  let progressed = true;
+  while (out.length < target && progressed) {
+    progressed = false;
+    for (const mk of marketKeys) {
+      if (out.length >= target) break;
+      const bucket = buckets.get(mk);
+      if (!bucket?.length) continue;
+      if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) continue;
+      const e = bucket.shift()!;
+      if (tryAdd(e)) progressed = true;
+    }
   }
   return out;
 }

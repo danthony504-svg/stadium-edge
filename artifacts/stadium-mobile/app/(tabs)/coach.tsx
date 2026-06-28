@@ -1295,6 +1295,18 @@ export default function CoachScreen() {
         // total). The reach-count backfill below will fill from realProps instead.
         const mentionsProps = mentionsPropIntent(trimmed);
         const propsOnlyTicket = wantsPropsOnly(trimmed);
+        const lockedPropMarket =
+          mentionsProps &&
+          /\b(strikeouts?|k'?s|home runs?|hrs?|hits?|total bases?|rebounds?|reb|assists?|ast|points?|pts|anytime td|touchdowns?|receptions?|pass yds?|rush yds?|rec yds?|goals?|shots on goal)\b/i.test(
+            trimmed,
+          );
+        const propBackfillOpts = {
+          plusMoneyBias:
+            wantsValueRungs ||
+            /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed),
+          diversify: !lockedPropMarket,
+          maxPerMarket: lockedPropMarket ? 99 : undefined,
+        };
         let propsOnlyNote = "";
         if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
           const droppedGame = picks.filter((p) => !p.isProp).length;
@@ -1456,6 +1468,7 @@ export default function CoachScreen() {
                   : context.realOdds;
               picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
+                ...propBackfillOpts,
               });
               if (!propsOnlyTicket && picks.length < tgt) {
                 picks = backfillPicks(picks, salvagePool, gameMeta, {
@@ -1489,6 +1502,7 @@ export default function CoachScreen() {
               // ticket stays game-lines only — still honest, still real.
               picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
+                ...propBackfillOpts,
               });
               if (picks.length > 0) salvageBuilt = true;
             }
@@ -1591,6 +1605,7 @@ export default function CoachScreen() {
             if (mentionsProps || deepTonightFill) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
+                ...propBackfillOpts,
               });
               if (!propsOnlyTicket && picks.length < target) {
                 picks = backfillPicks(picks, backfillPool, gameMeta, {
