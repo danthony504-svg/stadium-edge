@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   parseReasoningEffort,
   resolveOpenAIConfig,
+  chatReasoningEffort,
+  chatUsesStreaming,
 } from "../src/lib/openaiConfig.ts";
 
 const ENV_KEYS = [
@@ -112,6 +114,34 @@ test("Replit integration vars resolve when REPL_ID is present", () => {
   );
 });
 
+test("chatReasoningEffort and chatUsesStreaming gate Replit-only params", () => {
+  withEnv(
+    {
+      REPL_ID: "abc123",
+      AI_INTEGRATIONS_OPENAI_API_KEY: "replit-key",
+      AI_INTEGRATIONS_OPENAI_BASE_URL: "https://ai-integrations.replit.com/v1",
+    },
+    () => {
+      const config = resolveOpenAIConfig();
+      assert.ok(!("error" in config));
+      assert.equal(chatReasoningEffort(config), "low");
+      assert.equal(chatUsesStreaming(config), true);
+    },
+  );
+  withEnv(
+    {
+      OPENAI_API_KEY: "sk-direct",
+      OPENAI_REASONING_EFFORT: "high",
+    },
+    () => {
+      const config = resolveOpenAIConfig();
+      assert.ok(!("error" in config));
+      assert.equal(chatReasoningEffort(config), undefined);
+      assert.equal(chatUsesStreaming(config), false);
+    },
+  );
+});
+
 test("missing credentials return a configuration error", () => {
   withEnv({}, () => {
     const config = resolveOpenAIConfig();
@@ -120,7 +150,7 @@ test("missing credentials return a configuration error", () => {
   });
 });
 
-test("OPENAI_CHAT_MODEL and OPENAI_REASONING_EFFORT overrides apply", () => {
+test("OPENAI_REASONING_EFFORT is ignored on direct OpenAI (gpt-4.x rejects it)", () => {
   withEnv(
     {
       OPENAI_API_KEY: "sk-direct",
@@ -131,7 +161,7 @@ test("OPENAI_CHAT_MODEL and OPENAI_REASONING_EFFORT overrides apply", () => {
       const config = resolveOpenAIConfig();
       assert.ok(!("error" in config));
       assert.equal(config.model, "gpt-4o");
-      assert.equal(config.reasoningEffort, "medium");
+      assert.equal(config.reasoningEffort, undefined);
     },
   );
 });

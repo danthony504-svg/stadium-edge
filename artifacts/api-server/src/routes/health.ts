@@ -4,6 +4,7 @@ import {
   isOpenAIConfigured,
   openAIProviderLabel,
   probeOpenAI,
+  probeOpenAIChat,
 } from "../lib/openaiConfig.js";
 
 const router: IRouter = Router();
@@ -13,6 +14,7 @@ router.get("/healthz", async (_req, res) => {
   const configured = isOpenAIConfigured();
   const provider = openAIProviderLabel();
   const probe = configured ? await probeOpenAI() : null;
+  const chatProbe = configured ? await probeOpenAIChat() : null;
   res.json({
     ...data,
     ai: {
@@ -23,6 +25,14 @@ router.get("/healthz", async (_req, res) => {
       ...(probe && !probe.ok
         ? { error: probe.message, code: probe.code ?? null }
         : {}),
+      chat: chatProbe
+        ? {
+            ok: chatProbe.ok,
+            ...(chatProbe.ok
+              ? {}
+              : { error: chatProbe.message, code: chatProbe.code ?? null }),
+          }
+        : null,
     },
   });
 });

@@ -9,7 +9,7 @@ import {
   finalizeErroredBuild,
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
-import { resolveOpenAIConfig } from "../lib/openaiConfig.js";
+import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming } from "../lib/openaiConfig.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -596,6 +596,7 @@ router.post("/chat", async (req, res): Promise<void> => {
   const client = new OpenAI({
     baseURL: aiConfig.baseURL,
     apiKey: aiConfig.apiKey,
+    timeout: 120_000,
   });
 
   // Background-finish opt-in (mobile AI Coach). These are read RAW off the body
@@ -2225,17 +2226,14 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     // so a retry is transparent — ONLY for transient errors, and NEVER when our
     // own abort fired (client gone / background watchdog). Backoff+jitter mirrors
     // the bounded Odds API retry in props.ts.
-    const tokenLimit =
-      aiConfig.provider === "openai"
-        ? { max_tokens: 4096 }
-        : { max_completion_tokens: 16384 };
-    const useStream = aiConfig.provider !== "openai";
+    const tokenLimit = chatTokenLimit(aiConfig);
+    const useStream = chatUsesStreaming(aiConfig);
     const completionBase = {
       model: aiConfig.model,
       ...tokenLimit,
       messages,
-      ...(aiConfig.reasoningEffort
-        ? { reasoning_effort: aiConfig.reasoningEffort }
+      ...(chatReasoningEffort(aiConfig)
+        ? { reasoning_effort: chatReasoningEffort(aiConfig) }
         : {}),
     };
 

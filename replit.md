@@ -16,9 +16,9 @@ _Replace the heading above with the project's name, and this line with one sente
   deployments; Redis errors fail over to the in-memory store automatically.
 - **AI Coach (Render / direct OpenAI):** set `OPENAI_API_KEY` (required) and
   optionally `OPENAI_BASE_URL` (defaults to `https://api.openai.com/v1`),
-  `OPENAI_CHAT_MODEL` (defaults to `gpt-4o`), and `OPENAI_REASONING_EFFORT`
-  (`none` | `low` | `medium` | `high` | `xhigh`, only when the chosen model
-  supports it). Replit's `AI_INTEGRATIONS_OPENAI_*` vars only work on Replit
+  `OPENAI_CHAT_MODEL` (defaults to `gpt-4.1`), and `OPENAI_REASONING_EFFORT`
+  (Replit-only — ignored on direct OpenAI because gpt-4.x rejects
+  `reasoning_effort`). Replit's `AI_INTEGRATIONS_OPENAI_*` vars only work on Replit
   infrastructure — on Render they produce upstream 401s and the Coach shows
   "AI service is temporarily unavailable."
 - **AI Coach (Replit):** `AI_INTEGRATIONS_OPENAI_API_KEY` +
