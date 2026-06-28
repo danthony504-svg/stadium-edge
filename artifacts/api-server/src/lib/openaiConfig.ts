@@ -11,6 +11,16 @@ export type ResolvedOpenAIConfig = {
   reasoningEffort?: ReasoningEffort;
 };
 
+export type OpenAIProbeResult =
+  | { ok: true; model: string; provider: OpenAIProvider }
+  | {
+      ok: false;
+      model: string;
+      provider: OpenAIProvider;
+      code?: string;
+      message: string;
+    };
+
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_DIRECT_MODEL = "gpt-4o";
 const DEFAULT_REPLIT_MODEL = "gpt-5.4";
@@ -26,6 +36,12 @@ const REASONING_EFFORTS = new Set<ReasoningEffort>([
 function trimEnv(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value || undefined;
+}
+
+/** gpt-5.x only exists on Replit's proxy — remap if copied into Render env. */
+function sanitizeDirectModel(model: string): string {
+  if (/^gpt-5/i.test(model)) return DEFAULT_DIRECT_MODEL;
+  return model;
 }
 
 function isReplitHost(): boolean {
@@ -69,10 +85,11 @@ export function resolveOpenAIConfig():
   );
 
   if (openaiKey) {
+    const model = sanitizeDirectModel(modelOverride ?? DEFAULT_DIRECT_MODEL);
     return {
       apiKey: openaiKey,
       baseURL: openaiBase ?? DEFAULT_OPENAI_BASE_URL,
-      model: modelOverride ?? DEFAULT_DIRECT_MODEL,
+      model,
       provider: "openai",
       reasoningEffort: reasoningOverride,
     };
@@ -108,4 +125,55 @@ export function isOpenAIConfigured(): boolean {
 export function openAIProviderLabel(): OpenAIProvider | null {
   const config = resolveOpenAIConfig();
   return "error" in config ? null : config.provider;
+}
+
+let probeCache: { at: number; result: OpenAIProbeResult } | null = null;
+const PROBE_TTL_MS = 60_000;
+
+/** Lightweight upstream check — surfaces auth/model/billing errors on /api/healthz. */
+export async function probeOpenAI(): Promise<OpenAIProbeResult> {
+  if (probeCache && Date.now() - probeCache.at < PROBE_TTL_MS) {
+    return probeCache.result;
+  }
+  const config = resolveOpenAIConfig();
+  if ("error" in config) {
+    const result: OpenAIProbeResult = {
+      ok: false,
+      model: "",
+      provider: "openai",
+      message: config.error,
+    };
+    probeCache = { at: Date.now(), result };
+    return result;
+  }
+  const { default: OpenAI } = await import("openai");
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+  });
+  try {
+    await client.chat.completions.create({
+      model: config.model,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 5,
+    });
+    const result: OpenAIProbeResult = {
+      ok: true,
+      model: config.model,
+      provider: config.provider,
+    };
+    probeCache = { at: Date.now(), result };
+    return result;
+  } catch (e) {
+    const err = e as { status?: number; code?: string; message?: string };
+    const result: OpenAIProbeResult = {
+      ok: false,
+      model: config.model,
+      provider: config.provider,
+      code: err.code ?? (err.status ? String(err.status) : undefined),
+      message: String(err.message ?? "upstream error").slice(0, 240),
+    };
+    probeCache = { at: Date.now(), result };
+    return result;
+  }
 }

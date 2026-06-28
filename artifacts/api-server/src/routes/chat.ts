@@ -2229,17 +2229,13 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
       const CHAT_CONNECT_ATTEMPTS = 3;
       for (let connectAttempt = 0; ; connectAttempt++) {
         try {
+          const tokenLimit =
+            aiConfig.provider === "openai"
+              ? { max_tokens: 4096 }
+              : { max_completion_tokens: 16384 };
           const completionParams = {
             model: aiConfig.model,
-            // Reasoning models count internal reasoning tokens against this
-            // budget. With the ANALYTICS rules requiring real matchup-history +
-            // player-history citations on EVERY leg, a single 6-leg parlay can
-            // easily need 4-6k output tokens once you add reasoning. The old 2048
-            // cap was cutting the stream off after just 1-2 PICK lines (visible
-            // to the user as "I asked for a 6-leg parlay but only got 1 leg").
-            // 16k is generous but the upstream service won't bill for what isn't
-            // generated.
-            max_completion_tokens: 16384,
+            ...tokenLimit,
             messages,
             stream: true as const,
             // reasoning_effort is only valid on Replit's gpt-5.4 proxy and other
