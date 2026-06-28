@@ -7,9 +7,21 @@ import stadiumEdgeSplash from "@assets/IMG_9634_1779816082458.jpeg";
 import stadiumEdgeWordmark from "./assets/stadium-edge-wordmark.png";
 import { loadSlateSnapshot, saveSlateSnapshot } from "./lib/slateCache";
 
-// Login enabled — shows the sign-in/sign-up entry points (matched by the
-// AUTH_ENABLED flag and /sign-in & /sign-up routes in App.tsx).
-const AUTH_ENABLED = true;
+type ParlayBuilderAuth = {
+  enabled: boolean;
+  user: any;
+  isSignedIn: boolean;
+  userId: string | null | undefined;
+  signOut: () => void;
+};
+
+const LOCAL_AUTH: ParlayBuilderAuth = {
+  enabled: false,
+  user: null,
+  isSignedIn: false,
+  userId: null,
+  signOut: () => {},
+};
 
 // Inline SVG icons (no internet needed). Coach = capped figure with whistle;
 // Ref = striped shirt with whistle. Styled to inherit size via props.
@@ -3157,7 +3169,11 @@ function PlayerStatCard({ data }) {
   );
 }
 
-export default function ParlayBuilder() {
+export function ParlayBuilderContent({
+  auth = LOCAL_AUTH,
+}: {
+  auth?: ParlayBuilderAuth;
+}) {
   const [messages, setMessages] = useState(() => {
     let returning = false;
     try {
@@ -3481,11 +3497,9 @@ export default function ParlayBuilder() {
   // Per-leg "edge notes" expand state — set of leg ids currently showing reasons.
   const [expandedLegIds, setExpandedLegIds] = useState(() => new Set());
   // Real authentication via Replit-managed Clerk. The user store IS the database:
-  // accounts created here persist in Clerk. Auth is optional — the app is a public
-  // landing; signing in lets a user attach their tracked slips to an account.
-  const { user } = useUser();
-  const { signOut } = useClerk();
-  const { isSignedIn, userId } = useAuth();
+  // Auth is optional: without Clerk config the app stays fully local, and when
+  // Clerk is available signing in attaches tracked slips to an account.
+  const { enabled: authEnabled, user, isSignedIn, userId, signOut } = auth;
   const [, navigate] = useLocation();
   const handleSignOut = () => {
     signOut();
@@ -9565,7 +9579,7 @@ export default function ParlayBuilder() {
             >
               {(user.firstName?.[0] || user.username?.[0] || user.primaryEmailAddress?.emailAddress?.[0] || "U").toUpperCase()}
             </button>
-          ) : AUTH_ENABLED ? (
+          ) : authEnabled ? (
             <button
               onClick={() => navigate("/sign-in")}
               className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border border-cyan-400/50 text-cyan-300 bg-cyan-400/10 hover:bg-cyan-400/20 transition shrink-0"
@@ -12219,7 +12233,7 @@ export default function ParlayBuilder() {
               ))}
 
             </div>
-            {(user || AUTH_ENABLED) && (
+            {(user || authEnabled) && (
             <button
               onClick={() => { if (user) { handleSignOut(); } else { navigate("/sign-in"); } setFabOpen(false); }}
               className="mx-3 mb-2 px-3 py-2.5 rounded-lg text-slate-500 hover:bg-zinc-800 hover:text-white transition text-sm text-left flex items-center gap-3"
@@ -14374,5 +14388,23 @@ export default function ParlayBuilder() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function ParlayBuilder() {
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const { isSignedIn, userId } = useAuth();
+
+  return (
+    <ParlayBuilderContent
+      auth={{
+        enabled: true,
+        user,
+        isSignedIn: Boolean(isSignedIn),
+        userId,
+        signOut,
+      }}
+    />
   );
 }
