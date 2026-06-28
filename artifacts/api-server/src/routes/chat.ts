@@ -10,6 +10,7 @@ import {
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
 import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming } from "../lib/openaiConfig.js";
+import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
 
@@ -1753,6 +1754,12 @@ router.post("/chat", async (req, res): Promise<void> => {
     // StatMuse is best-effort enrichment — never block a chat on it.
   }
 
+  if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
+    lockedContext = trimLockedContextForDirectOpenAI(
+      lockedContext as Record<string, unknown>,
+    ) as typeof lockedContext;
+  }
+
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
       ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
@@ -2035,8 +2042,14 @@ The user is asking for VALUE / mispriced / +EV player props. Answer using the MI
     if (m.role === "user") lastUserIdx = i;
   });
 
+  const baseSystemPrompt = coachSystemPromptForProvider(
+    aiConfig.provider,
+    SYSTEM_PROMPT,
+    latestUser,
+  );
+
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {

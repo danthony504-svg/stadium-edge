@@ -26,8 +26,8 @@ const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_DIRECT_MODEL = "gpt-4.1";
 const DEFAULT_REPLIT_MODEL = "gpt-5.4";
 
-/** Serialized size of the Coach system prompt in chat.ts (keep in sync manually). */
-export const COACH_SYSTEM_PROMPT_CHARS = 169_215;
+/** Budget used by coachSystemPrompt.ts for direct OpenAI TPM limits. */
+export const COACH_DIRECT_SYSTEM_PROMPT_CHAR_BUDGET = 72_000;
 
 const REASONING_EFFORTS = new Set<ReasoningEffort>([
   "none",
@@ -259,7 +259,7 @@ export async function probeOpenAIChat(): Promise<OpenAIProbeResult> {
     baseURL: config.baseURL,
     timeout: 120_000,
   });
-  const padLen = Math.max(0, COACH_SYSTEM_PROMPT_CHARS - 64);
+  const padLen = Math.max(0, COACH_DIRECT_SYSTEM_PROMPT_CHAR_BUDGET - 64);
   const systemContent =
     "You are Stadium Edge, an AI sports betting analyst. " + "x".repeat(padLen);
   const tokenLimit = chatTokenLimit(config);
