@@ -2728,6 +2728,45 @@ function abortError(): Error {
   return e;
 }
 
+/** Thrown when /api/chat returns a non-retryable HTTP error (e.g. 502 config). */
+export class ChatStreamError extends Error {
+  readonly retryable: boolean;
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "ChatStreamError";
+    this.retryable = retryable;
+  }
+}
+
+async function readChatHttpError(res: Response): Promise<ChatStreamError> {
+  let message = `HTTP ${res.status}`;
+  try {
+    const body = await res.text();
+    const parsed = JSON.parse(body) as { error?: string };
+    if (typeof parsed.error === "string" && parsed.error.trim()) {
+      message = parsed.error.trim();
+    }
+  } catch {
+    // keep the status fallback
+  }
+  // Config / validation failures are not helped by retrying; only transient
+  // gateway pressure (429/503/504) is worth another attempt.
+  const retryable = res.status === 429 || res.status === 503 || res.status === 504;
+  return new ChatStreamError(message, retryable);
+}
+
+/** User-facing coach copy for a streamChat failure. */
+export function chatStreamFailureMessage(err: unknown): string {
+  if (err instanceof ChatStreamError) return err.message;
+  if (err instanceof Error) {
+    const m = err.message;
+    if (m && m !== "connect stalled" && m !== "stream stalled" && m !== "chat stream failed" && !/^HTTP \d+$/.test(m)) {
+      return m;
+    }
+  }
+  return "Sorry — I lost the connection while building your ticket. Check your signal and try again.";
+}
+
 // Streams the assistant reply token-by-token. Uses expo/fetch so getReader()
 // works on native. Returns the full text once the stream closes.
 //
@@ -2849,7 +2888,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
         attemptCtrl.abort(); // free the socket; do NOT await the orphaned fetch
         throw new Error("connect stalled");
       }
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await readChatHttpError(res);
+      if (!res.body) throw new ChatStreamError(`HTTP ${res.status}`, false);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -2917,6 +2957,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
       if (signal?.aborted) throw abortError();
       // Tokens already streamed → retrying would duplicate the reply. Propagate.
       if (sawContent) throw err;
+      // Server config / validation errors won't clear on retry — surface immediately.
+      if (err instanceof ChatStreamError && !err.retryable) throw err;
       // Otherwise the link dropped/stalled before the first token: retry.
       lastErr = err;
       // Brief backoff before the next attempt. Without it all attempts fired

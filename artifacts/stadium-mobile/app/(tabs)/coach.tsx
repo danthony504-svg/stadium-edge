@@ -75,6 +75,7 @@ import {
   todayBuildNote,
   mentionsPropIntent,
   streamChat,
+  chatStreamFailureMessage,
   type AltSign,
   type ChatContext,
   type ChatMessage,
@@ -1708,7 +1709,7 @@ export default function CoachScreen() {
             const copy = [...prev];
             copy[copy.length - 1] = {
               role: "assistant",
-              content: "Sorry — I lost the connection while building your ticket. Check your signal and try again.",
+              content: chatStreamFailureMessage(e),
             };
             return copy;
           });
