@@ -45,5 +45,5 @@ test("trimLockedContextForDirectOpenAI enforces byte budget", () => {
   };
   const trimmed = trimLockedContextForDirectOpenAI(ctx)!;
   assert.ok(JSON.stringify(trimmed).length < JSON.stringify(ctx).length);
-  assert.ok(JSON.stringify(trimmed).length <= 40_000);
+  assert.ok(JSON.stringify(trimmed).length <= 28_000);
 });

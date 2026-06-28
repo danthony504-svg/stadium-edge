@@ -1772,7 +1772,11 @@ router.post("/chat", async (req, res): Promise<void> => {
 
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
-      ? `\n\nCurrent app context:\n${JSON.stringify(lockedContext, null, 2)}`
+      ? `\n\nCurrent app context:\n${
+          aiConfig.provider === "openai"
+            ? JSON.stringify(lockedContext)
+            : JSON.stringify(lockedContext, null, 2)
+        }`
       : "";
 
   // The EXACT player-prop pool the model is about to see (post market-lock filter

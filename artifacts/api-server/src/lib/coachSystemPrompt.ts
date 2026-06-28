@@ -5,7 +5,7 @@ import type { OpenAIProvider } from "./openaiConfig.js";
  * to ~42k tokens, so Render chat 429s even when credentials are valid. Replit's
  * gpt-5.x proxy has a higher ceiling — keep the full prompt there.
  */
-const DIRECT_OPENAI_CHAR_BUDGET = 72_000;
+const DIRECT_OPENAI_CHAR_BUDGET = 56_000;
 
 /** Section headers (prefix match) dropped on direct OpenAI to fit TPM. */
 const DIRECT_OMIT_ALWAYS: string[] = [
@@ -106,7 +106,7 @@ export function coachSystemPromptChars(prompt: string): number {
 }
 
 /** ~10k tokens of context headroom with the trimmed system prompt on 30k TPM tiers. */
-const DIRECT_CONTEXT_BYTE_BUDGET = 36_000;
+const DIRECT_CONTEXT_BYTE_BUDGET = 24_000;
 
 const CONTEXT_TRIM_FIELDS = [
   "matchupHistory",

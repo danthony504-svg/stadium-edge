@@ -27,7 +27,7 @@ const DEFAULT_DIRECT_MODEL = "gpt-4.1";
 const DEFAULT_REPLIT_MODEL = "gpt-5.4";
 
 /** Budget used by coachSystemPrompt.ts for direct OpenAI TPM limits. */
-export const COACH_DIRECT_SYSTEM_PROMPT_CHAR_BUDGET = 72_000;
+export const COACH_DIRECT_SYSTEM_PROMPT_CHAR_BUDGET = 56_000;
 
 const REASONING_EFFORTS = new Set<ReasoningEffort>([
   "none",
