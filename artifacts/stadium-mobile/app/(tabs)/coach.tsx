@@ -75,6 +75,7 @@ import {
   startsTodayUpcoming,
   todayBuildNote,
   mentionsPropIntent,
+  wantsPropsOnly,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
@@ -1289,6 +1290,16 @@ export default function CoachScreen() {
           picks = enforced.picks;
           mlLeanNote = mlLeanEnforcementNote(enforced);
         }
+        // Props-only ask: drop any game-level legs the model slipped in (ML/spread/
+        // total). The reach-count backfill below will fill from realProps instead.
+        const mentionsProps = mentionsPropIntent(trimmed);
+        const propsOnlyTicket = wantsPropsOnly(trimmed);
+        let propsOnlyNote = "";
+        if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
+          const droppedGame = picks.filter((p) => !p.isProp).length;
+          picks = picks.filter((p) => p.isProp);
+          propsOnlyNote = `_Dropped ${droppedGame} game-level leg${droppedGame === 1 ? "" : "s"} — this ticket is player props only._`;
+        }
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
@@ -1431,12 +1442,22 @@ export default function CoachScreen() {
             // salvage of unsigned game mains would violate the requested sign, so
             // skip it. A props-only / prop-market ask wants players, not game
             // moneylines, so don't silently fall back to game mains there either.
-            !altSign &&
-            !mentionsPropIntent(trimmed);
+            !altSign;
           const salvageSports = salvageEligible
             ? focalSportsFromText(trimmed)
             : new Set<string>();
           if (salvageEligible) {
+            const tgt = Math.min(requestedLegs, MAX_LEGS);
+            if (mentionsPropIntent(trimmed)) {
+              const salvagePool =
+                salvageSports.size > 0
+                  ? context.realOdds.filter((e) => salvageSports.has(e.sport))
+                  : context.realOdds;
+              picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+                target: tgt,
+              });
+              if (picks.length > 0) salvageBuilt = true;
+            } else {
             // Named sport → salvage only that sport's remaining today games; a
             // GENERIC "N-leg parlay for tonight" (no sport named) → salvage from
             // EVERY today-upcoming game on the board. context.realOdds is already
@@ -1447,7 +1468,6 @@ export default function CoachScreen() {
                 ? context.realOdds.filter((e) => salvageSports.has(e.sport))
                 : context.realOdds;
             if (salvagePool.length > 0) {
-              const tgt = Math.min(requestedLegs, MAX_LEGS);
               picks = backfillPicks([], salvagePool, gameMeta, {
                 target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
@@ -1464,6 +1484,7 @@ export default function CoachScreen() {
                 target: tgt,
               });
               if (picks.length > 0) salvageBuilt = true;
+            }
             }
           }
           // Honest, non-contradictory note (pure helper, unit-tested in
@@ -1503,7 +1524,7 @@ export default function CoachScreen() {
         // odds-threshold lock (whose own filter must stay authoritative).
         if (
           requestedLegs > picks.length &&
-          picks.length > 0 &&
+          (picks.length > 0 || mentionsProps) &&
           !oddsThreshold &&
           !confidenceThreshold
         ) {
@@ -1567,15 +1588,16 @@ export default function CoachScreen() {
             // PLAIN N-leg parlay (no alt / period / threshold lock). The model
             // routinely returns a leg or two short even when the board has plenty
             // more real games — a "4 leg" ask coming back with 3 is the reported
-            // failure. Deterministically fill toward N from real FULL-GAME mains
-            // (one per distinct unused game), never fabricating. Derive the
-            // constraints from the model's OWN resolved legs so we never widen a
-            // locked ask: (a) skip the game-main fill ONLY when the user actually
-            // asked for props (props-only / a specific prop market) AND every
-            // resolved leg is a prop — a game-level main would be off-intent
-            // there; (b) when every game-level leg sits on ONE game (a
-            // single-game lock), restrict the fill to that same game so we don't
-            // pull in other matchups.
+            // failure. Deterministically fill toward N from the SAME real context.
+            // When the user asked for PLAYER PROPS, fill ONLY from realProps —
+            // never pad with game moneylines (the reported "15 leg with player
+            // props" → all MLs bug). A generic parlay with no prop words still
+            // uses full-game mains.
+            if (mentionsProps) {
+              picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
+                target,
+              });
+            } else {
             const allProps = picks.every((p) => p.isProp);
             // Did the USER express prop intent? A GENERIC "6-leg parlay for
             // tonight" carries none of these words, so when the model merely
@@ -1585,8 +1607,7 @@ export default function CoachScreen() {
             // server's MARKET_KEYWORDS so a real props-only / prop-market lock
             // ("player props only", "6 home run hitters", "strikeout parlay")
             // still skips the game-main fill and stays in props.
-            const mentionsProps = mentionsPropIntent(trimmed);
-            if (!allProps || !mentionsProps) {
+            if (!allProps) {
               const gameLegs = picks.filter((p) => !p.isProp);
               // The single-game / sport lock that scopes the fill pool is computed
               // ONCE above (backfillPool) and shared by every branch. Infer on top
@@ -1615,6 +1636,7 @@ export default function CoachScreen() {
                   ? FAMILY_ORDER[lockedFam]
                   : GENERIC_BACKFILL_ORDER;
               picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
+            }
             }
           }
         }
@@ -1657,6 +1679,9 @@ export default function CoachScreen() {
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
+        }
+        if (propsOnlyNote) {
+          legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds

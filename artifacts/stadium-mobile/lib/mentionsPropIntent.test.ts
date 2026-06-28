@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -27,4 +27,12 @@ test("explicit prop intent => true", () => {
 test("points-as-prop phrasing => true", () => {
   assert.equal(mentionsPropIntent("over 25.5 points parlay"), true);
   assert.equal(mentionsPropIntent("3 legs of player points"), true);
+});
+
+test("wantsPropsOnly: explicit and N-leg-with-props phrasing", () => {
+  assert.equal(wantsPropsOnly("Build me a 15 leg with player props"), true);
+  assert.equal(wantsPropsOnly("player props only parlay"), true);
+  assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
+  assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
+  assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
 });
