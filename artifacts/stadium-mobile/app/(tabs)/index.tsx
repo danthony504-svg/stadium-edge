@@ -765,12 +765,12 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo header mirrors the Park Weather page: large centered Stadium Edge
-            wordmark with the floating nav button kept clear on the left. */}
-        <View style={{ paddingLeft: 72, paddingRight: 62, marginBottom: 8, alignItems: "center" }}>
+        {/* Logo header mirrors the Coach page: compact row, larger wordmark, and
+            the floating nav button kept clear on the left. */}
+        <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
           <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 82, marginTop: -10 }}
+            source={require("@/assets/images/logo-wordmark.png")}
+            style={{ width: Math.min(255, Math.max(220, width - 138)), height: 44 }}
             resizeMode="contain"
             fadeDuration={0}
             accessibilityLabel="Stadium Edge"
@@ -781,7 +781,7 @@ export default function HomeScreen() {
             style={({ pressed }) => ({
               position: "absolute",
               right: 16,
-              top: 18,
+              top: 3,
               width: 38,
               height: 38,
               borderRadius: 19,
