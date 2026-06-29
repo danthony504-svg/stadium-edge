@@ -626,13 +626,27 @@ export type StealRecord = {
   graded: number;
 };
 
+export type GradedSteal = {
+  id: string;
+  sport: string;
+  game: string;
+  market: string;
+  pick: string;
+  player: string | null;
+  price: number;
+  status: "win" | "loss" | "push";
+  gradedAt: string;
+};
+
 export type LiveStealsResponse = {
   steals: LiveSteal[];
   record: StealRecord;
+  history: GradedSteal[];
 };
 
-export function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
-  return getJson<LiveStealsResponse>(`/sports/live-steals`, signal);
+export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
+  const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal);
+  return { ...data, history: data.history ?? [] };
 }
 
 export type GetPropsArgs = {
