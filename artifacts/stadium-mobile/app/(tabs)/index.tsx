@@ -11,8 +11,10 @@ import {
   ScrollView,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle, Line, Polyline } from "react-native-svg";
 
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
@@ -77,6 +79,8 @@ function heroLegTitle(p: PlayerProp): string {
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
 // this margin. We NEVER recompute or guess EV client-side.
 const HOME_MIN_VALUE_EV = 1.5;
+const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "nfl"];
+const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -124,10 +128,12 @@ function FeaturedAvatar({
   headshot,
   teamLogo,
   name,
+  size = 56,
 }: {
   headshot: string | null;
   teamLogo: string | null;
   name: string;
+  size?: number;
 }) {
   const colors = useColors();
   // Fall back through real imagery only: player headshot first, then the team
@@ -146,9 +152,9 @@ function FeaturedAvatar({
   return (
     <View
       style={{
-        width: 56,
-        height: 56,
-        borderRadius: 28,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
@@ -160,22 +166,116 @@ function FeaturedAvatar({
       {showHeadshot ? (
         <Image
           source={{ uri: headshot! }}
-          style={{ width: 56, height: 56 }}
+          style={{ width: size, height: size }}
           resizeMode="cover"
           onError={() => setHeadshotFailed(true)}
         />
       ) : showLogo ? (
         <Image
           source={{ uri: teamLogo! }}
-          style={{ width: 34, height: 34 }}
+          style={{ width: size * 0.62, height: size * 0.62 }}
           resizeMode="contain"
           onError={() => setLogoFailed(true)}
         />
       ) : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: size * 0.28 }}>
           {initials || "?"}
         </Text>
       )}
+    </View>
+  );
+}
+
+function PerformanceSparkline({ width }: { width: number }) {
+  const colors = useColors();
+  const height = 78;
+  const values = [18, 24, 22, 31, 28, 39, 34, 47, 41, 50, 57, 44, 49, 46, 54, 51, 60, 56, 64, 68, 59, 66, 73, 78, 74, 83, 88];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const points = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * width;
+      const y = height - 12 - ((v - min) / (max - min || 1)) * (height - 24);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const pointList = points.split(" ");
+  const lastParts = pointList[pointList.length - 1]?.split(",").map(Number);
+  const lastX = lastParts?.[0] ?? width;
+  const lastY = lastParts?.[1] ?? 12;
+
+  return (
+    <Svg width={width} height={height}>
+      <Line x1="0" y1={height - 16} x2={width} y2={height - 16} stroke={colors.border} strokeWidth="1" strokeDasharray="4 5" />
+      <Polyline points={points} fill="none" stroke={colors.primary} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+      <Circle cx={lastX} cy={lastY} r="4" fill="#60a5fa" />
+    </Svg>
+  );
+}
+
+function BaseballMiniPanel() {
+  const colors = useColors();
+  const dot = (filled: boolean, color: string) => (
+    <View
+      style={{
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: filled ? color : colors.border,
+      }}
+    />
+  );
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+      <View style={{ gap: 5 }}>
+        {[
+          { label: "B", filled: 3, color: "#34d399" },
+          { label: "S", filled: 2, color: "#facc15" },
+          { label: "O", filled: 1, color: "#ef4444" },
+        ].map((row) => (
+          <View key={row.label} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={{ width: 10, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+              {row.label}
+            </Text>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <View key={i}>{dot(i < row.filled, row.color)}</View>
+            ))}
+          </View>
+        ))}
+      </View>
+      <View style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.mutedForeground,
+            transform: [{ rotate: "45deg" }, { translateY: -14 }],
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.mutedForeground,
+            transform: [{ rotate: "45deg" }, { translateX: -14 }],
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.primary,
+            backgroundColor: "#facc15",
+            transform: [{ rotate: "45deg" }, { translateX: 14 }],
+          }}
+        />
+      </View>
     </View>
   );
 }
@@ -186,6 +286,12 @@ export default function HomeScreen() {
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const { isSignedIn } = useAuth();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= 680;
+  const heroAvatarSize = isWideLayout ? 92 : 56;
+  const hotCardWidth = isWideLayout
+    ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
+    : 168;
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
 
   const oddsQ = useQuery({
@@ -316,6 +422,7 @@ export default function HomeScreen() {
   type PropEntry = {
     prop: PlayerProp;
     gameLabel: string;
+    startsAt: string;
     teamAbbr: string | null;
     teamLogo: string | null;
   };
@@ -336,13 +443,13 @@ export default function HomeScreen() {
         const teamAbbr = isHome ? info!.homeAbbr : isAway ? info!.awayAbbr : null;
         const teamLogo =
           p.teamLogo ?? (isHome ? info!.homeLogo : isAway ? info!.awayLogo : null);
-        out.push({ prop: p, gameLabel, teamAbbr, teamLogo });
+        out.push({ prop: p, gameLabel, startsAt: g.commenceTime, teamAbbr, teamLogo });
       }
     });
     return out;
   })();
 
-  // HERO — "Today's Best AI Parlay": the top server-computed +EV props, one per
+  // HERO — "Today's Top AI Parlay": the top server-computed +EV props, one per
   // distinct game (independence) and one per player, 2-3 legs. Combined odds,
   // model win prob and avg edge are all derived from REAL per-leg values; the
   // card is hidden (plain Build button shown) when fewer than 2 legs qualify.
@@ -487,9 +594,13 @@ export default function HomeScreen() {
   // by player. Real ev/edge only; empty (hidden) when nothing qualifies.
   type ValueProp = {
     player: string;
+    athleteId: string | null;
     headshot: string | null;
     teamLogo: string | null;
     teamAbbr: string | null;
+    gameLabel: string;
+    startsAt: string;
+    marketKey: string;
     side: "Over" | "Under";
     line: number | null;
     label: string;
@@ -512,9 +623,13 @@ export default function HomeScreen() {
       seen.add(pl);
       out.push({
         player: p.player,
+        athleteId: p.athleteId ?? null,
         headshot: p.headshot ?? null,
         teamLogo: e.teamLogo,
         teamAbbr: e.teamAbbr,
+        gameLabel: e.gameLabel,
+        startsAt: e.startsAt,
+        marketKey: p.market,
         side,
         line: p.line,
         label: propMarketLabel(p.market),
@@ -525,6 +640,29 @@ export default function HomeScreen() {
     }
     return out;
   })();
+
+  const openValuePropDetail = (v: ValueProp) => {
+    const pick =
+      v.line != null ? `${v.player} ${v.side} ${v.line} ${v.label}` : `${v.player} ${v.label}`;
+    router.push({
+      pathname: "/prop/[id]",
+      params: {
+        id: v.athleteId ?? v.player,
+        player: v.player,
+        marketKey: v.marketKey,
+        marketLabel: v.label,
+        line: v.line != null ? String(v.line) : "",
+        side: v.side,
+        odds: String(v.price),
+        game: v.gameLabel,
+        sport,
+        athleteId: v.athleteId ?? "",
+        headshot: v.headshot ?? "",
+        startsAt: v.startsAt,
+        pick,
+      },
+    });
+  };
 
   // Best (highest server-EV) prop per featured game — drives the honest "BEST
   // PROP / EDGE" cells under each Upcoming card. Only games whose props we've
@@ -627,47 +765,23 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
-            the logo cluster is padded clear of it. Logo left; the PLAYER PROPS
-            wordmark + brand tagline on the right; a bell that routes to alerts
-            (or sign-in when signed out). */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingLeft: 60,
-            paddingRight: 16,
-            marginBottom: 14,
-          }}
-        >
+        {/* Logo header mirrors the Coach page: compact row, larger wordmark, and
+            the floating nav button kept clear on the left. */}
+        <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
           <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: 150, height: 42 }}
+            source={require("@/assets/images/logo-wordmark.png")}
+            style={{ width: Math.min(255, Math.max(220, width - 138)), height: 44 }}
             resizeMode="contain"
             fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
-          <View style={{ flex: 1 }} />
-          <View style={{ alignItems: "flex-end", marginRight: 10 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: FONT.display,
-                fontSize: 17,
-                letterSpacing: 0.2,
-              }}
-            >
-              PLAYER PROPS
-            </Text>
-            <Text style={{ fontSize: 9, fontFamily: FONT.semibold, letterSpacing: 0.2, marginTop: 2 }}>
-              <Text style={{ color: colors.mutedForeground }}>AI POWERED. DATA DRIVEN. </Text>
-              <Text style={{ color: colors.primary }}>REAL EDGE.</Text>
-            </Text>
-          </View>
           <Pressable
             onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
             hitSlop={8}
             style={({ pressed }) => ({
+              position: "absolute",
+              right: 16,
+              top: 3,
               width: 38,
               height: 38,
               borderRadius: 19,
@@ -683,7 +797,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {/* Search bar → Player Props search */}
+        {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
             router.push({
@@ -707,7 +821,7 @@ export default function HomeScreen() {
         >
           <Feather name="search" size={17} color={colors.mutedForeground} />
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-            Search games, teams, or player props…
+            Search games, teams, or players…
           </Text>
         </Pressable>
 
@@ -718,7 +832,7 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
         >
-          {SPORTS.map((s) => {
+          {HOME_SPORTS.map((s) => {
             const active = sport === s.id;
             return (
               <Pressable
@@ -789,7 +903,7 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Hero — Today's Best AI Parlay. Built from REAL top-EV props (one per
+        {/* Hero — Today's Top AI Parlay. Built from REAL top-EV props (one per
             distinct game). Combined odds, model win prob and avg edge are all
             derived from real per-leg values; falls back to a plain Build button
             when fewer than 2 EV legs are available (never a fabricated card). */}
@@ -798,18 +912,32 @@ export default function HomeScreen() {
             <Pressable onPress={() => askCoach("Build me the best parlay")}>
               {({ pressed }) => (
                 <LinearGradient
-                  colors={["#10294f", "#0a1628"]}
+                  colors={["#082554", "#06111f"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={{
                     borderWidth: 1,
                     borderColor: colors.primary,
                     borderRadius: colors.radius,
-                    padding: 16,
+                    padding: isWideLayout ? 20 : 16,
                     gap: 14,
+                    minHeight: isWideLayout ? 216 : undefined,
+                    overflow: "hidden",
                     opacity: pressed ? 0.92 : 1,
                   }}
                 >
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      right: -44,
+                      top: -70,
+                      width: isWideLayout ? 330 : 190,
+                      height: isWideLayout ? 330 : 190,
+                      borderRadius: isWideLayout ? 165 : 95,
+                      backgroundColor: "rgba(59,130,246,0.24)",
+                    }}
+                  />
                   <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
                     <View style={{ flex: 1, gap: 10 }}>
                       <View
@@ -834,15 +962,15 @@ export default function HomeScreen() {
                             textTransform: "uppercase",
                           }}
                         >
-                          Today's Best AI Parlay
+                          TODAY'S TOP AI PARLAY
                         </Text>
                       </View>
                       <Text
                         style={{
                           color: colors.foreground,
                           fontFamily: FONT.display,
-                          fontSize: 20,
-                          lineHeight: 26,
+                          fontSize: isWideLayout ? 26 : 20,
+                          lineHeight: isWideLayout ? 32 : 26,
                         }}
                         numberOfLines={3}
                       >
@@ -851,13 +979,14 @@ export default function HomeScreen() {
                     </View>
                     {/* Overlapping REAL headshots (FeaturedAvatar falls back to
                         team logo / initials — never a fabricated face). */}
-                    <View style={{ flexDirection: "row", alignItems: "center", paddingTop: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", paddingTop: isWideLayout ? 4 : 2 }}>
                       {heroLegs.slice(0, 3).map((e, i) => (
-                        <View key={i} style={{ marginLeft: i === 0 ? 0 : -14 }}>
+                        <View key={i} style={{ marginLeft: i === 0 ? 0 : -(heroAvatarSize * 0.24) }}>
                           <FeaturedAvatar
                             headshot={e.prop.headshot}
                             teamLogo={e.teamLogo}
                             name={e.prop.player}
+                            size={heroAvatarSize}
                           />
                         </View>
                       ))}
@@ -979,6 +1108,7 @@ export default function HomeScreen() {
                 paddingVertical: 12,
                 paddingHorizontal: 8,
                 gap: 8,
+                alignItems: "center",
                 opacity: pressed ? 0.85 : 1,
               })}
             >
@@ -995,13 +1125,13 @@ export default function HomeScreen() {
                 <MaterialCommunityIcons name={a.icon} size={17} color={a.color} />
               </View>
               <Text
-                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11.5 }}
+                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11.5, textAlign: "center" }}
                 numberOfLines={1}
               >
                 {a.label}
               </Text>
               <Text
-                style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}
+                style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, textAlign: "center" }}
                 numberOfLines={2}
               >
                 {a.subtitle}
@@ -1014,7 +1144,7 @@ export default function HomeScreen() {
             cleared THIS posted line in their recent games (a transparent letter
             grade from real hit-rate, NOT a fabricated model rating). Hidden when
             nothing grades out. */}
-        {featuredEnabled && (hotLoading || topHot.length > 0) ? (
+        {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -1031,23 +1161,21 @@ export default function HomeScreen() {
                   fontFamily: FONT.display,
                   fontSize: 18,
                   marginLeft: 8,
+                  flex: 1,
                 }}
               >
                 Hot Picks Today
               </Text>
+              <Pressable
+                hitSlop={8}
+                onPress={() => router.push({ pathname: "/props", params: { sp: sport } })}
+                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                  View all
+                </Text>
+              </Pressable>
             </View>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.body,
-                fontSize: 13,
-                lineHeight: 18,
-                paddingHorizontal: 16,
-                marginBottom: 12,
-              }}
-            >
-              Top props by how often the player has cleared this line recently.
-            </Text>
             {topHot.length === 0 ? (
               <View style={{ paddingHorizontal: 16 }}>
                 <Loading label="Grading today's props…" />
@@ -1068,7 +1196,7 @@ export default function HomeScreen() {
                         router.push({ pathname: "/props", params: { q: nickname(c.player), sp: sport } })
                       }
                       style={({ pressed }) => ({
-                        width: 168,
+                        width: hotCardWidth,
                         backgroundColor: colors.card,
                         borderWidth: 1,
                         borderColor: colors.border,
@@ -1163,7 +1291,7 @@ export default function HomeScreen() {
             stats only (Win Rate / Record / Graded) — no units-profit number and
             no profit chart, because we don't track stake or an ordered P&L
             series. Shown only when there are real graded results. */}
-        {showTrack ? (
+        {false && showTrack ? (
           <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
             <Pressable
               onPress={() => router.push("/steals")}
@@ -1187,58 +1315,64 @@ export default function HomeScreen() {
                     flex: 1,
                   }}
                 >
-                  AI Performance
+                  Today's AI Performance
                 </Text>
                 <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
               </View>
-              <View style={{ flexDirection: "row" }}>
-                {[
-                  { val: `${stealWinPct}%`, label: "Win Rate", tint: "#34d399" },
-                  {
-                    val: `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`,
-                    label: "Record",
-                    tint: colors.foreground,
-                  },
-                  { val: String(stealRec!.graded), label: "Graded", tint: colors.foreground },
-                ].map((m, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      flex: 1,
-                      alignItems: "center",
-                      gap: 3,
-                      borderLeftWidth: i === 0 ? 0 : 1,
-                      borderLeftColor: colors.border,
-                    }}
-                  >
-                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
-                    <Text
+              <View
+                style={{
+                  flexDirection: isWideLayout ? "row" : "column",
+                  alignItems: "center",
+                  gap: isWideLayout ? 18 : 10,
+                }}
+              >
+                <View style={{ flexDirection: "row", flex: 1, alignSelf: "stretch" }}>
+                  {[
+                    { val: `${stealWinPct}%`, label: "Win Rate", tint: "#34d399" },
+                    {
+                      val: `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`,
+                      label: "Last Picks",
+                      tint: colors.foreground,
+                    },
+                    { val: String(stealRec!.graded), label: "Graded", tint: colors.foreground },
+                  ].map((m, i) => (
+                    <View
+                      key={i}
                       style={{
-                        color: colors.mutedForeground,
-                        fontFamily: FONT.medium,
-                        fontSize: 10,
-                        letterSpacing: 0.4,
-                        textTransform: "uppercase",
+                        flex: 1,
+                        alignItems: "center",
+                        gap: 3,
+                        borderLeftWidth: i === 0 ? 0 : 1,
+                        borderLeftColor: colors.border,
                       }}
                     >
-                      {m.label}
-                    </Text>
-                  </View>
-                ))}
+                      <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
+                      <Text
+                        style={{
+                          color: colors.mutedForeground,
+                          fontFamily: FONT.medium,
+                          fontSize: 10,
+                          letterSpacing: 0.4,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {m.label}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={{ alignItems: "center" }}>
+                  <PerformanceSparkline width={isWideLayout ? Math.min(310, width * 0.42) : width - 64} />
+                </View>
               </View>
-              <Text
-                style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
-              >
-                Auto-graded record of the app's own longshot value picks. Tap to view the full ledger.
-              </Text>
             </Pressable>
           </View>
         ) : null}
 
-        {/* Top AI Props — our own ranking (replaces a "most bet" list). Ranked by
+        {/* Disabled value-prop ranking kept for future reuse. Ranked by
             the server-computed +EV (best posted price vs the de-vigged cross-book
             consensus fair value). Real ev only; numbered; hidden when empty. */}
-        {featuredEnabled && valueProps.length > 0 ? (
+        {false && featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -1258,7 +1392,7 @@ export default function HomeScreen() {
                   flex: 1,
                 }}
               >
-                Top AI Props
+                Value Props
               </Text>
               <Pressable
                 hitSlop={8}
@@ -1286,9 +1420,7 @@ export default function HomeScreen() {
               {valueProps.map((v, i) => (
                 <Pressable
                   key={`${v.player}-${i}`}
-                  onPress={() =>
-                    router.push({ pathname: "/props", params: { q: nickname(v.player), sp: sport } })
-                  }
+                  onPress={() => openValuePropDetail(v)}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
@@ -1398,7 +1530,7 @@ export default function HomeScreen() {
                 <View
                   key={g.id}
                   style={{
-                    width: 270,
+                    width: liveGames.length === 1 ? width - 32 : 300,
                     backgroundColor: colors.card,
                     borderWidth: 1,
                     borderColor: colors.border,
@@ -1436,32 +1568,35 @@ export default function HomeScreen() {
                     </Text>
                   </View>
 
-                  <Pressable
-                    onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
-                    style={{ gap: 8 }}
-                  >
-                    {[
-                      { name: g.awayTeam, abbr: g.awayAbbr, logo: g.awayLogo, score: g.awayScore },
-                      { name: g.homeTeam, abbr: g.homeAbbr, logo: g.homeLogo, score: g.homeScore },
-                    ].map((t, i) => (
-                      <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        {t.logo ? (
-                          <Image source={{ uri: t.logo }} style={{ width: 22, height: 22 }} resizeMode="contain" />
-                        ) : (
-                          <View style={{ width: 22, height: 22 }} />
-                        )}
-                        <Text
-                          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, flex: 1 }}
-                          numberOfLines={1}
-                        >
-                          {t.name || t.abbr || "—"}
-                        </Text>
-                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
-                          {t.score ?? 0}
-                        </Text>
-                      </View>
-                    ))}
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                    <Pressable
+                      onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
+                      style={{ gap: 8, flex: 1 }}
+                    >
+                      {[
+                        { name: g.awayTeam, abbr: g.awayAbbr, logo: g.awayLogo, score: g.awayScore },
+                        { name: g.homeTeam, abbr: g.homeAbbr, logo: g.homeLogo, score: g.homeScore },
+                      ].map((t, i) => (
+                        <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          {t.logo ? (
+                            <Image source={{ uri: t.logo }} style={{ width: 24, height: 24 }} resizeMode="contain" />
+                          ) : (
+                            <View style={{ width: 24, height: 24 }} />
+                          )}
+                          <Text
+                            style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}
+                            numberOfLines={1}
+                          >
+                            {t.name || t.abbr || "—"}
+                          </Text>
+                          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18 }}>
+                            {t.score ?? 0}
+                          </Text>
+                        </View>
+                      ))}
+                    </Pressable>
+                    {sport === "mlb" ? <BaseballMiniPanel /> : null}
+                  </View>
 
                   <Pressable
                     onPress={() => askCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)}
@@ -1472,18 +1607,110 @@ export default function HomeScreen() {
                       borderRadius: 999,
                       paddingVertical: 10,
                       alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 8,
                       opacity: pressed ? 0.85 : 1,
                     })}
                   >
                     <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>
                       Build best parlay from this game
                     </Text>
+                    <Feather name="arrow-right" size={14} color={colors.primary} />
                   </Pressable>
                 </View>
               ))}
             </ScrollView>
           </View>
         ) : null}
+
+        {/* Today's Performance — Home dashboard card, shown in the same position
+            as the target layout. Values stay real; unavailable stats render as
+            em dashes instead of guesses. */}
+        <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
+          <Pressable
+            onPress={() => router.push("/steals")}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              overflow: "hidden",
+              opacity: pressed ? 0.9 : 1,
+            })}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <Feather name="bar-chart-2" size={16} color={colors.primary} />
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: FONT.display,
+                  fontSize: 16,
+                  flex: 1,
+                }}
+              >
+                Today's Performance
+              </Text>
+              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13 }}>
+                View all
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", flex: 1 }}>
+                {[
+                  { val: showTrack ? `${stealWinPct}%` : "—", label: "Win Rate", sub: "Last 30 Picks", tint: "#34d399" },
+                  {
+                    val: showTrack
+                      ? `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`
+                      : "—",
+                    label: "Record",
+                    sub: "Last 30 Picks",
+                    tint: "#34d399",
+                  },
+                  { val: showTrack ? String(stealRec!.graded) : "—", label: "Graded", sub: "Settled Picks", tint: colors.foreground },
+                ].map((m, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      flex: 1,
+                      alignItems: "center",
+                      gap: 2,
+                      borderLeftWidth: i === 0 ? 0 : 1,
+                      borderLeftColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 18 }}>{m.val}</Text>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 10 }}>
+                      {m.label}
+                    </Text>
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}>
+                      {m.sub}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <PerformanceSparkline width={Math.min(140, Math.max(100, width * 0.3))} />
+            </View>
+          </Pressable>
+        </View>
 
         {/* Upcoming games */}
         <View
@@ -1503,7 +1730,7 @@ export default function HomeScreen() {
                 fontSize: 18,
               }}
             >
-              Upcoming
+              Upcoming Games
             </Text>
             {games.length > 0 ? (
               <View

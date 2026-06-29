@@ -1,8 +1,11 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/expo";
 import { useQueries } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -34,6 +37,7 @@ import { SPORTS, sportLabel } from "@/lib/sports";
 // the soonest games for player-prop arbs. Kept modest because the prop fan-out is
 // the expensive part; server caches each request for 5 min.
 const ARB_MAX_GAMES = 6;
+type Mode = "all" | "arbs" | "values";
 
 const GAME_MARKET_LABEL: Record<string, string> = {
   h2h: "Moneyline",
@@ -407,7 +411,11 @@ function ValueCard({ vb, total }: { vb: ValueBet; total: number }) {
 export default function ArbitrageScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { isSignedIn } = useAuth();
   const [stakeText, setStakeText] = useState("100");
+  const [mode, setMode] = useState<Mode>("all");
+  const [sportFilter, setSportFilter] = useState<string | null>(null);
 
   const total = useMemo(() => {
     const n = parseFloat(stakeText);
@@ -453,7 +461,15 @@ export default function ArbitrageScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataStamp]);
 
-  const hasAny = arbs.length > 0 || values.length > 0;
+  const shownArbs = useMemo(
+    () => (mode === "values" ? [] : arbs.filter((a) => !sportFilter || a.sport === sportFilter)),
+    [arbs, mode, sportFilter],
+  );
+  const shownValues = useMemo(
+    () => (mode === "arbs" ? [] : values.filter((v) => !sportFilter || v.sport === sportFilter)),
+    [values, mode, sportFilter],
+  );
+  const hasAny = shownArbs.length > 0 || shownValues.length > 0;
 
   const refetchAll = () => {
     for (const q of queries) q.refetch();
@@ -463,7 +479,6 @@ export default function ArbitrageScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 56,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -472,22 +487,87 @@ export default function ArbitrageScreen() {
           <RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetchAll} tintColor={colors.primary} />
         }
       >
-        <View>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            Edge Lock
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-            Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
-          </Text>
+        <View style={{ paddingTop: insets.top + 6, marginHorizontal: -16, paddingHorizontal: 16, backgroundColor: colors.background }}>
+          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
+            <Image
+              source={require("@/assets/images/logo-wordmark.png")}
+              style={{ width: "78%", height: 44 }}
+              resizeMode="contain"
+              fadeDuration={0}
+              accessibilityLabel="Stadium Edge"
+            />
+            <Pressable
+              onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
+              hitSlop={8}
+              style={({ pressed }) => ({
+                position: "absolute",
+                right: 0,
+                top: 3,
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Feather name="bell" size={17} color={colors.foreground} />
+            </Pressable>
+          </View>
+
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <View
+              style={{
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                backgroundColor: "rgba(59,130,246,0.18)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Feather name="lock" size={19} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+                Edge Lock
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+                Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {}}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.primary,
+                opacity: pressed ? 0.75 : 1,
+              })}
+            >
+              <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>
+                How it works
+              </Text>
+              <Feather name="info" size={13} color={colors.primary} />
+            </Pressable>
+          </View>
         </View>
 
         {/* Explainer + stake input */}
         <View
           style={{
             backgroundColor: colors.card,
-            borderRadius: 16,
+            borderRadius: colors.radius,
             borderWidth: 1,
-            borderColor: colors.border,
+            borderColor: colors.primary,
             padding: 14,
             gap: 12,
           }}
@@ -501,6 +581,7 @@ export default function ArbitrageScreen() {
               not guaranteed.
             </Text>
           </View>
+          <View style={{ height: 1, backgroundColor: colors.border }} />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}>
               Total stake
@@ -535,6 +616,66 @@ export default function ArbitrageScreen() {
             </View>
           </View>
         </View>
+
+        <View style={{ flexDirection: "row", borderRadius: 8, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+          {[
+            { id: "all" as Mode, label: "All", icon: null, color: colors.primary },
+            { id: "arbs" as Mode, label: "Arbitrage", icon: "trending-up" as const, color: "#22c55e" },
+            { id: "values" as Mode, label: "Value Bets", icon: "trending-up" as const, color: VALUE_ACCENT },
+          ].map((tab, i) => {
+            const active = mode === tab.id;
+            return (
+              <Pressable
+                key={tab.id}
+                onPress={() => setMode(tab.id)}
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  paddingVertical: 9,
+                  backgroundColor: active ? colors.primary : "transparent",
+                  borderLeftWidth: i === 0 ? 0 : 1,
+                  borderLeftColor: colors.border,
+                }}
+              >
+                {tab.icon ? <Feather name={tab.icon} size={13} color={active ? "#fff" : tab.color} /> : null}
+                <Text style={{ color: active ? "#fff" : tab.color, fontFamily: FONT.bold, fontSize: 12 }}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {SPORTS.filter((s) => ["mlb", "wnba", "nba", "nhl", "soccer", "tennis", "nfl"].includes(s.id)).map((s) => {
+            const active = sportFilter === s.id;
+            return (
+              <Pressable
+                key={s.id}
+                onPress={() => setSportFilter((cur) => (cur === s.id ? null : s.id))}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingHorizontal: 10,
+                  paddingVertical: 7,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: active ? colors.primary : colors.border,
+                  backgroundColor: active ? colors.primary : colors.card,
+                }}
+              >
+                <MaterialCommunityIcons name={s.icon} size={14} color={active ? "#fff" : colors.foreground} />
+                <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+                  {s.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         {isLoading ? (
           <View style={{ paddingVertical: 60, alignItems: "center", gap: 12 }}>
@@ -574,33 +715,51 @@ export default function ArbitrageScreen() {
           </View>
         ) : (
           <>
-            {arbs.length > 0 ? (
+            {shownArbs.length > 0 ? (
               <>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <Feather name="lock" size={13} color="#22c55e" />
                   <Text style={{ color: "#22c55e", fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
-                    GUARANTEED ARBITRAGE · {arbs.length}
+                    GUARANTEED ARBITRAGE · {shownArbs.length}
                   </Text>
                 </View>
-                {arbs.map((opp) => (
+                {shownArbs.map((opp) => (
                   <ArbCard key={opp.id} opp={opp} total={total} />
                 ))}
               </>
             ) : null}
 
-            {values.length > 0 ? (
+            {shownValues.length > 0 ? (
               <>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: arbs.length > 0 ? 6 : 0 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: shownArbs.length > 0 ? 6 : 0 }}>
                   <Feather name="trending-up" size={13} color={VALUE_ACCENT} />
                   <Text style={{ color: VALUE_ACCENT, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
-                    VALUE BETS · {values.length}
+                    VALUE BETS · {shownValues.length}
                   </Text>
+                  <View style={{ flex: 1 }} />
+                  <Pressable
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: 10,
+                      paddingHorizontal: 10,
+                      paddingVertical: 7,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+                      Sort: EV Edge
+                    </Text>
+                    <Feather name="chevron-down" size={13} color={colors.mutedForeground} />
+                  </Pressable>
                 </View>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18, marginTop: -4 }}>
                   Higher upside. Real prices that beat the market's fair value — positive
                   expected value, not guaranteed wins.
                 </Text>
-                {values.map((vb) => (
+                {shownValues.map((vb) => (
                   <ValueCard key={vb.id} vb={vb} total={total} />
                 ))}
               </>

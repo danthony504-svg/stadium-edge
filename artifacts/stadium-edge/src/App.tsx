@@ -2,21 +2,21 @@ import { ClerkProvider, SignIn, SignUp } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { dark } from "@clerk/themes";
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
-import ParlayBuilder from "./ParlayBuilder";
-
-// Login enabled — serves the sign-in/sign-up pages (entry buttons are gated by
-// the matching AUTH_ENABLED in ParlayBuilder.tsx).
-const AUTH_ENABLED = true;
-
-// REQUIRED — copy verbatim. Resolves the key from window.location.hostname so the
-// same build serves multiple Clerk custom domains.
-const clerkPubKey = publishableKeyFromHost(
-  window.location.hostname,
-  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
-);
+import ParlayBuilder, { ParlayBuilderContent } from "./ParlayBuilder";
 
 // REQUIRED — copy verbatim. Empty in dev, auto-set in prod. Do NOT gate on PROD.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+const envClerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+// Resolves the key from window.location.hostname so the same build serves
+// multiple Clerk custom domains. Without explicit Clerk config, stay local-only:
+// publishableKeyFromHost synthesizes localhost/example keys that can leave the
+// app stuck initializing auth instead of displaying the public UI.
+const clerkPubKey =
+  envClerkPubKey || clerkProxyUrl
+    ? publishableKeyFromHost(window.location.hostname, envClerkPubKey)
+    : "";
+const AUTH_ENABLED = Boolean(clerkPubKey);
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -26,10 +26,6 @@ function stripBase(path: string): string {
   return basePath && path.startsWith(basePath)
     ? path.slice(basePath.length) || "/"
     : path;
-}
-
-if (!clerkPubKey) {
-  throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY in .env file");
 }
 
 const clerkAppearance = {
@@ -152,10 +148,27 @@ function ClerkProviderWithRoutes() {
   );
 }
 
+function LocalParlayBuilderPage() {
+  return <ParlayBuilderContent />;
+}
+
 export default function App() {
   return (
     <WouterRouter base={basePath}>
-      <ClerkProviderWithRoutes />
+      {AUTH_ENABLED ? (
+        <ClerkProviderWithRoutes />
+      ) : (
+        <Switch>
+          <Route path="/" component={LocalParlayBuilderPage} />
+          <Route path="/sign-in/*?">
+            <Redirect to="/" />
+          </Route>
+          <Route path="/sign-up/*?">
+            <Redirect to="/" />
+          </Route>
+          <Route component={LocalParlayBuilderPage} />
+        </Switch>
+      )}
     </WouterRouter>
   );
 }

@@ -1,20 +1,24 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAuth } from "@clerk/expo";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from "react-native";
+import Svg, { Circle, Line } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, propMarketLabel, type LiveSteal, type StealRecord } from "@/lib/api";
-import { sportLabel } from "@/lib/sports";
+import { SPORTS, sportLabel } from "@/lib/sports";
 import {
   americanToDecimal,
   formatOdds,
@@ -24,6 +28,7 @@ import {
 } from "@/lib/steals";
 
 const STEAL_ACCENT = "#a855f7"; // violet — longshot upside, distinct from the app's cyan/green/amber
+const STEAL_SPORTS = ["nba", "mlb", "nhl", "soccer"];
 
 const GAME_MARKET_LABEL: Record<string, string> = {
   h2h: "Moneyline",
@@ -63,7 +68,7 @@ function RecordCard({ record }: { record: StealRecord }) {
         backgroundColor: colors.card,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: STEAL_ACCENT,
         padding: 16,
         gap: 14,
       }}
@@ -112,9 +117,44 @@ function RecordCard({ record }: { record: StealRecord }) {
         </Text>
       )}
 
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
-        These are the app's own flagged longshots, graded against real game results — not your
-        personal bets.
+      <View style={{ height: 1, backgroundColor: colors.border }} />
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Feather name="shield" size={17} color={STEAL_ACCENT} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>
+            100% transparent
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17, marginTop: 4 }}>
+            These are the app&apos;s own flagged longshots, graded against real game results — not your personal bets.
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function RadarScan() {
+  const colors = useColors();
+  const size = 170;
+  const c = size / 2;
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 32, gap: 14 }}>
+      <Svg width={size} height={size}>
+        {[24, 44, 66, 84].map((r) => (
+          <Circle key={r} cx={c} cy={c} r={r} fill="none" stroke="rgba(168,85,247,0.35)" strokeWidth="1" />
+        ))}
+        <Line x1={c} y1={c} x2={c + 62} y2={c - 43} stroke={STEAL_ACCENT} strokeWidth="3" />
+        <Circle cx={c + 62} cy={c - 43} r="4" fill={STEAL_ACCENT} />
+        <Circle cx={c - 28} cy={c + 40} r="3" fill={STEAL_ACCENT} />
+        <Circle cx={c + 52} cy={c + 18} r="3" fill={STEAL_ACCENT} />
+        <Circle cx={c - 36} cy={c - 10} r="3" fill={colors.foreground} />
+      </Svg>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
+        Hunting for steals...
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+        Scanning 20+ sportsbooks for longshots with real edge.{"\n"}
+        This may take a few seconds.
       </Text>
     </View>
   );
@@ -255,6 +295,9 @@ function StealCard({ steal }: { steal: LiveSteal }) {
 export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { isSignedIn } = useAuth();
+  const [sportFilter, setSportFilter] = React.useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["live-steals"],
@@ -263,6 +306,10 @@ export default function StealsScreen() {
   });
 
   const steals = query.data?.steals ?? [];
+  const filteredSteals = React.useMemo(
+    () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
+    [steals, sportFilter],
+  );
   const record: StealRecord =
     query.data?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
 
@@ -270,7 +317,6 @@ export default function StealsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 56,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -283,24 +329,147 @@ export default function StealsScreen() {
           />
         }
       >
-        <View>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            +500 Steals
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-            Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
-          </Text>
+        <View style={{ paddingTop: insets.top + 6, marginHorizontal: -16, paddingHorizontal: 16, backgroundColor: colors.background }}>
+          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
+            <Image
+              source={require("@/assets/images/logo-wordmark.png")}
+              style={{ width: "78%", height: 44 }}
+              resizeMode="contain"
+              fadeDuration={0}
+              accessibilityLabel="Stadium Edge"
+            />
+            <Pressable
+              onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
+              hitSlop={8}
+              style={({ pressed }) => ({
+                position: "absolute",
+                right: 0,
+                top: 3,
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Feather name="bell" size={17} color={colors.foreground} />
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
+            <View
+              style={{
+                width: 50,
+                height: 50,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: STEAL_ACCENT,
+                backgroundColor: "rgba(168,85,247,0.18)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.display, fontSize: 14 }}>+500</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+                +500 Steals
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, lineHeight: 18 }}>
+                Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
+              </Text>
+            </View>
+          </View>
         </View>
 
         <RecordCard record={record} />
 
-        {query.isLoading ? (
-          <View style={{ paddingVertical: 60, alignItems: "center", gap: 12 }}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
-              Hunting for steals…
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          <Pressable
+            onPress={() => setSportFilter(null)}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 9,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              backgroundColor: sportFilter == null ? STEAL_ACCENT : colors.card,
+              borderWidth: 1,
+              borderColor: sportFilter == null ? STEAL_ACCENT : colors.border,
+            }}
+          >
+            <MaterialCommunityIcons name="trophy-outline" size={14} color={sportFilter == null ? "#fff" : colors.foreground} />
+            <Text style={{ color: sportFilter == null ? "#fff" : colors.foreground, fontFamily: FONT.bold, fontSize: 12 }}>
+              All
             </Text>
-          </View>
+          </Pressable>
+          {SPORTS.filter((s) => STEAL_SPORTS.includes(s.id)).map((sport) => {
+            const active = sportFilter === sport.id;
+            return (
+              <Pressable
+                key={sport.id}
+                onPress={() => setSportFilter((cur) => (cur === sport.id ? null : sport.id))}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingVertical: 9,
+                  paddingHorizontal: 12,
+                  borderRadius: 10,
+                  backgroundColor: active ? STEAL_ACCENT : colors.card,
+                  borderWidth: 1,
+                  borderColor: active ? STEAL_ACCENT : colors.border,
+                }}
+              >
+                <MaterialCommunityIcons name={sport.icon} size={14} color={active ? "#fff" : colors.foreground} />
+                <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+                  {sport.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 7,
+              paddingVertical: 9,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Feather name="filter" size={14} color={colors.foreground} />
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>Filters</Text>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: STEAL_ACCENT }} />
+          </Pressable>
+        </ScrollView>
+
+        <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 10 }}>
+          {["GAME / MARKET", "EV EDGE ↓", "BOOKS", "TIME"].map((h, i) => (
+            <Text
+              key={h}
+              style={{
+                flex: i === 0 ? 1.7 : 1,
+                color: i === 1 ? STEAL_ACCENT : colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 10,
+                textAlign: i === 0 ? "left" : "right",
+              }}
+            >
+              {h}
+            </Text>
+          ))}
+        </View>
+
+        {query.isLoading ? (
+          <RadarScan />
         ) : query.isError ? (
           <View style={{ paddingVertical: 50, alignItems: "center", gap: 12 }}>
             <Feather name="wifi-off" size={28} color={colors.mutedForeground} />
@@ -319,17 +488,8 @@ export default function StealsScreen() {
               <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 14 }}>Retry</Text>
             </Pressable>
           </View>
-        ) : steals.length === 0 ? (
-          <View style={{ paddingVertical: 50, alignItems: "center", gap: 12, paddingHorizontal: 20 }}>
-            <Feather name="search" size={28} color={colors.mutedForeground} />
-            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, textAlign: "center" }}>
-              No steals on the board right now
-            </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, textAlign: "center", lineHeight: 19 }}>
-              A steal needs a real edge at long odds — those are rare and vanish fast. Pull to
-              refresh to scan the live board again.
-            </Text>
-          </View>
+        ) : filteredSteals.length === 0 ? (
+          <RadarScan />
         ) : (
           <>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -338,11 +498,28 @@ export default function StealsScreen() {
                 LIVE STEALS · {steals.length}
               </Text>
             </View>
-            {steals.map((s) => (
+            {filteredSteals.map((s) => (
               <StealCard key={s.id} steal={s} />
             ))}
           </>
         )}
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 12,
+            alignItems: "center",
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: STEAL_ACCENT,
+            backgroundColor: "rgba(168,85,247,0.08)",
+            padding: 14,
+          }}
+        >
+          <Feather name="zap" size={22} color={STEAL_ACCENT} />
+          <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 18 }}>
+            We&apos;re scanning thousands of markets in real time to surface the best longshot opportunities.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
