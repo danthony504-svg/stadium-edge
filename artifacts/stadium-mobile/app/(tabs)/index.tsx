@@ -765,29 +765,23 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
-            the larger Stadium Edge wordmark is padded clear of it. */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingLeft: 60,
-            paddingRight: 16,
-            marginBottom: 14,
-          }}
-        >
+        {/* Logo header mirrors the Park Weather page: large centered Stadium Edge
+            wordmark with the floating nav button kept clear on the left. */}
+        <View style={{ paddingLeft: 72, paddingRight: 62, marginBottom: 8, alignItems: "center" }}>
           <Image
-            source={require("@/assets/images/logo-wordmark.png")}
-            style={{ width: Math.min(260, Math.max(205, width - 132)), height: 48 }}
+            source={require("@/assets/images/logo.png")}
+            style={{ width: "100%", height: 82, marginTop: -10 }}
             resizeMode="contain"
             fadeDuration={0}
             accessibilityLabel="Stadium Edge"
           />
-          <View style={{ flex: 1 }} />
           <Pressable
             onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
             hitSlop={8}
             style={({ pressed }) => ({
+              position: "absolute",
+              right: 16,
+              top: 18,
               width: 38,
               height: 38,
               borderRadius: 19,
