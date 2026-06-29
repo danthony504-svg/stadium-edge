@@ -37,7 +37,11 @@ import {
 // prod. Auth is REQUIRED — the (tabs) layout gates the app behind sign-in, so on
 // first open a signed-out user is sent to the login screen.
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
+// pk_live is proxy-only (Replit host). pk_test talks to Clerk dev FAPI directly —
+// do NOT set a proxy URL for test keys or Clerk never loads on Render.
+const proxyUrl = publishableKey.startsWith("pk_live")
+  ? process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined
+  : undefined;
 
 // Registers the Clerk session-token getter with the API client so authed sync
 // requests carry a Bearer token. Lives inside ClerkProvider so useAuth works.
@@ -172,9 +176,8 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Pull JS-only fixes without a new App Store build. Defer until after the
-  // first screen paints so a bad OTA can't brick cold start (reload mid-boot
-  // was leaving a blank navy screen on TestFlight).
+  // Download OTA bundles in the background only — never reloadAsync on cold start
+  // (rollback + reload caused a blank-screen loop on TestFlight).
   useEffect(() => {
     if (__DEV__) return;
     const timer = setTimeout(() => {
@@ -183,15 +186,23 @@ export default function RootLayout() {
           const update = await Updates.checkForUpdateAsync();
           if (!update.isAvailable) return;
           await Updates.fetchUpdateAsync();
-          // Rollback-to-embedded or a new bundle — reload only after fetch succeeds.
-          await Updates.reloadAsync();
         } catch {
           // Offline or expo-updates disabled — keep running the embedded bundle.
         }
       })();
-    }, 8000);
+    }, 12000);
     return () => clearTimeout(timer);
   }, []);
+
+  if (!publishableKey) {
+    return (
+      <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
+        <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
+          App configuration error (missing auth key). Reinstall from TestFlight or contact support.
+        </Text>
+      </View>
+    );
+  }
 
   if (!fontsLoaded && !fontError) {
     return (
