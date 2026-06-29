@@ -77,6 +77,9 @@ import {
   mentionsPropIntent,
   wantsPropsOnly,
   wantsTodayOnly,
+  wantsTonightSlate,
+  threadWantsTonightSlate,
+  filterTonightSlatePicks,
   explicitSingleGameIntent,
   tonightExhaustedNote,
   streamChat,
@@ -1105,7 +1108,15 @@ export default function CoachScreen() {
             ));
         const explicitSingleGame =
           explicitSingleGameIntent(trimmed) || singleGameDepth;
-        const thinSlateDepth = requestedLegs >= 9 && wantsTodayOnly(trimmed);
+        const priorUserTexts = messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content);
+        const tonightRequested = threadWantsTonightSlate(trimmed, priorUserTexts);
+        const thinSlateDepth = requestedLegs >= 9 && tonightRequested;
+        const focalForPools =
+          tonightRequested && !wantsTodayOnly(trimmed)
+            ? `${trimmed} tonight`
+            : trimmed;
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
@@ -1172,7 +1183,7 @@ export default function CoachScreen() {
             controller.signal,
             oddsThreshold,
             includePeriods,
-            trimmed,
+            focalForPools,
             altSign,
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
@@ -1284,9 +1295,12 @@ export default function CoachScreen() {
         // side or drop. Variety rotates games/props/markets, not WHO wins.
         let mlLeanNote = "";
         if (!isAnalyze && picks.length > 0 && context.matchupHistory) {
+          const realOddsForLean = tonightRequested
+            ? context.realOdds.filter((e) => startsTodayUpcoming(e.startsAt))
+            : context.realOdds;
           const enforced = enforceMlLeanOnPicks(picks, {
             matchupHistory: context.matchupHistory,
-            realOdds: context.realOdds,
+            realOdds: realOddsForLean,
             gameMeta,
           });
           picks = enforced.picks;
@@ -1419,10 +1433,9 @@ export default function CoachScreen() {
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
-        const tonightRequested = wantsTodayOnly(trimmed);
         if (tonightRequested) {
           const before = picks.length;
-          picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          picks = filterTonightSlatePicks(picks);
           // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
           // (it reached for props on non-today games via the server's prop
           // backfill, or whiffed) WHILE the user named a sport that still has a
@@ -1654,7 +1667,7 @@ export default function CoachScreen() {
           }
         }
         if (tonightRequested) {
-          picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          picks = filterTonightSlatePicks(picks);
           tonightNote = tonightExhaustedNote({
             tonightRequested,
             todayOnlyApplied: todayOnly,

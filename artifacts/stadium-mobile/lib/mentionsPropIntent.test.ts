@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -64,4 +64,33 @@ test("tonightExhaustedNote: blocks silent tomorrow padding when tonight slate is
     }),
     "",
   );
+});
+
+test("wantsTonightSlate: bare N-leg parlay defaults to tonight", () => {
+  assert.equal(wantsTonightSlate("Build me a 5-leg parlay"), true);
+  assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tomorrow"), false);
+  assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tonight"), true);
+});
+
+test("threadWantsTonightSlate: inherits tonight from prior user turn", () => {
+  assert.equal(
+    threadWantsTonightSlate("make it safer", ["Build me a 6-leg parlay for tonight"]),
+    true,
+  );
+  assert.equal(
+    threadWantsTonightSlate("add one more leg", ["Build me a parlay for tomorrow"]),
+    false,
+  );
+});
+
+test("filterTonightSlatePicks drops tomorrow kickoffs", () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(17, 35, 0, 0);
+  const kept = filterTonightSlatePicks([
+    { startsAt: tomorrow.toISOString() },
+    { startsAt: null },
+  ]);
+  assert.equal(kept.length, 0);
+  assert.equal(localDayDiff(tomorrow.toISOString()), 1);
 });

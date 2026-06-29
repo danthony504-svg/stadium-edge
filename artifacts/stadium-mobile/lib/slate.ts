@@ -42,6 +42,53 @@ export function wantsTodayOnly(text?: string | null): boolean {
   return /\b(?:today|tonight)\b/.test(t);
 }
 
+// Parlay-build phrasing with no explicit future date — users expect tonight's slate
+// (matches quick prompts + the Coach header copy).
+const PARLAY_BUILD_RE =
+  /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+
+const FUTURE_SLATE_RE =
+  /\b(?:next week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
+
+/** Local calendar-day offset from now (0 = today, 1 = tomorrow). Matches formatGameTime. */
+export function localDayDiff(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+}
+
+/** True when the user wants tonight's / today's upcoming slate (not tomorrow). */
+export function wantsTonightSlate(text?: string | null): boolean {
+  if (wantsTodayOnly(text)) return true;
+  const t = String(text || "").toLowerCase();
+  if (/\btomorrow\b/.test(t)) return false;
+  if (FUTURE_SLATE_RE.test(t)) return false;
+  return PARLAY_BUILD_RE.test(t);
+}
+
+/** Inherit tonight intent from recent user turns ("5 leg parlay" after "for tonight"). */
+export function threadWantsTonightSlate(
+  current: string,
+  priorUserTexts: string[] = [],
+): boolean {
+  if (wantsTonightSlate(current)) return true;
+  for (let i = priorUserTexts.length - 1; i >= 0; i--) {
+    const prior = priorUserTexts[i] ?? "";
+    if (/\btomorrow\b/i.test(prior)) return false;
+    if (wantsTonightSlate(prior)) return true;
+  }
+  return false;
+}
+
+export function filterTonightSlatePicks<T extends { startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => startsTodayUpcoming(p.startsAt));
+}
+
 // True when the user explicitly asked for ONE game's ticket (same-game parlay,
 // SGP, "for Team A @ Team B", etc.). Used to scope backfill to a single matchup.
 // A generic "15-leg parlay for tonight" is NOT single-game even if the model's
@@ -69,15 +116,8 @@ export function startsTodayUpcoming(startsAt?: string | null): boolean {
   if (!startsAt) return false;
   const t = Date.parse(startsAt);
   if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  if (t <= now) return false; // already started (or tipping off right now)
-  const d = new Date(t);
-  const n = new Date(now);
-  return (
-    d.getFullYear() === n.getFullYear() &&
-    d.getMonth() === n.getMonth() &&
-    d.getDate() === n.getDate()
-  );
+  if (t <= Date.now()) return false;
+  return localDayDiff(startsAt) === 0;
 }
 
 // Decide whether a "today / tonight" restriction should ACTUALLY be applied to
