@@ -1,7 +1,7 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -46,7 +46,7 @@ import { SPORTS } from "@/lib/sports";
 // Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
 // are listed but have NO player-prop feed — they get a real matches list here
 // instead, the prop rails stay empty (honest), and tapping a match opens odds.
-import { BROWSE_ONLY_SPORTS, isPillSport, SportPills } from "@/components/SportPills";
+import { BROWSE_ONLY_SPORTS, isPillSport } from "@/components/SportPills";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -83,6 +83,21 @@ const REC_CAP = 6; // cards shown in the rail
 // is genuinely "value", not noise; empty (hidden) when nothing qualifies.
 const MIN_VALUE_EV = 1.5; // EV % floor to show a prop in the value rail
 const VALUE_CAP = 8; // cards shown in the value rail
+
+const PROP_CATEGORIES: {
+  label: string;
+  icon: ComponentProps<typeof Feather>["name"];
+  markets: string[];
+}[] = [
+  { label: "Hits", icon: "edit-3", markets: ["batter_hits"] },
+  { label: "Total Bases", icon: "shield", markets: ["batter_total_bases"] },
+  { label: "Home Runs", icon: "circle", markets: ["batter_home_runs"] },
+  { label: "Runs", icon: "activity", markets: ["batter_runs"] },
+  { label: "RBIs", icon: "target", markets: ["batter_rbis"] },
+  { label: "Stolen Bases", icon: "hexagon", markets: ["batter_stolen_bases"] },
+  { label: "Strikeouts (Pitchers)", icon: "disc", markets: ["pitcher_strikeouts"] },
+  { label: "Pitcher Outs", icon: "pie-chart", markets: ["pitcher_outs"] },
+];
 
 type RecBadge = { text: string; caption?: string; tone: "grade" | "upset" };
 
@@ -990,6 +1005,33 @@ export default function PropsScreen() {
     });
   };
 
+  const popularPlayers = useMemo(() => {
+    if (isBrowseSport) return [] as { g: GameProps; prop: PlayerProp; team: string | null }[];
+    const out: { g: GameProps; prop: PlayerProp; team: string | null }[] = [];
+    const seen = new Set<string>();
+    for (const g of propsQ.data?.games ?? []) {
+      for (const p of g.props) {
+        const key = p.player.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ g, prop: p, team: teamAbbrFor(p, g.teams) });
+        if (out.length >= 10) return out;
+      }
+    }
+    return out;
+  }, [propsQ.data, isBrowseSport]);
+
+  const openCategory = (markets: string[]) => {
+    if (isBrowseSport) return;
+    for (const g of propsQ.data?.games ?? []) {
+      const hit = g.props.find((p) => markets.includes(p.market));
+      if (hit) {
+        openSheet(g, hit);
+        return;
+      }
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -1008,71 +1050,213 @@ export default function PropsScreen() {
           />
         }
       >
-        {/* Pinned header — logo, search and sport pills stay affixed to the top
-            of the page (including while props are loading), so the content below
-            scrolls underneath them instead of pushing them around. */}
-        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo — full Stadium Edge logo at its original size, pinned to the top
-            and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 130, marginTop: -8 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-        </View>
-
-        {/* Search */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: 999,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-            }}
-          >
-            <Feather name="search" size={16} color={colors.mutedForeground} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search players or teams"
-              placeholderTextColor={colors.mutedForeground}
-              style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
-              autoCorrect={false}
-              autoCapitalize="none"
+        {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
+        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background, paddingBottom: 14 }}>
+          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
+            <Image
+              source={require("@/assets/images/logo-wordmark.png")}
+              style={{ width: "78%", height: 44 }}
+              resizeMode="contain"
+              fadeDuration={0}
+              accessibilityLabel="Stadium Edge"
             />
-            {query.length > 0 ? (
-              <Pressable onPress={() => setQuery("")} hitSlop={8}>
-                <Feather name="x" size={16} color={colors.mutedForeground} />
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() => router.push("/notifications")}
+              hitSlop={8}
+              style={({ pressed }) => ({
+                position: "absolute",
+                right: 16,
+                top: 3,
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Feather name="bell" size={17} color={colors.foreground} />
+            </Pressable>
           </View>
-        </View>
 
-        {/* Sport selector — directly under the search bar so the league scope is
-            obvious before the rails. Hidden while searching, since search spans
-            every league at once and the selected pill no longer scopes results. */}
-        {searching ? null : (
-          <SportPills
-            activeId={sport}
-            onSelectSport={setSport}
-            onSelectGolf={() => router.push("/golf")}
-          />
-        )}
+          <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: "rgba(59,130,246,0.18)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name="user" size={19} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+                  Player Props Only
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+                  Build from just player props.
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => router.push("/coach")}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingHorizontal: 12,
+                  paddingVertical: 7,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: colors.primary,
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>
+                  How it works
+                </Text>
+                <Feather name="info" size={13} color={colors.primary} />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                borderRadius: colors.radius,
+                borderWidth: 1,
+                borderColor: colors.primary,
+                backgroundColor: colors.card,
+                padding: 14,
+                gap: 12,
+              }}
+            >
+              <View style={{ flex: 1, gap: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+                  <Feather name="target" size={15} color={colors.primary} />
+                  <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.6 }}>
+                    FOCUSED & SIMPLE
+                  </Text>
+                </View>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
+                  Search for players and pick from their available props.{"\n"}
+                  No teams, no parlays — just player performance.
+                </Text>
+              </View>
+              <View
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: 16,
+                  backgroundColor: "rgba(59,130,246,0.12)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Feather name="bar-chart-2" size={28} color={colors.primary} />
+              </View>
+            </View>
+          </View>
+
+          {!searching ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 14 }}
+            >
+              {SPORTS.filter((s) => isPillSport(s.id)).map((s) => {
+                const active = sport === s.id;
+                return (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => setSport(s.id)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      paddingVertical: 7,
+                      paddingHorizontal: 10,
+                      borderRadius: 999,
+                      borderWidth: 1,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary : colors.card,
+                    }}
+                  >
+                    <MaterialCommunityIcons name={s.icon} size={15} color={active ? "#fff" : colors.foreground} />
+                    <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
+                      {s.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+
+          <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16 }}>
+            <View
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 11,
+              }}
+            >
+              <Feather name="search" size={17} color={colors.mutedForeground} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search players"
+                placeholderTextColor={colors.mutedForeground}
+                style={{ flex: 1, color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, padding: 0 }}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              {query.length > 0 ? (
+                <Pressable onPress={() => setQuery("")} hitSlop={8}>
+                  <Feather name="x" size={16} color={colors.mutedForeground} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable
+              onPress={() => {}}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 7,
+                paddingHorizontal: 14,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.card,
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Feather name="filter" size={15} color={colors.mutedForeground} />
+              <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 13 }}>
+                Filters
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,
             hidden while searching. */}
-        {!query.trim() && recommended.length > 0 ? (
+        {false && !query.trim() && recommended.length > 0 ? (
           <View style={{ marginBottom: 18 }}>
             <Text
               style={{
@@ -1147,7 +1331,7 @@ export default function PropsScreen() {
         {/* VALUE (+EV) — props whose best posted price beats the de-vigged
             cross-book consensus fair value. Server-computed, real-or-omitted;
             hidden while searching and when nothing qualifies. */}
-        {!query.trim() && valueProps.length > 0 ? (
+        {false && !query.trim() && valueProps.length > 0 ? (
           <View style={{ marginBottom: 18 }}>
             <Text
               style={{
@@ -1219,6 +1403,116 @@ export default function PropsScreen() {
                 </View>
               ))}
             </ScrollView>
+          </View>
+        ) : null}
+
+        {!searching && popularPlayers.length > 0 ? (
+          <View style={{ marginBottom: 22 }}>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+                letterSpacing: 0.7,
+                paddingHorizontal: 16,
+                marginBottom: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              Popular Players
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+            >
+              {popularPlayers.map(({ g, prop, team }) => (
+                <Pressable
+                  key={`${g.gameLabel}-${prop.player}-${prop.market}`}
+                  onPress={() => openSheet(g, prop)}
+                  style={({ pressed }) => ({
+                    width: 92,
+                    minHeight: 124,
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.card,
+                    padding: 10,
+                    alignItems: "center",
+                    gap: 7,
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <Avatar headshot={prop.headshot} name={prop.player} />
+                  <Text
+                    style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11, textAlign: "center" }}
+                    numberOfLines={2}
+                  >
+                    {prop.player}
+                  </Text>
+                  <Text
+                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, textAlign: "center" }}
+                    numberOfLines={1}
+                  >
+                    {[team, propMarketLabel(prop.market)].filter(Boolean).join(" · ")}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={{ flexDirection: "row", gap: 7, justifyContent: "center", marginTop: 12 }}>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: i === 0 ? 8 : 6,
+                    height: i === 0 ? 8 : 6,
+                    borderRadius: 4,
+                    backgroundColor: i === 0 ? colors.primary : colors.border,
+                  }}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {!searching ? (
+          <View style={{ paddingHorizontal: 16, marginBottom: 18 }}>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.bold,
+                fontSize: 11,
+                letterSpacing: 0.7,
+                marginBottom: 10,
+                textTransform: "uppercase",
+              }}
+            >
+              Popular Prop Categories
+            </Text>
+            <View style={{ borderRadius: 12, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }}>
+              {PROP_CATEGORIES.map((cat, i) => (
+                <Pressable
+                  key={cat.label}
+                  onPress={() => openCategory(cat.markets)}
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 13,
+                    paddingHorizontal: 14,
+                    paddingVertical: 14,
+                    backgroundColor: pressed ? colors.surface : colors.card,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: colors.border,
+                  })}
+                >
+                  <Feather name={cat.icon} size={19} color={colors.primary} />
+                  <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}>
+                    {cat.label}
+                  </Text>
+                  <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : null}
 
