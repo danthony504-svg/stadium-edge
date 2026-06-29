@@ -172,23 +172,34 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Pull JS-only fixes (coach logic, API URL, etc.) without a new App Store build.
+  // Pull JS-only fixes without a new App Store build. Defer until after the
+  // first screen paints so a bad OTA can't brick cold start (reload mid-boot
+  // was leaving a blank navy screen on TestFlight).
   useEffect(() => {
     if (__DEV__) return;
-    (async () => {
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const update = await Updates.checkForUpdateAsync();
+          if (!update.isAvailable) return;
           await Updates.fetchUpdateAsync();
+          // Rollback-to-embedded or a new bundle — reload only after fetch succeeds.
           await Updates.reloadAsync();
+        } catch {
+          // Offline or expo-updates disabled — keep running the embedded bundle.
         }
-      } catch {
-        // Offline or expo-updates disabled — keep running the embedded bundle.
-      }
-    })();
+      })();
+    }, 8000);
+    return () => clearTimeout(timer);
   }, []);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: DARK_BG }}>
+        <BootScreen />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
