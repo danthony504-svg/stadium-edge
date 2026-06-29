@@ -45,7 +45,7 @@ export function wantsTodayOnly(text?: string | null): boolean {
 // Parlay-build phrasing with no explicit future date — users expect tonight's slate
 // (matches quick prompts + the Coach header copy).
 const PARLAY_BUILD_RE =
-  /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+  /\b(?:build|make|give me|need|want)\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b|\b(?:best|strongest|safest|top|good|great)\s+parlay\b/i;
 
 const FUTURE_SLATE_RE =
   /\b(?:next week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
@@ -74,10 +74,11 @@ export function threadWantsTonightSlate(
   current: string,
   priorUserTexts: string[] = [],
 ): boolean {
+  if (wantsTomorrowSlate(current)) return false;
   if (wantsTonightSlate(current)) return true;
   for (let i = priorUserTexts.length - 1; i >= 0; i--) {
     const prior = priorUserTexts[i] ?? "";
-    if (/\btomorrow\b/i.test(prior)) return false;
+    if (wantsTomorrowSlate(prior)) return false;
     if (wantsTonightSlate(prior)) return true;
   }
   return false;
@@ -87,6 +88,88 @@ export function filterTonightSlatePicks<T extends { startsAt?: string | null }>(
   picks: T[],
 ): T[] {
   return picks.filter((p) => startsTodayUpcoming(p.startsAt));
+}
+
+export function wantsTomorrowOnly(text?: string | null): boolean {
+  return /\btomorrow\b/i.test(String(text || ""));
+}
+
+/** Game tips off tomorrow (local calendar) and hasn't started. */
+export function startsTomorrowUpcoming(startsAt?: string | null): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  if (t <= Date.now()) return false;
+  return localDayDiff(startsAt) === 1;
+}
+
+export function wantsTomorrowSlate(text?: string | null): boolean {
+  return wantsTomorrowOnly(text);
+}
+
+export function threadWantsTomorrowSlate(
+  current: string,
+  priorUserTexts: string[] = [],
+): boolean {
+  if (wantsTomorrowSlate(current)) return true;
+  for (let i = priorUserTexts.length - 1; i >= 0; i--) {
+    if (wantsTomorrowSlate(priorUserTexts[i])) return true;
+  }
+  return false;
+}
+
+export function filterTomorrowSlatePicks<T extends { startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => startsTomorrowUpcoming(p.startsAt));
+}
+
+export type SlateDay = "tonight" | "tomorrow" | null;
+
+/** Which calendar-day slate the user asked for (tomorrow wins over tonight default). */
+export function slateDayFromThread(
+  current: string,
+  priorUserTexts: string[] = [],
+): SlateDay {
+  if (threadWantsTomorrowSlate(current, priorUserTexts)) return "tomorrow";
+  if (threadWantsTonightSlate(current, priorUserTexts)) return "tonight";
+  return null;
+}
+
+export function slateOddsLabel(day: SlateDay): string {
+  if (day === "tomorrow") return "tomorrow's";
+  if (day === "tonight") return "tonight's";
+  return "live";
+}
+
+export function filterPicksForSlateDay<T extends { startsAt?: string | null }>(
+  picks: T[],
+  day: SlateDay,
+): T[] {
+  if (day === "tonight") return filterTonightSlatePicks(picks);
+  if (day === "tomorrow") return filterTomorrowSlatePicks(picks);
+  return picks;
+}
+
+export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
+  entries: T[],
+  day: SlateDay,
+): T[] {
+  if (day === "tonight") {
+    return entries.filter((e) => startsTodayUpcoming(e.startsAt));
+  }
+  if (day === "tomorrow") {
+    return entries.filter((e) => startsTomorrowUpcoming(e.startsAt));
+  }
+  return entries;
+}
+
+export function resolveTomorrowOnly(
+  requested: boolean,
+  startTimes: (string | null | undefined)[],
+): boolean {
+  if (!requested) return false;
+  return startTimes.some((t) => isPickable(t) && startsTomorrowUpcoming(t));
 }
 
 // True when the user explicitly asked for ONE game's ticket (same-game parlay,

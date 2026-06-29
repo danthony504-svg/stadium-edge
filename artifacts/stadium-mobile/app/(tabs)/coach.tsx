@@ -72,14 +72,15 @@ import {
   propPoolFromRealProps,
   searchPlayer,
   searchTeam,
-  startsTodayUpcoming,
+  wantsTodayOnly,
+  wantsTomorrowOnly,
+  filterPicksForSlateDay,
+  filterOddsForSlateDay,
+  slateDayFromThread,
+  slateOddsLabel,
   todayBuildNote,
   mentionsPropIntent,
   wantsPropsOnly,
-  wantsTodayOnly,
-  wantsTonightSlate,
-  threadWantsTonightSlate,
-  filterTonightSlatePicks,
   explicitSingleGameIntent,
   tonightExhaustedNote,
   streamChat,
@@ -1111,12 +1112,16 @@ export default function CoachScreen() {
         const priorUserTexts = messages
           .filter((m) => m.role === "user")
           .map((m) => m.content);
-        const tonightRequested = threadWantsTonightSlate(trimmed, priorUserTexts);
-        const thinSlateDepth = requestedLegs >= 9 && tonightRequested;
+        const slateDay = slateDayFromThread(trimmed, priorUserTexts);
+        const slateLabel = slateOddsLabel(slateDay);
+        const boardPhrase = slateDay ? `${slateLabel} board` : "the board";
+        const thinSlateDepth = requestedLegs >= 9 && slateDay === "tonight";
         const focalForPools =
-          tonightRequested && !wantsTodayOnly(trimmed)
-            ? `${trimmed} tonight`
-            : trimmed;
+          slateDay === "tomorrow" && !wantsTomorrowOnly(trimmed)
+            ? `${trimmed} tomorrow`
+            : slateDay === "tonight" && !wantsTodayOnly(trimmed)
+              ? `${trimmed} tonight`
+              : trimmed;
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
@@ -1295,8 +1300,8 @@ export default function CoachScreen() {
         // side or drop. Variety rotates games/props/markets, not WHO wins.
         let mlLeanNote = "";
         if (!isAnalyze && picks.length > 0 && context.matchupHistory) {
-          const realOddsForLean = tonightRequested
-            ? context.realOdds.filter((e) => startsTodayUpcoming(e.startsAt))
+          const realOddsForLean = slateDay
+            ? filterOddsForSlateDay(context.realOdds, slateDay)
             : context.realOdds;
           const enforced = enforceMlLeanOnPicks(picks, {
             matchupHistory: context.matchupHistory,
@@ -1358,7 +1363,7 @@ export default function CoachScreen() {
               (oddsThreshold.mode === "atLeast" ? " or longer" : " or shorter");
             thresholdNote =
               picks.length === 0
-                ? `\n\n_No real legs on tonight's board were priced ${bound}, so there's nothing to show for that bound right now — try a looser number or a different market._`
+                ? `\n\n_No real legs on ${boardPhrase} were priced ${bound}, so there's nothing to show for that bound right now — try a looser number or a different market._`
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
@@ -1394,7 +1399,7 @@ export default function CoachScreen() {
             const band = describeConfidenceThreshold(confidenceThreshold);
             confidenceNote =
               picks.length === 0
-                ? `\n\n_None of tonight's grounded legs have enough strong signals behind them to reach ${band} confidence right now — that score is built from each leg's real matchup, form, line value, injury and price edges, and I won't invent a signal to fake the number. Try a lower confidence or a different market._`
+                ? `\n\n_None of ${slateLabel} grounded legs have enough strong signals behind them to reach ${band} confidence right now — that score is built from each leg's real matchup, form, line value, injury and price edges, and I won't invent a signal to fake the number. Try a lower confidence or a different market._`
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} with enough strong signals to reach ${band} confidence; dropped ${dropped} below that bar — I won't pad with lower-confidence legs._`;
           }
         }
@@ -1415,7 +1420,7 @@ export default function CoachScreen() {
             const word = altSign === "plus" ? "plus-money" : "minus-money";
             signNote =
               picks.length === 0
-                ? `\n\n_No real ${word} alt legs were available on tonight's board, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
+                ? `\n\n_No real ${word} alt legs were available on ${boardPhrase}, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
                 : `\n\n_Showing the ${picks.length} real ${word} alt leg${picks.length === 1 ? "" : "s"}; dropped ${dropped} that landed on the other sign._`;
           }
         }
@@ -1433,9 +1438,9 @@ export default function CoachScreen() {
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
-        if (tonightRequested) {
+        if (slateDay) {
           const before = picks.length;
-          picks = filterTonightSlatePicks(picks);
+          picks = filterPicksForSlateDay(picks, slateDay);
           // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
           // (it reached for props on non-today games via the server's prop
           // backfill, or whiffed) WHILE the user named a sport that still has a
@@ -1478,11 +1483,13 @@ export default function CoachScreen() {
           if (salvageEligible) {
             const tgt = Math.min(requestedLegs, MAX_LEGS);
             if (mentionsPropIntent(trimmed)) {
-              const salvagePool = (
+              const dayOdds = slateDay
+                ? filterOddsForSlateDay(context.realOdds, slateDay)
+                : context.realOdds;
+              const salvagePool =
                 salvageSports.size > 0
-                  ? context.realOdds.filter((e) => salvageSports.has(e.sport))
-                  : context.realOdds
-              ).filter((e) => startsTodayUpcoming(e.startsAt));
+                  ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                  : dayOdds;
               picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
                 ...propBackfillOpts,
@@ -1500,11 +1507,13 @@ export default function CoachScreen() {
             // EVERY today-upcoming game on the board. context.realOdds is already
             // startsTodayUpcoming-filtered here, so either pool is real + today +
             // upcoming and nothing is invented.
-            const salvagePool = (
+            const dayOdds = slateDay
+              ? filterOddsForSlateDay(context.realOdds, slateDay)
+              : context.realOdds;
+            const salvagePool =
               salvageSports.size > 0
-                ? context.realOdds.filter((e) => salvageSports.has(e.sport))
-                : context.realOdds
-            ).filter((e) => startsTodayUpcoming(e.startsAt));
+                ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                : dayOdds;
             if (salvagePool.length > 0) {
               picks = backfillPicks([], salvagePool, gameMeta, {
                 target: tgt,
@@ -1607,8 +1616,8 @@ export default function CoachScreen() {
             : context.realOdds;
           if (lockedSports)
             backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
-          if (tonightRequested) {
-            backfillPool = backfillPool.filter((e) => startsTodayUpcoming(e.startsAt));
+          if (slateDay) {
+            backfillPool = filterOddsForSlateDay(backfillPool, slateDay);
           }
           if (altSign) {
             picks = backfillPicks(picks, backfillPool, gameMeta, {
@@ -1666,14 +1675,16 @@ export default function CoachScreen() {
             }
           }
         }
-        if (tonightRequested) {
-          picks = filterTonightSlatePicks(picks);
-          tonightNote = tonightExhaustedNote({
-            tonightRequested,
-            todayOnlyApplied: todayOnly,
-            surviving: picks.length,
-            requestedLegs,
-          });
+        if (slateDay) {
+          picks = filterPicksForSlateDay(picks, slateDay);
+          if (slateDay === "tonight") {
+            tonightNote = tonightExhaustedNote({
+              tonightRequested: true,
+              todayOnlyApplied: todayOnly,
+              surviving: picks.length,
+              requestedLegs,
+            });
+          }
         }
         // Belt-and-braces for the 15-leg slip cap: the server prompt already tells
         // the model never to build more than MAX_LEGS legs, but if it ever drifts
@@ -1706,11 +1717,12 @@ export default function CoachScreen() {
         // or (2) the real board was too thin to ground that many legs. We never
         // pad with invented legs.
         let legNote = "";
+        const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =
             requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against tonight's real odds — that's the honest ticket, I won't pad it with invented legs.`;
+              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`;
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -1745,7 +1757,7 @@ export default function CoachScreen() {
             confidenceNote ||
             signNote ||
             todayNote ||
-            "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
+            "\n\n_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
@@ -1986,6 +1998,15 @@ export default function CoachScreen() {
     };
   }, []);
 
+  const headerUserTexts = useMemo(
+    () => messages.filter((m) => m.role === "user").map((m) => m.content),
+    [messages],
+  );
+  const headerSlateLabel = useMemo(() => {
+    const last = headerUserTexts.at(-1) ?? "";
+    return slateOddsLabel(slateDayFromThread(last, headerUserTexts.slice(0, -1)));
+  }, [headerUserTexts]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
@@ -1993,7 +2014,7 @@ export default function CoachScreen() {
           AI Coach
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          Picks grounded in tonight&apos;s real odds — never invented
+          Picks grounded in {headerSlateLabel} real odds — never invented
         </Text>
       </View>
 

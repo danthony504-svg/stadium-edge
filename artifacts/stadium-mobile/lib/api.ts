@@ -17,6 +17,16 @@ import {
   wantsTonightSlate,
   threadWantsTonightSlate,
   filterTonightSlatePicks,
+  wantsTomorrowOnly,
+  startsTomorrowUpcoming,
+  wantsTomorrowSlate,
+  threadWantsTomorrowSlate,
+  filterTomorrowSlatePicks,
+  slateDayFromThread,
+  slateOddsLabel,
+  filterPicksForSlateDay,
+  filterOddsForSlateDay,
+  resolveTomorrowOnly,
   resolveTodayOnly,
   todayBuildNote,
   mentionsPropIntent,
@@ -37,6 +47,16 @@ export {
   wantsTonightSlate,
   threadWantsTonightSlate,
   filterTonightSlatePicks,
+  wantsTomorrowOnly,
+  startsTomorrowUpcoming,
+  wantsTomorrowSlate,
+  threadWantsTomorrowSlate,
+  filterTomorrowSlatePicks,
+  slateDayFromThread,
+  slateOddsLabel,
+  filterPicksForSlateDay,
+  filterOddsForSlateDay,
+  resolveTomorrowOnly,
   resolveTodayOnly,
   todayBuildNote,
   mentionsPropIntent,
@@ -1787,6 +1807,7 @@ export type BuiltChatContext = {
   // the strict today-only filter the context build deliberately relaxed and zero
   // out the (real, tomorrow) slate again.
   todayOnly: boolean;
+  tomorrowOnly: boolean;
 };
 
 // ---------- Upset Watch / moneyline-lean engine (port of the web app) ----------
@@ -2123,7 +2144,13 @@ export async function buildChatContext(
     ...oddsAll.flat().map((g) => g.commenceTime),
     ...gamesAll.flat().filter((g) => g.state !== "post").map((g) => g.startsAt),
   ];
-  const todayOnly = resolveTodayOnly(wantsTodayOnly(focalText), candidateStartTimes);
+  const tomorrowOnly = resolveTomorrowOnly(
+    wantsTomorrowOnly(focalText),
+    candidateStartTimes,
+  );
+  const todayOnly =
+    !tomorrowOnly &&
+    resolveTodayOnly(wantsTodayOnly(focalText), candidateStartTimes);
   const focalSportsHist = focalSportsFromText(focalText);
   const withinFocalHorizon = (startsAt?: string | null) => {
     if (!startsAt) return false;
@@ -2139,6 +2166,7 @@ export async function buildChatContext(
       // recommending a bet off it would be dishonest. Slate screens still show
       // in-progress games via isPickable; the coach pool must not.
       if (!isPregameBettable(g.commenceTime)) continue;
+      if (tomorrowOnly && !startsTomorrowUpcoming(g.commenceTime)) continue;
       if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       realOdds.push(...buildRealOdds(g, oddsThreshold, includePeriods, altSign));
     }
@@ -2151,8 +2179,11 @@ export async function buildChatContext(
       const home = g.homeTeam || g.homeAbbr || "";
       if (!away || !home) continue;
       const gameLabel = `${away} @ ${home}`;
-      let included = isPickable(g.startsAt) && (!todayOnly || startsTodayUpcoming(g.startsAt));
-      if (!included && !todayOnly) {
+      let included =
+        isPickable(g.startsAt) &&
+        (!tomorrowOnly || startsTomorrowUpcoming(g.startsAt)) &&
+        (!todayOnly || startsTodayUpcoming(g.startsAt));
+      if (!included && !todayOnly && !tomorrowOnly) {
         // Series-lookahead widening: only for the named sport/game, only a few
         // games out, capped (focalExtra) so a focal MLB ask can't drag in a
         // week of baseball. These extra games carry no odds — they exist purely
@@ -2246,6 +2277,7 @@ export async function buildChatContext(
       // Pregame-only (same honesty rule as realOdds above): never seed coach
       // prop picks from a game that's already underway with a frozen line.
       if (!isPregameBettable(g.commenceTime)) continue;
+      if (tomorrowOnly && !startsTomorrowUpcoming(g.commenceTime)) continue;
       if (todayOnly && !startsTodayUpcoming(g.commenceTime)) continue;
       if (!g.homeTeam || !g.awayTeam) continue;
       const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
@@ -2682,6 +2714,7 @@ export async function buildChatContext(
     gameMeta,
     upsetSpots,
     todayOnly,
+    tomorrowOnly,
   };
 }
 

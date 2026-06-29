@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -68,8 +68,30 @@ test("tonightExhaustedNote: blocks silent tomorrow padding when tonight slate is
 
 test("wantsTonightSlate: bare N-leg parlay defaults to tonight", () => {
   assert.equal(wantsTonightSlate("Build me a 5-leg parlay"), true);
+  assert.equal(wantsTonightSlate("Build me the best parlay"), true);
   assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tomorrow"), false);
   assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tonight"), true);
+});
+
+test("slateDayFromThread: tomorrow beats tonight default", () => {
+  assert.equal(slateDayFromThread("Build me a 8 leg for tomorrow", []), "tomorrow");
+  assert.equal(slateDayFromThread("Build me the best parlay", []), "tonight");
+  assert.equal(slateOddsLabel("tomorrow"), "tomorrow's");
+});
+
+test("filterTomorrowSlatePicks keeps only tomorrow kickoffs", () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(17, 35, 0, 0);
+  const today = new Date();
+  today.setHours(23, 0, 0, 0);
+  if (today.getTime() <= Date.now()) today.setDate(today.getDate() + 1);
+  const kept = filterPicksForSlateDay(
+    [{ startsAt: tomorrow.toISOString() }, { startsAt: today.toISOString() }],
+    "tomorrow",
+  );
+  assert.equal(kept.length, 1);
+  assert.equal(localDayDiff(kept[0]!.startsAt!), 1);
 });
 
 test("threadWantsTonightSlate: inherits tonight from prior user turn", () => {
