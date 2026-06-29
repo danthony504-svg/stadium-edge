@@ -213,6 +213,73 @@ function PerformanceSparkline({ width }: { width: number }) {
   );
 }
 
+function BaseballMiniPanel() {
+  const colors = useColors();
+  const dot = (filled: boolean, color: string) => (
+    <View
+      style={{
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: filled ? color : colors.border,
+      }}
+    />
+  );
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+      <View style={{ gap: 5 }}>
+        {[
+          { label: "B", filled: 3, color: "#34d399" },
+          { label: "S", filled: 2, color: "#facc15" },
+          { label: "O", filled: 1, color: "#ef4444" },
+        ].map((row) => (
+          <View key={row.label} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={{ width: 10, color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+              {row.label}
+            </Text>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <View key={i}>{dot(i < row.filled, row.color)}</View>
+            ))}
+          </View>
+        ))}
+      </View>
+      <View style={{ width: 48, height: 48, alignItems: "center", justifyContent: "center" }}>
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.mutedForeground,
+            transform: [{ rotate: "45deg" }, { translateY: -14 }],
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.mutedForeground,
+            transform: [{ rotate: "45deg" }, { translateX: -14 }],
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: 16,
+            height: 16,
+            borderWidth: 2,
+            borderColor: colors.primary,
+            backgroundColor: "#facc15",
+            transform: [{ rotate: "45deg" }, { translateX: 14 }],
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -382,7 +449,7 @@ export default function HomeScreen() {
     return out;
   })();
 
-  // HERO — "Today's Best AI Parlay": the top server-computed +EV props, one per
+  // HERO — "Today's Top AI Parlay": the top server-computed +EV props, one per
   // distinct game (independence) and one per player, 2-3 legs. Combined odds,
   // model win prob and avg edge are all derived from REAL per-leg values; the
   // card is hidden (plain Build button shown) when fewer than 2 legs qualify.
@@ -760,7 +827,7 @@ export default function HomeScreen() {
         >
           <Feather name="search" size={17} color={colors.mutedForeground} />
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-            Search games, teams, or player props…
+            Search games, teams, or players…
           </Text>
         </Pressable>
 
@@ -842,7 +909,7 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Hero — Today's Best AI Parlay. Built from REAL top-EV props (one per
+        {/* Hero — Today's Top AI Parlay. Built from REAL top-EV props (one per
             distinct game). Combined odds, model win prob and avg edge are all
             derived from real per-leg values; falls back to a plain Build button
             when fewer than 2 EV legs are available (never a fabricated card). */}
@@ -901,7 +968,7 @@ export default function HomeScreen() {
                             textTransform: "uppercase",
                           }}
                         >
-                          Today's Best AI Parlay
+                          Today's Top AI Parlay
                         </Text>
                       </View>
                       <Text
@@ -993,7 +1060,7 @@ export default function HomeScreen() {
                     }}
                   >
                     <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 15 }}>
-                      Build Best Parlay
+                      Build this parlay
                     </Text>
                     <Feather name="arrow-right" size={16} color="#fff" />
                   </View>
@@ -1083,7 +1150,7 @@ export default function HomeScreen() {
             cleared THIS posted line in their recent games (a transparent letter
             grade from real hit-rate, NOT a fabricated model rating). Hidden when
             nothing grades out. */}
-        {featuredEnabled && (hotLoading || topHot.length > 0) ? (
+        {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -1230,7 +1297,7 @@ export default function HomeScreen() {
             stats only (Win Rate / Record / Graded) — no units-profit number and
             no profit chart, because we don't track stake or an ordered P&L
             series. Shown only when there are real graded results. */}
-        {showTrack ? (
+        {false && showTrack ? (
           <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
             <Pressable
               onPress={() => router.push("/steals")}
@@ -1311,7 +1378,7 @@ export default function HomeScreen() {
         {/* Top AI Props — our own ranking (replaces a "most bet" list). Ranked by
             the server-computed +EV (best posted price vs the de-vigged cross-book
             consensus fair value). Real ev only; numbered; hidden when empty. */}
-        {featuredEnabled && valueProps.length > 0 ? (
+        {false && featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -1469,7 +1536,7 @@ export default function HomeScreen() {
                 <View
                   key={g.id}
                   style={{
-                    width: 270,
+                    width: liveGames.length === 1 ? width - 32 : 300,
                     backgroundColor: colors.card,
                     borderWidth: 1,
                     borderColor: colors.border,
@@ -1507,32 +1574,35 @@ export default function HomeScreen() {
                     </Text>
                   </View>
 
-                  <Pressable
-                    onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
-                    style={{ gap: 8 }}
-                  >
-                    {[
-                      { name: g.awayTeam, abbr: g.awayAbbr, logo: g.awayLogo, score: g.awayScore },
-                      { name: g.homeTeam, abbr: g.homeAbbr, logo: g.homeLogo, score: g.homeScore },
-                    ].map((t, i) => (
-                      <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        {t.logo ? (
-                          <Image source={{ uri: t.logo }} style={{ width: 22, height: 22 }} resizeMode="contain" />
-                        ) : (
-                          <View style={{ width: 22, height: 22 }} />
-                        )}
-                        <Text
-                          style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, flex: 1 }}
-                          numberOfLines={1}
-                        >
-                          {t.name || t.abbr || "—"}
-                        </Text>
-                        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 16 }}>
-                          {t.score ?? 0}
-                        </Text>
-                      </View>
-                    ))}
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                    <Pressable
+                      onPress={() => router.push({ pathname: "/game/[id]", params: { id: g.id, sport } })}
+                      style={{ gap: 8, flex: 1 }}
+                    >
+                      {[
+                        { name: g.awayTeam, abbr: g.awayAbbr, logo: g.awayLogo, score: g.awayScore },
+                        { name: g.homeTeam, abbr: g.homeAbbr, logo: g.homeLogo, score: g.homeScore },
+                      ].map((t, i) => (
+                        <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          {t.logo ? (
+                            <Image source={{ uri: t.logo }} style={{ width: 24, height: 24 }} resizeMode="contain" />
+                          ) : (
+                            <View style={{ width: 24, height: 24 }} />
+                          )}
+                          <Text
+                            style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}
+                            numberOfLines={1}
+                          >
+                            {t.name || t.abbr || "—"}
+                          </Text>
+                          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18 }}>
+                            {t.score ?? 0}
+                          </Text>
+                        </View>
+                      ))}
+                    </Pressable>
+                    {sport === "mlb" ? <BaseballMiniPanel /> : null}
+                  </View>
 
                   <Pressable
                     onPress={() => askCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)}
@@ -1543,18 +1613,110 @@ export default function HomeScreen() {
                       borderRadius: 999,
                       paddingVertical: 10,
                       alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "row",
+                      gap: 8,
                       opacity: pressed ? 0.85 : 1,
                     })}
                   >
                     <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>
                       Build best parlay from this game
                     </Text>
+                    <Feather name="arrow-right" size={14} color={colors.primary} />
                   </Pressable>
                 </View>
               ))}
             </ScrollView>
           </View>
         ) : null}
+
+        {/* Today's Performance — Home dashboard card, shown in the same position
+            as the target layout. Values stay real; unavailable stats render as
+            em dashes instead of guesses. */}
+        <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
+          <Pressable
+            onPress={() => router.push("/steals")}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              overflow: "hidden",
+              opacity: pressed ? 0.9 : 1,
+            })}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <Feather name="bar-chart-2" size={16} color={colors.primary} />
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: FONT.display,
+                  fontSize: 16,
+                  flex: 1,
+                }}
+              >
+                Today's Performance
+              </Text>
+              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13 }}>
+                View all
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", flex: 1 }}>
+                {[
+                  { val: showTrack ? `${stealWinPct}%` : "—", label: "Win Rate", sub: "Last 30 Picks", tint: "#34d399" },
+                  {
+                    val: showTrack
+                      ? `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`
+                      : "—",
+                    label: "Record",
+                    sub: "Last 30 Picks",
+                    tint: "#34d399",
+                  },
+                  { val: showTrack ? String(stealRec!.graded) : "—", label: "Graded", sub: "Settled Picks", tint: colors.foreground },
+                ].map((m, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      flex: 1,
+                      alignItems: "center",
+                      gap: 2,
+                      borderLeftWidth: i === 0 ? 0 : 1,
+                      borderLeftColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 18 }}>{m.val}</Text>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 10 }}>
+                      {m.label}
+                    </Text>
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}>
+                      {m.sub}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <PerformanceSparkline width={Math.min(140, Math.max(100, width * 0.3))} />
+            </View>
+          </Pressable>
+        </View>
 
         {/* Upcoming games */}
         <View
