@@ -968,7 +968,7 @@ export default function HomeScreen() {
                             textTransform: "uppercase",
                           }}
                         >
-                          Today's Top AI Parlay
+                          TODAY'S TOP AI PARLAY
                         </Text>
                       </View>
                       <Text
@@ -1375,7 +1375,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* Top AI Props — our own ranking (replaces a "most bet" list). Ranked by
+        {/* Disabled value-prop ranking kept for future reuse. Ranked by
             the server-computed +EV (best posted price vs the de-vigged cross-book
             consensus fair value). Real ev only; numbered; hidden when empty. */}
         {false && featuredEnabled && valueProps.length > 0 ? (
@@ -1398,7 +1398,7 @@ export default function HomeScreen() {
                   flex: 1,
                 }}
               >
-                Top AI Props
+                Value Props
               </Text>
               <Pressable
                 hitSlop={8}
