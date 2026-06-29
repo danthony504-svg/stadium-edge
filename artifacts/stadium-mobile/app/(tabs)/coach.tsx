@@ -45,6 +45,7 @@ import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStat
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import { attachPickScores } from "@/lib/pickScoreContext";
+import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -71,9 +72,17 @@ import {
   propPoolFromRealProps,
   searchPlayer,
   searchTeam,
-  startsTodayUpcoming,
+  wantsTodayOnly,
+  wantsTomorrowOnly,
+  filterPicksForSlateDay,
+  filterOddsForSlateDay,
+  slateDayFromThread,
+  slateOddsLabel,
   todayBuildNote,
   mentionsPropIntent,
+  wantsPropsOnly,
+  explicitSingleGameIntent,
+  tonightExhaustedNote,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
@@ -312,20 +321,20 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
 }
 
 const QUICK_PROMPTS: { label: string; prompt: string }[] = [
-  { label: "3-Leg parlay", prompt: "Build me a 3-leg parlay for tonight" },
-  { label: "6-Leg parlay", prompt: "Build me a 6-leg parlay for tonight" },
-  { label: "9-Leg parlay", prompt: "Build me a 9-leg parlay for tonight" },
-  { label: "15-Leg longshot", prompt: "Build me a 15-leg longshot parlay for tonight" },
-  { label: "Player props only", prompt: "Build me a player props only parlay for tonight" },
+  { label: "3-Leg parlay · tonight", prompt: "Build me a 3-leg parlay for tonight" },
+  { label: "6-Leg parlay · tonight", prompt: "Build me a 6-leg parlay for tonight" },
+  { label: "9-Leg parlay · tonight", prompt: "Build me a 9-leg parlay for tonight" },
+  { label: "15-Leg longshot · tonight", prompt: "Build me a 15-leg longshot parlay for tonight" },
+  { label: "Player props only · tonight", prompt: "Build me a player props only parlay for tonight" },
 ];
 
 const CHAT_SEEN_KEY = "se_chat_seen";
 
 const WELCOME_FIRST_TIME =
-  "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
+  "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nParlay builds default to tonight’s slate — only games on today’s board that haven’t started yet. Say \"for tomorrow\" if you want the next day’s board instead.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
 
 const WELCOME_RETURNING =
-  "Stadium Edge is locked in. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
+  "Stadium Edge is locked in. Parlays use tonight’s real odds by default — today’s upcoming games only, unless you ask for tomorrow. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
 // What the chat bubble shows for an assistant reply. Once a reply has resolved
 // into pick cards, the bubble is hidden entirely — each pick's reasoning lives in
@@ -1085,16 +1094,12 @@ export default function CoachScreen() {
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
         //
-        // ALSO unlock periods for a SINGLE-GAME high-leg ask even without explicit
-        // period words ("safe 15 leg alt for game 4 of the nba"): one game's
-        // full-game markets (ML / Spread / Total + their alt rungs) top out at a
-        // handful of independent legs, so the only honest way to reach a big count
-        // from ONE game is its period ladder (Q1–Q4 / 1H / 2H) plus that game's
-        // player props. Without this the period markets never enter realOdds, so
-        // neither the model nor the deterministic backfill can use them and the
-        // ticket stalls at ~3 legs (the reported bug). Gated on a real leg count
-        // AND a single-game cue (a named matchup, "game N", or "this/that/the/
-        // same/one/single game") so a generic multi-game ask is unaffected.
+        // ALSO unlock periods for high-leg thin-slate asks even without explicit
+        // period words. One remaining "tonight" game can only supply three
+        // full-game mains (ML / spread / total), so a 15-leg tonight ask otherwise
+        // stalls at ~3 even when real F5/1H/Q markets exist. Gated on a real leg
+        // count plus either a single-game cue OR a today/tonight high-leg cue so
+        // ordinary small generic builds stay lean.
         const singleGameDepth =
           requestedLegs >= 6 &&
           (/\bgame\s*#?\s*\d+\b/i.test(trimmed) ||
@@ -1102,7 +1107,22 @@ export default function CoachScreen() {
             /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(
               trimmed,
             ));
-        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth;
+        const explicitSingleGame =
+          explicitSingleGameIntent(trimmed) || singleGameDepth;
+        const priorUserTexts = messages
+          .filter((m) => m.role === "user")
+          .map((m) => m.content);
+        const slateDay = slateDayFromThread(trimmed, priorUserTexts);
+        const slateLabel = slateOddsLabel(slateDay);
+        const boardPhrase = slateDay ? `${slateLabel} board` : "the board";
+        const thinSlateDepth = requestedLegs >= 9 && slateDay === "tonight";
+        const focalForPools =
+          slateDay === "tomorrow" && !wantsTomorrowOnly(trimmed)
+            ? `${trimmed} tomorrow`
+            : slateDay === "tonight" && !wantsTodayOnly(trimmed)
+              ? `${trimmed} tonight`
+              : trimmed;
+        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
         // forces minus-money rungs (safer cushion). The sign is recognised three
@@ -1168,7 +1188,7 @@ export default function CoachScreen() {
             controller.signal,
             oddsThreshold,
             includePeriods,
-            trimmed,
+            focalForPools,
             altSign,
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
@@ -1275,6 +1295,44 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        // Belt-and-braces: when matchupHistory.mlLean names a winner, never render
+        // an opposing ML/spread card — swap to the real posted line on the lean
+        // side or drop. Variety rotates games/props/markets, not WHO wins.
+        let mlLeanNote = "";
+        if (!isAnalyze && picks.length > 0 && context.matchupHistory) {
+          const realOddsForLean = slateDay
+            ? filterOddsForSlateDay(context.realOdds, slateDay)
+            : context.realOdds;
+          const enforced = enforceMlLeanOnPicks(picks, {
+            matchupHistory: context.matchupHistory,
+            realOdds: realOddsForLean,
+            gameMeta,
+          });
+          picks = enforced.picks;
+          mlLeanNote = mlLeanEnforcementNote(enforced);
+        }
+        // Props-only ask: drop any game-level legs the model slipped in (ML/spread/
+        // total). The reach-count backfill below will fill from realProps instead.
+        const mentionsProps = mentionsPropIntent(trimmed);
+        const propsOnlyTicket = wantsPropsOnly(trimmed);
+        const lockedPropMarket =
+          mentionsProps &&
+          /\b(strikeouts?|k'?s|home runs?|hrs?|hits?|total bases?|rebounds?|reb|assists?|ast|points?|pts|anytime td|touchdowns?|receptions?|pass yds?|rush yds?|rec yds?|goals?|shots on goal)\b/i.test(
+            trimmed,
+          );
+        const propBackfillOpts = {
+          plusMoneyBias:
+            wantsValueRungs ||
+            /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed),
+          diversify: !lockedPropMarket,
+          maxPerMarket: lockedPropMarket ? 99 : undefined,
+        };
+        let propsOnlyNote = "";
+        if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
+          const droppedGame = picks.filter((p) => !p.isProp).length;
+          picks = picks.filter((p) => p.isProp);
+          propsOnlyNote = `_Dropped ${droppedGame} game-level leg${droppedGame === 1 ? "" : "s"} — this ticket is player props only._`;
+        }
         // How many real PICK scaffold lines the model emitted (whether or not each
         // resolved to a real odds entry). Counted by the pipe-delimited shape
         // (PICK: + 4 fields) — same as parsePicks / the building-leg counter — so
@@ -1305,7 +1363,7 @@ export default function CoachScreen() {
               (oddsThreshold.mode === "atLeast" ? " or longer" : " or shorter");
             thresholdNote =
               picks.length === 0
-                ? `\n\n_No real legs on tonight's board were priced ${bound}, so there's nothing to show for that bound right now — try a looser number or a different market._`
+                ? `\n\n_No real legs on ${boardPhrase} were priced ${bound}, so there's nothing to show for that bound right now — try a looser number or a different market._`
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
@@ -1341,7 +1399,7 @@ export default function CoachScreen() {
             const band = describeConfidenceThreshold(confidenceThreshold);
             confidenceNote =
               picks.length === 0
-                ? `\n\n_None of tonight's grounded legs have enough strong signals behind them to reach ${band} confidence right now — that score is built from each leg's real matchup, form, line value, injury and price edges, and I won't invent a signal to fake the number. Try a lower confidence or a different market._`
+                ? `\n\n_None of ${slateLabel} grounded legs have enough strong signals behind them to reach ${band} confidence right now — that score is built from each leg's real matchup, form, line value, injury and price edges, and I won't invent a signal to fake the number. Try a lower confidence or a different market._`
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} with enough strong signals to reach ${band} confidence; dropped ${dropped} below that bar — I won't pad with lower-confidence legs._`;
           }
         }
@@ -1362,7 +1420,7 @@ export default function CoachScreen() {
             const word = altSign === "plus" ? "plus-money" : "minus-money";
             signNote =
               picks.length === 0
-                ? `\n\n_No real ${word} alt legs were available on tonight's board, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
+                ? `\n\n_No real ${word} alt legs were available on ${boardPhrase}, so there's nothing to show for a ${altSign === "plus" ? "+" : "-"} alt right now — try the other sign or a bare alt._`
                 : `\n\n_Showing the ${picks.length} real ${word} alt leg${picks.length === 1 ? "" : "s"}; dropped ${dropped} that landed on the other sign._`;
           }
         }
@@ -1373,15 +1431,16 @@ export default function CoachScreen() {
         // this guarantees none reaches the slip. Runs BEFORE the reach-the-count
         // backfill so any top-up draws only from today's remaining real games.
         let todayNote = "";
+        let tonightNote = "";
         // Set when the today-only salvage below actually built a real ticket out
         // of nothing (the model refused / its legs were all filtered). The
         // model's streamed prose (`full`) is then a refusal or stripped scaffold
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
-        if (todayOnly) {
+        if (slateDay) {
           const before = picks.length;
-          picks = picks.filter((p) => startsTodayUpcoming(p.startsAt));
+          picks = filterPicksForSlateDay(picks, slateDay);
           // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
           // (it reached for props on non-today games via the server's prop
           // backfill, or whiffed) WHILE the user named a sport that still has a
@@ -1417,23 +1476,45 @@ export default function CoachScreen() {
             // salvage of unsigned game mains would violate the requested sign, so
             // skip it. A props-only / prop-market ask wants players, not game
             // moneylines, so don't silently fall back to game mains there either.
-            !altSign &&
-            !mentionsPropIntent(trimmed);
+            !altSign;
           const salvageSports = salvageEligible
             ? focalSportsFromText(trimmed)
             : new Set<string>();
           if (salvageEligible) {
+            const tgt = Math.min(requestedLegs, MAX_LEGS);
+            if (mentionsPropIntent(trimmed)) {
+              const dayOdds = slateDay
+                ? filterOddsForSlateDay(context.realOdds, slateDay)
+                : context.realOdds;
+              const salvagePool =
+                salvageSports.size > 0
+                  ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                  : dayOdds;
+              picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+                target: tgt,
+                ...propBackfillOpts,
+              });
+              if (!propsOnlyTicket && picks.length < tgt) {
+                picks = backfillPicks(picks, salvagePool, gameMeta, {
+                  target: tgt,
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
+              if (picks.length > 0) salvageBuilt = true;
+            } else {
             // Named sport → salvage only that sport's remaining today games; a
             // GENERIC "N-leg parlay for tonight" (no sport named) → salvage from
             // EVERY today-upcoming game on the board. context.realOdds is already
             // startsTodayUpcoming-filtered here, so either pool is real + today +
             // upcoming and nothing is invented.
+            const dayOdds = slateDay
+              ? filterOddsForSlateDay(context.realOdds, slateDay)
+              : context.realOdds;
             const salvagePool =
               salvageSports.size > 0
-                ? context.realOdds.filter((e) => salvageSports.has(e.sport))
-                : context.realOdds;
+                ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                : dayOdds;
             if (salvagePool.length > 0) {
-              const tgt = Math.min(requestedLegs, MAX_LEGS);
               picks = backfillPicks([], salvagePool, gameMeta, {
                 target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
@@ -1448,8 +1529,10 @@ export default function CoachScreen() {
               // ticket stays game-lines only — still honest, still real.
               picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
+                ...propBackfillOpts,
               });
               if (picks.length > 0) salvageBuilt = true;
+            }
             }
           }
           // Honest, non-contradictory note (pure helper, unit-tested in
@@ -1489,7 +1572,7 @@ export default function CoachScreen() {
         // odds-threshold lock (whose own filter must stay authoritative).
         if (
           requestedLegs > picks.length &&
-          picks.length > 0 &&
+          (picks.length > 0 || mentionsProps) &&
           !oddsThreshold &&
           !confidenceThreshold
         ) {
@@ -1515,7 +1598,7 @@ export default function CoachScreen() {
               : null;
           const lockedGame =
             onlyGameLabel &&
-            (picks.length >= 2 || gameMatchesFocalText(onlyGameLabel, trimmed))
+            (explicitSingleGame || gameMatchesFocalText(onlyGameLabel, trimmed))
               ? norm(onlyGameLabel)
               : null;
           const namedSports = focalSportsFromText(trimmed);
@@ -1533,75 +1616,74 @@ export default function CoachScreen() {
             : context.realOdds;
           if (lockedSports)
             backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
+          if (slateDay) {
+            backfillPool = filterOddsForSlateDay(backfillPool, slateDay);
+          }
           if (altSign) {
             picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
               altSign,
               order: ALT_BACKFILL_ORDER,
             });
-          } else if (includePeriods) {
-            // Period / same-game (and single-game high-leg) ticket: fill from the
-            // locked game's period ladder (Q1–Q4 / 1H / 2H sides + totals + the
-            // period MLs the model most often skips) and full-game alt rungs —
-            // every entry a real realOdds line, scoped by backfillPool to the
-            // locked game so a single-game ask never widens to other matchups.
-            picks = backfillPicks(picks, backfillPool, gameMeta, {
-              target,
-              order: PERIOD_BACKFILL_ORDER,
-            });
           } else {
-            // PLAIN N-leg parlay (no alt / period / threshold lock). The model
-            // routinely returns a leg or two short even when the board has plenty
-            // more real games — a "4 leg" ask coming back with 3 is the reported
-            // failure. Deterministically fill toward N from real FULL-GAME mains
-            // (one per distinct unused game), never fabricating. Derive the
-            // constraints from the model's OWN resolved legs so we never widen a
-            // locked ask: (a) skip the game-main fill ONLY when the user actually
-            // asked for props (props-only / a specific prop market) AND every
-            // resolved leg is a prop — a game-level main would be off-intent
-            // there; (b) when every game-level leg sits on ONE game (a
-            // single-game lock), restrict the fill to that same game so we don't
-            // pull in other matchups.
-            const allProps = picks.every((p) => p.isProp);
-            // Did the USER express prop intent? A GENERIC "6-leg parlay for
-            // tonight" carries none of these words, so when the model merely
-            // HAPPENS to return all props we must still backfill toward N with
-            // real game mains — otherwise "6-leg parlay" → 2 props → "only 2
-            // held up" on a full board (the reported bug). Mirrors (loosely) the
-            // server's MARKET_KEYWORDS so a real props-only / prop-market lock
-            // ("player props only", "6 home run hitters", "strikeout parlay")
-            // still skips the game-main fill and stays in props.
-            const mentionsProps = mentionsPropIntent(trimmed);
-            if (!allProps || !mentionsProps) {
-              const gameLegs = picks.filter((p) => !p.isProp);
-              // The single-game / sport lock that scopes the fill pool is computed
-              // ONCE above (backfillPool) and shared by every branch. Infer on top
-              // of it an implicit MARKET lock from the model's own resolved
-              // legs: if every game-level leg sits in ONE full-game family
-              // (e.g. a "spread parlay" or "moneyline parlay" that came back
-              // all spreads / all MLs), constrain the fill to that same family
-              // so we never widen the ticket into other markets. Otherwise fill
-              // from full-game mains across all three families.
-              const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
-              const FAMILY_ORDER: Record<string, RegExp[]> = {
-                moneyline: [/^Moneyline$/],
-                spread: [/^Spread$/],
-                total: [/^Total$/],
-              };
-              // IMPLICIT MARKET-FAMILY LOCK — only infer a "spread/ML/total
-              // parlay" when the model resolved AT LEAST TWO game-level legs all in
-              // ONE family. A single leaked game leg (e.g. one Phillies ML beside
-              // two props) does NOT establish a market-lock intent, so it must fall
-              // through to the generic mains order and fill across all three
-              // families — not stay stuck on that lone leg's family.
-              const lockedFam =
-                gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
-              const order =
-                lockedFam && FAMILY_ORDER[lockedFam]
-                  ? FAMILY_ORDER[lockedFam]
-                  : GENERIC_BACKFILL_ORDER;
-              picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
+            // High-leg "tonight" asks must reach N across the FULL slate — props
+            // first (the board has hundreds), then game mains, then period markets.
+            // Do NOT infer a single-game lock just because the model's first legs
+            // landed on one matchup (the reported 15-leg → 3-leg bug).
+            const deepTonightFill =
+              thinSlateDepth && !explicitSingleGame && requestedLegs >= 9;
+            if (mentionsProps || deepTonightFill) {
+              picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
+                target,
+                ...propBackfillOpts,
+              });
+              if (!propsOnlyTicket && picks.length < target) {
+                picks = backfillPicks(picks, backfillPool, gameMeta, {
+                  target,
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
+            } else if (explicitSingleGame && includePeriods) {
+              picks = backfillPicks(picks, backfillPool, gameMeta, {
+                target,
+                order: PERIOD_BACKFILL_ORDER,
+              });
+            } else {
+              const allProps = picks.every((p) => p.isProp);
+              if (!allProps) {
+                const gameLegs = picks.filter((p) => !p.isProp);
+                const fams = new Set(gameLegs.map((p) => marketFamily(p.market)));
+                const FAMILY_ORDER: Record<string, RegExp[]> = {
+                  moneyline: [/^Moneyline$/],
+                  spread: [/^Spread$/],
+                  total: [/^Total$/],
+                };
+                const lockedFam =
+                  gameLegs.length >= 2 && fams.size === 1 ? [...fams][0] : null;
+                const order =
+                  lockedFam && FAMILY_ORDER[lockedFam]
+                    ? FAMILY_ORDER[lockedFam]
+                    : GENERIC_BACKFILL_ORDER;
+                picks = backfillPicks(picks, backfillPool, gameMeta, { target, order });
+              }
             }
+            if (includePeriods && picks.length < target) {
+              picks = backfillPicks(picks, backfillPool, gameMeta, {
+                target,
+                order: PERIOD_BACKFILL_ORDER,
+              });
+            }
+          }
+        }
+        if (slateDay) {
+          picks = filterPicksForSlateDay(picks, slateDay);
+          if (slateDay === "tonight") {
+            tonightNote = tonightExhaustedNote({
+              tonightRequested: true,
+              todayOnlyApplied: todayOnly,
+              surviving: picks.length,
+              requestedLegs,
+            });
           }
         }
         // Belt-and-braces for the 15-leg slip cap: the server prompt already tells
@@ -1635,11 +1717,21 @@ export default function CoachScreen() {
         // or (2) the real board was too thin to ground that many legs. We never
         // pad with invented legs.
         let legNote = "";
+        const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =
             requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against tonight's real odds — that's the honest ticket, I won't pad it with invented legs.`;
+              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`;
+        }
+        if (mlLeanNote) {
+          legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
+        }
+        if (propsOnlyNote) {
+          legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
+        }
+        if (tonightNote) {
+          legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
@@ -1665,7 +1757,7 @@ export default function CoachScreen() {
             confidenceNote ||
             signNote ||
             todayNote ||
-            "\n\n_I couldn't ground any of those legs in tonight's real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
+            "\n\n_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
@@ -1906,6 +1998,16 @@ export default function CoachScreen() {
     };
   }, []);
 
+  const headerUserTexts = useMemo(
+    () => messages.filter((m) => m.role === "user").map((m) => m.content),
+    [messages],
+  );
+  const headerSlateLabel = useMemo(() => {
+    const last = headerUserTexts.at(-1) ?? "";
+    const day = slateDayFromThread(last, headerUserTexts.slice(0, -1));
+    return slateOddsLabel(day ?? "tonight");
+  }, [headerUserTexts]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
@@ -1913,7 +2015,7 @@ export default function CoachScreen() {
           AI Coach
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          Picks grounded in tonight&apos;s real odds — never invented
+          Picks grounded in {headerSlateLabel} real odds — never invented
         </Text>
       </View>
 

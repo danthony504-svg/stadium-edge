@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports";
-import { fetchSteals, persistSteals, gradePending, getRecord } from "../lib/liveSteals";
+import { fetchSteals, persistSteals, gradePending, getRecord, getGradedHistory } from "../lib/liveSteals";
 
 // GET /api/sports/live-steals — the mobile "+500 Steals" feed: live/upcoming
 // longshot bets (American odds +500..+30000) carrying a REAL cross-book no-vig
@@ -26,8 +26,8 @@ router.get("/sports/live-steals", async (_req, res): Promise<void> => {
       lastGradeAt = Date.now();
       gradePending().catch(() => {});
     }
-    const record = await getRecord();
-    res.json({ steals, record });
+    const [record, history] = await Promise.all([getRecord(), getGradedHistory()]);
+    res.json({ steals, record, history });
   } catch {
     res.status(502).json({ error: "could not load steals" });
   }

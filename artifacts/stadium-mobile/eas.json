@@ -20,8 +20,7 @@
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
-        "EXPO_PUBLIC_CLERK_PROXY_URL": "https://stadium-edge.onrender.com/api/__clerk"
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     },
     "production": {
@@ -32,8 +31,7 @@
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsuc3RhZGl1bS1lZGdlLTEucmVwbGl0LmFwcCQ",
-        "EXPO_PUBLIC_CLERK_PROXY_URL": "https://stadium-edge.onrender.com/api/__clerk"
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ"
       }
     }
   },
