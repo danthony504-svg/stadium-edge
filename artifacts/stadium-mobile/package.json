@@ -11,6 +11,7 @@
     "submit:ios": "eas submit --platform ios --profile production",
     "release:ios": "eas build --platform ios --profile production --auto-submit",
     "update:ios": "bash scripts/publish-production-ota.sh",
+    "rollback:ios": "bash scripts/rollback-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test 'lib/**/*.test.ts'"
   },
