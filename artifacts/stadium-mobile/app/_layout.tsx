@@ -25,6 +25,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
@@ -264,6 +265,7 @@ export default function RootLayout() {
                   <KeyboardProvider>
                     <StatusBar style="light" />
                     <RootLayoutNav />
+                    <OtaUpdateBanner />
                   </KeyboardProvider>
                 </GestureHandlerRootView>
               </BetSlipProvider>
