@@ -18,8 +18,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -176,23 +176,40 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Download OTA bundles in the background, then reload so the new JS actually runs.
-  // (Fetching alone left users stuck on old bundles — e.g. App Review nav without Home.)
+  // Download OTA bundles, then reload so the new JS actually runs.
+  // Check soon after launch and again when the app returns to foreground.
+  const otaChecked = useRef(false);
   useEffect(() => {
     if (__DEV__) return;
-    const timer = setTimeout(() => {
-      (async () => {
-        try {
-          const update = await Updates.checkForUpdateAsync();
-          if (!update.isAvailable) return;
-          await Updates.fetchUpdateAsync();
-          await Updates.reloadAsync();
-        } catch {
-          // Offline or expo-updates disabled — keep running the embedded bundle.
+
+    const runOtaCheck = async () => {
+      if (otaChecked.current) return;
+      otaChecked.current = true;
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!update.isAvailable) {
+          otaChecked.current = false;
+          return;
         }
-      })();
-    }, 12000);
-    return () => clearTimeout(timer);
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
+      } catch {
+        otaChecked.current = false;
+      }
+    };
+
+    const launchTimer = setTimeout(runOtaCheck, 3000);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        otaChecked.current = false;
+        void runOtaCheck();
+      }
+    });
+
+    return () => {
+      clearTimeout(launchTimer);
+      sub.remove();
+    };
   }, []);
 
   if (!publishableKey) {
