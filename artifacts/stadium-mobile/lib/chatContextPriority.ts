@@ -118,7 +118,30 @@ export function contextDepthForLegs(
   fullHistoryCap: number = PLAYER_HISTORY_CAP,
 ): ContextDepth {
   const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
+  // Tiny tickets (2-3 legs) get the smallest pool so the /api/chat POST body
+  // stays uploadable on cellular — a generic 3-leg ask used to serialize ~300KB+.
+  if (n <= 3) return { props: 45, odds: 28, history: 6, matchup: 2 };
   if (n <= 5) return { props: 80, odds: 45, history: 10, matchup: 3 };
   if (n <= 10) return { props: 110, odds: 55, history: 16, matchup: 4 };
   return { props: fullPropCap, odds: 120, history: fullHistoryCap, matchup: 16 };
+}
+
+/**
+ * Which sports to fetch for a Coach build. Named leagues win; otherwise scale
+ * breadth to ticket size so a generic "3-leg parlay" does not fan out all 10
+ * sports (20+ parallel fetches + a 300-500KB POST that connect-stalls on LTE).
+ */
+export function coachBuildSports(
+  text: string | null | undefined,
+  requestedLegs: number,
+  allSports: string[],
+): string[] {
+  const named = focalSportsFromText(text);
+  if (named.size > 0) return [...named];
+  const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
+  if (n >= 11) return [...allSports];
+  if (n >= 6) return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
+    allSports.includes(id),
+  );
+  return ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
 }

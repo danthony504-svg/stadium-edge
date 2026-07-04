@@ -3184,7 +3184,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // proxy buffering; a genuinely dead link still aborts and retries, just later.
   // Once the first token lands the proxy switches to pass-through and we tighten
   // back to STALL_MS for the rest of the stream.
-  const FIRST_TOKEN_MS = 45000;
+  const FIRST_TOKEN_MS =
+    bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;
   // The POST body is identical on every attempt, so serialize it ONCE up front
   // (re-stringifying a ~130KB+ build context on each retry is pure waste) and
   // reuse the same string below.
@@ -3203,8 +3204,11 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // genuinely dead link still aborts in reasonable time (the background-build path
   // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
   // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
-  const CONNECT_MS = Math.min(30000, Math.max(12000, Math.round(12000 + Math.max(0, bodyKB - 40) * 120)));
-  const MAX_ATTEMPTS = 5;
+  const CONNECT_MS = Math.min(
+    60_000,
+    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 150)),
+  );
+  const MAX_ATTEMPTS = 6;
 
   let lastErr: unknown = null;
 

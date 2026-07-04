@@ -68,7 +68,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { focalSportsFromText } from "@/lib/chatContextPriority";
+import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
@@ -1206,8 +1206,9 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
+          const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
           const rawBuilt = await buildChatContext(
-            DEFAULT_SPORTS,
+            buildSports,
             slipForContext,
             controller.signal,
             oddsThreshold,

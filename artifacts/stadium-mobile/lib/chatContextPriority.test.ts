@@ -190,7 +190,7 @@ test("matchup is trimmed hardest (it is the heaviest per-item cost, ~15KB each)"
 });
 
 test("depth is monotonic non-decreasing as the ticket grows", () => {
-  const sizes = [2, 5, 6, 10, 11, 15];
+  const sizes = [2, 3, 5, 6, 10, 11, 15];
   for (let i = 1; i < sizes.length; i++) {
     const prev = contextDepthForLegs(sizes[i - 1], FULL_PROPS);
     const cur = contextDepthForLegs(sizes[i], FULL_PROPS);
@@ -205,4 +205,28 @@ test("the full tier honors the caller's real caps (never exceeds them)", () => {
   const d = contextDepthForLegs(15, FULL_PROPS, 40);
   assert.equal(d.props, FULL_PROPS);
   assert.equal(d.history, 40);
+});
+
+test("coachBuildSports honors named leagues", () => {
+  assert.deepEqual(coachBuildSports("give me an NBA parlay", 3, ALL_SPORTS), ["nba"]);
+});
+
+test("coachBuildSports uses a tiny core set for generic 3-leg asks", () => {
+  assert.deepEqual(coachBuildSports("Build me a 3-leg parlay", 3, ALL_SPORTS), [
+    "mlb",
+    "wnba",
+    "nba",
+    "nhl",
+  ]);
+});
+
+test("coachBuildSports widens for 6-leg generic asks", () => {
+  const sports = coachBuildSports("Build me a 6-leg parlay", 6, ALL_SPORTS);
+  assert.ok(sports.includes("mlb"));
+  assert.ok(sports.includes("soccer"));
+  assert.ok(!sports.includes("nfl"));
+});
+
+test("coachBuildSports uses every sport for 11+ leg tickets", () => {
+  assert.deepEqual(coachBuildSports("15 leg parlay", 15, ALL_SPORTS), ALL_SPORTS);
 });
