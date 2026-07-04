@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
 
 function heavyContext(): SlimChatContextInput {
   const game = "Away Team @ Home Team";
@@ -105,4 +105,33 @@ test("slimChatContextForUpload shrinks serialized upload size", () => {
   const before = JSON.stringify(heavyContext()).length;
   const after = JSON.stringify(slimChatContextForUpload(heavyContext())).length;
   assert.ok(after < before * 0.7, `expected meaningful shrink: ${after} vs ${before}`);
+});
+
+test("ultraSlimChatContextForUpload caps pools for emergency retry", () => {
+  const base = heavyContext();
+  const manyProps = Array.from({ length: 80 }, (_, i) => ({
+    sport: "mlb",
+    game: "Away Team @ Home Team",
+    startsAt: "2026-07-04T23:00:00Z",
+    player: `Player ${i}`,
+    market: "batter_hits",
+    line: 1.5,
+    over: -110,
+    under: -110,
+    alt: false,
+  }));
+  const manyOdds = Array.from({ length: 60 }, (_, i) => ({
+    sport: "mlb",
+    game: "Away Team @ Home Team",
+    market: "Moneyline",
+    pick: `Pick ${i}`,
+    odds: 150 + i,
+  }));
+  const heavy = { ...base, realProps: manyProps, realOdds: manyOdds };
+  const slim = slimChatContextForUpload(heavy);
+  const ultra = ultraSlimChatContextForUpload(heavy);
+  assert.ok(ultra.realProps.length <= 36);
+  assert.ok(ultra.realOdds.length <= 24);
+  assert.equal(ultra.playerHistory, undefined);
+  assert.ok(JSON.stringify(ultra).length < JSON.stringify(slim).length);
 });

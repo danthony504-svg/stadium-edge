@@ -11,7 +11,7 @@ import {
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
-import { slimChatContextForUpload } from "./slimChatContext";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload } from "./slimChatContext";
 import {
   isPickable,
   isPregameBettable,
@@ -39,7 +39,7 @@ import {
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
-export { gameMatchesFocalText, slimChatContextForUpload };
+export { gameMatchesFocalText, slimChatContextForUpload, ultraSlimChatContextForUpload };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
@@ -3101,6 +3101,9 @@ export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> 
   }
 }
 
+/** Cached after first probe — production may not have /chat/context-stash yet. */
+let contextStashEndpointAvailable: boolean | null = null;
+
 /** Upload a large build context once; /chat streams with contextStashId only. */
 async function stashChatContextForStream(
   context: ChatContext,
@@ -3108,6 +3111,7 @@ async function stashChatContextForStream(
   signal: AbortSignal | undefined,
   stashId?: string,
 ): Promise<string | null> {
+  if (contextStashEndpointAvailable === false) return null;
   try {
     const res = await withTimeout(
       expoFetch(`${API_BASE}/chat/context-stash`, {
@@ -3122,10 +3126,17 @@ async function stashChatContextForStream(
         }),
         signal,
       }) as unknown as Promise<Response>,
-      Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200)),
+      contextStashEndpointAvailable === true
+        ? Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200))
+        : 8_000,
       "/chat/context-stash",
     );
+    if (res.status === 404) {
+      contextStashEndpointAvailable = false;
+      return null;
+    }
     if (!res.ok) return null;
+    contextStashEndpointAvailable = true;
     const data = (await res.json()) as { stashId?: string };
     return typeof data.stashId === "string" ? data.stashId : null;
   } catch {
@@ -3133,6 +3144,7 @@ async function stashChatContextForStream(
   }
 }
 
+function abortError(): Error {
   const e = new Error("Aborted");
   e.name = "AbortError";
   return e;
