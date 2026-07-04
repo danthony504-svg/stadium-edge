@@ -3124,7 +3124,15 @@ export function chatStreamFailureMessage(err: unknown): string {
   if (err instanceof ChatStreamError) return err.message;
   if (err instanceof Error) {
     const m = err.message;
-    if (m && m !== "connect stalled" && m !== "stream stalled" && m !== "chat stream failed" && !/^HTTP \d+$/.test(m)) {
+    if (
+      m &&
+      m !== "connect stalled" &&
+      m !== "stream stalled" &&
+      m !== "chat stream failed" &&
+      !/^HTTP \d+$/.test(m) &&
+      !/undefined is not a function/i.test(m) &&
+      !/is not a function/i.test(m)
+    ) {
       return m;
     }
   }

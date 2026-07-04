@@ -70,6 +70,17 @@ import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { focalSportsFromText } from "@/lib/chatContextPriority";
 import {
+  filterOddsForSlateDay,
+  filterPicksForSlateDay,
+  mentionsPropIntent,
+  slateDayFromThread,
+  slateOddsLabel,
+  tonightExhaustedNote,
+  todayBuildNote,
+  wantsPropsOnly,
+  explicitSingleGameIntent,
+} from "@/lib/slate";
+import {
   buildChatContext,
   gameMatchesFocalText,
   getPlayerHistory,
@@ -81,15 +92,6 @@ import {
   searchTeam,
   wantsTodayOnly,
   wantsTomorrowOnly,
-  filterPicksForSlateDay,
-  filterOddsForSlateDay,
-  slateDayFromThread,
-  slateOddsLabel,
-  todayBuildNote,
-  mentionsPropIntent,
-  wantsPropsOnly,
-  explicitSingleGameIntent,
-  tonightExhaustedNote,
   streamChat,
   chatStreamFailureMessage,
   type AltSign,
@@ -328,20 +330,20 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
 }
 
 const QUICK_PROMPTS: { label: string; prompt: string }[] = [
-  { label: "3-Leg parlay · tonight", prompt: "Build me a 3-leg parlay for tonight" },
-  { label: "6-Leg parlay · tonight", prompt: "Build me a 6-leg parlay for tonight" },
-  { label: "9-Leg parlay · tonight", prompt: "Build me a 9-leg parlay for tonight" },
-  { label: "15-Leg longshot · tonight", prompt: "Build me a 15-leg longshot parlay for tonight" },
-  { label: "Player props only · tonight", prompt: "Build me a player props only parlay for tonight" },
+  { label: "3-Leg parlay", prompt: "Build me a 3-leg parlay" },
+  { label: "6-Leg parlay", prompt: "Build me a 6-leg parlay" },
+  { label: "9-Leg parlay", prompt: "Build me a 9-leg parlay" },
+  { label: "15-Leg longshot", prompt: "Build me a 15-leg longshot parlay" },
+  { label: "Player props only", prompt: "Build me a player props only parlay" },
 ];
 
 const CHAT_SEEN_KEY = "se_chat_seen";
 
 const WELCOME_FIRST_TIME =
-  "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nParlay builds default to tonight’s slate — only games on today’s board that haven’t started yet. Say \"for tomorrow\" if you want the next day’s board instead.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
+  "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nParlay builds default to today’s upcoming slate — only games on today’s board that haven’t started yet. Say \"for tomorrow\" if you want the next day’s board instead.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
 
 const WELCOME_RETURNING =
-  "Stadium Edge is locked in. Parlays use tonight’s real odds by default — today’s upcoming games only, unless you ask for tomorrow. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
+  "Stadium Edge is locked in. Parlays use real posted odds by default — today’s upcoming games only, unless you ask for tomorrow. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
 // What the chat bubble shows for an assistant reply. Once a reply has resolved
 // into pick cards, the bubble is hidden entirely — each pick's reasoning lives in
@@ -2041,23 +2043,13 @@ export default function CoachScreen() {
     };
   }, []);
 
-  const headerUserTexts = useMemo(
-    () => messages.filter((m) => m.role === "user").map((m) => m.content),
-    [messages],
-  );
-  const headerSlateLabel = useMemo(() => {
-    const last = headerUserTexts.at(-1) ?? "";
-    const day = slateDayFromThread(last, headerUserTexts.slice(0, -1));
-    return slateOddsLabel(day ?? "tonight");
-  }, [headerUserTexts]);
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
         <PageTitleRow
           icon="zap"
           title="AI Coach"
-          subtitle={`Picks grounded in ${headerSlateLabel} real odds — never invented`}
+          subtitle="Picks grounded in real odds — never invented"
         />
       </AppHeader>
 
