@@ -13,7 +13,7 @@ import { useColors } from "@/hooks/useColors";
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 
 const DESTINATIONS: { label: string; route: string; icon: FeatherName }[] = [
-  { label: "Home", route: "/", icon: "home" },
+  { label: "Discover", route: "/", icon: "compass" },
   { label: "Coach", route: "/coach", icon: "zap" },
   { label: "Park Weather", route: "/weather", icon: "cloud-drizzle" },
   { label: "Props", route: "/props", icon: "user" },

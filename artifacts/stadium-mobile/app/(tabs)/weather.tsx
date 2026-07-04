@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader } from "@/components/AppHeader";
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
@@ -82,24 +82,11 @@ export default function WeatherScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 10, marginTop: 4 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Feather name="cloud-drizzle" size={20} color={colors.primary} />
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
-              Park Weather Report
-            </Text>
-          </View>
-          <Text
-            style={{
-              color: colors.mutedForeground,
-              fontFamily: FONT.body,
-              fontSize: 13,
-              marginTop: 2,
-            }}
-          >
-            Real OpenWeather conditions for today&apos;s MLB ballparks
-          </Text>
-        </View>
+        <PageTitleRow
+          icon="cloud-drizzle"
+          title="Park Weather Report"
+          subtitle="Real OpenWeather conditions for today's MLB ballparks"
+        />
       </AppHeader>
 
       <ScrollView
