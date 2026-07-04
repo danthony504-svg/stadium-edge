@@ -9,7 +9,7 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
   exit 1
 fi
 
-MESSAGE="${1:-Restore Home and login after App Review}"
+MESSAGE="${1:-Restore new UI $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main)}"
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"

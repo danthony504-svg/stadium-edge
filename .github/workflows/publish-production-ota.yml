@@ -1,6 +1,11 @@
 name: Publish production OTA
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/**"
+      - ".github/workflows/publish-production-ota.yml"
   workflow_dispatch:
     inputs:
       message:
@@ -41,4 +46,8 @@ jobs:
             echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
-          bash scripts/publish-production-ota.sh "${{ github.event.inputs.message }}"
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="main $(git rev-parse --short HEAD) — restore new UI"
+          fi
+          bash scripts/publish-production-ota.sh "$MSG"

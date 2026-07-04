@@ -18,8 +18,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
-import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -27,6 +27,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
+import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -119,7 +120,9 @@ function BootScreen() {
           </Text>
           <Pressable
             onPress={() => {
-              Updates.reloadAsync().catch(() => {});
+              void applyOtaUpdateIfAvailable().finally(() => {
+                Updates.reloadAsync().catch(() => {});
+              });
             }}
             style={{
               marginTop: 18,
@@ -176,41 +179,8 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Download OTA bundles, then reload so the new JS actually runs.
-  // Check soon after launch and again when the app returns to foreground.
-  const otaChecked = useRef(false);
-  useEffect(() => {
-    if (__DEV__) return;
-
-    const runOtaCheck = async () => {
-      if (otaChecked.current) return;
-      otaChecked.current = true;
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (!update.isAvailable) {
-          otaChecked.current = false;
-          return;
-        }
-        await Updates.fetchUpdateAsync();
-        await Updates.reloadAsync();
-      } catch {
-        otaChecked.current = false;
-      }
-    };
-
-    const launchTimer = setTimeout(runOtaCheck, 3000);
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        otaChecked.current = false;
-        void runOtaCheck();
-      }
-    });
-
-    return () => {
-      clearTimeout(launchTimer);
-      sub.remove();
-    };
-  }, []);
+  const appReady = fontsLoaded || !!fontError;
+  const otaUpdating = useOtaUpdater(appReady);
 
   if (!publishableKey) {
     return (
@@ -232,6 +202,36 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {otaUpdating ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            zIndex: 9999,
+            backgroundColor: "rgba(15,23,42,0.92)",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 32,
+          }}
+        >
+          <ActivityIndicator size="large" color="#38bdf8" />
+          <Text
+            style={{
+              color: "#e2e8f0",
+              fontSize: 15,
+              lineHeight: 21,
+              textAlign: "center",
+              marginTop: 18,
+            }}
+          >
+            Updating Stadium Edge…
+          </Text>
+        </View>
+      ) : null}
       <ErrorBoundary>
         <ClerkProvider
           publishableKey={publishableKey}
