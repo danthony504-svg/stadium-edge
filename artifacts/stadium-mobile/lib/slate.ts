@@ -72,6 +72,16 @@ export function wantsTonightSlate(text?: string | null): boolean {
   return false;
 }
 
+/** MLB pitcher/bullpen slate targeting ("worst pitchers today", strikeout stacks). */
+export function wantsMlbPitcherSlateAsk(text?: string | null): boolean {
+  const t = String(text || "").toLowerCase();
+  if (!t) return false;
+  if (/\b(pitchers?|bullpens?|strikeouts?|k'?s|probables?)\b/.test(t)) {
+    return /\b(slate|today|tonight|target|stack|fade|attack)\b/.test(t);
+  }
+  return false;
+}
+
 /** Inherit tonight intent from recent user turns ("5 leg parlay" after "for tonight"). */
 export function threadWantsTonightSlate(
   current: string,

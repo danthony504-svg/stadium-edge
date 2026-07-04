@@ -2349,6 +2349,7 @@ function extractNamedCandidates(text: string): string[] {
 const TINY_PARLAY_SPORTS = ["mlb", "wnba", "nba", "nhl"] as const;
 
 type LightParlayOpts = {
+  sports?: readonly string[];
   maxSports: number;
   maxPropGames: number;
   maxOddsGames: number;
@@ -2363,8 +2364,9 @@ async function buildLightParlayContext(
   const allOdds: OddsGame[] = [];
   const gamesBySport = new Map<string, EspnGame[]>();
   const activeSports: string[] = [];
+  const sportList = opts.sports ?? TINY_PARLAY_SPORTS;
 
-  for (const s of TINY_PARLAY_SPORTS) {
+  for (const s of sportList) {
     if (activeSports.length >= opts.maxSports) break;
     const [o, g] = await Promise.all([
       getOdds(s, signal).catch(() => [] as OddsGame[]),
@@ -2549,6 +2551,18 @@ export async function buildCompactParlayContext(
     maxOddsGames: Math.min(16, n + 4),
     propsBalanceCap: Math.min(60, n * 6),
     oddsSliceCap: Math.min(56, n * 7),
+  });
+}
+
+/** MLB-only slate context for pitcher/bullpen targeting asks — avoids all-sport fan-out. */
+export async function buildMlbSlateContext(signal?: AbortSignal): Promise<BuiltChatContext> {
+  return buildLightParlayContext(signal, {
+    sports: ["mlb"],
+    maxSports: 1,
+    maxPropGames: 8,
+    maxOddsGames: 14,
+    propsBalanceCap: 60,
+    oddsSliceCap: 56,
   });
 }
 

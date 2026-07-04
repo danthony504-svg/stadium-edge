@@ -7,7 +7,7 @@
 // user named. Only unambiguous terms — "football" is omitted because it spans
 // NFL/CFB (and soccer in much of the world), so it can't resolve to one league.
 export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
-  mlb: ["mlb", "baseball"],
+  mlb: ["mlb", "baseball", "pitcher", "pitchers", "bullpen", "bullpens", "pitching"],
   wnba: ["wnba"],
   nba: ["nba"],
   nhl: ["nhl", "hockey"],
