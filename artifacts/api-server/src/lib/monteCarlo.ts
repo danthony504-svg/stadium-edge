@@ -3,7 +3,9 @@
 // Outputs hit probability, most-likely stat line, and a confidence score.
 // Designed as ONE input to the pick rubric, not a standalone oracle.
 
-export const DEFAULT_SIMULATIONS = 10_000;
+export const QUICK_SIMULATIONS = 1_000;
+export const DEEP_SIMULATIONS = 10_000;
+export const DEFAULT_SIMULATIONS = DEEP_SIMULATIONS;
 
 export type PropSimSide = "Over" | "Under";
 

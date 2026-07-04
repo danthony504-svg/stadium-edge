@@ -111,6 +111,7 @@ export function simulateProp(
   req: SimPropRequest,
   history: PlayerHistoryShape | null | undefined,
   game: GameSimContext,
+  simulations?: number,
 ): PropSimulationResult & { key: string; player: string; market: string; line: number; side: PropSimSide } {
   const key = simulationKey(req.player, req.market, req.line, req.side);
   const ctx = buildPropSimulationContext(req, history, game);
@@ -132,7 +133,7 @@ export function simulateProp(
       percentiles: null,
     };
   }
-  const result = runMonteCarloSimulation(ctx);
+  const result = runMonteCarloSimulation(ctx, simulations);
   return { key, player: req.player, market: req.market, line: req.line, side: req.side, ...result };
 }
 

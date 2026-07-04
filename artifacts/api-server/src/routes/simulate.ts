@@ -2,8 +2,9 @@ import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
 import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
-import { DEFAULT_SIMULATIONS } from "../lib/monteCarlo.js";
+import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo } from "../lib/gameMonteCarlo.js";
+import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,23 @@ type PlayerHistoryResp = {
     direction: "up" | "down" | "steady";
   } | null;
 };
+
+type GameSimContext = {
+  sport: string;
+  oppPace: number | null;
+  leaguePace: number | null;
+  oppKeyInjuries: number;
+  ownKeyInjuries: number;
+  weatherImpact: number | null;
+};
+
+type SimPropRow = ReturnType<typeof simulateProp> & {
+  tier: SimTier;
+  cached: boolean;
+  deepPending?: boolean;
+};
+
+const deepInFlight = new Set<string>();
 
 async function fetchPlayerHistory(
   baseUrl: string,
@@ -90,12 +108,148 @@ async function fetchTeamHistory(
   }
 }
 
+function tierSimCount(tier: SimTier, simulations?: number): number {
+  if (simulations && Number.isFinite(simulations) && simulations > 0) return simulations;
+  return tier === "deep" ? DEEP_SIMULATIONS : QUICK_SIMULATIONS;
+}
+
+async function runPropSims(
+  props: SimPropRequest[],
+  tier: SimTier,
+  gameCtx: GameSimContext,
+  baseUrl: string,
+  isHomeByPlayer: Record<string, boolean>,
+  simulations?: number,
+): Promise<{ rows: SimPropRow[]; deepPending: boolean }> {
+  const simCount = tierSimCount(tier, simulations);
+  const injuries = await fetchInjuries(baseUrl, gameCtx.sport);
+  const historyCache = new Map<string, PlayerHistoryResp | null>();
+  let deepPending = false;
+
+  const rows = await Promise.all(
+    props.map(async (p) => {
+      const cacheKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, tier);
+      const cached = await getCachedSim<SimPropRow>(cacheKey);
+      if (cached) {
+        const row: SimPropRow = { ...cached, tier, cached: true };
+        if (tier === "quick") {
+          const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep");
+          const deepHit = await getCachedSim(deepKey);
+          if (!deepHit) {
+            deepPending = true;
+            scheduleDeepSim([p], gameCtx, baseUrl, isHomeByPlayer);
+          }
+        }
+        return row;
+      }
+
+      const athleteId = p.athleteId ?? "";
+      const histKey = `${p.sport}:${athleteId}:${p.opponentTeamId ?? ""}`;
+      let history = historyCache.get(histKey);
+      if (history === undefined) {
+        history = athleteId
+          ? await fetchPlayerHistory(baseUrl, p.sport, athleteId, p.opponentTeamId ?? undefined)
+          : null;
+        historyCache.set(histKey, history);
+      }
+
+      const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
+      const result = simulateProp(
+        { ...p, sport: p.sport, isHome },
+        history,
+        {
+          sport: gameCtx.sport,
+          oppPace: gameCtx.oppPace,
+          leaguePace: gameCtx.leaguePace,
+          oppKeyInjuries: gameCtx.oppKeyInjuries,
+          ownKeyInjuries: gameCtx.ownKeyInjuries,
+          weatherImpact: gameCtx.weatherImpact,
+          playerHistories: new Map(),
+        },
+        simCount,
+      );
+
+      const row: SimPropRow = { ...result, tier, cached: false };
+      await setCachedSim(cacheKey, row, tier);
+
+      if (tier === "quick") {
+        deepPending = true;
+        scheduleDeepSim([p], gameCtx, baseUrl, isHomeByPlayer);
+      }
+
+      return row;
+    }),
+  );
+
+  return { rows, deepPending: tier === "quick" ? deepPending : false };
+}
+
+function scheduleDeepSim(
+  props: SimPropRequest[],
+  gameCtx: GameSimContext,
+  baseUrl: string,
+  isHomeByPlayer: Record<string, boolean>,
+): void {
+  void warmDeepSims(props, gameCtx, baseUrl, isHomeByPlayer).catch(() => {
+    /* background warm is best-effort */
+  });
+}
+
+async function warmDeepSims(
+  props: SimPropRequest[],
+  gameCtx: GameSimContext,
+  baseUrl: string,
+  isHomeByPlayer: Record<string, boolean>,
+): Promise<void> {
+  const historyCache = new Map<string, PlayerHistoryResp | null>();
+
+  for (const p of props) {
+    const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep");
+    if (deepInFlight.has(deepKey)) continue;
+    const existing = await getCachedSim(deepKey);
+    if (existing) continue;
+
+    deepInFlight.add(deepKey);
+    try {
+      const athleteId = p.athleteId ?? "";
+      const histKey = `${p.sport}:${athleteId}:${p.opponentTeamId ?? ""}`;
+      let history = historyCache.get(histKey);
+      if (history === undefined) {
+        history = athleteId
+          ? await fetchPlayerHistory(baseUrl, p.sport, athleteId, p.opponentTeamId ?? undefined)
+          : null;
+        historyCache.set(histKey, history);
+      }
+
+      const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
+      const result = simulateProp(
+        { ...p, sport: p.sport, isHome },
+        history,
+        {
+          sport: gameCtx.sport,
+          oppPace: gameCtx.oppPace,
+          leaguePace: gameCtx.leaguePace,
+          oppKeyInjuries: gameCtx.oppKeyInjuries,
+          ownKeyInjuries: gameCtx.ownKeyInjuries,
+          weatherImpact: gameCtx.weatherImpact,
+          playerHistories: new Map(),
+        },
+        DEEP_SIMULATIONS,
+      );
+      const row: SimPropRow = { ...result, tier: "deep", cached: false };
+      await setCachedSim(deepKey, row, "deep");
+    } finally {
+      deepInFlight.delete(deepKey);
+    }
+  }
+}
+
 // POST /sports/simulate/game-outcome
 router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => {
   const sport = String(req.body?.sport ?? "").toLowerCase();
   const homeTeamId = String(req.body?.homeTeamId ?? "");
   const awayTeamId = String(req.body?.awayTeamId ?? "");
-  const simulations = Number(req.body?.simulations) || DEFAULT_SIMULATIONS;
+  const simulations = Number(req.body?.simulations) || DEEP_SIMULATIONS;
   const weatherImpact =
     req.body?.weatherImpact != null ? Number(req.body.weatherImpact) : null;
 
@@ -144,11 +298,12 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
 });
 
 // POST /sports/simulate/props
-// Body: { sport, homeTeam?, awayTeam?, isHomeByPlayer?, props: SimPropRequest[], simulations? }
+// Body: { sport, homeTeam?, awayTeam?, props: SimPropRequest[], tier?: "quick"|"deep", simulations? }
 router.post("/sports/simulate/props", async (req, res): Promise<void> => {
   const sport = String(req.body?.sport ?? "").toLowerCase();
   const props = (req.body?.props ?? []) as SimPropRequest[];
-  const simulations = Number(req.body?.simulations) || DEFAULT_SIMULATIONS;
+  const tier: SimTier = req.body?.tier === "deep" ? "deep" : "quick";
+  const simulations = req.body?.simulations != null ? Number(req.body.simulations) : undefined;
   const homeTeam = String(req.body?.homeTeam ?? "");
   const awayTeam = String(req.body?.awayTeam ?? "");
   const isHomeByPlayer = (req.body?.isHomeByPlayer ?? {}) as Record<string, boolean>;
@@ -190,49 +345,34 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
       ? Number(req.body.weatherImpact)
       : null;
 
-  const historyCache = new Map<string, PlayerHistoryResp | null>();
+  const gameCtx: GameSimContext = {
+    sport,
+    oppPace,
+    leaguePace,
+    oppKeyInjuries,
+    ownKeyInjuries,
+    weatherImpact,
+  };
 
-  const results = await Promise.all(
-    props.map(async (p) => {
-      const athleteId = p.athleteId ?? "";
-      const cacheKey = `${sport}:${athleteId}:${p.opponentTeamId ?? ""}`;
-      let history = historyCache.get(cacheKey);
-      if (history === undefined) {
-        history = athleteId
-          ? await fetchPlayerHistory(baseUrl, sport, athleteId, p.opponentTeamId ?? undefined)
-          : null;
-        historyCache.set(cacheKey, history);
-      }
-
-      const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
-      const oppPaceForPlayer =
-        isHome === true ? oppPace : isHome === false ? oppPace : oppPace;
-
-      return simulateProp(
-        { ...p, sport, isHome },
-        history,
-        {
-          sport,
-          oppPace: oppPaceForPlayer,
-          leaguePace,
-          oppKeyInjuries,
-          ownKeyInjuries,
-          weatherImpact,
-          playerHistories: new Map(),
-        },
-      );
-    }),
+  const { rows, deepPending } = await runPropSims(
+    props,
+    tier,
+    gameCtx,
+    baseUrl,
+    isHomeByPlayer,
+    simulations,
   );
 
   res.json({
     sport,
-    simulations,
-    props: results,
+    tier,
+    simulations: tierSimCount(tier, simulations),
+    deepPending: tier === "quick" ? deepPending : false,
+    props: rows,
   });
 });
 
 // GET /sports/simulate/game?sport=nba&eventId=...&homeTeam=...&awayTeam=...
-// Fetches posted props for the event and runs Monte Carlo on each main line (both sides).
 router.get("/sports/simulate/game", async (req, res): Promise<void> => {
   const sport = String(req.query.sport ?? "").toLowerCase();
   const eventId = String(req.query.eventId ?? "");
@@ -287,17 +427,16 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
       }
     }
 
-    const body = {
-      sport,
-      homeTeam,
-      awayTeam,
-      props: simRequests,
-    };
-
     const simRes = await fetch(`${baseUrl}/sports/simulate/props`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        sport,
+        homeTeam,
+        awayTeam,
+        tier: "quick",
+        props: simRequests,
+      }),
     });
     const data = (await simRes.json()) as Record<string, unknown>;
     res.json({ eventId, ...data });

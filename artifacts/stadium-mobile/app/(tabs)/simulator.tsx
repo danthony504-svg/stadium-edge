@@ -120,6 +120,7 @@ export default function SimulatorScreen() {
   const [running, setRunning] = useState(false);
   const [gameResult, setGameResult] = useState<GameSimulationResult | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
+  const [simDeepPending, setSimDeepPending] = useState(false);
   const [playerHistory, setPlayerHistory] = useState<Record<string, PlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
@@ -316,7 +317,7 @@ export default function SimulatorScreen() {
           }),
         );
         setPlayerHistory(ph);
-        const pr = await fetchPropSimulationsBatch(
+        const prQuick = await fetchPropSimulationsBatch(
           sport,
           selected.map((s) => ({
             player: s.player,
@@ -329,10 +330,29 @@ export default function SimulatorScreen() {
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
             weatherImpact: wx,
-            simulations: SIM_COUNT,
+            tier: "quick",
           },
         );
-        setPropResults(pr);
+        setPropResults(prQuick);
+        setSimDeepPending(true);
+        const prDeep = await fetchPropSimulationsBatch(
+          sport,
+          selected.map((s) => ({
+            player: s.player,
+            market: s.market,
+            line: s.line,
+            side: s.side,
+            athleteId: s.athleteId,
+          })),
+          {
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            weatherImpact: wx,
+            tier: "deep",
+          },
+        );
+        setPropResults(prDeep);
+        setSimDeepPending(false);
       }
       setRanAt(Date.now());
     } finally {
@@ -864,6 +884,7 @@ export default function SimulatorScreen() {
                     </Text>
                     <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
                       AI Grade combines simulation with matchup, recent form, injuries, line value, and cross-book odds — simulation is one factor, not the only one.
+                      {simDeepPending ? " Simulation updating…" : ""}
                     </Text>
                     {propResults.map((r) => {
                       const combined = propScores.get(r.key);

@@ -45,6 +45,11 @@ import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStat
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import {
+  loadPropSimulationsProgressive,
+  patchLastAssistantPicks,
+  picksWithSimPending,
+} from "@/lib/propSimProgressive";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -85,7 +90,6 @@ import {
   tonightExhaustedNote,
   streamChat,
   chatStreamFailureMessage,
-  fetchPropSimulations,
   type AltSign,
   type ChatContext,
   type ChatMessage,
@@ -782,6 +786,7 @@ export default function CoachScreen() {
   }, []);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const simAbortRef = useRef<AbortController | null>(null);
   // Mirror of `streaming` readable synchronously from the AppState listener
   // (which can't see React state directly).
   const streamingRef = useRef(false);
@@ -1368,25 +1373,6 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
-        let propSimulations = new Map<string, { hitProbability: number | null }>();
-        if (picks.some((p) => p.isProp)) {
-          try {
-            propSimulations = await fetchPropSimulations(picks, mergedPropPool);
-          } catch {
-            /* optional — rubric omits simulation when unavailable */
-          }
-        }
-        // Confidence-threshold lock: drop any resolved leg whose signals-based
-        // Confidence falls outside the requested band. Confidence is a baseline
-        // plus points for each strong REAL rubric signal (matchup, trend, line
-        // value, injury, line shopping) — the card renders it 0–100, this filter
-        // compares it on the same value's 0–10 band (confidenceScoreFromSignals).
-        // This is the hard guarantee — the server prompt steers the model toward
-        // picks with many strong signals, but only this filter makes EVERY rendered
-        // card actually sit in the band. Legs are scored off the SAME real context
-        // the cards render from (attachPickScores), so the filter and the displayed
-        // number agree. A leg with no groundable signal scores null and is excluded
-        // — there is nothing to back a confidence claim. Never fabricates/inflates.
         let confidenceNote = "";
         if (confidenceThreshold) {
           const before = picks.length;
@@ -1396,7 +1382,6 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
-            propSimulations,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           });
           picks = scored.filter((p) =>
@@ -1719,9 +1704,9 @@ export default function CoachScreen() {
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
-          propSimulations,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
         });
+        picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1790,10 +1775,39 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        // Surface this parlay's picks on the Player Props + Picks tabs. Only
-        // overwrite when we actually resolved real picks so a plain Q&A reply
-        // doesn't wipe the last recommendation.
         if (picks.length > 0) setAiPicks(picks);
+        // Server-side Monte Carlo: quick tier first, deep tier refines in the
+        // background. Picks are already on screen — simulation is one rubric input.
+        if (picks.some((p) => p.isProp)) {
+          simAbortRef.current?.abort();
+          const simController = new AbortController();
+          simAbortRef.current = simController;
+          const simOpts = {
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            perfByFamily: marketPerf,
+          };
+          const snapshot = picks;
+          void loadPropSimulationsProgressive(
+            snapshot,
+            simOpts,
+            {
+              onQuick: (scored) => {
+                if (simController.signal.aborted) return;
+                patchLastAssistantPicks(setMessages, scored);
+                setAiPicks(scored);
+              },
+              onDeep: (scored) => {
+                if (simController.signal.aborted) return;
+                patchLastAssistantPicks(setMessages, scored);
+                setAiPicks(scored);
+              },
+            },
+            simController.signal,
+          );
+        }
       } catch (e: any) {
         if (handedOffRef.current) {
           // We deliberately aborted the in-app stream to hand the build off to
@@ -2008,6 +2022,7 @@ export default function CoachScreen() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      simAbortRef.current?.abort();
     };
   }, []);
 

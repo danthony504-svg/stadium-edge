@@ -1339,6 +1339,9 @@ export type PropSimulationResult = {
   confidenceScore: number | null;
   stdDev: number | null;
   sampleGames: number;
+  tier?: "quick" | "deep";
+  cached?: boolean;
+  deepPending?: boolean;
   percentiles: {
     p10: number;
     p25: number;
@@ -1348,7 +1351,7 @@ export type PropSimulationResult = {
   } | null;
 };
 
-/** Run Monte Carlo on resolved prop picks (10k sims each). Returns keyed map. */
+/** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */
 export async function fetchPropSimulations(
   picks: Array<{
     isProp?: boolean;
@@ -1361,7 +1364,13 @@ export async function fetchPropSimulations(
     sport?: string;
   }>,
   propPool: PropPoolEntry[],
-  opts?: { homeTeam?: string; awayTeam?: string; weatherImpact?: number | null },
+  opts?: {
+    homeTeam?: string;
+    awayTeam?: string;
+    weatherImpact?: number | null;
+    tier?: "quick" | "deep";
+    simulations?: number;
+  },
   signal?: AbortSignal,
 ): Promise<Map<string, PropSimulationResult>> {
   const out = new Map<string, PropSimulationResult>();
@@ -1411,6 +1420,7 @@ export async function fetchPropSimulations(
   }
 
   const path = "/sports/simulate/props";
+  const tier = opts?.tier ?? "quick";
   const res = await withTimeout(
     expoFetch(`${API_BASE}${path}`, {
       method: "POST",
@@ -1420,11 +1430,13 @@ export async function fetchPropSimulations(
         homeTeam,
         awayTeam,
         weatherImpact: opts?.weatherImpact ?? null,
+        tier,
+        simulations: opts?.simulations,
         props,
       }),
       signal,
     }),
-    REQUEST_TIMEOUT_MS * 2,
+    tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
   if (!res.ok) return out;
@@ -1487,19 +1499,21 @@ export async function fetchPropSimulationsBatch(
     awayTeam?: string;
     weatherImpact?: number | null;
     simulations?: number;
+    tier?: "quick" | "deep";
   },
   signal?: AbortSignal,
 ): Promise<PropSimulationResult[]> {
   if (!props.length) return [];
   const path = "/sports/simulate/props";
+  const tier = opts?.tier ?? "quick";
   const res = await withTimeout(
     expoFetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sport, ...opts, props }),
+      body: JSON.stringify({ sport, tier, ...opts, props }),
       signal,
     }),
-    REQUEST_TIMEOUT_MS * 3,
+    tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
     path,
   );
   if (!res.ok) return [];

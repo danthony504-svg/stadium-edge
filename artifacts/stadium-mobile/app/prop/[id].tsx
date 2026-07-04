@@ -127,14 +127,14 @@ export default function PropDetailScreen() {
       ),
   });
 
-  const simQ = useQuery({
-    queryKey: ["prop-sim", sport, athleteId, marketKey, line, side],
+  const simQuickQ = useQuery({
+    queryKey: ["prop-sim-quick", sport, athleteId, marketKey, line, side],
     enabled:
       enabled &&
       !!athleteId &&
       line != null &&
       (side === "Over" || side === "Under"),
-    staleTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
     queryFn: async ({ signal }) => {
       const parts = game.split(" @ ");
       const map = await fetchPropSimulations(
@@ -154,6 +154,7 @@ export default function PropDetailScreen() {
         {
           awayTeam: parts[0]?.trim() ?? "",
           homeTeam: parts[1]?.trim() ?? "",
+          tier: "quick",
         },
         signal,
       );
@@ -161,6 +162,47 @@ export default function PropDetailScreen() {
       return map.get(key) ?? null;
     },
   });
+
+  const simDeepQ = useQuery({
+    queryKey: ["prop-sim-deep", sport, athleteId, marketKey, line, side],
+    enabled:
+      enabled &&
+      !!athleteId &&
+      line != null &&
+      (side === "Over" || side === "Under") &&
+      simQuickQ.isSuccess,
+    staleTime: 30 * 60_000,
+    queryFn: async ({ signal }) => {
+      const parts = game.split(" @ ");
+      const map = await fetchPropSimulations(
+        [
+          {
+            isProp: true,
+            player,
+            propLine: line,
+            propSide: side,
+            propMarketKey: marketKey,
+            athleteId,
+            game,
+            sport,
+          },
+        ],
+        [],
+        {
+          awayTeam: parts[0]?.trim() ?? "",
+          homeTeam: parts[1]?.trim() ?? "",
+          tier: "deep",
+        },
+        signal,
+      );
+      const key = `${player}|${marketKey}|${line}|${side}`;
+      return map.get(key) ?? null;
+    },
+  });
+
+  const simData = simDeepQ.data ?? simQuickQ.data;
+  const simulationPending =
+    simQuickQ.isFetching || simDeepQ.isFetching || (simQuickQ.isSuccess && !simDeepQ.isFetched);
 
   const ambiguous = useMemo(
     () => computeAmbiguous(historyQ.data?.labels),
@@ -610,12 +652,12 @@ export default function PropDetailScreen() {
         lineValue,
         injury,
         lineShopping,
-        simulation: scoreSimulation(simQ.data?.hitProbability ?? null),
+        simulation: scoreSimulation(simData?.hitProbability ?? null),
       },
       edgePct,
       odds,
     );
-  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simQ.data]);
+  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simData]);
 
   // Tier colors for the AI-breakdown hero — same thresholds the rubric uses, so
   // the glanceable hero and the full breakdown below always agree.
@@ -859,8 +901,8 @@ export default function PropDetailScreen() {
                 icon="cpu"
                 label="SIM HIT %"
                 value={
-                  simQ.data?.hitProbability != null
-                    ? `${Math.round(simQ.data.hitProbability * 100)}%`
+                  simData?.hitProbability != null
+                    ? `${Math.round(simData.hitProbability * 100)}%`
                     : "—"
                 }
                 caption="10k Monte Carlo"
@@ -870,8 +912,8 @@ export default function PropDetailScreen() {
                 icon="activity"
                 label="LIKELY LINE"
                 value={
-                  simQ.data?.mostLikelyLine != null
-                    ? String(simQ.data.mostLikelyLine)
+                  simData?.mostLikelyLine != null
+                    ? String(simData.mostLikelyLine)
                     : "—"
                 }
                 caption="mode outcome"
@@ -890,8 +932,8 @@ export default function PropDetailScreen() {
                 icon="shield"
                 label="SIM CONF"
                 value={
-                  simQ.data?.confidenceScore != null
-                    ? `${simQ.data.confidenceScore}`
+                  simData?.confidenceScore != null
+                    ? `${simData.confidenceScore}`
                     : "—"
                 }
                 caption="model conviction"
@@ -1083,7 +1125,7 @@ export default function PropDetailScreen() {
             only when at least one signal is groundable. */}
         {propScore.composite != null ? (
           <Section title="PICK GRADE">
-            <ScoreBreakdown data={propScore} variant="full" />
+            <ScoreBreakdown data={propScore} variant="full" simulationPending={simulationPending} />
           </Section>
         ) : null}
 

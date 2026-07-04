@@ -210,11 +210,13 @@ export function ScoreBreakdown({
   variant = "full",
   title,
   note,
+  simulationPending,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
+  simulationPending?: boolean;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -227,6 +229,18 @@ export function ScoreBreakdown({
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles data={data} />
+        {simulationPending ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 11,
+              fontStyle: "italic",
+            }}
+          >
+            Simulation updating…
+          </Text>
+        ) : null}
         <View style={{ flexDirection: "row", gap: 4 }}>
           {FACTORS.map((f) => {
             const s = data.scores[f.key];
@@ -281,6 +295,18 @@ export function ScoreBreakdown({
         {title ?? "Pick Score"}
       </Text>
       <HeaderTiles data={data} />
+      {simulationPending ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 11,
+            fontStyle: "italic",
+          }}
+        >
+          Simulation updating…
+        </Text>
+      ) : null}
       <View style={{ marginTop: 2 }}>
         {FACTORS.map((f) => (
           <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />
