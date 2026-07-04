@@ -33,20 +33,16 @@ import {
   resolveTennisFlag,
   type EspnGame,
   type OddsGame,
-  type PlayerProp,
   type TennisFlag,
   type UpsetSpot,
 } from "@/lib/api";
-import { formatAmerican, parlayAmerican } from "@/lib/format";
+import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
-  cachedHeroLegs,
   cachedLiveGames,
   cachedUpcomingGames,
   hydrateDiscoverCache,
-  isHeroStickyFresh,
-  rememberHeroLegs,
   rememberLiveGames,
   rememberUpcomingGames,
   DISCOVER_CACHE_SPORTS,
@@ -54,38 +50,6 @@ import {
 } from "@/lib/discoverSessionCache";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
-
-// A concise, human leg label for the hero parlay title — e.g. "PCA 1+ SB",
-// "Judge HR", "Edwards O27.5 PTS". Built only from REAL prop fields (player,
-// market, side, line); falls back to the full market label for anything we
-// don't have a short form for. Never fabricates a value.
-function heroLegTitle(p: PlayerProp): string {
-  const name = nickname(p.player);
-  const side = p.evSide ?? "Over";
-  const mk = (p.market || "").toLowerCase();
-  const short =
-    /home_?run/.test(mk) ? "HR" :
-    /stolen_?base/.test(mk) ? "SB" :
-    /total_?bases/.test(mk) ? "TB" :
-    /\brbi/.test(mk) ? "RBI" :
-    /strikeout/.test(mk) ? "Ks" :
-    /\bhits\b|batter_hits/.test(mk) ? "Hits" :
-    /points/.test(mk) ? "PTS" :
-    /rebound/.test(mk) ? "REB" :
-    /assist/.test(mk) ? "AST" :
-    /three|3pt|threes/.test(mk) ? "3PM" :
-    /passing_yard/.test(mk) ? "Pass Yds" :
-    /rushing_yard/.test(mk) ? "Rush Yds" :
-    /receiving_yard/.test(mk) ? "Rec Yds" :
-    /reception/.test(mk) ? "Rec" :
-    null;
-  const label = short ?? propMarketLabel(p.market);
-  if (p.line == null) return `${name} ${label}`;
-  if (side === "Over" && short && Number.isFinite(p.line)) {
-    return `${name} ${Math.ceil(p.line)}+ ${short}`;
-  }
-  return `${name} ${side === "Under" ? "U" : "O"}${p.line} ${label}`;
-}
 
 // Top Value Props rail: a prop is "value" when the best posted price beats the
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
@@ -300,7 +264,6 @@ export default function HomeScreen() {
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= 680;
-  const heroAvatarSize = isWideLayout ? 92 : 56;
   const hotCardWidth = isWideLayout
     ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
     : 168;
@@ -310,15 +273,11 @@ export default function HomeScreen() {
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
   const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>(() => cachedUpcomingGames(sport));
-  const [stickyHeroLegs, setStickyHeroLegs] = useState<CachedPropEntry[]>(() => cachedHeroLegs(sport));
-  const [cacheHydrated, setCacheHydrated] = useState(false);
 
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
-      setStickyHeroLegs(cachedHeroLegs(sport));
       setStickyLiveGames(cachedLiveGames(sport));
       setStickyUpcoming(cachedUpcomingGames(sport));
-      setCacheHydrated(true);
     });
   }, []);
 
@@ -333,7 +292,6 @@ export default function HomeScreen() {
   useEffect(() => {
     setStickyLiveGames(cachedLiveGames(sport));
     setStickyUpcoming(cachedUpcomingGames(sport));
-    setStickyHeroLegs(cachedHeroLegs(sport));
   }, [sport]);
 
   const oddsQ = useQuery({
@@ -485,9 +443,8 @@ export default function HomeScreen() {
   // ---- Home AI sections (all REAL data; each rail hides when nothing qualifies) ----
 
   // Flatten the featured per-game prop fetches into one list with game/team
-  // context. Drives the hero parlay, Hot Picks, and Top Value rails. Recomputed
-  // each render (cheap) as the per-game queries settle, so rails fill in
-  // progressively. Main lines only (no alt rungs).
+  // context. Drives Hot Picks and Top Value rails. Recomputed each render
+  // (cheap) as the per-game queries settle, so rails fill in progressively.
   type PropEntry = CachedPropEntry;
   const propEntries: PropEntry[] = (() => {
     const out: PropEntry[] = [];
@@ -511,70 +468,6 @@ export default function HomeScreen() {
     });
     return out;
   })();
-
-  // HERO — "Today's Top AI Parlay": the top server-computed +EV props, one per
-  // distinct game (independence) and one per player, 2-3 legs. Combined odds,
-  // model win prob and avg edge are all derived from REAL per-leg values; the
-  // card is hidden (plain Build button shown) when fewer than 2 legs qualify.
-  const heroLegs: PropEntry[] = (() => {
-    const sorted = propEntries
-      .filter((e) => e.prop.ev != null && e.prop.fairProb != null)
-      .sort((a, b) => (b.prop.ev ?? 0) - (a.prop.ev ?? 0));
-    const seenGame = new Set<string>();
-    const seenPlayer = new Set<string>();
-    const legs: PropEntry[] = [];
-    for (const e of sorted) {
-      if (seenGame.has(e.gameLabel)) continue;
-      const pl = e.prop.player.toLowerCase();
-      if (seenPlayer.has(pl)) continue;
-      const side = e.prop.evSide ?? "Over";
-      const price = side === "Under" ? e.prop.underPrice : e.prop.overPrice;
-      if (price == null) continue;
-      seenGame.add(e.gameLabel);
-      seenPlayer.add(pl);
-      legs.push(e);
-      if (legs.length >= 3) break;
-    }
-    return legs;
-  })();
-  const heroReady = heroLegs.length >= 2;
-  const featuredFetching =
-    featuredEnabled &&
-    featGames.length > 0 &&
-    featuredGameQs.some((q) => q.isFetching || q.isPending);
-  const stickyFresh = isHeroStickyFresh(sport);
-  // Keep the hero visible while featured prop queries are still settling so a
-  // brief partial fetch doesn't flash the fallback card — but never pin stale
-  // legs from a prior OTA generation or an expired cache while we're refetching.
-  useEffect(() => {
-    if (heroLegs.length >= 2) {
-      setStickyHeroLegs(heroLegs);
-      rememberHeroLegs(sport, heroLegs);
-    }
-  }, [heroLegs, sport]);
-  const canUseSticky =
-    stickyHeroLegs.length >= 2 && (!featuredFetching || stickyFresh);
-  const displayHeroLegs = heroReady ? heroLegs : canUseSticky ? stickyHeroLegs : [];
-  const showHero = displayHeroLegs.length >= 2;
-  const heroSettling =
-    cacheHydrated &&
-    featuredEnabled &&
-    featGames.length > 0 &&
-    !showHero &&
-    (featuredFetching || featuredGameQs.some((q) => q.isFetching || q.isPending));
-  const heroPrices = displayHeroLegs.map((e) =>
-    e.prop.evSide === "Under" ? (e.prop.underPrice as number) : (e.prop.overPrice as number),
-  );
-  const heroOdds = showHero ? parlayAmerican(heroPrices) : null;
-  const heroEdgeVals = displayHeroLegs
-    .map((e) => e.prop.edge)
-    .filter((x): x is number => x != null);
-  const heroAvgEdge = heroEdgeVals.length
-    ? heroEdgeVals.reduce((a, b) => a + b, 0) / heroEdgeVals.length
-    : null;
-  const heroWinProb = showHero
-    ? displayHeroLegs.reduce((acc, e) => acc * (e.prop.fairProb ?? 0), 1)
-    : null;
 
   // HOT PICKS — graded by REAL recent hit-rate (same shared engine as the Props
   // tab): how often the player has cleared THIS posted line in their last games.
@@ -800,12 +693,6 @@ export default function HomeScreen() {
       params: { prefill: msg, send: "1", ts: String(Date.now()) },
     });
 
-  const heroParlayCoachPrompt = () => {
-    if (displayHeroLegs.length < 2) return "Build me the best parlay";
-    const legs = displayHeroLegs.map((e) => heroLegTitle(e.prop)).join("; ");
-    return `Build me a ${displayHeroLegs.length}-leg parlay with exactly these legs: ${legs}. Use only these real posted picks — no substitutions.`;
-  };
-
   const quickActions: {
     label: string;
     subtitle: string;
@@ -952,7 +839,6 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
-              setStickyHeroLegs([]);
               setStickyLiveGames([]);
               setStickyUpcoming([]);
               oddsQ.refetch();
@@ -968,292 +854,12 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Hero — Today's Top AI Parlay. Built from REAL top-EV props (one per
-            distinct game). Combined odds, model win prob and avg edge are all
-            derived from real per-leg values; falls back to a plain Build button
-            when fewer than 2 EV legs are available (never a fabricated card). */}
-        {showHero ? (
-          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
-            <Pressable onPress={() => askCoach(heroParlayCoachPrompt())}>
-              {({ pressed }) => (
-                <LinearGradient
-                  colors={["#082554", "#06111f"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: colors.primary,
-                    borderRadius: colors.radius,
-                    padding: isWideLayout ? 20 : 16,
-                    gap: 14,
-                    minHeight: isWideLayout ? 216 : undefined,
-                    overflow: "hidden",
-                    opacity: pressed ? 0.92 : 1,
-                  }}
-                >
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: "absolute",
-                      right: -44,
-                      top: -70,
-                      width: isWideLayout ? 330 : 190,
-                      height: isWideLayout ? 330 : 190,
-                      borderRadius: isWideLayout ? 165 : 95,
-                      backgroundColor: "rgba(59,130,246,0.24)",
-                    }}
-                  />
-                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
-                    <View style={{ flex: 1, gap: 10 }}>
-                      <View
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 6,
-                          alignSelf: "flex-start",
-                          backgroundColor: "rgba(59,130,246,0.18)",
-                          borderRadius: 999,
-                          paddingHorizontal: 10,
-                          paddingVertical: 5,
-                        }}
-                      >
-                        <Feather name="zap" size={12} color={colors.primary} />
-                        <Text
-                          style={{
-                            color: colors.primary,
-                            fontFamily: FONT.bold,
-                            fontSize: 10,
-                            letterSpacing: 0.6,
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          TODAY'S TOP AI PARLAY
-                        </Text>
-                        {heroReady ? (
-                          <Text
-                            style={{
-                              color: "rgba(148,163,184,0.95)",
-                              fontFamily: FONT.medium,
-                              fontSize: 10,
-                            }}
-                          >
-                            Live picks · just updated
-                          </Text>
-                        ) : null}
-                      </View>
-                      <Text
-                        style={{
-                          color: colors.foreground,
-                          fontFamily: FONT.display,
-                          fontSize: isWideLayout ? 26 : 20,
-                          lineHeight: isWideLayout ? 32 : 26,
-                        }}
-                        numberOfLines={3}
-                      >
-                        {displayHeroLegs.map((e) => heroLegTitle(e.prop)).join(", ")}
-                      </Text>
-                    </View>
-                    {/* Overlapping REAL headshots (FeaturedAvatar falls back to
-                        team logo / initials — never a fabricated face). */}
-                    <View style={{ flexDirection: "row", alignItems: "center", paddingTop: isWideLayout ? 4 : 2 }}>
-                      {displayHeroLegs.slice(0, 3).map((e, i) => (
-                        <View key={i} style={{ marginLeft: i === 0 ? 0 : -(heroAvatarSize * 0.24) }}>
-                          <FeaturedAvatar
-                            headshot={e.prop.headshot}
-                            teamLogo={e.teamLogo}
-                            name={e.prop.player}
-                            size={heroAvatarSize}
-                          />
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      backgroundColor: "rgba(2,6,23,0.55)",
-                      borderRadius: 12,
-                      paddingVertical: 12,
-                    }}
-                  >
-                    {[
-                      heroWinProb != null
-                        ? { val: `${Math.round(heroWinProb * 100)}%`, label: "Fair Win %", tint: "#34d399" }
-                        : null,
-                      heroAvgEdge != null
-                        ? { val: `+${heroAvgEdge.toFixed(1)}%`, label: "Avg Edge", tint: "#34d399" }
-                        : null,
-                      heroOdds != null
-                        ? { val: formatAmerican(heroOdds), label: "Projected Odds", tint: colors.primary }
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .map((m, i, arr) => (
-                        <View
-                          key={i}
-                          style={{
-                            flex: 1,
-                            alignItems: "center",
-                            gap: 3,
-                            borderLeftWidth: i === 0 ? 0 : 1,
-                            borderLeftColor: "rgba(148,163,184,0.18)",
-                          }}
-                        >
-                          <Text style={{ color: m!.tint, fontFamily: FONT.display, fontSize: 19 }}>
-                            {m!.val}
-                          </Text>
-                          <Text
-                            style={{
-                              color: colors.mutedForeground,
-                              fontFamily: FONT.medium,
-                              fontSize: 9.5,
-                              letterSpacing: 0.4,
-                              textTransform: "uppercase",
-                            }}
-                          >
-                            {m!.label}
-                          </Text>
-                        </View>
-                      ))}
-                  </View>
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      backgroundColor: colors.primary,
-                      borderRadius: 999,
-                      paddingVertical: 13,
-                    }}
-                  >
-                    <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 15 }}>
-                      Build this parlay
-                    </Text>
-                    <Feather name="arrow-right" size={16} color="#fff" />
-                  </View>
-                </LinearGradient>
-              )}
-            </Pressable>
-          </View>
-        ) : heroSettling ? (
-          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
-            <LinearGradient
-              colors={["#082554", "#06111f"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                borderWidth: 1,
-                borderColor: colors.primary,
-                borderRadius: colors.radius,
-                padding: isWideLayout ? 20 : 16,
-                gap: 14,
-                minHeight: isWideLayout ? 216 : 140,
-                overflow: "hidden",
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  alignSelf: "flex-start",
-                  backgroundColor: "rgba(59,130,246,0.18)",
-                  borderRadius: 999,
-                  paddingHorizontal: 10,
-                  paddingVertical: 5,
-                }}
-              >
-                <Feather name="zap" size={12} color={colors.primary} />
-                <Text
-                  style={{
-                    color: colors.primary,
-                    fontFamily: FONT.bold,
-                    fontSize: 10,
-                    letterSpacing: 0.6,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  TODAY'S TOP AI PARLAY
-                </Text>
-              </View>
-              <Loading label="Loading today's top picks…" />
-            </LinearGradient>
-          </View>
-        ) : (
-          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
-            <Pressable
-              onPress={() => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } })}
-            >
-              {({ pressed }) => (
-                <LinearGradient
-                  colors={["#082554", "#06111f"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 14,
-                    borderWidth: 1,
-                    borderColor: colors.primary,
-                    borderRadius: colors.radius,
-                    padding: 16,
-                    opacity: pressed ? 0.92 : 1,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: 14,
-                      backgroundColor: "rgba(59,130,246,0.18)",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <MaterialCommunityIcons name="ticket-percent" size={28} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
-                      Build best parlay
-                    </Text>
-                    <Text
-                      style={{
-                        color: colors.mutedForeground,
-                        fontFamily: FONT.medium,
-                        fontSize: 13,
-                        lineHeight: 18,
-                      }}
-                    >
-                      Get AI-powered picks tailored for the best possible odds.
-                    </Text>
-                  </View>
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: colors.primary,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Feather name="arrow-right" size={18} color="#fff" />
-                  </View>
-                </LinearGradient>
-              )}
-            </Pressable>
-          </View>
-        )}
-
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 22 }}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 18, marginBottom: 22 }}
         >
           {quickActions.map((a) => (
             <Pressable
