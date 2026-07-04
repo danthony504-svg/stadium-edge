@@ -11,6 +11,7 @@ import {
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
+import { slimChatContextForUpload } from "./slimChatContext";
 import {
   isPickable,
   isPregameBettable,
@@ -38,7 +39,7 @@ import {
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
-export { gameMatchesFocalText };
+export { gameMatchesFocalText, slimChatContextForUpload };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
@@ -3087,57 +3088,51 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   return out;
 }
 
-/** Strip heavy analytics before the /api/chat upload — local propPool stays full. */
-export function slimChatContextForUpload(context: ChatContext): ChatContext {
-  const slimMatchup: Record<string, MatchupHistoryEntry> = {};
-  if (context.matchupHistory) {
-    for (const [k, m] of Object.entries(context.matchupHistory)) {
-      slimMatchup[k] = {
-        home: null,
-        away: null,
-        homePace: m.homePace,
-        awayPace: m.awayPace,
-        homeVenueForm: null,
-        awayVenueForm: null,
-        homeStreak: null,
-        awayStreak: null,
-        homeSeason: null,
-        awaySeason: null,
-        homeRest: null,
-        awayRest: null,
-        h2h: null,
-        lastMeeting: m.lastMeeting,
-        mlLean: m.mlLean,
-      };
-    }
+/** Best-effort wake-up before a heavy Coach build POST (cold autoscale hosts). */
+export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
+  try {
+    await withTimeout(
+      expoFetch(`${API_BASE}/healthz`, { signal }) as unknown as Promise<Response>,
+      8_000,
+      "/healthz",
+    );
+  } catch {
+    // Never block the build on a warm-up miss.
   }
-  const slimHistory: Record<string, unknown> = {};
-  if (context.playerHistory) {
-    for (const [k, raw] of Object.entries(context.playerHistory)) {
-      const h = raw as {
-        player?: string;
-        recent?: unknown[];
-        vsOpponent?: unknown[];
-      };
-      slimHistory[k] = {
-        player: h.player,
-        recent: Array.isArray(h.recent) ? h.recent.slice(0, 5) : [],
-        ...(Array.isArray(h.vsOpponent) && h.vsOpponent.length
-          ? { vsOpponent: h.vsOpponent.slice(0, 2) }
-          : {}),
-      };
-    }
-  }
-  const hasUfc = context.selectedSports?.includes("ufc");
-  return {
-    ...context,
-    matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : context.matchupHistory,
-    playerHistory: Object.keys(slimHistory).length ? slimHistory : context.playerHistory,
-    fightAnalysis: hasUfc ? context.fightAnalysis : undefined,
-  };
 }
 
-function abortError(): Error {
+/** Upload a large build context once; /chat streams with contextStashId only. */
+async function stashChatContextForStream(
+  context: ChatContext,
+  authToken: string | null,
+  signal: AbortSignal | undefined,
+  stashId?: string,
+): Promise<string | null> {
+  try {
+    const res = await withTimeout(
+      expoFetch(`${API_BASE}/chat/context-stash`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({
+          context,
+          ...(stashId ? { stashId } : {}),
+        }),
+        signal,
+      }) as unknown as Promise<Response>,
+      Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200)),
+      "/chat/context-stash",
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { stashId?: string };
+    return typeof data.stashId === "string" ? data.stashId : null;
+  } catch {
+    return null;
+  }
+}
+
   const e = new Error("Aborted");
   e.name = "AbortError";
   return e;
@@ -3235,7 +3230,35 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // proxy buffering; a genuinely dead link still aborts and retries, just later.
   // Once the first token lands the proxy switches to pass-through and we tighten
   // back to STALL_MS for the rest of the stream.
-  const bodyStr = JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId });
+  // Parlay builds upload a large context blob. When over ~16KB, stash it server-
+  // side first so the SSE POST stays tiny (fixes connect-stall on cellular and
+  // cold hosts even on full 5G when the body is 100KB+).
+  const STASH_THRESHOLD_KB = 16;
+  const inlinePreviewKB =
+    JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId })
+      .length / 1024;
+  let contextStashId: string | null = null;
+  if (
+    inlinePreviewKB > STASH_THRESHOLD_KB &&
+    context &&
+    typeof context === "object" &&
+    Object.keys(context).length > 0
+  ) {
+    contextStashId = await stashChatContextForStream(
+      context,
+      authToken,
+      signal,
+      buildId || undefined,
+    );
+  }
+  const bodyStr = JSON.stringify({
+    messages,
+    ...(contextStashId ? { contextStashId } : { context }),
+    imageDataUrl,
+    imageDataUrls,
+    notifyOnBackground,
+    buildId,
+  });
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
     bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;
@@ -3253,8 +3276,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
   // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
   const CONNECT_MS = Math.min(
-    60_000,
-    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 150)),
+    90_000,
+    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 200)),
   );
   const MAX_ATTEMPTS = 6;
 

@@ -40,6 +40,15 @@ import {
 import { formatAmerican, parlayAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
+import {
+  cachedHeroLegs,
+  cachedLiveGames,
+  cachedUpcomingGames,
+  rememberHeroLegs,
+  rememberLiveGames,
+  rememberUpcomingGames,
+  type CachedPropEntry,
+} from "@/lib/discoverSessionCache";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -295,12 +304,14 @@ export default function HomeScreen() {
   // when the row doesn't fit on one screen.
   const quickCardWidth = Math.max(104, Math.min(118, (width - 32 - 4 * 8) / 4.2));
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>([]);
-  const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>([]);
+  const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
+  const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>(() => cachedUpcomingGames(sport));
+  const [stickyHeroLegs, setStickyHeroLegs] = useState<CachedPropEntry[]>(() => cachedHeroLegs(sport));
 
   useEffect(() => {
-    setStickyLiveGames([]);
-    setStickyUpcoming([]);
+    setStickyLiveGames(cachedLiveGames(sport));
+    setStickyUpcoming(cachedUpcomingGames(sport));
+    setStickyHeroLegs(cachedHeroLegs(sport));
   }, [sport]);
 
   const oddsQ = useQuery({
@@ -331,15 +342,16 @@ export default function HomeScreen() {
     [gamesQ.data],
   );
   useEffect(() => {
-    if (freshLiveGames.length > 0) setStickyLiveGames(freshLiveGames);
-  }, [freshLiveGames]);
+    if (freshLiveGames.length > 0) {
+      setStickyLiveGames(freshLiveGames);
+      rememberLiveGames(sport, freshLiveGames);
+    }
+  }, [freshLiveGames, sport]);
   const liveGames = useMemo(() => {
     if (freshLiveGames.length > 0) return freshLiveGames;
-    if ((gamesQ.isFetching || gamesQ.isLoading) && stickyLiveGames.length > 0) {
-      return stickyLiveGames;
-    }
+    if (stickyLiveGames.length > 0) return stickyLiveGames;
     return freshLiveGames;
-  }, [freshLiveGames, gamesQ.isFetching, gamesQ.isLoading, stickyLiveGames]);
+  }, [freshLiveGames, stickyLiveGames]);
 
   // Nickname keys (away|home) of games currently in progress, so we can drop them
   // from Upcoming — a live game already has its own card in the "Live Now" rail.
@@ -365,15 +377,16 @@ export default function HomeScreen() {
   }, [oddsQ.data, liveKeySet]);
 
   useEffect(() => {
-    if (games.length > 0) setStickyUpcoming(games);
-  }, [games]);
+    if (games.length > 0) {
+      setStickyUpcoming(games);
+      rememberUpcomingGames(sport, games);
+    }
+  }, [games, sport]);
   const upcomingGames = useMemo(() => {
     if (games.length > 0) return games;
-    if ((oddsQ.isFetching || oddsQ.isLoading) && oddsQ.data && stickyUpcoming.length > 0) {
-      return stickyUpcoming;
-    }
+    if (stickyUpcoming.length > 0) return stickyUpcoming;
     return games;
-  }, [games, oddsQ.isFetching, oddsQ.isLoading, oddsQ.data, stickyUpcoming]);
+  }, [games, stickyUpcoming]);
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -449,13 +462,7 @@ export default function HomeScreen() {
   // context. Drives the hero parlay, Hot Picks, and Top Value rails. Recomputed
   // each render (cheap) as the per-game queries settle, so rails fill in
   // progressively. Main lines only (no alt rungs).
-  type PropEntry = {
-    prop: PlayerProp;
-    gameLabel: string;
-    startsAt: string;
-    teamAbbr: string | null;
-    teamLogo: string | null;
-  };
+  type PropEntry = CachedPropEntry;
   const propEntries: PropEntry[] = (() => {
     const out: PropEntry[] = [];
     featuredGameQs.forEach((q, i) => {
@@ -507,13 +514,12 @@ export default function HomeScreen() {
   const heroReady = heroLegs.length >= 2;
   // Keep the hero visible while featured prop queries are still settling so a
   // brief partial fetch doesn't flash the fallback card and back.
-  const [stickyHeroLegs, setStickyHeroLegs] = useState<PropEntry[]>([]);
   useEffect(() => {
-    setStickyHeroLegs([]);
-  }, [sport]);
-  useEffect(() => {
-    if (heroLegs.length >= 2) setStickyHeroLegs(heroLegs);
-  }, [heroLegs]);
+    if (heroLegs.length >= 2) {
+      setStickyHeroLegs(heroLegs);
+      rememberHeroLegs(sport, heroLegs);
+    }
+  }, [heroLegs, sport]);
   const showHero = heroReady || stickyHeroLegs.length >= 2;
   const displayHeroLegs = heroReady ? heroLegs : stickyHeroLegs;
   const heroPrices = displayHeroLegs.map((e) =>
@@ -1832,7 +1838,7 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
         </View>
-        {!oddsQ.data && oddsQ.isLoading ? (
+        {!oddsQ.data && oddsQ.isLoading && stickyUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
