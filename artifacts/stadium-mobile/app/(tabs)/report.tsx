@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader } from "@/components/AppHeader";
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { EmptyState, FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
@@ -178,21 +178,12 @@ export default function ReportScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-            Model Report
-          </Text>
-          <Text
-            style={{
-              color: colors.mutedForeground,
-              fontFamily: FONT.body,
-              fontSize: 12,
-              marginTop: 2,
-            }}
-          >
-            Real graded results from your settled slips
-          </Text>
-        </View>
+        <PageTitleRow
+          icon="bar-chart-2"
+          title="Model Report"
+          subtitle="Real graded results from your settled slips"
+          showHowItWorks={false}
+        />
       </AppHeader>
       <ScrollView
         contentContainerStyle={{

@@ -86,12 +86,14 @@ export function PageTitleRow({
   title,
   subtitle,
   onHowItWorks,
+  showHowItWorks = true,
 }: {
   icon: React.ComponentProps<typeof Feather>["name"];
   iconBg?: string;
   title: string;
   subtitle: string;
   onHowItWorks?: () => void;
+  showHowItWorks?: boolean;
 }) {
   const colors = useColors();
   const router = useRouter();
@@ -117,23 +119,25 @@ export function PageTitleRow({
             {subtitle}
           </Text>
         </View>
-        <Pressable
-          onPress={onHowItWorks ?? (() => router.push("/coach"))}
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            paddingHorizontal: 12,
-            paddingVertical: 7,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: colors.primary,
-            opacity: pressed ? 0.75 : 1,
-          })}
-        >
-          <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>How it works</Text>
-          <Feather name="info" size={13} color={colors.primary} />
-        </Pressable>
+        {showHowItWorks ? (
+          <Pressable
+            onPress={onHowItWorks ?? (() => router.push("/coach"))}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              opacity: pressed ? 0.75 : 1,
+            })}
+          >
+            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>How it works</Text>
+            <Feather name="info" size={13} color={colors.primary} />
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

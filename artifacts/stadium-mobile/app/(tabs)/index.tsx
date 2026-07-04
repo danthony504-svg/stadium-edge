@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/expo";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Line, Polyline } from "react-native-svg";
 
+import { AppHeader } from "@/components/AppHeader";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -285,7 +285,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
-  const { isSignedIn } = useAuth();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= 680;
   const heroAvatarSize = isWideLayout ? 92 : 56;
@@ -764,38 +763,7 @@ export default function HomeScreen() {
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
-      <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo header mirrors the Coach page: compact row, larger wordmark, and
-            the floating nav button kept clear on the left. */}
-        <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
-          <Image
-            source={require("@/assets/images/logo-wordmark.png")}
-            style={{ width: Math.min(255, Math.max(220, width - 138)), height: 44 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-          <Pressable
-            onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              right: 16,
-              top: 3,
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.card,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Feather name="bell" size={17} color={colors.foreground} />
-          </Pressable>
-        </View>
+      <AppHeader bottomGap={0}>
 
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
@@ -880,7 +848,7 @@ export default function HomeScreen() {
             );
           })}
         </ScrollView>
-      </View>
+      </AppHeader>
 
       <ScrollView
         contentContainerStyle={{

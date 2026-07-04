@@ -5,7 +5,7 @@ import React from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader } from "@/components/AppHeader";
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { Badge, Card, FONT, Loading, ErrorState, EmptyState } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
 import { SportPills } from "@/components/SportPills";
@@ -225,7 +225,14 @@ export default function GolfScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <AppHeader bottomGap={0} />
+      <AppHeader bottomGap={0}>
+        <PageTitleRow
+          icon="flag"
+          title="Golf"
+          subtitle="Outright winner odds for the majors — best price across books"
+          showHowItWorks={false}
+        />
+      </AppHeader>
       <ScrollView
         contentContainerStyle={{
           paddingTop: 8,
@@ -245,11 +252,6 @@ export default function GolfScreen() {
         />
 
         <View style={{ paddingHorizontal: 16 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 26 }}>Golf</Text>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4, marginBottom: 16 }}>
-          Outright winner odds for the majors — best price across books, ranked by a no-vig market model.
-        </Text>
-
         {isLoading ? (
           <Loading label="Loading golf odds…" />
         ) : isError ? (

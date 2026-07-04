@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { MiniStat } from "@/components/PropVisuals";
@@ -1051,80 +1052,12 @@ export default function PropsScreen() {
         }
       >
         {/* Pinned header — new Player Props browse landing, Coach-style brand row. */}
-        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background, paddingBottom: 14 }}>
-          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
-            <Image
-              source={require("@/assets/images/logo-wordmark.png")}
-              style={{ width: "78%", height: 44 }}
-              resizeMode="contain"
-              fadeDuration={0}
-              accessibilityLabel="Stadium Edge"
-            />
-            <Pressable
-              onPress={() => router.push("/notifications")}
-              hitSlop={8}
-              style={({ pressed }) => ({
-                position: "absolute",
-                right: 16,
-                top: 3,
-                width: 38,
-                height: 38,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <Feather name="bell" size={17} color={colors.foreground} />
-            </Pressable>
-          </View>
-
-          <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <View
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 21,
-                  backgroundColor: "rgba(59,130,246,0.18)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Feather name="user" size={19} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
-                  Player Props Only
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-                  Build from just player props.
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => router.push("/coach")}
-                style={({ pressed }) => ({
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  paddingHorizontal: 12,
-                  paddingVertical: 7,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  borderColor: colors.primary,
-                  opacity: pressed ? 0.75 : 1,
-                })}
-              >
-                <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>
-                  How it works
-                </Text>
-                <Feather name="info" size={13} color={colors.primary} />
-              </Pressable>
-            </View>
-          </View>
+        <AppHeader bottomGap={0} style={{ paddingBottom: 14 }}>
+          <PageTitleRow
+            icon="user"
+            title="Player Props Only"
+            subtitle="Build from just player props."
+          />
 
           <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
             <View
@@ -1251,7 +1184,7 @@ export default function PropsScreen() {
               </Text>
             </Pressable>
           </View>
-        </View>
+        </AppHeader>
 
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,

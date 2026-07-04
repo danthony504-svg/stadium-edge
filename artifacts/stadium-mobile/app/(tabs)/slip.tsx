@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader } from "@/components/AppHeader";
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { enrichPickMeta, gameSideFromPick, PickCard, type ParsedPick } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
@@ -813,14 +813,12 @@ export default function SlipScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-            Bet Slip
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-            {legs.length === 0 ? "No legs yet" : `${legs.length}-leg parlay`}
-          </Text>
-        </View>
+        <PageTitleRow
+          icon="layers"
+          title="Bet Slip"
+          subtitle={legs.length === 0 ? "No legs yet" : `${legs.length}-leg parlay`}
+          showHowItWorks={false}
+        />
       </AppHeader>
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={{

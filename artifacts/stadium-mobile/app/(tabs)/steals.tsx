@@ -1,11 +1,8 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +12,7 @@ import {
 import Svg, { Circle, Line } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, propMarketLabel, type LiveSteal, type StealRecord } from "@/lib/api";
@@ -295,8 +293,6 @@ function StealCard({ steal }: { steal: LiveSteal }) {
 export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { isSignedIn } = useAuth();
   const [sportFilter, setSportFilter] = React.useState<string | null>(null);
 
   const query = useQuery({
@@ -315,8 +311,35 @@ export default function StealsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingBottom: 12, marginTop: 4 }}>
+          <View
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: STEAL_ACCENT,
+              backgroundColor: "rgba(168,85,247,0.18)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.display, fontSize: 14 }}>+500</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+              +500 Steals
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, lineHeight: 18 }}>
+              Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
+            </Text>
+          </View>
+        </View>
+      </AppHeader>
       <ScrollView
         contentContainerStyle={{
+          paddingTop: 8,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -329,62 +352,6 @@ export default function StealsScreen() {
           />
         }
       >
-        <View style={{ paddingTop: insets.top + 6, marginHorizontal: -16, paddingHorizontal: 16, backgroundColor: colors.background }}>
-          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
-            <Image
-              source={require("@/assets/images/logo-wordmark.png")}
-              style={{ width: "78%", height: 44 }}
-              resizeMode="contain"
-              fadeDuration={0}
-              accessibilityLabel="Stadium Edge"
-            />
-            <Pressable
-              onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
-              hitSlop={8}
-              style={({ pressed }) => ({
-                position: "absolute",
-                right: 0,
-                top: 3,
-                width: 38,
-                height: 38,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <Feather name="bell" size={17} color={colors.foreground} />
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 }}>
-            <View
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: STEAL_ACCENT,
-                backgroundColor: "rgba(168,85,247,0.18)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.display, fontSize: 14 }}>+500</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-                +500 Steals
-              </Text>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, lineHeight: 18 }}>
-                Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
-              </Text>
-            </View>
-          </View>
-        </View>
-
         <RecordCard record={record} />
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>

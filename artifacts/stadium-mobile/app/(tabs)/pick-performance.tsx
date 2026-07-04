@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader } from "@/components/AppHeader";
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -112,21 +112,12 @@ export default function PickPerformanceScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-            Pick Performance
-          </Text>
-          <Text
-            style={{
-              color: colors.mutedForeground,
-              fontFamily: FONT.body,
-              fontSize: 12,
-              marginTop: 2,
-            }}
-          >
-            Auto-graded record of the app's flagged value picks
-          </Text>
-        </View>
+        <PageTitleRow
+          icon="trending-up"
+          title="Pick Performance"
+          subtitle="Auto-graded record of the app's flagged value picks"
+          showHowItWorks={false}
+        />
       </AppHeader>
       <ScrollView
         contentContainerStyle={{

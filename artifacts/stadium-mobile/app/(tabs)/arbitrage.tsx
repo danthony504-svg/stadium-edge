@@ -1,11 +1,8 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useAuth } from "@clerk/expo";
 import { useQueries } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getOdds, getProps, propMarketLabel, PROPS_SPORTS } from "@/lib/api";
@@ -411,8 +409,6 @@ function ValueCard({ vb, total }: { vb: ValueBet; total: number }) {
 export default function ArbitrageScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { isSignedIn } = useAuth();
   const [stakeText, setStakeText] = useState("100");
   const [mode, setMode] = useState<Mode>("all");
   const [sportFilter, setSportFilter] = useState<string | null>(null);
@@ -477,8 +473,16 @@ export default function ArbitrageScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0}>
+        <PageTitleRow
+          icon="lock"
+          title="Edge Lock"
+          subtitle="Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices."
+        />
+      </AppHeader>
       <ScrollView
         contentContainerStyle={{
+          paddingTop: 8,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -487,80 +491,6 @@ export default function ArbitrageScreen() {
           <RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetchAll} tintColor={colors.primary} />
         }
       >
-        <View style={{ paddingTop: insets.top + 6, marginHorizontal: -16, paddingHorizontal: 16, backgroundColor: colors.background }}>
-          <View style={{ paddingLeft: 78, paddingRight: 58, marginBottom: 14, alignItems: "flex-start" }}>
-            <Image
-              source={require("@/assets/images/logo-wordmark.png")}
-              style={{ width: "78%", height: 44 }}
-              resizeMode="contain"
-              fadeDuration={0}
-              accessibilityLabel="Stadium Edge"
-            />
-            <Pressable
-              onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
-              hitSlop={8}
-              style={({ pressed }) => ({
-                position: "absolute",
-                right: 0,
-                top: 3,
-                width: 38,
-                height: 38,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.card,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.7 : 1,
-              })}
-            >
-              <Feather name="bell" size={17} color={colors.foreground} />
-            </Pressable>
-          </View>
-
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <View
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: 21,
-                backgroundColor: "rgba(59,130,246,0.18)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Feather name="lock" size={19} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
-                Edge Lock
-              </Text>
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-                Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
-              </Text>
-            </View>
-            <Pressable
-              onPress={() => {}}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: 999,
-                borderWidth: 1,
-                borderColor: colors.primary,
-                opacity: pressed ? 0.75 : 1,
-              })}
-            >
-              <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>
-                How it works
-              </Text>
-              <Feather name="info" size={13} color={colors.primary} />
-            </Pressable>
-          </View>
-        </View>
-
         {/* Explainer + stake input */}
         <View
           style={{
