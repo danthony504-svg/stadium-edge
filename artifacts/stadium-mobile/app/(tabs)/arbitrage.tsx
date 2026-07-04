@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getOdds, getProps, propMarketLabel, PROPS_SPORTS } from "@/lib/api";
@@ -461,9 +462,19 @@ export default function ArbitrageScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
+            Edge Lock
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
+            Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
+          </Text>
+        </View>
+      </AppHeader>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 56,
+          paddingTop: 8,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -472,15 +483,6 @@ export default function ArbitrageScreen() {
           <RefreshControl refreshing={isFetching && !isLoading} onRefresh={refetchAll} tintColor={colors.primary} />
         }
       >
-        <View>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            Edge Lock
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-            Guaranteed arbitrage plus higher-upside value bets — all from real sportsbook prices.
-          </Text>
-        </View>
-
         {/* Explainer + stake input */}
         <View
           style={{

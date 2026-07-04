@@ -17,9 +17,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { Avatar } from "@/components/PlayerPropRow";
 import type { ParsedPick } from "@/components/PickCard";
-import { useSlipClearance } from "@/components/SlipBar";
 import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -108,8 +108,6 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
 export default function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const slipClearance = useSlipClearance();
-  const topPad = insets.top + slipClearance + 56;
 
   const [sport, setSport] = useState<string>("mlb");
   const [gameIdx, setGameIdx] = useState(0);
@@ -421,8 +419,9 @@ export default function SimulatorScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0} />
       <ScrollView
-        contentContainerStyle={{ paddingTop: topPad, paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 120 }}
         refreshControl={
           <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
         }

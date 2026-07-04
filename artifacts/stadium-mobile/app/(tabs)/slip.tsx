@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { enrichPickMeta, gameSideFromPick, PickCard, type ParsedPick } from "@/components/PickCard";
 import { Badge, EmptyState, FONT, PrimaryButton, SectionHeader } from "@/components/ui";
@@ -811,15 +812,8 @@ export default function SlipScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <KeyboardAwareScrollViewCompat
-        contentContainerStyle={{
-          paddingTop: insets.top + 8,
-          paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 24,
-        }}
-        bottomOffset={32}
-      >
-        <View style={{ marginBottom: 16, paddingLeft: 48 }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
             Bet Slip
           </Text>
@@ -827,7 +821,15 @@ export default function SlipScreen() {
             {legs.length === 0 ? "No legs yet" : `${legs.length}-leg parlay`}
           </Text>
         </View>
-
+      </AppHeader>
+      <KeyboardAwareScrollViewCompat
+        contentContainerStyle={{
+          paddingTop: 8,
+          paddingHorizontal: 16,
+          paddingBottom: insets.bottom + 24,
+        }}
+        bottomOffset={32}
+      >
         {/* AI-recommended picks (pinned from the AI Coach's latest parlay) */}
         {enrichedAiPicks.length > 0 ? (
           <View style={{ marginBottom: 20 }}>
