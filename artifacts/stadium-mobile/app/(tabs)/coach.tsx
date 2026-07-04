@@ -1252,29 +1252,54 @@ export default function CoachScreen() {
           }
 
           let first = true;
-          full = await streamChat({
-            messages: apiMessages,
-            context,
-            imageDataUrls: outgoingImageDataUrls,
-            signal: controller.signal,
-            notifyOnBackground: bg,
-            buildId,
-            onProps: (rows: RealPropEntry[]) => {
-              serverPropPool.push(...propPoolFromRealProps(rows));
-            },
-            onToken: (sofar) => {
-              if (first) {
-                first = false;
-                setWaiting(false);
-              }
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", content: sofar };
-                return copy;
-              });
-              scrollToEnd(false);
-            },
-          });
+          const runStream = async () => {
+            first = true;
+            return streamChat({
+              messages: apiMessages,
+              context,
+              imageDataUrls: outgoingImageDataUrls,
+              signal: controller.signal,
+              notifyOnBackground: bg,
+              buildId,
+              onProps: (rows: RealPropEntry[]) => {
+                serverPropPool.push(...propPoolFromRealProps(rows));
+              },
+              onToken: (sofar) => {
+                if (first) {
+                  first = false;
+                  setWaiting(false);
+                }
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", content: sofar };
+                  return copy;
+                });
+                scrollToEnd(false);
+              },
+            });
+          };
+
+          try {
+            full = await runStream();
+          } catch (streamErr: any) {
+            const retryable =
+              isParlayBuild &&
+              streamErr?.name !== "AbortError" &&
+              !handedOffRef.current;
+            if (!retryable) throw streamErr;
+            serverPropPool.length = 0;
+            setMessages((prev) => {
+              const copy = [...prev];
+              copy[copy.length - 1] = {
+                role: "assistant",
+                content: "Connection hiccup — trying your build once more…",
+              };
+              return copy;
+            });
+            setWaiting(true);
+            scrollToEnd();
+            full = await runStream();
+          }
           // Streamed to completion in-app — no background hand-off happened, so
           // drop the pending record and its eligibility flag.
           if (bg) {
@@ -1859,11 +1884,15 @@ export default function CoachScreen() {
             return copy;
           });
         } else if (e?.name !== "AbortError") {
+          const failMsg = chatStreamFailureMessage(e);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
               role: "assistant",
-              content: chatStreamFailureMessage(e),
+              content: failMsg,
+              ...(PARLAY_BUILD_RE.test(trimmed) || requestedLegCount(trimmed) > 0
+                ? { retry: trimmed }
+                : {}),
             };
             return copy;
           });

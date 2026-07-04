@@ -1,8 +1,6 @@
 import * as Updates from "expo-updates";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
-
-import { isOtaReloadBlocked } from "@/lib/otaBlock";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
@@ -20,11 +18,8 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   return true;
 }
 
-/**
- * Prefetch an OTA on launch without reloading — the downloaded bundle applies on
- * the next cold start so the current session's UI and query cache stay intact.
- */
-async function prefetchOtaOnLaunch(): Promise<boolean> {
+/** Download an OTA bundle without reloading — applies on the next cold start. */
+async function prefetchOtaUpdate(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
 
   const result = await Updates.checkForUpdateAsync();
@@ -34,23 +29,17 @@ async function prefetchOtaOnLaunch(): Promise<boolean> {
   return true;
 }
 
-/** Prefetch after launch; reload only when returning from background (debounced). */
+/**
+ * Prefetch OTA updates after launch and on foreground resume (debounced).
+ * Never calls reloadAsync automatically — mid-session reload was wiping query
+ * cache (Discover flash) and aborting Coach parlay streams.
+ */
 export function useOtaUpdater(enabled: boolean) {
-  const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
   const lastCheckAt = useRef(0);
-  const mounted = useRef(true);
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const checkAndReload = useCallback(async (force = false) => {
+  const prefetch = useCallback(async (force = false) => {
     if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
-    if (isOtaReloadBlocked()) return;
 
     const now = Date.now();
     if (!force && now - lastCheckAt.current < FOREGROUND_DEBOUNCE_MS) return;
@@ -58,16 +47,10 @@ export function useOtaUpdater(enabled: boolean) {
 
     inFlight.current = true;
     try {
-      const result = await Updates.checkForUpdateAsync();
-      if (!result.isAvailable || !mounted.current) return;
-      setUpdating(true);
-      await Updates.fetchUpdateAsync();
-      if (!mounted.current) return;
-      await Updates.reloadAsync();
+      await prefetchOtaUpdate();
     } catch {
       // Network hiccup — next foreground will retry.
     } finally {
-      if (mounted.current) setUpdating(false);
       inFlight.current = false;
     }
   }, [enabled]);
@@ -75,16 +58,16 @@ export function useOtaUpdater(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    const launchTimer = setTimeout(() => void prefetchOtaOnLaunch(), LAUNCH_DELAY_MS);
+    const launchTimer = setTimeout(() => void prefetch(true), LAUNCH_DELAY_MS);
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") void checkAndReload();
+      if (state === "active") void prefetch();
     });
 
     return () => {
       clearTimeout(launchTimer);
       sub.remove();
     };
-  }, [enabled, checkAndReload]);
+  }, [enabled, prefetch]);
 
-  return updating;
+  return false;
 }
