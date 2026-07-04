@@ -120,3 +120,41 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
     matchupInjuries: undefined,
   };
 }
+
+/** Emergency upload tier when inline POST still connect-stalls — caps pool size. */
+export function ultraSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
+  const slim = slimChatContextForUpload(context);
+  const slimOdds = slim.realOdds.slice(0, 24);
+  const slimProps = slim.realProps.slice(0, 36);
+  const slimMatchup: Record<string, SlimMatchupEntry> = {};
+  if (slim.matchupHistory) {
+    for (const [k, m] of Object.entries(slim.matchupHistory).slice(0, 3)) {
+      slimMatchup[k] = {
+        home: null,
+        away: null,
+        homePace: m.homePace,
+        awayPace: m.awayPace,
+        homeVenueForm: null,
+        awayVenueForm: null,
+        homeStreak: null,
+        awayStreak: null,
+        homeSeason: null,
+        awaySeason: null,
+        homeRest: null,
+        awayRest: null,
+        h2h: null,
+        lastMeeting: null,
+        mlLean: m.mlLean,
+      };
+    }
+  }
+  return {
+    ...slim,
+    realOdds: slimOdds,
+    realProps: slimProps,
+    matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : undefined,
+    playerHistory: undefined,
+    fightAnalysis: undefined,
+    modelStrengths: slim.modelStrengths,
+  };
+}

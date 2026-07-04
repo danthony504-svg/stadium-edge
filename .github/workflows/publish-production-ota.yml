@@ -35,6 +35,13 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      - name: Verify mobile bundle compiles
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
+
       - name: Publish OTA to production
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

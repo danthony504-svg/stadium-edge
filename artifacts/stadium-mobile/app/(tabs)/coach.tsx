@@ -95,6 +95,7 @@ import {
   wantsTomorrowOnly,
   streamChat,
   slimChatContextForUpload,
+  ultraSlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1255,16 +1256,16 @@ export default function CoachScreen() {
           }
 
           let first = true;
-          const uploadContext =
+          let uploadContext: ChatContext =
             isParlayBuild && requestedLegs <= 10
               ? slimChatContextForUpload(context)
               : context;
-          const runStream = async () => {
+          const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             if (isParlayBuild) await warmApiForCoachBuild(controller.signal);
             return streamChat({
               messages: apiMessages,
-              context: uploadContext,
+              context: streamContext,
               imageDataUrls: outgoingImageDataUrls,
               signal: controller.signal,
               notifyOnBackground: bg,
@@ -1306,7 +1307,10 @@ export default function CoachScreen() {
             });
             setWaiting(true);
             scrollToEnd();
-            full = await runStream();
+            if (isParlayBuild) {
+              uploadContext = ultraSlimChatContextForUpload(context);
+            }
+            full = await runStream(uploadContext);
           }
           // Streamed to completion in-app — no background hand-off happened, so
           // drop the pending record and its eligibility flag.
