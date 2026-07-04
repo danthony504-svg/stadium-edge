@@ -17,9 +17,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { Avatar } from "@/components/PlayerPropRow";
 import type { ParsedPick } from "@/components/PickCard";
-import { useSlipClearance } from "@/components/SlipBar";
 import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -108,8 +108,6 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
 export default function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const slipClearance = useSlipClearance();
-  const topPad = insets.top + slipClearance + 56;
 
   const [sport, setSport] = useState<string>("mlb");
   const [gameIdx, setGameIdx] = useState(0);
@@ -421,30 +419,24 @@ export default function SimulatorScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        contentContainerStyle={{ paddingTop: topPad, paddingBottom: insets.bottom + 120 }}
-        refreshControl={
-          <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
-        }
-      >
-        {/* Hero */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12, marginTop: 4 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <View
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: "rgba(59,130,246,0.15)",
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                backgroundColor: "rgba(59,130,246,0.18)",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              <MaterialCommunityIcons name="gamepad-variant" size={22} color={colors.primary} />
+              <MaterialCommunityIcons name="gamepad-variant" size={20} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={{ fontFamily: FONT.display, fontSize: 22, color: colors.foreground }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Text style={{ fontFamily: FONT.display, fontSize: 20, color: colors.foreground }}>
                   Game Simulator
                 </Text>
                 <View
@@ -458,25 +450,36 @@ export default function SimulatorScreen() {
                   <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: "#c4b5fd" }}>BETA</Text>
                 </View>
               </View>
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.body,
-                  fontSize: 13,
-                  lineHeight: 18,
-                  marginTop: 4,
-                }}
-              >
-                Simulate games and player props with our model to project outcomes and probabilities.
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+                Simulate games and player props to project outcomes and probabilities.
               </Text>
             </View>
+            <Pressable
+              onPress={() => setHowOpen(true)}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: colors.primary,
+                opacity: pressed ? 0.75 : 1,
+              })}
+            >
+              <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 12 }}>How it works</Text>
+              <Feather name="info" size={13} color={colors.primary} />
+            </Pressable>
           </View>
-          <Pressable onPress={() => setHowOpen(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Feather name="info" size={14} color={colors.primary} />
-            <Text style={{ color: colors.primary, fontFamily: FONT.medium, fontSize: 13 }}>How it works</Text>
-          </Pressable>
         </View>
-
+      </AppHeader>
+      <ScrollView
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 120 }}
+        refreshControl={
+          <RefreshControl refreshing={gamesQ.isFetching} onRefresh={() => gamesQ.refetch()} />
+        }
+      >
         {/* Sport pills */}
         <ScrollView
           horizontal
