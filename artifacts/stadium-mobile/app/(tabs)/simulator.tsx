@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -33,6 +33,7 @@ import {
   getProps,
   isPickable,
   propMarketLabel,
+  warmApiForCoachBuild,
   type EspnGame,
   type GameSimulationResult,
   type PlayerProp,
@@ -47,6 +48,12 @@ import {
 } from "@/lib/pickScoreContext";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
+import {
+  cachedSimGames,
+  cachedSimProps,
+  rememberSimGames,
+  rememberSimProps,
+} from "@/lib/simulatorSessionCache";
 
 const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer"] as const;
 const SIM_COUNT = 10_000;
@@ -145,14 +152,30 @@ export default function SimulatorScreen() {
   const [howOpen, setHowOpen] = useState(false);
 
   const sportFilters = propFiltersForSport(sport);
+  const warmedRef = useRef(false);
   useEffect(() => {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
+  // Wake cold Render hosts before the first games/props fan-out.
+  useEffect(() => {
+    if (warmedRef.current) return;
+    warmedRef.current = true;
+    void warmApiForCoachBuild();
+  }, []);
+
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
-    queryFn: ({ signal }) => getGames(sport, signal),
+    queryFn: ({ signal }) =>
+      getGames(sport, signal).then((rows) => {
+        rememberSimGames(sport, rows);
+        return rows;
+      }),
     staleTime: 5 * 60_000,
+    initialData: () => {
+      const cached = cachedSimGames(sport);
+      return cached.length > 0 ? cached : undefined;
+    },
   });
 
   const games = useMemo(
@@ -168,6 +191,7 @@ export default function SimulatorScreen() {
     queryKey: ["sim-injuries", sport],
     queryFn: ({ signal }) => getInjuries(sport, signal),
     staleTime: 10 * 60_000,
+    enabled: !!game,
   });
 
   const matchupQ = useQuery({
@@ -205,20 +229,32 @@ export default function SimulatorScreen() {
           away: game!.awayTeam ?? undefined,
           homeTeamId: game!.homeTeamId,
           awayTeamId: game!.awayTeamId,
+          startsAt: game!.startsAt,
         },
         signal,
-      ).then((r) => r.props ?? []),
+      ).then((r) => {
+        const props = r.props ?? [];
+        if (game?.id) rememberSimProps(sport, game.id, props);
+        return props;
+      }),
     staleTime: 5 * 60_000,
+    retry: 1,
     // Never paint another sport/game's props while this query refetches.
     placeholderData: undefined,
+    initialData: () => {
+      if (!game?.id) return undefined;
+      const cached = cachedSimProps(sport, game.id);
+      return cached.length > 0 ? cached : undefined;
+    },
   });
 
+  const gamesBootstrapping = gamesQ.isFetching && games.length === 0;
   const propsSettling =
-    propsQ.isLoading || (propsQ.isFetching && (propsQ.data?.length ?? 0) === 0);
+    propsQ.isFetching && (propsQ.data?.length ?? 0) === 0 && !propsQ.isError;
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
-    enabled: sport === "mlb",
+    enabled: sport === "mlb" && !!game,
     queryFn: ({ signal }) => getParkWeather("mlb", signal),
     staleTime: 10 * 60_000,
   });
@@ -525,7 +561,7 @@ export default function SimulatorScreen() {
           })}
         </ScrollView>
 
-        {gamesQ.isLoading ? (
+        {gamesBootstrapping ? (
           <Loading label="Loading games…" />
         ) : gamesQ.isError ? (
           <ErrorState onRetry={() => gamesQ.refetch()} />
@@ -753,7 +789,9 @@ export default function SimulatorScreen() {
                 </ScrollView>
 
                 {propsSettling ? (
-                  <ActivityIndicator color={colors.primary} />
+                  <Loading label="Loading player props…" />
+                ) : propsQ.isError ? (
+                  <ErrorState onRetry={() => propsQ.refetch()} />
                 ) : filteredProps.length === 0 ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
                     No props posted for this game yet — try another filter or check back closer to first pitch.

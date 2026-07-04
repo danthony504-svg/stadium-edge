@@ -670,17 +670,20 @@ export type GetPropsArgs = {
   away?: string;
   homeTeamId?: string | null;
   awayTeamId?: string | null;
+  startsAt?: string | null;
 };
 
 // Per-event player props. Pass home/away names so the server can resolve the
 // real Odds API event id when eventId came from a fallback odds source, and
-// team ids so it can attach real ESPN headshots.
+// team ids so it can attach real ESPN headshots. startsAt disambiguates same-
+// team rematches (e.g. MLB doubleheaders) when resolving the Odds API event id.
 export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
   const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
   if (args.home) q.set("home", args.home);
   if (args.away) q.set("away", args.away);
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
+  if (args.startsAt) q.set("startsAt", args.startsAt);
   return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal);
 }
 

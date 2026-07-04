@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { ODDS_SPORT_KEYS, ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
+import { resolveOddsEvent, type OddsEventRow } from "../lib/oddsEventResolve.js";
 
 const router: IRouter = Router();
 
@@ -263,6 +264,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
   // "no player props are up" even though the Odds API HAS props for the game.
   const homeName = String(req.query["home"] || "").trim();
   const awayName = String(req.query["away"] || "").trim();
+  const startsAt = String(req.query["startsAt"] || "").trim();
   if (!sport || !eventId) {
     res.status(400).json({ error: "sport and eventId are required" });
     return;
@@ -296,52 +298,19 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     // Shared helpers for resolving an Odds API event from a league's free,
     // 5-min-cached events list (0 quota credits).
     const fetchEvents = (key: string) =>
-      cachedJson<Array<{ id: string; home_team: string; away_team: string }>>(
+      cachedJson<OddsEventRow[]>(
         `odds-events:${key}`,
         5 * 60 * 1000,
         async () => {
           const url = `https://api.the-odds-api.com/v4/sports/${key}/events?apiKey=${apiKey}&dateFormat=iso`;
           const r = await fetchOddsApi(url);
           if (!r.ok) throw new Error(`events ${r.status}`);
-          return (await r.json()) as Array<{ id: string; home_team: string; away_team: string }>;
+          return (await r.json()) as OddsEventRow[];
         },
       );
-    // Prefer an EXACT Odds API id match (when the client already has a real one).
-    // Otherwise prefer a FULL-name match (normalized alnum), then nickname (last
-    // alpha word) ONLY when it uniquely identifies one event. Name comparisons
-    // are orientation-agnostic (ESPN/Bovada home/away can be flipped vs the Odds
-    // API). We FAIL CLOSED: an ambiguous nickname (collision sports — NCAAB/NCAAF
-    // "Tigers", "Wildcats") resolves NOTHING rather than risk a DIFFERENT game's
-    // props (fabrication). Empty props is the honest outcome.
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const nick = (s: string) => (s.toLowerCase().match(/[a-z]+/g) || []).pop() || "";
-    const matchEvent = (
-      events: Array<{ id: string; home_team: string; away_team: string }>,
-    ): { id: string } | undefined => {
-      if (looksLikeOddsApiId) {
-        const byId = events.find((e) => e.id === eventId);
-        if (byId) return byId;
-      }
-      if (!homeName || !awayName) return undefined;
-      const wantHomeFull = norm(homeName);
-      const wantAwayFull = norm(awayName);
-      const fullMatches = events.filter((e) => {
-        const eh = norm(e.home_team);
-        const ea = norm(e.away_team);
-        return (eh === wantHomeFull && ea === wantAwayFull) || (eh === wantAwayFull && ea === wantHomeFull);
-      });
-      if (fullMatches.length === 1) return fullMatches[0];
-      if (fullMatches.length === 0) {
-        const wantHomeNick = nick(homeName);
-        const wantAwayNick = nick(awayName);
-        const nickMatches = events.filter((e) => {
-          const eh = nick(e.home_team);
-          const ea = nick(e.away_team);
-          return (eh === wantHomeNick && ea === wantAwayNick) || (eh === wantAwayNick && ea === wantHomeNick);
-        });
-        if (nickMatches.length === 1) return nickMatches[0];
-      }
-      return undefined;
+    const resolveFromEvents = (events: OddsEventRow[]): string | null => {
+      const m = resolveOddsEvent(events, { eventId, homeName, awayName, startsAt: startsAt || undefined });
+      return m?.id ?? null;
     };
 
     let oddsKey: string;
@@ -363,10 +332,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       );
       let resolvedKey: string | undefined;
       for (const { key, events } of lists) {
-        const m = matchEvent(events);
-        if (m) {
+        const id = resolveFromEvents(events);
+        if (id) {
           resolvedKey = key;
-          effectiveEventId = m.id;
+          effectiveEventId = id;
           break;
         }
       }
@@ -386,17 +355,28 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       oddsKey = oddsKeyRaw;
       if (!looksLikeOddsApiId && homeName && awayName) {
         try {
-          const m = matchEvent(await fetchEvents(oddsKey));
-          if (m?.id) effectiveEventId = m.id;
+          const id = resolveFromEvents(await fetchEvents(oddsKey));
+          if (id) effectiveEventId = id;
           else
             req.log.warn(
-              { sport, homeName, awayName },
-              "Odds API event-id resolution ambiguous/not-found; using client eventId (props may be empty)",
+              { sport, homeName, awayName, startsAt },
+              "Odds API event-id resolution ambiguous/not-found",
             );
         } catch (err) {
-          req.log.warn({ err, sport, homeName, awayName }, "Odds API event-id resolution failed; using client eventId");
+          req.log.warn({ err, sport, homeName, awayName, startsAt }, "Odds API event-id resolution failed");
         }
       }
+    }
+
+    // Never query the Odds API with an ESPN/Bovada id — it 422s and the mobile
+    // client retries for tens of seconds. Empty props is the honest outcome.
+    if (!looksLikeOddsApiId && effectiveEventId === eventId) {
+      req.log.warn(
+        { sport, eventId, homeName, awayName, startsAt },
+        "unresolved ESPN event id; returning empty props",
+      );
+      res.json({ home: null, away: null, props: [] });
+      return;
     }
 
     const fetchOdds = async (mkList: string[]) => {
