@@ -1433,6 +1433,80 @@ export async function fetchPropSimulations(
   return out;
 }
 
+export type GameSimulationResult = {
+  sport: string;
+  simulations: number;
+  homeWinProbability: number;
+  awayWinProbability: number;
+  tieProbability: number;
+  homeProjectedScore: number;
+  awayProjectedScore: number;
+  mostLikelyWinner: "home" | "away";
+  mostLikelyWinnerPct: number;
+  confidenceScore: number;
+};
+
+export async function fetchGameOutcomeSimulation(
+  opts: {
+    sport: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    homeTeam?: string;
+    awayTeam?: string;
+    simulations?: number;
+    weatherImpact?: number | null;
+  },
+  signal?: AbortSignal,
+): Promise<GameSimulationResult | null> {
+  const path = "/sports/simulate/game-outcome";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opts),
+      signal,
+    }),
+    REQUEST_TIMEOUT_MS * 2,
+    path,
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as GameSimulationResult;
+}
+
+export async function fetchPropSimulationsBatch(
+  sport: string,
+  props: Array<{
+    player: string;
+    market: string;
+    line: number;
+    side: "Over" | "Under";
+    athleteId?: string | null;
+  }>,
+  opts?: {
+    homeTeam?: string;
+    awayTeam?: string;
+    weatherImpact?: number | null;
+    simulations?: number;
+  },
+  signal?: AbortSignal,
+): Promise<PropSimulationResult[]> {
+  if (!props.length) return [];
+  const path = "/sports/simulate/props";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sport, ...opts, props }),
+      signal,
+    }),
+    REQUEST_TIMEOUT_MS * 3,
+    path,
+  );
+  if (!res.ok) return [];
+  const json = (await res.json()) as { props?: PropSimulationResult[] };
+  return json.props ?? [];
+}
+
 // Render-only team metadata for game-level picks (logos + abbreviations). Built
 // from ESPN games, keyed by the "Away @ Home" game string. NEVER sent to the AI
 // — it's used by the card renderer to show the picked team's logo + code.

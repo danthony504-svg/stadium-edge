@@ -3,6 +3,7 @@ import { rateLimit } from "../lib/sports.js";
 import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { DEFAULT_SIMULATIONS } from "../lib/monteCarlo.js";
+import { runGameMonteCarlo } from "../lib/gameMonteCarlo.js";
 
 const router: IRouter = Router();
 
@@ -65,6 +66,82 @@ function teamInjuryWeight(teams: InjuryTeam[], teamName: string): number {
   });
   return keyInjuryWeight(team?.entries);
 }
+
+type TeamHistoryResp = {
+  homeSplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
+  awaySplit?: { ptsFor?: number | null; ptsAgainst?: number | null };
+  last10?: { ptsFor?: number | null; ptsAgainst?: number | null };
+  recent?: Array<{ pts?: number | null }>;
+};
+
+async function fetchTeamHistory(
+  baseUrl: string,
+  sport: string,
+  teamId: string,
+): Promise<TeamHistoryResp | null> {
+  try {
+    const r = await fetch(
+      `${baseUrl}/sports/team-history?sport=${encodeURIComponent(sport)}&teamId=${encodeURIComponent(teamId)}`,
+    );
+    if (!r.ok) return null;
+    return (await r.json()) as TeamHistoryResp;
+  } catch {
+    return null;
+  }
+}
+
+// POST /sports/simulate/game-outcome
+router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => {
+  const sport = String(req.body?.sport ?? "").toLowerCase();
+  const homeTeamId = String(req.body?.homeTeamId ?? "");
+  const awayTeamId = String(req.body?.awayTeamId ?? "");
+  const simulations = Number(req.body?.simulations) || DEFAULT_SIMULATIONS;
+  const weatherImpact =
+    req.body?.weatherImpact != null ? Number(req.body.weatherImpact) : null;
+
+  if (!sport || !homeTeamId || !awayTeamId) {
+    res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
+    return;
+  }
+
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const [homeHist, awayHist] = await Promise.all([
+    fetchTeamHistory(baseUrl, sport, homeTeamId),
+    fetchTeamHistory(baseUrl, sport, awayTeamId),
+  ]);
+
+  const result = runGameMonteCarlo({
+    sport,
+    simulations,
+    weatherImpact,
+    home: {
+      ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
+      ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,
+      recentScores: (homeHist?.recent ?? [])
+        .map((g) => g.pts)
+        .filter((v): v is number => v != null && Number.isFinite(v)),
+    },
+    away: {
+      ptsFor: awayHist?.awaySplit?.ptsFor ?? awayHist?.last10?.ptsFor ?? null,
+      ptsAgainst: awayHist?.awaySplit?.ptsAgainst ?? awayHist?.last10?.ptsAgainst ?? null,
+      recentScores: (awayHist?.recent ?? [])
+        .map((g) => g.pts)
+        .filter((v): v is number => v != null && Number.isFinite(v)),
+    },
+  });
+
+  if (!result) {
+    res.status(422).json({ error: "insufficient team scoring data for simulation" });
+    return;
+  }
+
+  res.json({
+    sport,
+    homeTeam: req.body?.homeTeam ?? null,
+    awayTeam: req.body?.awayTeam ?? null,
+    ...result,
+  });
+});
 
 // POST /sports/simulate/props
 // Body: { sport, homeTeam?, awayTeam?, isHomeByPlayer?, props: SimPropRequest[], simulations? }
