@@ -345,6 +345,13 @@ const WELCOME_FIRST_TIME =
 const WELCOME_RETURNING =
   "Stadium Edge is locked in. Parlays use real posted odds by default — today’s upcoming games only, unless you ask for tomorrow. Tap 3-Leg, 6-Leg, 9-Leg, or 15-Leg — or just tell me what you want. Let’s build.";
 
+function isWelcomeMessage(m: { role: string; content: string }): boolean {
+  return (
+    m.role === "assistant" &&
+    (m.content === WELCOME_FIRST_TIME || m.content === WELCOME_RETURNING)
+  );
+}
+
 // What the chat bubble shows for an assistant reply. Once a reply has resolved
 // into pick cards, the bubble is hidden entirely — each pick's reasoning lives in
 // its card's EDGE note. While a parlay is still STREAMING (picks not parsed yet),
@@ -953,8 +960,9 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
+      const thread = messages.filter((m) => !isWelcomeMessage(m));
       const history: UIMessage[] = [
-        ...messages,
+        ...thread,
         { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined },
       ];
       // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
@@ -2061,6 +2069,7 @@ export default function CoachScreen() {
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
           {messages.map((m, i) => {
+            if (isWelcomeMessage(m) && messages.some((x) => x.role === "user")) return null;
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
@@ -2259,7 +2268,7 @@ export default function CoachScreen() {
             );
           })}
 
-          {messages.length <= 1 ? (
+          {!messages.some((m) => m.role === "user") ? (
             <View style={{ gap: 8, marginTop: 4 }}>
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
