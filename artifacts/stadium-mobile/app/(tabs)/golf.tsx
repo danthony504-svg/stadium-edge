@@ -5,6 +5,7 @@ import React from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { Badge, Card, FONT, Loading, ErrorState, EmptyState } from "@/components/ui";
 import { useSlipClearance } from "@/components/SlipBar";
 import { SportPills } from "@/components/SportPills";
@@ -224,9 +225,10 @@ export default function GolfScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0} />
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 56,
+          paddingTop: 8,
           paddingBottom: insets.bottom + 24 + slipClearance,
         }}
         refreshControl={

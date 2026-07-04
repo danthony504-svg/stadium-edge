@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { Badge, Card, FONT, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
@@ -81,18 +81,8 @@ export default function WeatherScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {/* Fixed header — logo + screen title, pinned above the scroll view. */}
-      <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        <View style={{ paddingHorizontal: 16, marginBottom: 4, alignItems: "center" }}>
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 110, marginTop: -8 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-        </View>
-        <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 10, marginTop: 4 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Feather name="cloud-drizzle" size={20} color={colors.primary} />
             <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 22 }}>
@@ -110,7 +100,7 @@ export default function WeatherScreen() {
             Real OpenWeather conditions for today&apos;s MLB ballparks
           </Text>
         </View>
-      </View>
+      </AppHeader>
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingTop: 4, paddingBottom: insets.bottom + 120 }}

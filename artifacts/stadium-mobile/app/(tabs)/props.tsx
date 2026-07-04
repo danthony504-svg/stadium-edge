@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { GameCard } from "@/components/GameCard";
 import { PickCard, type ParsedPick } from "@/components/PickCard";
 import { MiniStat } from "@/components/PropVisuals";
@@ -1011,19 +1012,7 @@ export default function PropsScreen() {
         {/* Pinned header — logo, search and sport pills stay affixed to the top
             of the page (including while props are loading), so the content below
             scrolls underneath them instead of pushing them around. */}
-        <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Logo — full Stadium Edge logo at its original size, pinned to the top
-            and rendered instantly (fadeDuration 0) so it never shifts or pops in. */}
-        <View style={{ paddingHorizontal: 16, marginBottom: 8, alignItems: "center" }}>
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: "100%", height: 130, marginTop: -8 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-        </View>
-
+        <AppHeader bottomGap={0}>
         {/* Search */}
         <View style={{ paddingHorizontal: 16, marginBottom: 14 }}>
           <View
@@ -1067,7 +1056,7 @@ export default function PropsScreen() {
             onSelectGolf={() => router.push("/golf")}
           />
         )}
-        </View>
+        </AppHeader>
 
         {/* AI-recommended props — a varied set built from the real props feed,
             independent of the AI Coach's chat parlay. Horizontal swipe list,

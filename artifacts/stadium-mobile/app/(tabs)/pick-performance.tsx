@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -110,21 +111,8 @@ export default function PickPerformanceScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        contentContainerStyle={{
-          paddingTop: insets.top + 8,
-          paddingHorizontal: 16,
-          paddingBottom: insets.bottom + 24,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={stealsQ.isFetching}
-            onRefresh={() => stealsQ.refetch()}
-            tintColor={colors.mutedForeground}
-          />
-        }
-      >
-        <View style={{ marginBottom: 16, paddingLeft: 48 }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
             Pick Performance
           </Text>
@@ -139,7 +127,21 @@ export default function PickPerformanceScreen() {
             Auto-graded record of the app's flagged value picks
           </Text>
         </View>
-
+      </AppHeader>
+      <ScrollView
+        contentContainerStyle={{
+          paddingTop: 8,
+          paddingHorizontal: 16,
+          paddingBottom: insets.bottom + 24,
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={stealsQ.isFetching}
+            onRefresh={() => stealsQ.refetch()}
+            tintColor={colors.mutedForeground}
+          />
+        }
+      >
         {stealsQ.isLoading ? (
           <Loading label="Loading performance…" />
         ) : history.length === 0 ? (

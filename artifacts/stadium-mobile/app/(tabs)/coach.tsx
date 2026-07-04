@@ -23,6 +23,7 @@ import { useAuth } from "@clerk/expo";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
@@ -2010,14 +2011,16 @@ export default function CoachScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-          AI Coach
-        </Text>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          Picks grounded in {headerSlateLabel} real odds — never invented
-        </Text>
-      </View>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+            AI Coach
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+            Picks grounded in {headerSlateLabel} real odds — never invented
+          </Text>
+        </View>
+      </AppHeader>
 
       <KeyboardAwareScrollViewCompat
         ref={scrollRef as any}

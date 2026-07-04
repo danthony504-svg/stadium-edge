@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/expo";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { useSlipClearance } from "@/components/SlipBar";
@@ -191,7 +191,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
-  const { isSignedIn } = useAuth();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
 
   const oddsQ = useQuery({
@@ -643,28 +642,8 @@ export default function HomeScreen() {
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
-      <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        {/* Header row — the floating hamburger (NavMenu) is pinned at left:16, so
-            the logo cluster is padded clear of it. Logo left; the PLAYER PROPS
-            wordmark + brand tagline on the right; a bell that routes to alerts
-            (or sign-in when signed out). */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingLeft: 60,
-            paddingRight: 16,
-            marginBottom: 14,
-          }}
-        >
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: 150, height: 42 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-          <View style={{ flex: 1 }} />
+      <AppHeader
+        right={
           <View style={{ alignItems: "flex-end", marginRight: 10 }}>
             <Text
               style={{
@@ -681,24 +660,8 @@ export default function HomeScreen() {
               <Text style={{ color: colors.primary }}>REAL EDGE.</Text>
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.card,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Feather name="bell" size={17} color={colors.foreground} />
-          </Pressable>
-        </View>
+        }
+      >
 
         {/* Search bar → Player Props search */}
         <Pressable
@@ -783,7 +746,7 @@ export default function HomeScreen() {
             );
           })}
         </ScrollView>
-      </View>
+      </AppHeader>
 
       <ScrollView
         contentContainerStyle={{
