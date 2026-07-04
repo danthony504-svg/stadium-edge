@@ -44,9 +44,11 @@ import {
   cachedHeroLegs,
   cachedLiveGames,
   cachedUpcomingGames,
+  hydrateDiscoverCache,
   rememberHeroLegs,
   rememberLiveGames,
   rememberUpcomingGames,
+  DISCOVER_CACHE_SPORTS,
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
 
@@ -309,6 +311,14 @@ export default function HomeScreen() {
   const [stickyHeroLegs, setStickyHeroLegs] = useState<CachedPropEntry[]>(() => cachedHeroLegs(sport));
 
   useEffect(() => {
+    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
+      setStickyHeroLegs(cachedHeroLegs(sport));
+      setStickyLiveGames(cachedLiveGames(sport));
+      setStickyUpcoming(cachedUpcomingGames(sport));
+    });
+  }, []);
+
+  useEffect(() => {
     setStickyLiveGames(cachedLiveGames(sport));
     setStickyUpcoming(cachedUpcomingGames(sport));
     setStickyHeroLegs(cachedHeroLegs(sport));
@@ -448,6 +458,7 @@ export default function HomeScreen() {
             away: g.awayTeam,
             homeTeamId: info?.homeTeamId,
             awayTeamId: info?.awayTeamId,
+            startsAt: g.commenceTime,
           },
           signal,
         );
@@ -521,6 +532,11 @@ export default function HomeScreen() {
     }
   }, [heroLegs, sport]);
   const showHero = heroReady || stickyHeroLegs.length >= 2;
+  const heroSettling =
+    featuredEnabled &&
+    featGames.length > 0 &&
+    !showHero &&
+    featuredGameQs.some((q) => q.isFetching || q.isPending);
   const displayHeroLegs = heroReady ? heroLegs : stickyHeroLegs;
   const heroPrices = displayHeroLegs.map((e) =>
     e.prop.evSide === "Under" ? (e.prop.underPrice as number) : (e.prop.overPrice as number),
@@ -1080,6 +1096,50 @@ export default function HomeScreen() {
                 </LinearGradient>
               )}
             </Pressable>
+          </View>
+        ) : heroSettling ? (
+          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
+            <LinearGradient
+              colors={["#082554", "#06111f"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                borderWidth: 1,
+                borderColor: colors.primary,
+                borderRadius: colors.radius,
+                padding: isWideLayout ? 20 : 16,
+                gap: 14,
+                minHeight: isWideLayout ? 216 : 140,
+                overflow: "hidden",
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  alignSelf: "flex-start",
+                  backgroundColor: "rgba(59,130,246,0.18)",
+                  borderRadius: 999,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                }}
+              >
+                <Feather name="zap" size={12} color={colors.primary} />
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontFamily: FONT.bold,
+                    fontSize: 10,
+                    letterSpacing: 0.6,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  TODAY'S TOP AI PARLAY
+                </Text>
+              </View>
+              <Loading label="Loading today's top picks…" />
+            </LinearGradient>
           </View>
         ) : (
           <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>

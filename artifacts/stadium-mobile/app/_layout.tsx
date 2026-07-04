@@ -26,6 +26,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
+import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
@@ -209,6 +210,13 @@ function RootLayoutNav() {
   );
 }
 
+function DiscoverHydrateBridge() {
+  useEffect(() => {
+    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
+  }, []);
+  return null;
+}
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
@@ -257,6 +265,7 @@ export default function RootLayout() {
           </ClerkLoading>
           <ClerkLoaded>
             <OtaBridge />
+            <DiscoverHydrateBridge />
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />
