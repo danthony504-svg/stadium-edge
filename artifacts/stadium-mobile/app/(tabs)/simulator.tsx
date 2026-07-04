@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -67,11 +67,32 @@ type SelectedProp = {
 
 const PROP_FILTERS: { id: string; label: string; icon?: keyof typeof Feather.glyphMap; markets?: string[] }[] = [
   { id: "popular", label: "Popular", icon: "zap" },
-  { id: "hits", label: "Hits", markets: ["batter_hits", "player_points"] },
+  { id: "hits", label: "Hits", markets: ["batter_hits"] },
   { id: "rbis", label: "RBIs", markets: ["batter_hits_runs_rbis"] },
   { id: "hr", label: "Home Runs", markets: ["batter_home_runs"] },
-  { id: "k", label: "Strikeouts", markets: ["pitcher_strikeouts", "player_sacks"] },
+  { id: "k", label: "Strikeouts", markets: ["pitcher_strikeouts"] },
 ];
+
+const BASKETBALL_PROP_FILTERS: typeof PROP_FILTERS = [
+  { id: "popular", label: "Popular", icon: "zap" },
+  { id: "points", label: "Points", markets: ["player_points"] },
+  { id: "rebounds", label: "Rebounds", markets: ["player_rebounds"] },
+  { id: "assists", label: "Assists", markets: ["player_assists"] },
+  { id: "threes", label: "Threes", markets: ["player_threes"] },
+];
+
+const NHL_PROP_FILTERS: typeof PROP_FILTERS = [
+  { id: "popular", label: "Popular", icon: "zap" },
+  { id: "goals", label: "Goals", markets: ["player_goals"] },
+  { id: "shots", label: "Shots", markets: ["player_shots_on_goal"] },
+  { id: "points", label: "Points", markets: ["player_points"] },
+];
+
+function propFiltersForSport(sport: string) {
+  if (sport === "nba" || sport === "wnba") return BASKETBALL_PROP_FILTERS;
+  if (sport === "nhl") return NHL_PROP_FILTERS;
+  return PROP_FILTERS;
+}
 
 function initials(name: string) {
   return (name || "")
@@ -122,6 +143,11 @@ export default function SimulatorScreen() {
   const [playerHistory, setPlayerHistory] = useState<Record<string, PlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
+
+  const sportFilters = propFiltersForSport(sport);
+  useEffect(() => {
+    if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
+  }, [sport, sportFilters, filter]);
 
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
@@ -183,7 +209,12 @@ export default function SimulatorScreen() {
         signal,
       ).then((r) => r.props ?? []),
     staleTime: 5 * 60_000,
+    // Never paint another sport/game's props while this query refetches.
+    placeholderData: undefined,
   });
+
+  const propsSettling =
+    propsQ.isLoading || (propsQ.isFetching && (propsQ.data?.length ?? 0) === 0);
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
@@ -209,10 +240,10 @@ export default function SimulatorScreen() {
     ? `${weatherForGame.current.tempF}°F • ${weatherForGame.current.condition}`
     : "—";
 
-  const mains = useMemo(
-    () => (propsQ.data ?? []).filter((p) => !p.alt && p.line != null),
-    [propsQ.data],
-  );
+  const mains = useMemo(() => {
+    if (propsSettling) return [];
+    return (propsQ.data ?? []).filter((p) => !p.alt && p.line != null);
+  }, [propsQ.data, propsSettling]);
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];
@@ -226,7 +257,7 @@ export default function SimulatorScreen() {
 
   const filteredProps = useMemo(() => {
     let list = mains;
-    const f = PROP_FILTERS.find((x) => x.id === filter);
+    const f = sportFilters.find((x) => x.id === filter);
     if (f?.markets?.length) list = list.filter((p) => f.markets!.includes(p.market));
     if (search.trim()) {
       const q = search.trim().toLowerCase();
@@ -240,7 +271,7 @@ export default function SimulatorScreen() {
       list = [...list].sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0));
     }
     return list.slice(0, 40);
-  }, [mains, filter, search]);
+  }, [mains, filter, search, sportFilters]);
 
   const toggleProp = (p: PlayerProp, side: "Over" | "Under") => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -489,7 +520,7 @@ export default function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); }} />
             );
           })}
         </ScrollView>
@@ -512,7 +543,7 @@ export default function SimulatorScreen() {
                 {games.map((g, i) => (
                   <Pressable
                     key={g.id}
-                    onPress={() => { setGameIdx(i); setSelected([]); }}
+                    onPress={() => { setGameIdx(i); setSelected([]); setFilter("popular"); }}
                     style={{
                       paddingHorizontal: 12,
                       paddingVertical: 8,
@@ -709,7 +740,7 @@ export default function SimulatorScreen() {
 
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                   <View style={{ flexDirection: "row", gap: 8 }}>
-                    {PROP_FILTERS.map((f) => (
+                    {sportFilters.map((f) => (
                       <Pill
                         key={f.id}
                         label={f.label}
@@ -721,8 +752,12 @@ export default function SimulatorScreen() {
                   </View>
                 </ScrollView>
 
-                {propsQ.isLoading ? (
+                {propsSettling ? (
                   <ActivityIndicator color={colors.primary} />
+                ) : filteredProps.length === 0 ? (
+                  <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
+                    No props posted for this game yet — try another filter or check back closer to first pitch.
+                  </Text>
                 ) : (
                   <View style={{ gap: 8 }}>
                     {filteredProps.map((p) => {
