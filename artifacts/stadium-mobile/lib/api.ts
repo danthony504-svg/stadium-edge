@@ -6,6 +6,7 @@ import {
   focalSportsFromText,
   gameMatchesFocalText,
   prioritizePlayerHistoryTargets,
+  propGamesCapForLegs,
 } from "./chatContextPriority";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
@@ -2645,7 +2646,7 @@ export async function buildChatContext(
   }[] = [];
   const seenAthletes = new Set<string>();
   await Promise.all(
-    propCandidates.slice(0, MAX_PROP_CONTEXT_GAMES).map(async ({ sport, g, ids }) => {
+    propCandidates.slice(0, propGamesCapForLegs(requestedLegs, MAX_PROP_CONTEXT_GAMES)).map(async ({ sport, g, ids }) => {
       try {
         const r = await getProps(
           {
@@ -3086,6 +3087,56 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   return out;
 }
 
+/** Strip heavy analytics before the /api/chat upload — local propPool stays full. */
+export function slimChatContextForUpload(context: ChatContext): ChatContext {
+  const slimMatchup: Record<string, MatchupHistoryEntry> = {};
+  if (context.matchupHistory) {
+    for (const [k, m] of Object.entries(context.matchupHistory)) {
+      slimMatchup[k] = {
+        home: null,
+        away: null,
+        homePace: m.homePace,
+        awayPace: m.awayPace,
+        homeVenueForm: null,
+        awayVenueForm: null,
+        homeStreak: null,
+        awayStreak: null,
+        homeSeason: null,
+        awaySeason: null,
+        homeRest: null,
+        awayRest: null,
+        h2h: null,
+        lastMeeting: m.lastMeeting,
+        mlLean: m.mlLean,
+      };
+    }
+  }
+  const slimHistory: Record<string, unknown> = {};
+  if (context.playerHistory) {
+    for (const [k, raw] of Object.entries(context.playerHistory)) {
+      const h = raw as {
+        player?: string;
+        recent?: unknown[];
+        vsOpponent?: unknown[];
+      };
+      slimHistory[k] = {
+        player: h.player,
+        recent: Array.isArray(h.recent) ? h.recent.slice(0, 5) : [],
+        ...(Array.isArray(h.vsOpponent) && h.vsOpponent.length
+          ? { vsOpponent: h.vsOpponent.slice(0, 2) }
+          : {}),
+      };
+    }
+  }
+  const hasUfc = context.selectedSports?.includes("ufc");
+  return {
+    ...context,
+    matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : context.matchupHistory,
+    playerHistory: Object.keys(slimHistory).length ? slimHistory : context.playerHistory,
+    fightAnalysis: hasUfc ? context.fightAnalysis : undefined,
+  };
+}
+
 function abortError(): Error {
   const e = new Error("Aborted");
   e.name = "AbortError";
@@ -3184,13 +3235,10 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // proxy buffering; a genuinely dead link still aborts and retries, just later.
   // Once the first token lands the proxy switches to pass-through and we tighten
   // back to STALL_MS for the rest of the stream.
-  const FIRST_TOKEN_MS =
-    bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;
-  // The POST body is identical on every attempt, so serialize it ONCE up front
-  // (re-stringifying a ~130KB+ build context on each retry is pure waste) and
-  // reuse the same string below.
   const bodyStr = JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId });
   const bodyKB = bodyStr.length / 1024;
+  const FIRST_TOKEN_MS =
+    bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body AND the server's time-to-first-byte. The body is NOT small for a build:
   // production logs show a multi-leg "tonight" context serializes to ~130KB and a

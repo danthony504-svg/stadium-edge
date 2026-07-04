@@ -126,6 +126,15 @@ export function contextDepthForLegs(
   return { props: fullPropCap, odds: 120, history: fullHistoryCap, matchup: 16 };
 }
 
+/** Scale how many prop-capable games we fetch — big tickets need breadth. */
+export function propGamesCapForLegs(requestedLegs: number, fullCap = 24): number {
+  const n = requestedLegs > 0 ? requestedLegs : 8;
+  if (n <= 3) return 8;
+  if (n <= 6) return 12;
+  if (n <= 10) return 16;
+  return fullCap;
+}
+
 /**
  * Which sports to fetch for a Coach build. Named leagues win; otherwise scale
  * breadth to ticket size so a generic "3-leg parlay" does not fan out all 10

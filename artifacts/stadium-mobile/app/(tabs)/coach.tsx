@@ -94,6 +94,7 @@ import {
   wantsTodayOnly,
   wantsTomorrowOnly,
   streamChat,
+  slimChatContextForUpload,
   chatStreamFailureMessage,
   type AltSign,
   type ChatContext,
@@ -1253,11 +1254,15 @@ export default function CoachScreen() {
           }
 
           let first = true;
+          const uploadContext =
+            isParlayBuild && requestedLegs <= 10
+              ? slimChatContextForUpload(context)
+              : context;
           const runStream = async () => {
             first = true;
             return streamChat({
               messages: apiMessages,
-              context,
+              context: uploadContext,
               imageDataUrls: outgoingImageDataUrls,
               signal: controller.signal,
               notifyOnBackground: bg,
