@@ -2346,6 +2346,169 @@ function extractNamedCandidates(text: string): string[] {
   return out;
 }
 
+const TINY_PARLAY_SPORTS = ["mlb", "wnba", "nba", "nhl"] as const;
+
+/**
+ * Ultra-light context for generic 2-3 leg parlays: one sport, two prop games,
+ * no matchup/player-history/platoon fetches. Keeps pre-stream work under a few
+ * seconds on cellular so /api/chat can open before connect budgets exhaust.
+ */
+export async function buildTinyParlayContext(signal?: AbortSignal): Promise<BuiltChatContext> {
+  let sport = "";
+  let odds: OddsGame[] = [];
+  let games: EspnGame[] = [];
+  for (const s of TINY_PARLAY_SPORTS) {
+    const [o, g] = await Promise.all([
+      getOdds(s, signal).catch(() => [] as OddsGame[]),
+      getGames(s, signal).catch(() => [] as EspnGame[]),
+    ]);
+    const pickable = o.filter((x) => isPregameBettable(x.commenceTime));
+    if (pickable.length > 0) {
+      sport = s;
+      odds = pickable.map((x) => ({ ...x, sport: s }));
+      games = g;
+      break;
+    }
+  }
+  const empty: BuiltChatContext = {
+    context: {
+      selectedSports: sport ? [sport] : ["mlb"],
+      currentSlip: [],
+      realGames: [],
+      realOdds: [],
+      realProps: [],
+    },
+    propPool: [],
+    gameMeta: [],
+    upsetSpots: [],
+    todayOnly: false,
+    tomorrowOnly: false,
+  };
+  if (!sport || !odds.length) return empty;
+
+  odds.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  const gameMeta = buildGameMeta(games);
+  const idMap = buildPropIdMap(games);
+  const teamMetaById = new Map<string, { abbr: string | null; logo: string | null }>();
+  for (const g of games) {
+    if (g.homeTeamId) teamMetaById.set(g.homeTeamId, { abbr: g.homeAbbr ?? null, logo: g.homeLogo ?? null });
+    if (g.awayTeamId) teamMetaById.set(g.awayTeamId, { abbr: g.awayAbbr ?? null, logo: g.awayLogo ?? null });
+  }
+
+  const realOdds: RealOddsEntry[] = [];
+  const realGames: RealGameEntry[] = [];
+  for (const g of odds.slice(0, 6)) {
+    realOdds.push(...buildRealOdds(g));
+    realGames.push({
+      sport,
+      game: `${g.awayTeam} @ ${g.homeTeam}`,
+      status: "Scheduled",
+      startsAt: g.commenceTime,
+      venue: null,
+    });
+  }
+
+  const realProps: RealPropEntry[] = [];
+  const propPool: PropPoolEntry[] = [];
+  if (PROPS_SPORTS.includes(sport)) {
+    for (const g of odds.slice(0, 2)) {
+      if (!g.homeTeam || !g.awayTeam) continue;
+      const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
+      try {
+        const r = await getProps(
+          {
+            sport,
+            eventId: g.id,
+            home: g.homeTeam,
+            away: g.awayTeam,
+            homeTeamId: ids?.homeTeamId,
+            awayTeamId: ids?.awayTeamId,
+            startsAt: g.commenceTime,
+          },
+          signal,
+        );
+        const game = `${g.awayTeam} @ ${g.homeTeam}`;
+        const usable = (r.props ?? []).filter((p) => !p.alt && (p.overPrice != null || p.underPrice != null));
+        for (const p of usable) {
+          realProps.push({
+            sport,
+            game,
+            startsAt: g.commenceTime,
+            player: p.player,
+            athleteId: p.athleteId ?? null,
+            market: p.market,
+            line: p.line,
+            over: p.overPrice ?? null,
+            under: p.underPrice ?? null,
+            alt: false,
+            ev: p.ev ?? null,
+            evSide: p.evSide ?? null,
+            fairProb: p.fairProb ?? null,
+            edge: p.edge ?? null,
+          });
+          const headshot = p.headshot ?? null;
+          const teamAbbr = p.playerTeamId
+            ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
+            : null;
+          const marketLabel = propMarketLabel(p.market);
+          const athleteId = p.athleteId ?? null;
+          if (p.overPrice != null) {
+            propPool.push({
+              sport,
+              game,
+              marketLabel,
+              player: p.player,
+              line: p.line,
+              side: "Over",
+              odds: p.overPrice,
+              headshot,
+              teamAbbr,
+              athleteId,
+              marketKey: p.market,
+              edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+              bookSpread: p.overSpread ?? null,
+            });
+          }
+          if (p.line != null && p.underPrice != null) {
+            propPool.push({
+              sport,
+              game,
+              marketLabel,
+              player: p.player,
+              line: p.line,
+              side: "Under",
+              odds: p.underPrice,
+              headshot,
+              teamAbbr,
+              athleteId,
+              marketKey: p.market,
+              edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+              bookSpread: p.underSpread ?? null,
+            });
+          }
+        }
+      } catch {
+        /* narrower pool */
+      }
+    }
+  }
+
+  return {
+    context: {
+      selectedSports: [sport],
+      currentSlip: [],
+      realGames: realGames.slice(0, 10),
+      realOdds: realOdds.slice(0, 16),
+      realProps: balancePropsByGame(realProps, 18, null),
+    },
+    propPool,
+    gameMeta,
+    upsetSpots: [],
+    todayOnly: false,
+    tomorrowOnly: false,
+  };
+}
+
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
 export async function buildChatContext(
@@ -2363,6 +2526,9 @@ export async function buildChatContext(
   // asked for (small parlays don't need the whole night's pool). Big tickets keep
   // full breadth. See contextDepthForLegs for the why (latency) and the tiers.
   const depth = contextDepthForLegs(requestedLegs, MAX_PROPS_IN_CONTEXT);
+  // Generic 2-3 leg parlays use microSlim upload (no matchup/playerHistory in
+  // the POST) — skip the expensive fetches that only feed those stripped fields.
+  const tinyParlay = requestedLegs > 0 && requestedLegs <= 3;
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
   // Fast path: fan out odds+games for every sport at once.
@@ -2399,10 +2565,9 @@ export async function buildChatContext(
     (requestedLegs > 0 && requestedLegs <= 3
       ? fetchCoreSequential(signal)
       : fetchCoreParallel(signal)),
-    // Real ESPN injury report per sport (for the per-game injury read the coach
-    // factors into picks). A failed/unsupported sport just yields [] — never
-    // fabricated; sports without a report (tennis/ufc) simply contribute none.
-    Promise.all(sports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[]))),
+    tinyParlay
+      ? Promise.resolve(sports.map(() => [] as InjuryTeam[]))
+      : Promise.all(sports.map((s) => getInjuries(s, signal).catch(() => [] as InjuryTeam[]))),
   ]);
 
   // BOTH core pools coming back completely empty is the signature of a transient
@@ -2541,13 +2706,15 @@ export async function buildChatContext(
   // Real prior-matchup analytics (+ mlLean winner & upset) for the pickable pool,
   // joined against the real moneyline prices in realOdds. Same engine + endpoint
   // as the web app, so the coach weighs the same signals on both platforms.
-  const { matchupHistory, upsetSpots } = await buildMatchupHistoryAndUpsets(
-    historyTargets,
-    buildMlPriceByLabel(realOdds),
-    signal,
-    focalText,
-    depth.matchup,
-  );
+  const { matchupHistory, upsetSpots } = tinyParlay
+    ? { matchupHistory: {} as Record<string, MatchupHistoryEntry>, upsetSpots: [] as UpsetSpot[] }
+    : await buildMatchupHistoryAndUpsets(
+        historyTargets,
+        buildMlPriceByLabel(realOdds),
+        signal,
+        focalText,
+        depth.matchup,
+      );
 
   // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
   // rates + a deterministic stronger-fighter lean for each pickable UFC bout.
@@ -2557,7 +2724,7 @@ export async function buildChatContext(
   // against the raw moneyline outcomes (full fighter names), never fabricated.
   const fightAnalysis: Record<string, FightAnalysis> = {};
   const ufcIdx = sports.indexOf("ufc");
-  if (ufcIdx >= 0) {
+  if (!tinyParlay && ufcIdx >= 0) {
     const ufcGames = gamesAll[ufcIdx]
       .filter((g) => g.state !== "post" && isPickable(g.startsAt) && (g.awayTeam || g.awayAbbr) && (g.homeTeam || g.homeAbbr))
       .slice(0, 12);
@@ -2651,8 +2818,15 @@ export async function buildChatContext(
     isHome: boolean | null;
   }[] = [];
   const seenAthletes = new Set<string>();
-  await Promise.all(
-    propCandidates.slice(0, propGamesCapForLegs(requestedLegs, MAX_PROP_CONTEXT_GAMES)).map(async ({ sport, g, ids }) => {
+  const ingestPropsForGame = async ({
+    sport,
+    g,
+    ids,
+  }: {
+    sport: string;
+    g: OddsGame;
+    ids: PropTeamIds | null;
+  }) => {
       try {
         const r = await getProps(
           {
@@ -2662,6 +2836,7 @@ export async function buildChatContext(
             away: g.awayTeam,
             homeTeamId: ids?.homeTeamId,
             awayTeamId: ids?.awayTeamId,
+            startsAt: g.commenceTime,
           },
           signal,
         );
@@ -2753,8 +2928,18 @@ export async function buildChatContext(
       } catch {
         // skip this game's props — narrower pool, never fabricated
       }
-    }),
+  };
+  const propGameSlice = propCandidates.slice(
+    0,
+    propGamesCapForLegs(requestedLegs, MAX_PROP_CONTEXT_GAMES),
   );
+  if (tinyParlay) {
+    for (const cand of propGameSlice) {
+      await ingestPropsForGame(cand);
+    }
+  } else {
+    await Promise.all(propGameSlice.map(ingestPropsForGame));
+  }
 
   // Focus the capped realOdds on the league/game the user actually named so a
   // single-game or single-sport ask (e.g. a Q1 same-game parlay) doesn't get its
@@ -2797,7 +2982,9 @@ export async function buildChatContext(
   // MLB slate fills all 40 slots and an NBA/NFL game the user named gets no
   // recent logs — the coach then truthfully says "no recent log available" even
   // though the server has it. See chatContextPriority.ts (unit-tested).
-  const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
+  const phTargets = tinyParlay
+    ? []
+    : prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
   if (phTargets.length > 0) {
     type HistWindow = { games?: number; averages?: Record<string, number> };
     type HistResp = {
