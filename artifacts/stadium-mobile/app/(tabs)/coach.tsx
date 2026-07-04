@@ -84,6 +84,7 @@ import {
 import {
   buildChatContext,
   buildTinyParlayContext,
+  buildCompactParlayContext,
   gameMatchesFocalText,
   getPlayerHistory,
   getStatmuseGamelog,
@@ -98,6 +99,7 @@ import {
   slimChatContextForUpload,
   ultraSlimChatContextForUpload,
   microSlimChatContextForUpload,
+  compactSlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1212,18 +1214,22 @@ export default function CoachScreen() {
           setWaiting(false);
         } else {
           const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
-          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= 3;
-          const useTinyParlayPath =
+          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= 10;
+          const genericParlayPath =
             fastParlay &&
             !oddsThreshold &&
             !includePeriods &&
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
+          const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
+          const useCompactParlayPath = genericParlayPath && requestedLegs > 3;
           const warmP = isParlayBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
-            : await buildChatContext(
+            : useCompactParlayPath
+              ? await buildCompactParlayContext(requestedLegs, controller.signal)
+              : await buildChatContext(
                 buildSports,
                 slipForContext,
                 controller.signal,
@@ -1277,7 +1283,7 @@ export default function CoachScreen() {
           if (isParlayBuild && requestedLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
           } else if (isParlayBuild && requestedLegs <= 10) {
-            uploadContext = ultraSlimChatContextForUpload(context);
+            uploadContext = compactSlimChatContextForUpload(context);
           }
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
@@ -1330,7 +1336,9 @@ export default function CoachScreen() {
               uploadContext =
                 requestedLegs <= 3
                   ? microSlimChatContextForUpload(context)
-                  : ultraSlimChatContextForUpload(context);
+                  : requestedLegs <= 10
+                    ? compactSlimChatContextForUpload(context)
+                    : ultraSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
           }
