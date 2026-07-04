@@ -11,6 +11,7 @@ import {
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
+import { slimChatContextForUpload } from "./slimChatContext";
 import {
   isPickable,
   isPregameBettable,
@@ -38,7 +39,7 @@ import {
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
-export { gameMatchesFocalText };
+export { gameMatchesFocalText, slimChatContextForUpload };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
@@ -3087,54 +3088,17 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   return out;
 }
 
-/** Strip heavy analytics before the /api/chat upload — local propPool stays full. */
-export function slimChatContextForUpload(context: ChatContext): ChatContext {
-  const slimMatchup: Record<string, MatchupHistoryEntry> = {};
-  if (context.matchupHistory) {
-    for (const [k, m] of Object.entries(context.matchupHistory)) {
-      slimMatchup[k] = {
-        home: null,
-        away: null,
-        homePace: m.homePace,
-        awayPace: m.awayPace,
-        homeVenueForm: null,
-        awayVenueForm: null,
-        homeStreak: null,
-        awayStreak: null,
-        homeSeason: null,
-        awaySeason: null,
-        homeRest: null,
-        awayRest: null,
-        h2h: null,
-        lastMeeting: m.lastMeeting,
-        mlLean: m.mlLean,
-      };
-    }
+/** Best-effort wake-up before a heavy Coach build POST (cold autoscale hosts). */
+export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
+  try {
+    await withTimeout(
+      expoFetch(`${API_BASE}/healthz`, { signal }) as unknown as Promise<Response>,
+      8_000,
+      "/healthz",
+    );
+  } catch {
+    // Never block the build on a warm-up miss.
   }
-  const slimHistory: Record<string, unknown> = {};
-  if (context.playerHistory) {
-    for (const [k, raw] of Object.entries(context.playerHistory)) {
-      const h = raw as {
-        player?: string;
-        recent?: unknown[];
-        vsOpponent?: unknown[];
-      };
-      slimHistory[k] = {
-        player: h.player,
-        recent: Array.isArray(h.recent) ? h.recent.slice(0, 5) : [],
-        ...(Array.isArray(h.vsOpponent) && h.vsOpponent.length
-          ? { vsOpponent: h.vsOpponent.slice(0, 2) }
-          : {}),
-      };
-    }
-  }
-  const hasUfc = context.selectedSports?.includes("ufc");
-  return {
-    ...context,
-    matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : context.matchupHistory,
-    playerHistory: Object.keys(slimHistory).length ? slimHistory : context.playerHistory,
-    fightAnalysis: hasUfc ? context.fightAnalysis : undefined,
-  };
 }
 
 function abortError(): Error {
@@ -3253,8 +3217,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
   // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
   const CONNECT_MS = Math.min(
-    60_000,
-    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 150)),
+    90_000,
+    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 200)),
   );
   const MAX_ATTEMPTS = 6;
 
