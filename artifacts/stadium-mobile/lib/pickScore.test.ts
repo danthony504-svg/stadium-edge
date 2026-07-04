@@ -15,6 +15,7 @@ import {
   scoreLineShopping,
   scoreLineValue,
   scoreMatchup,
+  scoreSimulation,
   scoreTrend,
   teamTrendMomentum,
   winChancePct,
@@ -155,6 +156,13 @@ test("lineShoppingAdvantage: best vs median implied, needs 2+ books", () => {
   assert.equal(lineShoppingAdvantage([-110, -110, -110]), 0);
 });
 
+test("scoreSimulation: hit probability maps to 1-10 around neutral 50%", () => {
+  assert.equal(scoreSimulation(null), null);
+  assert.equal(scoreSimulation(0.5), 5.5);
+  assert.equal(scoreSimulation(0.65), 6.9);
+  assert.equal(scoreSimulation(0.35), 4.1);
+});
+
 test("combinePickScore: renormalizes over present scores only", () => {
   const all: PickSubScores = {
     matchup: 8,
@@ -162,30 +170,23 @@ test("combinePickScore: renormalizes over present scores only", () => {
     lineValue: 9,
     injury: 6,
     lineShopping: 5,
+    simulation: null,
   };
   const full = combinePickScore(all, 7.8, -110);
-  // Weighted: .25*8 + .2*7 + .3*9 + .15*6 + .1*5 = 2+1.4+2.7+0.9+0.5 = 7.5
-  assert.equal(full.composite, 7.5);
-  assert.equal(full.grade, "B+");
+  assert.equal(full.composite, 6.8);
+  assert.equal(full.grade, "B-");
   assert.equal(full.edgePct, 7.8);
-  // Confidence is BUILT from the signals (baseline 50 + Σ ((s-5.5)/4.5)*10):
-  // 8->+5.56, 7->+3.33, 9->+7.78, 6->+1.11, 5->-1.11 = +16.67 -> round(66.67)=67.
-  // Independent of the win-chance price now.
   assert.equal(full.confidencePct, 67);
 
-  // Only line value present -> composite equals that score (renormalized to 1).
   const partial = combinePickScore(
-    { matchup: null, trend: null, lineValue: 8.6, injury: null, lineShopping: null },
+    { matchup: null, trend: null, lineValue: 8.6, injury: null, lineShopping: null, simulation: null },
     6.8,
   );
   assert.equal(partial.composite, 8.6);
   assert.equal(partial.grade, "A");
 
-  // A pick with only one grounded signal: NO edge (so grade falls to that one
-  // present sub-score) and Confidence is built off just that signal — baseline
-  // 50 + ((7-5.5)/4.5)*10 = +3.33 -> round(53.33) = 53. Price no longer factors.
   const noEdgeSide = combinePickScore(
-    { matchup: 7, trend: null, lineValue: null, injury: null, lineShopping: null },
+    { matchup: 7, trend: null, lineValue: null, injury: null, lineShopping: null, simulation: null },
     null,
     -110,
     0.46,
@@ -194,9 +195,8 @@ test("combinePickScore: renormalizes over present scores only", () => {
   assert.equal(noEdgeSide.edgePct, null);
   assert.equal(noEdgeSide.confidencePct, 53);
 
-  // Nothing present -> null everything except a null edge.
   const none = combinePickScore(
-    { matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null },
+    { matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null, simulation: null },
     null,
   );
   assert.equal(none.composite, null);
@@ -208,34 +208,34 @@ test("combinePickScore: renormalizes over present scores only", () => {
 test("confidenceFromSignals: additive points from real signals", () => {
   // All neutral (5.5) -> exactly the baseline, no movement.
   assert.equal(
-    confidenceFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5 }),
+    confidenceFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5, simulation: 5.5 }),
     50,
   );
   // One strong signal lifts off the baseline; a weak one pulls below it (honest,
   // not inflation-only): matchup 10 -> +10, lineShopping 1 -> -10 => stays 50.
   assert.equal(
-    confidenceFromSignals({ matchup: 10, trend: null, lineValue: null, injury: null, lineShopping: 1 }),
+    confidenceFromSignals({ matchup: 10, trend: null, lineValue: null, injury: null, lineShopping: 1, simulation: null }),
     50,
   );
   // MORE aligned strong signals = higher confidence (breadth rewarded). Two top
   // signals: 50 + 10 + 10 = 70.
   assert.equal(
-    confidenceFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null }),
+    confidenceFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null, simulation: null }),
     70,
   );
   // Clamp ceiling at 95 even when every signal maxes out (5 * +10 = +50 -> 100).
   assert.equal(
-    confidenceFromSignals({ matchup: 10, trend: 10, lineValue: 10, injury: 10, lineShopping: 10 }),
+    confidenceFromSignals({ matchup: 10, trend: 10, lineValue: 10, injury: 10, lineShopping: 10, simulation: 10 }),
     95,
   );
   // Clamp floor at 5 when every signal is the worst (5 * -10 = -50 -> 0).
   assert.equal(
-    confidenceFromSignals({ matchup: 1, trend: 1, lineValue: 1, injury: 1, lineShopping: 1 }),
+    confidenceFromSignals({ matchup: 1, trend: 1, lineValue: 1, injury: 1, lineShopping: 1, simulation: 1 }),
     5,
   );
   // No groundable signal -> null (never invented), same honesty bar as composite.
   assert.equal(
-    confidenceFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null }),
+    confidenceFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null, simulation: null }),
     null,
   );
 });

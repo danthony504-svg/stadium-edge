@@ -1,13 +1,13 @@
-// Single source of truth for the 5-component pick rubric and the combined AI
+// Single source of truth for the 6-component pick rubric and the combined AI
 // Grade / Confidence / Edge it rolls up into. Every sub-score is derived from
 // REAL feed data (matchup history, recent form, no-vig fair value, ESPN
-// injuries, cross-book prices) — and is NULLABLE. When a surface cannot ground a
-// signal we return null and the renderer shows "no data" instead of inventing a
-// number. The composite combines ONLY the scores that are present (weights are
-// renormalized over what we have), so a card with 3 real signals is graded on
-// those 3, never padded with fabricated ones.
+// injuries, cross-book prices, Monte Carlo simulations) — and is NULLABLE. When
+// a surface cannot ground a signal we return null and the renderer shows "no data"
+// instead of inventing a number. The composite combines ONLY the scores that are
+// present (weights are renormalized over what we have), so a card with 3 real
+// signals is graded on those 3, never padded with fabricated ones.
 //
-// The five signals:
+// The six signals:
 //   1. Matchup      — does the matchup (mlLean: L10 margin/pace/H2H/form) favor
 //                     the side we picked?
 //   2. Trend        — recent momentum toward the pick (team streak + margin, or a
@@ -18,6 +18,8 @@
 //                     banged up) or work against it (our side more depleted)?
 //   5. Line-Shopping— how much better the BEST available price for the pick is vs
 //                     the cross-book consensus (median) — pure shopping value.
+//   6. Simulation   — Monte Carlo hit probability for the picked prop side (one
+//                     model input among several — never the sole grade driver).
 //
 // Edge% surfaced by the combine is the REAL line-value edge, not a re-derivation
 // of the composite — combining five 1-10 scores into a fake "edge %" would
@@ -32,6 +34,7 @@ export type PickSubScores = {
   lineValue: SubScore;
   injury: SubScore;
   lineShopping: SubScore;
+  simulation: SubScore;
 };
 
 export type CombinedPickScore = {
@@ -133,6 +136,14 @@ export function scoreTrend(momentum: number | null | undefined): SubScore {
 export function scoreInjury(favor: number | null | undefined): SubScore {
   if (favor == null || !Number.isFinite(favor)) return null;
   return round1(clamp(5.5 + clamp(favor, -1, 1) * 3, 1, 10));
+}
+
+// Simulation: Monte Carlo hit probability for the PICKED side (0–1). 50% is
+// neutral (5.5); stronger lean toward the pick raises the score. Null when no
+// simulation ran or sample was too thin — never invented.
+export function scoreSimulation(hitProbability: number | null | undefined): SubScore {
+  if (hitProbability == null || !Number.isFinite(hitProbability)) return null;
+  return round1(clamp(5.5 + (clamp(hitProbability, 0, 1) - 0.5) * 9, 1, 10));
 }
 
 // ---------- Builders: real feed shapes -> normalized inputs ----------
@@ -254,11 +265,12 @@ export function lineShoppingAdvantage(
 // whatever scores are PRESENT, so omitting a signal reweights the rest rather
 // than dragging the composite toward a phantom 0.
 const WEIGHTS: Record<keyof PickSubScores, number> = {
-  lineValue: 0.3,
-  matchup: 0.25,
-  trend: 0.2,
-  injury: 0.15,
-  lineShopping: 0.1,
+  lineValue: 0.27,
+  matchup: 0.23,
+  trend: 0.18,
+  injury: 0.14,
+  lineShopping: 0.08,
+  simulation: 0.1,
 };
 
 // Confidence is BUILT UP from the real signals: it starts at a neutral baseline

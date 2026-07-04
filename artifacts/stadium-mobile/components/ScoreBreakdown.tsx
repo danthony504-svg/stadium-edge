@@ -5,8 +5,8 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 
-// Renders the 5-component pick rubric (Matchup / Trend / Line Value / Injury /
-// Line-Shopping) plus the combined AI Grade, Confidence, and Edge % it rolls
+// Renders the 6-component pick rubric (Matchup / Trend / Line Value / Injury /
+// Line-Shopping / Model Sim) plus the combined AI Grade, Confidence, and Edge %
 // up into. EVERY value here is real or honestly absent: a sub-score the surface
 // could not ground shows "no data" with an empty track, and the header omits
 // Edge when there is no real betting edge to report. Nothing is fabricated.
@@ -22,6 +22,7 @@ const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof type
   { key: "lineValue", label: "Line Value", icon: "tag" },
   { key: "injury", label: "Injury Impact", icon: "activity" },
   { key: "lineShopping", label: "Line Shopping", icon: "shopping-cart" },
+  { key: "simulation", label: "Model Sim", icon: "cpu" },
 ];
 
 function useScoreColor() {
@@ -209,11 +210,13 @@ export function ScoreBreakdown({
   variant = "full",
   title,
   note,
+  simulationPending,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
+  simulationPending?: boolean;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -226,6 +229,18 @@ export function ScoreBreakdown({
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles data={data} />
+        {simulationPending ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 11,
+              fontStyle: "italic",
+            }}
+          >
+            Simulation updating…
+          </Text>
+        ) : null}
         <View style={{ flexDirection: "row", gap: 4 }}>
           {FACTORS.map((f) => {
             const s = data.scores[f.key];
@@ -280,6 +295,18 @@ export function ScoreBreakdown({
         {title ?? "Pick Score"}
       </Text>
       <HeaderTiles data={data} />
+      {simulationPending ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 11,
+            fontStyle: "italic",
+          }}
+        >
+          Simulation updating…
+        </Text>
+      ) : null}
       <View style={{ marginTop: 2 }}>
         {FACTORS.map((f) => (
           <FactorBar key={f.key} icon={f.icon} label={f.label} score={data.scores[f.key]} />

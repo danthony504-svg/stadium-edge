@@ -27,6 +27,7 @@ import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet"
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
+  fetchPropSimulations,
   fetchUpsetSpots,
   getGames,
   getOdds,
@@ -39,9 +40,11 @@ import {
   type OddsGame,
   type PlayerProp,
   type PlayerSearchResult,
+  type PropPoolEntry,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
+import { selectionScoreForEntry } from "@/lib/propSelection";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
 import { SPORTS } from "@/lib/sports";
 // Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
@@ -682,6 +685,36 @@ export default function PropsScreen() {
       ),
   });
 
+  const propPoolForRank = useMemo((): PropPoolEntry[] => {
+    return gradeCandidates.map((c) => ({
+      sport,
+      game: c.pick.game,
+      marketLabel: c.pick.market,
+      player: c.player,
+      line: c.line,
+      side: c.side,
+      odds: c.pick.odds,
+      athleteId: c.athleteId,
+      marketKey: c.marketKey,
+      startsAt: c.pick.startsAt,
+      edge: null,
+      bookSpread: null,
+    }));
+  }, [gradeCandidates, sport]);
+
+  const simRankQ = useQuery({
+    queryKey: ["props-sim-rank", sport, gradeKey],
+    enabled: gradeCandidates.length > 0,
+    staleTime: 5 * 60_000,
+    queryFn: async ({ signal }) => {
+      const picks = gradeCandidates.map((c) => c.pick);
+      const m = await fetchPropSimulations(picks, propPoolForRank, { tier: "quick" }, signal);
+      const out = new Map<string, { hitProbability: number | null }>();
+      for (const [k, v] of m) out.set(k, { hitProbability: v.hitProbability });
+      return out;
+    },
+  });
+
   // Model-backed confident upsets for this sport (same real mlLean engine the
   // Home tab uses) — surfaced here as recommendations too.
   const upsetsQ = useQuery({
@@ -705,19 +738,33 @@ export default function PropsScreen() {
   };
   const recommended = useMemo<RecItem[]>(() => {
     const grades = gradesQ.data;
+    const sims = simRankQ.data;
+    const selectionOpts = {
+      propPool: propPoolForRank,
+      propSimulations: sims,
+    };
     const aTier: { item: RecItem; rank: number }[] = [];
     if (grades) {
       for (const c of gradeCandidates) {
         const g = grades.get(`${c.pick.game}|${c.pick.pick}`);
         if (!g) continue;
+        const poolEntry = propPoolForRank.find(
+          (e) =>
+            e.player === c.player &&
+            e.marketKey === c.marketKey &&
+            e.line === c.line &&
+            e.side === c.side,
+        );
+        const sel =
+          poolEntry != null ? selectionScoreForEntry(poolEntry, propPoolForRank, selectionOpts) : null;
         const order = g.grade === "A+" ? 3 : g.grade === "A" ? 2 : 1;
         aTier.push({
           item: {
-            pick: c.pick,
+            pick: { ...c.pick, simulationPending: simRankQ.isFetching },
             badge: { text: g.grade, tone: "grade" },
             stats: { grade: g.grade, hits: g.hits, n: g.n, hitPct: Math.round((g.hits / g.n) * 100) },
           },
-          rank: order * 100 + (g.hits / g.n) * 10,
+          rank: (sel ?? 0) * 10 + order * 100 + (g.hits / g.n) * 10,
         });
       }
       aTier.sort((a, b) => b.rank - a.rank);
@@ -766,8 +813,8 @@ export default function PropsScreen() {
       .filter((c) => c.pick.odds <= FALLBACK_MAX_ODDS)
       .sort((a, b) => a.pick.odds - b.pick.odds)
       .slice(0, REC_CAP)
-      .map((c) => ({ pick: c.pick, badge: null }));
-  }, [gradeCandidates, gradesQ.data, upsetsQ.data]);
+      .map((c) => ({ pick: { ...c.pick, simulationPending: simRankQ.isFetching }, badge: null }));
+  }, [gradeCandidates, gradesQ.data, upsetsQ.data, simRankQ.data, simRankQ.isFetching, propPoolForRank]);
 
   // VALUE (+EV) rail — props whose BEST posted price beats the de-vigged
   // cross-book consensus fair value (a real market inefficiency). ev/evSide/
