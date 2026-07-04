@@ -1,8 +1,8 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -45,6 +45,7 @@ import {
   cachedLiveGames,
   cachedUpcomingGames,
   hydrateDiscoverCache,
+  isHeroStickyFresh,
   rememberHeroLegs,
   rememberLiveGames,
   rememberUpcomingGames,
@@ -296,6 +297,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= 680;
   const heroAvatarSize = isWideLayout ? 92 : 56;
@@ -309,14 +311,24 @@ export default function HomeScreen() {
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
   const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>(() => cachedUpcomingGames(sport));
   const [stickyHeroLegs, setStickyHeroLegs] = useState<CachedPropEntry[]>(() => cachedHeroLegs(sport));
+  const [cacheHydrated, setCacheHydrated] = useState(false);
 
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
       setStickyHeroLegs(cachedHeroLegs(sport));
       setStickyLiveGames(cachedLiveGames(sport));
       setStickyUpcoming(cachedUpcomingGames(sport));
+      setCacheHydrated(true);
     });
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
+      void queryClient.invalidateQueries({ queryKey: ["games", sport] });
+      void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
+    }, [queryClient, sport]),
+  );
 
   useEffect(() => {
     setStickyLiveGames(cachedLiveGames(sport));
@@ -327,12 +339,14 @@ export default function HomeScreen() {
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
     queryFn: ({ signal }) => getOdds(sport, signal),
-    staleTime: 60_000,
+    staleTime: 45_000,
+    refetchOnMount: "always",
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
     queryFn: ({ signal }) => getGames(sport, signal),
-    staleTime: 60_000,
+    staleTime: 45_000,
+    refetchOnMount: "always",
   });
 
   // Tennis players have no club crest, so the Upcoming cards show each player's
@@ -444,7 +458,8 @@ export default function HomeScreen() {
     queries: featGames.map((g) => ({
       queryKey: ["home-featured", sport, g.id],
       enabled: featuredEnabled && gamesQ.isSuccess,
-      staleTime: 2 * 60_000,
+      staleTime: 60_000,
+      refetchOnMount: "always",
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const info =
           teamInfoMap.get(
@@ -523,21 +538,30 @@ export default function HomeScreen() {
     return legs;
   })();
   const heroReady = heroLegs.length >= 2;
+  const featuredFetching =
+    featuredEnabled &&
+    featGames.length > 0 &&
+    featuredGameQs.some((q) => q.isFetching || q.isPending);
+  const stickyFresh = isHeroStickyFresh(sport);
   // Keep the hero visible while featured prop queries are still settling so a
-  // brief partial fetch doesn't flash the fallback card and back.
+  // brief partial fetch doesn't flash the fallback card — but never pin stale
+  // legs from a prior OTA generation or an expired cache while we're refetching.
   useEffect(() => {
     if (heroLegs.length >= 2) {
       setStickyHeroLegs(heroLegs);
       rememberHeroLegs(sport, heroLegs);
     }
   }, [heroLegs, sport]);
-  const showHero = heroReady || stickyHeroLegs.length >= 2;
+  const canUseSticky =
+    stickyHeroLegs.length >= 2 && (!featuredFetching || stickyFresh);
+  const displayHeroLegs = heroReady ? heroLegs : canUseSticky ? stickyHeroLegs : [];
+  const showHero = displayHeroLegs.length >= 2;
   const heroSettling =
+    cacheHydrated &&
     featuredEnabled &&
     featGames.length > 0 &&
     !showHero &&
-    featuredGameQs.some((q) => q.isFetching || q.isPending);
-  const displayHeroLegs = heroReady ? heroLegs : stickyHeroLegs;
+    (featuredFetching || featuredGameQs.some((q) => q.isFetching || q.isPending));
   const heroPrices = displayHeroLegs.map((e) =>
     e.prop.evSide === "Under" ? (e.prop.underPrice as number) : (e.prop.overPrice as number),
   );
