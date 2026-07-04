@@ -2,7 +2,7 @@ import { useAuth } from "@clerk/expo";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Image, Pressable, Text, View, useWindowDimensions, type ViewStyle } from "react-native";
+import { Image, Pressable, Text, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
@@ -53,7 +53,6 @@ type AppHeaderProps = {
 export function AppHeader({ children, style, bottomGap = 14, showBell = true }: AppHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
 
   return (
     <View style={[{ paddingTop: insets.top + 6, backgroundColor: colors.background }, style]}>
@@ -67,7 +66,7 @@ export function AppHeader({ children, style, bottomGap = 14, showBell = true }: 
       >
         <Image
           source={WORDMARK}
-          style={{ width: Math.min(255, Math.max(220, width - 138)), height: 44 }}
+          style={{ width: "78%", maxWidth: 280, height: 44 }}
           resizeMode="contain"
           fadeDuration={0}
           accessibilityLabel="Stadium Edge"

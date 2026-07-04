@@ -153,8 +153,8 @@ export default function WelcomeScreen() {
             }}
           >
             <Image
-              source={require("@/assets/images/logo.png")}
-              style={{ width: 168, height: 72, marginBottom: "auto" }}
+              source={require("@/assets/images/logo-wordmark.png")}
+              style={{ width: "78%", maxWidth: 280, height: 52, marginBottom: 24 }}
               contentFit="contain"
             />
             <Text
