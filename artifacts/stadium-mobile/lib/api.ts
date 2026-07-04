@@ -3093,12 +3093,21 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
 
 /** Best-effort wake-up before a heavy Coach build POST (cold autoscale hosts). */
 export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
+  let authToken: string | null = null;
   try {
-    await withTimeout(
-      expoFetch(`${API_BASE}/healthz`, { signal }) as unknown as Promise<Response>,
-      8_000,
-      "/healthz",
-    );
+    authToken = authTokenGetter ? await authTokenGetter() : null;
+  } catch {
+    authToken = null;
+  }
+  try {
+    await Promise.all([
+      withTimeout(
+        expoFetch(`${API_BASE}/healthz`, { signal }) as unknown as Promise<Response>,
+        8_000,
+        "/healthz",
+      ),
+      probeContextStashEndpoint(authToken, signal),
+    ]);
   } catch {
     // Never block the build on a warm-up miss.
   }
@@ -3106,6 +3115,38 @@ export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> 
 
 /** Cached after first probe — production may not have /chat/context-stash yet. */
 let contextStashEndpointAvailable: boolean | null = null;
+
+/** Tiny probe so we never upload a 100KB+ context to a missing endpoint. */
+async function probeContextStashEndpoint(
+  authToken: string | null,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (contextStashEndpointAvailable !== null) return contextStashEndpointAvailable;
+  try {
+    const res = await withTimeout(
+      expoFetch(`${API_BASE}/chat/context-stash`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: '{"context":{}}',
+        signal,
+      }) as unknown as Promise<Response>,
+      4_000,
+      "/chat/context-stash (probe)",
+    );
+    if (res.status === 404) {
+      contextStashEndpointAvailable = false;
+      return false;
+    }
+    contextStashEndpointAvailable = res.ok;
+    return res.ok;
+  } catch {
+    contextStashEndpointAvailable = false;
+    return false;
+  }
+}
 
 /** Upload a large build context once; /chat streams with contextStashId only. */
 async function stashChatContextForStream(
@@ -3115,6 +3156,8 @@ async function stashChatContextForStream(
   stashId?: string,
 ): Promise<string | null> {
   if (contextStashEndpointAvailable === false) return null;
+  const available = await probeContextStashEndpoint(authToken, signal);
+  if (!available) return null;
   try {
     const res = await withTimeout(
       expoFetch(`${API_BASE}/chat/context-stash`, {
@@ -3129,17 +3172,10 @@ async function stashChatContextForStream(
         }),
         signal,
       }) as unknown as Promise<Response>,
-      contextStashEndpointAvailable === true
-        ? Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200))
-        : 8_000,
+      Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200)),
       "/chat/context-stash",
     );
-    if (res.status === 404) {
-      contextStashEndpointAvailable = false;
-      return null;
-    }
     if (!res.ok) return null;
-    contextStashEndpointAvailable = true;
     const data = (await res.json()) as { stashId?: string };
     return typeof data.stashId === "string" ? data.stashId : null;
   } catch {
