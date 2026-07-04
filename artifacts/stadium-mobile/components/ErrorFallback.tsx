@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { reloadAppAsync } from "expo";
+import * as Updates from "expo-updates";
 import React, { useState } from "react";
 import {
   Modal,
@@ -27,9 +27,12 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const handleRestart = async () => {
     try {
-      await reloadAppAsync();
-    } catch (restartError) {
-      console.error("Failed to restart app:", restartError);
+      if (Updates.isEnabled) {
+        await Updates.reloadAsync();
+      } else {
+        resetError();
+      }
+    } catch {
       resetError();
     }
   };
@@ -76,6 +79,22 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
           Please reload the app to continue.
         </Text>
+
+        {error.message ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+              fontSize: 11,
+              lineHeight: 16,
+              textAlign: "center",
+              opacity: 0.75,
+            }}
+            numberOfLines={3}
+          >
+            {error.message}
+          </Text>
+        ) : null}
 
         <Pressable
           onPress={handleRestart}

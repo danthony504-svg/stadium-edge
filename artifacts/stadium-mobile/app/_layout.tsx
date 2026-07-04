@@ -142,6 +142,44 @@ function BootScreen() {
   );
 }
 
+/** Runs OTA checks only after Clerk has loaded — avoids reload during auth boot. */
+function OtaBridge() {
+  const otaUpdating = useOtaUpdater(true);
+
+  if (!otaUpdating) return null;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        zIndex: 9999,
+        backgroundColor: "rgba(15,23,42,0.92)",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 32,
+      }}
+    >
+      <ActivityIndicator size="large" color="#38bdf8" />
+      <Text
+        style={{
+          color: "#e2e8f0",
+          fontSize: 15,
+          lineHeight: 21,
+          textAlign: "center",
+          marginTop: 18,
+        }}
+      >
+        Updating Stadium Edge…
+      </Text>
+    </View>
+  );
+}
+
 function RootLayoutNav() {
   return (
     <Stack
@@ -179,9 +217,6 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  const appReady = fontsLoaded || !!fontError;
-  const otaUpdating = useOtaUpdater(appReady);
-
   if (!publishableKey) {
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
@@ -202,36 +237,6 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      {otaUpdating ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            zIndex: 9999,
-            backgroundColor: "rgba(15,23,42,0.92)",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 32,
-          }}
-        >
-          <ActivityIndicator size="large" color="#38bdf8" />
-          <Text
-            style={{
-              color: "#e2e8f0",
-              fontSize: 15,
-              lineHeight: 21,
-              textAlign: "center",
-              marginTop: 18,
-            }}
-          >
-            Updating Stadium Edge…
-          </Text>
-        </View>
-      ) : null}
       <ErrorBoundary>
         <ClerkProvider
           publishableKey={publishableKey}
@@ -242,6 +247,7 @@ export default function RootLayout() {
             <BootScreen />
           </ClerkLoading>
           <ClerkLoaded>
+            <OtaBridge />
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />
