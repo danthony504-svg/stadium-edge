@@ -8,6 +8,7 @@ import {
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority";
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
 import {
   isPickable,
@@ -483,6 +484,17 @@ export function getGolf(signal?: AbortSignal): Promise<GolfTournament[]> {
 
 export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
+}
+
+export function getEspnOdds(
+  sport: string,
+  eventId: string,
+  signal?: AbortSignal,
+): Promise<EspnOddsSnapshot | null> {
+  return getJson<EspnOddsSnapshot | null>(
+    `/sports/espn-odds?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`,
+    signal,
+  );
 }
 
 // ---------- Park weather ----------

@@ -16,7 +16,13 @@ import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getFightAnalysis, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
+import {
+  findOddsByTeams,
+  oddsGameFromEspnOdds,
+  oddsGameFromEspnShell,
+} from "@/lib/gameResolve";
+import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { computeAnalytics } from "@/lib/modelReport";
@@ -854,6 +860,53 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   );
 }
 
+function LiveScoreBanner({ espn }: { espn: EspnGame }) {
+  const colors = useColors();
+  const live = espn.state === "in";
+  const rows = [
+    { name: espn.awayTeam ?? espn.awayAbbr ?? "Away", score: espn.awayScore },
+    { name: espn.homeTeam ?? espn.homeAbbr ?? "Home", score: espn.homeScore },
+  ];
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: live ? "rgba(239,68,68,0.45)" : colors.border,
+        borderWidth: 1,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 10,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {live ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#ef4444" }} /> : null}
+        <Text
+          style={{
+            color: live ? "#ef4444" : colors.mutedForeground,
+            fontFamily: FONT.bold,
+            fontSize: 12,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+          }}
+        >
+          {espn.periodLabel || espn.clock || (live ? "Live" : espn.status || "In progress")}
+        </Text>
+      </View>
+      {rows.map((t, i) => (
+        <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }} numberOfLines={1}>
+            {t.name}
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 20 }}>
+            {t.score ?? 0}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function GameDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -869,7 +922,61 @@ export default function GameDetailScreen() {
     enabled: !!sport,
   });
 
-  const game = (oddsQ.data ?? []).find((g) => g.id === id);
+  const gamesQ = useQuery({
+    queryKey: ["games", sport],
+    queryFn: ({ signal }) => getGames(String(sport), signal),
+    staleTime: 30_000,
+    enabled: !!sport,
+  });
+
+  const espnGame = useMemo(
+    () => (gamesQ.data ?? []).find((g) => g.id === id),
+    [gamesQ.data, id],
+  );
+
+  const oddsMatch = useMemo(() => {
+    const odds = oddsQ.data ?? [];
+    const direct = odds.find((g) => g.id === id);
+    if (direct) return direct;
+    if (!espnGame) return undefined;
+    return findOddsByTeams(odds, espnGame.awayTeam ?? "", espnGame.homeTeam ?? "");
+  }, [oddsQ.data, id, espnGame]);
+
+  const needsEspnOdds = !!espnGame && !oddsMatch;
+
+  const espnOddsQ = useQuery({
+    queryKey: ["espn-odds", sport, id],
+    queryFn: ({ signal }) => getEspnOdds(String(sport), String(id), signal),
+    staleTime: 30_000,
+    enabled: needsEspnOdds,
+  });
+
+  const game = useMemo(() => {
+    if (oddsMatch) {
+      // Live cards pass ESPN ids — keep that id for props resolution while using
+      // the richer odds-api market ladder when we matched by team names.
+      if (espnGame && oddsMatch.id !== espnGame.id) {
+        return {
+          ...oddsMatch,
+          id: espnGame.id,
+          commenceTime: espnGame.startsAt || oddsMatch.commenceTime,
+        };
+      }
+      return oddsMatch;
+    }
+    if (!espnGame) return undefined;
+    if (espnOddsQ.data) {
+      const fromEspn = oddsGameFromEspnOdds(String(sport), espnGame, espnOddsQ.data);
+      if (fromEspn) return fromEspn;
+    }
+    if (espnGame.state === "in" || espnGame.state === "pre") {
+      return oddsGameFromEspnShell(String(sport), espnGame) ?? undefined;
+    }
+    return undefined;
+  }, [oddsMatch, espnGame, espnOddsQ.data, sport]);
+
+  const isLoading =
+    oddsQ.isLoading || gamesQ.isLoading || (needsEspnOdds && espnOddsQ.isLoading);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -890,13 +997,17 @@ export default function GameDetailScreen() {
           <Feather name="chevron-left" size={24} color={colors.foreground} />
         </Pressable>
         <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16, flex: 1 }} numberOfLines={1}>
-          {game ? `${nickname(game.awayTeam)} @ ${nickname(game.homeTeam)}` : "Game"}
+          {game
+            ? `${nickname(game.awayTeam)} @ ${nickname(game.homeTeam)}`
+            : espnGame
+              ? `${nickname(espnGame.awayTeam ?? "")} @ ${nickname(espnGame.homeTeam ?? "")}`
+              : "Game"}
         </Text>
       </View>
 
-      {oddsQ.isLoading ? (
+      {isLoading ? (
         <Loading label="Loading markets…" />
-      ) : oddsQ.isError ? (
+      ) : oddsQ.isError && !game ? (
         <ErrorState onRetry={() => oddsQ.refetch()} />
       ) : !game ? (
         <View style={{ padding: 16 }}>
@@ -906,6 +1017,8 @@ export default function GameDetailScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 + slipClearance, gap: 14 }}>
+          {espnGame?.state === "in" ? <LiveScoreBanner espn={espnGame} /> : null}
+
           <View style={{ gap: 6 }}>
             {game.sport === "tennis" ? (
               <>
@@ -940,7 +1053,18 @@ export default function GameDetailScreen() {
                 </Text>
               </>
             )}
-            <Badge label={new Date(game.commenceTime).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })} tone="muted" />
+            <Badge
+              label={
+                espnGame?.state === "in"
+                  ? `Live · ${espnGame.periodLabel || espnGame.clock || "In progress"}`
+                  : new Date(game.commenceTime).toLocaleString([], {
+                      weekday: "short",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+              }
+              tone={espnGame?.state === "in" ? "primary" : "muted"}
+            />
           </View>
 
           <AiGamePicks game={game} />
@@ -964,6 +1088,14 @@ export default function GameDetailScreen() {
               .filter((x): x is { m: OddsMarket; d: Decoded } => x.d != null);
             const rank = (d: Decoded) => (d.period === "" && !d.alt ? 0 : d.period === "" ? 1 : 2);
             blocks.sort((a, b) => rank(a.d) - rank(b.d));
+            if (blocks.length === 0) {
+              return espnGame?.state === "in" ? (
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
+                  This game is live. Posted betting lines may be limited or suspended during play — check back as
+                  books refresh in-game markets.
+                </Text>
+              ) : null;
+            }
             return blocks.map(({ m, d }) => (
               <MarketBlock key={m.key} game={game} market={m} decoded={d} />
             ));
