@@ -66,11 +66,12 @@ test("tonightExhaustedNote: blocks silent tomorrow padding when tonight slate is
   );
 });
 
-test("wantsTonightSlate: bare N-leg parlay defaults to tonight", () => {
-  assert.equal(wantsTonightSlate("Build me a 5-leg parlay"), true);
-  assert.equal(wantsTonightSlate("Build me the best parlay"), true);
+test("wantsTonightSlate: bare N-leg parlay uses 48h window (not tonight-only)", () => {
+  assert.equal(wantsTonightSlate("Build me a 5-leg parlay"), false);
+  assert.equal(wantsTonightSlate("Build me the best parlay"), false);
   assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tomorrow"), false);
   assert.equal(wantsTonightSlate("Build me a 5-leg parlay for tonight"), true);
+  assert.equal(wantsTonightSlate("Build me a parlay tonight"), true);
 });
 
 test("slateDayFromThread: tomorrow beats tonight default", () => {
