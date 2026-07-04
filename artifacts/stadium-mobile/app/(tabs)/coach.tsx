@@ -50,6 +50,7 @@ import {
   patchLastAssistantPicks,
   picksWithSimPending,
 } from "@/lib/propSimProgressive";
+import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -1170,6 +1171,8 @@ export default function CoachScreen() {
         let gameMeta: GameMeta[];
         let todayOnly: boolean;
         let full: string;
+        let propSimulations = new Map<string, { hitProbability: number | null }>();
+        let selectionOpts: PropSelectionOpts | undefined;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
@@ -1188,7 +1191,7 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
-          ({ context, propPool, gameMeta, todayOnly } = await buildChatContext(
+          const rawBuilt = await buildChatContext(
             DEFAULT_SPORTS,
             slipForContext,
             controller.signal,
@@ -1198,7 +1201,10 @@ export default function CoachScreen() {
             altSign,
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
-          ));
+          );
+          const enriched = await enrichChatContextProps(rawBuilt, controller.signal);
+          ({ context, propPool, gameMeta, todayOnly } = enriched.built);
+          propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1271,6 +1277,13 @@ export default function CoachScreen() {
           const extra = serverPropPool.filter((e) => !seen.has(key(e)));
           return extra.length ? [...propPool, ...extra] : propPool;
         })();
+        selectionOpts = {
+          propPool: mergedPropPool,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+          playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          propSimulations,
+        };
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -1332,6 +1345,7 @@ export default function CoachScreen() {
             /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed),
           diversify: !lockedPropMarket,
           maxPerMarket: lockedPropMarket ? 99 : undefined,
+          selectionOpts,
         };
         let propsOnlyNote = "";
         if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {

@@ -14,6 +14,7 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
+import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -1859,6 +1860,8 @@ export function backfillProps(
     diversify?: boolean;
     /** Max prop legs per stat market on the finished ticket (existing + new). */
     maxPerMarket?: number;
+    /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
+    selectionOpts?: PropSelectionOpts;
   },
 ): ParsedPick[] {
   const { target, plusMoneyBias = false, diversify = true } = opts;
@@ -1963,7 +1966,12 @@ export function backfillProps(
     );
     return true;
   };
-  const candidates = [...byKey.values()];
+  const candidates = opts.selectionOpts
+    ? rankPropPoolEntries([...byKey.values()], {
+        ...opts.selectionOpts,
+        propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
+      })
+    : [...byKey.values()];
   if (!diversify) {
     for (const e of candidates) {
       if (out.length >= target) break;

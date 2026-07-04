@@ -1288,6 +1288,13 @@ export type RealPropEntry = {
   evSide?: "Over" | "Under" | null;
   fairProb?: number | null;
   edge?: number | null;
+  // Quick-tier Monte Carlo hit % (0–100) for the preferred side — one selection
+  // input among several, never fabricated. Omitted when no sim ran.
+  simHitPct?: number | null;
+  // Multi-factor composite (1–10) for ordering candidates in context — blends
+  // EV, matchup, form, injury, line-shopping, and simulation. Omitted when
+  // ungradeable.
+  selectionScore?: number | null;
 };
 
 // Resolution-shape prop entry (one row per posted side) that the slip parser
