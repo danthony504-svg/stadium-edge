@@ -295,6 +295,13 @@ export default function HomeScreen() {
   // when the row doesn't fit on one screen.
   const quickCardWidth = Math.max(104, Math.min(118, (width - 32 - 4 * 8) / 4.2));
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
+  const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>([]);
+  const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>([]);
+
+  useEffect(() => {
+    setStickyLiveGames([]);
+    setStickyUpcoming([]);
+  }, [sport]);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -319,10 +326,20 @@ export default function HomeScreen() {
 
   const metaMap = useMemo(() => buildMetaMap(gamesQ.data ?? []), [gamesQ.data]);
 
-  const liveGames = useMemo(
+  const freshLiveGames = useMemo(
     () => (gamesQ.data ?? []).filter((g) => g.state === "in"),
     [gamesQ.data],
   );
+  useEffect(() => {
+    if (freshLiveGames.length > 0) setStickyLiveGames(freshLiveGames);
+  }, [freshLiveGames]);
+  const liveGames = useMemo(() => {
+    if (freshLiveGames.length > 0) return freshLiveGames;
+    if ((gamesQ.isFetching || gamesQ.isLoading) && stickyLiveGames.length > 0) {
+      return stickyLiveGames;
+    }
+    return freshLiveGames;
+  }, [freshLiveGames, gamesQ.isFetching, gamesQ.isLoading, stickyLiveGames]);
 
   // Nickname keys (away|home) of games currently in progress, so we can drop them
   // from Upcoming — a live game already has its own card in the "Live Now" rail.
@@ -346,6 +363,17 @@ export default function HomeScreen() {
       );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [oddsQ.data, liveKeySet]);
+
+  useEffect(() => {
+    if (games.length > 0) setStickyUpcoming(games);
+  }, [games]);
+  const upcomingGames = useMemo(() => {
+    if (games.length > 0) return games;
+    if ((oddsQ.isFetching || oddsQ.isLoading) && oddsQ.data && stickyUpcoming.length > 0) {
+      return stickyUpcoming;
+    }
+    return games;
+  }, [games, oddsQ.isFetching, oddsQ.isLoading, oddsQ.data, stickyUpcoming]);
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -486,12 +514,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (heroLegs.length >= 2) setStickyHeroLegs(heroLegs);
   }, [heroLegs]);
-  const featuredPropsLoading =
-    featuredEnabled &&
-    featGames.length > 0 &&
-    featuredGameQs.some((q) => q.isPending || (q.isFetching && !q.data));
-  const showHero =
-    heroReady || (featuredPropsLoading && stickyHeroLegs.length >= 2);
+  const showHero = heroReady || stickyHeroLegs.length >= 2;
   const displayHeroLegs = heroReady ? heroLegs : stickyHeroLegs;
   const heroPrices = displayHeroLegs.map((e) =>
     e.prop.evSide === "Under" ? (e.prop.underPrice as number) : (e.prop.overPrice as number),
@@ -878,6 +901,8 @@ export default function HomeScreen() {
             refreshing={refreshing}
             onRefresh={() => {
               setStickyHeroLegs([]);
+              setStickyLiveGames([]);
+              setStickyUpcoming([]);
               oddsQ.refetch();
               gamesQ.refetch();
               // Manual refetch() fires even on disabled queries, so only kick
@@ -1765,7 +1790,7 @@ export default function HomeScreen() {
             >
               Upcoming Games
             </Text>
-            {games.length > 0 ? (
+            {upcomingGames.length > 0 ? (
               <View
                 style={{
                   minWidth: 24,
@@ -1784,12 +1809,12 @@ export default function HomeScreen() {
                     fontSize: 13,
                   }}
                 >
-                  {games.length}
+                  {upcomingGames.length}
                 </Text>
               </View>
             ) : null}
           </View>
-          {games.length > 0 ? (
+          {upcomingGames.length > 0 ? (
             <Pressable
               hitSlop={8}
               onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
@@ -1815,7 +1840,7 @@ export default function HomeScreen() {
           <View style={{ paddingHorizontal: 16 }}>
             <ErrorState onRetry={() => oddsQ.refetch()} />
           </View>
-        ) : games.length === 0 ? (
+        ) : upcomingGames.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <EmptyState
               icon="calendar"
@@ -1825,7 +1850,7 @@ export default function HomeScreen() {
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {games.slice(0, 8).map((g) => {
+            {upcomingGames.slice(0, 8).map((g) => {
               const baseMeta = metaMap.get(
                 `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
               );

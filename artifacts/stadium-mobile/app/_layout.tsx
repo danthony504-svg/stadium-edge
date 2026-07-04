@@ -12,7 +12,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, keepPreviousData } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -81,7 +81,15 @@ SplashScreen.preventAutoHideAsync();
 // App is dark-only — keep the root surface navy so there is never a white flash.
 SystemUI.setBackgroundColorAsync("#0f172a");
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Keep the last good screen while a refetch is in flight — prevents Discover
+      // hero / Live Now / upcoming from flashing empty between query cycles.
+      placeholderData: keepPreviousData,
+    },
+  },
+});
 const DARK_BG = "#0f172a";
 
 // Shown while Clerk is still initializing. If init never completes (e.g. the

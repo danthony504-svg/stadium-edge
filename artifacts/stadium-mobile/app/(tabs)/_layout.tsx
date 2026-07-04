@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import { Redirect, Stack } from "expo-router";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 
 import { NavMenu } from "@/components/NavMenu";
@@ -13,8 +13,27 @@ export default function TabLayout() {
   // time this renders (ClerkLoaded wraps the root), so isSignedIn is reliable and
   // there is no signed-in flash. Unauthenticated users land on the welcome screen
   // on first open; signing in returns them here via router.replace("/").
-  const { isSignedIn } = useAuth();
-  if (!isSignedIn) return <Redirect href="/welcome" />;
+  const { isSignedIn, isLoaded } = useAuth();
+  // Brief signed-out blips during Clerk token refresh used to unmount the whole
+  // tab tree (Discover flashed loaded → blank → fallback). Wait before redirecting.
+  const [signOutConfirmed, setSignOutConfirmed] = useState(false);
+  useEffect(() => {
+    if (isSignedIn) {
+      setSignOutConfirmed(false);
+      return;
+    }
+    if (!isLoaded) return;
+    const t = setTimeout(() => setSignOutConfirmed(true), 2000);
+    return () => clearTimeout(t);
+  }, [isSignedIn, isLoaded]);
+
+  if (!isLoaded) {
+    return <View style={{ flex: 1, backgroundColor: DARK_BG }} />;
+  }
+  if (!isSignedIn && signOutConfirmed) return <Redirect href="/welcome" />;
+  if (!isSignedIn) {
+    return <View style={{ flex: 1, backgroundColor: DARK_BG }} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: DARK_BG }}>
