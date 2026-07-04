@@ -31,7 +31,8 @@
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ"
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
+        "EXPO_PUBLIC_APP_REVIEW_MODE": "false"
       }
     }
   },
