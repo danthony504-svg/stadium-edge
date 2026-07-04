@@ -2,6 +2,8 @@ import * as Updates from "expo-updates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
+import { isOtaReloadBlocked } from "@/lib/otaBlock";
+
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
 const LAUNCH_DELAY_MS = 5000;
@@ -48,6 +50,7 @@ export function useOtaUpdater(enabled: boolean) {
 
   const checkAndReload = useCallback(async (force = false) => {
     if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
+    if (isOtaReloadBlocked()) return;
 
     const now = Date.now();
     if (!force && now - lastCheckAt.current < FOREGROUND_DEBOUNCE_MS) return;

@@ -69,6 +69,7 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { focalSportsFromText } from "@/lib/chatContextPriority";
+import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
   filterPicksForSlateDay,
@@ -978,6 +979,7 @@ export default function CoachScreen() {
       ]);
       setWaiting(true);
       setStreaming(true);
+      const releaseOtaBlock = blockOtaReload();
       scrollToEnd();
 
       const controller = new AbortController();
@@ -1078,6 +1080,7 @@ export default function CoachScreen() {
           setWaiting(false);
           setStreaming(false);
           abortRef.current = null;
+          releaseOtaBlock();
           scrollToEnd();
           return;
         }
@@ -1086,6 +1089,7 @@ export default function CoachScreen() {
           setWaiting(false);
           setStreaming(false);
           abortRef.current = null;
+          releaseOtaBlock();
           return;
         }
         // Non-abort errors: fall through to the AI chat path below.
@@ -1865,6 +1869,7 @@ export default function CoachScreen() {
           });
         }
       } finally {
+        releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
         abortRef.current = null;
