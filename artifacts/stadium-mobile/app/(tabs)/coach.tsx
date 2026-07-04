@@ -44,7 +44,7 @@ import {
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
-import { attachPickScores } from "@/lib/pickScoreContext";
+import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -1397,6 +1397,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             propSimulations,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -1719,6 +1720,7 @@ export default function CoachScreen() {
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
           propSimulations,
+          playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
         });
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the

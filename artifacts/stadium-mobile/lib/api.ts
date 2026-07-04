@@ -2158,6 +2158,93 @@ async function buildMatchupHistoryAndUpsets(
   return { matchupHistory, upsetSpots };
 }
 
+// Fetch matchup analytics for one game (simulator / detail surfaces).
+export async function fetchMatchupHistoryEntry(
+  opts: {
+    sport: string;
+    gameLabel: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    startsAt?: string;
+  },
+  signal?: AbortSignal,
+): Promise<MatchupHistoryEntry | null> {
+  try {
+    const data = await getMatchupHistory(opts.sport, opts.homeTeamId, opts.awayTeamId, signal);
+    const home10 = data?.home?.last10;
+    const away10 = data?.away?.last10;
+    const h2h = data?.h2h;
+    if (!home10 && !away10 && !(h2h?.meetings?.length)) return null;
+    const gameStart = opts.startsAt ? new Date(opts.startsAt).getTime() : null;
+    const computeRest = (lastDate: string | null) => {
+      if (!lastDate || gameStart == null) return null;
+      const diffMs = gameStart - new Date(lastDate).getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+      const restDays = Math.floor(diffMs / 86400000);
+      return { restDays, backToBack: restDays <= 1 };
+    };
+    const splitOf = (s: any) =>
+      s && s.games > 0
+        ? {
+            record: `${s.wins}-${s.losses}`,
+            avgMargin: s.avgMargin,
+            ptsFor: s.ptsFor,
+            ptsAgainst: s.ptsAgainst,
+            games: s.games,
+          }
+        : null;
+    const seasonOf = (s: any) =>
+      s && s.games > 0 ? { record: `${s.wins}-${s.losses}`, winPct: s.winPct } : null;
+    const lean = computeMlLean(opts.gameLabel, data);
+    return {
+      home: home10
+        ? {
+            record: `${home10.wins}-${home10.losses}`,
+            ptsFor: home10.ptsFor,
+            ptsAgainst: home10.ptsAgainst,
+            avgMargin: home10.avgMargin,
+          }
+        : null,
+      away: away10
+        ? {
+            record: `${away10.wins}-${away10.losses}`,
+            ptsFor: away10.ptsFor,
+            ptsAgainst: away10.ptsAgainst,
+            avgMargin: away10.avgMargin,
+          }
+        : null,
+      homePace: typeof data?.home?.pace === "number" ? data.home.pace : null,
+      awayPace: typeof data?.away?.pace === "number" ? data.away.pace : null,
+      homeVenueForm: splitOf(data?.home?.homeSplit),
+      awayVenueForm: splitOf(data?.away?.awaySplit),
+      homeStreak: data?.home?.streak || null,
+      awayStreak: data?.away?.streak || null,
+      homeSeason: seasonOf(data?.home?.season),
+      awaySeason: seasonOf(data?.away?.season),
+      homeRest: computeRest(data?.home?.lastGameDate ?? null),
+      awayRest: computeRest(data?.away?.lastGameDate ?? null),
+      h2h: h2h?.meetings?.length
+        ? {
+            homeWins: h2h.homeWins,
+            awayWins: h2h.awayWins,
+            meetings: h2h.meetings
+              .slice(0, 3)
+              .map((m: any) => ({
+                date: m.date,
+                homeScore: m.homeTeamScore,
+                awayScore: m.awayTeamScore,
+                homeMargin: m.homeTeamWonByMargin,
+              })),
+          }
+        : null,
+      lastMeeting: data?.lastMeeting ?? null,
+      mlLean: lean,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Standalone fetch for the Upset Watch card: pulls odds + games for the selected
 // sports, builds the real ML price map + history targets, and returns ONLY the
 // upset spots (decoupled from the heavier buildChatContext). Real data only.

@@ -18,14 +18,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Avatar } from "@/components/PlayerPropRow";
+import type { ParsedPick } from "@/components/PickCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
   fetchGameOutcomeSimulation,
+  fetchMatchupHistoryEntry,
   fetchPropSimulationsBatch,
   getGames,
+  getInjuries,
   getParkWeather,
+  getPlayerHistory,
   getProps,
   isPickable,
   propMarketLabel,
@@ -34,6 +38,13 @@ import {
   type PlayerProp,
   type PropSimulationResult,
 } from "@/lib/api";
+import { buildGameInjuryReport } from "@/lib/injuries";
+import type { CombinedPickScore } from "@/lib/pickScore";
+import {
+  attachPickScores,
+  propPoolFromPlayerProps,
+  type PlayerHistorySlice,
+} from "@/lib/pickScoreContext";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 
@@ -109,6 +120,7 @@ export default function SimulatorScreen() {
   const [running, setRunning] = useState(false);
   const [gameResult, setGameResult] = useState<GameSimulationResult | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
+  const [playerHistory, setPlayerHistory] = useState<Record<string, PlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
 
@@ -124,6 +136,37 @@ export default function SimulatorScreen() {
   );
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
+  const gameLabel =
+    game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
+
+  const injuriesQ = useQuery({
+    queryKey: ["sim-injuries", sport],
+    queryFn: ({ signal }) => getInjuries(sport, signal),
+    staleTime: 10 * 60_000,
+  });
+
+  const matchupQ = useQuery({
+    queryKey: ["sim-matchup", sport, game?.id],
+    enabled: !!game?.homeTeamId && !!game?.awayTeamId && !!gameLabel,
+    queryFn: ({ signal }) =>
+      fetchMatchupHistoryEntry(
+        {
+          sport,
+          gameLabel,
+          homeTeamId: game!.homeTeamId!,
+          awayTeamId: game!.awayTeamId!,
+          startsAt: game!.startsAt,
+        },
+        signal,
+      ),
+    staleTime: 10 * 60_000,
+  });
+
+  const matchupInjuries = useMemo(() => {
+    if (!game?.awayTeam || !game?.homeTeam || !injuriesQ.data?.length) return {};
+    const rep = buildGameInjuryReport(sport, injuriesQ.data, game.awayTeam, game.homeTeam);
+    return rep && gameLabel ? { [gameLabel]: rep } : {};
+  }, [game, injuriesQ.data, sport, gameLabel]);
 
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
@@ -171,6 +214,16 @@ export default function SimulatorScreen() {
     () => (propsQ.data ?? []).filter((p) => !p.alt && p.line != null),
     [propsQ.data],
   );
+
+  const propPool = useMemo(() => {
+    if (!gameLabel || !game) return [];
+    return propPoolFromPlayerProps(mains, gameLabel, sport, {
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+      homeAbbr: game.homeAbbr,
+      awayAbbr: game.awayAbbr,
+    });
+  }, [mains, gameLabel, game, sport]);
 
   const filteredProps = useMemo(() => {
     let list = mains;
@@ -227,6 +280,7 @@ export default function SimulatorScreen() {
     setRunning(true);
     setGameResult(null);
     setPropResults([]);
+    setPlayerHistory({});
     try {
       const wx = weatherImpact;
       if (mode === "game" || mode === "full") {
@@ -242,6 +296,26 @@ export default function SimulatorScreen() {
         setGameResult(gr);
       }
       if ((mode === "props" || mode === "full") && selected.length > 0) {
+        const ph: Record<string, PlayerHistorySlice> = {};
+        await Promise.all(
+          selected.map(async (s) => {
+            if (!s.athleteId) return;
+            try {
+              const h = await getPlayerHistory({ sport, athleteId: s.athleteId });
+              const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
+                date: g.date,
+                opp: g.opponentName,
+                stats: g.stats,
+              }));
+              if (recent.length) {
+                ph[`${s.player}#${s.athleteId}`] = { player: s.player, recent };
+              }
+            } catch {
+              /* honest no-history skip */
+            }
+          }),
+        );
+        setPlayerHistory(ph);
         const pr = await fetchPropSimulationsBatch(
           sport,
           selected.map((s) => ({
@@ -270,6 +344,54 @@ export default function SimulatorScreen() {
     !!game &&
     !running &&
     (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
+
+  const propScores = useMemo(() => {
+    if (!propResults.length || !gameLabel || !selected.length) {
+      return new Map<string, CombinedPickScore>();
+    }
+    const matchupHistory = matchupQ.data ? { [gameLabel]: matchupQ.data } : {};
+    const simMap = new Map(
+      propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
+    );
+    const picks: ParsedPick[] = selected.map((s) => ({
+      game: gameLabel,
+      market: propMarketLabel(s.market),
+      pick: `${s.player} ${s.side} ${s.line}`,
+      odds: s.odds,
+      isProp: true,
+      player: s.player,
+      propMarketKey: s.market,
+      propLine: s.line,
+      propSide: s.side,
+      athleteId: s.athleteId,
+      sport,
+    }));
+    const scored = attachPickScores(picks, {
+      propPool,
+      matchupHistory,
+      matchupInjuries,
+      playerHistory,
+      propSimulations: simMap,
+      injuryTeams: injuriesQ.data,
+    });
+    const out = new Map<string, CombinedPickScore>();
+    scored.forEach((p, i) => {
+      const s = selected[i];
+      const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
+      if (p.scores) out.set(key, p.scores);
+    });
+    return out;
+  }, [
+    propResults,
+    selected,
+    gameLabel,
+    matchupQ.data,
+    matchupInjuries,
+    playerHistory,
+    propPool,
+    injuriesQ.data,
+    sport,
+  ]);
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -606,7 +728,7 @@ export default function SimulatorScreen() {
                             borderColor: colors.border,
                           }}
                         >
-                          <Avatar uri={p.headshot} name={p.player} size={40} />
+                          <Avatar headshot={p.headshot} name={p.player} />
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
                               {p.player}
@@ -737,28 +859,60 @@ export default function SimulatorScreen() {
 
                 {propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
-                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 10 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
                       Player Prop Projections
                     </Text>
-                    {propResults.map((r) => (
-                      <View
-                        key={r.key}
-                        style={{
-                          paddingVertical: 10,
-                          borderTopWidth: 1,
-                          borderTopColor: colors.border,
-                        }}
-                      >
-                        <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                          {r.player} — {r.side} {r.line}
-                        </Text>
-                        <View style={{ flexDirection: "row", gap: 16, marginTop: 6 }}>
-                          <MiniStat label="Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                          <MiniStat label="Likely" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
-                          <MiniStat label="Conf" value={r.confidenceScore != null ? String(r.confidenceScore) : "—"} />
+                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
+                      AI Grade combines simulation with matchup, recent form, injuries, line value, and cross-book odds — simulation is one factor, not the only one.
+                    </Text>
+                    {propResults.map((r) => {
+                      const combined = propScores.get(r.key);
+                      const gradeColor =
+                        combined?.composite == null
+                          ? colors.mutedForeground
+                          : combined.composite >= 7
+                            ? colors.success
+                            : combined.composite >= 5.5
+                              ? colors.primary
+                              : colors.mutedForeground;
+                      const edgeColor =
+                        combined?.edgePct == null
+                          ? colors.mutedForeground
+                          : combined.edgePct >= 0
+                            ? colors.success
+                            : colors.destructive;
+                      return (
+                        <View
+                          key={r.key}
+                          style={{
+                            paddingVertical: 10,
+                            borderTopWidth: 1,
+                            borderTopColor: colors.border,
+                          }}
+                        >
+                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
+                            {r.player} — {r.side} {r.line}
+                          </Text>
+                          <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                            <MiniStat label="AI Grade" value={combined?.grade ?? "—"} valueColor={gradeColor} />
+                            <MiniStat
+                              label="Confidence"
+                              value={combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
+                            />
+                            <MiniStat
+                              label="Edge"
+                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct}%` : "—"}
+                              valueColor={edgeColor}
+                            />
+                          </View>
+                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
+                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
+                            <MiniStat label="Likely" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
+                            <MiniStat label="Sim Conf" value={r.confidenceScore != null ? String(r.confidenceScore) : "—"} />
+                          </View>
                         </View>
-                      </View>
-                    ))}
+                      );
+                    })}
                   </Card>
                 ) : null}
               </View>
@@ -776,8 +930,9 @@ export default function SimulatorScreen() {
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
-                minutes, injuries, matchup splits, and park weather. Results show projected win rates and prop hit
-                probabilities — one input to AI Grade, not a guarantee.
+                minutes, injuries, matchup splits, and park weather. The AI Grade rolls simulation together with
+                matchup data, recent form, injuries, sportsbook EV, and line-shopping — simulation is one input,
+                not the whole grade.
               </Text>
             </Card>
           </Pressable>
@@ -942,12 +1097,20 @@ function LikelyWinner({
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
   const colors = useColors();
   return (
     <View>
       <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>{label}</Text>
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>{value}</Text>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: valueColor ?? colors.foreground }}>{value}</Text>
     </View>
   );
 }
