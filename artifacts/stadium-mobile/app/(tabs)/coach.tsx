@@ -80,11 +80,13 @@ import {
   todayBuildNote,
   wantsPropsOnly,
   explicitSingleGameIntent,
+  wantsMlbPitcherSlateAsk,
 } from "@/lib/slate";
 import {
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
+  buildMlbSlateContext,
   gameMatchesFocalText,
   getPlayerHistory,
   getStatmuseGamelog,
@@ -100,6 +102,7 @@ import {
   ultraSlimChatContextForUpload,
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
+  slimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1224,12 +1227,22 @@ export default function CoachScreen() {
             focalSportsFromText(focalForPools).size === 0;
           const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
           const useCompactParlayPath = genericParlayPath && requestedLegs > 3;
-          const warmP = isParlayBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
+          const useMlbSlatePath =
+            !genericParlayPath &&
+            wantsMlbPitcherSlateAsk(trimmed) &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !oddsThreshold &&
+            !altSign;
+          const streamWarmBuild =
+            isParlayBuild || useMlbSlatePath || genericParlayPath;
+          const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
             : useCompactParlayPath
               ? await buildCompactParlayContext(requestedLegs, controller.signal)
-              : await buildChatContext(
+              : useMlbSlatePath
+                ? await buildMlbSlateContext(controller.signal)
+                : await buildChatContext(
                 buildSports,
                 slipForContext,
                 controller.signal,
@@ -1240,9 +1253,10 @@ export default function CoachScreen() {
                 requestedLegs,
                 wantsAnalyzeSlip(trimmed),
               );
-          const enriched = fastParlay
-            ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
-            : await enrichChatContextProps(rawBuilt, controller.signal);
+          const enriched =
+            fastParlay || useMlbSlatePath
+              ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
+              : await enrichChatContextProps(rawBuilt, controller.signal);
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
@@ -1284,6 +1298,12 @@ export default function CoachScreen() {
             uploadContext = microSlimChatContextForUpload(context);
           } else if (isParlayBuild && requestedLegs <= 10) {
             uploadContext = compactSlimChatContextForUpload(context);
+          } else if (useMlbSlatePath) {
+            uploadContext = compactSlimChatContextForUpload(context);
+          } else {
+            // Belt-and-braces: every Coach stream slims the upload so a 100KB+
+            // context never connect-stalls when /chat/context-stash is unavailable.
+            uploadContext = slimChatContextForUpload(context);
           }
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
@@ -1317,7 +1337,7 @@ export default function CoachScreen() {
             full = await runStream();
           } catch (streamErr: any) {
             const retryable =
-              isParlayBuild &&
+              (isParlayBuild || useMlbSlatePath) &&
               streamErr?.name !== "AbortError" &&
               !handedOffRef.current;
             if (!retryable) throw streamErr;

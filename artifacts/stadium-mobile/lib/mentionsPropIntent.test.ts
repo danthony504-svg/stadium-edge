@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -74,9 +74,17 @@ test("wantsTonightSlate: bare N-leg parlay uses 48h window (not tonight-only)", 
   assert.equal(wantsTonightSlate("Build me a parlay tonight"), true);
 });
 
+test("wantsMlbPitcherSlateAsk detects pitcher/bullpen slate targeting", () => {
+  assert.equal(
+    wantsMlbPitcherSlateAsk("target all the worst pitchers, worst bullpen for today's slate"),
+    true,
+  );
+  assert.equal(wantsMlbPitcherSlateAsk("Build me a 6-leg parlay"), false);
+});
+
 test("slateDayFromThread: tomorrow beats tonight default", () => {
   assert.equal(slateDayFromThread("Build me a 8 leg for tomorrow", []), "tomorrow");
-  assert.equal(slateDayFromThread("Build me the best parlay", []), "tonight");
+  assert.equal(slateDayFromThread("Build me the best parlay", []), null);
   assert.equal(slateOddsLabel("tomorrow"), "tomorrow's");
 });
 
