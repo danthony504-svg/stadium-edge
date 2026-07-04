@@ -176,8 +176,8 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Download OTA bundles in the background only — never reloadAsync on cold start
-  // (rollback + reload caused a blank-screen loop on TestFlight).
+  // Download OTA bundles in the background, then reload so the new JS actually runs.
+  // (Fetching alone left users stuck on old bundles — e.g. App Review nav without Home.)
   useEffect(() => {
     if (__DEV__) return;
     const timer = setTimeout(() => {
@@ -186,6 +186,7 @@ export default function RootLayout() {
           const update = await Updates.checkForUpdateAsync();
           if (!update.isAvailable) return;
           await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
         } catch {
           // Offline or expo-updates disabled — keep running the embedded bundle.
         }

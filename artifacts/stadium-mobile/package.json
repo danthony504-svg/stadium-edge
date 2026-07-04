@@ -10,7 +10,7 @@
     "build:ios": "eas build --platform ios --profile production",
     "submit:ios": "eas submit --platform ios --profile production",
     "release:ios": "eas build --platform ios --profile production --auto-submit",
-    "update:ios": "eas update --branch production",
+    "update:ios": "bash scripts/publish-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test 'lib/**/*.test.ts'"
   },
