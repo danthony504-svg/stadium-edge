@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
+/** Wait for Clerk + first paint before checking OTA — avoids reload mid-boot crashes. */
+const LAUNCH_DELAY_MS = 3000;
 
 /** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
@@ -16,11 +18,19 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   return true;
 }
 
-/** Check on launch and on foreground resume (debounced). */
+/** Check after launch delay and on foreground resume (debounced). */
 export function useOtaUpdater(enabled: boolean) {
   const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
   const lastCheckAt = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const check = useCallback(async (force = false) => {
     if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
@@ -32,27 +42,31 @@ export function useOtaUpdater(enabled: boolean) {
     inFlight.current = true;
     try {
       const result = await Updates.checkForUpdateAsync();
-      if (!result.isAvailable) return;
+      if (!result.isAvailable || !mounted.current) return;
       setUpdating(true);
       await Updates.fetchUpdateAsync();
+      if (!mounted.current) return;
       await Updates.reloadAsync();
     } catch {
       // Network hiccup — next foreground will retry.
     } finally {
+      if (mounted.current) setUpdating(false);
       inFlight.current = false;
-      setUpdating(false);
     }
   }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    void check(true);
+    const launchTimer = setTimeout(() => void check(true), LAUNCH_DELAY_MS);
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void check();
     });
 
-    return () => sub.remove();
+    return () => {
+      clearTimeout(launchTimer);
+      sub.remove();
+    };
   }, [enabled, check]);
 
   return updating;

@@ -2068,8 +2068,13 @@ export default function CoachScreen() {
         bottomOffset={12}
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
-          {messages.map((m, i) => {
-            if (isWelcomeMessage(m) && messages.some((x) => x.role === "user")) return null;
+          {messages
+            .map((m, i) => ({ m, i }))
+            .filter(
+              ({ m }) =>
+                !(isWelcomeMessage(m) && messages.some((x) => x.role === "user")),
+            )
+            .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
