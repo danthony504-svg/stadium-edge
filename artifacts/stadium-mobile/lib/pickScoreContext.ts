@@ -17,6 +17,7 @@ import {
   scoreLineShopping,
   scoreLineValue,
   scoreMatchup,
+  scoreSimulation,
   scoreTrend,
   teamTrendMomentum,
   type CombinedPickScore,
@@ -152,7 +153,7 @@ function scoreGamePick(
     injury = scoreInjury(injuryFavorGame(ie, pickSide === "home"));
   }
 
-  const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping };
+  const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping, simulation: null };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
   // of a two-sided main market, so a pick on the non-+EV side (which carries no
@@ -161,13 +162,13 @@ function scoreGamePick(
   return combined.composite == null ? null : combined;
 }
 
-// Score one PROP pick. On a card we have no per-player game log, so Trend and
-// Matchup are honestly null; Line Value + Line-Shopping come off the prop's
-// backing pool entry (the prop detail page grounds the full five). edge is only
-// present on the side the server flagged as +EV — null otherwise, which is fine.
+// Score one PROP pick. Line Value + Line-Shopping come off the prop pool entry;
+// Simulation (when present) is one rubric input alongside market edge — never
+// the only driver. Trend/matchup/injury stay null on cards without full context.
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
+  simulationByKey?: Map<string, { hitProbability: number | null }>,
 ): CombinedPickScore | null {
   // The resolved prop ParsedPick was built from a real pool entry, so match on
   // its identity fields. Prefer the exact line/side, fall back to the same
@@ -181,12 +182,18 @@ function scorePropPick(
     propPool.find(same);
   if (!entry) return null;
   const edgePct = entry.edge ?? null;
+  const simKey =
+    pick.player && pick.propLine != null && pick.propSide
+      ? `${pick.player}|${pick.propMarketKey ?? entry.marketKey ?? pick.market}|${pick.propLine}|${pick.propSide}`
+      : null;
+  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
   const scores: PickSubScores = {
     matchup: null,
     trend: null,
     lineValue: scoreLineValue(edgePct),
     injury: null,
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
+    simulation: scoreSimulation(sim?.hitProbability ?? null),
   };
   // Pass the prop's real price so Confidence reads its de-vigged win chance.
   const combined = combinePickScore(scores, edgePct, pick.odds);
@@ -232,13 +239,16 @@ export function attachPickScores(
     // leg's Confidence. The fixed market-priority prior applies regardless; only
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
+    /** Monte Carlo results keyed player|market|line|side */
+    propSimulations?: Map<string, { hitProbability: number | null }>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
   const propPool = opts.propPool ?? [];
+  const sims = opts.propSimulations;
   return picks.map((p) => {
     const raw = p.isProp
-      ? scorePropPick(p, propPool)
+      ? scorePropPick(p, propPool, sims)
       : scoreGamePick(p, realOdds, opts.matchupHistory, opts.matchupInjuries);
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     return { ...p, scores };

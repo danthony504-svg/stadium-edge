@@ -17,7 +17,7 @@ import type { CombinedPickScore } from "./pickScore.ts";
 // A minimal grounded score (confidencePct present) so applyMarketWeighting acts.
 const score = (confidencePct: number | null): CombinedPickScore =>
   ({
-    scores: { matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null },
+    scores: { matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null, simulation: null },
     composite: confidencePct == null ? null : 5,
     grade: "C",
     confidencePct,

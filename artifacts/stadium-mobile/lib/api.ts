@@ -1325,6 +1325,114 @@ export type PropPoolEntry = {
   marketKey?: string;
 };
 
+export type PropSimulationResult = {
+  key: string;
+  player: string;
+  market: string;
+  line: number;
+  side: "Over" | "Under";
+  simulations: number;
+  hitProbability: number | null;
+  mostLikelyLine: number | null;
+  meanProjection: number | null;
+  medianProjection: number | null;
+  confidenceScore: number | null;
+  stdDev: number | null;
+  sampleGames: number;
+  percentiles: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+  } | null;
+};
+
+/** Run Monte Carlo on resolved prop picks (10k sims each). Returns keyed map. */
+export async function fetchPropSimulations(
+  picks: Array<{
+    isProp?: boolean;
+    player?: string;
+    propLine?: number | null;
+    propSide?: string;
+    propMarketKey?: string;
+    athleteId?: string | null;
+    game?: string;
+    sport?: string;
+  }>,
+  propPool: PropPoolEntry[],
+  opts?: { homeTeam?: string; awayTeam?: string; weatherImpact?: number | null },
+  signal?: AbortSignal,
+): Promise<Map<string, PropSimulationResult>> {
+  const out = new Map<string, PropSimulationResult>();
+  const props: Array<{
+    player: string;
+    market: string;
+    line: number;
+    side: "Over" | "Under";
+    athleteId?: string | null;
+    sport: string;
+  }> = [];
+
+  for (const p of picks) {
+    if (!p.isProp || !p.player || p.propLine == null) continue;
+    const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
+    if (!side) continue;
+    const pool =
+      propPool.find(
+        (e) =>
+          e.player === p.player &&
+          e.side === side &&
+          e.line === p.propLine &&
+          (p.game ? e.game === p.game : true),
+      ) ?? propPool.find((e) => e.player === p.player && e.side === side);
+    const market = p.propMarketKey ?? pool?.marketKey;
+    if (!market) continue;
+    const sport = (p.sport ?? pool?.sport ?? "nba").toLowerCase();
+    props.push({
+      player: p.player,
+      market,
+      line: p.propLine,
+      side,
+      athleteId: p.athleteId ?? pool?.athleteId,
+      sport,
+    });
+  }
+
+  if (!props.length) return out;
+
+  const sport = props[0]!.sport;
+  let homeTeam = opts?.homeTeam ?? "";
+  let awayTeam = opts?.awayTeam ?? "";
+  if (!homeTeam && picks[0]?.game?.includes(" @ ")) {
+    const parts = picks[0].game.split(" @ ");
+    awayTeam = parts[0]?.trim() ?? "";
+    homeTeam = parts[1]?.trim() ?? "";
+  }
+
+  const path = "/sports/simulate/props";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sport,
+        homeTeam,
+        awayTeam,
+        weatherImpact: opts?.weatherImpact ?? null,
+        props,
+      }),
+      signal,
+    }),
+    REQUEST_TIMEOUT_MS * 2,
+    path,
+  );
+  if (!res.ok) return out;
+  const json = (await res.json()) as { props?: PropSimulationResult[] };
+  for (const row of json.props ?? []) out.set(row.key, row);
+  return out;
+}
+
 // Render-only team metadata for game-level picks (logos + abbreviations). Built
 // from ESPN games, keyed by the "Away @ Home" game string. NEVER sent to the AI
 // — it's used by the card renderer to show the picked team's logo + code.

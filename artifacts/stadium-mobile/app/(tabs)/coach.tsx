@@ -85,6 +85,7 @@ import {
   tonightExhaustedNote,
   streamChat,
   chatStreamFailureMessage,
+  fetchPropSimulations,
   type AltSign,
   type ChatContext,
   type ChatMessage,
@@ -1367,6 +1368,14 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
+        let propSimulations = new Map<string, { hitProbability: number | null }>();
+        if (picks.some((p) => p.isProp)) {
+          try {
+            propSimulations = await fetchPropSimulations(picks, mergedPropPool);
+          } catch {
+            /* optional — rubric omits simulation when unavailable */
+          }
+        }
         // Confidence-threshold lock: drop any resolved leg whose signals-based
         // Confidence falls outside the requested band. Confidence is a baseline
         // plus points for each strong REAL rubric signal (matchup, trend, line
@@ -1387,6 +1396,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
+            propSimulations,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -1708,6 +1718,7 @@ export default function CoachScreen() {
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
+          propSimulations,
         });
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the

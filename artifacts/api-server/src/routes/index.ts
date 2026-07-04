@@ -23,6 +23,7 @@ import golfRouter from "./golf";
 import prebuildRouter from "./prebuild";
 import stealsRouter from "./steals";
 import accountRouter from "./account";
+import simulateRouter from "./simulate";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(golfRouter);
 router.use(prebuildRouter);
 router.use(stealsRouter);
 router.use(accountRouter);
+router.use(simulateRouter);
 
 export default router;

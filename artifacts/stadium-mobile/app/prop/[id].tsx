@@ -21,6 +21,7 @@ import {
   getPlayerHistory,
   getProps,
   getTeamDefense,
+  fetchPropSimulations,
   PROPS_SPORTS,
   searchTeam,
   type TeamDefense,
@@ -42,6 +43,7 @@ import {
   scoreInjury,
   scoreLineShopping,
   scoreLineValue,
+  scoreSimulation,
   scoreTrend,
 } from "@/lib/pickScore";
 import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
@@ -123,6 +125,41 @@ export default function PropDetailScreen() {
         { sport, athleteId: athleteId || null, name: isSoccer ? player : null },
         signal,
       ),
+  });
+
+  const simQ = useQuery({
+    queryKey: ["prop-sim", sport, athleteId, marketKey, line, side],
+    enabled:
+      enabled &&
+      !!athleteId &&
+      line != null &&
+      (side === "Over" || side === "Under"),
+    staleTime: 10 * 60_000,
+    queryFn: async ({ signal }) => {
+      const parts = game.split(" @ ");
+      const map = await fetchPropSimulations(
+        [
+          {
+            isProp: true,
+            player,
+            propLine: line,
+            propSide: side,
+            propMarketKey: marketKey,
+            athleteId,
+            game,
+            sport,
+          },
+        ],
+        [],
+        {
+          awayTeam: parts[0]?.trim() ?? "",
+          homeTeam: parts[1]?.trim() ?? "",
+        },
+        signal,
+      );
+      const key = `${player}|${marketKey}|${line}|${side}`;
+      return map.get(key) ?? null;
+    },
   });
 
   const ambiguous = useMemo(
@@ -567,11 +604,18 @@ export default function PropDetailScreen() {
       }
     }
     return combinePickScore(
-      { matchup: null, trend, lineValue, injury, lineShopping },
+      {
+        matchup: null,
+        trend,
+        lineValue,
+        injury,
+        lineShopping,
+        simulation: scoreSimulation(simQ.data?.hitProbability ?? null),
+      },
       edgePct,
       odds,
     );
-  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds]);
+  }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simQ.data]);
 
   // Tier colors for the AI-breakdown hero — same thresholds the rubric uses, so
   // the glanceable hero and the full breakdown below always agree.
@@ -812,11 +856,46 @@ export default function PropDetailScreen() {
                 tint={colors.foreground}
               />
               <MetricTile
+                icon="cpu"
+                label="SIM HIT %"
+                value={
+                  simQ.data?.hitProbability != null
+                    ? `${Math.round(simQ.data.hitProbability * 100)}%`
+                    : "—"
+                }
+                caption="10k Monte Carlo"
+                tint={colors.primary}
+              />
+              <MetricTile
+                icon="activity"
+                label="LIKELY LINE"
+                value={
+                  simQ.data?.mostLikelyLine != null
+                    ? String(simQ.data.mostLikelyLine)
+                    : "—"
+                }
+                caption="mode outcome"
+                tint={colors.foreground}
+              />
+            </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <MetricTile
                 icon="target"
                 label="HIT RATE"
                 value={hitPct != null ? `${hitPct}%` : "—"}
                 caption={lineLabel}
                 tint={hitPct != null && hitPct >= 60 ? colors.success : colors.primary}
+              />
+              <MetricTile
+                icon="shield"
+                label="SIM CONF"
+                value={
+                  simQ.data?.confidenceScore != null
+                    ? `${simQ.data.confidenceScore}`
+                    : "—"
+                }
+                caption="model conviction"
+                tint={colors.foreground}
               />
               <MetricTile
                 icon="layers"
