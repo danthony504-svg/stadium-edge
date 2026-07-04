@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
 
 function heavyContext(): SlimChatContextInput {
   const game = "Away Team @ Home Team";
@@ -134,4 +134,25 @@ test("ultraSlimChatContextForUpload caps pools for emergency retry", () => {
   assert.ok(ultra.realOdds.length <= 24);
   assert.equal(ultra.playerHistory, undefined);
   assert.ok(JSON.stringify(ultra).length < JSON.stringify(slim).length);
+});
+
+test("microSlimChatContextForUpload caps further for 3-leg cellular uploads", () => {
+  const base = heavyContext();
+  const manyProps = Array.from({ length: 80 }, (_, i) => ({
+    sport: "mlb",
+    game: "Away Team @ Home Team",
+    startsAt: "2026-07-04T23:00:00Z",
+    player: `Player ${i}`,
+    market: "batter_hits",
+    line: 1.5,
+    over: -110,
+    under: -110,
+    alt: false,
+  }));
+  const heavy = { ...base, realProps: manyProps };
+  const micro = microSlimChatContextForUpload(heavy);
+  assert.ok(micro.realProps.length <= 18);
+  assert.ok(micro.realOdds.length <= 16);
+  assert.equal(micro.matchupHistory, undefined);
+  assert.ok(JSON.stringify(micro).length < JSON.stringify(ultraSlimChatContextForUpload(heavy)).length);
 });

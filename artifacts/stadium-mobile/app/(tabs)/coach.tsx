@@ -96,6 +96,7 @@ import {
   streamChat,
   slimChatContextForUpload,
   ultraSlimChatContextForUpload,
+  microSlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1244,7 +1245,9 @@ export default function CoachScreen() {
           if (bg) {
             pendingBgRef.current = { buildId };
             handedOffRef.current = false;
-            await savePendingBuild({
+            // Don't block the stream on a large AsyncStorage write — the server
+            // build can start while we persist the local replay snapshot.
+            void savePendingBuild({
               buildId,
               userText: trimmed,
               context,
@@ -1256,10 +1259,12 @@ export default function CoachScreen() {
           }
 
           let first = true;
-          let uploadContext: ChatContext =
-            isParlayBuild && requestedLegs <= 10
-              ? ultraSlimChatContextForUpload(context)
-              : context;
+          let uploadContext: ChatContext = context;
+          if (isParlayBuild && requestedLegs <= 3) {
+            uploadContext = microSlimChatContextForUpload(context);
+          } else if (isParlayBuild && requestedLegs <= 10) {
+            uploadContext = ultraSlimChatContextForUpload(context);
+          }
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             if (isParlayBuild) await warmApiForCoachBuild(controller.signal);
@@ -1308,7 +1313,10 @@ export default function CoachScreen() {
             setWaiting(true);
             scrollToEnd();
             if (isParlayBuild) {
-              uploadContext = ultraSlimChatContextForUpload(context);
+              uploadContext =
+                requestedLegs <= 3
+                  ? microSlimChatContextForUpload(context)
+                  : ultraSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
           }
