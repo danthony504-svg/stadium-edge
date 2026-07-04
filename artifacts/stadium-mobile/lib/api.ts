@@ -3101,7 +3101,38 @@ export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> 
   }
 }
 
-function abortError(): Error {
+/** Upload a large build context once; /chat streams with contextStashId only. */
+async function stashChatContextForStream(
+  context: ChatContext,
+  authToken: string | null,
+  signal: AbortSignal | undefined,
+  stashId?: string,
+): Promise<string | null> {
+  try {
+    const res = await withTimeout(
+      expoFetch(`${API_BASE}/chat/context-stash`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({
+          context,
+          ...(stashId ? { stashId } : {}),
+        }),
+        signal,
+      }) as unknown as Promise<Response>,
+      Math.min(90_000, Math.max(20_000, Math.round(JSON.stringify(context).length / 1024) * 200)),
+      "/chat/context-stash",
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { stashId?: string };
+    return typeof data.stashId === "string" ? data.stashId : null;
+  } catch {
+    return null;
+  }
+}
+
   const e = new Error("Aborted");
   e.name = "AbortError";
   return e;
@@ -3199,7 +3230,35 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // proxy buffering; a genuinely dead link still aborts and retries, just later.
   // Once the first token lands the proxy switches to pass-through and we tighten
   // back to STALL_MS for the rest of the stream.
-  const bodyStr = JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId });
+  // Parlay builds upload a large context blob. When over ~16KB, stash it server-
+  // side first so the SSE POST stays tiny (fixes connect-stall on cellular and
+  // cold hosts even on full 5G when the body is 100KB+).
+  const STASH_THRESHOLD_KB = 16;
+  const inlinePreviewKB =
+    JSON.stringify({ messages, context, imageDataUrl, imageDataUrls, notifyOnBackground, buildId })
+      .length / 1024;
+  let contextStashId: string | null = null;
+  if (
+    inlinePreviewKB > STASH_THRESHOLD_KB &&
+    context &&
+    typeof context === "object" &&
+    Object.keys(context).length > 0
+  ) {
+    contextStashId = await stashChatContextForStream(
+      context,
+      authToken,
+      signal,
+      buildId || undefined,
+    );
+  }
+  const bodyStr = JSON.stringify({
+    messages,
+    ...(contextStashId ? { contextStashId } : { context }),
+    imageDataUrl,
+    imageDataUrls,
+    notifyOnBackground,
+    buildId,
+  });
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
     bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;

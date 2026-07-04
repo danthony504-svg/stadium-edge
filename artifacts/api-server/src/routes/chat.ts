@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
 import { SendChatMessageBody } from "@workspace/api-zod";
@@ -9,6 +10,7 @@ import {
   finalizeErroredBuild,
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
+import { putChatContextStash, getChatContextStash } from "../lib/chatContextStash.js";
 import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming } from "../lib/openaiConfig.js";
 import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
@@ -583,6 +585,21 @@ function chatUserId(req: Request): string | null {
   }
 }
 
+/** Upload a large Coach build context once; stream /chat with contextStashId only. */
+router.post("/chat/context-stash", chatLimiter, async (req, res): Promise<void> => {
+  const body = (req.body ?? {}) as { context?: unknown; stashId?: unknown };
+  if (!body.context || typeof body.context !== "object" || Array.isArray(body.context)) {
+    res.status(400).json({ error: "context object required" });
+    return;
+  }
+  const stashId =
+    typeof body.stashId === "string" && body.stashId.trim().length >= 8
+      ? body.stashId.trim()
+      : randomUUID();
+  putChatContextStash(stashId, body.context as Record<string, unknown>);
+  res.json({ stashId });
+});
+
 router.post("/chat", async (req, res): Promise<void> => {
   const parsed = SendChatMessageBody.safeParse(req.body);
   if (!parsed.success) {
@@ -609,10 +626,26 @@ router.post("/chat", async (req, res): Promise<void> => {
   // rules. When `notifyOnBackground` is set and the user is signed in, a build
   // the user walks away from keeps generating server-side; on completion we
   // stash the reply and fire a push instead of discarding it.
-  const rawBody = (req.body ?? {}) as { notifyOnBackground?: unknown; buildId?: unknown };
+  const rawBody = (req.body ?? {}) as {
+    notifyOnBackground?: unknown;
+    buildId?: unknown;
+    contextStashId?: unknown;
+  };
   const notifyOnBackground = rawBody.notifyOnBackground === true;
   const bgBuildId = typeof rawBody.buildId === "string" ? rawBody.buildId : "";
   const bgUserId = notifyOnBackground && bgBuildId ? chatUserId(req) : null;
+
+  let clientContext = parsed.data.context as Record<string, unknown> | undefined;
+  if (typeof rawBody.contextStashId === "string" && rawBody.contextStashId.trim()) {
+    const stashed = getChatContextStash(rawBody.contextStashId.trim());
+    if (!stashed) {
+      res.status(410).json({
+        error: "Build context expired — pull to refresh and try your build again.",
+      });
+      return;
+    }
+    clientContext = stashed;
+  }
 
   // MARKET-LOCK enforcement (server-side belt-and-braces). When the latest
   // user message names a specific market keyword, we (a) filter the realProps
