@@ -291,6 +291,9 @@ export default function HomeScreen() {
   const hotCardWidth = isWideLayout
     ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
     : 168;
+  // Wide enough for full labels ("Easy Money", "Best Value") — horizontal scroll
+  // when the row doesn't fit on one screen.
+  const quickCardWidth = Math.max(104, Math.min(118, (width - 32 - 4 * 8) / 4.2));
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
 
   const oddsQ = useQuery({
@@ -721,7 +724,7 @@ export default function HomeScreen() {
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Daily top picks",
+      subtitle: "Today's top picks",
       icon: "flash",
       color: "#fb923c",
       onPress: () => askCoach("Build me the best parlay"),
@@ -735,7 +738,7 @@ export default function HomeScreen() {
     },
     {
       label: "Best Value",
-      subtitle: "Top projected edge",
+      subtitle: "Top projected edges",
       icon: "bullseye-arrow",
       color: colors.primary,
       onPress: () =>
@@ -789,7 +792,7 @@ export default function HomeScreen() {
         >
           <Feather name="search" size={17} color={colors.mutedForeground} />
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-            Search games, teams, or players…
+            Search games, teams, or player props…
           </Text>
         </Pressable>
 
@@ -1031,82 +1034,127 @@ export default function HomeScreen() {
             </Pressable>
           </View>
         ) : (
-          <View style={{ alignItems: "center", marginTop: 18, marginBottom: 18 }}>
+          <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
             <Pressable
               onPress={() => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } })}
-              style={({ pressed }) => ({
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                backgroundColor: colors.primary,
-                borderRadius: 999,
-                paddingHorizontal: 32,
-                paddingVertical: 15,
-                opacity: pressed ? 0.9 : 1,
-              })}
             >
-              <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 17 }}>
-                Build best parlay
-              </Text>
-              <Feather name="arrow-right" size={18} color="#fff" />
+              {({ pressed }) => (
+                <LinearGradient
+                  colors={["#082554", "#06111f"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 14,
+                    borderWidth: 1,
+                    borderColor: colors.primary,
+                    borderRadius: colors.radius,
+                    padding: 16,
+                    opacity: pressed ? 0.92 : 1,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 14,
+                      backgroundColor: "rgba(59,130,246,0.18)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <MaterialCommunityIcons name="ticket-percent" size={28} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1, gap: 4 }}>
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+                      Build best parlay
+                    </Text>
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.medium,
+                        fontSize: 13,
+                        lineHeight: 18,
+                      }}
+                    >
+                      Get AI-powered picks tailored for the best possible odds.
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 20,
+                      backgroundColor: colors.primary,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Feather name="arrow-right" size={18} color="#fff" />
+                  </View>
+                </LinearGradient>
+              )}
             </Pressable>
           </View>
         )}
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
-        <View
-          style={{
-            flexDirection: "row",
-            paddingHorizontal: 16,
-            gap: 8,
-            marginBottom: 22,
-          }}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 22 }}
         >
           {quickActions.map((a) => (
             <Pressable
               key={a.label}
               onPress={a.onPress}
               style={({ pressed }) => ({
-                flex: 1,
+                width: quickCardWidth,
                 backgroundColor: colors.card,
                 borderWidth: 1,
                 borderColor: colors.border,
-                borderRadius: 14,
-                paddingVertical: 12,
-                paddingHorizontal: 8,
+                borderRadius: 16,
+                paddingVertical: 14,
+                paddingHorizontal: 10,
                 gap: 8,
-                alignItems: "center",
+                alignItems: "flex-start",
                 opacity: pressed ? 0.85 : 1,
               })}
             >
               <View
                 style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 9,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
                   backgroundColor: `${a.color}22`,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <MaterialCommunityIcons name={a.icon} size={17} color={a.color} />
+                <MaterialCommunityIcons name={a.icon} size={18} color={a.color} />
               </View>
               <Text
-                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 11.5, textAlign: "center" }}
+                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}
                 numberOfLines={1}
               >
                 {a.label}
               </Text>
               <Text
-                style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, textAlign: "center" }}
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: FONT.medium,
+                  fontSize: 11,
+                  lineHeight: 14,
+                }}
                 numberOfLines={2}
               >
                 {a.subtitle}
               </Text>
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
 
         {/* Hot Picks Today — real props ranked by how often the player has
             cleared THIS posted line in their recent games (a transparent letter
