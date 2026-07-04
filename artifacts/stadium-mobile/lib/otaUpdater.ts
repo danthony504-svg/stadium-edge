@@ -2,8 +2,7 @@ import * as Updates from "expo-updates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
-const POLL_MS = 12_000;
-const POLL_WINDOW_MS = 180_000;
+const FOREGROUND_DEBOUNCE_MS = 45_000;
 
 /** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
@@ -17,13 +16,19 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   return true;
 }
 
-/** Poll on launch and on every foreground resume until an OTA is applied. */
+/** Check on launch and on foreground resume (debounced). */
 export function useOtaUpdater(enabled: boolean) {
   const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
+  const lastCheckAt = useRef(0);
 
-  const check = useCallback(async () => {
+  const check = useCallback(async (force = false) => {
     if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
+
+    const now = Date.now();
+    if (!force && now - lastCheckAt.current < FOREGROUND_DEBOUNCE_MS) return;
+    lastCheckAt.current = now;
+
     inFlight.current = true;
     try {
       const result = await Updates.checkForUpdateAsync();
@@ -32,7 +37,7 @@ export function useOtaUpdater(enabled: boolean) {
       await Updates.fetchUpdateAsync();
       await Updates.reloadAsync();
     } catch {
-      // Network hiccup — the poll / foreground listener will retry.
+      // Network hiccup — next foreground will retry.
     } finally {
       inFlight.current = false;
       setUpdating(false);
@@ -42,18 +47,12 @@ export function useOtaUpdater(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    void check();
-    const poll = setInterval(() => void check(), POLL_MS);
-    const stopPoll = setTimeout(() => clearInterval(poll), POLL_WINDOW_MS);
+    void check(true);
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void check();
     });
 
-    return () => {
-      clearInterval(poll);
-      clearTimeout(stopPoll);
-      sub.remove();
-    };
+    return () => sub.remove();
   }, [enabled, check]);
 
   return updating;
