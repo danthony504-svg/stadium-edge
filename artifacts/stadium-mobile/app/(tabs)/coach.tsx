@@ -95,6 +95,7 @@ import {
   wantsTomorrowOnly,
   streamChat,
   slimChatContextForUpload,
+  warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
   type ChatContext,
@@ -1260,6 +1261,7 @@ export default function CoachScreen() {
               : context;
           const runStream = async () => {
             first = true;
+            if (isParlayBuild) await warmApiForCoachBuild(controller.signal);
             return streamChat({
               messages: apiMessages,
               context: uploadContext,
