@@ -2,7 +2,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Image,
   Pressable,
@@ -477,18 +477,34 @@ export default function HomeScreen() {
     return legs;
   })();
   const heroReady = heroLegs.length >= 2;
-  const heroPrices = heroLegs.map((e) =>
+  // Keep the hero visible while featured prop queries are still settling so a
+  // brief partial fetch doesn't flash the fallback card and back.
+  const [stickyHeroLegs, setStickyHeroLegs] = useState<PropEntry[]>([]);
+  useEffect(() => {
+    setStickyHeroLegs([]);
+  }, [sport]);
+  useEffect(() => {
+    if (heroLegs.length >= 2) setStickyHeroLegs(heroLegs);
+  }, [heroLegs]);
+  const featuredPropsLoading =
+    featuredEnabled &&
+    featGames.length > 0 &&
+    featuredGameQs.some((q) => q.isPending || (q.isFetching && !q.data));
+  const showHero =
+    heroReady || (featuredPropsLoading && stickyHeroLegs.length >= 2);
+  const displayHeroLegs = heroReady ? heroLegs : stickyHeroLegs;
+  const heroPrices = displayHeroLegs.map((e) =>
     e.prop.evSide === "Under" ? (e.prop.underPrice as number) : (e.prop.overPrice as number),
   );
-  const heroOdds = heroReady ? parlayAmerican(heroPrices) : null;
-  const heroEdgeVals = heroLegs
+  const heroOdds = showHero ? parlayAmerican(heroPrices) : null;
+  const heroEdgeVals = displayHeroLegs
     .map((e) => e.prop.edge)
     .filter((x): x is number => x != null);
   const heroAvgEdge = heroEdgeVals.length
     ? heroEdgeVals.reduce((a, b) => a + b, 0) / heroEdgeVals.length
     : null;
-  const heroWinProb = heroReady
-    ? heroLegs.reduce((acc, e) => acc * (e.prop.fairProb ?? 0), 1)
+  const heroWinProb = showHero
+    ? displayHeroLegs.reduce((acc, e) => acc * (e.prop.fairProb ?? 0), 1)
     : null;
 
   // HOT PICKS — graded by REAL recent hit-rate (same shared engine as the Props
@@ -861,6 +877,7 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
+              setStickyHeroLegs([]);
               oddsQ.refetch();
               gamesQ.refetch();
               // Manual refetch() fires even on disabled queries, so only kick
@@ -878,7 +895,7 @@ export default function HomeScreen() {
             distinct game). Combined odds, model win prob and avg edge are all
             derived from real per-leg values; falls back to a plain Build button
             when fewer than 2 EV legs are available (never a fabricated card). */}
-        {heroReady ? (
+        {showHero ? (
           <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
             <Pressable onPress={() => askCoach("Build me the best parlay")}>
               {({ pressed }) => (
@@ -945,13 +962,13 @@ export default function HomeScreen() {
                         }}
                         numberOfLines={3}
                       >
-                        {heroLegs.map((e) => heroLegTitle(e.prop)).join(", ")}
+                        {displayHeroLegs.map((e) => heroLegTitle(e.prop)).join(", ")}
                       </Text>
                     </View>
                     {/* Overlapping REAL headshots (FeaturedAvatar falls back to
                         team logo / initials — never a fabricated face). */}
                     <View style={{ flexDirection: "row", alignItems: "center", paddingTop: isWideLayout ? 4 : 2 }}>
-                      {heroLegs.slice(0, 3).map((e, i) => (
+                      {displayHeroLegs.slice(0, 3).map((e, i) => (
                         <View key={i} style={{ marginLeft: i === 0 ? 0 : -(heroAvatarSize * 0.24) }}>
                           <FeaturedAvatar
                             headshot={e.prop.headshot}
@@ -1790,11 +1807,11 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
         </View>
-        {oddsQ.isLoading ? (
+        {!oddsQ.data && oddsQ.isLoading ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
-        ) : oddsQ.isError ? (
+        ) : oddsQ.isError && !oddsQ.data ? (
           <View style={{ paddingHorizontal: 16 }}>
             <ErrorState onRetry={() => oddsQ.refetch()} />
           </View>

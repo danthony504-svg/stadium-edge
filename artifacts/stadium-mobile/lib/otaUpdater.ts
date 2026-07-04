@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
-/** Wait for Clerk + first paint before checking OTA — avoids reload mid-boot crashes. */
-const LAUNCH_DELAY_MS = 3000;
+/** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
+const LAUNCH_DELAY_MS = 5000;
 
 /** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
@@ -18,7 +18,21 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   return true;
 }
 
-/** Check after launch delay and on foreground resume (debounced). */
+/**
+ * Prefetch an OTA on launch without reloading — the downloaded bundle applies on
+ * the next cold start so the current session's UI and query cache stay intact.
+ */
+async function prefetchOtaOnLaunch(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  const result = await Updates.checkForUpdateAsync();
+  if (!result.isAvailable) return false;
+
+  await Updates.fetchUpdateAsync();
+  return true;
+}
+
+/** Prefetch after launch; reload only when returning from background (debounced). */
 export function useOtaUpdater(enabled: boolean) {
   const [updating, setUpdating] = useState(false);
   const inFlight = useRef(false);
@@ -32,7 +46,7 @@ export function useOtaUpdater(enabled: boolean) {
     };
   }, []);
 
-  const check = useCallback(async (force = false) => {
+  const checkAndReload = useCallback(async (force = false) => {
     if (__DEV__ || !enabled || !Updates.isEnabled || inFlight.current) return;
 
     const now = Date.now();
@@ -58,16 +72,16 @@ export function useOtaUpdater(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
 
-    const launchTimer = setTimeout(() => void check(true), LAUNCH_DELAY_MS);
+    const launchTimer = setTimeout(() => void prefetchOtaOnLaunch(), LAUNCH_DELAY_MS);
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") void check();
+      if (state === "active") void checkAndReload();
     });
 
     return () => {
       clearTimeout(launchTimer);
       sub.remove();
     };
-  }, [enabled, check]);
+  }, [enabled, checkAndReload]);
 
   return updating;
 }
