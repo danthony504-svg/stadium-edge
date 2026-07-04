@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
 
 function heavyContext(): SlimChatContextInput {
   const game = "Away Team @ Home Team";
@@ -155,4 +155,30 @@ test("microSlimChatContextForUpload caps further for 3-leg cellular uploads", ()
   assert.ok(micro.realOdds.length <= 16);
   assert.equal(micro.matchupHistory, undefined);
   assert.ok(JSON.stringify(micro).length < JSON.stringify(ultraSlimChatContextForUpload(heavy)).length);
+});
+
+test("compactSlimChatContextForUpload caps 4-10 leg cellular uploads", () => {
+  const heavy: SlimChatContextInput = {
+    selectedSports: ["mlb", "wnba", "nba", "nhl"],
+    currentSlip: [],
+    realGames: Array(20).fill({ sport: "mlb", game: "A @ B", status: "pre" }),
+    realOdds: Array(80).fill({ sport: "mlb", game: "A @ B", market: "h2h", pick: "A", odds: -110, startsAt: new Date().toISOString() }),
+    realProps: Array(100).fill({
+      sport: "mlb",
+      game: "A @ B",
+      startsAt: new Date().toISOString(),
+      player: "P",
+      market: "batter_hits",
+      line: 0.5,
+      over: -120,
+      under: 100,
+      alt: false,
+    }),
+    matchupHistory: { "A @ B": { home: null, away: null, homePace: 100, awayPace: 100, homeVenueForm: null, awayVenueForm: null, homeStreak: null, awayStreak: null, homeSeason: null, awaySeason: null, homeRest: null, awayRest: null, h2h: null, lastMeeting: null, mlLean: { side: "A", edge: 2, reasons: ["x"] } } },
+  };
+  const compact = compactSlimChatContextForUpload(heavy);
+  assert.ok(compact.realOdds.length <= 28);
+  assert.ok(compact.realProps.length <= 40);
+  assert.equal(compact.matchupHistory, undefined);
+  assert.equal(compact.realGames.length, 0);
 });
