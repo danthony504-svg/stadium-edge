@@ -60,13 +60,16 @@ export function localDayDiff(iso: string | null | undefined): number | null {
   return Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
 }
 
-/** True when the user wants tonight's / today's upcoming slate (not tomorrow). */
+/** True when the user explicitly asked for tonight's / today's upcoming slate. */
 export function wantsTonightSlate(text?: string | null): boolean {
   if (wantsTodayOnly(text)) return true;
   const t = String(text || "").toLowerCase();
   if (/\btomorrow\b/.test(t)) return false;
   if (FUTURE_SLATE_RE.test(t)) return false;
-  return PARLAY_BUILD_RE.test(t);
+  // A bare "N-leg parlay" uses the normal next-48h pickable window — defaulting
+  // every build ask to tonight empties the pool in the evening and caps tickets at
+  // the few games still upcoming today (e.g. 6-leg → honest 3-leg).
+  return false;
 }
 
 /** Inherit tonight intent from recent user turns ("5 leg parlay" after "for tonight"). */

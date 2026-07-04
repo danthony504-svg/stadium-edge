@@ -181,8 +181,8 @@ export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(
   return {
     ...slim,
     selectedSports: slim.selectedSports?.slice(0, 4),
-    realOdds: slim.realOdds.slice(0, 28),
-    realProps: slim.realProps.slice(0, 40),
+    realOdds: slim.realOdds.slice(0, 32),
+    realProps: slim.realProps.slice(0, 48),
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,

@@ -2544,11 +2544,11 @@ export async function buildCompactParlayContext(
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(10, requestedLegs));
   return buildLightParlayContext(signal, {
-    maxSports: 3,
-    maxPropGames: Math.min(6, n),
-    maxOddsGames: Math.min(12, n + 3),
-    propsBalanceCap: Math.min(50, n * 5),
-    oddsSliceCap: Math.min(48, n * 6),
+    maxSports: 4,
+    maxPropGames: Math.min(8, n + 1),
+    maxOddsGames: Math.min(16, n + 4),
+    propsBalanceCap: Math.min(60, n * 6),
+    oddsSliceCap: Math.min(56, n * 7),
   });
 }
 
