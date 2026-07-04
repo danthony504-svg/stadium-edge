@@ -83,6 +83,7 @@ import {
 } from "@/lib/slate";
 import {
   buildChatContext,
+  buildTinyParlayContext,
   gameMatchesFocalText,
   getPlayerHistory,
   getStatmuseGamelog,
@@ -1212,18 +1213,27 @@ export default function CoachScreen() {
         } else {
           const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
           const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= 3;
+          const useTinyParlayPath =
+            fastParlay &&
+            !oddsThreshold &&
+            !includePeriods &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !altSign &&
+            focalSportsFromText(focalForPools).size === 0;
           const warmP = isParlayBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
-          const rawBuilt = await buildChatContext(
-            buildSports,
-            slipForContext,
-            controller.signal,
-            oddsThreshold,
-            includePeriods,
-            focalForPools,
-            altSign,
-            requestedLegs,
-            wantsAnalyzeSlip(trimmed),
-          );
+          const rawBuilt = useTinyParlayPath
+            ? await buildTinyParlayContext(controller.signal)
+            : await buildChatContext(
+                buildSports,
+                slipForContext,
+                controller.signal,
+                oddsThreshold,
+                includePeriods,
+                focalForPools,
+                altSign,
+                requestedLegs,
+                wantsAnalyzeSlip(trimmed),
+              );
           const enriched = fastParlay
             ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
             : await enrichChatContextProps(rawBuilt, controller.signal);
