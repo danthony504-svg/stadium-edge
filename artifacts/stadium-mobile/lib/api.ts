@@ -11,7 +11,7 @@ import {
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload } from "./slimChatContext";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload } from "./slimChatContext";
 import {
   isPickable,
   isPregameBettable,
@@ -39,7 +39,7 @@ import {
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
-export { gameMatchesFocalText, slimChatContextForUpload, ultraSlimChatContextForUpload };
+export { gameMatchesFocalText, slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
@@ -2396,7 +2396,9 @@ export async function buildChatContext(
   const anyNonEmpty = (lists: { length: number }[]): boolean => lists.some((l) => l.length > 0);
 
   let [[oddsAll, gamesAll], injuriesAll] = await Promise.all([
-    fetchCoreParallel(signal),
+    (requestedLegs > 0 && requestedLegs <= 3
+      ? fetchCoreSequential(signal)
+      : fetchCoreParallel(signal)),
     // Real ESPN injury report per sport (for the per-game injury read the coach
     // factors into picks). A failed/unsupported sport just yields [] — never
     // fabricated; sports without a report (tennis/ufc) simply contribute none.
@@ -3290,6 +3292,7 @@ export async function streamChat({ messages, context, onToken, signal, imageData
       .length / 1024;
   let contextStashId: string | null = null;
   if (
+    contextStashEndpointAvailable !== false &&
     inlinePreviewKB > STASH_THRESHOLD_KB &&
     context &&
     typeof context === "object" &&
@@ -3327,8 +3330,11 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
   // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
   const CONNECT_MS = Math.min(
-    90_000,
-    Math.max(15_000, Math.round(15_000 + Math.max(0, bodyKB - 40) * 200)),
+    120_000,
+    Math.max(
+      bodyKB > 16 ? 20_000 : 15_000,
+      Math.round((bodyKB > 16 ? 20_000 : 15_000) + Math.max(0, bodyKB - 16) * 300),
+    ),
   );
   const MAX_ATTEMPTS = 6;
 

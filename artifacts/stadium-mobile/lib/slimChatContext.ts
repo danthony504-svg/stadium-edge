@@ -158,3 +158,19 @@ export function ultraSlimChatContextForUpload<T extends SlimChatContextInput>(co
     modelStrengths: slim.modelStrengths,
   };
 }
+
+/** Smallest upload tier for 2-3 leg generic parlays — keeps POST under ~10KB. */
+export function microSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
+  const ultra = ultraSlimChatContextForUpload(context);
+  return {
+    ...ultra,
+    selectedSports: ultra.selectedSports?.slice(0, 4),
+    realOdds: ultra.realOdds.slice(0, 16),
+    realProps: ultra.realProps.slice(0, 18),
+    matchupHistory: undefined,
+    modelStrengths: undefined,
+    fightAnalysis: undefined,
+    playerHistory: undefined,
+    realGames: [],
+  };
+}
