@@ -14,11 +14,11 @@ import {
   buildRealOdds,
   getOdds,
   getTeamDefense,
-  getTeamHistory,
   searchTeam,
   type RealOddsEntry,
   type TeamForm,
 } from "@/lib/api";
+import { useTeamHistory } from "@/hooks/useTeamHistory";
 import { teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
@@ -58,30 +58,10 @@ export function TeamPropsSheet({
   const opp = data?.opp ?? "";
   const sportLabel = data ? SPORTS.find((s) => s.id === sport)?.label ?? sport.toUpperCase() : "";
 
-  // Resolve the team to an ESPN id (the search gives us only a name), then pull
-  // its real history. Two-step so the sheet works straight from the props feed.
-  const resolveQ = useQuery({
-    queryKey: ["team-resolve", sport, team],
-    enabled: !!sport && !!team,
-    staleTime: 30 * 60_000,
-    queryFn: async ({ signal }) => {
-      // Fail-closed: only accept a same-sport result whose name actually
-      // matches. No fallback to "first hit" — a wrong team would surface real
-      // stats for the wrong entity (a fabrication). Null → "unavailable".
-      const r = await searchTeam(team, signal);
-      const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
-      return sportHits.find((t) => teamNameMatches(t.name, team)) ?? null;
-    },
-  });
-  const resolved = resolveQ.data ?? null;
-
-  const historyQ = useQuery({
-    queryKey: ["team-history", sport, resolved?.teamId],
-    enabled: !!sport && !!resolved?.teamId,
-    staleTime: 10 * 60_000,
-    queryFn: ({ signal }) => getTeamHistory(sport, resolved!.teamId, signal),
-  });
-  const history = historyQ.data ?? null;
+  // One-hop resolve + real history (server does search → schedule).
+  const teamQ = useTeamHistory({ sport, name: team });
+  const resolved = teamQ.resolved;
+  const history = teamQ.history;
 
   // Real recent margins (final scores only), newest first, capped at 10.
   const games = useMemo(() => {
@@ -186,8 +166,8 @@ export function TeamPropsSheet({
 
   if (!data) return null;
 
-  const loading = resolveQ.isLoading || historyQ.isLoading;
-  const errored = resolveQ.isError || historyQ.isError;
+  const loading = teamQ.isLoading;
+  const errored = teamQ.isError;
   const noData = !loading && !errored && (!resolved || n === 0);
 
   return (

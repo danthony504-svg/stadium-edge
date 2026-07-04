@@ -8,7 +8,7 @@ import {
   prioritizePlayerHistoryTargets,
   propGamesCapForLegs,
 } from "./chatContextPriority";
-import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
+import { buildGameInjuryReport, teamNameMatches, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
 import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload } from "./slimChatContext";
@@ -830,6 +830,89 @@ export function getTeamHistory(
 ): Promise<TeamHistory> {
   const q = new URLSearchParams({ sport, teamId });
   return getJson<TeamHistory>(`/sports/team-history?${q.toString()}`, signal);
+}
+
+// Resolved team + real form in ONE hop (server does search → schedule).
+// Optional teamId skips the name search when the caller already has ESPN ids.
+export type TeamHistoryResolved = TeamHistory & {
+  resolved: TeamSearchResult | null;
+};
+
+export function getTeamHistoryByName(
+  sport: string,
+  name: string,
+  opts?: { teamId?: string | null; signal?: AbortSignal },
+): Promise<TeamHistoryResolved> {
+  const q = new URLSearchParams({ sport, name });
+  if (opts?.teamId) q.set("teamId", opts.teamId);
+  const path = `/sports/team-history-by-name?${q.toString()}`;
+  return getJson<TeamHistoryResolved>(path, opts?.signal).catch(async (err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Older api-server builds lack the combined route — fall back to the legacy
+    // two-hop chain so OTA can ship before Render redeploys.
+    if (!/^HTTP 404/.test(msg)) throw err;
+    if (opts?.teamId) {
+      const history = await getTeamHistory(sport, opts.teamId, opts.signal);
+      return {
+        ...history,
+        resolved: {
+          teamId: opts.teamId,
+          name: history.teamName ?? name,
+          location: null,
+          abbrev: null,
+          sport,
+          league: sport,
+          logo: null,
+        },
+      };
+    }
+    const r = await searchTeam(name, opts?.signal);
+    const sportHits = r.results.filter((t) => (t.sport ?? "") === sport);
+    const hit = sportHits.find((t) => teamNameMatches(t.name, name)) ?? null;
+    if (!hit) {
+      return {
+        sport,
+        teamId: "",
+        teamName: null,
+        season: null,
+        last10: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+        last5: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+        homeSplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+        awaySplit: { games: 0, wins: 0, losses: 0, ptsFor: null, ptsAgainst: null, avgMargin: null },
+        streak: null,
+        record: { games: 0, wins: 0, losses: 0, winPct: null },
+        recent: [],
+        lastGameDate: null,
+        resolved: null,
+      };
+    }
+    const history = await getTeamHistory(sport, hit.teamId, opts?.signal);
+    return { ...history, resolved: hit };
+  });
+}
+
+export type MatchupScoringForm = {
+  away: TeamHistoryResolved;
+  home: TeamHistoryResolved;
+};
+
+export function getMatchupScoringForm(
+  sport: string,
+  away: string,
+  home: string,
+  signal?: AbortSignal,
+): Promise<MatchupScoringForm> {
+  const q = new URLSearchParams({ sport, away, home });
+  const path = `/sports/matchup-scoring-form?${q.toString()}`;
+  return getJson<MatchupScoringForm>(path, signal).catch(async (err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/^HTTP 404/.test(msg)) throw err;
+    const [awayData, homeData] = await Promise.all([
+      getTeamHistoryByName(sport, away, { signal }),
+      getTeamHistoryByName(sport, home, { signal }),
+    ]);
+    return { away: awayData, home: homeData };
+  });
 }
 
 // ---------- MLB probables + ballpark + batter splits (real ESPN) ----------
