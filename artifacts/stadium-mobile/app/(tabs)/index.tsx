@@ -800,6 +800,12 @@ export default function HomeScreen() {
       params: { prefill: msg, send: "1", ts: String(Date.now()) },
     });
 
+  const heroParlayCoachPrompt = () => {
+    if (displayHeroLegs.length < 2) return "Build me the best parlay";
+    const legs = displayHeroLegs.map((e) => heroLegTitle(e.prop)).join("; ");
+    return `Build me a ${displayHeroLegs.length}-leg parlay with exactly these legs: ${legs}. Use only these real posted picks — no substitutions.`;
+  };
+
   const quickActions: {
     label: string;
     subtitle: string;
@@ -968,7 +974,7 @@ export default function HomeScreen() {
             when fewer than 2 EV legs are available (never a fabricated card). */}
         {showHero ? (
           <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
-            <Pressable onPress={() => askCoach("Build me the best parlay")}>
+            <Pressable onPress={() => askCoach(heroParlayCoachPrompt())}>
               {({ pressed }) => (
                 <LinearGradient
                   colors={["#082554", "#06111f"]}
@@ -1023,6 +1029,17 @@ export default function HomeScreen() {
                         >
                           TODAY'S TOP AI PARLAY
                         </Text>
+                        {heroReady ? (
+                          <Text
+                            style={{
+                              color: "rgba(148,163,184,0.95)",
+                              fontFamily: FONT.medium,
+                              fontSize: 10,
+                            }}
+                          >
+                            Live picks · just updated
+                          </Text>
+                        ) : null}
                       </View>
                       <Text
                         style={{
