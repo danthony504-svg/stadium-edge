@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, propMarketLabel, type LiveSteal, type StealRecord } from "@/lib/api";
@@ -268,9 +269,19 @@ export default function StealsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
+            +500 Steals
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
+            Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
+          </Text>
+        </View>
+      </AppHeader>
       <ScrollView
         contentContainerStyle={{
-          paddingTop: insets.top + 56,
+          paddingTop: 8,
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + 120,
           gap: 14,
@@ -283,15 +294,6 @@ export default function StealsScreen() {
           />
         }
       >
-        <View>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 26 }}>
-            +500 Steals
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-            Longshots (+500 and up) that carry a real cross-book edge — high risk, high upside.
-          </Text>
-        </View>
-
         <RecordCard record={record} />
 
         {query.isLoading ? (

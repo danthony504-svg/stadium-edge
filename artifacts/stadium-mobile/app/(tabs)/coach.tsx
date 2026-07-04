@@ -23,6 +23,7 @@ import { useAuth } from "@clerk/expo";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AppHeader } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
@@ -44,7 +45,13 @@ import {
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
-import { attachPickScores } from "@/lib/pickScoreContext";
+import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import {
+  loadPropSimulationsProgressive,
+  patchLastAssistantPicks,
+  picksWithSimPending,
+} from "@/lib/propSimProgressive";
+import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -781,6 +788,7 @@ export default function CoachScreen() {
   }, []);
   const scrollRef = useRef<ScrollView>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const simAbortRef = useRef<AbortController | null>(null);
   // Mirror of `streaming` readable synchronously from the AppState listener
   // (which can't see React state directly).
   const streamingRef = useRef(false);
@@ -1164,6 +1172,8 @@ export default function CoachScreen() {
         let gameMeta: GameMeta[];
         let todayOnly: boolean;
         let full: string;
+        let propSimulations = new Map<string, { hitProbability: number | null }>();
+        let selectionOpts: PropSelectionOpts | undefined;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
@@ -1182,7 +1192,7 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
-          ({ context, propPool, gameMeta, todayOnly } = await buildChatContext(
+          const rawBuilt = await buildChatContext(
             DEFAULT_SPORTS,
             slipForContext,
             controller.signal,
@@ -1192,7 +1202,10 @@ export default function CoachScreen() {
             altSign,
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
-          ));
+          );
+          const enriched = await enrichChatContextProps(rawBuilt, controller.signal);
+          ({ context, propPool, gameMeta, todayOnly } = enriched.built);
+          propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1265,6 +1278,13 @@ export default function CoachScreen() {
           const extra = serverPropPool.filter((e) => !seen.has(key(e)));
           return extra.length ? [...propPool, ...extra] : propPool;
         })();
+        selectionOpts = {
+          propPool: mergedPropPool,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+          playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          propSimulations,
+        };
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -1326,6 +1346,7 @@ export default function CoachScreen() {
             /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed),
           diversify: !lockedPropMarket,
           maxPerMarket: lockedPropMarket ? 99 : undefined,
+          selectionOpts,
         };
         let propsOnlyNote = "";
         if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
@@ -1367,17 +1388,6 @@ export default function CoachScreen() {
                 : `\n\n_Showing the ${picks.length} real leg${picks.length === 1 ? "" : "s"} priced ${bound}; dropped ${dropped} that didn't qualify._`;
           }
         }
-        // Confidence-threshold lock: drop any resolved leg whose signals-based
-        // Confidence falls outside the requested band. Confidence is a baseline
-        // plus points for each strong REAL rubric signal (matchup, trend, line
-        // value, injury, line shopping) — the card renders it 0–100, this filter
-        // compares it on the same value's 0–10 band (confidenceScoreFromSignals).
-        // This is the hard guarantee — the server prompt steers the model toward
-        // picks with many strong signals, but only this filter makes EVERY rendered
-        // card actually sit in the band. Legs are scored off the SAME real context
-        // the cards render from (attachPickScores), so the filter and the displayed
-        // number agree. A leg with no groundable signal scores null and is excluded
-        // — there is nothing to back a confidence claim. Never fabricates/inflates.
         let confidenceNote = "";
         if (confidenceThreshold) {
           const before = picks.length;
@@ -1387,6 +1397,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -1708,7 +1719,9 @@ export default function CoachScreen() {
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
+          playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
         });
+        picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1777,10 +1790,39 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        // Surface this parlay's picks on the Player Props + Picks tabs. Only
-        // overwrite when we actually resolved real picks so a plain Q&A reply
-        // doesn't wipe the last recommendation.
         if (picks.length > 0) setAiPicks(picks);
+        // Server-side Monte Carlo: quick tier first, deep tier refines in the
+        // background. Picks are already on screen — simulation is one rubric input.
+        if (picks.some((p) => p.isProp)) {
+          simAbortRef.current?.abort();
+          const simController = new AbortController();
+          simAbortRef.current = simController;
+          const simOpts = {
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            perfByFamily: marketPerf,
+          };
+          const snapshot = picks;
+          void loadPropSimulationsProgressive(
+            snapshot,
+            simOpts,
+            {
+              onQuick: (scored) => {
+                if (simController.signal.aborted) return;
+                patchLastAssistantPicks(setMessages, scored);
+                setAiPicks(scored);
+              },
+              onDeep: (scored) => {
+                if (simController.signal.aborted) return;
+                patchLastAssistantPicks(setMessages, scored);
+                setAiPicks(scored);
+              },
+            },
+            simController.signal,
+          );
+        }
       } catch (e: any) {
         if (handedOffRef.current) {
           // We deliberately aborted the in-app stream to hand the build off to
@@ -1995,6 +2037,7 @@ export default function CoachScreen() {
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      simAbortRef.current?.abort();
     };
   }, []);
 
@@ -2010,14 +2053,16 @@ export default function CoachScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
-          AI Coach
-        </Text>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-          Picks grounded in {headerSlateLabel} real odds — never invented
-        </Text>
-      </View>
+      <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+            AI Coach
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+            Picks grounded in {headerSlateLabel} real odds — never invented
+          </Text>
+        </View>
+      </AppHeader>
 
       <KeyboardAwareScrollViewCompat
         ref={scrollRef as any}

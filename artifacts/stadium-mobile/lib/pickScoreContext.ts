@@ -7,22 +7,40 @@
 // (not PickCard) so it can import lib/api types without a circular dependency.
 
 import type { ParsedPick } from "@/components/PickCard";
-import type { MatchupHistoryEntry, PropPoolEntry, RealOddsEntry } from "@/lib/api";
+import type {
+  InjuryTeam,
+  MatchupHistoryEntry,
+  PlayerProp,
+  PropPoolEntry,
+  RealOddsEntry,
+} from "@/lib/api";
+import { propMarketLabel } from "@/lib/api";
 import type { GameInjuryReport } from "@/lib/injuries";
+import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
   combinePickScore,
   injuryFavorGame,
+  injuryFavorProp,
   matchupAlignment,
+  playerTrendMomentum,
   scoreInjury,
   scoreLineShopping,
   scoreLineValue,
   scoreMatchup,
+  scoreSimulation,
   scoreTrend,
   teamTrendMomentum,
   type CombinedPickScore,
   type PickSubScores,
 } from "@/lib/pickScore";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
+import { gameValueForMarket } from "@/lib/propStats";
+
+// Compact player-history slice carried in chat context (keyed Player#athleteId).
+export type PlayerHistorySlice = {
+  player?: string;
+  recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
+};
 
 // Words that never identify a team and would create false token overlaps when
 // matching a pick selection to a game label's away/home names.
@@ -152,7 +170,7 @@ function scoreGamePick(
     injury = scoreInjury(injuryFavorGame(ie, pickSide === "home"));
   }
 
-  const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping };
+  const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping, simulation: null };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
   // of a two-sided main market, so a pick on the non-+EV side (which carries no
@@ -161,13 +179,180 @@ function scoreGamePick(
   return combined.composite == null ? null : combined;
 }
 
-// Score one PROP pick. On a card we have no per-player game log, so Trend and
-// Matchup are honestly null; Line Value + Line-Shopping come off the prop's
-// backing pool entry (the prop detail page grounds the full five). edge is only
-// present on the side the server flagged as +EV — null otherwise, which is fine.
+// Resolve which team a prop player is on. Prefer the pool's teamAbbr; fall back
+// to recent game-log opponents (the team that never appears as an opp is ours).
+function resolvePropPlayerTeam(
+  game: string,
+  entry: PropPoolEntry | undefined,
+  ph?: PlayerHistorySlice,
+): string | null {
+  const { away, home } = splitLabel(game);
+  const ab = entry?.teamAbbr?.toUpperCase();
+  if (ab) {
+    if (away.toUpperCase().includes(ab)) return away;
+    if (home.toUpperCase().includes(ab)) return home;
+  }
+  const opps = (ph?.recent ?? [])
+    .map((r) => String(r.opp ?? "").toLowerCase())
+    .filter(Boolean);
+  if (!opps.length || !away || !home) return null;
+  const nick = (n: string) => n.toLowerCase().split(/\s+/).pop() ?? "";
+  const seen = (n: string) => {
+    const k = nick(n);
+    return !!k && opps.some((o) => o.includes(k));
+  };
+  const awayIsOpp = seen(away);
+  const homeIsOpp = seen(home);
+  if (awayIsOpp && !homeIsOpp) return home;
+  if (homeIsOpp && !awayIsOpp) return away;
+  return null;
+}
+
+function playerHistoryFor(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, PlayerHistorySlice>,
+): PlayerHistorySlice | undefined {
+  if (!map) return undefined;
+  if (athleteId) {
+    const hit = map[`${player}#${athleteId}`] ?? Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1];
+    if (hit) return hit;
+  }
+  if (player) {
+    const hit = Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1];
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+function propTrendScore(
+  ph: PlayerHistorySlice | undefined,
+  marketKey: string,
+  line: number | null | undefined,
+  side: string | null | undefined,
+): PickSubScores["trend"] {
+  if (!ph?.recent?.length || line == null) return null;
+  const vals = ph.recent
+    .map((g) => gameValueForMarket(marketKey, g.stats ?? {}, {}))
+    .filter((v): v is number => v != null);
+  return scoreTrend(playerTrendMomentum(vals, line, side));
+}
+
+function propMatchupScore(
+  game: string,
+  playerTeam: string | null,
+  matchupHistory?: Record<string, MatchupHistoryEntry>,
+): PickSubScores["matchup"] {
+  if (!playerTeam) return null;
+  const entry = matchupHistory?.[game];
+  const { aligned, leanEdge } = matchupAlignment(entry?.mlLean, playerTeam);
+  return scoreMatchup(aligned, leanEdge);
+}
+
+function propInjuryScore(
+  sport: string | undefined,
+  game: string,
+  playerTeam: string | null,
+  side: string | null | undefined,
+  matchupInjuries?: Record<string, GameInjuryReport>,
+  injuryTeams?: InjuryTeam[],
+): PickSubScores["injury"] {
+  const { away, home } = splitLabel(game);
+  const opp =
+    playerTeam && teamNameMatches(playerTeam, away)
+      ? home
+      : playerTeam && teamNameMatches(playerTeam, home)
+        ? away
+        : null;
+  if (!opp) return null;
+  const report = matchupInjuries?.[game];
+  if (report) {
+    const oppSide = report.sides.find((s) => teamNameMatches(s.team, opp));
+    const highCount = oppSide?.keyPlayers.filter((k) => k.impact === "high").length ?? 0;
+    return scoreInjury(injuryFavorProp(highCount, side));
+  }
+  if (injuryTeams?.length) {
+    const oppTeam = injuryTeams.find((t) => teamNameMatches(t.team, opp));
+    if (oppTeam) {
+      return scoreInjury(injuryFavorProp(summarizeTeamInjuries(sport ?? "nba", oppTeam).highCount, side));
+    }
+  }
+  return null;
+}
+
+// Build resolution-shape prop pool rows from live PlayerProp feed (simulator /
+// game pages). Carries real EV edge + line-shopping spread per side.
+export function propPoolFromPlayerProps(
+  props: PlayerProp[],
+  game: string,
+  sport: string,
+  teams?: {
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    homeAbbr?: string | null;
+    awayAbbr?: string | null;
+  },
+): PropPoolEntry[] {
+  const out: PropPoolEntry[] = [];
+  for (const p of props) {
+    if (p.alt || p.line == null) continue;
+    const marketLabel = propMarketLabel(p.market);
+    const teamAbbr =
+      p.playerTeamId && teams?.homeTeamId && p.playerTeamId === teams.homeTeamId
+        ? (teams.homeAbbr ?? null)
+        : p.playerTeamId && teams?.awayTeamId && p.playerTeamId === teams.awayTeamId
+          ? (teams.awayAbbr ?? null)
+          : null;
+    if (p.overPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Over",
+        odds: p.overPrice,
+        edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+        bookSpread: p.overSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+    if (p.underPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Under",
+        odds: p.underPrice,
+        edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+        bookSpread: p.underSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+  }
+  return out;
+}
+
+// Score one PROP pick from the full real context: EV/line-shopping, recent form,
+// matchup lean, injuries, and Monte Carlo (one rubric input — never the sole driver).
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
+  simulationByKey?: Map<string, { hitProbability: number | null }>,
+  ctx?: {
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    playerHistory?: Record<string, PlayerHistorySlice>;
+    injuryTeams?: InjuryTeam[];
+  },
 ): CombinedPickScore | null {
   // The resolved prop ParsedPick was built from a real pool entry, so match on
   // its identity fields. Prefer the exact line/side, fall back to the same
@@ -181,14 +366,29 @@ function scorePropPick(
     propPool.find(same);
   if (!entry) return null;
   const edgePct = entry.edge ?? null;
+  const marketKey = pick.propMarketKey ?? entry.marketKey ?? pick.market;
+  const ph = playerHistoryFor(pick.player, entry.athleteId ?? pick.athleteId, ctx?.playerHistory);
+  const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
+  const simKey =
+    pick.player && pick.propLine != null && pick.propSide
+      ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
+      : null;
+  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
   const scores: PickSubScores = {
-    matchup: null,
-    trend: null,
+    matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
+    trend: propTrendScore(ph, marketKey, pick.propLine, pick.propSide),
     lineValue: scoreLineValue(edgePct),
-    injury: null,
+    injury: propInjuryScore(
+      pick.sport ?? entry.sport,
+      pick.game,
+      playerTeam,
+      pick.propSide,
+      ctx?.matchupInjuries,
+      ctx?.injuryTeams,
+    ),
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
+    simulation: scoreSimulation(sim?.hitProbability ?? null),
   };
-  // Pass the prop's real price so Confidence reads its de-vigged win chance.
   const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
 }
@@ -232,13 +432,26 @@ export function attachPickScores(
     // leg's Confidence. The fixed market-priority prior applies regardless; only
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
+    /** Monte Carlo results keyed player|market|line|side */
+    propSimulations?: Map<string, { hitProbability: number | null }>;
+    /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
+    playerHistory?: Record<string, PlayerHistorySlice>;
+    /** Raw league injury teams when matchupInjuries report is absent. */
+    injuryTeams?: InjuryTeam[];
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
   const propPool = opts.propPool ?? [];
+  const sims = opts.propSimulations;
+  const propCtx = {
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+    playerHistory: opts.playerHistory,
+    injuryTeams: opts.injuryTeams,
+  };
   return picks.map((p) => {
     const raw = p.isProp
-      ? scorePropPick(p, propPool)
+      ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGamePick(p, realOdds, opts.matchupHistory, opts.matchupInjuries);
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     return { ...p, scores };

@@ -1288,6 +1288,13 @@ export type RealPropEntry = {
   evSide?: "Over" | "Under" | null;
   fairProb?: number | null;
   edge?: number | null;
+  // Quick-tier Monte Carlo hit % (0–100) for the preferred side — one selection
+  // input among several, never fabricated. Omitted when no sim ran.
+  simHitPct?: number | null;
+  // Multi-factor composite (1–10) for ordering candidates in context — blends
+  // EV, matchup, form, injury, line-shopping, and simulation. Omitted when
+  // ungradeable.
+  selectionScore?: number | null;
 };
 
 // Resolution-shape prop entry (one row per posted side) that the slip parser
@@ -1324,6 +1331,202 @@ export type PropPoolEntry = {
   athleteId?: string | null;
   marketKey?: string;
 };
+
+export type PropSimulationResult = {
+  key: string;
+  player: string;
+  market: string;
+  line: number;
+  side: "Over" | "Under";
+  simulations: number;
+  hitProbability: number | null;
+  mostLikelyLine: number | null;
+  meanProjection: number | null;
+  medianProjection: number | null;
+  confidenceScore: number | null;
+  stdDev: number | null;
+  sampleGames: number;
+  tier?: "quick" | "deep";
+  cached?: boolean;
+  deepPending?: boolean;
+  percentiles: {
+    p10: number;
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+  } | null;
+};
+
+/** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */
+export async function fetchPropSimulations(
+  picks: Array<{
+    isProp?: boolean;
+    player?: string;
+    propLine?: number | null;
+    propSide?: string;
+    propMarketKey?: string;
+    athleteId?: string | null;
+    game?: string;
+    sport?: string;
+  }>,
+  propPool: PropPoolEntry[],
+  opts?: {
+    homeTeam?: string;
+    awayTeam?: string;
+    weatherImpact?: number | null;
+    tier?: "quick" | "deep";
+    simulations?: number;
+  },
+  signal?: AbortSignal,
+): Promise<Map<string, PropSimulationResult>> {
+  const out = new Map<string, PropSimulationResult>();
+  const props: Array<{
+    player: string;
+    market: string;
+    line: number;
+    side: "Over" | "Under";
+    athleteId?: string | null;
+    sport: string;
+  }> = [];
+
+  for (const p of picks) {
+    if (!p.isProp || !p.player || p.propLine == null) continue;
+    const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
+    if (!side) continue;
+    const pool =
+      propPool.find(
+        (e) =>
+          e.player === p.player &&
+          e.side === side &&
+          e.line === p.propLine &&
+          (p.game ? e.game === p.game : true),
+      ) ?? propPool.find((e) => e.player === p.player && e.side === side);
+    const market = p.propMarketKey ?? pool?.marketKey;
+    if (!market) continue;
+    const sport = (p.sport ?? pool?.sport ?? "nba").toLowerCase();
+    props.push({
+      player: p.player,
+      market,
+      line: p.propLine,
+      side,
+      athleteId: p.athleteId ?? pool?.athleteId,
+      sport,
+    });
+  }
+
+  if (!props.length) return out;
+
+  const sport = props[0]!.sport;
+  let homeTeam = opts?.homeTeam ?? "";
+  let awayTeam = opts?.awayTeam ?? "";
+  if (!homeTeam && picks[0]?.game?.includes(" @ ")) {
+    const parts = picks[0].game.split(" @ ");
+    awayTeam = parts[0]?.trim() ?? "";
+    homeTeam = parts[1]?.trim() ?? "";
+  }
+
+  const path = "/sports/simulate/props";
+  const tier = opts?.tier ?? "quick";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sport,
+        homeTeam,
+        awayTeam,
+        weatherImpact: opts?.weatherImpact ?? null,
+        tier,
+        simulations: opts?.simulations,
+        props,
+      }),
+      signal,
+    }),
+    tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
+    path,
+  );
+  if (!res.ok) return out;
+  const json = (await res.json()) as { props?: PropSimulationResult[] };
+  for (const row of json.props ?? []) out.set(row.key, row);
+  return out;
+}
+
+export type GameSimulationResult = {
+  sport: string;
+  simulations: number;
+  homeWinProbability: number;
+  awayWinProbability: number;
+  tieProbability: number;
+  homeProjectedScore: number;
+  awayProjectedScore: number;
+  mostLikelyWinner: "home" | "away";
+  mostLikelyWinnerPct: number;
+  confidenceScore: number;
+};
+
+export async function fetchGameOutcomeSimulation(
+  opts: {
+    sport: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    homeTeam?: string;
+    awayTeam?: string;
+    simulations?: number;
+    weatherImpact?: number | null;
+  },
+  signal?: AbortSignal,
+): Promise<GameSimulationResult | null> {
+  const path = "/sports/simulate/game-outcome";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opts),
+      signal,
+    }),
+    REQUEST_TIMEOUT_MS * 2,
+    path,
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as GameSimulationResult;
+}
+
+export async function fetchPropSimulationsBatch(
+  sport: string,
+  props: Array<{
+    player: string;
+    market: string;
+    line: number;
+    side: "Over" | "Under";
+    athleteId?: string | null;
+  }>,
+  opts?: {
+    homeTeam?: string;
+    awayTeam?: string;
+    weatherImpact?: number | null;
+    simulations?: number;
+    tier?: "quick" | "deep";
+  },
+  signal?: AbortSignal,
+): Promise<PropSimulationResult[]> {
+  if (!props.length) return [];
+  const path = "/sports/simulate/props";
+  const tier = opts?.tier ?? "quick";
+  const res = await withTimeout(
+    expoFetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sport, tier, ...opts, props }),
+      signal,
+    }),
+    tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
+    path,
+  );
+  if (!res.ok) return [];
+  const json = (await res.json()) as { props?: PropSimulationResult[] };
+  return json.props ?? [];
+}
 
 // Render-only team metadata for game-level picks (logos + abbreviations). Built
 // from ESPN games, keyed by the "Away @ Home" game string. NEVER sent to the AI
@@ -1974,6 +2177,93 @@ async function buildMatchupHistoryAndUpsets(
   );
   upsetSpots.sort((a, b) => b.edge - a.edge);
   return { matchupHistory, upsetSpots };
+}
+
+// Fetch matchup analytics for one game (simulator / detail surfaces).
+export async function fetchMatchupHistoryEntry(
+  opts: {
+    sport: string;
+    gameLabel: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    startsAt?: string;
+  },
+  signal?: AbortSignal,
+): Promise<MatchupHistoryEntry | null> {
+  try {
+    const data = await getMatchupHistory(opts.sport, opts.homeTeamId, opts.awayTeamId, signal);
+    const home10 = data?.home?.last10;
+    const away10 = data?.away?.last10;
+    const h2h = data?.h2h;
+    if (!home10 && !away10 && !(h2h?.meetings?.length)) return null;
+    const gameStart = opts.startsAt ? new Date(opts.startsAt).getTime() : null;
+    const computeRest = (lastDate: string | null) => {
+      if (!lastDate || gameStart == null) return null;
+      const diffMs = gameStart - new Date(lastDate).getTime();
+      if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+      const restDays = Math.floor(diffMs / 86400000);
+      return { restDays, backToBack: restDays <= 1 };
+    };
+    const splitOf = (s: any) =>
+      s && s.games > 0
+        ? {
+            record: `${s.wins}-${s.losses}`,
+            avgMargin: s.avgMargin,
+            ptsFor: s.ptsFor,
+            ptsAgainst: s.ptsAgainst,
+            games: s.games,
+          }
+        : null;
+    const seasonOf = (s: any) =>
+      s && s.games > 0 ? { record: `${s.wins}-${s.losses}`, winPct: s.winPct } : null;
+    const lean = computeMlLean(opts.gameLabel, data);
+    return {
+      home: home10
+        ? {
+            record: `${home10.wins}-${home10.losses}`,
+            ptsFor: home10.ptsFor,
+            ptsAgainst: home10.ptsAgainst,
+            avgMargin: home10.avgMargin,
+          }
+        : null,
+      away: away10
+        ? {
+            record: `${away10.wins}-${away10.losses}`,
+            ptsFor: away10.ptsFor,
+            ptsAgainst: away10.ptsAgainst,
+            avgMargin: away10.avgMargin,
+          }
+        : null,
+      homePace: typeof data?.home?.pace === "number" ? data.home.pace : null,
+      awayPace: typeof data?.away?.pace === "number" ? data.away.pace : null,
+      homeVenueForm: splitOf(data?.home?.homeSplit),
+      awayVenueForm: splitOf(data?.away?.awaySplit),
+      homeStreak: data?.home?.streak || null,
+      awayStreak: data?.away?.streak || null,
+      homeSeason: seasonOf(data?.home?.season),
+      awaySeason: seasonOf(data?.away?.season),
+      homeRest: computeRest(data?.home?.lastGameDate ?? null),
+      awayRest: computeRest(data?.away?.lastGameDate ?? null),
+      h2h: h2h?.meetings?.length
+        ? {
+            homeWins: h2h.homeWins,
+            awayWins: h2h.awayWins,
+            meetings: h2h.meetings
+              .slice(0, 3)
+              .map((m: any) => ({
+                date: m.date,
+                homeScore: m.homeTeamScore,
+                awayScore: m.awayTeamScore,
+                homeMargin: m.homeTeamWonByMargin,
+              })),
+          }
+        : null,
+      lastMeeting: data?.lastMeeting ?? null,
+      mlLean: lean,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // Standalone fetch for the Upset Watch card: pulls odds + games for the selected

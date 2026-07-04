@@ -132,18 +132,18 @@ test("describeConfidenceThreshold: readable bands", () => {
 test("confidenceScoreFromSignals: 0-10 band wrap of the signals score", () => {
   // 50 baseline / 10 = 5.0 when all signals sit neutral.
   assert.equal(
-    confidenceScoreFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5 }),
+    confidenceScoreFromSignals({ matchup: 5.5, trend: 5.5, lineValue: 5.5, injury: 5.5, lineShopping: 5.5, simulation: 5.5 }),
     5,
   );
   // Two top signals -> 70 -> 7.0 on the band scale.
   assert.equal(
-    confidenceScoreFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null }),
+    confidenceScoreFromSignals({ matchup: 10, trend: null, lineValue: 10, injury: null, lineShopping: null, simulation: null }),
     7,
   );
   // No groundable signal (or no scores at all) -> null, so it can never satisfy a
   // confidence floor (an ungroundable leg is honestly excluded).
   assert.equal(
-    confidenceScoreFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null }),
+    confidenceScoreFromSignals({ matchup: null, trend: null, lineValue: null, injury: null, lineShopping: null, simulation: null }),
     null,
   );
   assert.equal(confidenceScoreFromSignals(null), null);

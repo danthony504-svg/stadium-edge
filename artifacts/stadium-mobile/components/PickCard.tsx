@@ -14,6 +14,7 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
+import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -59,6 +60,9 @@ export type ParsedPick = {
   propMarketKey?: string; // raw Odds API market key, e.g. "player_points"
   propLine?: number | null;
   propSide?: string; // "Over" | "Under" | "Yes"
+  // True while a server-side Monte Carlo run is still refining this prop leg's
+  // simulation sub-score. Picks render immediately; the grade updates when done.
+  simulationPending?: boolean;
   // The 5-component pick rubric (Matchup / Trend / Line Value / Injury /
   // Line-Shopping) rolled into AI Grade + Confidence + Edge. Attached at resolve
   // time ONLY when real scoring inputs are available (see lib/pickScoreContext);
@@ -758,7 +762,7 @@ export function PickCard({
       <LineLadder pick={pick} />
 
       {hideReadout ? null : pick.scores ? (
-        <ScoreBreakdown data={pick.scores} variant="compact" />
+        <ScoreBreakdown data={pick.scores} variant="compact" simulationPending={pick.simulationPending} />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
@@ -1856,6 +1860,8 @@ export function backfillProps(
     diversify?: boolean;
     /** Max prop legs per stat market on the finished ticket (existing + new). */
     maxPerMarket?: number;
+    /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
+    selectionOpts?: PropSelectionOpts;
   },
 ): ParsedPick[] {
   const { target, plusMoneyBias = false, diversify = true } = opts;
@@ -1960,7 +1966,12 @@ export function backfillProps(
     );
     return true;
   };
-  const candidates = [...byKey.values()];
+  const candidates = opts.selectionOpts
+    ? rankPropPoolEntries([...byKey.values()], {
+        ...opts.selectionOpts,
+        propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
+      })
+    : [...byKey.values()];
   if (!diversify) {
     for (const e of candidates) {
       if (out.length >= target) break;
