@@ -1211,6 +1211,8 @@ export default function CoachScreen() {
           setWaiting(false);
         } else {
           const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
+          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= 3;
+          const warmP = isParlayBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
           const rawBuilt = await buildChatContext(
             buildSports,
             slipForContext,
@@ -1222,7 +1224,9 @@ export default function CoachScreen() {
             requestedLegs,
             wantsAnalyzeSlip(trimmed),
           );
-          const enriched = await enrichChatContextProps(rawBuilt, controller.signal);
+          const enriched = fastParlay
+            ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
+            : await enrichChatContextProps(rawBuilt, controller.signal);
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
@@ -1267,7 +1271,7 @@ export default function CoachScreen() {
           }
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
-            if (isParlayBuild) await warmApiForCoachBuild(controller.signal);
+            await warmP;
             return streamChat({
               messages: apiMessages,
               context: streamContext,

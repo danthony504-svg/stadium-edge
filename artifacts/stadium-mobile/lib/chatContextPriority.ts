@@ -129,7 +129,7 @@ export function contextDepthForLegs(
 /** Scale how many prop-capable games we fetch — big tickets need breadth. */
 export function propGamesCapForLegs(requestedLegs: number, fullCap = 24): number {
   const n = requestedLegs > 0 ? requestedLegs : 8;
-  if (n <= 3) return 8;
+  if (n <= 3) return 4;
   if (n <= 6) return 12;
   if (n <= 10) return 16;
   return fullCap;

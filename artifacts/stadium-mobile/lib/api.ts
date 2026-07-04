@@ -2363,6 +2363,9 @@ export async function buildChatContext(
   // asked for (small parlays don't need the whole night's pool). Big tickets keep
   // full breadth. See contextDepthForLegs for the why (latency) and the tiers.
   const depth = contextDepthForLegs(requestedLegs, MAX_PROPS_IN_CONTEXT);
+  // Generic 2-3 leg parlays use microSlim upload (no matchup/playerHistory in
+  // the POST) — skip the expensive fetches that only feed those stripped fields.
+  const tinyParlay = requestedLegs > 0 && requestedLegs <= 3;
   // Keep the two feed types in separately-typed arrays so handling stays
   // type-safe; resilient per-sport (a failed fetch just yields an empty list).
   // Fast path: fan out odds+games for every sport at once.
@@ -2541,13 +2544,15 @@ export async function buildChatContext(
   // Real prior-matchup analytics (+ mlLean winner & upset) for the pickable pool,
   // joined against the real moneyline prices in realOdds. Same engine + endpoint
   // as the web app, so the coach weighs the same signals on both platforms.
-  const { matchupHistory, upsetSpots } = await buildMatchupHistoryAndUpsets(
-    historyTargets,
-    buildMlPriceByLabel(realOdds),
-    signal,
-    focalText,
-    depth.matchup,
-  );
+  const { matchupHistory, upsetSpots } = tinyParlay
+    ? { matchupHistory: {} as Record<string, MatchupHistoryEntry>, upsetSpots: [] as UpsetSpot[] }
+    : await buildMatchupHistoryAndUpsets(
+        historyTargets,
+        buildMlPriceByLabel(realOdds),
+        signal,
+        focalText,
+        depth.matchup,
+      );
 
   // UFC FIGHT ANALYSIS: real ESPN fighter records + career striking/grappling
   // rates + a deterministic stronger-fighter lean for each pickable UFC bout.
@@ -2557,7 +2562,7 @@ export async function buildChatContext(
   // against the raw moneyline outcomes (full fighter names), never fabricated.
   const fightAnalysis: Record<string, FightAnalysis> = {};
   const ufcIdx = sports.indexOf("ufc");
-  if (ufcIdx >= 0) {
+  if (!tinyParlay && ufcIdx >= 0) {
     const ufcGames = gamesAll[ufcIdx]
       .filter((g) => g.state !== "post" && isPickable(g.startsAt) && (g.awayTeam || g.awayAbbr) && (g.homeTeam || g.homeAbbr))
       .slice(0, 12);
@@ -2651,8 +2656,15 @@ export async function buildChatContext(
     isHome: boolean | null;
   }[] = [];
   const seenAthletes = new Set<string>();
-  await Promise.all(
-    propCandidates.slice(0, propGamesCapForLegs(requestedLegs, MAX_PROP_CONTEXT_GAMES)).map(async ({ sport, g, ids }) => {
+  const ingestPropsForGame = async ({
+    sport,
+    g,
+    ids,
+  }: {
+    sport: string;
+    g: OddsGame;
+    ids: PropTeamIds | null;
+  }) => {
       try {
         const r = await getProps(
           {
@@ -2662,6 +2674,7 @@ export async function buildChatContext(
             away: g.awayTeam,
             homeTeamId: ids?.homeTeamId,
             awayTeamId: ids?.awayTeamId,
+            startsAt: g.commenceTime,
           },
           signal,
         );
@@ -2753,8 +2766,18 @@ export async function buildChatContext(
       } catch {
         // skip this game's props — narrower pool, never fabricated
       }
-    }),
+  };
+  const propGameSlice = propCandidates.slice(
+    0,
+    propGamesCapForLegs(requestedLegs, MAX_PROP_CONTEXT_GAMES),
   );
+  if (tinyParlay) {
+    for (const cand of propGameSlice) {
+      await ingestPropsForGame(cand);
+    }
+  } else {
+    await Promise.all(propGameSlice.map(ingestPropsForGame));
+  }
 
   // Focus the capped realOdds on the league/game the user actually named so a
   // single-game or single-sport ask (e.g. a Q1 same-game parlay) doesn't get its
@@ -2797,7 +2820,9 @@ export async function buildChatContext(
   // MLB slate fills all 40 slots and an NBA/NFL game the user named gets no
   // recent logs — the coach then truthfully says "no recent log available" even
   // though the server has it. See chatContextPriority.ts (unit-tested).
-  const phTargets = prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
+  const phTargets = tinyParlay
+    ? []
+    : prioritizePlayerHistoryTargets(playerTargets, focalText, depth.history);
   if (phTargets.length > 0) {
     type HistWindow = { games?: number; averages?: Record<string, number> };
     type HistResp = {
