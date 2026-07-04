@@ -1,0 +1,25 @@
+name: Deploy API server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/api-server/**"
+      - ".github/workflows/deploy-api-server.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK secret not set — skip auto-deploy."
+            echo "Redeploy stadium-edge.onrender.com manually so /api/chat/context-stash and props fixes go live."
+            exit 0
+          fi
+          curl -sf -X POST "$RENDER_DEPLOY_HOOK"
+          echo "Render deploy triggered."

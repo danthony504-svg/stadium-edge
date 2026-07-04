@@ -1258,7 +1258,7 @@ export default function CoachScreen() {
           let first = true;
           let uploadContext: ChatContext =
             isParlayBuild && requestedLegs <= 10
-              ? slimChatContextForUpload(context)
+              ? ultraSlimChatContextForUpload(context)
               : context;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
