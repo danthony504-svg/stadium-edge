@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameCard, type GameMeta } from "@/components/GameCard";
+import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -37,6 +38,11 @@ import {
 } from "@/lib/api";
 import { formatAmerican, parlayAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
+import {
+  PERFORMANCE_WINDOW,
+  buildRollingWinRateSeries,
+  summarizeRecentPerformance,
+} from "@/lib/performanceChart";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
@@ -445,10 +451,21 @@ export default function HomeScreen() {
     staleTime: 5 * 60_000,
   });
   const stealRec = stealsQ.data?.record ?? null;
+  const perfHistory = stealsQ.data?.history ?? [];
+  const perfRecent = useMemo(() => summarizeRecentPerformance(perfHistory), [perfHistory]);
+  const perfSeries = useMemo(() => buildRollingWinRateSeries(perfHistory), [perfHistory]);
   const stealDecided = stealRec ? stealRec.wins + stealRec.losses : 0;
-  const stealWinPct =
+  const stealWinPctAll =
     stealRec && stealDecided > 0 ? Math.round((stealRec.wins / stealDecided) * 100) : null;
-  const showTrack = !!stealRec && stealRec.graded > 0 && stealWinPct != null;
+  const showTrack = !!stealRec && stealRec.graded > 0;
+  const perfWinPct =
+    perfRecent.winPct ?? (perfHistory.length === 0 ? stealWinPctAll : null);
+  const perfRecord =
+    perfRecent.wins + perfRecent.losses > 0
+      ? `${perfRecent.wins}-${perfRecent.losses}${perfRecent.pushes > 0 ? `-${perfRecent.pushes}` : ""}`
+      : stealRec
+        ? `${stealRec.wins}-${stealRec.losses}${stealRec.pushes > 0 ? `-${stealRec.pushes}` : ""}`
+        : "—";
 
   const hotGradesQ = useQuery({
     queryKey: ["home-hot-grades", sport, hotKey],
@@ -584,17 +601,17 @@ export default function HomeScreen() {
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Daily top picks",
+      subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay"),
+      onPress: () => askCoach("Build me the best parlay for tonight"),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate",
+      subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
-      onPress: () => askCoach("Build me a safe parlay"),
+      onPress: () => askCoach("Build me a safe parlay for tonight"),
     },
     {
       label: "Best Value",
@@ -795,7 +812,7 @@ export default function HomeScreen() {
             when fewer than 2 EV legs are available (never a fabricated card). */}
         {heroReady ? (
           <View style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 18 }}>
-            <Pressable onPress={() => askCoach("Build me the best parlay")}>
+            <Pressable onPress={() => askCoach("Build me the best parlay for tonight")}>
               {({ pressed }) => (
                 <LinearGradient
                   colors={["#10294f", "#0a1628"]}
@@ -1158,24 +1175,22 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* AI Performance — auto-graded W/L of the app's OWN longshot "steal"
+        {/* Today's Performance — auto-graded W/L of the app's OWN longshot value
             picks (NOT the user's bets). Win rate excludes pushes. Three real
-            stats only (Win Rate / Record / Graded) — no units-profit number and
-            no profit chart, because we don't track stake or an ordered P&L
-            series. Shown only when there are real graded results. */}
+            stats only (Win Rate / Record / Graded). View all opens Model Report,
+            not the +500 Steals longshot ledger. Shown only when graded results
+            exist. */}
         {showTrack ? (
           <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-            <Pressable
-              onPress={() => router.push("/steals")}
-              style={({ pressed }) => ({
+            <View
+              style={{
                 backgroundColor: colors.card,
                 borderWidth: 1,
                 borderColor: colors.border,
                 borderRadius: colors.radius,
                 padding: 16,
                 gap: 14,
-                opacity: pressed ? 0.9 : 1,
-              })}
+              }}
             >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                 <Feather name="bar-chart-2" size={16} color={colors.primary} />
@@ -1187,19 +1202,38 @@ export default function HomeScreen() {
                     flex: 1,
                   }}
                 >
-                  AI Performance
+                  Today's Performance
                 </Text>
-                <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => router.push("/pick-performance")}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                    View all
+                  </Text>
+                </Pressable>
               </View>
-              <View style={{ flexDirection: "row" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <View style={{ flex: 1, flexDirection: "row" }}>
                 {[
-                  { val: `${stealWinPct}%`, label: "Win Rate", tint: "#34d399" },
                   {
-                    val: `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`,
-                    label: "Record",
+                    val: perfWinPct != null ? `${perfWinPct}%` : "—",
+                    label:
+                      perfHistory.length > 0
+                        ? `Win Rate (Last ${PERFORMANCE_WINDOW})`
+                        : "Win Rate (All Time)",
+                    tint: "#34d399",
+                  },
+                  {
+                    val: perfRecord,
+                    label:
+                      perfHistory.length > 0
+                        ? `Record (Last ${PERFORMANCE_WINDOW})`
+                        : "Record (All Time)",
                     tint: colors.foreground,
                   },
-                  { val: String(stealRec!.graded), label: "Graded", tint: colors.foreground },
+                  { val: String(stealRec!.graded), label: "Graded (Settled)", tint: colors.foreground },
                 ].map((m, i) => (
                   <View
                     key={i}
@@ -1225,13 +1259,28 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 ))}
+                </View>
+                {perfSeries.length >= 2 ? (
+                  <View
+                    style={{
+                      width: 96,
+                      height: 56,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: "rgba(59,130,246,0.08)",
+                      borderRadius: 12,
+                    }}
+                  >
+                    <PerformanceSparkline series={perfSeries} width={84} height={48} color={colors.primary} />
+                  </View>
+                ) : null}
               </View>
               <Text
                 style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}
               >
-                Auto-graded record of the app's own longshot value picks. Tap to view the full ledger.
+                Rolling win rate from real settled picks. View all for every win we've logged.
               </Text>
-            </Pressable>
+            </View>
           </View>
         ) : null}
 
@@ -1464,7 +1513,9 @@ export default function HomeScreen() {
                   </Pressable>
 
                   <Pressable
-                    onPress={() => askCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)}
+                    onPress={() =>
+                      askCoach(`Build me the best parlay for ${g.awayTeam} @ ${g.homeTeam} tonight`)
+                    }
                     style={({ pressed }) => ({
                       backgroundColor: "rgba(59,130,246,0.14)",
                       borderWidth: 1,
@@ -1476,7 +1527,7 @@ export default function HomeScreen() {
                     })}
                   >
                     <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>
-                      Build best parlay from this game
+                      Build tonight's parlay from this game
                     </Text>
                   </Pressable>
                 </View>

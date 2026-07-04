@@ -42,6 +42,155 @@ export function wantsTodayOnly(text?: string | null): boolean {
   return /\b(?:today|tonight)\b/.test(t);
 }
 
+// Parlay-build phrasing with no explicit future date — users expect tonight's slate
+// (matches quick prompts + the Coach header copy).
+const PARLAY_BUILD_RE =
+  /\b(?:build|make|give me|need|want)\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b|\b(?:best|strongest|safest|top|good|great)\s+parlay\b/i;
+
+const FUTURE_SLATE_RE =
+  /\b(?:next week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
+
+/** Local calendar-day offset from now (0 = today, 1 = tomorrow). Matches formatGameTime. */
+export function localDayDiff(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  const startOfDay = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+}
+
+/** True when the user wants tonight's / today's upcoming slate (not tomorrow). */
+export function wantsTonightSlate(text?: string | null): boolean {
+  if (wantsTodayOnly(text)) return true;
+  const t = String(text || "").toLowerCase();
+  if (/\btomorrow\b/.test(t)) return false;
+  if (FUTURE_SLATE_RE.test(t)) return false;
+  return PARLAY_BUILD_RE.test(t);
+}
+
+/** Inherit tonight intent from recent user turns ("5 leg parlay" after "for tonight"). */
+export function threadWantsTonightSlate(
+  current: string,
+  priorUserTexts: string[] = [],
+): boolean {
+  if (wantsTomorrowSlate(current)) return false;
+  if (wantsTonightSlate(current)) return true;
+  for (let i = priorUserTexts.length - 1; i >= 0; i--) {
+    const prior = priorUserTexts[i] ?? "";
+    if (wantsTomorrowSlate(prior)) return false;
+    if (wantsTonightSlate(prior)) return true;
+  }
+  return false;
+}
+
+export function filterTonightSlatePicks<T extends { startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => startsTodayUpcoming(p.startsAt));
+}
+
+export function wantsTomorrowOnly(text?: string | null): boolean {
+  return /\btomorrow\b/i.test(String(text || ""));
+}
+
+/** Game tips off tomorrow (local calendar) and hasn't started. */
+export function startsTomorrowUpcoming(startsAt?: string | null): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  if (t <= Date.now()) return false;
+  return localDayDiff(startsAt) === 1;
+}
+
+export function wantsTomorrowSlate(text?: string | null): boolean {
+  return wantsTomorrowOnly(text);
+}
+
+export function threadWantsTomorrowSlate(
+  current: string,
+  priorUserTexts: string[] = [],
+): boolean {
+  if (wantsTomorrowSlate(current)) return true;
+  for (let i = priorUserTexts.length - 1; i >= 0; i--) {
+    if (wantsTomorrowSlate(priorUserTexts[i])) return true;
+  }
+  return false;
+}
+
+export function filterTomorrowSlatePicks<T extends { startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => startsTomorrowUpcoming(p.startsAt));
+}
+
+export type SlateDay = "tonight" | "tomorrow" | null;
+
+/** Which calendar-day slate the user asked for (tomorrow wins over tonight default). */
+export function slateDayFromThread(
+  current: string,
+  priorUserTexts: string[] = [],
+): SlateDay {
+  if (threadWantsTomorrowSlate(current, priorUserTexts)) return "tomorrow";
+  if (threadWantsTonightSlate(current, priorUserTexts)) return "tonight";
+  return null;
+}
+
+export function slateOddsLabel(day: SlateDay): string {
+  if (day === "tomorrow") return "tomorrow's";
+  if (day === "tonight") return "tonight's";
+  return "live";
+}
+
+export function filterPicksForSlateDay<T extends { startsAt?: string | null }>(
+  picks: T[],
+  day: SlateDay,
+): T[] {
+  if (day === "tonight") return filterTonightSlatePicks(picks);
+  if (day === "tomorrow") return filterTomorrowSlatePicks(picks);
+  return picks;
+}
+
+export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
+  entries: T[],
+  day: SlateDay,
+): T[] {
+  if (day === "tonight") {
+    return entries.filter((e) => startsTodayUpcoming(e.startsAt));
+  }
+  if (day === "tomorrow") {
+    return entries.filter((e) => startsTomorrowUpcoming(e.startsAt));
+  }
+  return entries;
+}
+
+export function resolveTomorrowOnly(
+  requested: boolean,
+  startTimes: (string | null | undefined)[],
+): boolean {
+  if (!requested) return false;
+  return startTimes.some((t) => isPickable(t) && startsTomorrowUpcoming(t));
+}
+
+// True when the user explicitly asked for ONE game's ticket (same-game parlay,
+// SGP, "for Team A @ Team B", etc.). Used to scope backfill to a single matchup.
+// A generic "15-leg parlay for tonight" is NOT single-game even if the model's
+// first few legs happen to land on one game — widening to the full slate is required.
+export function explicitSingleGameIntent(text?: string | null): boolean {
+  const t = String(text || "");
+  if (!t) return false;
+  if (/\bsame[\s-]?game\b/i.test(t)) return true;
+  if (/\bsgp\b/i.test(t)) return true;
+  if (/\b(this|that|the|one|single)\s+game\b/i.test(t)) return true;
+  if (/\bgame\s*#?\s*\d+\b/i.test(t)) return true;
+  if (
+    /\bfor\s+[\w.&'’-]+\s+(?:@|vs\.?|versus|at|against)\s+[\w.&'’-]+/i.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 // A game is "today & upcoming" when it tips off later on the device's current
 // calendar day (LOCAL time). Excludes already-started games and any game on a
 // different date — matching the Today / Tomorrow labels the cards show, so a
@@ -50,15 +199,8 @@ export function startsTodayUpcoming(startsAt?: string | null): boolean {
   if (!startsAt) return false;
   const t = Date.parse(startsAt);
   if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  if (t <= now) return false; // already started (or tipping off right now)
-  const d = new Date(t);
-  const n = new Date(now);
-  return (
-    d.getFullYear() === n.getFullYear() &&
-    d.getMonth() === n.getMonth() &&
-    d.getDate() === n.getDate()
-  );
+  if (t <= Date.now()) return false;
+  return localDayDiff(startsAt) === 0;
 }
 
 // Decide whether a "today / tonight" restriction should ACTUALLY be applied to
@@ -113,7 +255,25 @@ export function todayBuildNote(opts: {
   return "";
 }
 
-// Does the user's message express PROP intent (explicit "props"/"player props",
+// When the user asked for "tonight" but resolveTodayOnly dropped the pool
+// restriction (every today game already started), explain why tomorrow legs are
+// NOT shown and how to get them.
+export function tonightExhaustedNote(opts: {
+  tonightRequested: boolean;
+  todayOnlyApplied: boolean;
+  surviving: number;
+  requestedLegs: number;
+}): string {
+  const { tonightRequested, todayOnlyApplied, surviving, requestedLegs } = opts;
+  if (!tonightRequested || todayOnlyApplied) return "";
+  if (surviving === 0) {
+    return `\n\n_Tonight's games have already started and nothing is left on today's board. I won't pad this with tomorrow's slate — ask for a **tomorrow** parlay if you want those matchups._`;
+  }
+  if (requestedLegs > 0 && surviving < requestedLegs) {
+    return `\n\n_Only legs from games still to play **today** — I won't add tomorrow's matchups to a "tonight" ticket._`;
+  }
+  return "";
+}
 // a specific prop market like strikeouts / home runs / shots / receptions, or a
 // points-as-prop phrasing)? Used to keep a real props-only / prop-market ask from
 // falling back to GAME-LEVEL mains: both the reach-the-count backfill and the
@@ -132,4 +292,24 @@ export function mentionsPropIntent(text?: string | null): boolean {
       t,
     )
   );
+}
+
+// True when the user wants an ALL-PROP ticket (no game-level ML/spread/total legs).
+// Keep "with player props" OUT of this helper: that means a prop-heavy mixed
+// ticket, where player props should be included first but team/game props can
+// still fill the requested count.
+export function wantsPropsOnly(text?: string | null): boolean {
+  if (!mentionsPropIntent(text)) return false;
+  const t = String(text || "").toLowerCase();
+  if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
+  if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
+  if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
+  if (/\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/.test(t)) return true;
+  if (
+    /\bparlay\b/.test(t) &&
+    /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/.test(t)
+  ) {
+    return true;
+  }
+  return false;
 }

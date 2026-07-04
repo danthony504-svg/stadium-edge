@@ -1,0 +1,44 @@
+name: Publish production OTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: OTA update message
+        required: false
+        default: "Restore Home and login after App Review"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Publish OTA to production
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          bash scripts/publish-production-ota.sh "${{ github.event.inputs.message }}"

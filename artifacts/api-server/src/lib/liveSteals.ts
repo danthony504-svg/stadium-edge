@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { db, liveStealsTable } from "@workspace/db";
 import { gradeLegs, type GradeLeg } from "../routes/grade";
 import {
@@ -191,6 +191,55 @@ export async function getRecord(): Promise<StealRecord> {
   }
   rec.graded = rec.wins + rec.losses + rec.pushes;
   return rec;
+}
+
+const TERMINAL_STATUSES = ["win", "loss", "push"] as const;
+
+export type GradedSteal = {
+  id: string;
+  sport: string;
+  game: string;
+  market: string;
+  pick: string;
+  player: string | null;
+  price: number;
+  status: (typeof TERMINAL_STATUSES)[number];
+  gradedAt: string;
+};
+
+// Chronological ledger of every settled app pick (win/loss/push). Powers the
+// Home performance chart and the full won-picks history screen.
+export async function getGradedHistory(limit = 250): Promise<GradedSteal[]> {
+  const rows = await db
+    .select({
+      id: liveStealsTable.id,
+      sport: liveStealsTable.sport,
+      game: liveStealsTable.game,
+      market: liveStealsTable.market,
+      pick: liveStealsTable.pick,
+      player: liveStealsTable.player,
+      price: liveStealsTable.price,
+      status: liveStealsTable.status,
+      gradedAt: liveStealsTable.gradedAt,
+    })
+    .from(liveStealsTable)
+    .where(inArray(liveStealsTable.status, [...TERMINAL_STATUSES]))
+    .orderBy(asc(liveStealsTable.gradedAt))
+    .limit(limit);
+
+  return rows
+    .filter((r) => r.gradedAt != null)
+    .map((r) => ({
+      id: r.id,
+      sport: r.sport,
+      game: r.game,
+      market: r.market,
+      pick: r.pick,
+      player: r.player,
+      price: r.price,
+      status: r.status as GradedSteal["status"],
+      gradedAt: r.gradedAt!.toISOString(),
+    }));
 }
 
 // Cron entry point (folded into runNotificationJobs): capture + grade. Fail-safe.

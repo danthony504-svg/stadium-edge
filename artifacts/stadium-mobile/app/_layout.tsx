@@ -18,8 +18,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -37,7 +37,11 @@ import {
 // prod. Auth is REQUIRED — the (tabs) layout gates the app behind sign-in, so on
 // first open a signed-out user is sent to the login screen.
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
+// pk_live is proxy-only (Replit host). pk_test talks to Clerk dev FAPI directly —
+// do NOT set a proxy URL for test keys or Clerk never loads on Render.
+const proxyUrl = publishableKey.startsWith("pk_live")
+  ? process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined
+  : undefined;
 
 // Registers the Clerk session-token getter with the API client so authed sync
 // requests carry a Bearer token. Lives inside ClerkProvider so useAuth works.
@@ -172,23 +176,59 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  // Pull JS-only fixes (coach logic, API URL, etc.) without a new App Store build.
+  // Download OTA bundles, then reload so the new JS actually runs.
+  // Check soon after launch and again when the app returns to foreground.
+  const otaChecked = useRef(false);
   useEffect(() => {
     if (__DEV__) return;
-    (async () => {
+
+    const runOtaCheck = async () => {
+      if (otaChecked.current) return;
+      otaChecked.current = true;
       try {
         const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          await Updates.reloadAsync();
+        if (!update.isAvailable) {
+          otaChecked.current = false;
+          return;
         }
+        await Updates.fetchUpdateAsync();
+        await Updates.reloadAsync();
       } catch {
-        // Offline or expo-updates disabled — keep running the embedded bundle.
+        otaChecked.current = false;
       }
-    })();
+    };
+
+    const launchTimer = setTimeout(runOtaCheck, 3000);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        otaChecked.current = false;
+        void runOtaCheck();
+      }
+    });
+
+    return () => {
+      clearTimeout(launchTimer);
+      sub.remove();
+    };
   }, []);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!publishableKey) {
+    return (
+      <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
+        <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
+          App configuration error (missing auth key). Reinstall from TestFlight or contact support.
+        </Text>
+      </View>
+    );
+  }
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: DARK_BG }}>
+        <BootScreen />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
