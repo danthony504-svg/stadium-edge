@@ -102,7 +102,6 @@ import {
   ultraSlimChatContextForUpload,
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
-  slimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
