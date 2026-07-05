@@ -102,7 +102,7 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import { consumeCoachLaunch, peekCoachLaunch } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
@@ -912,8 +912,9 @@ export default function CoachScreen() {
   const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
+    const launch = peekCoachLaunch();
     // autoMsg + send=1 never touch the composer — prefill is goCoach-only (edit before send).
-    if (params.send === "1" || params.autoMsg) {
+    if (launch?.autoMsg || params.send === "1" || params.autoMsg) {
       setInput("");
       return;
     }
@@ -2882,15 +2883,21 @@ export default function CoachScreen() {
   // mark sent only once we actually invoke send, and skip while streaming — the
   // effect re-runs when `streaming` flips false, so the send isn't lost.
   useEffect(() => {
-    const sendFlag = Array.isArray(params.send) ? params.send[0] : params.send;
-    const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
+    const launch = peekCoachLaunch();
+    const sendFlag = launch
+      ? "1"
+      : Array.isArray(params.send)
+        ? params.send[0]
+        : params.send;
+    const autoMsgRaw =
+      launch?.autoMsg ?? params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
     const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
     if (sendFlag !== "1" || !autoMsg) return;
-    const launch = takeCoachLaunch();
-    const token = String(params.ts ?? autoMsg);
+    const token = String(params.ts ?? launch?.autoMsg ?? autoMsg);
     if (autoSentRef.current === token) return;
     if (streaming && !launch?.freshThread) return;
     autoSentRef.current = token;
+    consumeCoachLaunch();
     send(String(autoMsg), {
       hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
       freshThread: launch?.freshThread ?? false,
