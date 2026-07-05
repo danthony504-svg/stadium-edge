@@ -105,11 +105,44 @@ export function searchSimulatorPlayer(
   return simGetJson(`/sports/player-search?query=${encodeURIComponent(query)}`, signal);
 }
 
-export type SimPropsResponse = {
+export type SimPrizePicksResponse = {
   props?: PlayerProp[];
   home?: string | null;
   away?: string | null;
 };
+
+export type SimGetPropsArgs = {
+  sport: string;
+  eventId: string;
+  home?: string;
+  away?: string;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
+  startsAt?: string | null;
+};
+
+export type SimPropsResponse = {
+  home: string | null;
+  away: string | null;
+  bookmaker: string | null;
+  props: PlayerProp[];
+};
+
+export function fetchSimulatorProps(
+  args: SimGetPropsArgs,
+  signal?: AbortSignal,
+): Promise<SimPropsResponse> {
+  if (!args?.sport || !args?.eventId) {
+    return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
+  }
+  const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
+  if (args.home) q.set("home", args.home);
+  if (args.away) q.set("away", args.away);
+  if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
+  if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
+  if (args.startsAt) q.set("startsAt", args.startsAt);
+  return simGetJson<SimPropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+}
 
 export function fetchSimulatorPrizePicks(
   args: {
@@ -120,7 +153,7 @@ export function fetchSimulatorPrizePicks(
     awayTeamId?: string | null;
   },
   signal?: AbortSignal,
-): Promise<SimPropsResponse> {
+): Promise<SimPrizePicksResponse> {
   const q = new URLSearchParams({ sport: args.sport, home: args.home, away: args.away });
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);

@@ -1,12 +1,13 @@
 // Simulator-only props loader — kept in a small module so OTA bundles always
 // ship the PrizePicks fallback alongside the screen (avoids relying on a fresh
 // re-export from the large api.ts barrel during partial updates).
+import type { PlayerProp } from "./api";
 import {
-  getProps,
-  type GetPropsArgs,
-  type PlayerProp,
-} from "./api";
-import { fetchGameRoster, fetchSimulatorPrizePicks } from "./simulatorApi";
+  fetchGameRoster,
+  fetchSimulatorPrizePicks,
+  fetchSimulatorProps,
+  type SimGetPropsArgs,
+} from "./simulatorApi";
 
 function normPlayerName(s: string): string {
   return s
@@ -104,12 +105,12 @@ async function applyGameRoster(
 
 /** Odds-API props first; on empty/502 fall back to PrizePicks DFS lines. Never throws. */
 export async function loadSimulatorProps(
-  args: GetPropsArgs,
+  args: SimGetPropsArgs,
   signal?: AbortSignal,
 ): Promise<PlayerProp[]> {
   if (!args?.sport || !args?.eventId) return [];
   try {
-    const r = await getProps(args, signal);
+    const r = await fetchSimulatorProps(args, signal);
     const props = Array.isArray(r.props) ? r.props : [];
     if (props.length > 0) {
       const mains = props.filter((p): p is PlayerProp => !!p && typeof p === "object");

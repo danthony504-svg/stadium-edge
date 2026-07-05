@@ -1,11 +1,11 @@
 import type { EspnGame, PlayerProp } from "./api";
-import { isSimulatorEligible } from "./slate";
+import { isSimulatorPregame } from "./simulatorApi";
 
 const gamesBySport = new Map<string, EspnGame[]>();
 const propsByGame = new Map<string, PlayerProp[]>();
 
 function eligibleGames(games: EspnGame[]): EspnGame[] {
-  return games.filter((g) => isSimulatorEligible(g));
+  return games.filter((g) => isSimulatorPregame(g));
 }
 
 /** Drop started/final games from every sport bucket (e.g. on tab focus). */
