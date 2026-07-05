@@ -24,6 +24,12 @@ import {
   COACH_MIN_GRADE_RANK,
 } from "./coachLegQuality";
 import { buildPropDualScoreForLeg } from "./propDualScore";
+import {
+  buildBoardQualityIndex,
+  marketFamilyKey,
+  boardQualityExplanation,
+  type BoardQualityCtx,
+} from "./boardPropQuality";
 
 export {
   evaluateCoachLegQuality,
@@ -242,6 +248,30 @@ function pickLegKey(p: ParsedPick): string {
   return `${p.game}|${p.player}|${p.market}|${p.propLine}|${p.propSide}`.toLowerCase();
 }
 
+function buildCoachBoardIndex(
+  ranked: PropPoolEntry[],
+  propPool: PropPoolEntry[],
+  scoreOpts: CoachScoreOpts,
+  sims: Map<string, CoachPropSimEntry>,
+): Map<string, import("./boardPropQuality").BoardQualityCtx> {
+  const scored: import("./boardPropQuality").BoardScoredEntry[] = [];
+  for (const entry of ranked.slice(0, 120)) {
+    const candidate = poolEntryToPick(entry);
+    const key = pickLegKey(candidate);
+    const [scoredPick] = attachPickScores([candidate], { ...scoreOpts, propPool });
+    if (!scoredPick?.scores) continue;
+    const simRow = propSimRowForPick(scoredPick, sims);
+    if (!simRow) continue;
+    const dual = dualForCoachPick(scoredPick, scoredPick.scores, simRow, scoreOpts, propPool);
+    scored.push({
+      key,
+      marketFamily: marketFamilyKey(entry.marketKey ?? entry.marketLabel),
+      triple: dual,
+    });
+  }
+  return buildBoardQualityIndex(scored);
+}
+
 export type FilterCoachParlayResult = {
   picks: ParsedPick[];
   note: string;
@@ -265,6 +295,13 @@ export function filterAndReplaceCoachParlay(
   const { propPool, scoreOpts } = opts;
   const sims = scoreOpts.propSimulations;
 
+  const ranked =
+    sims && propPool.length
+      ? rankPropPoolEntries(propPool, { ...scoreOpts, propPool, propSimulations: sims })
+      : [];
+  const boardIndex =
+    sims && ranked.length ? buildCoachBoardIndex(ranked, propPool, scoreOpts, sims) : new Map();
+
   const scorePick = (p: ParsedPick): ParsedPick => {
     const [scored] = attachPickScores([p], { ...scoreOpts, propPool });
     if (!scored?.scores || !scored.isProp) return scored ?? p;
@@ -280,7 +317,8 @@ export function filterAndReplaceCoachParlay(
     const scored = scorePick(p);
     const simRow = propSimRowForPick(scored, sims);
     const dual = dualForCoachPick(scored, scored.scores, simRow, scoreOpts, propPool);
-    const q = evaluateCoachLegQuality(scored, simRow, dual);
+    const board = scored.isProp ? (boardIndex.get(pickLegKey(scored)) ?? null) : undefined;
+    const q = evaluateCoachLegQuality(scored, simRow, dual, board);
     if (q.passes) kept.push(scored);
     else if (scored.isProp) droppedProps.push(scored);
   }
@@ -292,11 +330,6 @@ export function filterAndReplaceCoachParlay(
   let replacedCount = 0;
 
   if (droppedProps.length > 0 && sims) {
-    const ranked = rankPropPoolEntries(propPool, {
-      ...scoreOpts,
-      propPool,
-      propSimulations: sims,
-    });
     const budget = opts.replaceBudget ?? droppedProps.length;
 
     for (let i = 0; i < budget; i++) {
@@ -312,7 +345,8 @@ export function filterAndReplaceCoachParlay(
         const scored = scorePick(optimized);
         const simRow = propSimRowForPick(scored, sims);
         const dual = dualForCoachPick(scored, scored.scores, simRow, scoreOpts, propPool);
-        const q = evaluateCoachLegQuality(scored, simRow, dual);
+        const board = boardIndex.get(legKey) ?? null;
+        const q = evaluateCoachLegQuality(scored, simRow, dual, board);
         if (!q.passes) continue;
 
         kept.push(scored);
@@ -332,7 +366,7 @@ export function filterAndReplaceCoachParlay(
     const parts: string[] = [];
     if (droppedCount > 0) {
       parts.push(
-        `removed ${droppedCount} leg${droppedCount === 1 ? "" : "s"} that didn't meet the B+ / edge / sim / matchup bar`,
+        `removed ${droppedCount} leg${droppedCount === 1 ? "" : "s"} that weren't top-board plays with agreeing player + matchup scores`,
       );
     }
     if (replacedCount > 0) {

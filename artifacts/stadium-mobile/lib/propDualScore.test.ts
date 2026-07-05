@@ -71,10 +71,10 @@ test("buildPropDualVerdict: great matchup + cold player", () => {
   assert.match(v.explanation, /Great matchup, but player is cold/);
 });
 
-test("buildPropDualVerdict: all three scores pass", () => {
-  const v = buildPropDualVerdict(60, 58, 62);
+test("buildPropDualVerdict: all three scores pass with agreement", () => {
+  const v = buildPropDualVerdict(62, 60, 62);
   assert.equal(v.recommends, true);
-  assert.equal(v.passesFinalAi, true);
+  assert.equal(v.playerMatchupAgree, true);
 });
 
 test("computePlayerScore: focuses on form, sim, confidence, projection — not grade", () => {
@@ -173,10 +173,10 @@ test("propDualScoreRecommends: requires B+, edge, confidence, and sim", () => {
       oppDefense: { pointsAgainst: 116 },
     },
   );
-  assert.equal(propDualScoreRecommends(dual, mockSim(0.44), mockCombined({ grade: "C" })), false);
+  assert.equal(propDualScoreRecommends(dual, { simRow: mockSim(0.44), combined: mockCombined({ grade: "C" }) }), false);
 });
 
-test("propDualScoreRecommends: strong pick passes all gates", () => {
+test("propDualScoreRecommends: strong pick passes without board context", () => {
   const combined = mockCombined();
   const sim = mockSim(0.58);
   const dual = computePropDualScore(
@@ -198,5 +198,36 @@ test("propDualScoreRecommends: strong pick passes all gates", () => {
       usageMinutes: 35,
     },
   );
-  assert.equal(propDualScoreRecommends(dual, sim, combined), true);
+  assert.equal(propDualScoreRecommends(dual, { simRow: sim, combined }), true);
+});
+
+test("propDualScoreRecommends: fails board gate when not top on slate", () => {
+  const combined = mockCombined();
+  const sim = mockSim(0.58);
+  const dual = computePropDualScore(
+    {
+      combined,
+      simRow: sim,
+      hitPct: 70,
+      line: 20,
+      side: "Over",
+      projection: 26,
+      odds: -110,
+    },
+    {
+      sport: "nba",
+      marketKey: "player_points",
+      oppDefense: { pointsAgainst: 116 },
+      playerSide: "home",
+      usageMinutes: 35,
+    },
+  );
+  assert.equal(
+    propDualScoreRecommends(dual, {
+      simRow: sim,
+      combined,
+      board: { rankScore: 50, globalPercentile: 0.4, bestInFamily: false, familyRank: 2, familySize: 4 },
+    }),
+    false,
+  );
 });

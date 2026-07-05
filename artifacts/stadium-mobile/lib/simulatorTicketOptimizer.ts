@@ -22,7 +22,8 @@ import {
 import type { InjuryTeam, MatchupHistoryEntry } from "./api";
 import type { GameInjuryReport } from "./injuries";
 import { propMarketLabel } from "./propMarketLabel";
-import { buildPropDualScoreForLeg, propDualScoreRecommends, type PropDualScore } from "./propDualScore";
+import { buildPropDualScoreForLeg, propDualScoreRecommends, type BoardQualityCtx, type PropDualScore } from "./propDualScore";
+import { buildBoardQualityIndex, marketFamilyKey } from "./boardPropQuality";
 
 export const SIM_TICKET_MIN_GRADE = "B+";
 export const SIM_TICKET_MIN_CONFIDENCE = 55;
@@ -51,6 +52,7 @@ export type SimulatorGradingCtx = {
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, SimulatorPlayerHistorySlice>;
   injuryTeams?: InjuryTeam[];
+  boardIndex?: Map<string, BoardQualityCtx>;
 };
 
 function shortName(player: string): string {
@@ -66,6 +68,7 @@ export function evaluateSimulatorTicketQuality(
   combined: CombinedPickScore | null | undefined,
   simRow: PropSimulationResult | null | undefined,
   dual?: PropDualScore | null,
+  board?: BoardQualityCtx | null,
 ): { passes: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (!combined?.grade) reasons.push("no grade");
@@ -94,15 +97,21 @@ export function evaluateSimulatorTicketQuality(
     reasons.push("weak line value vs other books");
   }
 
-  if (
-    dual &&
-    dual.playerScore != null &&
-    dual.matchupScore != null &&
-    !propDualScoreRecommends(dual, simRow, combined)
-  ) {
-    reasons.push(dual.explanation || "player and matchup must both clear the bar");
-    if (!dual.passesPlayer) reasons.push("player score below bar");
-    if (!dual.passesMatchup) reasons.push("matchup score below bar");
+  if (dual) {
+    const recommendOpts = {
+      simRow,
+      combined,
+      ...(board !== undefined ? { board } : {}),
+    };
+    if (!propDualScoreRecommends(dual, recommendOpts)) {
+      if (!dual.playerMatchupAgree || !dual.recommends) {
+        reasons.push(dual.explanation || "player and matchup must agree");
+      } else if (board !== undefined) {
+        reasons.push("not a top-board play — only the best agreeing bets ship");
+      } else {
+        reasons.push(dual.explanation || "did not clear the quality bar");
+      }
+    }
   }
 
   return { passes: reasons.length === 0, reasons };
@@ -140,6 +149,30 @@ function dualForSimulatorProp(
     matchupInjuries: ctx.matchupInjuries,
     injuryTeams: ctx.injuryTeams,
   });
+}
+
+function buildSimulatorBoardIndex(
+  ctx: SimulatorGradingCtx,
+  simRows: Map<string, PropSimulationResult>,
+): Map<string, BoardQualityCtx> {
+  const scored: import("./boardPropQuality").BoardScoredEntry[] = [];
+  const candidates = ctx.fullPool
+    .filter((e) => e.line != null && (e.edge ?? 0) > 0)
+    .slice(0, 120);
+  for (const e of candidates) {
+    const prop = poolEntryToSelected(e);
+    const key = simulatorPropKey(prop);
+    if (!simRows.has(key)) continue;
+    const { combined, simRow } = gradeOne(prop, simRows, ctx);
+    if (!combined || !simRow) continue;
+    const dual = dualForSimulatorProp(prop, combined, simRow, ctx);
+    scored.push({
+      key,
+      marketFamily: marketFamilyKey(e.marketKey ?? e.marketLabel),
+      triple: dual,
+    });
+  }
+  return buildBoardQualityIndex(scored);
 }
 
 function gradeOne(
@@ -256,7 +289,8 @@ function bestRungForSlot(
     const { combined } = gradeOne(prop, simRows, ctx);
     if (!combined) continue;
     const dual = dualForSimulatorProp(prop, combined, simRow, ctx);
-    const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
+    const board = ctx.boardIndex?.get(key) ?? null;
+    const quality = evaluateSimulatorTicketQuality(combined, simRow, dual, board);
     if (!quality.passes) continue;
     const rankScore = propRankScore(combined, simRow);
     if (!best || rankScore > best.rankScore) {
@@ -289,6 +323,8 @@ export function optimizeSimulatorTicket(
   ctx: SimulatorGradingCtx,
 ): OptimizeSimulatorTicketResult {
   const simRows = new Map(allResults.map((r) => [r.key, r]));
+  const boardIndex = buildSimulatorBoardIndex(ctx, simRows);
+  const gradedCtx: SimulatorGradingCtx = { ...ctx, boardIndex };
   const changes: SimTicketChange[] = [];
   const explanation: string[] = [];
   const originalCount = selected.length;
@@ -308,13 +344,14 @@ export function optimizeSimulatorTicket(
       s.line,
       simRows,
       ctx.fullPool,
-      ctx,
+      gradedCtx,
     );
 
     if (!best) {
-      const { combined, simRow } = gradeOne(s, simRows, ctx);
-      const dual = dualForSimulatorProp(s, combined, simRow, ctx);
-      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
+      const { combined, simRow } = gradeOne(s, simRows, gradedCtx);
+      const dual = dualForSimulatorProp(s, combined, simRow, gradedCtx);
+      const board = boardIndex.get(simulatorPropKey(s)) ?? null;
+      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual, board);
       const reason = quality.reasons[0] ?? "didn't clear the quality bar";
       changes.push({ kind: "removed", label: propLabel(s), reason });
       explanation.push(`Removed ${propLabel(s)} — ${reason}.`);
@@ -351,9 +388,10 @@ export function optimizeSimulatorTicket(
       const key = simulatorPropKey(prop);
       const simRow = simRows.get(key);
       if (!simRow) continue;
-      const { combined } = gradeOne(prop, simRows, ctx);
-      const dual = dualForSimulatorProp(prop, combined, simRow, ctx);
-      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
+      const { combined } = gradeOne(prop, simRows, gradedCtx);
+      const dual = dualForSimulatorProp(prop, combined, simRow, gradedCtx);
+      const board = boardIndex.get(key) ?? null;
+      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual, board);
       if (!quality.passes || !combined) continue;
 
       const rankScore = propRankScore(combined, simRow);

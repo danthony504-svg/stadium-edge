@@ -132,6 +132,9 @@ export function PropDualScoreCard({ data }: { data: PropDualScore }) {
           <Text style={{ color: verdictTone, fontFamily: FONT.bold, fontSize: 14 }}>{data.headline}</Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
             {data.explanation}
+            {data.playerMatchupAgree
+              ? ""
+              : " We only recommend when player and matchup agree — not a hot player in a bad spot, or a great matchup with a cold player."}
           </Text>
         </View>
         <Feather

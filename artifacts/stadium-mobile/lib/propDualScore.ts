@@ -19,7 +19,7 @@ export type { MatchupScoreFactor } from "./sportMatchupScore.ts";
 
 export const MIN_PLAYER_SCORE = 55;
 export const MIN_MATCHUP_SCORE = 55;
-export const MIN_FINAL_AI_SCORE = 55;
+export const MIN_FINAL_AI_SCORE = 58;
 export const MIN_CONFIDENCE_PCT = 55;
 export const MIN_SIM_HIT = 0.52;
 export const MIN_GRADE = "B+";
@@ -27,6 +27,10 @@ export const HOT_PLAYER_THRESHOLD = 62;
 export const HOT_MATCHUP_THRESHOLD = 62;
 export const COLD_PLAYER_THRESHOLD = 48;
 export const COLD_MATCHUP_THRESHOLD = 48;
+/** Both sides must reach this before they "agree" — not just one hot, one barely passing. */
+export const AGREEMENT_MIN_SCORE = 58;
+/** Player and matchup scores can't diverge more than this and still recommend. */
+export const MAX_AGREEMENT_GAP = 14;
 
 const GRADE_RANK: Record<string, number> = {
   F: 0,
@@ -73,6 +77,8 @@ export type PropDualScore = {
   passesPlayer: boolean;
   passesMatchup: boolean;
   passesFinalAi: boolean;
+  /** Player and matchup both solid and aligned — required before any recommend. */
+  playerMatchupAgree: boolean;
   recommends: boolean;
   headline: string;
   explanation: string;
@@ -332,6 +338,71 @@ export function computeFinalAiScore(input: FinalAiScoreInput): {
   return { score: weightedScore(factors), factors };
 }
 
+/** Both player and matchup must agree — never recommend on one side alone. */
+export function playerMatchupAgree(
+  playerScore: number | null,
+  matchupScore: number | null,
+): { agrees: boolean; reason: string } {
+  if (playerScore == null || matchupScore == null) {
+    return {
+      agrees: false,
+      reason: "Need real player and matchup scores — we won't recommend without both.",
+    };
+  }
+
+  const playerCold = playerScore < COLD_PLAYER_THRESHOLD;
+  const matchupCold = matchupScore < COLD_MATCHUP_THRESHOLD;
+  const matchupHot = matchupScore >= HOT_MATCHUP_THRESHOLD;
+  const playerHot = playerScore >= HOT_PLAYER_THRESHOLD;
+
+  if (matchupHot && playerCold) {
+    return {
+      agrees: false,
+      reason: "Great matchup, but player is cold — both sides must agree, not the spot alone.",
+    };
+  }
+  if (playerHot && matchupCold) {
+    return {
+      agrees: false,
+      reason: "Hot player, but tough matchup — both sides must agree before we recommend.",
+    };
+  }
+
+  if (playerScore < MIN_PLAYER_SCORE || matchupScore < MIN_MATCHUP_SCORE) {
+    return {
+      agrees: false,
+      reason: "Player and matchup must both clear the quality bar.",
+    };
+  }
+
+  const weaker = Math.min(playerScore, matchupScore);
+  if (weaker < AGREEMENT_MIN_SCORE) {
+    return {
+      agrees: false,
+      reason: `Player (${playerScore}) and matchup (${matchupScore}) don't agree — the weaker side is too soft.`,
+    };
+  }
+
+  const gap = Math.abs(playerScore - matchupScore);
+  if (gap > MAX_AGREEMENT_GAP) {
+    return {
+      agrees: false,
+      reason: `Player (${playerScore}) and matchup (${matchupScore}) pull apart — we need both sides aligned.`,
+    };
+  }
+
+  return { agrees: true, reason: "Player and matchup agree." };
+}
+
+/** Rank score for comparing props on today's board (higher = better). */
+export function boardRankScore(triple: Pick<PropDualScore, "playerScore" | "matchupScore" | "finalAiScore">): number | null {
+  const { playerScore, matchupScore, finalAiScore } = triple;
+  if (playerScore == null || matchupScore == null || finalAiScore == null) return null;
+  if (!playerMatchupAgree(playerScore, matchupScore).agrees) return null;
+  const floor = Math.min(playerScore, matchupScore);
+  return Math.round(floor * 0.38 + finalAiScore * 0.42 + ((playerScore + matchupScore) / 2) * 0.2);
+}
+
 export function buildPropDualVerdict(
   playerScore: number | null,
   matchupScore: number | null,
@@ -343,44 +414,44 @@ export function buildPropDualVerdict(
   passesPlayer: boolean;
   passesMatchup: boolean;
   passesFinalAi: boolean;
+  playerMatchupAgree: boolean;
 } {
   const passesPlayer = playerScore != null && playerScore >= MIN_PLAYER_SCORE;
   const passesMatchup = matchupScore != null && matchupScore >= MIN_MATCHUP_SCORE;
   const passesFinalAi = finalAiScore != null && finalAiScore >= MIN_FINAL_AI_SCORE;
-  const playerHot = playerScore != null && playerScore >= HOT_PLAYER_THRESHOLD;
-  const playerCold = playerScore != null && playerScore < COLD_PLAYER_THRESHOLD;
-  const matchupHot = matchupScore != null && matchupScore >= HOT_MATCHUP_THRESHOLD;
-  const matchupCold = matchupScore != null && matchupScore < COLD_MATCHUP_THRESHOLD;
+  const agreement = playerMatchupAgree(playerScore, matchupScore);
 
   let headline = "Pass";
-  let explanation = "";
+  let explanation = agreement.reason;
 
-  if (passesPlayer && passesMatchup && passesFinalAi) {
+  if (!agreement.agrees) {
+    headline = "Pass";
+  } else if (passesPlayer && passesMatchup && passesFinalAi) {
     headline = "Recommend";
-    explanation = "Player, matchup, and Final AI scores all clear the quality bar.";
-  } else if (matchupHot && playerCold) {
-    headline = "Pass";
-    explanation = "Great matchup, but player is cold — won't recommend on spot alone.";
-  } else if (playerHot && matchupCold) {
-    headline = "Pass";
-    explanation = "Hot player, but tough matchup — need both sides before recommending.";
+    explanation =
+      "Player and matchup agree — this clears the bar as a quality play (Coach/Simulator still require a top-board rank).";
   } else if (!passesPlayer && !passesMatchup) {
-    headline = "Pass";
     explanation = "Weak on both player form and matchup.";
   } else if (!passesPlayer) {
-    headline = "Pass";
     explanation = `Matchup is fine (${matchupScore}), but player score (${playerScore}) is below the bar.`;
   } else if (!passesMatchup) {
-    headline = "Pass";
     explanation = `Player looks okay (${playerScore}), but matchup score (${matchupScore}) is below the bar.`;
   } else if (!passesFinalAi) {
-    headline = "Pass";
-    explanation = `Player and matchup pass, but Final AI score (${finalAiScore}) is below the bar — edge, grade, or EV too weak.`;
+    explanation = `Player and matchup agree, but Final AI score (${finalAiScore}) is too weak — edge, grade, or EV don't support a recommend.`;
   }
 
-  const recommends = passesPlayer && passesMatchup && passesFinalAi;
+  const recommends =
+    agreement.agrees && passesPlayer && passesMatchup && passesFinalAi;
 
-  return { headline, explanation, recommends, passesPlayer, passesMatchup, passesFinalAi };
+  return {
+    headline,
+    explanation,
+    recommends,
+    passesPlayer,
+    passesMatchup,
+    passesFinalAi,
+    playerMatchupAgree: agreement.agrees,
+  };
 }
 
 export function computePropDualScore(
@@ -408,19 +479,52 @@ export function computePropDualScore(
     passesPlayer: verdict.passesPlayer,
     passesMatchup: verdict.passesMatchup,
     passesFinalAi: verdict.passesFinalAi,
+    playerMatchupAgree: verdict.playerMatchupAgree,
     recommends: verdict.recommends,
     headline: verdict.headline,
     explanation: verdict.explanation,
   };
 }
 
-/** Full recommendability gate for Coach / Simulator / prop cards. */
+export type BoardQualityCtx = {
+  rankScore: number;
+  globalPercentile: number;
+  bestInFamily: boolean;
+  familyRank: number;
+  familySize: number;
+};
+
+const BOARD_TOP_PERCENTILE = 0.88;
+
+function passesBoardGate(ctx: BoardQualityCtx | null | undefined): boolean {
+  if (!ctx) return false;
+  return ctx.bestInFamily || ctx.globalPercentile >= BOARD_TOP_PERCENTILE;
+}
+
+export type PropRecommendOpts = {
+  simRow?: PropSimulationResult | null;
+  combined?: CombinedPickScore | null;
+  /** When set, prop must be a top-board play in its market or slate. */
+  board?: BoardQualityCtx | null;
+};
+
+/** Full recommendability gate for Coach / Simulator — includes board rank when provided. */
 export function propDualScoreRecommends(
   triple: PropDualScore | null | undefined,
-  simRow?: PropSimulationResult | null,
-  combined?: CombinedPickScore | null,
+  simRowOrOpts?: PropSimulationResult | null | PropRecommendOpts,
+  combinedLegacy?: CombinedPickScore | null,
 ): boolean {
-  if (!triple?.recommends) return false;
+  const opts: PropRecommendOpts =
+    simRowOrOpts != null && typeof simRowOrOpts === "object" && "simRow" in simRowOrOpts
+      ? simRowOrOpts
+      : { simRow: simRowOrOpts as PropSimulationResult | null, combined: combinedLegacy };
+
+  if (!triple?.recommends || !triple.playerMatchupAgree) return false;
+
+  if (opts.board !== undefined && !passesBoardGate(opts.board)) return false;
+
+  const simRow = opts.simRow;
+  const combined = opts.combined;
 
   const grade =
     triple.finalAiFactors.find((f) => f.key === "grade")?.display ??
