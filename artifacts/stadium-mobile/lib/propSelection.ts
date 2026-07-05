@@ -11,10 +11,15 @@ import {
   type PropSimAttachOpts,
 } from "@/lib/pickScoreContext";
 
-const SIM_SELECTION_TIMEOUT_MS = 2200;
+const SIM_SELECTION_TIMEOUT_MS = 2800;
 
 export type PropSelectionOpts = PropSimAttachOpts & {
   propSimulations?: Map<string, { hitProbability: number | null }>;
+};
+
+export type EnrichChatContextOpts = {
+  /** Scale quick-sim batch to ticket size (3–15 leg parlays). */
+  requestedLegs?: number;
 };
 
 export function propSimKey(
@@ -159,13 +164,20 @@ export function picksForPropSimBatch(
   return out;
 }
 
+/** Quick-sim batch size scales with requested leg count. */
+export function propSimBatchLimitForLegs(requestedLegs: number): number {
+  const n = requestedLegs > 0 ? requestedLegs : 6;
+  return Math.min(48, Math.max(20, 12 + n * 2));
+}
+
 /**
- * Quick-tier server sim + multi-factor sort for realProps (non-blocking).
- * Deep sims warm on the server in the background; context uses quick results only.
+ * Quick-tier server sim + multi-factor sort for realProps (blocks until quick
+ * tier returns or times out). Deep tier warms server cache in the background.
  */
 export async function enrichChatContextProps(
   built: BuiltChatContext,
   signal?: AbortSignal,
+  enrichOpts?: EnrichChatContextOpts,
 ): Promise<{
   built: BuiltChatContext;
   propSimulations: Map<string, { hitProbability: number | null }>;
@@ -175,9 +187,11 @@ export async function enrichChatContextProps(
     return { built, propSimulations: new Map() };
   }
 
+  const simLimit = propSimBatchLimitForLegs(enrichOpts?.requestedLegs ?? 0);
   let propSimulations = new Map<string, { hitProbability: number | null }>();
+  const simPicks = picksForPropSimBatch(propPool, simLimit);
+
   try {
-    const simPicks = picksForPropSimBatch(propPool, 28);
     if (simPicks.length) {
       propSimulations = await Promise.race([
         fetchPropSimulations(simPicks, propPool, { tier: "quick" }, signal).then((m) => {
@@ -189,6 +203,9 @@ export async function enrichChatContextProps(
           setTimeout(() => resolve(new Map()), SIM_SELECTION_TIMEOUT_MS);
         }),
       ]);
+
+      // Warm deep-tier cache for post-pick card grading — never blocks the build.
+      void fetchPropSimulations(simPicks, propPool, { tier: "deep" }).catch(() => {});
     }
   } catch {
     /* selection proceeds without sim */

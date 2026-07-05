@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PropPoolEntry } from "./api.ts";
-import { enrichAndSortRealProps, preferredPropSide, rankPropPoolEntries } from "./propSelection.ts";
+import { enrichAndSortRealProps, preferredPropSide, propSimBatchLimitForLegs, rankPropPoolEntries } from "./propSelection.ts";
 
 const pool: PropPoolEntry[] = [
   {
@@ -35,6 +35,13 @@ test("preferredPropSide uses evSide when present", () => {
 test("rankPropPoolEntries prefers higher edge when composite ties", () => {
   const ranked = rankPropPoolEntries(pool, { propPool: pool });
   assert.equal(ranked[0]?.player, "Alpha");
+});
+
+test("propSimBatchLimitForLegs grows with leg count", () => {
+  assert.equal(propSimBatchLimitForLegs(3), 18);
+  assert.equal(propSimBatchLimitForLegs(15), 42);
+  assert.ok(propSimBatchLimitForLegs(15) > propSimBatchLimitForLegs(3));
+  assert.ok(propSimBatchLimitForLegs(25) <= 48);
 });
 
 test("enrichAndSortRealProps attaches simHitPct and sorts by selectionScore", () => {

@@ -1255,9 +1255,13 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            fastParlay || useMlbSlatePath
-              ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
-              : await enrichChatContextProps(rawBuilt, controller.signal);
+            isParlayBuild && rawBuilt.propPool.length > 0 && rawBuilt.context.realProps?.length
+              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs })
+              : !isParlayBuild &&
+                  rawBuilt.propPool.length > 0 &&
+                  rawBuilt.context.realProps?.length
+                ? await enrichChatContextProps(rawBuilt, controller.signal)
+                : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
