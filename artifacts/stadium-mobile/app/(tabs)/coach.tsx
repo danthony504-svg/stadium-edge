@@ -876,8 +876,10 @@ export default function CoachScreen() {
   const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (params.prefill) setInput(String(params.prefill));
-  }, [params.prefill]);
+    // Auto-send navigations (send=1) read prefill from params directly — never
+    // mirror it into the composer or the user sees stale text after tapping Home.
+    if (params.prefill && params.send !== "1") setInput(String(params.prefill));
+  }, [params.prefill, params.send]);
 
   // Seed the first assistant bubble with a first-time or returning welcome.
   // AsyncStorage is async (unlike web localStorage), so we set state after the
