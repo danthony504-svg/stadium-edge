@@ -2620,7 +2620,7 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
-        legNote = composeFrozenGameLineLegNote(picks, legNote);
+        composeFrozenGameLineLegNote(picks, legNote);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
@@ -2628,7 +2628,6 @@ export default function CoachScreen() {
             role: "assistant",
             content: finalContent,
             picks,
-            ...(legNote ? { legNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),
           };
@@ -3126,18 +3125,6 @@ export default function CoachScreen() {
 
                 {ticketPicks.length > 0 ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.legNote ? (
-                      <Text
-                        style={{
-                          color: colors.mutedForeground,
-                          fontFamily: FONT.medium,
-                          fontSize: 12,
-                          fontStyle: "italic",
-                        }}
-                      >
-                        {m.legNote}
-                      </Text>
-                    ) : null}
                     {ticketPicks.length > 1 ? (
                       <AddAllButton
                         picks={ticketPicks}
