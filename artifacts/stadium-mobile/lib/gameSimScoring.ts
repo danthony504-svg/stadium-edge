@@ -2,7 +2,8 @@
 // so ML / spread / total / alt legs never contradict the same sim engine.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { GameSimulationResult } from "./api.ts";
+import type { GameSimulationResult, RealOddsEntry } from "./api.ts";
+import { fourQuestionsNoteForPick } from "./gameLineFourQuestions.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
@@ -104,6 +105,20 @@ export function buildDefaultGameCoverQueries(
   const home = buildGameCoverQuery({ ...base, market: "Moneyline", pick: `${homeTeam} ML` });
   const away = buildGameCoverQuery({ ...base, market: "Moneyline", pick: `${awayTeam} ML` });
   return [home, away].filter((q): q is GameCoverQuery => q != null);
+}
+
+/** Dedupe cover queries by id — default ML + posted spread/total lines share one draw. */
+export function mergeCoverQueries(...lists: GameCoverQuery[][]): GameCoverQuery[] {
+  const seen = new Set<string>();
+  const out: GameCoverQuery[] = [];
+  for (const list of lists) {
+    for (const q of list) {
+      if (seen.has(q.id)) continue;
+      seen.add(q.id);
+      out.push(q);
+    }
+  }
+  return out;
 }
 
 /** Build the server cover query for one game-line pick. */
@@ -263,7 +278,10 @@ export function gameSimDisagreement(
 export function gameSimAlignmentNote(
   pick: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
+  realOdds?: RealOddsEntry[],
 ): string {
+  const note = fourQuestionsNoteForPick(pick, sim, realOdds);
+  if (note) return note;
   const hit = gameSimHitForPick(pick, sim);
   if (hit == null) return "";
   const pct = Math.round(hit * 100);

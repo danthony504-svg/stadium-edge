@@ -9,6 +9,7 @@ import type {
   GameSimulationResult,
   InjuryTeam,
   MatchupHistoryEntry,
+  OddsGame,
   PlayerHistory,
   PlayerProp,
   PropSimulationResult,
@@ -69,6 +70,17 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     );
   } catch {
     return simGetJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
+  }
+}
+
+export async function fetchSimulatorOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
+  try {
+    return await simGetJson<OddsGame[]>(
+      `/sports/odds?sport=${encodeURIComponent(sport)}`,
+      signal,
+    );
+  } catch {
+    return [];
   }
 }
 

@@ -27,6 +27,7 @@ import type {
   PlayerProp,
   PropSimulationResult,
 } from "@/lib/api";
+import { buildRealOdds } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
@@ -35,6 +36,7 @@ import {
   fetchSimulatorGames,
   fetchSimulatorInjuries,
   fetchSimulatorMatchupHistory,
+  fetchSimulatorOdds,
   fetchSimulatorParkWeather,
   fetchSimulatorPlayerHistory,
   fetchSimulatorPropSimulationsBatch,
@@ -44,7 +46,13 @@ import {
 } from "@/lib/simulatorApi";
 
 import { propMarketLabel } from "@/lib/propMarketLabel";
-import { buildDefaultGameCoverQueries } from "@/lib/gameSimScoring";
+import {
+  buildGameFourQuestions,
+  coverQueriesFromOddsLines,
+  realOddsToGameLines,
+  type TeamFourQuestions,
+} from "@/lib/gameLineFourQuestions";
+import { buildDefaultGameCoverQueries, mergeCoverQueries } from "@/lib/gameSimScoring";
 import { finalAiScoreLabel } from "@/lib/finalAiScore";
 import {
   buildSimulatorPpPropPool,
@@ -293,6 +301,13 @@ export default function SimulatorScreen() {
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
 
+  const oddsQ = useQuery({
+    queryKey: ["sim-odds", sport, game?.id],
+    queryFn: ({ signal }) => fetchSimulatorOdds(sport, signal),
+    staleTime: 60_000,
+    enabled: !!game,
+  });
+
   // Switching games must drop prior selections (PP lines are per-matchup).
   useEffect(() => {
     setSelected([]);
@@ -304,6 +319,28 @@ export default function SimulatorScreen() {
   const gameEligible = !!game && gameEligibleForSim(game);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
+
+  const gameOddsLines = useMemo(() => {
+    if (!gameLabel || !game?.homeTeam || !game?.awayTeam) return [];
+    const rows = Array.isArray(oddsQ.data) ? oddsQ.data : [];
+    const norm = (s: string) => s.toLowerCase().trim();
+    const match = rows.find(
+      (g) => norm(g.homeTeam) === norm(game.homeTeam!) && norm(g.awayTeam) === norm(game.awayTeam!),
+    );
+    if (!match) return [];
+    return realOddsToGameLines(buildRealOdds(match), gameLabel);
+  }, [oddsQ.data, gameLabel, game?.homeTeam, game?.awayTeam]);
+
+  const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    return buildGameFourQuestions({
+      gameLabel,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      sim: gameResult,
+      oddsLines: gameOddsLines,
+    });
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
 
   const injuriesQ = useQuery({
     queryKey: ["sim-injuries", sport],
@@ -486,7 +523,10 @@ export default function SimulatorScreen() {
       const wx = weatherImpact;
       if (mode === "game" || mode === "full") {
         const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
-        const coverQueries = buildDefaultGameCoverQueries(gameLabel, game.homeTeam, game.awayTeam);
+        const coverQueries = mergeCoverQueries(
+          buildDefaultGameCoverQueries(gameLabel, game.homeTeam, game.awayTeam),
+          coverQueriesFromOddsLines(gameLabel, gameOddsLines, sport),
+        );
         const gr = await fetchSimulatorGameOutcome({
           sport,
           homeTeamId: game.homeTeamId,
@@ -672,7 +712,7 @@ export default function SimulatorScreen() {
                 </View>
               </View>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-                Simulate games and player props to project outcomes and probabilities.
+                Beyond “who wins?” — sim checks win, cover, cover rate, and whether the price is worth it.
               </Text>
             </View>
             <Pressable
@@ -1083,57 +1123,39 @@ export default function SimulatorScreen() {
                 </View>
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
-                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                    <ResultCol title="Win Probability">
-                      <WinBar
-                        awayPct={gameResult.awayWinProbability}
-                        homePct={gameResult.homeWinProbability}
-                        awayLabel={game.awayAbbr ?? game.awayTeam}
-                        homeLabel={game.homeAbbr ?? game.homeTeam}
-                      />
-                    </ResultCol>
-                    <ResultCol title="Projected Score (Avg)">
-                      <ScorePair
-                        away={gameResult.awayProjectedScore}
-                        home={gameResult.homeProjectedScore}
-                        awayLogo={game.awayLogo}
-                        homeLogo={game.homeLogo}
-                      />
-                    </ResultCol>
-                    <ResultCol title="Most Likely Outcome">
-                      <LikelyWinner
-                        winner={
-                          gameResult.mostLikelyWinner === "home" ? game.homeTeam : game.awayTeam
-                        }
-                        logo={gameResult.mostLikelyWinner === "home" ? game.homeLogo : game.awayLogo}
-                        pct={gameResult.mostLikelyWinnerPct}
-                      />
-                    </ResultCol>
-                  </View>
-                ) : null}
-                {gameResult?.coverHitRates && game.homeTeam && game.awayTeam ? (
-                  <Card style={{ marginBottom: 12 }}>
-                    <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginBottom: 6 }}>
-                      Moneyline (same 10k draw)
-                    </Text>
-                    {buildDefaultGameCoverQueries(
-                      `${game.awayTeam} @ ${game.homeTeam}`,
-                      game.homeTeam,
-                      game.awayTeam,
-                    ).map((q) => {
-                      const hit = gameResult.coverHitRates?.[q.id];
-                      if (hit == null) return null;
-                      const team = q.teamSide === "home" ? game.homeTeam : game.awayTeam;
-                      return (
-                        <Text
-                          key={q.id}
-                          style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, marginTop: 4 }}
-                        >
-                          {team} ML — {Math.round(hit * 100)}% hit rate
+                  <>
+                    <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                      <ResultCol title="Projected Score (Avg)">
+                        <ScorePair
+                          away={gameResult.awayProjectedScore}
+                          home={gameResult.homeProjectedScore}
+                          awayLogo={game.awayLogo}
+                          homeLogo={game.homeLogo}
+                        />
+                      </ResultCol>
+                      <ResultCol title="Win Probability">
+                        <WinBar
+                          awayPct={gameResult.awayWinProbability}
+                          homePct={gameResult.homeWinProbability}
+                          awayLabel={game.awayAbbr ?? game.awayTeam}
+                          homeLabel={game.homeAbbr ?? game.homeTeam}
+                        />
+                      </ResultCol>
+                    </View>
+                    {gameFourQuestions.length > 0 ? (
+                      <Card style={{ marginBottom: 12 }}>
+                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+                          Four-Question Check
                         </Text>
-                      );
-                    })}
-                  </Card>
+                        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                          Same 10,000-run draw — not just who wins, but cover, frequency, and line value.
+                        </Text>
+                        {gameFourQuestions.map((team) => (
+                          <FourQuestionsBlock key={team.teamSide} team={team} />
+                        ))}
+                      </Card>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {propResults.length > 0 ? (
@@ -1243,8 +1265,8 @@ export default function SimulatorScreen() {
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
                 minutes, injuries, matchup splits, and park weather. One draw set powers every market on that game.
-                The Final AI Score rolls simulation together with line value, matchup, recent form, injuries,
-                line shopping, sharp money, and line movement — simulation is the anchor, not the whole grade.
+                For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
+                The Final AI Score rolls those answers together with matchup, form, injuries, and line shopping.
               </Text>
             </Card>
           </Pressable>
@@ -1322,6 +1344,39 @@ function SettingRow({
   );
 }
 
+function FourQuestionsBlock({ team }: { team: TeamFourQuestions }) {
+  const colors = useColors();
+  return (
+    <View
+      style={{
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+      }}
+    >
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginBottom: 8 }}>
+        {team.team}
+      </Text>
+      {team.questions.map((q) => (
+        <View key={q.question} style={{ marginBottom: 6 }}>
+          <Text style={{ fontFamily: FONT.medium, fontSize: 11, color: colors.mutedForeground }}>
+            {q.question}
+          </Text>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginTop: 2 }}>
+            {q.answer}
+            {q.detail ? (
+              <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+                {" "}
+                — {q.detail}
+              </Text>
+            ) : null}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function ResultCol({ title, children }: { title: string; children: ReactNode }) {
   const colors = useColors();
   return (
@@ -1382,29 +1437,6 @@ function ScorePair({
         {homeLogo ? <Image source={{ uri: homeLogo }} style={{ width: 18, height: 18 }} contentFit="contain" /> : null}
         <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: colors.foreground }}>{home.toFixed(2)}</Text>
       </View>
-    </View>
-  );
-}
-
-function LikelyWinner({
-  winner,
-  logo,
-  pct,
-}: {
-  winner: string;
-  logo?: string | null;
-  pct: number;
-}) {
-  const colors = useColors();
-  return (
-    <View style={{ alignItems: "center", gap: 6 }}>
-      {logo ? <Image source={{ uri: logo }} style={{ width: 28, height: 28 }} contentFit="contain" /> : null}
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, textAlign: "center" }}>
-        {winner.split(" ").slice(-1)[0]} Win
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>
-        {(pct * 100).toFixed(1)}% of simulations
-      </Text>
     </View>
   );
 }

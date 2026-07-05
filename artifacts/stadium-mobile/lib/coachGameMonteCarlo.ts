@@ -221,7 +221,7 @@ export function filterCoachPicksWithGameSim(
   if (sideAligned.note) noteParts.push(sideAligned.note);
   if (coverRemoved > 0) {
     noteParts.push(
-      `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that conflicted with the 10,000-run simulator._`,
+      `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that failed the four-question sim check (win, cover, cover rate, or price vs the 10,000-run draw)._`,
     );
   }
   if (highRiskCount > 0) {
