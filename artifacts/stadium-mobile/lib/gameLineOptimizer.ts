@@ -23,6 +23,7 @@ import {
   type CloseGameSpreadRow,
   type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
+import { buildFrozenGameLineSummaryNote } from "./frozenGameLineConsistency.ts";
 import { isFullyQualifiedPick, resolvePickEdgePct, resolvePickExpectedValue } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
@@ -680,13 +681,13 @@ function isTeamSidedGameLine(pick: ParsedPick): boolean {
 }
 
 /**
- * Transparency note for game-line legs on the FINAL ticket. Reads only the
- * finalized pick objects — never re-runs line selection (cards use the same data).
+ * Transparency note for game-line legs on the FINAL ticket. Reads only frozen
+ * display snapshots — never re-runs line selection (cards use the same data).
  */
 export function buildGameLineOptimizerNote(
   picks: ParsedPick[],
   _simByGame: Map<string, CoachGameSimEntry>,
-  opts: {
+  _opts: {
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     realOdds: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
@@ -695,27 +696,8 @@ export function buildGameLineOptimizerNote(
   },
 ): string {
   void _simByGame;
-  void opts;
-  const gameLines = picks.filter((p) => {
-    if (!isGameLinePick(p) || p.isProp) return false;
-    return isFullyQualifiedPick(p, { realOdds: opts.realOdds });
-  });
-  if (!gameLines.length) return "";
-
-  const lines: string[] = [];
-  const seenGames = new Set<string>();
-
-  for (const pick of gameLines) {
-    const gameKey = norm(pick.game);
-    if (seenGames.has(gameKey)) continue;
-    seenGames.add(gameKey);
-    const line = formatFinalGameLineNote(pick, opts.realOdds);
-    if (line) lines.push(line);
-  }
-
-  if (!lines.length) return "";
-  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every metric is grounded (Sim, Edge, EV, Confidence, Grade). Each pick below shows why it was selected:_`;
-  return `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
+  void _opts;
+  return buildFrozenGameLineSummaryNote(picks);
 }
 
 /** Fill remaining parlay slots with highest-EV qualified game lines from the eval ladder. */

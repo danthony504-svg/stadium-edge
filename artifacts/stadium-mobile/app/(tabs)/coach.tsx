@@ -64,8 +64,15 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
-import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { freezeAllGameLinesInTicket } from "@/lib/frozenGameLinePick";
+import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import {
+  freezeAllGameLinesInTicket,
+  buildFrozenGameLineSummaryNote,
+  assertFrozenTicketConsistency,
+  stripModelGameLineListings,
+  mergeTicketPreservingFrozenGameLines,
+  FrozenGameLineConsistencyError,
+} from "@/lib/frozenGameLinePick";
 import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
 import { enforceConsistentGameSides, conflictingLegDropMessage, stripConflictingLegDropNotes } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2610,27 +2617,20 @@ export default function CoachScreen() {
             longshotAsk,
           });
         }
-        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
-          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
-            evalLinesByGame: coachEvalLinesByGame,
-            realOdds: mergedGameOdds,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-            longshotAsk,
-          });
-          gameSimNote = optimizerNote ?? "";
-        } else {
-          gameSimNote = "";
-        }
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
         legNote = stripConflictingLegDropNotes(legNote);
+        legNote = stripModelGameLineListings(legNote);
         legNote = stripInvalidOptimizerBullets(legNote);
         if (conflictingLegsDropped > 0) {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
+        gameSimNote = buildFrozenGameLineSummaryNote(picks);
+        if (gameSimNote) {
+          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
+        }
+        if (picks.some((p) => isGameLinePick(p) && !p.isProp)) {
+          assertFrozenTicketConsistency(picks, gameSimNote);
+        }
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
@@ -2671,8 +2671,11 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, filtered);
-                setAiPicks(filtered);
+                patchLastAssistantPicks(
+                  setMessages,
+                  mergeTicketPreservingFrozenGameLines(snapshot, filtered),
+                );
+                setAiPicks(mergeTicketPreservingFrozenGameLines(snapshot, filtered));
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
@@ -2681,8 +2684,9 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, filtered);
-                setAiPicks(filtered);
+                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
+                patchLastAssistantPicks(setMessages, merged);
+                setAiPicks(merged);
               },
             },
             simController.signal,
@@ -2711,7 +2715,10 @@ export default function CoachScreen() {
             return copy;
           });
         } else if (e?.name !== "AbortError") {
-          const failMsg = chatStreamFailureMessage(e);
+          const failMsg =
+            e instanceof FrozenGameLineConsistencyError
+              ? "I couldn't show that ticket — the summary and pick cards disagreed on a game line. That's blocked so you never see conflicting sides. Try building again."
+              : chatStreamFailureMessage(e);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {

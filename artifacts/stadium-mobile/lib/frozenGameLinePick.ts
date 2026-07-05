@@ -12,41 +12,28 @@ import {
   comparePickStrength,
 } from "./parlayQualifiedGate.ts";
 import { isGameLinePick, type CoachGameSimEntry } from "./gameSimScoring.ts";
+import {
+  type FrozenGameLineDisplay,
+  frozenGameLineHeader,
+  isGameLineFrozen,
+  normGameLabel,
+} from "./frozenGameLineConsistency.ts";
 
-const normGameLabel = (s: string) =>
-  String(s ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-export type FrozenGameLineDisplay = {
-  pick: string;
-  market: string;
-  odds: number;
-  game: string;
-  grade: string | null;
-  confidencePct: number | null;
-  edgePct: number | null;
-  evPct: number | null;
-  simHit: number | null;
-  simPct: number | null;
-};
+export type { FrozenGameLineDisplay } from "./frozenGameLineConsistency.ts";
+export {
+  isGameLineFrozen,
+  frozenGameLineHeader,
+  buildFrozenGameLineSummaryNote,
+  assertFrozenTicketConsistency,
+  stripModelGameLineListings,
+  mergeTicketPreservingFrozenGameLines,
+  FrozenGameLineConsistencyError,
+} from "./frozenGameLineConsistency.ts";
 
 export type FrozenGameLineMeta = NonNullable<ParsedPick["gameLineFinal"]> & {
   frozenAt: number;
   display: FrozenGameLineDisplay;
 };
-
-export function isGameLineFrozen(pick: ParsedPick): boolean {
-  return (
-    !pick.isProp &&
-    isGameLinePick(pick) &&
-    pick.gameLineFrozen === true &&
-    pick.gameLineFinal?.frozenAt != null &&
-    pick.gameLineFinal.display != null
-  );
-}
 
 /** Snapshot every metric the summary, card, and breakdown must show identically. */
 export function snapshotFrozenGameLineDisplay(
@@ -118,7 +105,7 @@ export type FreezeAllGameLinesOpts = {
 
 /**
  * One finalized + frozen game-line object per matchup. Props pass through unchanged.
- * Re-selects from the eval ladder when not yet frozen so summary and cards cannot diverge.
+ * Finalizes once when not yet frozen; already-frozen legs are never re-selected.
  */
 export function freezeAllGameLinesInTicket(
   picks: ParsedPick[],
@@ -138,35 +125,29 @@ export function freezeAllGameLinesInTicket(
 
   const frozen: ParsedPick[] = [];
   for (const [, template] of templatesByGame) {
-    let candidate: ParsedPick | null = template;
-    if (!isGameLineFrozen(template) || !template.gameLineFinal) {
-      candidate = finalizeGameLinePickForGame(template.game, template, opts.gameSimulations, {
+    if (isGameLineFrozen(template) && template.gameLineFinal?.display) {
+      frozen.push(
+        freezeGameLinePick(template, opts.realOdds, opts.buildAltOptions),
+      );
+      continue;
+    }
+    const candidate = finalizeGameLinePickForGame(
+      template.game,
+      template,
+      opts.gameSimulations,
+      {
         evalLinesByGame: opts.evalLinesByGame,
         realOdds: opts.realOdds,
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
         excludeMoneyline: opts.excludeMoneyline,
         longshotAsk: opts.longshotAsk,
-      });
-    }
+      },
+    );
     if (!candidate?.gameLineFinal) continue;
     frozen.push(freezeGameLinePick(candidate, opts.realOdds, opts.buildAltOptions));
   }
 
   frozen.sort((a, b) => comparePickStrength(b, a));
   return [...props, ...frozen];
-}
-
-/** Read frozen header fields — falls back to live pick when not frozen. */
-export function frozenGameLineHeader(pick: ParsedPick): {
-  game: string;
-  market: string;
-  pick: string;
-  odds: number;
-} {
-  const d = pick.gameLineFinal?.display;
-  if (isGameLineFrozen(pick) && d) {
-    return { game: d.game, market: d.market, pick: d.pick, odds: d.odds };
-  }
-  return { game: pick.game, market: pick.market, pick: pick.pick, odds: pick.odds };
 }
