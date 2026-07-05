@@ -11,6 +11,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick } from "./pickScoreContext.ts";
 
 const norm = (s: string) =>
@@ -143,11 +144,23 @@ function committedTeamForGame(
   return null;
 }
 
+function simFavoredTeamForGame(
+  game: string,
+  sim: CoachGameSimEntry | null | undefined,
+): string | null {
+  const side = simFavoredTeamSide(sim);
+  if (!side) return null;
+  const parts = game.split(" @ ");
+  if (parts.length !== 2) return null;
+  return (side === "home" ? parts[1] : parts[0])!.trim() || null;
+}
+
 function candidatesForPick(
   pick: ParsedPick,
   allLines: RealOddsEntry[],
   matchupHistory?: Record<string, MatchupHistoryEntry>,
   excludeMoneyline = false,
+  simFavoredTeam?: string | null,
 ): RealOddsEntry[] {
   let lines = allLines.filter(
     (e) => e.game === pick.game && FULL_GAME_MARKET.test(e.market.trim()),
@@ -171,8 +184,8 @@ function candidatesForPick(
       (e) => /team total/i.test(e.market) && pickTeamName(e.pick) && teamsMatch(pickTeamName(e.pick)!, team),
     );
   }
-  // ML / spread family — same team (lean team or original pick team).
-  const team = leanTeam ?? pickTeam;
+  // ML / spread family — sim-favored team wins over mlLean / scaffold team.
+  const team = simFavoredTeam ?? leanTeam ?? pickTeam;
   if (!team) return lines.filter((e) => isTeamSidedEntry(e));
   return lines.filter((e) => {
     const t = pickTeamName(e.pick);
@@ -255,6 +268,7 @@ function rankBestForBucket(
     evalLines,
     opts.matchupHistory,
     opts.excludeMoneyline,
+    simFavoredTeamForGame(pick.game, sim),
   );
   if (!pool.length) return null;
   const ranked = evaluateGameLines({
@@ -391,7 +405,6 @@ export function optimizeGameLinePicksToBestFinalAi(
 ): GameLineOptimizeResult {
   let swapped = 0;
   let deduped = 0;
-  const notes: string[] = [];
   const bestByBucket = new Map<string, EvaluatedGameLine>();
 
   for (const pick of picks) {
@@ -440,15 +453,7 @@ export function optimizeGameLinePicksToBestFinalAi(
       pick.market === optimized.market &&
       pick.pick === optimized.pick &&
       pick.odds === optimized.odds;
-    if (!same) {
-      swapped += 1;
-      const wp = best.winProb != null ? `${Math.round(best.winProb * 100)}%` : "—";
-      const edge =
-        best.edgePct != null ? `${best.edgePct > 0 ? "+" : ""}${best.edgePct}%` : "—";
-      notes.push(
-        `**${pick.game}**: ${best.entry.pick} (${best.entry.market}) — Final AI **${best.finalAiScore.grade ?? "—"}**, sim ${wp}, edge ${edge}`,
-      );
-    }
+    if (!same) swapped += 1;
 
     const legKey = pickLegKey(optimized);
     if (seenLegs.has(legKey)) {
@@ -459,19 +464,81 @@ export function optimizeGameLinePicksToBestFinalAi(
     out.push(optimized);
   }
 
-  const noteParts: string[] = [];
-  if (swapped > 0) {
-    noteParts.push(
-      `_After the 10k sim, ${swapped} game line${swapped === 1 ? "" : "s"} moved to the highest **Final AI Score** among all posted ML / spread / alt / total / team-total rungs (not just the main or plus-money alt):_\n${notes.map((n) => `• ${n}`).join("\n")}`,
+  return { picks: out, swapped, note: "" };
+}
+
+function formatGameLineScoreNote(pick: ParsedPick, scored: EvaluatedGameLine): string {
+  const wp =
+    scored.winProb != null ? `${Math.round(scored.winProb * 100)}%` : "—";
+  const edge =
+    scored.edgePct != null ? `${scored.edgePct > 0 ? "+" : ""}${scored.edgePct}%` : "—";
+  const grade = scored.finalAiScore.grade ?? "—";
+  return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade}, sim ${wp}, edge ${edge}`;
+}
+
+/**
+ * Transparency note for game-line legs on the FINAL ticket — built after dedupe
+ * and side alignment so dropped opposing legs are never listed.
+ */
+export function buildGameLineOptimizerNote(
+  picks: ParsedPick[],
+  simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+  },
+): string {
+  const gameLines = picks.filter((p) => isGameLinePick(p) && !p.isProp);
+  if (!gameLines.length) return "";
+
+  const lines: string[] = [];
+  const seenBuckets = new Set<string>();
+
+  for (const pick of gameLines) {
+    const bucket = bucketKeyForPick(pick);
+    if (bucket && seenBuckets.has(bucket)) continue;
+    if (bucket) seenBuckets.add(bucket);
+
+    const grade = pick.finalAiScore?.grade;
+    const simHit = pick.finalAiScore?.simHit;
+    const edge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct;
+    if (grade != null || simHit != null || edge != null) {
+      const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
+      const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
+      lines.push(
+        `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade ?? "—"}, sim ${wp}, edge ${edgeStr}`,
+      );
+      continue;
+    }
+
+    const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
+    if (!evalLines.length) continue;
+    const sim = simForGame(pick.game, simByGame);
+    const match = evalLines.find(
+      (e) =>
+        e.market === pick.market &&
+        e.pick === pick.pick &&
+        gameLabelsMatch(e.game, pick.game),
     );
-  }
-  if (deduped > 0) {
-    noteParts.push(
-      `_Merged ${deduped} duplicate game-line leg${deduped === 1 ? "" : "s"} after picking the single best Final AI Score line per team/market bucket._`,
-    );
+    if (!match) {
+      lines.push(`${pick.game}: ${pick.pick} (${pick.market})`);
+      continue;
+    }
+    const ranked = evaluateGameLines({
+      lines: [match],
+      gameSim: sim,
+      realOdds: mergeOddsEntries(opts.realOdds, evalLines),
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+    if (ranked[0]) lines.push(formatGameLineScoreNote(pick, ranked[0]));
+    else lines.push(`${pick.game}: ${pick.pick} (${pick.market})`);
   }
 
-  return { picks: out, swapped, note: noteParts.join("\n\n") };
+  if (!lines.length) return "";
+  return `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest Final AI Score among posted ML / spread / alt / total / team-total rungs:_\n${lines.map((n) => `• ${n}`).join("\n")}`;
 }
 
 /** Fill remaining parlay slots with highest Final AI Score game lines (alts/totals) from the full eval ladder. */

@@ -61,7 +61,8 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
-import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
@@ -1513,6 +1514,7 @@ export default function CoachScreen() {
         const mentionsProps = mentionsPropIntent(trimmed);
         const propsOnlyTicket = wantsPropsOnly(trimmed);
         let diversityNote = "";
+        let boardBuilt = false;
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const composeFromBoard =
@@ -1529,6 +1531,7 @@ export default function CoachScreen() {
           const seeded = prepareDeepParlaySeed(picks, legTarget, { longshotAsk });
           picks = seeded.picks;
           if (seeded.stripped > 0) {
+            boardBuilt = true;
             diversityNote = `_Cleared ${seeded.stripped} chalk game line${seeded.stripped === 1 ? "" : "s"} from the model scaffold — deep parlays are rebuilt from player props and alt rungs on the real board._`;
           }
         }
@@ -1741,6 +1744,7 @@ export default function CoachScreen() {
             boardBuildOpts,
           );
           if (picks.length > 0) {
+            boardBuilt = true;
             diversityNote = longshotAsk
               ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
               : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
@@ -1949,8 +1953,10 @@ export default function CoachScreen() {
         // Game-line legs must pass the SAME 10k-run game simulator the Simulator tab
         // uses — drop any ML/spread/total/alt that the sim does not support.
         let gameSimNote = "";
+        let gameSimSupplementNote = "";
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
+        let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
         if (!isAnalyze && picks.some(isGameLinePick)) {
           picks = dedupeSameTeamGameLegs(picks).picks;
           const gameSports = [
@@ -1981,6 +1987,7 @@ export default function CoachScreen() {
                 return all;
               })()
             : buildEvalLinesByGameMap(gamesWithLines, oddsGames);
+          coachEvalLinesByGame = evalLinesByGame;
           mergedGameOdds = mergeOddsEntries(
             context.realOdds,
             ...evalLinesByGame.values(),
@@ -2019,7 +2026,6 @@ export default function CoachScreen() {
             excludeMoneyline: composeFromBoard,
           });
           picks = optimized.picks;
-          if (optimized.note) gameSimNote = optimized.note;
           {
             const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
             picks = dedupedAfterOpt.picks;
@@ -2031,19 +2037,13 @@ export default function CoachScreen() {
           picks = filtered.picks;
           const edgeFiltered = filterNegativeEdgeGameLines(picks, mergedGameOdds);
           picks = edgeFiltered.picks;
-          if (edgeFiltered.note) {
-            gameSimNote = gameSimNote
-              ? `${gameSimNote}\n\n${edgeFiltered.note}`
-              : edgeFiltered.note;
+          const supplementParts: string[] = [];
+          if (edgeFiltered.note) supplementParts.push(edgeFiltered.note);
+          if (filtered.note) supplementParts.push(filtered.note);
+          if (filtered.warnings.length > 0 && supplementParts.length === 0) {
+            supplementParts.push(filtered.warnings.join("\n"));
           }
-          if (filtered.note) {
-            gameSimNote = gameSimNote
-              ? `${gameSimNote}\n\n${filtered.note}`
-              : filtered.note;
-          }
-          if (filtered.warnings.length > 0 && !gameSimNote) {
-            gameSimNote = filtered.warnings.join("\n");
-          }
+          gameSimSupplementNote = supplementParts.join("\n\n");
           if (
             deepMultiLegParlay &&
             propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
@@ -2068,6 +2068,28 @@ export default function CoachScreen() {
             gameMeta,
             boardBuildOpts,
           );
+          if (gameSimulations.size > 0 && picks.some(isGameLinePick) && coachEvalLinesByGame) {
+            picks = dedupeSameTeamGameLegs(picks).picks;
+            const reoptimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
+              evalLinesByGame: coachEvalLinesByGame,
+              realOdds: context.realOdds,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              excludeMoneyline: true,
+            });
+            picks = reoptimized.picks;
+            picks = dedupeSameTeamGameLegs(picks).picks;
+            const postFinalizeSides = enforceConsistentGameSides(picks, {
+              simByGame: gameSimulations,
+              matchupHistory: context.matchupHistory,
+            });
+            picks = postFinalizeSides.picks;
+            if (postFinalizeSides.note) {
+              gameSimSupplementNote = gameSimSupplementNote
+                ? `${gameSimSupplementNote}\n\n${postFinalizeSides.note}`
+                : postFinalizeSides.note;
+            }
+          }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
         // real context the legs were resolved against (odds carry edge +
@@ -2086,6 +2108,21 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          });
+          gameSimNote = optimizerNote
+            ? gameSimSupplementNote
+              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
+              : optimizerNote
+            : gameSimSupplementNote;
+        } else if (gameSimSupplementNote) {
+          gameSimNote = gameSimSupplementNote;
+        }
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -2127,13 +2164,13 @@ export default function CoachScreen() {
         // successful request never shows as a blank reply.
         let finalContent =
           full + thresholdNote + confidenceNote + signNote + todayNote;
-        if (salvageBuilt && picks.length > 0) {
-          // The salvage built a real ticket out of nothing; the model's own prose
-          // was a refusal / stripped scaffold that contradicts the cards. Replace
-          // it with a clean lead-in. legNote (rendered below) carries the honest
-          // "you asked for N, only X held up" count when the ticket lands short.
-          finalContent =
-            "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
+        if ((salvageBuilt || boardBuilt) && picks.length > 0) {
+          // Board-built / salvage tickets replace model prose (often chalk scaffold
+          // or placeholder optimizer copy) with a clean lead-in. legNote carries
+          // the honest diversity + sim transparency notes below the cards.
+          finalContent = boardBuilt
+            ? `Here's your ${reachTarget}-leg ticket from today's live board — player props and alt rungs, scored with the 10k sim and Final AI.`
+            : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
         } else if (picks.length === 0 && emittedPickLines > 0) {
           const lead = assistantBubbleText(full, false);
           const note =

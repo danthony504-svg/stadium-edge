@@ -4,6 +4,7 @@ import {
   bestGameLine,
   mergeOddsEntries,
   gameLabelsMatch,
+  buildGameLineOptimizerNote,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 
@@ -69,4 +70,37 @@ test("gameLabelsMatch accepts nickname vs full team names", () => {
     true,
   );
   assert.equal(gameLabelsMatch("Yankees @ Red Sox", "Mets @ Braves"), false);
+});
+
+test("buildGameLineOptimizerNote lists only final ticket legs with scores", () => {
+  const picks = [
+    {
+      game: "New York Mets @ Atlanta Braves",
+      market: "Spread",
+      pick: "New York Mets +1.5",
+      odds: 110,
+      isProp: false,
+      sport: "mlb",
+      finalAiScore: {
+        grade: "B+",
+        simHit: 0.58,
+        edgePct: 2.1,
+        composite: 8,
+        confidencePct: 60,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
+      },
+    },
+  ];
+  const note = buildGameLineOptimizerNote(picks, new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [],
+  });
+  assert.match(note, /Final AI B\+/);
+  assert.match(note, /sim 58%/);
+  assert.match(note, /edge \+2\.1%/);
+  assert.doesNotMatch(note, /\[box/i);
 });
