@@ -23,7 +23,7 @@ import {
   type CloseGameSpreadRow,
   type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
-import { isGameLineMainTicketQualified, resolvePickEdgePct, resolvePickExpectedValue } from "./parlayQualifiedGate.ts";
+import { isFullyQualifiedPick, resolvePickEdgePct } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -619,15 +619,14 @@ function probeSimHitFromEvalLadder(
 
 function formatFinalGameLineNote(pick: ParsedPick): string {
   const score = pick.finalAiScore;
-  const simHit = score?.simHit ?? null;
-  const edge = score?.edgePct ?? null;
-  const grade = score?.grade ?? "—";
-  const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
-  const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
-  const fs = pick.gameLineFinal?.finalScore;
-  const fsStr = fs != null ? `Final Score ${fs}` : "—";
+  const simHit = score?.simHit;
+  const edge = resolvePickEdgePct(pick);
+  const grade = score?.grade;
+  const wp = `${Math.round(simHit! * 100)}%`;
+  const edgeStr = `${edge! > 0 ? "+" : ""}${edge}%`;
+  const fs = pick.gameLineFinal!.finalScore;
   const reason = pick.gameLineFinal?.reason ? ` — ${pick.gameLineFinal.reason}` : "";
-  return `${pick.game}: ${pick.pick} (${pick.market}) — ${fsStr}, AI ${grade}, sim ${wp}, edge ${edgeStr}${reason}`;
+  return `${pick.game}: ${pick.pick} (${pick.market}) — Final Score ${fs}, AI ${grade}, sim ${wp}, edge ${edgeStr}${reason}`;
 }
 
 function isTeamSidedGameLine(pick: ParsedPick): boolean {
@@ -656,10 +655,7 @@ export function buildGameLineOptimizerNote(
   void opts;
   const gameLines = picks.filter((p) => {
     if (!isGameLinePick(p) || p.isProp) return false;
-    if (!p.gameLineFinal) return false;
-    const edge = resolvePickEdgePct(p, { realOdds: opts.realOdds });
-    const ev = resolvePickExpectedValue(p, { realOdds: opts.realOdds });
-    return isGameLineMainTicketQualified(p.finalAiScore, p.odds ?? null, edge, ev);
+    return isFullyQualifiedPick(p, { realOdds: opts.realOdds });
   });
   if (!gameLines.length) return "";
 

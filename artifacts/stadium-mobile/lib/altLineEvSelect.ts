@@ -69,6 +69,11 @@ export function gameLineRowQualifies(row: CloseGameSpreadRow): boolean {
     row.entry.odds ?? null,
     edge,
     ev,
+    {
+      evPct: ev,
+      bookSpread: row.entry.bookSpread ?? null,
+      finalAiScore: row.finalAiScore,
+    },
   );
 }
 

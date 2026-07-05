@@ -65,12 +65,11 @@ import {
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
-import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
+import { enforceConsistentGameSides, conflictingLegDropMessage, stripConflictingLegDropNotes } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
-  rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
 import {
   buildParlayShortfallNote,
@@ -82,6 +81,7 @@ import {
 import {
   filterMainTicketPicks,
   filterToQualifiedPicks,
+  comparePickStrength,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
 } from "@/lib/parlayQualified";
@@ -2039,6 +2039,7 @@ export default function CoachScreen() {
         // uses — drop any ML/spread/total/alt that the sim does not support.
         let gameSimNote = "";
         let gameSimSupplementNote = "";
+        let conflictingLegsDropped = 0;
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
         let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
@@ -2124,6 +2125,7 @@ export default function CoachScreen() {
             rejectsOut: reachFull ? parlayRejections : undefined,
           });
           picks = filtered.picks;
+          conflictingLegsDropped += filtered.conflictingDropped;
           const edgeFiltered = filterNegativeEdgeGameLines(
             picks,
             mergedGameOdds,
@@ -2231,12 +2233,7 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
             });
             picks = postFinalizeSides.picks;
-            if (postFinalizeSides.dropped > 0) {
-              gameSimSupplementNote = appendUniqueNote(
-                gameSimSupplementNote,
-                postFinalizeSides.note,
-              );
-            }
+            conflictingLegsDropped += postFinalizeSides.dropped;
             if (teamIdMap && coachEvalLinesByGame) {
               gameSimulations = await supplementCoachGameSimulations(
                 picks,
@@ -2428,6 +2425,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
           });
           picks = sideAligned.picks;
+          conflictingLegsDropped += sideAligned.dropped;
           picks = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
             realOdds: mergedGameOdds,
@@ -2559,7 +2557,7 @@ export default function CoachScreen() {
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
         if (isParlayBuild && picks.length > 1) {
-          picks = rotateParlayDisplayOrder(picks, varietySeed);
+          picks = [...picks].sort((a, b) => comparePickStrength(b, a));
         }
         if (isParlayBuild && picks.length > 0) {
           picks = filterMainTicketPicks(picks, {
@@ -2587,6 +2585,10 @@ export default function CoachScreen() {
         }
         if (gameSimNote) {
           legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
+        }
+        legNote = stripConflictingLegDropNotes(legNote);
+        if (conflictingLegsDropped > 0) {
+          legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
         setMessages((prev) => {

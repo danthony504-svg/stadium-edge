@@ -284,6 +284,7 @@ export function filterNegativeEdgeGameLines(
 export type GameSimFilterResult = {
   picks: ParsedPick[];
   removed: number;
+  conflictingDropped: number;
   warnings: string[];
   note: string;
   rejects?: import("./parlayReachCore.ts").ParlayLegReject[];
@@ -364,7 +365,6 @@ export function filterCoachPicksWithGameSim(
 
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
-  if (sideAligned.note) noteParts.push(sideAligned.note);
   if (coverRemoved > 0) {
     noteParts.push(
       `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that failed the four-question sim check (win, cover, cover rate, or price vs the 10,000-run draw)._`,
@@ -380,6 +380,7 @@ export function filterCoachPicksWithGameSim(
   return {
     picks: kept,
     removed: sideAligned.dropped + coverRemoved,
+    conflictingDropped: sideAligned.dropped,
     warnings,
     note,
   };
@@ -438,5 +439,5 @@ export function filterCoachPicksWithPropSim(
     );
   }
 
-  return { picks: kept, removed, warnings, note: noteParts.join("\n\n") };
+  return { picks: kept, removed, conflictingDropped: 0, warnings, note: noteParts.join("\n\n") };
 }
