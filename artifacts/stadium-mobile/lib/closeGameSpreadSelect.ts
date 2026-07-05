@@ -3,7 +3,7 @@
 
 import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
-import type { CoachGameSimEntry } from "./gameSimScoring.ts";
+import { GAME_SIM_MIN_HIT, gameSimHitForPick, type CoachGameSimEntry } from "./gameSimScoring.ts";
 import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
 import { isCloseGameForTeamSpread, spreadLineFromPick } from "./spreadSimAlignment.ts";
 
@@ -14,15 +14,17 @@ export type CloseGameSpreadRow = {
   edgePct: number | null;
 };
 
-/** Sim hit band treated as a coin-flip / close projection (≈50–52%). */
+/** @deprecated Use GAME_SIM_MIN_HIT — kept for tests referencing the old band. */
 export const CLOSE_GAME_SIM_FLOOR = 0.48;
+/** @deprecated Use GAME_SIM_MIN_HIT — kept for tests referencing the old band. */
 export const CLOSE_GAME_SIM_CEILING = 0.54;
 /** Aggressive alt lays (-2, -2.5, …) need sim support above this. */
 export const COMFORTABLE_WIN_SIM_MIN = 0.55;
 
+/** True when this line's cover probability is below the main-ticket sim floor. */
 export function isCloseSimWinProb(winProb: number | null | undefined): boolean {
   if (winProb == null || !Number.isFinite(winProb)) return false;
-  return winProb >= CLOSE_GAME_SIM_FLOOR && winProb <= CLOSE_GAME_SIM_CEILING;
+  return winProb < GAME_SIM_MIN_HIT;
 }
 
 export function needsSaferSpreadLine(
@@ -36,6 +38,13 @@ export function needsSaferSpreadLine(
   return isCloseGameForTeamSpread(sim, side, evalLines, teamName);
 }
 
+/** Standard main-board lay (-1.5) — blocked under the 52% sim floor. */
+export function isStandardLaySpread(entry: RealOddsEntry): boolean {
+  if (isMoneylineEntry(entry)) return false;
+  if (!isSpreadFamilyMarket(entry.market)) return false;
+  return spreadLineFromEntry(entry) === -1.5;
+}
+
 /** True when this spread/alt rung must not appear on the main ticket. */
 export function spreadViolatesLadderPolicy(
   entry: RealOddsEntry,
@@ -47,10 +56,14 @@ export function spreadViolatesLadderPolicy(
 ): boolean {
   if (isMoneylineEntry(entry)) return false;
   if (!isSpreadFamilyMarket(entry.market)) return false;
+  const hit = winProb ?? 0;
+  if (hit < GAME_SIM_MIN_HIT) {
+    if (isStandardLaySpread(entry) || isAggressiveSpreadEntry(entry)) return true;
+  }
   if (needsSaferSpreadLine(sim, side, evalLines, teamName, winProb)) {
     return !isSaferSpreadEntry(entry);
   }
-  if (isAggressiveSpreadEntry(entry)) return (winProb ?? 0) < COMFORTABLE_WIN_SIM_MIN;
+  if (isAggressiveSpreadEntry(entry)) return hit < COMFORTABLE_WIN_SIM_MIN;
   return false;
 }
 
@@ -232,6 +245,15 @@ export function selectBestCloseGameAltSpread(
   return selectBestSaferLineForCloseGame(ranked);
 }
 
+function resolveLineSimHit(
+  pick: import("../components/PickCard.tsx").ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+): number | null {
+  const fromScore = pick.finalAiScore?.simHit;
+  if (fromScore != null && Number.isFinite(fromScore)) return fromScore;
+  return gameSimHitForPick(pick, sim);
+}
+
 /** Drop or block spread legs that violate the close-game / aggressive-lay ladder. */
 export function dropSpreadLadderViolations(
   picks: import("../components/PickCard.tsx").ParsedPick[],
@@ -269,7 +291,7 @@ export function dropSpreadLadderViolations(
       pick: pick.pick,
       odds: pick.odds ?? -110,
     };
-    const simHit = pick.finalAiScore?.simHit ?? null;
+    const simHit = resolveLineSimHit(pick, sim);
     return !spreadViolatesLadderPolicy(entry, simHit, sim, side, evalLines, team);
   });
 }

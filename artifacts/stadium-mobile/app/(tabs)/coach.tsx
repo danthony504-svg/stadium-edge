@@ -2217,6 +2217,7 @@ export default function CoachScreen() {
             });
             picks = reoptimized.picks;
             picks = dedupeSameTeamGameLegs(picks).picks;
+            picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame);
             const postFinalizeSides = enforceConsistentGameSides(picks, {
               simByGame: gameSimulations,
               matchupHistory: context.matchupHistory,
@@ -2423,6 +2424,16 @@ export default function CoachScreen() {
           picks = attachPickScores(picks, scoreAttachOpts);
           picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame);
         }
+        if (!propsDeepSimmed) {
+          picks = picksWithSimPending(picks);
+        }
+        if (isParlayBuild && picks.length > 0) {
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+          });
+        }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
           const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
@@ -2437,16 +2448,6 @@ export default function CoachScreen() {
             : gameSimSupplementNote;
         } else if (gameSimSupplementNote) {
           gameSimNote = gameSimSupplementNote;
-        }
-        if (!propsDeepSimmed) {
-          picks = picksWithSimPending(picks);
-        }
-        if (isParlayBuild && picks.length > 0) {
-          picks = filterMainTicketPicks(picks, {
-            realOdds: mergedGameOdds,
-            propPool: mergedPropPool,
-            rejectsOut: parlayRejections,
-          });
         }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the

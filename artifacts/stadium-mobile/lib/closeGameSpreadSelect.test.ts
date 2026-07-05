@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   COMFORTABLE_WIN_SIM_MIN,
+  dropSpreadLadderViolations,
   filterRowsForCloseGameSpread,
   isAggressiveSpreadEntry,
   isCloseSimWinProb,
   isSaferSpreadEntry,
+  isStandardLaySpread,
   spreadViolatesLadderPolicy,
   selectBestSaferLineForCloseGame,
   selectBestSpreadLineForOpenGame,
@@ -61,9 +63,10 @@ const TIGHT_SIM = {
   confidenceScore: 50,
 };
 
-test("isCloseSimWinProb treats 50-52% as coin-flip band", () => {
+test("isCloseSimWinProb treats sub-52% as close projection", () => {
   assert.equal(isCloseSimWinProb(0.5), true);
-  assert.equal(isCloseSimWinProb(0.52), true);
+  assert.equal(isCloseSimWinProb(0.519), true);
+  assert.equal(isCloseSimWinProb(0.52), false);
   assert.equal(isCloseSimWinProb(0.56), false);
 });
 
@@ -247,4 +250,82 @@ test("selectBestTeamSpreadLine uses safer policy on close sim", () => {
   ];
   const best = selectBestTeamSpreadLine(rows, TIGHT_SIM, evalLines, "Braves", TIGHT_GAME);
   assert.equal(best?.entry.pick, "Braves +2.5");
+});
+
+test("isStandardLaySpread flags main -1.5 board rung", () => {
+  assert.equal(
+    isStandardLaySpread({
+      sport: "mlb",
+      game: TIGHT_GAME,
+      market: "Spread",
+      pick: "Braves -1.5",
+      odds: -110,
+    }),
+    true,
+  );
+  assert.equal(
+    isStandardLaySpread({
+      sport: "mlb",
+      game: TIGHT_GAME,
+      market: "Alt Spread",
+      pick: "Braves +1.5",
+      odds: -190,
+    }),
+    false,
+  );
+});
+
+test("spreadViolatesLadderPolicy rejects -1.5 when row sim is under 52% even on open margin", () => {
+  const openSim = {
+    ...TIGHT_SIM,
+    homeProjectedScore: 5.2,
+    awayProjectedScore: 3.8,
+    homeWinProbability: 0.62,
+    awayWinProbability: 0.38,
+  };
+  const entry = {
+    sport: "mlb",
+    game: TIGHT_GAME,
+    market: "Spread",
+    pick: "Braves -1.5",
+    odds: -110,
+  };
+  assert.equal(
+    spreadViolatesLadderPolicy(entry, 0.49, openSim, "home", [], "Braves"),
+    true,
+  );
+});
+
+test("selectBestSaferLineForCloseGame skips sub-52% safer lines", () => {
+  const best = selectBestSaferLineForCloseGame([
+    mockEvalRow("Alt Spread", "Braves +1.5", 1.4, 0.5),
+    mockEvalRow("Moneyline", "Braves ML", 1.2, 0.57),
+  ]);
+  assert.equal(best?.entry.market, "Moneyline");
+});
+
+test("dropSpreadLadderViolations uses game sim cover rate when finalAiScore sim is missing", () => {
+  const simByGame = new Map([
+    [
+      TIGHT_GAME,
+      {
+        ...TIGHT_SIM,
+        coverHitRates: {
+          [`${TIGHT_GAME.toLowerCase()}|spread|braves -1.5`]: 0.49,
+        },
+      },
+    ],
+  ]);
+  const picks = [
+    {
+      game: TIGHT_GAME,
+      market: "Spread",
+      pick: "Braves -1.5",
+      odds: -110,
+      sport: "mlb",
+      isProp: false,
+    },
+  ];
+  const filtered = dropSpreadLadderViolations(picks, simByGame, new Map());
+  assert.equal(filtered.length, 0);
 });

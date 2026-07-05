@@ -649,7 +649,12 @@ export function buildGameLineOptimizerNote(
     matchupInjuries?: Record<string, GameInjuryReport>;
   },
 ): string {
-  const gameLines = picks.filter((p) => isGameLinePick(p) && !p.isProp);
+  const gameLines = picks.filter(
+    (p) =>
+      isGameLinePick(p) &&
+      !p.isProp &&
+      isMainTicketQualified(p.finalAiScore, p.odds ?? null),
+  );
   if (!gameLines.length) return "";
 
   const lines: string[] = [];
