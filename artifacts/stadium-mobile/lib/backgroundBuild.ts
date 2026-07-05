@@ -48,6 +48,19 @@ export function shouldHandOffBuild(opts: {
   return opts.isParlayBuild && opts.isSignedIn;
 }
 
+// Leg-scaled wait ceiling before treating a missing stash as timedOut. Sized to
+// stay past the server's BG_MAX_MS (240s) and the client's parlay first-token
+// budgets so an 8–15 leg build isn't falsely abandoned while still in flight.
+export function pendingBuildMaxWaitMs(userText: string): number {
+  const m = userText.match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+  const legs = m ? Math.min(99, parseInt(m[1], 10)) : 0;
+  if (legs >= 12) return 270_000;
+  if (legs >= 9) return 240_000;
+  if (legs >= 6) return 200_000;
+  if (legs >= 3) return 150_000;
+  return 120_000;
+}
+
 // On an AppState "background" event: hand THIS attempt off (abort its about-to-
 // freeze socket, but DON'T discard it — the server keeps going) only when a
 // stream is actually in flight AND it was started as a background-eligible
