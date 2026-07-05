@@ -2,6 +2,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
+import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
@@ -38,6 +39,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
+import { isOtaReloadBlocked } from "@/lib/otaBlock";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   cachedLiveGames,
@@ -270,6 +272,7 @@ export default function HomeScreen() {
   // Wide enough for full labels ("Easy Money", "Best Value") — horizontal scroll
   // when the row doesn't fit on one screen.
   const quickCardWidth = Math.max(104, Math.min(118, (width - 32 - 4 * 8) / 4.2));
+  const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
   const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>(() => cachedUpcomingGames(sport));
@@ -286,7 +289,12 @@ export default function HomeScreen() {
       void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
       void queryClient.invalidateQueries({ queryKey: ["games", sport] });
       void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
-    }, [queryClient, sport]),
+      // A prefetched OTA applies on reload — auto-restart on Home so users don't
+      // need to hunt for the banner (common miss on TestFlight).
+      if (!__DEV__ && Updates.isEnabled && isUpdatePending && !isOtaReloadBlocked()) {
+        void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      }
+    }, [queryClient, sport, isUpdatePending]),
   );
 
   useEffect(() => {

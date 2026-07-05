@@ -4,7 +4,7 @@ import { AppState } from "react-native";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
-const LAUNCH_DELAY_MS = 5000;
+const LAUNCH_DELAY_MS = 2500;
 
 /** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
