@@ -258,6 +258,105 @@ function BaseballMiniPanel() {
   );
 }
 
+/** Compact Discover hero — routes to Coach for a new AI parlay build. */
+function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
+  const colors = useColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 4 }}
+    >
+      {({ pressed }) => (
+        <LinearGradient
+          colors={["#082554", "#06111f"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 14,
+            borderWidth: 1,
+            borderColor: colors.primary,
+            borderRadius: colors.radius,
+            padding: 16,
+            opacity: pressed ? 0.92 : 1,
+            overflow: "hidden",
+          }}
+        >
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              right: -30,
+              top: -40,
+              width: 120,
+              height: 120,
+              borderRadius: 60,
+              backgroundColor: "rgba(59,130,246,0.2)",
+            }}
+          />
+          <View style={{ width: 52, height: 52, alignItems: "center", justifyContent: "center" }}>
+            <View
+              style={{
+                position: "absolute",
+                width: 34,
+                height: 42,
+                borderRadius: 8,
+                backgroundColor: "rgba(59,130,246,0.35)",
+                borderWidth: 1,
+                borderColor: "rgba(96,165,250,0.5)",
+                transform: [{ rotate: "-8deg" }, { translateX: -6 }],
+              }}
+            />
+            <View
+              style={{
+                width: 34,
+                height: 42,
+                borderRadius: 8,
+                backgroundColor: "rgba(59,130,246,0.55)",
+                borderWidth: 1,
+                borderColor: colors.primary,
+                alignItems: "center",
+                justifyContent: "center",
+                transform: [{ rotate: "6deg" }, { translateX: 4 }],
+              }}
+            >
+              <Feather name="plus" size={18} color="#fff" />
+            </View>
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
+              Build best parlay
+            </Text>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 13,
+                lineHeight: 18,
+              }}
+            >
+              Get AI-powered picks tailored for the best possible odds.
+            </Text>
+          </View>
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Feather name="arrow-right" size={18} color="#fff" />
+          </View>
+        </LinearGradient>
+      )}
+    </Pressable>
+  );
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -269,9 +368,8 @@ export default function HomeScreen() {
   const hotCardWidth = isWideLayout
     ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
     : 168;
-  // Wide enough for full labels ("Easy Money", "Best Value") — horizontal scroll
-  // when the row doesn't fit on one screen.
-  const quickCardWidth = Math.max(104, Math.min(118, (width - 32 - 4 * 8) / 4.2));
+  // Five shortcut cards — horizontal scroll when they don't fit on one screen.
+  const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
@@ -710,14 +808,14 @@ export default function HomeScreen() {
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Today's top picks",
+      subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
       onPress: () => askCoach("Build me the best parlay"),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate",
+      subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
       onPress: () => askCoach("Build me a safe parlay"),
@@ -862,12 +960,15 @@ export default function HomeScreen() {
         }
       >
 
+        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
+        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay")} />
+
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 18, marginBottom: 22 }}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 4, marginBottom: 22 }}
         >
           {quickActions.map((a) => (
             <Pressable
