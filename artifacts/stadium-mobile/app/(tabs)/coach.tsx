@@ -1784,6 +1784,7 @@ export default function CoachScreen() {
           longshotAsk,
           plusMoneyBias: propBackfillOpts.plusMoneyBias,
           diversify: propBackfillOpts.diversify,
+          varietySeed,
           selectionOpts,
         };
         if (forceBoardBuild) {
@@ -2271,6 +2272,33 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (
+          forceBoardBuild &&
+          !isAnalyze &&
+          picks.length < reachTarget &&
+          !oddsThreshold &&
+          !confidenceThreshold
+        ) {
+          let latePool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-late`);
+          if (slateDay) latePool = filterOddsForSlateDay(latePool, slateDay);
+          picks = topUpDeepParlayToTarget(
+            picks,
+            reachTarget,
+            mergedPropPool,
+            latePool,
+            gameMeta,
+            boardBuildOpts,
+          );
+          picks = attachPickScores(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            perfByFamily: marketPerf,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            gameSimulations,
+          });
+        }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
           const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
@@ -2920,7 +2948,7 @@ export default function CoachScreen() {
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
                   key={q.label}
-                  onPress={() => send(q.prompt)}
+                  onPress={() => send(q.prompt, { freshThread: true })}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",

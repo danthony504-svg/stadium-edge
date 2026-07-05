@@ -16,7 +16,7 @@ import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
-import { varietyRankKey } from "@/lib/varietySeed";
+import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket } from "@/lib/gameSimScoring";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -2021,46 +2021,72 @@ export function backfillProps(
     arr.push(e);
     buckets.set(mk, arr);
   }
-  for (const arr of buckets.values()) {
+  for (const [mk, arr] of buckets) {
     arr.sort((a, b) =>
       plusMoneyBias
         ? b.odds - a.odds
         : Math.abs(ip(a.odds) - 0.5) - Math.abs(ip(b.odds) - 0.5),
     );
+    if (varietySeed) buckets.set(mk, shuffleWithSeed(arr, `${varietySeed}|${mk}`));
   }
-  const marketKeys = [...buckets.keys()].sort((a, b) => {
+  let marketKeys = [...buckets.keys()].sort((a, b) => {
     const ra = propBackfillMarketRank(a);
     const rb = propBackfillMarketRank(b);
     if (ra !== rb) return ra - rb;
     if (!varietySeed) return a.localeCompare(b);
     return varietyRankKey(varietySeed, a) - varietyRankKey(varietySeed, b);
   });
-  let progressed = true;
-  while (out.length < target && progressed) {
-    progressed = false;
-    for (const mk of marketKeys) {
-      if (out.length >= target) break;
-      const bucket = buckets.get(mk);
-      if (!bucket?.length) continue;
-      if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) continue;
-      let pickIdx = -1;
-      let pickLoad = Infinity;
-      for (let i = 0; i < bucket.length; i++) {
-        const cand = bucket[i]!;
-        const cg = norm(cand.game);
-        const cs = cand.sport ?? "";
-        if ((gameCounts.get(cg) ?? 0) >= maxPerGame) continue;
-        if (cs && (sportCounts.get(cs) ?? 0) >= maxPerSport) continue;
-        const load = (gameCounts.get(cg) ?? 0) + (cs ? (sportCounts.get(cs) ?? 0) * 0.25 : 0);
-        if (load < pickLoad) {
-          pickLoad = load;
-          pickIdx = i;
+  if (varietySeed && marketKeys.length > 1) {
+    const rot = varietyRankKey(varietySeed, "market-start") % marketKeys.length;
+    marketKeys = [...marketKeys.slice(rot), ...marketKeys.slice(0, rot)];
+  }
+  const fillFromBuckets = (caps: {
+    maxPerMarket: number;
+    maxPerGame: number;
+    maxPerSport: number;
+  }) => {
+    let progressed = true;
+    while (out.length < target && progressed) {
+      progressed = false;
+      for (const mk of marketKeys) {
+        if (out.length >= target) break;
+        const bucket = buckets.get(mk);
+        if (!bucket?.length) continue;
+        if ((marketCounts.get(mk) ?? 0) >= caps.maxPerMarket) continue;
+        let pickIdx = -1;
+        let pickLoad = Infinity;
+        let pickTie = Infinity;
+        for (let i = 0; i < bucket.length; i++) {
+          const cand = bucket[i]!;
+          const cg = norm(cand.game);
+          const cs = cand.sport ?? "";
+          if ((gameCounts.get(cg) ?? 0) >= caps.maxPerGame) continue;
+          if (cs && (sportCounts.get(cs) ?? 0) >= caps.maxPerSport) continue;
+          const load = (gameCounts.get(cg) ?? 0) + (cs ? (sportCounts.get(cs) ?? 0) * 0.25 : 0);
+          const tie = varietySeed
+            ? varietyRankKey(varietySeed, `${mk}|${cand.game}|${cand.player}|${cand.line ?? ""}`)
+            : i;
+          if (load < pickLoad || (load === pickLoad && tie < pickTie)) {
+            pickLoad = load;
+            pickTie = tie;
+            pickIdx = i;
+          }
         }
+        if (pickIdx < 0) continue;
+        const e = bucket.splice(pickIdx, 1)[0]!;
+        if (tryAdd(e)) progressed = true;
       }
-      if (pickIdx < 0) continue;
-      const e = bucket.splice(pickIdx, 1)[0]!;
-      if (tryAdd(e)) progressed = true;
     }
+  };
+  fillFromBuckets({ maxPerMarket, maxPerGame, maxPerSport });
+  // Thin single-sport slates can stall under per-game caps — relax once so 15-leg
+  // longshots aren't stuck at 2 props × N games every rebuild.
+  if (out.length < target && target >= 12) {
+    fillFromBuckets({
+      maxPerMarket: maxPerMarket + 1,
+      maxPerGame: maxPerGame + 1,
+      maxPerSport: maxPerSport + 2,
+    });
   }
   return out;
 }

@@ -223,6 +223,7 @@ export function topUpDeepParlayToTarget(
     longshotAsk?: boolean;
     plusMoneyBias?: boolean;
     diversify?: boolean;
+    varietySeed?: string;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
@@ -231,6 +232,7 @@ export function topUpDeepParlayToTarget(
   const propOpts = {
     plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
     diversify: opts.diversify ?? true,
+    varietySeed: opts.varietySeed ?? opts.selectionOpts?.varietySeed,
     selectionOpts: opts.selectionOpts,
   };
   const gameOrder = deepParlayGameOrder(opts.longshotAsk);
@@ -269,6 +271,7 @@ export function assembleDeepParlayFromBoard(
     longshotAsk?: boolean;
     plusMoneyBias?: boolean;
     diversify?: boolean;
+    varietySeed?: string;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
@@ -286,6 +289,7 @@ export function finalizeDeepParlayTicket(
     longshotAsk?: boolean;
     plusMoneyBias?: boolean;
     diversify?: boolean;
+    varietySeed?: string;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {

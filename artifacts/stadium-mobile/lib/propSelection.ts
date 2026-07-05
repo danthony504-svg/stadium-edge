@@ -89,17 +89,19 @@ export function rankPropPoolEntries(
     `${e.game}|${e.player}|${e.marketLabel}|${e.line ?? ""}|${e.side}`;
   return withScore
     .sort((a, b) => {
-      const jitter = (e: PropPoolEntry, score: number | null) =>
-        seed && score != null
-          ? ((varietyRankKey(seed, entryKey(e)) % 1000) / 10000) * 0.12
-          : 0;
-      const as = (a.score ?? -1) + jitter(a.e, a.score);
-      const bs = (b.score ?? -1) + jitter(b.e, b.score);
+      const as = a.score ?? -1;
+      const bs = b.score ?? -1;
+      if (seed) {
+        // Mix within a score band so the same top prop doesn't win every rebuild.
+        const tierA = Math.floor(as / 4);
+        const tierB = Math.floor(bs / 4);
+        if (tierB !== tierA) return tierB - tierA;
+        return varietyRankKey(seed, entryKey(a.e)) - varietyRankKey(seed, entryKey(b.e));
+      }
       if (bs !== as) return bs - as;
       const edgeDiff = (b.e.edge ?? 0) - (a.e.edge ?? 0);
       if (edgeDiff !== 0) return edgeDiff;
-      if (!seed) return 0;
-      return varietyRankKey(seed, entryKey(a.e)) - varietyRankKey(seed, entryKey(b.e));
+      return 0;
     })
     .map((x) => x.e);
 }

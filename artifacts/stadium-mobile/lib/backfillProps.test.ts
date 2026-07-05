@@ -112,6 +112,72 @@ test("backfillProps spreads props across games and sports on deep tickets", () =
   }
 });
 
+test("backfillProps varies first leg across build seeds", () => {
+  const games = [
+    { game: "Cardinals @ Cubs", sport: "mlb", startsAt: "2026-06-28T19:00:00.000Z" },
+    { game: "Yankees @ Red Sox", sport: "mlb", startsAt: "2026-06-28T22:00:00.000Z" },
+    { game: "Dodgers @ Giants", sport: "mlb", startsAt: "2026-06-28T23:45:00.000Z" },
+  ];
+  const realToday = games.flatMap((g) => [
+    {
+      game: g.game,
+      market: "Moneyline",
+      pick: "Home ML",
+      odds: -110,
+      sport: g.sport,
+      startsAt: g.startsAt,
+    },
+  ]);
+  const pool: PropPoolEntry[] = [];
+  for (const g of games) {
+    pool.push({
+      sport: g.sport,
+      game: g.game,
+      marketLabel: "Hits",
+      player: `Hits Star ${g.game}`,
+      line: 1.5,
+      side: "Over",
+      odds: 220,
+      marketKey: "hits",
+      headshot: null,
+      teamAbbr: "TST",
+      athleteId: "1",
+      startsAt: g.startsAt,
+    });
+    pool.push({
+      sport: g.sport,
+      game: g.game,
+      marketLabel: "Strikeouts",
+      player: `K Star ${g.game}`,
+      line: 5.5,
+      side: "Over",
+      odds: 180,
+      marketKey: "k",
+      headshot: null,
+      teamAbbr: "TST",
+      athleteId: "2",
+      startsAt: g.startsAt,
+    });
+  }
+  const firstA = backfillProps([], pool, realToday, [], {
+    target: 3,
+    diversify: true,
+    plusMoneyBias: true,
+    varietySeed: "alpha-build",
+  })[0]!;
+  const firstB = backfillProps([], pool, realToday, [], {
+    target: 3,
+    diversify: true,
+    plusMoneyBias: true,
+    varietySeed: "beta-build",
+  })[0]!;
+  assert.notEqual(
+    `${firstA.market}|${firstA.player}`,
+    `${firstB.market}|${firstB.player}`,
+    "rotated market start should change the lead leg",
+  );
+});
+
 test("backfillProps varies ticket mix across build seeds", () => {
   const games = [
     { game: "Cardinals @ Cubs", sport: "mlb", startsAt: "2026-06-28T19:00:00.000Z" },
