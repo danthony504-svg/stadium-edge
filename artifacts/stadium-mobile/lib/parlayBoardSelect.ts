@@ -8,6 +8,7 @@ import { gameLineLegBucket, isGameLinePick, type CoachGameSimEntry } from "./gam
 import {
   evaluateGameLines,
   mergeOddsEntries,
+  filterEvaluatedForCloseGameSpread,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
@@ -88,7 +89,8 @@ export function collectQualifiedGameLineCandidates(
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
-    for (const row of ranked) {
+    const spreadFiltered = filterEvaluatedForCloseGameSpread(ranked, sim, lines);
+    for (const row of spreadFiltered) {
       if (!isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) {
         opts.rejectsOut?.push({
           pick: row.pick,

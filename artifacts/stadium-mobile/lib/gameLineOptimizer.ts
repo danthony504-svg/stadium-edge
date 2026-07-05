@@ -16,6 +16,12 @@ import {
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
 import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { isCloseGameForTeamSpread } from "./spreadSimAlignment.ts";
+import {
+  filterRowsForCloseGameSpread,
+  selectBestCloseGameAltSpread,
+  type CloseGameSpreadRow,
+} from "./closeGameSpreadSelect.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -240,6 +246,38 @@ function simForGame(
   return undefined;
 }
 
+function teamSideFromName(
+  game: string,
+  team: string,
+): "home" | "away" | null {
+  const parts = game.split(" @ ");
+  if (parts.length !== 2) return null;
+  const away = parts[0]!.trim();
+  const home = parts[1]!.trim();
+  if (teamsMatch(team, home)) return "home";
+  if (teamsMatch(team, away)) return "away";
+  return null;
+}
+
+function toCloseGameRows(ranked: EvaluatedGameLine[]): CloseGameSpreadRow[] {
+  return ranked.map((r) => ({
+    entry: r.entry,
+    finalAiScore: r.finalAiScore,
+    winProb: r.winProb,
+    edgePct: r.edgePct,
+  }));
+}
+
+function fromCloseGameRow(row: CloseGameSpreadRow, ranked: EvaluatedGameLine[]): EvaluatedGameLine {
+  return ranked.find((r) => r.entry === row.entry) ?? {
+    entry: row.entry,
+    pick: entryToPick(row.entry),
+    finalAiScore: row.finalAiScore,
+    winProb: row.winProb,
+    edgePct: row.edgePct,
+  };
+}
+
 /** Prefer sim-aligned game lines with positive edge — no high-risk bypass on game lines. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
@@ -261,12 +299,13 @@ function rankBestForBucket(
     excludeMoneyline?: boolean;
   },
 ): EvaluatedGameLine | null {
+  const favoredTeam = simFavoredTeamForGame(pick.game, sim);
   const pool = candidatesForPick(
     pick,
     evalLines,
     opts.matchupHistory,
     opts.excludeMoneyline,
-    simFavoredTeamForGame(pick.game, sim),
+    favoredTeam,
   );
   if (!pool.length) return null;
   const ranked = evaluateGameLines({
@@ -276,6 +315,14 @@ function rankBestForBucket(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
   });
+
+  const team = favoredTeam ?? pickTeamName(pick.pick);
+  const side = team ? teamSideFromName(pick.game, team) : null;
+  if (team && isCloseGameForTeamSpread(sim, side, evalLines, team)) {
+    const bestAlt = selectBestCloseGameAltSpread(toCloseGameRows(ranked));
+    return bestAlt ? fromCloseGameRow(bestAlt, ranked) : null;
+  }
+
   return selectBestEvaluated(ranked);
 }
 
@@ -331,6 +378,16 @@ export function evaluateGameLines(input: {
     });
   }
   return out.sort(rankEvaluated);
+}
+
+export function filterEvaluatedForCloseGameSpread(
+  rows: EvaluatedGameLine[],
+  sim: CoachGameSimEntry | null | undefined,
+  evalLines: RealOddsEntry[],
+): EvaluatedGameLine[] {
+  const closeRows = filterRowsForCloseGameSpread(toCloseGameRows(rows), sim, evalLines);
+  const keep = new Set(closeRows.map((r) => r.entry));
+  return rows.filter((r) => keep.has(r.entry));
 }
 
 export function bestGameLine(evaluated: EvaluatedGameLine[]): EvaluatedGameLine | null {
@@ -703,9 +760,24 @@ export function backfillGameLinesFromEvalScores(
     );
   }
   ranked.sort(rankEvaluated);
+  const byGameFiltered: EvaluatedGameLine[] = [];
+  const gameGroups = new Map<string, EvaluatedGameLine[]>();
+  for (const row of ranked) {
+    const arr = gameGroups.get(row.entry.game) ?? [];
+    arr.push(row);
+    gameGroups.set(row.entry.game, arr);
+  }
+  for (const [game, rows] of gameGroups) {
+    const sim = simForGame(game, simByGame);
+    const lines = byGame.get(game) ?? [];
+    byGameFiltered.push(
+      ...filterEvaluatedForCloseGameSpread(rows, sim, lines),
+    );
+  }
+  byGameFiltered.sort(rankEvaluated);
 
   const out = [...existing];
-  for (const row of ranked) {
+  for (const row of byGameFiltered) {
     if (out.length >= target) break;
     if (out.filter((p) => isGameLinePick(p) && !p.isProp).length >= maxGame) break;
     const bucket = bucketKeyForPick(row.pick);
