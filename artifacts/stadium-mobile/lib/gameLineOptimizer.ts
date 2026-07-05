@@ -16,10 +16,9 @@ import {
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
 import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
-import { isCloseGameForTeamSpread } from "./spreadSimAlignment.ts";
 import {
   filterRowsForCloseGameSpread,
-  selectBestCloseGameAltSpread,
+  selectBestTeamSpreadLine,
   type CloseGameSpreadRow,
 } from "./closeGameSpreadSelect.ts";
 
@@ -317,10 +316,15 @@ function rankBestForBucket(
   });
 
   const team = favoredTeam ?? pickTeamName(pick.pick);
-  const side = team ? teamSideFromName(pick.game, team) : null;
-  if (team && isCloseGameForTeamSpread(sim, side, evalLines, team)) {
-    const bestAlt = selectBestCloseGameAltSpread(toCloseGameRows(ranked));
-    return bestAlt ? fromCloseGameRow(bestAlt, ranked) : null;
+  if (team) {
+    const bestLine = selectBestTeamSpreadLine(
+      toCloseGameRows(ranked),
+      sim,
+      evalLines,
+      team,
+      pick.game,
+    );
+    return bestLine ? fromCloseGameRow(bestLine, ranked) : null;
   }
 
   return selectBestEvaluated(ranked);
