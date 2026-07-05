@@ -1876,6 +1876,8 @@ export function backfillProps(
     maxPerMarket?: number;
     /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
     selectionOpts?: PropSelectionOpts;
+    /** When set, only entries that pass this gate are added (Coach quality bar). */
+    qualityGate?: (entry: PropPoolEntry) => boolean;
   },
 ): ParsedPick[] {
   const { target, plusMoneyBias = false, diversify = true } = opts;
@@ -1945,6 +1947,7 @@ export function backfillProps(
   }
   const tryAdd = (e: PropPoolEntry): boolean => {
     if (out.length >= target) return false;
+    if (opts.qualityGate && !opts.qualityGate(e)) return false;
     if (opts.selectionOpts?.propSimulations) {
       const simKey = `${e.player}|${e.marketKey ?? e.marketLabel}|${e.line}|${e.side}`;
       if (!coachPropHasMonteCarlo(opts.selectionOpts.propSimulations.get(simKey))) return false;

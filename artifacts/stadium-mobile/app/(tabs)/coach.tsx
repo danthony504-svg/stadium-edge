@@ -52,6 +52,18 @@ import {
 } from "@/lib/propSimProgressive";
 import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
 import { filterCoachPicksWithMonteCarlo } from "@/lib/coachPropMonteCarlo";
+import {
+  filterAndReplaceCoachParlay,
+  optimizeCoachPickRungs,
+  propEntryPassesCoachQuality,
+  type CoachScoreOpts,
+} from "@/lib/coachParlayQuality";
+import {
+  getLearnedWeightAdjustments,
+  ingestSettledResults,
+  registerCoachPickSnapshots,
+} from "@/lib/factorLearning";
+import { setLearnedWeightOverrides } from "@/lib/pickScore";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -689,6 +701,10 @@ export default function CoachScreen() {
     () => perfMapFromByFamily(computeAnalytics(results).byFamily),
     [results],
   );
+  useEffect(() => {
+    void getLearnedWeightAdjustments().then(setLearnedWeightOverrides);
+    void ingestSettledResults(results);
+  }, [results]);
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>() ?? {};
@@ -1423,6 +1439,17 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           propSimulations,
         };
+        const coachScoreOpts: CoachScoreOpts = {
+          realOdds: context.realOdds,
+          propPool: mergedPropPool,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+          perfByFamily: marketPerf,
+          playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          propSimulations,
+        };
+        const qualityPropGate = (e: PropPoolEntry) =>
+          propEntryPassesCoachQuality(e, mergedPropPool, coachScoreOpts);
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -1485,6 +1512,7 @@ export default function CoachScreen() {
           diversify: !lockedPropMarket,
           maxPerMarket: lockedPropMarket ? 99 : undefined,
           selectionOpts,
+          qualityGate: qualityPropGate,
         };
         let propsOnlyNote = "";
         if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
@@ -1663,7 +1691,11 @@ export default function CoachScreen() {
         // context — never fabricating (only appends real realOdds entries), gated
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
+        // REACH-THE-COUNT backstop — OFF under quality-first parlays: never pad
+        // to N with legs that fail the B+ / edge / sim bar. Shorter honest tickets only.
+        const qualityFirstParlays = !isAnalyze;
         if (
+          !qualityFirstParlays &&
           legTarget > picks.length &&
           (picks.length > 0 ||
             mentionsProps ||
@@ -1799,15 +1831,11 @@ export default function CoachScreen() {
         if (picks.length > MAX_LEGS) {
           picks = picks.slice(0, MAX_LEGS);
         }
-        // Grade each resolved leg with the 5-component pick rubric, from the SAME
-        // real context the legs were resolved against (odds carry edge +
-        // book-spread, props carry their +EV/spread; matchup history + injuries
-        // ground the trend/matchup/injury sub-scores). Honest-or-null: any signal
-        // that can't be grounded for a leg stays absent on its card. The grade is
-        // DISPLAY-ONLY — every resolved leg the model returned is kept and shown
-        // with its real grade; we never drop a leg for grading low, so a requested
-        // N-leg ticket is never trimmed by grade.
+        // Rubric + quality bar: optimize alt rungs, grade, then drop/replace weak legs.
         picks = filterCoachPicksWithMonteCarlo(picks, propSimulations);
+        if (!isAnalyze) {
+          picks = optimizeCoachPickRungs(picks, mergedPropPool, coachScoreOpts);
+        }
         picks = attachPickScores(picks, {
           realOdds: context.realOdds,
           propPool: mergedPropPool,
@@ -1817,6 +1845,15 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           propSimulations,
         });
+        let qualityNote = "";
+        if (!isAnalyze && picks.length > 0) {
+          const quality = filterAndReplaceCoachParlay(picks, {
+            propPool: mergedPropPool,
+            scoreOpts: coachScoreOpts,
+          });
+          picks = quality.picks;
+          qualityNote = quality.note;
+        }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1840,6 +1877,9 @@ export default function CoachScreen() {
         }
         if (tonightNote) {
           legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
+        }
+        if (qualityNote) {
+          legNote = legNote ? `${legNote}\n\n${qualityNote}` : qualityNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
@@ -1897,7 +1937,10 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        if (picks.length > 0) setAiPicks(picks);
+        if (picks.length > 0) {
+          setAiPicks(picks);
+          void registerCoachPickSnapshots(picks);
+        }
         // Deep Monte Carlo refines displayed grades after the ticket is grounded.
         if (picks.some((p) => p.isProp)) {
           simAbortRef.current?.abort();
@@ -1920,11 +1963,13 @@ export default function CoachScreen() {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                void registerCoachPickSnapshots(scored);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                void registerCoachPickSnapshots(scored);
               },
             },
             simController.signal,

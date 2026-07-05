@@ -24,8 +24,6 @@ function gradeRank(grade: string | null | undefined): number {
   return GRADE_RANK[grade] ?? -1;
 }
 
-export const DEEP_SIM_TARGET = 10_000;
-
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
