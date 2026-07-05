@@ -215,6 +215,7 @@ function deepParlayGameOrder(longshotAsk?: boolean, reachFull?: boolean): RegExp
     return [
       /^Alt Spread$/,
       /^Alt Total$/,
+      /^Alt Team Total$/i,
       /^Team Total$/i,
       /^Spread$/,
       /^Total$/,
@@ -222,7 +223,14 @@ function deepParlayGameOrder(longshotAsk?: boolean, reachFull?: boolean): RegExp
     ];
   }
   // Deep tickets never backfill chalk moneylines — alts and sides only.
-  return [/^Alt Spread$/, /^Alt Total$/, /^Team Total$/i, /^Spread$/, /^Total$/];
+  return [
+    /^Alt Spread$/,
+    /^Alt Total$/,
+    /^Alt Team Total$/i,
+    /^Team Total$/i,
+    /^Spread$/,
+    /^Total$/,
+  ];
 }
 
 /**

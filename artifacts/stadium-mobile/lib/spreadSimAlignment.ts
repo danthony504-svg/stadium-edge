@@ -62,6 +62,8 @@ function spreadLineFromPick(pick: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+export { spreadLineFromPick };
+
 function pickTeamName(pick: string): string | null {
   const p = String(pick ?? "");
   if (/\b(over|under)\b/i.test(p)) return null;
@@ -108,6 +110,40 @@ export function simPrefersPlusPoints(
   if (!sim || spreadLine >= 0) return false;
   const margin = projectedMarginForTeam(sim, teamSide);
   return margin < Math.abs(spreadLine) - 0.15;
+}
+
+/** Export for game-line optimizer close-game checks. */
+export function projectedTeamMargin(
+  sim: CoachGameSimEntry,
+  teamSide: "home" | "away",
+): number {
+  return projectedMarginForTeam(sim, teamSide);
+}
+
+/**
+ * True when the 10k sim projects a tight game for this team's spread decision —
+ * laying the main spread is a poor fit and alt rungs should be searched instead.
+ */
+export function isCloseGameForTeamSpread(
+  sim: CoachGameSimEntry | null | undefined,
+  teamSide: "home" | "away" | null,
+  evalLines: RealOddsEntry[],
+  teamName: string,
+): boolean {
+  if (!sim || !teamSide || !teamName) return false;
+  const mainSpread = evalLines.find(
+    (e) =>
+      /^spread$/i.test(String(e.market ?? "").trim()) &&
+      teamsMatch(pickTeamName(e.pick) ?? "", teamName),
+  );
+  if (mainSpread) {
+    const line = spreadLineFromPick(mainSpread.pick);
+    if (line != null && line < 0 && simPrefersPlusPoints(sim, teamSide, line)) return true;
+  }
+  if (Math.abs(projectedMarginForTeam(sim, teamSide)) < 0.75) return true;
+  const winProb = teamSide === "home" ? sim.homeWinProbability : sim.awayWinProbability;
+  if (winProb != null && Math.abs(winProb - 0.5) < 0.035) return true;
+  return false;
 }
 
 function findPlusPointsRung(

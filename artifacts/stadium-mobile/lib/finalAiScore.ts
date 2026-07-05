@@ -64,6 +64,8 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
+export { gradeRank };
+
 /** Weighted 1–10 composite; absent factors are omitted and weights renormalized. */
 export function combineFinalAiFactors(factors: FinalAiFactor[]): number | null {
   let wSum = 0;

@@ -21,7 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import { queueCoachAutoSend } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -795,7 +795,7 @@ export default function HomeScreen() {
     upsetsQ.isFetching;
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+    queueCoachAutoSend(msg, { hideBubble: silent, freshThread: silent });
     router.push({
       pathname: "/coach",
       params: {
@@ -1503,7 +1503,10 @@ export default function HomeScreen() {
 
                   <Pressable
                     onPress={() =>
-                      goCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)
+                      askCoach(
+                        `Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`,
+                        true,
+                      )
                     }
                     style={({ pressed }) => ({
                       backgroundColor: "rgba(59,130,246,0.14)",
