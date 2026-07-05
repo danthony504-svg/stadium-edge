@@ -510,6 +510,8 @@ export function finalizeGameLinePickForGame(
     odds: row.entry.odds ?? -110,
     sport: row.entry.sport ?? template.sport,
     isProp: false,
+    altOptions: undefined,
+    gameLineFrozen: undefined,
     finalAiScore: row.finalAiScore,
     scores: row.finalAiScore.rubric,
     highRiskValuePlay: row.finalAiScore.highRiskValuePlay,
@@ -628,12 +630,16 @@ function formatFinalGameLineNote(
   pick: ParsedPick,
   realOdds: RealOddsEntry[],
 ): string | null {
+  const frozen = pick.gameLineFinal?.display;
   const score = pick.finalAiScore;
-  const edge = resolvePickEdgePct(pick, { realOdds });
-  const ev = resolvePickExpectedValue(pick, { realOdds });
-  const simHit = score?.simHit;
-  const grade = score?.grade;
-  const conf = score?.confidencePct;
+  const edge = frozen?.edgePct ?? resolvePickEdgePct(pick, { realOdds });
+  const ev = frozen?.evPct ?? resolvePickExpectedValue(pick, { realOdds });
+  const simHit = frozen?.simHit ?? score?.simHit;
+  const grade = frozen?.grade ?? score?.grade;
+  const conf = frozen?.confidencePct ?? score?.confidencePct;
+  const pickLabel = frozen?.pick ?? pick.pick;
+  const marketLabel = frozen?.market ?? pick.market;
+  const gameLabel = frozen?.game ?? pick.game;
   if (
     simHit == null ||
     !Number.isFinite(simHit) ||
@@ -654,7 +660,7 @@ function formatFinalGameLineNote(
     return null;
   }
 
-  const header = `**${pick.pick}** (${pick.market}) · ${pick.game}`;
+  const header = `**${pickLabel}** (${marketLabel}) · ${gameLabel}`;
   const metrics = `Sim ${Math.round(simHit * 100)}% · Edge +${edge}% · EV +${ev.toFixed(1)}% · Conf ${conf} · Grade ${grade}`;
   const bullets = pick.gameLineFinal.bullets ?? [];
   const why =

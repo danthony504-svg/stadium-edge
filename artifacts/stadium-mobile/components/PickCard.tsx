@@ -14,6 +14,7 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE, GAME_LINE_MIN_CONFIDENCE, pickHasCoachCardMetrics } from "@/lib/parlayQualifiedGate";
+import { frozenGameLineHeader, isGameLineFrozen } from "@/lib/frozenGameLinePick";
 import { gradeRank } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
@@ -91,7 +92,23 @@ export type ParsedPick = {
     bullets?: string[];
     /** Highest +EV among every posted rung for this game. */
     isBestEv?: boolean;
+    /** Set when the pick is frozen for render — summary/card/slip must read display. */
+    frozenAt?: number;
+    display?: {
+      pick: string;
+      market: string;
+      odds: number;
+      game: string;
+      grade: string | null;
+      confidencePct: number | null;
+      edgePct: number | null;
+      evPct: number | null;
+      simHit: number | null;
+      simPct: number | null;
+    };
   };
+  /** True after freezeAllGameLinesInTicket — blocks post-freeze mutation. */
+  gameLineFrozen?: boolean;
 };
 
 if (
@@ -586,21 +603,24 @@ function coachMetricColor(score: number | null, colors: ReturnType<typeof useCol
 /** Coach cards: AI Grade, Confidence, Edge, EV, Sim % — only when every value is real. */
 function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
+  const frozen = isGameLineFrozen(pick) ? pick.gameLineFinal?.display : null;
   const finalAi = pick.finalAiScore;
   const rubric = pick.scores ?? finalAi?.rubric ?? null;
-  const edge = resolvePickEdgePct(pick);
-  const ev = resolvePickExpectedValue(pick);
+  const edge = frozen?.edgePct ?? resolvePickEdgePct(pick);
+  const ev = frozen?.evPct ?? resolvePickExpectedValue(pick);
+  const grade = frozen?.grade ?? finalAi?.grade ?? null;
+  const confidencePct = frozen?.confidencePct ?? finalAi?.confidencePct ?? null;
+  const simHit = frozen?.simHit ?? finalAi?.simHit ?? null;
   const isGameLine = !pick.isProp && isGameLinePick(pick);
   const minConf = isGameLine ? GAME_LINE_MIN_CONFIDENCE : MIN_MAIN_PICK_CONFIDENCE;
   if (
-    !finalAi?.grade ||
-    gradeRank(finalAi.grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
-    finalAi.confidencePct == null ||
-    finalAi.confidencePct < minConf ||
-    finalAi.simHit == null ||
-    finalAi.composite == null ||
-    !Number.isFinite(finalAi.composite) ||
-    finalAi.composite <= 0 ||
+    !grade ||
+    gradeRank(grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
+    confidencePct == null ||
+    confidencePct < minConf ||
+    simHit == null ||
+    (finalAi?.composite == null && !frozen) ||
+    (finalAi?.composite != null && finalAi.composite <= 0 && !frozen) ||
     edge == null ||
     edge <= 0 ||
     ev == null ||
@@ -613,7 +633,7 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
   const gradeColor = coachMetricColor(rubric.composite, colors);
   const edgeColor = edge >= 0 ? colors.success : colors.destructive;
   const evColor = ev > 0 ? colors.success : colors.destructive;
-  const simPct = Math.round(finalAi.simHit * 100);
+  const simPct = frozen?.simPct ?? Math.round(simHit * 100);
 
   const cell = (
     icon: keyof typeof Feather.glyphMap,
@@ -674,11 +694,11 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
   return (
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {cell("award", "AI Grade", finalAi.grade, gradeColor, confidenceTierLabel(finalAi))}
+        {cell("award", "AI Grade", grade, gradeColor, confidenceTierLabel(finalAi))}
         {cell(
           "target",
           "Confidence",
-          String(finalAi.confidencePct),
+          String(confidencePct),
           colors.primary,
           "Conviction score",
           "%",
@@ -798,7 +818,9 @@ export function PickCard({
 }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
-  const added = hasLeg(pick.game, pick.market, pick.pick);
+  const header = frozenGameLineHeader(pick);
+  const slipPick = isGameLineFrozen(pick) ? { ...pick, ...header } : pick;
+  const added = hasLeg(header.game, header.market, header.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
@@ -828,14 +850,12 @@ export function PickCard({
   // legKey(game, market, pick) so removeLeg targets the right entry.
   const onToggle = () => {
     if (added) {
-      const id = `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
+      const id = `${header.game}|${header.market}|${header.pick}`.toLowerCase();
       removeLeg(id);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
-      // Selecting the main line clears any alternate rung (cushion/value) for the
-      // same bet so a card only ever contributes ONE leg.
-      for (const k of siblingLegKeys(pick, pick.pick)) removeLeg(k);
-      const ok = addLeg(pick);
+      for (const k of siblingLegKeys(slipPick, header.pick)) removeLeg(k);
+      const ok = addLeg(slipPick);
       Haptics.impactAsync(
         ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
       );
@@ -925,17 +945,17 @@ export function PickCard({
                 textTransform: "uppercase",
               }}
             >
-              {marketDisplayLabel(pick.market, pick.sport)}
+              {marketDisplayLabel(header.market, pick.sport)}
             </Text>
           </View>
           <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
-            {formatAmerican(pick.odds)}
+            {formatAmerican(header.odds)}
           </Text>
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-            {pick.pick}
+            {header.pick}
           </Text>
           {homeAwayTag ? (
             <View
@@ -960,7 +980,7 @@ export function PickCard({
             </View>
           ) : null}
         </View>
-        <MatchupLine game={pick.game} />
+        <MatchupLine game={header.game} />
         {formatGameTime(pick.startsAt) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
             <Feather name="clock" size={11} color={colors.mutedForeground} />
@@ -982,7 +1002,7 @@ export function PickCard({
 
       <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
 
-      <LineLadder pick={pick} />
+      <LineLadder pick={slipPick} />
 
       {hideReadout ? null : pickHasCoachCardMetrics(pick) ? (
         <View style={{ gap: 8 }}>

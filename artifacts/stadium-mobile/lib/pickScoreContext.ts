@@ -498,6 +498,9 @@ export function attachPickScores(
     injuryTeams: opts.injuryTeams,
   };
   return picks.map((p) => {
+    if (p.gameLineFrozen && p.gameLineFinal?.frozenAt) {
+      return p;
+    }
     const gameSim = lookupGameSim(p.game, gameSims);
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)

@@ -29,6 +29,7 @@ import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import {
   PickCard,
+  gameAltOptions,
   gameSideFromPick,
   gameTotalFromPick,
   parsePicks,
@@ -64,6 +65,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import { freezeAllGameLinesInTicket } from "@/lib/frozenGameLinePick";
 import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
 import { enforceConsistentGameSides, conflictingLegDropMessage, stripConflictingLegDropNotes } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2053,7 +2055,6 @@ export default function CoachScreen() {
         // Game-line legs must pass the SAME 10k-run game simulator the Simulator tab
         // uses — drop any ML/spread/total/alt that the sim does not support.
         let gameSimNote = "";
-        let gameSimSupplementNote = "";
         let conflictingLegsDropped = 0;
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
@@ -2148,10 +2149,8 @@ export default function CoachScreen() {
             mergedPropPool,
           );
           picks = edgeFiltered.picks;
-          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
-          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
-          if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
-            gameSimSupplementNote = filtered.warnings.join("\n");
+          if (filtered.warnings.length > 0) {
+            void filtered.warnings;
           }
           if (
             deepMultiLegParlay &&
@@ -2582,6 +2581,29 @@ export default function CoachScreen() {
             longshotAsk,
           });
         }
+        if (
+          coachEvalLinesByGame &&
+          gameSimulations.size > 0 &&
+          picks.some(isGameLinePick) &&
+          isParlayBuild &&
+          !isAnalyze
+        ) {
+          picks = freezeAllGameLinesInTicket(picks, {
+            evalLinesByGame: coachEvalLinesByGame,
+            gameSimulations,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            longshotAsk,
+            buildAltOptions: (best, pool) => gameAltOptions(best, pool),
+          });
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+            longshotAsk,
+          });
+        }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
           const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
@@ -2590,13 +2612,9 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             longshotAsk,
           });
-          gameSimNote = optimizerNote
-            ? gameSimSupplementNote
-              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
-              : optimizerNote
-            : gameSimSupplementNote;
+          gameSimNote = optimizerNote ?? "";
         } else {
-          gameSimNote = gameSimSupplementNote;
+          gameSimNote = "";
         }
         if (gameSimNote) {
           legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
