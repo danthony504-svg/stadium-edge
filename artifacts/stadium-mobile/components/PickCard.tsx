@@ -1865,6 +1865,10 @@ export function backfillProps(
     diversify?: boolean;
     /** Max prop legs per stat market on the finished ticket (existing + new). */
     maxPerMarket?: number;
+    /** Max prop legs per game — spreads long tickets across matchups instead of one slate spot. */
+    maxPerGame?: number;
+    /** Max prop legs per sport when the pool spans multiple leagues. */
+    maxPerSport?: number;
     /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
     selectionOpts?: PropSelectionOpts;
   },
@@ -1873,6 +1877,12 @@ export function backfillProps(
   const maxPerMarket =
     opts.maxPerMarket ??
     (target >= 12 ? 3 : target >= 8 ? 4 : target >= 5 ? 5 : 99);
+  const maxPerGame =
+    opts.maxPerGame ??
+    (target >= 12 ? 2 : target >= 8 ? 3 : target >= 5 ? 4 : 99);
+  const maxPerSport =
+    opts.maxPerSport ??
+    (target >= 12 ? Math.max(4, Math.ceil(target / 3)) : target >= 8 ? 6 : 99);
   if (existing.length >= target) return existing;
   const out = [...existing];
   // Allowed games come from realToday (= the salvage's sport-filtered,
@@ -1934,15 +1944,23 @@ export function backfillProps(
     }
   }
   const marketCounts = new Map<string, number>();
+  const gameCounts = new Map<string, number>();
+  const sportCounts = new Map<string, number>();
   for (const p of out) {
     if (!p.isProp) continue;
     const mk = norm(p.market);
     marketCounts.set(mk, (marketCounts.get(mk) ?? 0) + 1);
+    const gk = norm(p.game);
+    gameCounts.set(gk, (gameCounts.get(gk) ?? 0) + 1);
+    if (p.sport) sportCounts.set(p.sport, (sportCounts.get(p.sport) ?? 0) + 1);
   }
   const tryAdd = (e: PropPoolEntry): boolean => {
     if (out.length >= target) return false;
     const mk = norm(e.marketLabel);
     if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
+    const gk = norm(e.game);
+    if ((gameCounts.get(gk) ?? 0) >= maxPerGame) return false;
+    if (e.sport && (sportCounts.get(e.sport) ?? 0) >= maxPerSport) return false;
     const canon = canonicalGameKey(e.game);
     const pick =
       e.line != null
@@ -1952,6 +1970,8 @@ export function backfillProps(
     if (legSeen.has(legKey)) return false;
     legSeen.add(legKey);
     marketCounts.set(mk, (marketCounts.get(mk) ?? 0) + 1);
+    gameCounts.set(gk, (gameCounts.get(gk) ?? 0) + 1);
+    if (e.sport) sportCounts.set(e.sport, (sportCounts.get(e.sport) ?? 0) + 1);
     out.push(
       enrichPickMeta(
         {
@@ -2015,7 +2035,22 @@ export function backfillProps(
       const bucket = buckets.get(mk);
       if (!bucket?.length) continue;
       if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) continue;
-      const e = bucket.shift()!;
+      let pickIdx = -1;
+      let pickLoad = Infinity;
+      for (let i = 0; i < bucket.length; i++) {
+        const cand = bucket[i]!;
+        const cg = norm(cand.game);
+        const cs = cand.sport ?? "";
+        if ((gameCounts.get(cg) ?? 0) >= maxPerGame) continue;
+        if (cs && (sportCounts.get(cs) ?? 0) >= maxPerSport) continue;
+        const load = (gameCounts.get(cg) ?? 0) + (cs ? (sportCounts.get(cs) ?? 0) * 0.25 : 0);
+        if (load < pickLoad) {
+          pickLoad = load;
+          pickIdx = i;
+        }
+      }
+      if (pickIdx < 0) continue;
+      const e = bucket.splice(pickIdx, 1)[0]!;
       if (tryAdd(e)) progressed = true;
     }
   }
