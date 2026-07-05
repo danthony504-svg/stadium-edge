@@ -96,4 +96,5 @@ test("isSimulatorEligible: pregame only — drops started, live, and final games
   assert.equal(isSimulatorEligible({ startsAt: at(-2.5), state: "pre" }), false);
   assert.equal(isSimulatorEligible({ startsAt: at(-1), state: "in" }), false);
   assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "post" }), false);
+  assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "pre", status: "Final" }), false);
 });

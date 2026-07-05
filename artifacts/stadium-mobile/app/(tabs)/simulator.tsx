@@ -27,7 +27,7 @@ import {
   fetchGameOutcomeSimulation,
   fetchMatchupHistoryEntry,
   fetchPropSimulationsBatch,
-  getGames,
+  getSimulatorGames,
   getInjuries,
   getParkWeather,
   getPlayerHistory,
@@ -50,7 +50,6 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
-  cachedSimProps,
   pruneSimGamesCache,
   rememberSimGames,
   rememberSimProps,
@@ -110,6 +109,20 @@ function initials(name: string) {
     .map((w) => w[0])
     .join("")
     .toUpperCase();
+}
+
+function simGameTabLabel(g: EspnGame, games: EspnGame[]): string {
+  const base = `${g.awayAbbr ?? g.awayTeam} @ ${g.homeAbbr ?? g.homeTeam}`;
+  const dupes = games.filter(
+    (x) =>
+      (x.awayAbbr ?? x.awayTeam) === (g.awayAbbr ?? g.awayTeam) &&
+      (x.homeAbbr ?? x.homeTeam) === (g.homeAbbr ?? g.homeTeam),
+  );
+  if (dupes.length <= 1) return base;
+  const t = Date.parse(g.startsAt ?? "");
+  if (!Number.isFinite(t)) return base;
+  const d = new Date(t);
+  return `${base} · ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function formatGameWhen(iso: string) {
@@ -193,7 +206,7 @@ export default function SimulatorScreen() {
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
     queryFn: ({ signal }) =>
-      getGames(sport, signal).then((rows) => {
+      getSimulatorGames(sport, signal).then((rows) => {
         const list = asGameList(rows).filter((g) => isSimulatorEligible(g));
         rememberSimGames(sport, list);
         return list;
@@ -289,11 +302,6 @@ export default function SimulatorScreen() {
     retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
     // Never paint another sport/game's props while this query refetches.
     placeholderData: undefined,
-    initialData: () => {
-      if (!game?.id) return undefined;
-      const cached = cachedSimProps(sport, game.id);
-      return cached.length > 0 ? cached : undefined;
-    },
   });
 
   const gamesBootstrapping = gamesQ.isPending && games.length === 0;
@@ -665,7 +673,7 @@ export default function SimulatorScreen() {
                     }}
                   >
                     <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
-                      {g.awayAbbr ?? g.awayTeam} @ {g.homeAbbr ?? g.homeTeam}
+                      {simGameTabLabel(g, games)}
                     </Text>
                   </Pressable>
                 ))}

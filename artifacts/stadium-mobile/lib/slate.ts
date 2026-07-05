@@ -37,10 +37,20 @@ export function isSimulatorEligible(
   game: {
     startsAt?: string | null;
     state?: string | null;
+    status?: string | null;
   } | null | undefined,
 ): boolean {
   if (!game) return false;
   if (game.state === "post" || game.state === "in") return false;
+  const status = String(game.status ?? "").toLowerCase();
+  if (
+    status.includes("final") ||
+    status.includes("in progress") ||
+    status.includes("halftime") ||
+    status.includes("end of")
+  ) {
+    return false;
+  }
   // ESPN often lags `state: pre` after first pitch — the clock is authoritative.
   if (!isPregameBettable(game.startsAt)) return false;
   return true;

@@ -4,6 +4,31 @@ import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 
 const router: IRouter = Router();
 
+type GameRow = {
+  startsAt?: string | null;
+  state?: string | null;
+  status?: string | null;
+};
+
+/** Pregame-only pool for Game Simulator (`?simulator=1`). Clock is authoritative. */
+function isSimulatorPregame(game: GameRow | null | undefined): boolean {
+  if (!game) return false;
+  if (game.state === "post" || game.state === "in") return false;
+  const status = String(game.status ?? "").toLowerCase();
+  if (
+    status.includes("final") ||
+    status.includes("in progress") ||
+    status.includes("halftime") ||
+    status.includes("end of")
+  ) {
+    return false;
+  }
+  const t = Date.parse(game.startsAt ?? "");
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now && t < now + 48 * 3600_000;
+}
+
 type EspnEvent = {
   id: string;
   name: string;
@@ -109,6 +134,11 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       },
     );
 
+    const simulatorOnly =
+      req.query.simulator === "1" ||
+      req.query.simulator === "true" ||
+      req.query.pregameOnly === "1";
+
     const out = (data.events ?? []).map((e) => {
       const comp = e.competitions?.[0];
       const home = comp?.competitors?.find((c) => c.homeAway === "home");
@@ -155,7 +185,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       };
     });
 
-    res.json(GetGamesResponse.parse(out));
+    const filtered = simulatorOnly ? out.filter((g) => isSimulatorPregame(g)) : out;
+    res.json(GetGamesResponse.parse(filtered));
   } catch (err) {
     req.log.error({ err }, "Failed to fetch games");
     res.json([]);

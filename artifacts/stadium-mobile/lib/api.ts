@@ -505,6 +505,14 @@ export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
 }
 
+/** Pregame-only slate for Game Simulator — server filters with `simulator=1`. */
+export function getSimulatorGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
+  return getJson<EspnGame[]>(
+    `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
+    signal,
+  );
+}
+
 export function getEspnOdds(
   sport: string,
   eventId: string,
