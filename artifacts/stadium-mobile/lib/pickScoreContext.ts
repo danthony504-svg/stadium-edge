@@ -14,7 +14,7 @@ import type {
   PropPoolEntry,
   RealOddsEntry,
 } from "@/lib/api";
-import { propMarketLabel } from "@/lib/api";
+import { propMarketLabel } from "@/lib/propMarketLabel";
 import type { GameInjuryReport } from "@/lib/injuries";
 import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
