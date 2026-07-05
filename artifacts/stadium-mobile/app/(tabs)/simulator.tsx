@@ -78,7 +78,7 @@ type SelectedProp = {
   label: string;
 };
 
-const PROP_FILTERS: { id: string; label: string; icon?: keyof typeof Feather.glyphMap; markets?: string[] }[] = [
+const MLB_PROP_FILTERS: { id: string; label: string; icon?: keyof typeof Feather.glyphMap; markets?: string[] }[] = [
   { id: "popular", label: "Popular", icon: "zap" },
   { id: "hits", label: "Hits", markets: ["batter_hits"] },
   { id: "rbis", label: "RBIs", markets: ["batter_hits_runs_rbis"] },
@@ -86,7 +86,7 @@ const PROP_FILTERS: { id: string; label: string; icon?: keyof typeof Feather.gly
   { id: "k", label: "Strikeouts", markets: ["pitcher_strikeouts"] },
 ];
 
-const BASKETBALL_PROP_FILTERS: typeof PROP_FILTERS = [
+const BASKETBALL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "popular", label: "Popular", icon: "zap" },
   { id: "points", label: "Points", markets: ["player_points"] },
   { id: "rebounds", label: "Rebounds", markets: ["player_rebounds"] },
@@ -94,17 +94,39 @@ const BASKETBALL_PROP_FILTERS: typeof PROP_FILTERS = [
   { id: "threes", label: "Threes", markets: ["player_threes"] },
 ];
 
-const NHL_PROP_FILTERS: typeof PROP_FILTERS = [
+const NHL_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
   { id: "popular", label: "Popular", icon: "zap" },
   { id: "goals", label: "Goals", markets: ["player_goals"] },
   { id: "shots", label: "Shots", markets: ["player_shots_on_goal"] },
   { id: "points", label: "Points", markets: ["player_points"] },
 ];
 
+const SOCCER_PROP_MARKETS = [
+  "player_shots",
+  "player_shots_on_target",
+  "player_goal_scorer_anytime",
+] as const;
+
+const SOCCER_PROP_FILTERS: typeof MLB_PROP_FILTERS = [
+  { id: "popular", label: "Popular", icon: "zap" },
+  { id: "shots", label: "Shots", markets: ["player_shots"] },
+  { id: "sot", label: "Shots on Target", markets: ["player_shots_on_target"] },
+  { id: "goals", label: "Anytime Goal", markets: ["player_goal_scorer_anytime"] },
+];
+
 function propFiltersForSport(sport: string) {
   if (sport === "nba" || sport === "wnba") return BASKETBALL_PROP_FILTERS;
   if (sport === "nhl") return NHL_PROP_FILTERS;
-  return PROP_FILTERS;
+  if (sport === "soccer") return SOCCER_PROP_FILTERS;
+  return MLB_PROP_FILTERS;
+}
+
+function isSoccerPropMarket(market: string): boolean {
+  const m = market.toLowerCase();
+  if ((SOCCER_PROP_MARKETS as readonly string[]).includes(market)) return true;
+  if (m.includes("shot")) return true;
+  if (m.includes("goal")) return true;
+  return false;
 }
 
 function initials(name: string) {
@@ -378,8 +400,12 @@ export default function SimulatorScreen() {
 
   const mains = useMemo(() => {
     if (propsLoading) return [];
-    return asPropList(propsQ.data).filter((p) => !p?.alt && p.line != null);
-  }, [propsQ.data, propsLoading]);
+    let list = asPropList(propsQ.data).filter((p) => !p?.alt && p.line != null);
+    if (sport === "soccer") {
+      list = list.filter((p) => isSoccerPropMarket(p.market));
+    }
+    return list;
+  }, [propsQ.data, propsLoading, sport]);
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];

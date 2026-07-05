@@ -58,7 +58,16 @@ function ppStatToMarketKey(sport: string, stat: string | null | undefined): stri
               assists: "player_assists",
               "shots on goal": "player_shots_on_goal",
             }
-          : {};
+          : sport === "soccer"
+            ? {
+                shots: "player_shots",
+                "shots on target": "player_shots_on_target",
+                sot: "player_shots_on_target",
+                goals: "player_goal_scorer_anytime",
+                "anytime goal": "player_goal_scorer_anytime",
+                "goal scorer": "player_goal_scorer_anytime",
+              }
+            : {};
   return map[s] ?? stat;
 }
 
