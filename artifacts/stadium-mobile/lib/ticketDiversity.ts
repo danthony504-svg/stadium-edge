@@ -196,15 +196,31 @@ export function isChalkHeavyParlay(picks: ParsedPick[], legTarget: number): bool
   return gameLegs >= legTarget && propShare(picks) === 0;
 }
 
-function deepParlayMix(legTarget: number, longshotAsk?: boolean) {
+function deepParlayMix(legTarget: number, longshotAsk?: boolean, reachFull?: boolean) {
+  if (reachFull || legTarget >= 12) {
+    return {
+      minProps: Math.max(4, Math.floor(legTarget * 0.35)),
+      maxGameLegs: Math.max(5, Math.min(Math.ceil(legTarget * 0.5), legTarget - 3)),
+    };
+  }
   const minPropFraction = longshotAsk ? 0.65 : 0.5;
   const minProps = Math.max(1, Math.ceil(legTarget * minPropFraction));
   const maxGameLegs = Math.max(1, Math.min(longshotAsk ? 2 : 3, legTarget - minProps));
   return { minProps, maxGameLegs };
 }
 
-function deepParlayGameOrder(longshotAsk?: boolean): RegExp[] {
+function deepParlayGameOrder(longshotAsk?: boolean, reachFull?: boolean): RegExp[] {
   void longshotAsk;
+  if (reachFull) {
+    return [
+      /^Alt Spread$/,
+      /^Alt Total$/,
+      /^Team Total$/i,
+      /^Spread$/,
+      /^Total$/,
+      /^Moneyline$/,
+    ];
+  }
   // Deep tickets never backfill chalk moneylines — alts and sides only.
   return [/^Alt Spread$/, /^Alt Total$/, /^Team Total$/i, /^Spread$/, /^Total$/];
 }
@@ -225,11 +241,12 @@ export function topUpDeepParlayToTarget(
     diversify?: boolean;
     varietySeed?: string;
     avoidLegKeys?: Set<string>;
+    reachFull?: boolean;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
   if (picks.length >= legTarget) return dedupeSameTeamGameLegs(picks).picks;
-  const { minProps, maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk);
+  const { minProps, maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk, opts.reachFull);
   const propOpts = {
     plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
     diversify: opts.diversify ?? true,
@@ -237,7 +254,7 @@ export function topUpDeepParlayToTarget(
     avoidLegKeys: opts.avoidLegKeys,
     selectionOpts: opts.selectionOpts,
   };
-  const gameOrder = deepParlayGameOrder(opts.longshotAsk);
+  const gameOrder = deepParlayGameOrder(opts.longshotAsk, opts.reachFull);
   let out = [...picks];
   const propsNow = out.filter((p) => p.isProp).length;
   if (propsNow < minProps) {
@@ -257,6 +274,9 @@ export function topUpDeepParlayToTarget(
       ...propOpts,
     });
   }
+  if (opts.reachFull && out.length < legTarget) {
+    out = backfillPicks(out, realOdds, gameMeta, { target: legTarget, order: gameOrder });
+  }
   return dedupeSameTeamGameLegs(out).picks;
 }
 
@@ -274,6 +294,8 @@ export function assembleDeepParlayFromBoard(
     plusMoneyBias?: boolean;
     diversify?: boolean;
     varietySeed?: string;
+    avoidLegKeys?: Set<string>;
+    reachFull?: boolean;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
@@ -292,15 +314,17 @@ export function finalizeDeepParlayTicket(
     plusMoneyBias?: boolean;
     diversify?: boolean;
     varietySeed?: string;
+    avoidLegKeys?: Set<string>;
+    reachFull?: boolean;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
-  const { maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk);
-  const minPropShare = opts.longshotAsk ? 0.5 : 0.35;
+  const { maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk, opts.reachFull);
+  const minPropShare = opts.reachFull ? 0.3 : opts.longshotAsk ? 0.5 : 0.35;
   let out = dedupeSameTeamGameLegs(picks).picks;
-  const withoutMl = out.filter(
-    (p) => p.isProp || !/^moneyline$/i.test(String(p.market ?? "").trim()),
-  );
+  const withoutMl = opts.reachFull
+    ? out
+    : out.filter((p) => p.isProp || !/^moneyline$/i.test(String(p.market ?? "").trim()));
   out = withoutMl;
   const gameLegs = out.filter((p) => !p.isProp && isGameLinePick(p)).length;
   const needsBoard =

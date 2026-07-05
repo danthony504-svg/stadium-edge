@@ -1721,6 +1721,16 @@ export const GENERIC_BACKFILL_ORDER: RegExp[] = [
   /^Total$/,
 ];
 
+/** Full-board reach order for explicit 12+ leg parlays — alts first, then mains. */
+export const FULL_REACH_GAME_ORDER: RegExp[] = [
+  /^Alt Spread$/,
+  /^Alt Total$/,
+  /^Team Total$/i,
+  /^Spread$/,
+  /^Total$/,
+  /^Moneyline$/,
+];
+
 // Market-matcher passes for a PERIOD / same-game ticket. Honors the user's
 // requested period+alt intent FIRST — the explicit "alt spreads" ask, then the
 // period winners/sides/totals the model most often skips (Q1/1H/2H Moneyline is

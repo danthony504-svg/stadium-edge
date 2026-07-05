@@ -245,6 +245,7 @@ export function coachGameSimForPick(
 export function filterNegativeEdgeGameLines(
   picks: ParsedPick[],
   oddsForEdge: RealOddsEntry[] = [],
+  rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[],
 ): GameSimFilterResult {
   const kept: ParsedPick[] = [];
   const warnings: string[] = [];
@@ -274,6 +275,11 @@ export function filterNegativeEdgeGameLines(
       warnings.push(
         `Dropped **${p.pick}** (${p.game}): ${edge}% edge — keeping only non-negative or High-Risk Value (≥+${HIGH_RISK_EDGE_MIN}%) lines after the 10k sim ranking.`,
       );
+      rejectsOut?.push({
+        pick: p,
+        reason: `${edge}% edge after Final AI Score`,
+        nearScore: 50 + edge + (highRiskValuePlay ? 20 : 0),
+      });
       continue;
     }
     kept.push(p);
@@ -292,6 +298,7 @@ export type GameSimFilterResult = {
   removed: number;
   warnings: string[];
   note: string;
+  rejects?: import("./parlayReachCore.ts").ParlayLegReject[];
 };
 
 /**
@@ -304,6 +311,7 @@ export function filterCoachPicksWithGameSim(
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
     /** Merged real + eval odds so optimized alt lines still have edge for high-risk checks. */
     oddsForEdge?: RealOddsEntry[];
+    rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[];
   } = {},
 ): GameSimFilterResult {
   const sideAligned = enforceConsistentGameSides(picks, {
@@ -339,6 +347,11 @@ export function filterCoachPicksWithGameSim(
       if (disagree) {
         coverRemoved += 1;
         warnings.push(`Dropped **${p.pick}** (${p.game}): ${disagree.reason}`);
+        opts.rejectsOut?.push({
+          pick: p,
+          reason: disagree.reason,
+          nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
+        });
         continue;
       }
     } else if (!simAligned && !highRiskValuePlay) {
@@ -347,6 +360,11 @@ export function filterCoachPicksWithGameSim(
       warnings.push(
         `Dropped **${p.pick}** (${p.game}): simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
       );
+      opts.rejectsOut?.push({
+        pick: p,
+        reason: `10k sim ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge`,
+        nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
+      });
       continue;
     }
 
