@@ -89,6 +89,9 @@ const ESPN_SPORT_PATHS: Record<string, string> = {
   ncaab: "basketball/mens-college-basketball",
 };
 
+/** Soccer rosters vary by competition — try World Cup first (our props feed is WC-only). */
+const SOCCER_ROSTER_PATHS = ["soccer/fifa.world", "soccer/uefa.champions"];
+
 type EspnRosterAthlete = {
   id?: string | number;
   fullName?: string;
@@ -103,41 +106,56 @@ async function fetchEspnRosterDirect(
   awayTeamId: string | null | undefined,
   signal?: AbortSignal,
 ): Promise<GameRosterPlayer[]> {
-  const espnPath = ESPN_SPORT_PATHS[sport];
-  if (!espnPath) return [];
   const teamIds = [homeTeamId, awayTeamId].filter((id): id is string => !!id);
+  const paths =
+    sport === "soccer"
+      ? SOCCER_ROSTER_PATHS
+      : ESPN_SPORT_PATHS[sport]
+        ? [ESPN_SPORT_PATHS[sport]]
+        : [];
+  if (!paths.length || !teamIds.length) return [];
+
   const players: GameRosterPlayer[] = [];
   for (const teamId of teamIds) {
-    try {
-      const res = await expoFetch(
-        `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`,
-        { signal },
-      );
-      if (!res.ok) continue;
-      const data = (await res.json()) as {
-        athletes?: Array<EspnRosterAthlete | { items?: EspnRosterAthlete[] }>;
-      };
-      const flat: EspnRosterAthlete[] = [];
-      for (const entry of data.athletes ?? []) {
-        if (entry && typeof entry === "object" && "items" in entry && Array.isArray(entry.items)) {
-          flat.push(...entry.items);
-        } else {
-          flat.push(entry as EspnRosterAthlete);
+    let loaded = false;
+    for (const espnPath of paths) {
+      try {
+        const res = await expoFetch(
+          `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`,
+          { signal },
+        );
+        if (!res.ok) continue;
+        const data = (await res.json()) as {
+          athletes?: Array<EspnRosterAthlete | { items?: EspnRosterAthlete[] }>;
+        };
+        const flat: EspnRosterAthlete[] = [];
+        for (const entry of data.athletes ?? []) {
+          if (entry && typeof entry === "object" && "items" in entry && Array.isArray(entry.items)) {
+            flat.push(...entry.items);
+          } else {
+            flat.push(entry as EspnRosterAthlete);
+          }
         }
+        if (!flat.length) continue;
+        for (const a of flat) {
+          const name = a.fullName ?? a.displayName;
+          if (!name) continue;
+          const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
+          players.push({
+            name,
+            athleteId: a.id != null ? String(a.id) : null,
+            teamId,
+            headshot: href ?? null,
+          });
+        }
+        loaded = true;
+        break;
+      } catch {
+        /* try next competition path */
       }
-      for (const a of flat) {
-        const name = a.fullName ?? a.displayName;
-        if (!name) continue;
-        const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
-        players.push({
-          name,
-          athleteId: a.id != null ? String(a.id) : null,
-          teamId,
-          headshot: href ?? null,
-        });
-      }
-    } catch {
-      /* try next team */
+    }
+    if (!loaded) {
+      /* team roster unavailable for this competition */
     }
   }
   return players;
