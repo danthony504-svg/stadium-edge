@@ -5,36 +5,17 @@ import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monte
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo } from "../lib/gameMonteCarlo.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
+import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
+import { fetchEspnInjuries } from "../lib/espnInjuries.js";
 
 const router: IRouter = Router();
 
-/** Internal self-calls must include the /api mount (see app.ts). */
+/** Internal self-calls for routes not yet ported to direct ESPN fetch. */
 function apiBaseFromReq(req: { protocol: string; get(name: string): string | undefined }): string {
   return `${req.protocol}://${req.get("host")}/api`;
 }
 
 router.use("/sports/simulate", rateLimit({ windowMs: 60_000, max: 60, name: "simulate" }));
-
-type InjuryTeam = {
-  team?: string;
-  entries?: Array<{ player?: string; status?: string }>;
-};
-
-type PlayerHistoryResp = {
-  labels: string[];
-  recent: Array<{
-    stats: Record<string, string>;
-    isHome?: boolean | null;
-    opponentId?: string | null;
-  }>;
-  vsOpponent: Array<{ stats: Record<string, string> }>;
-  minutesTrend?: {
-    l5: number | null;
-    l10: number | null;
-    season: number | null;
-    direction: "up" | "down" | "steady";
-  } | null;
-};
 
 type GameSimContext = {
   sport: string;
@@ -53,34 +34,7 @@ type SimPropRow = ReturnType<typeof simulateProp> & {
 
 const deepInFlight = new Set<string>();
 
-async function fetchPlayerHistory(
-  baseUrl: string,
-  sport: string,
-  athleteId: string,
-  opponentTeamId?: string,
-): Promise<PlayerHistoryResp | null> {
-  const q = new URLSearchParams({ sport, athleteId });
-  if (opponentTeamId) q.set("opponentTeamId", opponentTeamId);
-  try {
-    const r = await fetch(`${baseUrl}/sports/player-history?${q}`);
-    if (!r.ok) return null;
-    return (await r.json()) as PlayerHistoryResp;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchInjuries(baseUrl: string, sport: string): Promise<InjuryTeam[]> {
-  try {
-    const r = await fetch(`${baseUrl}/sports/injuries?sport=${encodeURIComponent(sport)}`);
-    if (!r.ok) return [];
-    return (await r.json()) as InjuryTeam[];
-  } catch {
-    return [];
-  }
-}
-
-function teamInjuryWeight(teams: InjuryTeam[], teamName: string): number {
+function teamInjuryWeight(teams: Awaited<ReturnType<typeof fetchEspnInjuries>>, teamName: string): number {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim();
   const target = norm(teamName);
   const team = teams.find((t) => {
@@ -122,13 +76,11 @@ async function runPropSims(
   props: SimPropRequest[],
   tier: SimTier,
   gameCtx: GameSimContext,
-  baseUrl: string,
   isHomeByPlayer: Record<string, boolean>,
   simulations?: number,
 ): Promise<{ rows: SimPropRow[]; deepPending: boolean }> {
   const simCount = tierSimCount(tier, simulations);
-  const injuries = await fetchInjuries(baseUrl, gameCtx.sport);
-  const historyCache = new Map<string, PlayerHistoryResp | null>();
+  const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
   let deepPending = false;
 
   const rows = await Promise.all(
@@ -142,7 +94,7 @@ async function runPropSims(
           const deepHit = await getCachedSim(deepKey);
           if (!deepHit) {
             deepPending = true;
-            scheduleDeepSim([p], gameCtx, baseUrl, isHomeByPlayer);
+            scheduleDeepSim([p], gameCtx, isHomeByPlayer);
           }
         }
         return row;
@@ -153,7 +105,7 @@ async function runPropSims(
       let history = historyCache.get(histKey);
       if (history === undefined) {
         history = athleteId
-          ? await fetchPlayerHistory(baseUrl, p.sport, athleteId, p.opponentTeamId ?? undefined)
+          ? await fetchEspnPlayerHistory(p.sport, athleteId, p.opponentTeamId ?? undefined)
           : null;
         historyCache.set(histKey, history);
       }
@@ -181,7 +133,7 @@ async function runPropSims(
 
       if (tier === "quick") {
         deepPending = true;
-        scheduleDeepSim([p], gameCtx, baseUrl, isHomeByPlayer);
+        scheduleDeepSim([p], gameCtx, isHomeByPlayer);
       }
 
       return row;
@@ -194,10 +146,9 @@ async function runPropSims(
 function scheduleDeepSim(
   props: SimPropRequest[],
   gameCtx: GameSimContext,
-  baseUrl: string,
   isHomeByPlayer: Record<string, boolean>,
 ): void {
-  void warmDeepSims(props, gameCtx, baseUrl, isHomeByPlayer).catch(() => {
+  void warmDeepSims(props, gameCtx, isHomeByPlayer).catch(() => {
     /* background warm is best-effort */
   });
 }
@@ -205,10 +156,9 @@ function scheduleDeepSim(
 async function warmDeepSims(
   props: SimPropRequest[],
   gameCtx: GameSimContext,
-  baseUrl: string,
   isHomeByPlayer: Record<string, boolean>,
 ): Promise<void> {
-  const historyCache = new Map<string, PlayerHistoryResp | null>();
+  const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
 
   for (const p of props) {
     const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep");
@@ -223,7 +173,7 @@ async function warmDeepSims(
       let history = historyCache.get(histKey);
       if (history === undefined) {
         history = athleteId
-          ? await fetchPlayerHistory(baseUrl, p.sport, athleteId, p.opponentTeamId ?? undefined)
+          ? await fetchEspnPlayerHistory(p.sport, athleteId, p.opponentTeamId ?? undefined)
           : null;
         historyCache.set(histKey, history);
       }
@@ -326,6 +276,24 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     return;
   }
 
+  const homeTeamId = String(req.body?.homeTeamId ?? "").trim();
+  const awayTeamId = String(req.body?.awayTeamId ?? "").trim();
+  let propsResolved = props as SimPropRequest[];
+  if (homeTeamId || awayTeamId) {
+    const { fetchGameRoster, normalizePlayerName } = await import("../lib/espnRoster.js");
+    const roster = await fetchGameRoster(sport, homeTeamId, awayTeamId);
+    const byName = new Map(
+      roster
+        .filter((r) => r.athleteId)
+        .map((r) => [normalizePlayerName(r.name), r.athleteId!] as const),
+    );
+    propsResolved = props.map((p) => ({
+      ...p,
+      sport: p.sport ?? sport,
+      athleteId: p.athleteId ?? byName.get(normalizePlayerName(p.player)) ?? null,
+    }));
+  }
+
   const baseUrl = apiBaseFromReq(req);
 
   let oppPace: number | null = null;
@@ -345,7 +313,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     }
   }
 
-  const injuries = await fetchInjuries(baseUrl, sport);
+  const injuries = await fetchEspnInjuries(sport);
   const oppKeyInjuries = awayTeam ? teamInjuryWeight(injuries, awayTeam) : 0;
   const ownKeyInjuries = homeTeam ? teamInjuryWeight(injuries, homeTeam) : 0;
 
@@ -364,10 +332,9 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
   };
 
   const { rows, deepPending } = await runPropSims(
-    props,
+    propsResolved,
     tier,
     gameCtx,
-    baseUrl,
     isHomeByPlayer,
     simulations,
   );

@@ -511,6 +511,8 @@ export default function SimulatorScreen() {
           {
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
             weatherImpact: wx,
             tier: "quick",
           },
@@ -523,6 +525,8 @@ export default function SimulatorScreen() {
           {
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
             weatherImpact: wx,
             tier: "deep",
           },

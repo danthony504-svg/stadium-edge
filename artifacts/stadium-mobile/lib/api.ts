@@ -1674,6 +1674,8 @@ export async function fetchPropSimulationsBatch(
   opts?: {
     homeTeam?: string;
     awayTeam?: string;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
     weatherImpact?: number | null;
     simulations?: number;
     tier?: "quick" | "deep";
