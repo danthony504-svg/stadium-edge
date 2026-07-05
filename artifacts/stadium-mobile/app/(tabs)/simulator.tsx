@@ -54,10 +54,21 @@ import { buildAllEvalGameLines } from "@/lib/api";
 import {
   coverQueriesFromEvalLines,
   recommendBestLinesForGame,
-  type EvaluatedGameLine,
 } from "@/lib/gameLineOptimizer";
 import { buildDefaultGameCoverQueries, mergeCoverQueries } from "@/lib/gameSimScoring";
 import { finalAiScoreLabel } from "@/lib/finalAiScore";
+import {
+  buildPickReasons,
+  confidenceTierCaption,
+  confidenceTierColor,
+  confidenceTierLabel,
+  expectedValuePer100,
+  fairOddsFromProb,
+  formatExpectedValue,
+  formatSimHitCount,
+  fairProbFromEdge,
+  type RankedSimulatorBet,
+} from "@/lib/simulatorBetDisplay";
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
@@ -690,6 +701,65 @@ export default function SimulatorScreen() {
     sport,
   ]);
 
+  const rankedSimulatorBets = useMemo((): RankedSimulatorBet[] => {
+    const items: Omit<RankedSimulatorBet, "rank">[] = [];
+
+    if (gameLineRecs?.ranked) {
+      for (const row of gameLineRecs.ranked) {
+        if (row.finalAiScore.composite == null) continue;
+        items.push({
+          kind: "game",
+          label: row.entry.pick,
+          market: row.entry.market,
+          odds: row.entry.odds ?? null,
+          fairProb: row.entry.noVigFair ?? null,
+          finalAi: row.finalAiScore,
+          simHit: row.winProb,
+          edgePct: row.edgePct,
+          composite: row.finalAiScore.composite,
+        });
+      }
+    }
+
+    for (const r of propResults) {
+      const graded = propScores.get(r.key);
+      if (!graded?.finalAiScore) continue;
+      const sel = selected.find(
+        (s) => `${s.player}|${s.market}|${s.line}|${s.side}` === r.key,
+      );
+      const poolEntry = [...propPool, ...ppPropPool].find(
+        (e) =>
+          e.player === r.player &&
+          e.marketKey === r.market &&
+          e.line === r.line &&
+          e.side === r.side,
+      );
+      items.push({
+        kind: "prop",
+        label: `${r.player} — ${r.side} ${r.line} ${propMarketLabel(r.market)}`,
+        market: propMarketLabel(r.market),
+        odds: sel?.odds ?? poolEntry?.odds ?? null,
+        fairProb:
+          poolEntry?.edge != null
+            ? fairProbFromEdge(sel?.odds ?? poolEntry?.odds, poolEntry.edge)
+            : null,
+        finalAi: graded.finalAiScore,
+        simHit: r.hitProbability,
+        edgePct: graded.rubric.edgePct,
+        composite: graded.finalAiScore.composite,
+        player: r.player,
+      });
+    }
+
+    items.sort((a, b) => (b.composite ?? 0) - (a.composite ?? 0));
+    return items.map((item, i) => ({ ...item, rank: i + 1 }));
+  }, [gameLineRecs, propResults, propScores, selected, propPool, ppPropPool]);
+
+  const bestBets = useMemo(
+    () => rankedSimulatorBets.slice(0, Math.min(5, rankedSimulatorBets.length)),
+    [rankedSimulatorBets],
+  );
+
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
     { id: "props", label: "Player Props" },
@@ -1141,145 +1211,66 @@ export default function SimulatorScreen() {
                 </View>
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
-                  <>
-                    <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                      <ResultCol title="Projected Score (Avg)">
-                        <ScorePair
-                          away={gameResult.awayProjectedScore}
-                          home={gameResult.homeProjectedScore}
-                          awayLogo={game.awayLogo}
-                          homeLogo={game.homeLogo}
-                        />
-                      </ResultCol>
-                      <ResultCol title="Win Probability">
-                        <WinBar
-                          awayPct={gameResult.awayWinProbability}
-                          homePct={gameResult.homeWinProbability}
-                          awayLabel={game.awayAbbr ?? game.awayTeam}
-                          homeLabel={game.homeAbbr ?? game.homeTeam}
-                        />
-                      </ResultCol>
-                    </View>
-                    {gameLineRecs ? (
-                      <Card style={{ marginBottom: 12 }}>
-                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                          Best Lines (Final AI Score)
-                        </Text>
-                        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
-                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — highest composite wins, not the main line by default.
-                        </Text>
-                        {[gameLineRecs.byTeam.away, gameLineRecs.byTeam.home]
-                          .filter((row): row is EvaluatedGameLine => row != null)
-                          .map((row) => (
-                            <RecommendedLineRow key={row.entry.pick} row={row} />
-                          ))}
-                      </Card>
-                    ) : null}
-                    {gameFourQuestions.length > 0 ? (
-                      <Card style={{ marginBottom: 12 }}>
-                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                          Four-Question Check
-                        </Text>
-                        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
-                          Same 10,000-run draw — not just who wins, but cover, frequency, and line value.
-                        </Text>
-                        {gameFourQuestions.map((team) => (
-                          <FourQuestionsBlock key={team.teamSide} team={team} />
-                        ))}
-                      </Card>
-                    ) : null}
-                  </>
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                    <ResultCol title="Projected Score (Avg)">
+                      <ScorePair
+                        away={gameResult.awayProjectedScore}
+                        home={gameResult.homeProjectedScore}
+                        awayLogo={game.awayLogo}
+                        homeLogo={game.homeLogo}
+                      />
+                    </ResultCol>
+                    <ResultCol title="Win Probability">
+                      <WinBar
+                        awayPct={gameResult.awayWinProbability}
+                        homePct={gameResult.homeWinProbability}
+                        awayLabel={game.awayAbbr ?? game.awayTeam}
+                        homeLabel={game.homeAbbr ?? game.homeTeam}
+                      />
+                    </ResultCol>
+                  </View>
                 ) : null}
 
-                {propResults.length > 0 ? (
-                  <Card style={{ marginBottom: 16 }}>
+                {bestBets.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
                     <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                      Player Prop Projections
+                      Best Bets
                     </Text>
-                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      Final AI Score (30% sim · 20% line value · 15% matchup · 10% injuries · 10% form · 5% each sharp/line move/shopping) rolls every grounded signal into one grade — simulation is the anchor, not the only input.
-                      {simDeepPending ? " Simulation updating…" : ""}
+                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                      Top picks from the {SIM_COUNT.toLocaleString()}-run simulation — ranked by Final AI Score across every market on the board.
+                      {simDeepPending ? " Prop simulation updating…" : ""}
                     </Text>
-                    {propResults.map((r) => {
-                      const graded = propScores.get(r.key);
-                      const combined = graded?.rubric;
-                      const finalAi = graded?.finalAiScore;
-                      const simBadge = finalAiScoreLabel(finalAi);
-                      const gradeColor =
-                        combined?.composite == null
-                          ? colors.mutedForeground
-                          : combined.composite >= 7
-                            ? colors.success
-                            : combined.composite >= 5.5
-                              ? colors.primary
-                              : colors.mutedForeground;
-                      const edgeColor =
-                        combined?.edgePct == null
-                          ? colors.mutedForeground
-                          : combined.edgePct >= 0
-                            ? colors.success
-                            : colors.destructive;
-                      return (
-                        <View
-                          key={r.key}
-                          style={{
-                            paddingVertical: 10,
-                            borderTopWidth: 1,
-                            borderTopColor: colors.border,
-                          }}
-                        >
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
-                          </Text>
-                          {simBadge ? (
-                            <View
-                              style={{
-                                alignSelf: "flex-start",
-                                marginTop: 6,
-                                paddingHorizontal: 8,
-                                paddingVertical: 3,
-                                borderRadius: 6,
-                                backgroundColor: finalAi?.highRiskValuePlay
-                                  ? "rgba(234,179,8,0.2)"
-                                  : "rgba(34,197,94,0.15)",
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontFamily: FONT.bold,
-                                  fontSize: 10,
-                                  color: finalAi?.highRiskValuePlay ? "#eab308" : colors.success,
-                                }}
-                              >
-                                {simBadge}
-                              </Text>
-                            </View>
-                          ) : null}
-                          {r.hitProbability == null && r.sampleGames < 3 ? (
-                            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
-                              Not enough recent game log to simulate this line.
-                            </Text>
-                          ) : null}
-                          <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                            <MiniStat label="Final AI Score" value={finalAi?.grade ?? combined?.grade ?? "—"} valueColor={gradeColor} />
-                            <MiniStat
-                              label="Confidence"
-                              value={finalAi?.confidencePct != null ? `${finalAi.confidencePct}%` : combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
-                            />
-                            <MiniStat
-                              label="Edge"
-                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct}%` : "—"}
-                              valueColor={edgeColor}
-                            />
-                          </View>
-                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
-                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                            <MiniStat label="Likely" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
-                            <MiniStat label="Sim Conf" value={r.confidenceScore != null ? String(r.confidenceScore) : "—"} />
-                          </View>
-                        </View>
-                      );
-                    })}
+                    {bestBets.map((bet) => (
+                      <SimBetRow key={`best-${bet.kind}-${bet.label}-${bet.rank}`} bet={bet} highlight />
+                    ))}
+                  </Card>
+                ) : null}
+
+                {rankedSimulatorBets.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+                      All Bets Ranked
+                    </Text>
+                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                      Every game line and prop scored against the same draw — best to worst by Final AI composite.
+                    </Text>
+                    {rankedSimulatorBets.map((bet) => (
+                      <SimBetRow key={`rank-${bet.kind}-${bet.label}-${bet.rank}`} bet={bet} />
+                    ))}
+                  </Card>
+                ) : null}
+
+                {gameResult && gameFourQuestions.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+                      Four-Question Check
+                    </Text>
+                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                      Same 10,000-run draw — not just who wins, but cover, frequency, and line value.
+                    </Text>
+                    {gameFourQuestions.map((team) => (
+                      <FourQuestionsBlock key={team.teamSide} team={team} />
+                    ))}
                   </Card>
                 ) : null}
               </View>
@@ -1298,8 +1289,9 @@ export default function SimulatorScreen() {
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
                 minutes, injuries, matchup splits, and park weather. One draw set powers every market on that game.
-                For each team we ask: Does the team win? Do they cover? How often do they cover? Is the price worth it?
-                The Final AI Score rolls those answers together with matchup, form, injuries, and line shopping.
+                Results show how often each pick won (e.g. 7,164/10,000), Sim Hit %, Edge %, Fair Odds, and EV per $100.
+                Every bet is ranked best to worst with Elite / High / Medium / Risky / Longshot conviction tiers and
+                plain-language reasons for the top picks.
               </Text>
             </Card>
           </Pressable>
@@ -1377,66 +1369,144 @@ function SettingRow({
   );
 }
 
-function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
+function SimBetRow({ bet, highlight }: { bet: RankedSimulatorBet; highlight?: boolean }) {
   const colors = useColors();
-  const badge = finalAiScoreLabel(row.finalAiScore);
+  const simBadge = finalAiScoreLabel(bet.finalAi);
+  const tier = confidenceTierLabel({
+    composite: bet.composite,
+    confidencePct: bet.finalAi.confidencePct,
+    simHit: bet.simHit,
+    odds: bet.odds,
+    highRiskValuePlay: bet.finalAi.highRiskValuePlay,
+  });
+  const tierColor = confidenceTierColor(tier);
   const edgeColor =
-    row.edgePct == null
+    bet.edgePct == null
       ? colors.mutedForeground
-      : row.edgePct >= 0
+      : bet.edgePct >= 0
         ? colors.success
         : colors.destructive;
+  const ev = expectedValuePer100(bet.simHit, bet.odds);
+  const evColor =
+    ev == null ? colors.mutedForeground : ev >= 0 ? colors.success : colors.destructive;
+  const simCount = formatSimHitCount(bet.simHit, SIM_COUNT);
+  const reasons = buildPickReasons(bet.finalAi, {
+    simulations: SIM_COUNT,
+    fairProb: bet.fairProb,
+    odds: bet.odds,
+  });
+  const showReasons = highlight || bet.rank <= 3;
+
   return (
     <View
       style={{
-        paddingVertical: 10,
+        paddingVertical: 12,
         borderTopWidth: 1,
         borderTopColor: colors.border,
+        backgroundColor: highlight ? "rgba(59,130,246,0.06)" : undefined,
+        marginHorizontal: highlight ? -4 : 0,
+        paddingHorizontal: highlight ? 4 : 0,
+        borderRadius: highlight ? 10 : 0,
       }}
     >
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-        {row.entry.pick}
-        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
-          {" "}
-          ({row.entry.market})
-        </Text>
-      </Text>
-      {badge ? (
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
         <View
           style={{
-            alignSelf: "flex-start",
-            marginTop: 6,
-            paddingHorizontal: 8,
-            paddingVertical: 3,
-            borderRadius: 6,
-            backgroundColor: row.finalAiScore.highRiskValuePlay
-              ? "rgba(234,179,8,0.2)"
-              : "rgba(34,197,94,0.15)",
+            minWidth: 28,
+            height: 28,
+            borderRadius: 8,
+            backgroundColor: bet.rank <= 3 ? "rgba(59,130,246,0.2)" : colors.surface,
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          <Text
-            style={{
-              fontFamily: FONT.bold,
-              fontSize: 10,
-              color: row.finalAiScore.highRiskValuePlay ? "#eab308" : colors.success,
-            }}
-          >
-            {badge}
-          </Text>
+          <Text style={{ fontFamily: FONT.bold, fontSize: 12, color: colors.foreground }}>#{bet.rank}</Text>
         </View>
-      ) : null}
-      <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-        <MiniStat label="Sim Hit %" value={row.winProb != null ? `${Math.round(row.winProb * 100)}%` : "—"} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
+            {bet.label}
+            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+              {" "}
+              ({bet.market})
+            </Text>
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            <View
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 6,
+                backgroundColor: `${tierColor}22`,
+              }}
+            >
+              <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: tierColor }}>{tier}</Text>
+            </View>
+            {simBadge ? (
+              <View
+                style={{
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 6,
+                  backgroundColor: bet.finalAi.highRiskValuePlay
+                    ? "rgba(234,179,8,0.2)"
+                    : "rgba(34,197,94,0.15)",
+                }}
+              >
+                <Text
+                  style={{
+                    fontFamily: FONT.bold,
+                    fontSize: 10,
+                    color: bet.finalAi.highRiskValuePlay ? "#eab308" : colors.success,
+                  }}
+                >
+                  {simBadge}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground, alignSelf: "center" }}>
+              {confidenceTierCaption(tier)}
+            </Text>
+          </View>
+        </View>
+        <Text style={{ fontFamily: FONT.bold, fontSize: 14, color: colors.primary }}>
+          {bet.finalAi.grade ?? "—"}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        <MiniStat
+          label="Sim Record"
+          value={simCount ?? "—"}
+        />
+        <MiniStat
+          label="Sim Hit %"
+          value={bet.simHit != null ? `${Math.round(bet.simHit * 100)}%` : "—"}
+        />
         <MiniStat
           label="Edge"
-          value={row.edgePct != null ? `${row.edgePct > 0 ? "+" : ""}${row.edgePct}%` : "—"}
+          value={bet.edgePct != null ? `${bet.edgePct > 0 ? "+" : ""}${bet.edgePct}%` : "—"}
           valueColor={edgeColor}
         />
-        <MiniStat
-          label="Odds"
-          value={row.entry.odds != null ? formatAmerican(row.entry.odds) : "—"}
-        />
+        <MiniStat label="Fair Odds" value={fairOddsFromProb(bet.fairProb)} />
+        <MiniStat label="Posted" value={bet.odds != null ? formatAmerican(bet.odds) : "—"} />
+        <MiniStat label="EV / $100" value={formatExpectedValue(ev)} valueColor={evColor} />
       </View>
+
+      {showReasons && reasons.length > 0 ? (
+        <View style={{ marginTop: 10 }}>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 11, color: colors.foreground, marginBottom: 6 }}>
+            {bet.rank === 1 ? "Why this is the best pick" : "Why this ranks here"}
+          </Text>
+          {reasons.map((reason) => (
+            <View key={reason} style={{ flexDirection: "row", gap: 6, marginBottom: 4 }}>
+              <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.primary }}>•</Text>
+              <Text style={{ flex: 1, fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, lineHeight: 16 }}>
+                {reason}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
