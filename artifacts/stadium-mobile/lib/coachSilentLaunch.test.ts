@@ -18,6 +18,12 @@ test("markCoachHomeLaunch stashes autoMsg for tab param fallback", () => {
   assert.equal(peekCoachLaunch(), null);
 });
 
+test("consumeCoachLaunch clears stale queue so prefill-only navigation does not auto-send", () => {
+  queueCoachAutoSend("Build me the best parlay", { hideBubble: true, freshThread: true });
+  consumeCoachLaunch();
+  assert.equal(peekCoachLaunch(), null);
+});
+
 test("queueCoachAutoSend can show the user bubble", () => {
   queueCoachAutoSend("Build me a safe parlay", { hideBubble: false, freshThread: false });
   const launch = takeCoachLaunch();

@@ -21,7 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { queueCoachAutoSend } from "@/lib/coachSilentLaunch";
+import { consumeCoachLaunch, queueCoachAutoSend } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -807,14 +807,17 @@ export default function HomeScreen() {
   };
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.
-  const goCoach = (prefill?: string) =>
+  const goCoach = (prefill?: string) => {
+    consumeCoachLaunch();
     router.push({
       pathname: "/coach",
       params: {
         ...(prefill ? { prefill } : {}),
+        send: "0",
         ts: String(Date.now()),
       },
     });
+  };
 
   const quickActions: {
     label: string;
@@ -857,7 +860,7 @@ export default function HomeScreen() {
       subtitle: "Smart combos",
       icon: "robot",
       color: "#22d3ee",
-      onPress: () => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } }),
+      onPress: () => goCoach(),
     },
   ];
 
