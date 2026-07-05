@@ -317,7 +317,7 @@ export async function fetchSimulatorGameOutcome(
     weatherImpact?: number | null;
     coverQueries?: Array<{
       id: string;
-      kind: "ml" | "spread" | "total";
+      kind: "ml" | "spread" | "total" | "teamTotal";
       teamSide?: "home" | "away";
       line?: number;
       totalSide?: "over" | "under";

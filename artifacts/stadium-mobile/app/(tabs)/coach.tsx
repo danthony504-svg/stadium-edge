@@ -60,7 +60,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
-import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries } from "@/lib/gameLineOptimizer";
+import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap } from "@/lib/gameLineOptimizer";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -92,7 +92,6 @@ import {
   wantsMlbPitcherSlateAsk,
 } from "@/lib/slate";
 import {
-  buildAllEvalGameLines,
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
@@ -1838,15 +1837,10 @@ export default function CoachScreen() {
           const gamesWithLines = new Set(
             picks.filter(isGameLinePick).map((p) => p.game),
           );
-          const evalLinesByGame = new Map<string, RealOddsEntry[]>();
           const oddsGames = (
             await Promise.all(gameSports.map((s) => getOdds(s).catch(() => [])))
           ).flat();
-          for (const og of oddsGames) {
-            const label = `${og.awayTeam} @ ${og.homeTeam}`;
-            if (!gamesWithLines.has(label)) continue;
-            evalLinesByGame.set(label, buildAllEvalGameLines(og));
-          }
+          const evalLinesByGame = buildEvalLinesByGameMap(gamesWithLines, oddsGames);
           mergedGameOdds = mergeOddsEntries(
             context.realOdds,
             ...evalLinesByGame.values(),
