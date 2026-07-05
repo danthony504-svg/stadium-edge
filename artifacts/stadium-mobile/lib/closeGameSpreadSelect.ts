@@ -15,9 +15,44 @@ export type CloseGameSpreadRow = {
 };
 
 /** Sim hit band treated as a coin-flip / close projection (≈50–52%). */
+export const CLOSE_GAME_SIM_FLOOR = 0.48;
 export const CLOSE_GAME_SIM_CEILING = 0.54;
 /** Aggressive alt lays (-2, -2.5, …) need sim support above this. */
 export const COMFORTABLE_WIN_SIM_MIN = 0.55;
+
+export function isCloseSimWinProb(winProb: number | null | undefined): boolean {
+  if (winProb == null || !Number.isFinite(winProb)) return false;
+  return winProb >= CLOSE_GAME_SIM_FLOOR && winProb <= CLOSE_GAME_SIM_CEILING;
+}
+
+export function needsSaferSpreadLine(
+  sim: CoachGameSimEntry | null | undefined,
+  side: "home" | "away" | null,
+  evalLines: RealOddsEntry[],
+  teamName: string,
+  rowSimHit?: number | null,
+): boolean {
+  if (rowSimHit != null && isCloseSimWinProb(rowSimHit)) return true;
+  return isCloseGameForTeamSpread(sim, side, evalLines, teamName);
+}
+
+/** True when this spread/alt rung must not appear on the main ticket. */
+export function spreadViolatesLadderPolicy(
+  entry: RealOddsEntry,
+  winProb: number | null,
+  sim: CoachGameSimEntry | null | undefined,
+  side: "home" | "away" | null,
+  evalLines: RealOddsEntry[],
+  teamName: string,
+): boolean {
+  if (isMoneylineEntry(entry)) return false;
+  if (!isSpreadFamilyMarket(entry.market)) return false;
+  if (needsSaferSpreadLine(sim, side, evalLines, teamName, winProb)) {
+    return !isSaferSpreadEntry(entry);
+  }
+  if (isAggressiveSpreadEntry(entry)) return (winProb ?? 0) < COMFORTABLE_WIN_SIM_MIN;
+  return false;
+}
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -174,9 +209,19 @@ export function selectBestTeamSpreadLine(
   game: string,
 ): CloseGameSpreadRow | null {
   const side = teamSideFromName(game, teamName);
-  if (isCloseGameForTeamSpread(sim, side, evalLines, teamName)) {
-    return selectBestSaferLineForCloseGame(ranked);
-  }
+  const close = needsSaferSpreadLine(
+    sim,
+    side,
+    evalLines,
+    teamName,
+    ranked.reduce<number | null>((worst, r) => {
+      const hit = r.winProb;
+      if (hit == null) return worst;
+      if (worst == null) return hit;
+      return Math.min(worst, hit);
+    }, null),
+  );
+  if (close) return selectBestSaferLineForCloseGame(ranked);
   return selectBestSpreadLineForOpenGame(ranked);
 }
 
@@ -185,6 +230,48 @@ export function selectBestCloseGameAltSpread(
   ranked: CloseGameSpreadRow[],
 ): CloseGameSpreadRow | null {
   return selectBestSaferLineForCloseGame(ranked);
+}
+
+/** Drop or block spread legs that violate the close-game / aggressive-lay ladder. */
+export function dropSpreadLadderViolations(
+  picks: import("../components/PickCard.tsx").ParsedPick[],
+  simByGame: Map<string, CoachGameSimEntry>,
+  evalLinesByGame: Map<string, import("./api.ts").RealOddsEntry[]>,
+): import("../components/PickCard.tsx").ParsedPick[] {
+  return picks.filter((pick) => {
+    if (pick.isProp) return true;
+    const team = pickTeamName(pick.pick);
+    if (!team) return true;
+    const game = pick.game;
+    let evalLines = evalLinesByGame.get(game) ?? [];
+    if (!evalLines.length) {
+      for (const [k, lines] of evalLinesByGame) {
+        if (norm(k) === norm(game) || teamsMatch(k, game)) {
+          evalLines = lines;
+          break;
+        }
+      }
+    }
+    let sim = simByGame.get(game);
+    if (!sim) {
+      for (const [k, s] of simByGame) {
+        if (teamsMatch(k, game)) {
+          sim = s;
+          break;
+        }
+      }
+    }
+    const side = teamSideFromName(game, team);
+    const entry: RealOddsEntry = {
+      sport: pick.sport ?? "mlb",
+      game,
+      market: pick.market,
+      pick: pick.pick,
+      odds: pick.odds ?? -110,
+    };
+    const simHit = pick.finalAiScore?.simHit ?? null;
+    return !spreadViolatesLadderPolicy(entry, simHit, sim, side, evalLines, team);
+  });
 }
 
 /**
@@ -235,7 +322,15 @@ export function filterRowsForCloseGameSpread(
   return rows.filter((r) => {
     if (drop.has(r)) return false;
     if (keep.has(r)) return true;
-    if (isAggressiveSpreadEntry(r.entry) && (r.winProb ?? 0) < COMFORTABLE_WIN_SIM_MIN) return false;
+    const team = pickTeamName(r.entry.pick);
+    if (team && isTeamSidedFullGameEntry(r.entry) && !isGameTotalEntry(r.entry)) {
+      const side = teamSideFromName(r.entry.game, team);
+      if (
+        spreadViolatesLadderPolicy(r.entry, r.winProb, sim, side, evalLines, team)
+      ) {
+        return false;
+      }
+    }
     return true;
   });
 }

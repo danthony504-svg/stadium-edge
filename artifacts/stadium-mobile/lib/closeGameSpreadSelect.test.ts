@@ -4,7 +4,9 @@ import {
   COMFORTABLE_WIN_SIM_MIN,
   filterRowsForCloseGameSpread,
   isAggressiveSpreadEntry,
+  isCloseSimWinProb,
   isSaferSpreadEntry,
+  spreadViolatesLadderPolicy,
   selectBestSaferLineForCloseGame,
   selectBestSpreadLineForOpenGame,
   selectBestTeamSpreadLine,
@@ -58,6 +60,43 @@ const TIGHT_SIM = {
   mostLikelyWinnerPct: 0.506,
   confidenceScore: 50,
 };
+
+test("isCloseSimWinProb treats 50-52% as coin-flip band", () => {
+  assert.equal(isCloseSimWinProb(0.5), true);
+  assert.equal(isCloseSimWinProb(0.52), true);
+  assert.equal(isCloseSimWinProb(0.56), false);
+});
+
+test("spreadViolatesLadderPolicy rejects -1.5 main spread at 50% sim", () => {
+  const entry = {
+    sport: "mlb",
+    game: TIGHT_GAME,
+    market: "Spread",
+    pick: "Braves -1.5",
+    odds: -110,
+  };
+  assert.equal(
+    spreadViolatesLadderPolicy(entry, 0.5, TIGHT_SIM, "home", [], "Braves"),
+    true,
+  );
+  assert.equal(
+    spreadViolatesLadderPolicy(
+      {
+        sport: "mlb",
+        game: TIGHT_GAME,
+        market: "Alt Spread",
+        pick: "Braves +1.5",
+        odds: -190,
+      },
+      0.58,
+      TIGHT_SIM,
+      "home",
+      [],
+      "Braves",
+    ),
+    false,
+  );
+});
 
 test("isAggressiveSpreadEntry flags -2 and deeper lays", () => {
   assert.equal(

@@ -64,6 +64,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
@@ -2405,6 +2406,22 @@ export default function CoachScreen() {
           propsDeepSimmed = picks.some((p) => p.isProp);
         } else {
           picks = attachPickScores(picks, scoreAttachOpts);
+        }
+        if (
+          coachEvalLinesByGame &&
+          gameSimulations.size > 0 &&
+          picks.some(isGameLinePick) &&
+          isParlayBuild &&
+          !isAnalyze
+        ) {
+          picks = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          }).picks;
+          picks = attachPickScores(picks, scoreAttachOpts);
+          picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame);
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
           const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
