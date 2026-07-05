@@ -2423,6 +2423,11 @@ export default function CoachScreen() {
           isParlayBuild &&
           !isAnalyze
         ) {
+          const sideAligned = enforceConsistentGameSides(picks, {
+            simByGame: gameSimulations,
+            matchupHistory: context.matchupHistory,
+          });
+          picks = sideAligned.picks;
           picks = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
             realOdds: mergedGameOdds,
@@ -2446,22 +2451,8 @@ export default function CoachScreen() {
             longshotAsk,
           });
         }
-        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
-          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
-            evalLinesByGame: coachEvalLinesByGame,
-            realOdds: mergedGameOdds,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-            longshotAsk,
-          });
-          gameSimNote = optimizerNote
-            ? gameSimSupplementNote
-              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
-              : optimizerNote
-            : gameSimSupplementNote;
-        } else if (gameSimSupplementNote) {
-          gameSimNote = gameSimSupplementNote;
-        }
+        // Optimizer transparency note is built after the final ticket filter below
+        // so summary bullets always match the pick cards on screen.
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2522,10 +2513,6 @@ export default function CoachScreen() {
         if (tonightNote) {
           legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
         }
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
-        legNote = dedupeLegNoteParagraphs(legNote);
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
@@ -2582,6 +2569,26 @@ export default function CoachScreen() {
             longshotAsk,
           });
         }
+        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            longshotAsk,
+          });
+          gameSimNote = optimizerNote
+            ? gameSimSupplementNote
+              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
+              : optimizerNote
+            : gameSimSupplementNote;
+        } else {
+          gameSimNote = gameSimSupplementNote;
+        }
+        if (gameSimNote) {
+          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
+        }
+        legNote = dedupeLegNoteParagraphs(legNote);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {

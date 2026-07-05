@@ -8,6 +8,7 @@ import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
   evaluateGameLines,
   mergeOddsEntries,
+  finalizeGameLinePickForGame,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
@@ -92,14 +93,22 @@ export function collectQualifiedGameLineCandidates(
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
-    const closeRows = ranked.map((row) => ({
-      entry: row.entry,
-      finalAiScore: row.finalAiScore,
-      winProb: row.winProb,
-      edgePct: row.edgePct,
-    }));
-    const selection = selectBestGameLineWithReason(closeRows);
-    if (!selection) {
+    const template = ranked[0]?.pick ?? {
+      game,
+      market: lines[0]?.market ?? "Spread",
+      pick: lines[0]?.pick ?? "",
+      odds: lines[0]?.odds ?? -110,
+      isProp: false,
+      sport: lines[0]?.sport ?? "mlb",
+    };
+    const finalPick = finalizeGameLinePickForGame(game, template, simByGame, {
+      realOdds: opts.realOdds,
+      evalLinesByGame,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+      longshotAsk: opts.longshotAsk,
+    });
+    if (!finalPick) {
       for (const row of ranked) {
         const pick = evalRowToPick(row);
         opts.rejectsOut?.push({
@@ -110,9 +119,7 @@ export function collectQualifiedGameLineCandidates(
       }
       continue;
     }
-    const bestRow = ranked.find((r) => r.entry === selection.row.entry);
-    if (!bestRow) continue;
-    qualified.push(evalRowToPick(bestRow));
+    qualified.push(finalPick);
   }
   return qualified.sort((a, b) => comparePickStrength(b, a));
 }

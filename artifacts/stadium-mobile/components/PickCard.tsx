@@ -79,6 +79,14 @@ export type ParsedPick = {
   finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
   /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
   highRiskValuePlay?: boolean;
+  /**
+   * Set once when the 10k sim finalizes a game line — single source of truth for
+   * cards, optimizer note, slip, and breakdown. Never re-derived elsewhere.
+   */
+  gameLineFinal?: {
+    reason: string;
+    finalScore: number;
+  };
 };
 
 if (

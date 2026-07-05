@@ -15,7 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { selectBestGameLineByEv, gameLineRowQualifies, selectBestGameLineWithReason, buildGameLineSelectionReason } from "./altLineEvSelect.ts";
+import { selectBestGameLineByEv, gameLineRowQualifies, selectBestGameLineWithReason } from "./altLineEvSelect.ts";
 import { rankGameLineByFinalScore, computeGameLineFinalScoreBreakdown } from "./gameLineFinalScore.ts";
 import {
   filterRowsForCloseGameSpread,
@@ -456,9 +456,71 @@ export type GameLineOptimizeResult = {
   note: string;
 };
 
+function allFullGameLines(
+  evalLines: RealOddsEntry[],
+  excludeMoneyline?: boolean,
+): RealOddsEntry[] {
+  let lines = evalLines.filter((e) => FULL_GAME_MARKET.test(String(e.market ?? "").trim()));
+  if (excludeMoneyline) {
+    lines = lines.filter((e) => !/^moneyline$/i.test(String(e.market ?? "").trim()));
+  }
+  return lines;
+}
+
 /**
- * Replace each game-line leg with the highest-EV qualified line in its pool
- * (all ML/spread/alt/total/team-total rungs scored against the same 10k sim).
+ * Evaluate every ML / spread / alt / total / team-total rung for one game and
+ * return the single highest-qualified Final Score line. Attaches gameLineFinal
+ * metadata so cards and optimizer notes never re-derive a different pick.
+ */
+export function finalizeGameLinePickForGame(
+  game: string,
+  template: ParsedPick,
+  simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    excludeMoneyline?: boolean;
+    longshotAsk?: boolean;
+  },
+): ParsedPick | null {
+  void opts.longshotAsk;
+  const evalLines = evalLinesForGame(game, opts.evalLinesByGame);
+  const pool = allFullGameLines(evalLines, opts.excludeMoneyline);
+  if (!pool.length) return null;
+  const sim = simForGame(game, simByGame);
+  const ranked = evaluateGameLines({
+    lines: pool,
+    gameSim: sim,
+    realOdds: mergeOddsEntries(opts.realOdds, pool),
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+  });
+  const selection = selectBestGameLineWithReason(toCloseGameRows(ranked));
+  if (!selection) return null;
+  const row = selection.row;
+  const breakdown = computeGameLineFinalScoreBreakdown(row);
+  return {
+    ...template,
+    game,
+    market: row.entry.market,
+    pick: row.entry.pick,
+    odds: row.entry.odds ?? -110,
+    sport: row.entry.sport ?? template.sport,
+    isProp: false,
+    finalAiScore: row.finalAiScore,
+    scores: row.finalAiScore.rubric,
+    highRiskValuePlay: row.finalAiScore.highRiskValuePlay,
+    gameLineFinal: {
+      reason: selection.reason,
+      finalScore: breakdown.finalScore,
+    },
+  };
+}
+
+/**
+ * One final game-line pick per matchup — every screen reads the same object.
  */
 export function optimizeGameLinePicksToBestFinalAi(
   picks: ParsedPick[],
@@ -472,68 +534,33 @@ export function optimizeGameLinePicksToBestFinalAi(
     longshotAsk?: boolean;
   },
 ): GameLineOptimizeResult {
+  const props: ParsedPick[] = [];
+  const templatesByGame = new Map<string, ParsedPick>();
   let swapped = 0;
-  let deduped = 0;
-  const bestByBucket = new Map<string, EvaluatedGameLine>();
-
-  for (const pick of picks) {
-    const bucket = bucketKeyForPick(pick);
-    if (!bucket || bestByBucket.has(bucket)) continue;
-    const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
-    if (!evalLines.length) continue;
-    const sim = simForGame(pick.game, simByGame);
-    const best = rankBestForBucket(pick, evalLines, sim, opts);
-    if (best) bestByBucket.set(bucket, best);
-  }
-
-  const seenLegs = new Set<string>();
-  const out: ParsedPick[] = [];
 
   for (const pick of picks) {
     if (!isGameLinePick(pick) || pick.isProp) {
-      out.push(pick);
+      props.push(pick);
       continue;
     }
-
-    const bucket = bucketKeyForPick(pick);
-    const best = bucket ? bestByBucket.get(bucket) : null;
-    if (!best) {
-      const key = pickLegKey(pick);
-      if (seenLegs.has(key)) {
-        deduped += 1;
-        continue;
-      }
-      // No sim-aligned line with non-negative edge — drop chalk ML/spread.
-      if (isGameLinePick(pick)) continue;
-      seenLegs.add(key);
-      out.push(pick);
-      continue;
-    }
-
-    const optimized: ParsedPick = {
-      ...pick,
-      market: best.entry.market,
-      pick: best.entry.pick,
-      odds: best.entry.odds,
-      sport: best.entry.sport ?? pick.sport,
-    };
-
-    const same =
-      pick.market === optimized.market &&
-      pick.pick === optimized.pick &&
-      pick.odds === optimized.odds;
-    if (!same) swapped += 1;
-
-    const legKey = pickLegKey(optimized);
-    if (seenLegs.has(legKey)) {
-      deduped += 1;
-      continue;
-    }
-    seenLegs.add(legKey);
-    out.push(optimized);
+    if (!templatesByGame.has(pick.game)) templatesByGame.set(pick.game, pick);
   }
 
-  return { picks: out, swapped, note: "" };
+  const finalized: ParsedPick[] = [];
+  for (const [game, template] of templatesByGame) {
+    const finalPick = finalizeGameLinePickForGame(game, template, simByGame, opts);
+    if (!finalPick) continue;
+    if (
+      finalPick.market !== template.market ||
+      finalPick.pick !== template.pick ||
+      finalPick.odds !== template.odds
+    ) {
+      swapped += 1;
+    }
+    finalized.push(finalPick);
+  }
+
+  return { picks: [...props, ...finalized], swapped, note: "" };
 }
 
 function findOddsRowForNote(
@@ -590,77 +617,16 @@ function probeSimHitFromEvalLadder(
   return null;
 }
 
-function formatGameLineScoreNote(
-  pick: ParsedPick,
-  scored: EvaluatedGameLine | null,
-  sim: CoachGameSimEntry | undefined,
-  match: RealOddsEntry | null,
-  opts?: {
-    realOdds: RealOddsEntry[];
-    evalLines?: RealOddsEntry[];
-    matchupHistory?: Record<string, MatchupHistoryEntry>;
-    matchupInjuries?: Record<string, GameInjuryReport>;
-    selectionReason?: string;
-  },
-): string {
-  const simHit =
-    pick.finalAiScore?.simHit ??
-    scored?.winProb ??
-    probeSimHitFromEvalLadder(pick, sim, opts?.evalLines ?? []) ??
-    gameSimHitForPick(pick, sim) ??
-    (match
-      ? gameSimHitForPick(
-          { ...pick, market: match.market, pick: match.pick },
-          sim,
-        )
-      : null);
-  const resolvedRow =
-    match ??
-    (opts ? resolveOddsRowForNote(pick, opts.evalLines ?? [], opts.realOdds) : undefined);
-  let edge =
-    pick.finalAiScore?.edgePct ??
-    scored?.edgePct ??
-    resolvedRow?.edge ??
-    pick.scores?.edgePct ??
-    null;
-  if (edge == null && opts) {
-    const rubric = scoreGameLinePick(
-      pick,
-      opts.realOdds,
-      opts.matchupHistory,
-      opts.matchupInjuries,
-      sim,
-    );
-    edge = rubric?.edgePct ?? null;
-  }
-  const grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? "—";
+function formatFinalGameLineNote(pick: ParsedPick): string {
+  const score = pick.finalAiScore;
+  const simHit = score?.simHit ?? null;
+  const edge = score?.edgePct ?? null;
+  const grade = score?.grade ?? "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
   const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
-  const scoreRow = scored
-    ? {
-        entry: scored.entry,
-        finalAiScore: scored.finalAiScore,
-        winProb: scored.winProb,
-        edgePct: scored.edgePct,
-      }
-    : pick.finalAiScore
-      ? {
-          entry: match ?? {
-            sport: pick.sport ?? "mlb",
-            game: pick.game,
-            market: pick.market,
-            pick: pick.pick,
-            odds: pick.odds ?? -110,
-            edge,
-          },
-          finalAiScore: pick.finalAiScore,
-          winProb: simHit,
-          edgePct: edge,
-        }
-      : null;
-  const finalScore = scoreRow ? computeGameLineFinalScoreBreakdown(scoreRow).finalScore : null;
-  const fsStr = finalScore != null ? `Final Score ${finalScore}` : "—";
-  const reason = opts?.selectionReason ? ` — ${opts.selectionReason}` : "";
+  const fs = pick.gameLineFinal?.finalScore;
+  const fsStr = fs != null ? `Final Score ${fs}` : "—";
+  const reason = pick.gameLineFinal?.reason ? ` — ${pick.gameLineFinal.reason}` : "";
   return `${pick.game}: ${pick.pick} (${pick.market}) — ${fsStr}, AI ${grade}, sim ${wp}, edge ${edgeStr}${reason}`;
 }
 
@@ -672,12 +638,12 @@ function isTeamSidedGameLine(pick: ParsedPick): boolean {
 }
 
 /**
- * Transparency note for game-line legs on the FINAL ticket — built after dedupe
- * and side alignment so dropped opposing legs are never listed.
+ * Transparency note for game-line legs on the FINAL ticket. Reads only the
+ * finalized pick objects — never re-runs line selection (cards use the same data).
  */
 export function buildGameLineOptimizerNote(
   picks: ParsedPick[],
-  simByGame: Map<string, CoachGameSimEntry>,
+  _simByGame: Map<string, CoachGameSimEntry>,
   opts: {
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     realOdds: RealOddsEntry[];
@@ -686,8 +652,11 @@ export function buildGameLineOptimizerNote(
     longshotAsk?: boolean;
   },
 ): string {
+  void _simByGame;
+  void opts;
   const gameLines = picks.filter((p) => {
     if (!isGameLinePick(p) || p.isProp) return false;
+    if (!p.gameLineFinal) return false;
     const edge = resolvePickEdgePct(p, { realOdds: opts.realOdds });
     const ev = resolvePickExpectedValue(p, { realOdds: opts.realOdds });
     return isGameLineMainTicketQualified(p.finalAiScore, p.odds ?? null, edge, ev);
@@ -695,75 +664,13 @@ export function buildGameLineOptimizerNote(
   if (!gameLines.length) return "";
 
   const lines: string[] = [];
-  const seenBuckets = new Set<string>();
-  const seenTeamSidedGame = new Set<string>();
+  const seenGames = new Set<string>();
 
   for (const pick of gameLines) {
-    if (isTeamSidedGameLine(pick)) {
-      const gameKey = norm(pick.game);
-      if (seenTeamSidedGame.has(gameKey)) continue;
-      seenTeamSidedGame.add(gameKey);
-    }
-    const bucket = bucketKeyForPick(pick);
-    if (bucket && seenBuckets.has(bucket)) continue;
-    if (bucket) seenBuckets.add(bucket);
-
-    const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
-    const sim = lookupGameSim(pick.game, simByGame) ?? simForGame(pick.game, simByGame);
-    let match = resolveOddsRowForNote(pick, evalLines, opts.realOdds);
-    if (!match && pick.odds != null) {
-      match = {
-        sport: pick.sport ?? "mlb",
-        game: pick.game,
-        market: pick.market,
-        pick: pick.pick,
-        odds: pick.odds,
-        edge: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-        noVigFair: null,
-      } as RealOddsEntry;
-    }
-    if (!match) {
-      lines.push(
-        formatGameLineScoreNote(pick, null, sim, null, {
-          realOdds: mergeOddsEntries(opts.realOdds, evalLines),
-          evalLines,
-          matchupHistory: opts.matchupHistory,
-          matchupInjuries: opts.matchupInjuries,
-        }),
-      );
-      continue;
-    }
-    const mergedOdds = mergeOddsEntries(opts.realOdds, evalLines);
-    const allRanked = evaluateGameLines({
-      lines: evalLines.length ? evalLines : match ? [match] : [],
-      gameSim: sim,
-      realOdds: mergedOdds,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-    });
-    const closeRows = toCloseGameRows(allRanked);
-    const selection = selectBestGameLineWithReason(closeRows);
-    const scored =
-      allRanked.find((r) => r.entry.market === pick.market && r.entry.pick === pick.pick) ??
-      allRanked[0] ??
-      null;
-    const selectionReason =
-      selection?.reason ??
-      (closeRows.length
-        ? buildGameLineSelectionReason(
-            closeRows.find((r) => r.entry.market === pick.market && r.entry.pick === pick.pick) ?? closeRows[0]!,
-            closeRows,
-          )
-        : undefined);
-    lines.push(
-      formatGameLineScoreNote(pick, scored, sim, match, {
-        realOdds: mergedOdds,
-        evalLines,
-        matchupHistory: opts.matchupHistory,
-        matchupInjuries: opts.matchupInjuries,
-        selectionReason,
-      }),
-    );
+    const gameKey = norm(pick.game);
+    if (seenGames.has(gameKey)) continue;
+    seenGames.add(gameKey);
+    lines.push(formatFinalGameLineNote(pick));
   }
 
   if (!lines.length) return "";

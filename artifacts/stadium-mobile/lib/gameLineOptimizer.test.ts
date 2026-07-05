@@ -123,13 +123,18 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
         factors: [],
         rubric: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
       },
+      gameLineFinal: {
+        reason: "Selected because it had the highest Final Score.",
+        finalScore: 72,
+      },
     },
   ];
   const note = buildGameLineOptimizerNote(picks, new Map(), {
     evalLinesByGame: new Map(),
     realOdds: [],
   });
-  assert.match(note, /Final AI B\+/);
+  assert.match(note, /New York Mets \+1\.5/);
+  assert.match(note, /Final Score 72/);
   assert.match(note, /sim 58%/);
   assert.match(note, /edge \+2\.1%/);
   assert.doesNotMatch(note, /\[box/i);
@@ -156,6 +161,10 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
         recommends: true,
         factors: [],
         rubric: { scores: {}, composite: 7.5, grade: "B", confidencePct: 55, edgePct: 1.8 },
+      },
+      gameLineFinal: {
+        reason: "Selected because it had the highest Final Score.",
+        finalScore: 65,
       },
     },
   ];
@@ -225,6 +234,10 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
         factors: [],
         rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
+      gameLineFinal: {
+        reason: "Selected because it had the highest Final Score.",
+        finalScore: 64,
+      },
     },
   ];
   const simByGame = new Map([
@@ -292,12 +305,50 @@ test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pi
         factors: [],
         rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
       },
+      gameLineFinal: {
+        reason: "Selected because it had the highest Final Score.",
+        finalScore: 64,
+      },
     },
   ];
   const note = buildGameLineOptimizerNote(picks, new Map(), {
     evalLinesByGame: new Map(),
     realOdds: [],
   });
+  assert.match(note, /Cubs -1\.5/);
   assert.match(note, /sim 56%/);
   assert.match(note, /edge \+1\.5%/);
+});
+
+test("buildGameLineOptimizerNote never disagrees with finalized pick on card", () => {
+  const pick = {
+    game: "Boston Red Sox @ Los Angeles Angels",
+    market: "Alt Spread",
+    pick: "Los Angeles Angels +2",
+    odds: -172,
+    isProp: false,
+    sport: "mlb",
+    finalAiScore: {
+      grade: "B-",
+      simHit: 0.58,
+      edgePct: 1.4,
+      composite: 6.8,
+      confidencePct: 52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: { scores: {}, composite: 6.8, grade: "B-", confidencePct: 52, edgePct: 1.4 },
+    },
+    gameLineFinal: {
+      reason: "Main line rejected. Alt +2 selected — highest Final Score among safer +EV lines.",
+      finalScore: 66,
+    },
+  };
+  const note = buildGameLineOptimizerNote([pick], new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [],
+  });
+  assert.match(note, /Angels \+2/);
+  assert.doesNotMatch(note, /Red Sox -1\.5/);
 });
