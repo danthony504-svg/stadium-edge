@@ -2,6 +2,8 @@
 // from real recent scoring form (pts for/against, venue splits, weather).
 
 import { DEFAULT_SIMULATIONS } from "./monteCarlo.js";
+import { finalizeSimRunStats } from "./simRunStats.js";
+import type { SimRunStats } from "./simRunStats.js";
 
 export type GameSimTeamInput = {
   ptsFor: number | null;
@@ -17,7 +19,8 @@ export type GameSimInput = {
   simulations?: number;
 };
 
-export type GameSimResult = {
+export type GameSimResult = SimRunStats & {
+  /** @deprecated use completedSims */
   simulations: number;
   homeWinProbability: number;
   awayWinProbability: number;
@@ -54,7 +57,8 @@ function teamMean(forPts: number | null, oppAgainst: number | null, fallback: nu
 }
 
 export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
-  const n = input.simulations ?? DEFAULT_SIMULATIONS;
+  const requested = input.simulations ?? DEFAULT_SIMULATIONS;
+  const startedAt = new Date();
   const homeMean = teamMean(input.home.ptsFor, input.away.ptsAgainst, 4.5);
   const awayMean = teamMean(input.away.ptsFor, input.home.ptsAgainst, 4.5);
 
@@ -95,10 +99,20 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   let homeTotal = 0;
   let awayTotal = 0;
   const winCounts = { home: 0, away: 0 };
+  let completedSims = 0;
+  let failedSims = 0;
+  let guard = 0;
+  const maxAttempts = requested * 3;
 
-  for (let i = 0; i < n; i++) {
+  while (completedSims < requested && guard < maxAttempts) {
+    guard += 1;
     const hs = Math.max(0, normalSample(hMean, homeStd));
     const as = Math.max(0, normalSample(aMean, awayStd));
+    if (!Number.isFinite(hs) || !Number.isFinite(as)) {
+      failedSims += 1;
+      continue;
+    }
+    completedSims += 1;
     homeTotal += hs;
     awayTotal += as;
     if (Math.abs(hs - as) < 0.01) ties += 1;
@@ -111,21 +125,30 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
     }
   }
 
+  const runMeta = finalizeSimRunStats(
+    startedAt,
+    requested,
+    completedSims,
+    failedSims,
+    (input.home.recentScores?.length ?? 0) + (input.away.recentScores?.length ?? 0),
+  );
+
   const winner = winCounts.home >= winCounts.away ? "home" : "away";
-  const winnerPct = (winner === "home" ? homeWins : awayWins) / n;
+  const winnerPct = completedSims > 0 ? (winner === "home" ? homeWins : awayWins) / completedSims : 0;
 
   let confidence = 50;
   if ((input.home.recentScores?.length ?? 0) >= 5) confidence += 10;
   if ((input.away.recentScores?.length ?? 0) >= 5) confidence += 10;
-  confidence += Math.abs(homeWins / n - 0.5) * 50;
+  if (completedSims > 0) confidence += Math.abs(homeWins / completedSims - 0.5) * 50;
 
   return {
-    simulations: n,
-    homeWinProbability: round3(homeWins / n),
-    awayWinProbability: round3(awayWins / n),
-    tieProbability: round3(ties / n),
-    homeProjectedScore: round2(homeTotal / n),
-    awayProjectedScore: round2(awayTotal / n),
+    ...runMeta,
+    simulations: completedSims,
+    homeWinProbability: completedSims > 0 ? round3(homeWins / completedSims) : 0,
+    awayWinProbability: completedSims > 0 ? round3(awayWins / completedSims) : 0,
+    tieProbability: completedSims > 0 ? round3(ties / completedSims) : 0,
+    homeProjectedScore: completedSims > 0 ? round2(homeTotal / completedSims) : 0,
+    awayProjectedScore: completedSims > 0 ? round2(awayTotal / completedSims) : 0,
     mostLikelyWinner: winner,
     mostLikelyWinnerPct: round3(winnerPct),
     confidenceScore: clamp(Math.round(confidence), 5, 95),

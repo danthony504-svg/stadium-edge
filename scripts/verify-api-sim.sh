@@ -24,12 +24,12 @@ check player-history "$API/sports/player-history?sport=mlb&athleteId=41253" '"re
 
 sim=$(curl -sf -X POST "$API/sports/simulate/props" \
   -H 'Content-Type: application/json' \
-  -d '{"sport":"mlb","tier":"quick","props":[{"player":"Yordan Alvarez","market":"batter_hits","line":1.5,"side":"Over","athleteId":"41253"}],"homeTeam":"Atlanta Braves","awayTeam":"New York Mets"}')
-if echo "$sim" | grep -q '"hitProbability":[0-9]'; then
-  echo "OK  simulate/props returns hitProbability"
+  -d '{"sport":"mlb","tier":"deep","props":[{"player":"Yordan Alvarez","market":"batter_hits","line":1.5,"side":"Over","athleteId":"41253"}],"homeTeam":"Atlanta Braves","awayTeam":"New York Mets"}')
+if echo "$sim" | grep -q '"completedSims":10000'; then
+  echo "OK  simulate/props completed 10,000 sims"
 else
-  echo "FAIL simulate/props — hitProbability still null (deploy may be stale)"
-  echo "$sim" | head -c 400
+  echo "FAIL simulate/props — completedSims not 10000"
+  echo "$sim" | head -c 500
   fail=1
 fi
 

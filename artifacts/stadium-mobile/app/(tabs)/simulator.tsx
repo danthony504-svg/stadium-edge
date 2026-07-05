@@ -26,7 +26,14 @@ import type {
   GameSimulationResult,
   PlayerProp,
   PropSimulationResult,
+  SimRunStats,
 } from "@/lib/api";
+import {
+  formatSimCountLabel,
+  isFullDeepSimulation,
+  mergeSimRuns,
+  REQUESTED_DEEP_SIMS,
+} from "@/lib/simRunDisplay";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { enrichPropSimResults, mergeServerOverLocal } from "@/lib/propSimFallback";
@@ -90,7 +97,7 @@ import {
 const gameEligibleForSim = isSimulatorPregame;
 
 const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer"] as const;
-const SIM_COUNT = 10_000;
+const REQUESTED_SIMS = REQUESTED_DEEP_SIMS;
 const MAX_PROPS = 6;
 
 type SimMode = "game" | "props" | "full";
@@ -260,7 +267,9 @@ export default function SimulatorScreen() {
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
   const [simProgress, setSimProgress] = useState<SimProgressStep[]>([]);
-  const [whatChanged, setWhatChanged] = useState<string[]>([]);
+  const [simDebugOpen, setSimDebugOpen] = useState(__DEV__);
+  const [gameSimRun, setGameSimRun] = useState<SimRunStats | null>(null);
+  const [propSimRun, setPropSimRun] = useState<SimRunStats | null>(null);
   const prevSnapshotRef = useRef<SimRunSnapshot | null>(null);
   const lastSimRequestRef = useRef<{
     simProps: Array<{
@@ -516,6 +525,8 @@ export default function SimulatorScreen() {
     setSimulatedProps([]);
     setShowAllPicks(false);
     setWhatChanged([]);
+    setGameSimRun(null);
+    setPropSimRun(null);
     setPlayerHistory({});
     setSimProgress(initialSimProgress());
     let progress = initialSimProgress();
@@ -550,10 +561,11 @@ export default function SimulatorScreen() {
           awayTeamId: game.awayTeamId,
           homeTeam: game.homeTeam,
           awayTeam: game.awayTeam,
-          simulations: SIM_COUNT,
+          simulations: REQUESTED_SIMS,
           weatherImpact: wx,
         });
         setGameResult(gr);
+        if (gr) setGameSimRun(gr);
       }
       if ((mode === "props" || mode === "full") && propPool.length > 0) {
         toSim = buildSimulatorSimCandidates(propPool, selected);
@@ -617,24 +629,23 @@ export default function SimulatorScreen() {
         ph = phLocal;
         setPlayerHistory(phLocal);
         lastSimRequestRef.current = { simProps, phForSim };
-        const prQuick = enrichPropSimResults(
-          await fetchSimulatorPropSimulationsBatch(
-            sport,
-            simProps,
-            {
-              homeTeam: game.homeTeam,
-              awayTeam: game.awayTeam,
-              homeTeamId: game.homeTeamId,
-              awayTeamId: game.awayTeamId,
-              weatherImpact: wx,
-              tier: "quick",
-            },
-          ),
-          phForSim,
+        const prQuickBatch = await fetchSimulatorPropSimulationsBatch(
+          sport,
+          simProps,
+          {
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
+            weatherImpact: wx,
+            tier: "quick",
+            simulations: REQUESTED_SIMS,
+          },
         );
+        const prQuick = enrichPropSimResults(prQuickBatch.props, phForSim);
         setPropResults(prQuick);
         setSimDeepPending(true);
-        const prDeepRaw = await fetchSimulatorPropSimulationsBatch(
+        const prDeepBatch = await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
@@ -644,11 +655,13 @@ export default function SimulatorScreen() {
             awayTeamId: game.awayTeamId,
             weatherImpact: wx,
             tier: "deep",
+            simulations: REQUESTED_SIMS,
           },
         );
-        const prDeep = enrichPropSimResults(prDeepRaw, phForSim);
+        const prDeep = enrichPropSimResults(prDeepBatch.props, phForSim);
         finalPropResults = mergeServerOverLocal(prQuick, prDeep);
         setPropResults(finalPropResults);
+        setPropSimRun(prDeepBatch.simRun);
         setSimDeepPending(false);
       }
       bump("sim");
@@ -767,14 +780,16 @@ export default function SimulatorScreen() {
               homeTeamId: game.homeTeamId,
               awayTeamId: game.awayTeamId,
               tier: "deep",
+              simulations: REQUESTED_SIMS,
             },
           );
           const upgraded = mergeServerOverLocal(
             propResults,
-            enrichPropSimResults(serverDeep, req.phForSim),
+            enrichPropSimResults(serverDeep.props, req.phForSim),
           );
           if (upgraded.some((r) => r.simulations > 0 && r.hitProbability != null)) {
             setPropResults(upgraded);
+            setPropSimRun(serverDeep.simRun);
           }
         } catch {
           /* keep game-log fallback */
@@ -820,6 +835,15 @@ export default function SimulatorScreen() {
       lineCount: propPool.length,
     });
   }, [sport, weatherImpact, weatherLabel, matchupInjuries, gameLabel, propPool.length]);
+
+  const displaySimRun = useMemo(() => {
+    if (mode === "game") return gameSimRun;
+    if (mode === "props") return propSimRun;
+    return mergeSimRuns(gameSimRun, propSimRun);
+  }, [mode, gameSimRun, propSimRun]);
+
+  const simCountLabel = formatSimCountLabel(displaySimRun);
+  const simCountConfirmed = isFullDeepSimulation(displaySimRun);
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -1210,7 +1234,21 @@ export default function SimulatorScreen() {
               <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginBottom: 12 }}>
                 Simulation Settings
               </Text>
-              <SettingRow label="Simulation Count" value={`${SIM_COUNT.toLocaleString()}`} />
+              <SettingRow
+                label="Simulation Count"
+                value={
+                  displaySimRun
+                    ? `${displaySimRun.completedSims.toLocaleString()} / ${displaySimRun.requestedSims.toLocaleString()}`
+                    : `${REQUESTED_SIMS.toLocaleString()} requested`
+                }
+              />
+              <Pressable onPress={() => setSimDebugOpen((v) => !v)}>
+                <SettingRow
+                  label="Sim Debug"
+                  value={simDebugOpen ? "On" : "Off"}
+                  icon="activity"
+                />
+              </Pressable>
               <SettingRow label="Weather" value={weatherLabel} icon="cloud" />
               <SettingRow label="Home Field" value={game.venue ?? game.homeTeam ?? "—"} icon="map-pin" />
             </Card>
@@ -1251,18 +1289,28 @@ export default function SimulatorScreen() {
                     Simulation Results
                   </Text>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <View
-                      style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                        backgroundColor: "rgba(59,130,246,0.15)",
-                      }}
-                    >
-                      <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: colors.primary }}>
-                        {SIM_COUNT.toLocaleString()} Sims
-                      </Text>
-                    </View>
+                    <Pressable onPress={() => setSimDebugOpen((v) => !v)}>
+                      <View
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                          backgroundColor: simCountConfirmed
+                            ? "rgba(59,130,246,0.15)"
+                            : "rgba(234,179,8,0.15)",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontFamily: FONT.bold,
+                            fontSize: 10,
+                            color: simCountConfirmed ? colors.primary : "#ca8a04",
+                          }}
+                        >
+                          {simCountLabel}
+                        </Text>
+                      </View>
+                    </Pressable>
                     {ranAt ? (
                       <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
                         Updated just now
@@ -1270,6 +1318,25 @@ export default function SimulatorScreen() {
                     ) : null}
                   </View>
                 </View>
+
+                {simDebugOpen && displaySimRun ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>
+                      Simulation Debug
+                    </Text>
+                    <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, lineHeight: 17 }}>
+                      Started: {new Date(displaySimRun.startedAt).toLocaleTimeString()}
+                      {"\n"}Finished: {new Date(displaySimRun.finishedAt).toLocaleTimeString()}
+                      {"\n"}Run time: {displaySimRun.runTimeMs} ms
+                      {"\n"}Requested sims: {displaySimRun.requestedSims.toLocaleString()}
+                      {"\n"}Completed sims: {displaySimRun.completedSims.toLocaleString()}
+                      {"\n"}Failed sims: {displaySimRun.failedSims.toLocaleString()}
+                      {displaySimRun.sampleGames != null
+                        ? `\nSample games used: ${displaySimRun.sampleGames}`
+                        : ""}
+                    </Text>
+                  </Card>
+                ) : null}
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
                   <Card style={{ marginBottom: 12 }}>
@@ -1568,7 +1635,9 @@ export default function SimulatorScreen() {
               Running Simulation
             </Text>
             <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, marginBottom: 16 }}>
-              {SIM_COUNT.toLocaleString()} Monte Carlo draws using real lineups, injuries, weather, and odds.
+              {displaySimRun
+                ? `${displaySimRun.completedSims.toLocaleString()} Monte Carlo draws confirmed by the server.`
+                : `Requesting ${REQUESTED_SIMS.toLocaleString()} Monte Carlo draws.`}
             </Text>
             <View style={{ gap: 10 }}>
               {simProgress.map((step) => (
@@ -1604,10 +1673,9 @@ export default function SimulatorScreen() {
                 How it works
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
-                Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
-                minutes, injuries, matchup splits, and park weather. The AI Grade rolls simulation together with
-                matchup data, recent form, injuries, sportsbook EV, and line-shopping — simulation is one input,
-                not the whole grade.
+                Each run requests {REQUESTED_SIMS.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
+                minutes, injuries, matchup splits, and park weather. The badge only shows “10,000 Sims” when the server
+                confirms 10,000 completed simulations.
               </Text>
             </Card>
           </Pressable>
