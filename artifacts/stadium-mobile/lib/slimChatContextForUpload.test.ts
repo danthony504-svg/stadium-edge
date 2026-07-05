@@ -90,8 +90,9 @@ function heavyContext(): SlimChatContextInput {
 test("slimChatContextForUpload drops heavy upload-only fields", () => {
   const slim = slimChatContextForUpload(heavyContext());
   assert.deepEqual(slim.realGames, []);
-  assert.equal(slim.realProps.length, 1);
+  assert.equal(slim.realProps.length, 2);
   assert.equal(slim.realProps[0].player, "Player One");
+  assert.equal(slim.realProps[1].alt, true);
   assert.equal("ev" in slim.realProps[0], false);
   assert.equal("noVigFair" in slim.realOdds[0], false);
   assert.equal(slim.mlbPlatoon, undefined);
@@ -151,7 +152,7 @@ test("microSlimChatContextForUpload caps further for 3-leg cellular uploads", ()
   }));
   const heavy = { ...base, realProps: manyProps };
   const micro = microSlimChatContextForUpload(heavy);
-  assert.ok(micro.realProps.length <= 18);
+  assert.ok(micro.realProps.length <= 20);
   assert.ok(micro.realOdds.length <= 16);
   assert.equal(micro.matchupHistory, undefined);
   assert.ok(JSON.stringify(micro).length < JSON.stringify(ultraSlimChatContextForUpload(heavy)).length);
@@ -178,7 +179,7 @@ test("compactSlimChatContextForUpload caps 4-8 leg cellular uploads", () => {
   };
   const compact = compactSlimChatContextForUpload(heavy);
   assert.ok(compact.realOdds.length <= 32);
-  assert.ok(compact.realProps.length <= 48);
+  assert.ok(compact.realProps.length <= 56);
   assert.equal(compact.matchupHistory, undefined);
   assert.equal(compact.realGames.length, 0);
 });
@@ -203,7 +204,7 @@ test("largeCompactSlimChatContextForUpload caps 9-15 leg cellular uploads", () =
   };
   const large = largeCompactSlimChatContextForUpload(heavy);
   assert.ok(large.realOdds.length <= 48);
-  assert.ok(large.realProps.length <= 64);
+  assert.ok(large.realProps.length <= 80);
   assert.ok((large.selectedSports?.length ?? 0) <= 6);
   assert.equal(large.matchupHistory, undefined);
 });
