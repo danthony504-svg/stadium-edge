@@ -92,3 +92,24 @@ export function fetchSimulatorPrizePicks(
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   return simGetJson(`/sports/prizepicks-props?${q.toString()}`, signal);
 }
+
+/** Pregame-only pool — duplicated here so simulator never depends on slate.ts OTA sync. */
+export function isSimulatorPregame(
+  game: { startsAt?: string | null; state?: string | null; status?: string | null } | null | undefined,
+): boolean {
+  if (!game) return false;
+  if (game.state === "post" || game.state === "in") return false;
+  const status = String(game.status ?? "").toLowerCase();
+  if (
+    status.includes("final") ||
+    status.includes("in progress") ||
+    status.includes("halftime") ||
+    status.includes("end of")
+  ) {
+    return false;
+  }
+  const t = Date.parse(game.startsAt ?? "");
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now && t < now + 48 * 3600_000;
+}

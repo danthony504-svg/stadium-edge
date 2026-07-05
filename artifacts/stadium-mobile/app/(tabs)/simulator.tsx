@@ -37,9 +37,16 @@ import {
   type PlayerProp,
   type PropSimulationResult,
 } from "@/lib/api";
-import { isSimulatorEligible } from "@/lib/slate";
+import { isSimulatorEligible as slateSimulatorEligible } from "@/lib/slate";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
-import { fetchSimulatorGames, searchSimulatorPlayer } from "@/lib/simulatorApi";
+import {
+  fetchSimulatorGames,
+  isSimulatorPregame,
+  searchSimulatorPlayer,
+} from "@/lib/simulatorApi";
+
+const gameEligibleForSim =
+  typeof slateSimulatorEligible === "function" ? slateSimulatorEligible : isSimulatorPregame;
 import { buildGameInjuryReport } from "@/lib/injuries";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
@@ -205,27 +212,30 @@ export default function SimulatorScreen() {
 
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
-    queryFn: ({ signal }) =>
-      fetchSimulatorGames(sport, signal).then((rows) => {
-        const list = asGameList(rows).filter((g) => isSimulatorEligible(g));
-        rememberSimGames(sport, list);
-        return list;
-      }),
+    queryFn: async ({ signal }) => {
+      const rows =
+        typeof fetchSimulatorGames === "function"
+          ? await fetchSimulatorGames(sport, signal)
+          : [];
+      const list = asGameList(rows).filter((g) => gameEligibleForSim(g));
+      if (typeof rememberSimGames === "function") rememberSimGames(sport, list);
+      return list;
+    },
     staleTime: 30_000,
     refetchOnMount: "always",
     refetchInterval: 60_000,
   });
 
   const games = useMemo(
-    () => asGameList(gamesQ.data).filter((g) => isSimulatorEligible(g)),
+    () => asGameList(gamesQ.data).filter((g) => gameEligibleForSim(g)),
     [gamesQ.data, clockTick],
   );
 
   // Drop started games as soon as the user returns to this tab.
   useFocusEffect(
     useCallback(() => {
-      pruneSimGamesCache();
-      void gamesQ.refetch();
+      if (typeof pruneSimGamesCache === "function") pruneSimGamesCache();
+      gamesQ.refetch?.();
     }, [gamesQ.refetch]),
   );
 
@@ -243,7 +253,7 @@ export default function SimulatorScreen() {
     setRanAt(null);
   }, [game?.id, sport]);
 
-  const gameEligible = !!game && isSimulatorEligible(game);
+  const gameEligible = !!game && gameEligibleForSim(game);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
 
@@ -286,7 +296,7 @@ export default function SimulatorScreen() {
     enabled: !!game?.id && gameEligible,
     throwOnError: false,
     queryFn: async ({ signal }) => {
-      if (!game?.id) return [] as PlayerProp[];
+      if (!game?.id || typeof loadSimulatorProps !== "function") return [] as PlayerProp[];
       try {
         const props = await loadSimulatorProps(
           {
