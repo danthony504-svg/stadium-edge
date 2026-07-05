@@ -55,11 +55,15 @@ import type { CombinedPickScore } from "@/lib/pickScore";
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
-  buildSimulatorSimCandidates,
+  buildSimulatorFullPropPool,
   gradeSimulatorProps,
   type SimulatorPlayerHistorySlice,
   type SimulatorSelectedProp,
 } from "@/lib/simulatorPickPool";
+import {
+  collectExtraSimCandidates,
+  optimizeSimulatorTicket,
+} from "@/lib/simulatorTicketOptimizer";
 import {
   expectedProjection,
   formatEdgeDisplay,
@@ -272,6 +276,8 @@ export default function SimulatorScreen() {
   const [simDebugOpen, setSimDebugOpen] = useState(__DEV__);
   const [gameSimRun, setGameSimRun] = useState<SimRunStats | null>(null);
   const [propSimRun, setPropSimRun] = useState<SimRunStats | null>(null);
+  const [whatChanged, setWhatChanged] = useState<string[]>([]);
+  const [ticketOptimization, setTicketOptimization] = useState<string[]>([]);
   const prevSnapshotRef = useRef<SimRunSnapshot | null>(null);
   const lastSimRequestRef = useRef<{
     simProps: Array<{
@@ -467,6 +473,25 @@ export default function SimulatorScreen() {
     return buildSimulatorPpPropPool(mains, gameLabel, sport);
   }, [mains, gameLabel, sport]);
 
+  const allPropsWithAlts = useMemo(() => {
+    if (propsLoading) return [];
+    let list = asPropList(propsQ.data).filter((p) => p.line != null);
+    if (sport === "soccer") {
+      list = list.filter((p) => isSoccerPropMarket(p.market));
+    }
+    return list;
+  }, [propsQ.data, propsLoading, sport]);
+
+  const fullPropPool = useMemo(() => {
+    if (!gameLabel || !game) return [];
+    return buildSimulatorFullPropPool(allPropsWithAlts, gameLabel, sport, {
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+      homeAbbr: game.homeAbbr,
+      awayAbbr: game.awayAbbr,
+    });
+  }, [allPropsWithAlts, gameLabel, game, sport]);
+
   const filteredProps = useMemo(() => {
     let list = mains;
     const f = sportFilters.find((x) => x.id === filter);
@@ -527,6 +552,7 @@ export default function SimulatorScreen() {
     setSimulatedProps([]);
     setShowAllPicks(false);
     setWhatChanged([]);
+    setTicketOptimization([]);
     setGameSimRun(null);
     setPropSimRun(null);
     setPlayerHistory({});
@@ -569,102 +595,170 @@ export default function SimulatorScreen() {
         setGameResult(gr);
         if (gr) setGameSimRun(gr);
       }
-      if ((mode === "props" || mode === "full") && propPool.length > 0) {
-        toSim = buildSimulatorSimCandidates(propPool, selected);
+      if ((mode === "props" || mode === "full") && selected.length > 0) {
+        toSim = [...selected];
         setSimulatedProps(toSim);
         const teamTokens = [game.homeTeam, game.awayTeam]
           .filter(Boolean)
           .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
 
-        const simProps = await Promise.all(
-          toSim.map(async (s) => {
-            let athleteId = s.athleteId;
-            if (!athleteId) {
-              try {
-                const { results } = await searchSimulatorPlayer(s.player);
-                const hit =
-                  results.find(
-                    (r) =>
-                      r.sport === sport &&
-                      r.team &&
-                      teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
-                  ) ?? results.find((r) => r.sport === sport);
-                athleteId = hit?.athleteId ?? null;
-              } catch {
-                athleteId = null;
+        const resolveSimProps = async (props: SelectedProp[]) =>
+          Promise.all(
+            props.map(async (s) => {
+              let athleteId = s.athleteId;
+              if (!athleteId) {
+                try {
+                  const { results } = await searchSimulatorPlayer(s.player);
+                  const hit =
+                    results.find(
+                      (r) =>
+                        r.sport === sport &&
+                        r.team &&
+                        teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
+                    ) ?? results.find((r) => r.sport === sport);
+                  athleteId = hit?.athleteId ?? null;
+                } catch {
+                  athleteId = null;
+                }
               }
-            }
-            return {
-              player: s.player,
-              market: s.market,
-              line: s.line,
-              side: s.side,
-              athleteId,
-            };
-          }),
-        );
+              return {
+                player: s.player,
+                market: s.market,
+                line: s.line,
+                side: s.side,
+                athleteId,
+              };
+            }),
+          );
 
-        const phLocal: Record<string, SimulatorPlayerHistorySlice> = {};
-        const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> = {};
-        await Promise.all(
-          simProps.map(async (s) => {
-            if (!s.athleteId) return;
-            try {
-              const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
-              const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
-                date: g.date ?? undefined,
-                opp: g.opponentName ?? undefined,
-                stats: g.stats as Record<string, unknown>,
-              }));
-              if (recent.length) {
-                phLocal[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
-                phForSim[`${s.player}#${s.athleteId}`] = {
-                  labels: h.labels,
-                  recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
+        const loadHistoryForSimProps = async (
+          simProps: Array<{
+            player: string;
+            athleteId: string | null;
+          }>,
+        ) => {
+          const phLocal: Record<string, SimulatorPlayerHistorySlice> = { ...ph };
+          const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> = {};
+          await Promise.all(
+            simProps.map(async (s) => {
+              if (!s.athleteId) return;
+              const cacheKey = `${s.player}#${s.athleteId}`;
+              if (phLocal[cacheKey]) {
+                const hit = phLocal[cacheKey];
+                phForSim[cacheKey] = {
+                  labels: hit.labels,
+                  recent: (hit.recent ?? []).slice(0, 10).map((g) => ({
+                    stats: g.stats as Record<string, string>,
+                  })),
                 };
+                return;
               }
-            } catch {
-              /* honest no-history skip */
-            }
-          }),
-        );
-        ph = phLocal;
-        setPlayerHistory(phLocal);
-        lastSimRequestRef.current = { simProps, phForSim };
-        const prQuickBatch = await fetchSimulatorPropSimulationsBatch(
-          sport,
-          simProps,
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            weatherImpact: wx,
-            tier: "quick",
-            simulations: REQUESTED_SIMS,
-          },
-        );
-        const prQuick = enrichPropSimResults(prQuickBatch.props, phForSim);
-        setPropResults(prQuick);
-        setSimDeepPending(true);
-        const prDeepBatch = await fetchSimulatorPropSimulationsBatch(
-          sport,
-          simProps,
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            weatherImpact: wx,
-            tier: "deep",
-            simulations: REQUESTED_SIMS,
-          },
-        );
-        const prDeep = enrichPropSimResults(prDeepBatch.props, phForSim);
-        finalPropResults = mergeServerOverLocal(prQuick, prDeep);
+              try {
+                const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
+                const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
+                  date: g.date ?? undefined,
+                  opp: g.opponentName ?? undefined,
+                  stats: g.stats as Record<string, unknown>,
+                }));
+                if (recent.length) {
+                  phLocal[cacheKey] = { player: s.player, labels: h.labels, recent };
+                  phForSim[cacheKey] = {
+                    labels: h.labels,
+                    recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
+                  };
+                }
+              } catch {
+                /* honest no-history skip */
+              }
+            }),
+          );
+          ph = phLocal;
+          setPlayerHistory(phLocal);
+          return phForSim;
+        };
+
+        const runDeepPropSims = async (
+          simProps: Array<{
+            player: string;
+            market: string;
+            line: number;
+            side: "Over" | "Under";
+            athleteId: string | null;
+          }>,
+          phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }>,
+        ) => {
+          if (!simProps.length) return [] as PropSimulationResult[];
+          const prQuickBatch = await fetchSimulatorPropSimulationsBatch(
+            sport,
+            simProps,
+            {
+              homeTeam: game.homeTeam,
+              awayTeam: game.awayTeam,
+              homeTeamId: game.homeTeamId,
+              awayTeamId: game.awayTeamId,
+              weatherImpact: wx,
+              tier: "quick",
+              simulations: REQUESTED_SIMS,
+            },
+          );
+          const prQuick = enrichPropSimResults(prQuickBatch.props, phForSim);
+          setPropResults((prev) => mergeServerOverLocal(prev, prQuick));
+          setSimDeepPending(true);
+          const prDeepBatch = await fetchSimulatorPropSimulationsBatch(
+            sport,
+            simProps,
+            {
+              homeTeam: game.homeTeam,
+              awayTeam: game.awayTeam,
+              homeTeamId: game.homeTeamId,
+              awayTeamId: game.awayTeamId,
+              weatherImpact: wx,
+              tier: "deep",
+              simulations: REQUESTED_SIMS,
+            },
+          );
+          const prDeep = enrichPropSimResults(prDeepBatch.props, phForSim);
+          setPropSimRun(prDeepBatch.simRun);
+          setSimDeepPending(false);
+          return mergeServerOverLocal(prQuick, prDeep);
+        };
+
+        const primarySimProps = await resolveSimProps(toSim);
+        const phForSim = await loadHistoryForSimProps(primarySimProps);
+        lastSimRequestRef.current = { simProps: primarySimProps, phForSim };
+        finalPropResults = await runDeepPropSims(primarySimProps, phForSim);
+
+        const existingKeys = new Set(finalPropResults.map((r) => r.key));
+        const extraCandidates = collectExtraSimCandidates(toSim, fullPropPool, existingKeys);
+        if (extraCandidates.length > 0) {
+          const extraSimProps = await resolveSimProps(extraCandidates);
+          const extraPhForSim = await loadHistoryForSimProps(extraSimProps);
+          const mergedPhForSim = { ...phForSim, ...extraPhForSim };
+          const extraResults = await runDeepPropSims(extraSimProps, mergedPhForSim);
+          const byKey = new Map<string, PropSimulationResult>();
+          for (const r of [...finalPropResults, ...extraResults]) byKey.set(r.key, r);
+          finalPropResults = [...byKey.values()];
+        }
+
+        if (gameLabel) {
+          const optimized = optimizeSimulatorTicket(toSim, finalPropResults, {
+            gameLabel,
+            sport,
+            propPool: [...propPool, ...ppPropPool],
+            fullPool: [...fullPropPool, ...ppPropPool],
+            matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
+            matchupInjuries,
+            playerHistory: ph,
+            injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
+          });
+          toSim = optimized.props;
+          finalPropResults = optimized.results;
+          setSelected(optimized.props);
+          setSimulatedProps(optimized.props);
+          setTicketOptimization(optimized.explanation);
+        }
+
         setPropResults(finalPropResults);
-        setPropSimRun(prDeepBatch.simRun);
-        setSimDeepPending(false);
       }
       bump("sim");
       setSimProgress(completeSimProgress(progress));
@@ -736,7 +830,7 @@ export default function SimulatorScreen() {
     !!game &&
     !running &&
     (mode === "game" ||
-      ((mode === "props" || mode === "full") && (selected.length >= 1 || propPool.length > 0)));
+      ((mode === "props" || mode === "full") && selected.length >= 1));
 
   const propScores = useMemo(() => {
     if (!propResults.length || !gameLabel || !simulatedProps.length) {
@@ -813,6 +907,7 @@ export default function SimulatorScreen() {
   useEffect(() => {
     prevSnapshotRef.current = null;
     setWhatChanged([]);
+    setTicketOptimization([]);
   }, [game?.id]);
 
   const rankedProps = useMemo(
@@ -1420,6 +1515,22 @@ export default function SimulatorScreen() {
                         </View>
                       ) : null}
                     </View>
+                  </Card>
+                ) : null}
+
+                {ticketOptimization.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>
+                      Optimized Ticket
+                    </Text>
+                    {ticketOptimization.map((line) => (
+                      <View key={line} style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+                        <Text style={{ color: colors.primary, fontFamily: FONT.body, fontSize: 11 }}>•</Text>
+                        <Text style={{ flex: 1, fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, lineHeight: 17 }}>
+                          {line}
+                        </Text>
+                      </View>
+                    ))}
                   </Card>
                 ) : null}
 

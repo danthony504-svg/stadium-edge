@@ -93,6 +93,89 @@ export function buildSimulatorPropPool(
   return out;
 }
 
+/** Full ladder pool (main + alternate rungs) for alt-line comparison. */
+export function buildSimulatorFullPropPool(
+  props: PlayerProp[],
+  game: string,
+  sport: string,
+  teams?: {
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    homeAbbr?: string | null;
+    awayAbbr?: string | null;
+  },
+): PropPoolEntry[] {
+  const out: PropPoolEntry[] = [];
+  for (const p of props) {
+    if (!p || p.line == null) continue;
+    const marketLabel = propMarketLabel(p.market);
+    const teamAbbr =
+      p.playerTeamId && teams?.homeTeamId && p.playerTeamId === teams.homeTeamId
+        ? (teams.homeAbbr ?? null)
+        : p.playerTeamId && teams?.awayTeamId && p.playerTeamId === teams.awayTeamId
+          ? (teams.awayAbbr ?? null)
+          : null;
+    if (p.overPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Over",
+        odds: p.overPrice,
+        edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+        bookSpread: p.overSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+    if (p.underPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Under",
+        odds: p.underPrice,
+        edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+        bookSpread: p.underSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+  }
+  return out;
+}
+
+export function simulatorPropKey(s: {
+  player: string;
+  market: string;
+  line: number;
+  side: string;
+}): string {
+  return `${s.player}|${s.market}|${s.line}|${s.side}`;
+}
+
+export function poolEntryToSelected(e: PropPoolEntry): SimulatorSelectedProp {
+  const market = e.marketKey ?? e.marketLabel;
+  return {
+    player: e.player,
+    market,
+    line: e.line as number,
+    side: e.side as "Over" | "Under",
+    odds: e.odds,
+    athleteId: e.athleteId ?? null,
+    headshot: e.headshot ?? null,
+    label: `${e.side} ${e.line} ${e.marketLabel}`,
+  };
+}
+
 export function buildSimulatorPpPropPool(
   props: PlayerProp[],
   gameLabel: string,
