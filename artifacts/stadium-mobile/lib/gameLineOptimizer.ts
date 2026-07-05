@@ -473,14 +473,29 @@ function formatGameLineScoreNote(
   scored: EvaluatedGameLine | null,
   sim: CoachGameSimEntry | undefined,
   match: RealOddsEntry | null,
+  opts?: {
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+  },
 ): string {
   const simHit = scored?.winProb ?? gameSimHitForPick(pick, sim);
-  const edge =
+  let edge =
     scored?.edgePct ??
     match?.edge ??
     pick.finalAiScore?.edgePct ??
     pick.scores?.edgePct ??
     null;
+  if (edge == null && opts) {
+    const rubric = scoreGameLinePick(
+      pick,
+      opts.realOdds,
+      opts.matchupHistory,
+      opts.matchupInjuries,
+      sim,
+    );
+    edge = rubric?.edgePct ?? null;
+  }
   const grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
   const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
@@ -553,17 +568,30 @@ export function buildGameLineOptimizerNote(
         } as RealOddsEntry);
     }
     if (!match) {
-      lines.push(formatGameLineScoreNote(pick, null, sim, null));
+      lines.push(
+        formatGameLineScoreNote(pick, null, sim, null, {
+          realOdds: mergeOddsEntries(opts.realOdds, evalLines),
+          matchupHistory: opts.matchupHistory,
+          matchupInjuries: opts.matchupInjuries,
+        }),
+      );
       continue;
     }
+    const mergedOdds = mergeOddsEntries(opts.realOdds, evalLines);
     const ranked = evaluateGameLines({
       lines: [match],
       gameSim: sim,
-      realOdds: mergeOddsEntries(opts.realOdds, evalLines),
+      realOdds: mergedOdds,
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
-    lines.push(formatGameLineScoreNote(pick, ranked[0] ?? null, sim, match));
+    lines.push(
+      formatGameLineScoreNote(pick, ranked[0] ?? null, sim, match, {
+        realOdds: mergedOdds,
+        matchupHistory: opts.matchupHistory,
+        matchupInjuries: opts.matchupInjuries,
+      }),
+    );
   }
 
   if (!lines.length) return "";

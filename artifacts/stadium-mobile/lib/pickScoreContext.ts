@@ -37,6 +37,7 @@ import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { gameValueForMarket } from "@/lib/propStats";
 import {
   gameSimHitForPick,
+  gameLabelsMatch,
   lookupGameSim,
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
@@ -134,6 +135,46 @@ function gameInjuryEdge(
   return { side: favored, magnitude };
 }
 
+function numSpreadLine(pick: string): number | null {
+  const m = String(pick).match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function teamsLooseMatch(a: string, b: string): boolean {
+  const ta = tokens(a);
+  const tb = tokens(b);
+  if (!ta.length || !tb.length) return false;
+  if (ta.some((t) => tb.includes(t)) || tb.some((t) => ta.includes(t))) return true;
+  return ta[ta.length - 1] === tb[tb.length - 1];
+}
+
+function tokens(s: string): string[] {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+}
+
+function findBackingOddsRow(pick: ParsedPick, realOdds: RealOddsEntry[]): RealOddsEntry | undefined {
+  const exact = realOdds.find(
+    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
+  );
+  if (exact) return exact;
+  const pickTeam = gamePickTeam(pick);
+  const pickLine = numSpreadLine(pick.pick);
+  const isSpread = /spread/i.test(pick.market);
+  if (!pickTeam || pickLine == null || !isSpread) return undefined;
+  return realOdds.find((r) => {
+    if (!gameLabelsMatch(r.game, pick.game) || !/spread/i.test(r.market)) return false;
+    if (numSpreadLine(r.pick) !== pickLine) return false;
+    const rowTeam = gamePickTeam({ ...pick, pick: r.pick });
+    return rowTeam != null && teamsLooseMatch(pickTeam, rowTeam);
+  });
+}
+
 // Score one GAME pick (moneyline / spread / total) from the real feeds.
 export function scoreGameLinePick(
   pick: ParsedPick,
@@ -144,9 +185,7 @@ export function scoreGameLinePick(
 ): CombinedPickScore | null {
   // Line Value + Line-Shopping come straight off the backing odds row, which
   // parsePicks copied verbatim — so an exact game/market/pick match is the row.
-  const ro = realOdds.find(
-    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
-  );
+  const ro = findBackingOddsRow(pick, realOdds);
   const edgePct = ro?.edge ?? null;
   const lineValue = scoreLineValue(edgePct);
   const lineShopping = scoreLineShopping(ro?.bookSpread ?? null);

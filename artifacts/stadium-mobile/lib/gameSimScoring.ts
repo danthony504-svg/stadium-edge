@@ -36,7 +36,7 @@ export type CoachGameSimEntry = GameSimulationResult & {
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
-function gameLabelsMatch(a: string, b: string): boolean {
+export function gameLabelsMatch(a: string, b: string): boolean {
   const pa = splitLabel(a);
   const pb = splitLabel(b);
   if (!pa.away || !pa.home || !pb.away || !pb.home) {
@@ -282,6 +282,84 @@ export function gameSimHasValidRun(sim: CoachGameSimEntry | null | undefined): b
   return n > 0 && Number.isFinite(sim.homeWinProbability) && Number.isFinite(sim.awayWinProbability);
 }
 
+function spreadLinesMatch(a: number | null | undefined, b: number | null | undefined): boolean {
+  if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) < 0.001;
+}
+
+function coverQueriesEquivalent(a: GameCoverQuery, b: GameCoverQuery): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "ml") return a.teamSide === b.teamSide;
+  if (a.kind === "spread") {
+    return a.teamSide === b.teamSide && spreadLinesMatch(a.line, b.line);
+  }
+  if (a.kind === "total") {
+    return a.totalSide === b.totalSide && spreadLinesMatch(a.line, b.line);
+  }
+  if (a.kind === "teamTotal") {
+    return (
+      a.teamSide === b.teamSide &&
+      a.totalSide === b.totalSide &&
+      spreadLinesMatch(a.line, b.line)
+    );
+  }
+  return false;
+}
+
+/** Match cover rates when pick text differs by nickname (Sox +1.5 vs Chicago White Sox +1.5). */
+function fuzzyCoverHitRate(
+  pick: ParsedPick,
+  target: GameCoverQuery,
+  sim: CoachGameSimEntry,
+): number | null {
+  const rates = sim.coverHitRates;
+  if (!rates) return null;
+  for (const [id, rate] of Object.entries(rates)) {
+    if (rate == null || !Number.isFinite(rate)) continue;
+    const parts = id.split("|");
+    if (parts.length < 3) continue;
+    const gameLabel = parts[0]!;
+    const market = parts[1]!;
+    const pickText = parts.slice(2).join("|");
+    if (!gameLabelsMatch(gameLabel, pick.game)) continue;
+    const probe: ParsedPick = {
+      game: pick.game,
+      market,
+      pick: pickText,
+      odds: pick.odds,
+      isProp: false,
+      sport: pick.sport,
+    };
+    const q = buildGameCoverQuery(probe);
+    if (!q || !coverQueriesEquivalent(q, target)) continue;
+    return rate;
+  }
+  if (sim.outcomes) {
+    for (const [id] of Object.entries(rates)) {
+      const parts = id.split("|");
+      if (parts.length < 3) continue;
+      const gameLabel = parts[0]!;
+      const market = parts[1]!;
+      const pickText = parts.slice(2).join("|");
+      if (!gameLabelsMatch(gameLabel, pick.game)) continue;
+      const probe: ParsedPick = {
+        game: pick.game,
+        market,
+        pick: pickText,
+        odds: pick.odds,
+        isProp: false,
+        sport: pick.sport,
+      };
+      const q = buildGameCoverQuery(probe);
+      if (!q || !coverQueriesEquivalent(q, target)) continue;
+      const derived = deriveCoverHitRatesFromOutcomes(sim.outcomes, [q]);
+      const hit = derived[q.id];
+      if (hit != null && Number.isFinite(hit)) return hit;
+    }
+  }
+  return null;
+}
+
 /** Monte Carlo hit probability for this pick from the shared game sim. */
 export function gameSimHitForPick(
   pick: ParsedPick,
@@ -292,6 +370,9 @@ export function gameSimHitForPick(
   if (!query) return null;
   const fromCover = sim!.coverHitRates?.[query.id];
   if (fromCover != null && Number.isFinite(fromCover)) return fromCover;
+
+  const fuzzy = fuzzyCoverHitRate(pick, query, sim!);
+  if (fuzzy != null) return fuzzy;
 
   if (sim!.outcomes) {
     const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query]);

@@ -85,6 +85,13 @@ function uniqueCoverQueries(
   const seen = new Set<string>();
   const out: GameCoverQuery[] = [];
   const games = new Set(picks.filter(isGameLinePick).map((p) => p.game));
+  const gameOnTicket = (label: string) => {
+    if (games.has(label)) return true;
+    for (const g of games) {
+      if (gameLabelsMatch(g, label)) return true;
+    }
+    return false;
+  };
   const addPick = (p: ParsedPick) => {
     const q = buildGameCoverQuery(p);
     if (!q || seen.has(q.id)) return;
@@ -94,7 +101,7 @@ function uniqueCoverQueries(
   for (const p of picks) addPick(p);
   if (evalLinesByGame) {
     for (const [game, lines] of evalLinesByGame) {
-      if (!games.has(game)) continue;
+      if (!gameOnTicket(game)) continue;
       for (const e of lines) {
         addPick({
           game: e.game,
@@ -108,7 +115,7 @@ function uniqueCoverQueries(
     }
   } else if (realOdds) {
     for (const ro of realOdds) {
-      if (!games.has(ro.game)) continue;
+      if (!gameOnTicket(ro.game)) continue;
       addPick({
         game: ro.game,
         market: ro.market,

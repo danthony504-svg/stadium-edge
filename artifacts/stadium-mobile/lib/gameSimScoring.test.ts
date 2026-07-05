@@ -73,3 +73,20 @@ test("lookupGameSim matches nickname game labels", () => {
   ]);
   assert.ok(lookupGameSim("Mets @ Braves", map));
 });
+
+test("gameSimHitForPick fuzzy-matches nickname spread to full-name cover rate", () => {
+  const GAME = "Chicago White Sox @ Cleveland Guardians";
+  const nickPick = gamePick({
+    game: GAME,
+    market: "Spread",
+    pick: "Sox +1.5",
+    odds: 140,
+  });
+  const nickSim = {
+    ...sim,
+    coverHitRates: {
+      [`${GAME.toLowerCase()}|alt spread|chicago white sox +1.5`]: 0.54,
+    },
+  };
+  assert.equal(gameSimHitForPick(nickPick, nickSim), 0.54);
+});
