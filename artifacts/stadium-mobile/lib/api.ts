@@ -2640,9 +2640,9 @@ export async function buildPropsOnlyParlayContext(
   const n = Math.max(4, Math.min(12, requestedLegs || 6));
   return buildLightParlayContext(signal, {
     maxSports: 2,
-    maxPropGames: 5,
-    maxOddsGames: 6,
-    propsBalanceCap: Math.min(56, n * 9),
+    maxPropGames: 3,
+    maxOddsGames: 5,
+    propsBalanceCap: Math.min(48, n * 8),
     oddsSliceCap: 4,
     parallelSports: true,
     parallelPropFetch: true,

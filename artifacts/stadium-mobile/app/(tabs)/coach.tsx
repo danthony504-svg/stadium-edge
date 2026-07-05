@@ -1230,7 +1230,19 @@ export default function CoachScreen() {
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
-          const usePropsOnlyParlayPath = genericParlayPath && wantsPropsOnly(trimmed);
+          // Props-only must never depend on genericParlayPath — a future focal-sport
+          // false positive or gate tweak would otherwise fall through to full
+          // buildChatContext and connect-stall on cellular.
+          const usePropsOnlyParlayPath =
+            isParlayBuild &&
+            wantsPropsOnly(trimmed) &&
+            buildLegs > 0 &&
+            buildLegs <= MAX_LEGS &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            !includePeriods &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !altSign;
           const useTinyParlayPath = genericParlayPath && !usePropsOnlyParlayPath && buildLegs <= 3;
           const useCompactParlayPath =
             genericParlayPath && !usePropsOnlyParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
@@ -1241,8 +1253,13 @@ export default function CoachScreen() {
             !oddsThreshold &&
             !altSign;
           const streamWarmBuild =
-            isParlayBuild || useMlbSlatePath || genericParlayPath;
+            isParlayBuild || useMlbSlatePath || genericParlayPath || usePropsOnlyParlayPath;
           const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
+          if (usePropsOnlyParlayPath) {
+            // Props-only: wake cold autoscale BEFORE prop fan-out so /api/chat isn't
+            // the first heavy hit after a 20s parallel props fetch.
+            await warmP;
+          }
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
             : usePropsOnlyParlayPath
@@ -1329,7 +1346,8 @@ export default function CoachScreen() {
             buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
-            await warmP;
+            if (!usePropsOnlyParlayPath) await warmP;
+            else await warmApiForCoachBuild(controller.signal);
             return streamChat({
               messages: apiMessages,
               context: streamContext,
