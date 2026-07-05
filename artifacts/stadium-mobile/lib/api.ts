@@ -2807,6 +2807,28 @@ export async function buildCompactParlayContext(
 }
 
 /**
+ * Named-league parlays ("12 leg mlb", "9 leg nba") — one sport, lean context.
+ * Without this, focal-sport asks skip the compact path and pull the 11+ leg FULL
+ * context tier (~500KB), which connect-stalls on cellular before the first token.
+ */
+export async function buildFocalSportParlayContext(
+  sport: string,
+  requestedLegs: number,
+  signal?: AbortSignal,
+): Promise<BuiltChatContext> {
+  const n = Math.max(4, Math.min(15, requestedLegs || 8));
+  return buildLightParlayContext(signal, {
+    sports: [sport],
+    maxSports: 1,
+    maxPropGames: Math.min(14, n + 4),
+    maxOddsGames: Math.min(22, n + 8),
+    propsBalanceCap: Math.min(88, n * 7),
+    oddsSliceCap: Math.min(64, n * 5),
+    parallelPropFetch: n >= 8,
+  });
+}
+
+/**
  * Props-only parlay asks ("player props only parlay") — skip the wide game-odds
  * slice and fan out fewer sports/prop games so context build + /api/chat connect
  * finish on cellular before the client times out.

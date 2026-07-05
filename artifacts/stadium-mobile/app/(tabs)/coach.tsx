@@ -97,6 +97,7 @@ import {
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
+  buildFocalSportParlayContext,
   buildPropsOnlyParlayContext,
   buildMlbSlateContext,
   gameMatchesFocalText,
@@ -1235,6 +1236,7 @@ export default function CoachScreen() {
           setWaiting(false);
         } else {
           const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
+          const focalSports = focalSportsFromText(focalForPools);
           const fastParlay = isParlayBuild && buildLegs > 0 && buildLegs <= MAX_LEGS;
           const genericParlayPath =
             fastParlay &&
@@ -1242,7 +1244,19 @@ export default function CoachScreen() {
             !includePeriods &&
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
-            focalSportsFromText(focalForPools).size === 0;
+            focalSports.size === 0;
+          // Named single-league parlays ("12 leg mlb") must not fall through to
+          // full buildChatContext — that tier pulls ~500KB for 11+ legs and
+          // connect-stalls before the stream opens on cellular.
+          const useFocalSportParlayPath =
+            fastParlay &&
+            focalSports.size === 1 &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            !includePeriods &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !altSign;
+          const focalSportId = useFocalSportParlayPath ? [...focalSports][0]! : null;
           // Props-only must never depend on genericParlayPath — a future focal-sport
           // false positive or gate tweak would otherwise fall through to full
           // buildChatContext and connect-stall on cellular.
@@ -1261,12 +1275,17 @@ export default function CoachScreen() {
             genericParlayPath && !usePropsOnlyParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
           const useMlbSlatePath =
             !genericParlayPath &&
+            !useFocalSportParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
             !wantsAnalyzeSlip(trimmed) &&
             !oddsThreshold &&
             !altSign;
           const streamWarmBuild =
-            isParlayBuild || useMlbSlatePath || genericParlayPath || usePropsOnlyParlayPath;
+            isParlayBuild ||
+            useMlbSlatePath ||
+            genericParlayPath ||
+            useFocalSportParlayPath ||
+            usePropsOnlyParlayPath;
           const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
           if (usePropsOnlyParlayPath) {
             // Props-only: wake cold autoscale BEFORE prop fan-out so /api/chat isn't
@@ -1277,6 +1296,8 @@ export default function CoachScreen() {
             ? await buildTinyParlayContext(controller.signal)
             : usePropsOnlyParlayPath
               ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
+            : useFocalSportParlayPath && focalSportId
+              ? await buildFocalSportParlayContext(focalSportId, buildLegs, controller.signal)
             : useCompactParlayPath
               ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath

@@ -209,6 +209,7 @@ test("the full tier honors the caller's real caps (never exceeds them)", () => {
 
 test("coachBuildSports honors named leagues", () => {
   assert.deepEqual(coachBuildSports("give me an NBA parlay", 3, ALL_SPORTS), ["nba"]);
+  assert.deepEqual(coachBuildSports("Build me a 12 leg mlb", 12, ALL_SPORTS), ["mlb"]);
 });
 
 test("coachBuildSports uses a tiny core set for generic 3-leg asks", () => {
