@@ -876,9 +876,13 @@ export default function CoachScreen() {
   const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Auto-send navigations (send=1) read prefill from params directly — never
-    // mirror it into the composer or the user sees stale text after tapping Home.
-    if (params.prefill && params.send !== "1") setInput(String(params.prefill));
+    if (params.send === "1") {
+      // Coach tab stays mounted — clear stale composer text from a prior goCoach()
+      // navigation instead of only skipping the prefill write.
+      setInput("");
+      return;
+    }
+    if (params.prefill) setInput(String(params.prefill));
   }, [params.prefill, params.send]);
 
   // Seed the first assistant bubble with a first-time or returning welcome.
@@ -2174,6 +2178,55 @@ export default function CoachScreen() {
                 coachEvalLinesByGame,
               );
             }
+          }
+        }
+        if (!isAnalyze && picks.some(isGameLinePick)) {
+          if (!teamIdMap) {
+            const noteSports = [
+              ...new Set(
+                picks
+                  .filter(isGameLinePick)
+                  .map((p) => p.sport)
+                  .filter(Boolean),
+              ),
+            ] as string[];
+            const noteEspn = (
+              await Promise.all(noteSports.map((s) => getGames(s).catch(() => [])))
+            ).flat();
+            teamIdMap = buildGameTeamIdMap(noteEspn);
+          }
+          if (!coachEvalLinesByGame) {
+            const noteSports = [
+              ...new Set(
+                picks
+                  .filter(isGameLinePick)
+                  .map((p) => p.sport)
+                  .filter(Boolean),
+              ),
+            ] as string[];
+            const noteOdds = (
+              await Promise.all(noteSports.map((s) => getOdds(s).catch(() => [])))
+            ).flat();
+            const gamesWithLines = new Set(
+              picks.filter(isGameLinePick).map((p) => p.game),
+            );
+            coachEvalLinesByGame = deepMultiLegParlay
+              ? buildEvalLinesForAllGames(noteOdds)
+              : buildEvalLinesByGameMap(gamesWithLines, noteOdds);
+            mergedGameOdds = mergeOddsEntries(
+              context.realOdds,
+              ...coachEvalLinesByGame.values(),
+            );
+          }
+          if (teamIdMap && coachEvalLinesByGame) {
+            gameSimulations = await supplementCoachGameSimulations(
+              picks,
+              gameSimulations,
+              teamIdMap,
+              abortRef.current?.signal,
+              mergedGameOdds,
+              coachEvalLinesByGame,
+            );
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME

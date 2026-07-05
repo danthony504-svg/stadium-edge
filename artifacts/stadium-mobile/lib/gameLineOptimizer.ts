@@ -506,7 +506,15 @@ function formatGameLineScoreNote(
     matchupInjuries?: Record<string, GameInjuryReport>;
   },
 ): string {
-  const simHit = scored?.winProb ?? gameSimHitForPick(pick, sim);
+  const simHit =
+    scored?.winProb ??
+    gameSimHitForPick(pick, sim) ??
+    (match
+      ? gameSimHitForPick(
+          { ...pick, market: match.market, pick: match.pick },
+          sim,
+        )
+      : null);
   let edge =
     scored?.edgePct ??
     match?.edge ??
