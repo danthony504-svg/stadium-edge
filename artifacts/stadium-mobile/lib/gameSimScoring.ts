@@ -82,6 +82,40 @@ function gamePickTeam(pick: ParsedPick): string | null {
   return team || null;
 }
 
+function teamNick(team: string): string {
+  const parts = String(team ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+const normGame = (s: string) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** One leg per team-sided bucket when backfilling or deduping multi-leg tickets. */
+export function gameLineLegBucket(game: string, market: string, pick: string): string {
+  const g = normGame(game);
+  const fam = gameMarketFamily(market);
+  if (/\b(over|under)\b/i.test(pick) && !/team total/i.test(market)) {
+    return `${g}|game-total`;
+  }
+  if (/team total/i.test(market)) {
+    const team = gamePickTeam({ game, market, pick, odds: 0 });
+    return team ? `${g}|team-total|${teamNick(team)}` : `${g}|team-total`;
+  }
+  if (fam.endsWith("moneyline") || fam.endsWith("spread")) {
+    const team = gamePickTeam({ game, market, pick, odds: 0 });
+    if (team) return `${g}|team|${teamNick(team)}`;
+  }
+  return `${g}|${fam}`;
+}
+
 /** Moneyline, spread/run line, or game total — not a player prop. */
 export function isGameLinePick(pick: ParsedPick): boolean {
   if (pick.isProp) return false;

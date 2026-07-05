@@ -16,6 +16,7 @@ import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
+import { gameLineLegBucket } from "@/lib/gameSimScoring";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -1760,14 +1761,11 @@ export function backfillPicks(
   const { target, order, altSign = null } = opts;
   if (existing.length >= target) return existing;
   const out = [...existing];
-  // (game, market-family) keys already used by GAME-LEVEL legs, so we never stack
-  // a second same-family side on the same game (marketFamily is period-scoped, so
-  // Q1/1H/2H/full-game spreads stay distinct). Props are excluded, exactly like
-  // parsePicks' anti-correlation guard.
-  const famSeen = new Set(
+  // One leg per team-sided bucket (ML + spread on same club share a bucket).
+  const bucketSeen = new Set(
     out
       .filter((p) => !p.isProp)
-      .map((p) => `${norm(p.game)}|${marketFamily(p.market)}`),
+      .map((p) => gameLineLegBucket(p.game, p.market, p.pick)),
   );
   // Exact-leg keys so a backfill rung can never duplicate an existing card.
   const legSeen = new Set(
@@ -1780,11 +1778,11 @@ export function backfillPicks(
       if (out.length >= target) return out;
       if (!matcher.test(e.market)) continue;
       if (typeof e.odds !== "number" || !signOk(e.odds)) continue;
-      const famKey = `${norm(e.game)}|${marketFamily(e.market)}`;
-      if (famSeen.has(famKey)) continue;
+      const bucketKey = gameLineLegBucket(e.game, e.market, e.pick);
+      if (bucketSeen.has(bucketKey)) continue;
       const legKey = `${e.game}|${e.market}|${e.pick}`.toLowerCase();
       if (legSeen.has(legKey)) continue;
-      famSeen.add(famKey);
+      bucketSeen.add(bucketKey);
       legSeen.add(legKey);
       out.push(
         enrichPickMeta(

@@ -3,7 +3,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry } from "./api.ts";
-import { isGameLinePick } from "./gameSimScoring.ts";
+import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -12,19 +12,16 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-function pickTeamName(pick: string): string | null {
-  const p = String(pick ?? "");
-  if (/\b(over|under)\b/i.test(p)) return null;
-  return (
-    p
-      .replace(/\s*(ml|moneyline)\s*$/i, "")
-      .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
-      .trim() || null
-  );
-}
-
-function legKey(p: ParsedPick): string {
-  return `${p.game}|${p.market}|${p.pick}`.toLowerCase();
+function countDuplicateTeamLegs(picks: ParsedPick[]): number {
+  const seen = new Set<string>();
+  let dupes = 0;
+  for (const p of picks) {
+    if (!isGameLinePick(p) || p.isProp) continue;
+    const bucket = gameLineLegBucket(p.game, p.market, p.pick);
+    if (seen.has(bucket)) dupes += 1;
+    else seen.add(bucket);
+  }
+  return dupes;
 }
 
 /** One game-side leg per team — drops duplicate Braves ML + Braves -1.5 style stacks. */
@@ -36,12 +33,11 @@ export function dedupeSameTeamGameLegs(picks: ParsedPick[]): {
   const out: ParsedPick[] = [];
   let dropped = 0;
   for (const p of picks) {
-    if (!isGameLinePick(p) || p.isProp || /\b(over|under)\b/i.test(p.pick)) {
+    if (!isGameLinePick(p) || p.isProp) {
       out.push(p);
       continue;
     }
-    const team = pickTeamName(p.pick);
-    const bucket = team ? `${norm(p.game)}|${norm(team)}` : `${norm(p.game)}|side`;
+    const bucket = gameLineLegBucket(p.game, p.market, p.pick);
     if (seen.has(bucket)) {
       dropped += 1;
       continue;
@@ -132,13 +128,18 @@ export function rotatePool<T>(items: T[], seed: string): T[] {
   return [...items.slice(offset), ...items.slice(0, offset)];
 }
 
-/** Strip model chalk so reach-backfill must run for longshot parlays. */
-export function prepareLongshotParlaySeed(
+/** Strip model chalk so reach-backfill must run for deep parlays (6+ legs). */
+export function prepareDeepParlaySeed(
   picks: ParsedPick[],
   legTarget: number,
+  opts: { longshotAsk?: boolean } = {},
 ): { picks: ParsedPick[]; stripped: number } {
-  const minProps = Math.max(1, Math.ceil(legTarget * 0.65));
-  const maxGameLegs = Math.max(0, Math.min(2, legTarget - minProps));
+  const minPropFraction = opts.longshotAsk ? 0.65 : 0.5;
+  const minProps = Math.max(1, Math.ceil(legTarget * minPropFraction));
+  const maxGameLegs = Math.max(
+    0,
+    Math.min(opts.longshotAsk ? 2 : 3, legTarget - minProps),
+  );
   const props = picks.filter((p) => p.isProp);
   const gameLegs = dedupeSameTeamGameLegs(
     picks.filter((p) => !p.isProp && isGameLinePick(p)),
@@ -147,17 +148,25 @@ export function prepareLongshotParlaySeed(
   return { picks: [...props, ...gameLegs], stripped };
 }
 
+/** @deprecated Use prepareDeepParlaySeed — kept for tests. */
+export const prepareLongshotParlaySeed = prepareDeepParlaySeed;
+
 export function needsParlayBackfill(
   picks: ParsedPick[],
   legTarget: number,
-  opts: { longshotAsk?: boolean } = {},
+  opts: { longshotAsk?: boolean; deepParlay?: boolean } = {},
 ): boolean {
-  if (legTarget <= picks.length && !opts.longshotAsk) return false;
+  const deep = opts.deepParlay ?? legTarget >= 6;
   if (legTarget > picks.length) return true;
-  if (opts.longshotAsk && legTarget >= 6 && propShare(picks) < 0.55) return true;
-  if (opts.longshotAsk && picks.filter((p) => !p.isProp && isGameLinePick(p)).length > 3) {
-    return true;
-  }
+  if (!deep) return false;
+  if (countDuplicateTeamLegs(picks) > 0) return true;
+  const minPropShare = opts.longshotAsk ? 0.55 : 0.35;
+  if (propShare(picks) < minPropShare) return true;
+  const maxGameLegs = opts.longshotAsk
+    ? 3
+    : Math.max(3, Math.floor(legTarget * 0.35));
+  const gameLegs = picks.filter((p) => !p.isProp && isGameLinePick(p)).length;
+  if (gameLegs > maxGameLegs) return true;
   return false;
 }
 
