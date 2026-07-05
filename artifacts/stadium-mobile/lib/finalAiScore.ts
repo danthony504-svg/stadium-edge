@@ -4,6 +4,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   combinePickScore,
+  gradeFromComposite,
   scoreSimulation,
   type CombinedPickScore,
   type PickSubScores,
@@ -19,7 +20,21 @@ import {
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
 
+/** Final AI Score factor weights (sum = 1). Renormalized over present factors only. */
+export const FINAL_AI_WEIGHTS: Record<string, number> = {
+  simulation: 0.3,
+  lineValue: 0.2,
+  matchup: 0.15,
+  injury: 0.1,
+  trend: 0.1,
+  sharpMoney: 0.05,
+  lineMovement: 0.05,
+  lineShopping: 0.05,
+};
+
 export const FINAL_AI_MIN_GRADE = "B+";
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const GRADE_RANK: Record<string, number> = {
   F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
 };
@@ -47,6 +62,36 @@ export type FinalAiScore = {
 function gradeRank(g: string | null | undefined): number {
   if (!g) return -1;
   return GRADE_RANK[g] ?? -1;
+}
+
+/** Weighted 1–10 composite; absent factors are omitted and weights renormalized. */
+export function combineFinalAiFactors(factors: FinalAiFactor[]): number | null {
+  let wSum = 0;
+  let acc = 0;
+  for (const f of factors) {
+    const w = FINAL_AI_WEIGHTS[f.key];
+    if (w == null || f.score == null || !Number.isFinite(f.score)) continue;
+    wSum += w;
+    acc += w * f.score;
+  }
+  if (wSum <= 0) return null;
+  return round1(acc / wSum);
+}
+
+const CONFIDENCE_BASELINE = 50;
+const CONFIDENCE_NEUTRAL = 5.5;
+const CONFIDENCE_PER_FACTOR = 10;
+
+function confidenceFromFinalAiFactors(factors: FinalAiFactor[]): number | null {
+  let present = 0;
+  let pts = CONFIDENCE_BASELINE;
+  for (const f of factors) {
+    if (f.score == null || !Number.isFinite(f.score)) continue;
+    present += 1;
+    pts += ((f.score - CONFIDENCE_NEUTRAL) / (10 - CONFIDENCE_NEUTRAL)) * CONFIDENCE_PER_FACTOR;
+  }
+  if (present === 0) return null;
+  return clamp(Math.round(pts), 5, 95);
 }
 
 export function simHitForPick(
@@ -93,11 +138,12 @@ export function buildFinalAiScore(input: {
 
   const { simAligned, highRiskValuePlay } = classifySimAlignment(simHit, rubric.edgePct);
 
+  const simScore = scoreSimulation(simHit);
   const factors: FinalAiFactor[] = [
     {
       key: "simulation",
       label: "Simulation",
-      score: scoreSimulation(simHit),
+      score: simScore,
       display: simHit != null ? `${Math.round(simHit * 100)}% hit` : undefined,
     },
     {
@@ -110,21 +156,23 @@ export function buildFinalAiScore(input: {
     { key: "matchup", label: "Matchup", score: input.rubricScores.matchup },
     { key: "trend", label: "Recent Form", score: input.rubricScores.trend },
     { key: "injury", label: "Injuries", score: input.rubricScores.injury },
-    { key: "lineShopping", label: "Line Shopping", score: input.rubricScores.lineShopping },
     { key: "sharpMoney", label: "Sharp Money", score: null, display: "No feed" },
     { key: "lineMovement", label: "Line Movement", score: null, display: "No feed" },
+    { key: "lineShopping", label: "Line Shopping", score: input.rubricScores.lineShopping },
   ];
 
-  const grade = rubric.grade;
+  const composite = combineFinalAiFactors(factors);
+  const grade = gradeFromComposite(composite);
+  const confidencePct = confidenceFromFinalAiFactors(factors);
   const recommends =
     gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
     (rubric.edgePct ?? 0) > 0 &&
     (simAligned || highRiskValuePlay);
 
   return {
-    composite: rubric.composite,
+    composite,
     grade,
-    confidencePct: rubric.confidencePct,
+    confidencePct,
     edgePct: rubric.edgePct,
     simHit,
     simAligned,

@@ -1142,7 +1142,7 @@ export default function SimulatorScreen() {
                       Player Prop Projections
                     </Text>
                     <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      Final AI Score rolls simulation, line value, matchup, recent form, injuries, line shopping, sharp money, and line movement into one grade — simulation is the anchor, not the only input.
+                      Final AI Score (30% sim · 20% line value · 15% matchup · 10% injuries · 10% form · 5% each sharp/line move/shopping) rolls every grounded signal into one grade — simulation is the anchor, not the only input.
                       {simDeepPending ? " Simulation updating…" : ""}
                     </Text>
                     {propResults.map((r) => {
