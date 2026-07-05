@@ -1380,6 +1380,81 @@ export function buildRealOdds(
   return out;
 }
 
+const EVAL_ALT_MAX_JUICE = -1000;
+
+/** Every full-game ML / spread / total / alt rung for post-sim Final AI Score ranking. */
+export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
+  if (!g?.markets) return [];
+  const out: RealOddsEntry[] = [];
+  const game = `${g.awayTeam} @ ${g.homeTeam}`;
+  const base = { sport: g.sport, game, startsAt: g.commenceTime };
+  const isSoccer = g.sport === "soccer";
+  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
+  const scoreInputs = (o: OddsOutcome) => ({
+    noVigFair: o.noVigFair ?? null,
+    edge: o.edge ?? null,
+    bookSpread: o.bookSpread ?? null,
+  });
+  const pushSpread = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+      out.push({ ...base, market, pick: `${teamLabel(o.name)}${pt}`, odds: o.price, ...scoreInputs(o) });
+    }
+  };
+  const pushTotal = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (o.price == null || o.price <= EVAL_ALT_MAX_JUICE) continue;
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      out.push({ ...base, market, pick: `${o.name}${pt}`.trim(), odds: o.price, ...scoreInputs(o) });
+    }
+  };
+
+  const h2h = g.markets.find((m) => m.key === "h2h");
+  const spreads = g.markets.find((m) => m.key === "spreads");
+  const totals = g.markets.find((m) => m.key === "totals");
+  const altSpreads = g.markets.find((m) => m.key === "alternate_spreads");
+  const altTotals = g.markets.find((m) => m.key === "alternate_totals");
+
+  if (h2h) {
+    for (const o of h2h.outcomes ?? []) {
+      if (o.price == null) continue;
+      out.push({ ...base, market: "Moneyline", pick: `${teamLabel(o.name)} ML`, odds: o.price, ...scoreInputs(o) });
+    }
+  }
+  pushSpread("Spread", spreads?.outcomes);
+  pushSpread("Alt Spread", altSpreads?.outcomes);
+  pushTotal("Total", totals?.outcomes);
+  pushTotal("Alt Total", altTotals?.outcomes);
+
+  // Implied team totals from main spread + game total (sim-scored; no fabricated edge).
+  const homeSpread = spreads?.outcomes?.find((o) => teamLabel(o.name) === teamLabel(g.homeTeam));
+  const gameTotal = totals?.outcomes?.find((o) => /\bover\b/i.test(o.name));
+  if (homeSpread?.point != null && gameTotal?.point != null) {
+    const roundHalf = (n: number) => Math.round(n * 2) / 2;
+    const homeLine = roundHalf((gameTotal.point - homeSpread.point) / 2);
+    const awayLine = roundHalf(gameTotal.point - homeLine);
+    for (const [team, line] of [
+      [g.homeTeam, homeLine],
+      [g.awayTeam, awayLine],
+    ] as const) {
+      for (const dir of ["Over", "Under"] as const) {
+        out.push({
+          ...base,
+          market: "Team Total",
+          pick: `${teamLabel(team)} ${dir} ${line}`,
+          odds: -110,
+          edge: null,
+          noVigFair: null,
+          bookSpread: null,
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
 // ---------- Player-prop chat context ----------
 
 // A real player-prop line sent to the chat AI (matches the web app's
@@ -1590,7 +1665,7 @@ export type GameSimulationResult = {
 
 export type GameCoverQueryInput = {
   id: string;
-  kind: "ml" | "spread" | "total";
+  kind: "ml" | "spread" | "total" | "teamTotal";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";

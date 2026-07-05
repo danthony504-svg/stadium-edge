@@ -25,7 +25,7 @@ export const GAME_SIM_MIN_HIT = 0.52;
 
 export type GameCoverQuery = {
   id: string;
-  kind: "ml" | "spread" | "total";
+  kind: "ml" | "spread" | "total" | "teamTotal";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";
@@ -136,6 +136,14 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
     const over = /\bover\b/i.test(p);
     const under = /\bunder\b/i.test(p);
     if (!over && !under) return null;
+    const isTeamTotal = /team total/i.test(pick.market);
+    if (isTeamTotal) {
+      const team = gamePickTeam(pick);
+      if (!team) return null;
+      const teamSide = sideOfTeam(team, away, home);
+      if (!teamSide) return null;
+      return { id, kind: "teamTotal", teamSide, line, totalSide: over ? "over" : "under" };
+    }
     return { id, kind: "total", line, totalSide: over ? "over" : "under" };
   }
 
@@ -176,6 +184,13 @@ function coverQueryHits(
     const line = q.line ?? 0;
     if (q.totalSide === "over") return total > line;
     if (q.totalSide === "under") return total < line;
+    return false;
+  }
+  if (q.kind === "teamTotal") {
+    const line = q.line ?? 0;
+    const score = q.teamSide === "home" ? homeScore : awayScore;
+    if (q.totalSide === "over") return score > line;
+    if (q.totalSide === "under") return score < line;
     return false;
   }
   return false;

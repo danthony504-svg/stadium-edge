@@ -134,7 +134,7 @@ function gameInjuryEdge(
 }
 
 // Score one GAME pick (moneyline / spread / total) from the real feeds.
-function scoreGamePick(
+export function scoreGameLinePick(
   pick: ParsedPick,
   realOdds: RealOddsEntry[],
   matchupHistory: Record<string, MatchupHistoryEntry> | undefined,
@@ -468,7 +468,7 @@ export function attachPickScores(
   return picks.map((p) => {
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
-      : scoreGamePick(
+      : scoreGameLinePick(
           p,
           realOdds,
           opts.matchupHistory,

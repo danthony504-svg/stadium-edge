@@ -60,7 +60,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
-import { enforceSimAlignedSpreadPicks } from "@/lib/spreadSimAlignment";
+import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries } from "@/lib/gameLineOptimizer";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -92,6 +92,7 @@ import {
   wantsMlbPitcherSlateAsk,
 } from "@/lib/slate";
 import {
+  buildAllEvalGameLines,
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
@@ -99,6 +100,7 @@ import {
   buildMlbSlateContext,
   gameMatchesFocalText,
   getGames,
+  getOdds,
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
@@ -1817,6 +1819,7 @@ export default function CoachScreen() {
         // uses — drop any ML/spread/total/alt that the sim does not support.
         let gameSimNote = "";
         let gameSimulations = new Map<string, CoachGameSimEntry>();
+        let mergedGameOdds = context.realOdds;
         if (!isAnalyze && picks.some(isGameLinePick)) {
           const gameSports = [
             ...new Set(
@@ -1832,29 +1835,49 @@ export default function CoachScreen() {
             )
           ).flat();
           const teamIdMap = buildGameTeamIdMap(espnGames);
+          const gamesWithLines = new Set(
+            picks.filter(isGameLinePick).map((p) => p.game),
+          );
+          const evalLinesByGame = new Map<string, RealOddsEntry[]>();
+          const oddsGames = (
+            await Promise.all(gameSports.map((s) => getOdds(s).catch(() => [])))
+          ).flat();
+          for (const og of oddsGames) {
+            const label = `${og.awayTeam} @ ${og.homeTeam}`;
+            if (!gamesWithLines.has(label)) continue;
+            evalLinesByGame.set(label, buildAllEvalGameLines(og));
+          }
+          mergedGameOdds = mergeOddsEntries(
+            context.realOdds,
+            ...evalLinesByGame.values(),
+          );
           gameSimulations = await fetchCoachGameSimulationsForPicks(
             picks,
             teamIdMap,
             abortRef.current?.signal,
             context.realOdds,
+            evalLinesByGame,
           );
+          const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
+            evalLinesByGame,
+            realOdds: context.realOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          });
+          picks = optimized.picks;
+          if (optimized.note) gameSimNote = optimized.note;
           const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
             matchupHistory: context.matchupHistory,
+            oddsForEdge: mergedGameOdds,
           });
           picks = filtered.picks;
-          if (filtered.note) gameSimNote = filtered.note;
+          if (filtered.note) {
+            gameSimNote = gameSimNote
+              ? `${gameSimNote}\n\n${filtered.note}`
+              : filtered.note;
+          }
           if (filtered.warnings.length > 0 && !gameSimNote) {
             gameSimNote = filtered.warnings.join("\n");
-          }
-          const spreadAligned = enforceSimAlignedSpreadPicks(picks, gameSimulations, {
-            realOdds: context.realOdds,
-            gameMeta,
-          });
-          picks = spreadAligned.picks;
-          if (spreadAligned.note) {
-            gameSimNote = gameSimNote
-              ? `${gameSimNote}\n\n${spreadAligned.note}`
-              : spreadAligned.note;
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
@@ -1866,7 +1889,7 @@ export default function CoachScreen() {
         // with its real grade; we never drop a leg for grading low, so a requested
         // N-leg ticket is never trimmed by grade.
         picks = attachPickScores(picks, {
-          realOdds: context.realOdds,
+          realOdds: mergedGameOdds,
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,

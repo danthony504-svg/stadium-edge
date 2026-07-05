@@ -27,7 +27,6 @@ import type {
   PlayerProp,
   PropSimulationResult,
 } from "@/lib/api";
-import { buildRealOdds } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
@@ -48,10 +47,15 @@ import {
 import { propMarketLabel } from "@/lib/propMarketLabel";
 import {
   buildGameFourQuestions,
-  coverQueriesFromOddsLines,
   realOddsToGameLines,
   type TeamFourQuestions,
 } from "@/lib/gameLineFourQuestions";
+import { buildAllEvalGameLines } from "@/lib/api";
+import {
+  coverQueriesFromEvalLines,
+  recommendBestLinesForGame,
+  type EvaluatedGameLine,
+} from "@/lib/gameLineOptimizer";
 import { buildDefaultGameCoverQueries, mergeCoverQueries } from "@/lib/gameSimScoring";
 import { finalAiScoreLabel } from "@/lib/finalAiScore";
 import {
@@ -328,17 +332,18 @@ export default function SimulatorScreen() {
       (g) => norm(g.homeTeam) === norm(game.homeTeam!) && norm(g.awayTeam) === norm(game.awayTeam!),
     );
     if (!match) return [];
-    return realOddsToGameLines(buildRealOdds(match), gameLabel);
+    return buildAllEvalGameLines(match);
   }, [oddsQ.data, gameLabel, game?.homeTeam, game?.awayTeam]);
 
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
     if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
+    const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
     return buildGameFourQuestions({
       gameLabel,
       homeTeam: game.homeTeam,
       awayTeam: game.awayTeam,
       sim: gameResult,
-      oddsLines: gameOddsLines,
+      oddsLines,
     });
   }, [gameResult, game?.homeTeam, game?.awayTeam, gameLabel, gameOddsLines]);
 
@@ -375,6 +380,18 @@ export default function SimulatorScreen() {
     const rep = buildGameInjuryReport(sport, teams, game.awayTeam, game.homeTeam);
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
+
+  const gameLineRecs = useMemo(() => {
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameOddsLines.length) return null;
+    return recommendBestLinesForGame({
+      awayTeam: game.awayTeam,
+      homeTeam: game.homeTeam,
+      evalLines: gameOddsLines,
+      gameSim: gameResult,
+      matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
+      matchupInjuries,
+    });
+  }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
 
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
@@ -523,9 +540,10 @@ export default function SimulatorScreen() {
       const wx = weatherImpact;
       if (mode === "game" || mode === "full") {
         const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
+        const evalMap = new Map([[gameLabel, gameOddsLines]]);
         const coverQueries = mergeCoverQueries(
           buildDefaultGameCoverQueries(gameLabel, game.homeTeam, game.awayTeam),
-          coverQueriesFromOddsLines(gameLabel, gameOddsLines, sport),
+          coverQueriesFromEvalLines(evalMap),
         );
         const gr = await fetchSimulatorGameOutcome({
           sport,
@@ -1142,6 +1160,21 @@ export default function SimulatorScreen() {
                         />
                       </ResultCol>
                     </View>
+                    {gameLineRecs ? (
+                      <Card style={{ marginBottom: 12 }}>
+                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+                          Best Lines (Final AI Score)
+                        </Text>
+                        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — highest composite wins, not the main line by default.
+                        </Text>
+                        {[gameLineRecs.byTeam.away, gameLineRecs.byTeam.home]
+                          .filter((row): row is EvaluatedGameLine => row != null)
+                          .map((row) => (
+                            <RecommendedLineRow key={row.entry.pick} row={row} />
+                          ))}
+                      </Card>
+                    ) : null}
                     {gameFourQuestions.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
@@ -1339,6 +1372,70 @@ function SettingRow({
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         {icon ? <Feather name={icon} size={14} color={colors.mutedForeground} /> : null}
         <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
+  const colors = useColors();
+  const badge = finalAiScoreLabel(row.finalAiScore);
+  const edgeColor =
+    row.edgePct == null
+      ? colors.mutedForeground
+      : row.edgePct >= 0
+        ? colors.success
+        : colors.destructive;
+  return (
+    <View
+      style={{
+        paddingVertical: 10,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+      }}
+    >
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
+        {row.entry.pick}
+        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+          {" "}
+          ({row.entry.market})
+        </Text>
+      </Text>
+      {badge ? (
+        <View
+          style={{
+            alignSelf: "flex-start",
+            marginTop: 6,
+            paddingHorizontal: 8,
+            paddingVertical: 3,
+            borderRadius: 6,
+            backgroundColor: row.finalAiScore.highRiskValuePlay
+              ? "rgba(234,179,8,0.2)"
+              : "rgba(34,197,94,0.15)",
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: FONT.bold,
+              fontSize: 10,
+              color: row.finalAiScore.highRiskValuePlay ? "#eab308" : colors.success,
+            }}
+          >
+            {badge}
+          </Text>
+        </View>
+      ) : null}
+      <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+        <MiniStat label="Sim Hit %" value={row.winProb != null ? `${Math.round(row.winProb * 100)}%` : "—"} />
+        <MiniStat
+          label="Edge"
+          value={row.edgePct != null ? `${row.edgePct > 0 ? "+" : ""}${row.edgePct}%` : "—"}
+          valueColor={edgeColor}
+        />
+        <MiniStat
+          label="Odds"
+          value={row.entry.odds != null ? formatAmerican(row.entry.odds) : "—"}
+        />
       </View>
     </View>
   );

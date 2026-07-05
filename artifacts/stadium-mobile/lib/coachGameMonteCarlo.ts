@@ -76,9 +76,14 @@ function resolveTeamIds(
   return null;
 }
 
-function uniqueCoverQueries(picks: ParsedPick[], realOdds?: RealOddsEntry[]): GameCoverQuery[] {
+function uniqueCoverQueries(
+  picks: ParsedPick[],
+  realOdds?: RealOddsEntry[],
+  evalLinesByGame?: Map<string, RealOddsEntry[]>,
+): GameCoverQuery[] {
   const seen = new Set<string>();
   const out: GameCoverQuery[] = [];
+  const games = new Set(picks.filter(isGameLinePick).map((p) => p.game));
   const addPick = (p: ParsedPick) => {
     const q = buildGameCoverQuery(p);
     if (!q || seen.has(q.id)) return;
@@ -86,8 +91,23 @@ function uniqueCoverQueries(picks: ParsedPick[], realOdds?: RealOddsEntry[]): Ga
     out.push(q);
   };
   for (const p of picks) addPick(p);
-  if (realOdds) {
+  if (evalLinesByGame) {
+    for (const [game, lines] of evalLinesByGame) {
+      if (!games.has(game)) continue;
+      for (const e of lines) {
+        addPick({
+          game: e.game,
+          market: e.market,
+          pick: e.pick,
+          odds: e.odds,
+          isProp: false,
+          sport: e.sport,
+        });
+      }
+    }
+  } else if (realOdds) {
     for (const ro of realOdds) {
+      if (!games.has(ro.game)) continue;
       addPick({
         game: ro.game,
         market: ro.market,
@@ -112,6 +132,7 @@ export async function fetchCoachGameSimulationsForPicks(
   teamIdsByGame: Map<string, GameTeamIds>,
   signal?: AbortSignal,
   realOdds?: RealOddsEntry[],
+  evalLinesByGame?: Map<string, RealOddsEntry[]>,
 ): Promise<Map<string, CoachGameSimEntry>> {
   const gameLegs = picks.filter(isGameLinePick);
   const byGame = new Map<string, ParsedPick[]>();
@@ -129,7 +150,7 @@ export async function fetchCoachGameSimulationsForPicks(
       const sport = legs[0]?.sport;
       const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
       if (!ids) return;
-      const coverQueries = uniqueCoverQueries(legs, realOdds?.filter((r) => r.game === gameLabel));
+      const coverQueries = uniqueCoverQueries(legs, realOdds, evalLinesByGame);
       const result = await fetchGameOutcomeSimulation(
         {
           sport: ids.sport || sport || "mlb",
@@ -172,6 +193,8 @@ export function filterCoachPicksWithGameSim(
   simByGame: Map<string, CoachGameSimEntry>,
   opts: {
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    /** Merged real + eval odds so optimized alt lines still have edge for high-risk checks. */
+    oddsForEdge?: RealOddsEntry[];
   } = {},
 ): GameSimFilterResult {
   const sideAligned = enforceConsistentGameSides(picks, {
@@ -179,6 +202,14 @@ export function filterCoachPicksWithGameSim(
     matchupHistory: opts.matchupHistory,
   });
   picks = sideAligned.picks;
+
+  const edgeForPick = (p: ParsedPick): number | null => {
+    if (p.scores?.edgePct != null) return p.scores.edgePct;
+    const ro = opts.oddsForEdge?.find(
+      (r) => r.game === p.game && r.market === p.market && r.pick === p.pick,
+    );
+    return ro?.edge ?? null;
+  };
 
   const kept: ParsedPick[] = [];
   const warnings: string[] = [];
@@ -191,7 +222,7 @@ export function filterCoachPicksWithGameSim(
     }
     const sim = coachGameSimForPick(p, simByGame);
     const hit = simHitForPick(p, sim, null);
-    const edge = p.scores?.edgePct ?? null;
+    const edge = edgeForPick(p);
     const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
 
     if (!sim) {

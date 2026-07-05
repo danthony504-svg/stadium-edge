@@ -13,7 +13,7 @@ export type GameSimTeamInput = {
 /** Line-aware cover query — same shape the mobile shared scorer builds. */
 export type GameCoverQuery = {
   id: string;
-  kind: "ml" | "spread" | "total";
+  kind: "ml" | "spread" | "total" | "teamTotal";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";
@@ -97,6 +97,13 @@ export function coverQueryHits(
     const line = q.line ?? 0;
     if (q.totalSide === "over") return total > line;
     if (q.totalSide === "under") return total < line;
+    return false;
+  }
+  if (q.kind === "teamTotal") {
+    const line = q.line ?? 0;
+    const score = q.teamSide === "home" ? homeScore : awayScore;
+    if (q.totalSide === "over") return score > line;
+    if (q.totalSide === "under") return score < line;
     return false;
   }
   return false;
