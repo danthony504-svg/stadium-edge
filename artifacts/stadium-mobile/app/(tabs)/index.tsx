@@ -993,7 +993,7 @@ export default function HomeScreen() {
                 paddingVertical: 14,
                 paddingHorizontal: 10,
                 gap: 8,
-                alignItems: "flex-start",
+                alignItems: "center",
                 opacity: pressed ? 0.85 : 1,
               })}
             >
@@ -1010,7 +1010,12 @@ export default function HomeScreen() {
                 <MaterialCommunityIcons name={a.icon} size={18} color={a.color} />
               </View>
               <Text
-                style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13 }}
+                style={{
+                  color: colors.foreground,
+                  fontFamily: FONT.semibold,
+                  fontSize: 13,
+                  textAlign: "center",
+                }}
                 numberOfLines={1}
               >
                 {a.label}
@@ -1021,6 +1026,7 @@ export default function HomeScreen() {
                   fontFamily: FONT.medium,
                   fontSize: 11,
                   lineHeight: 14,
+                  textAlign: "center",
                 }}
                 numberOfLines={2}
               >
