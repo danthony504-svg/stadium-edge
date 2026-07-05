@@ -6,10 +6,11 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { BuiltChatContext, PropPoolEntry, RealPropEntry } from "@/lib/api";
 import { fetchPropSimulations } from "@/lib/api";
 import {
-  attachPickScores,
-  type PlayerHistorySlice,
-  type PropSimAttachOpts,
-} from "@/lib/pickScoreContext";
+  enrichSimMapWithLocalFallback,
+  filterRealPropsWithSimSupport,
+} from "@/lib/propSimFallback";
+import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import type { PropSimAttachOpts } from "@/lib/propSimProgressive";
 
 const SIM_SELECTION_TIMEOUT_MS = 2800;
 
@@ -218,15 +219,37 @@ export async function enrichChatContextProps(
     playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
   };
 
+  const simPropsForFallback = (context.realProps ?? []).flatMap((rp) => {
+    const side = preferredPropSide(rp);
+    if (!side || rp.line == null) return [];
+    return [
+      {
+        player: rp.player,
+        market: rp.market,
+        line: rp.line,
+        side,
+        athleteId: rp.athleteId,
+      },
+    ];
+  });
+
+  propSimulations = enrichSimMapWithLocalFallback(
+    propSimulations,
+    simPropsForFallback,
+    (context.playerHistory ?? {}) as Record<string, unknown>,
+  );
+
   const sortedProps = enrichAndSortRealProps(context.realProps, propPool, {
     ...selectionOpts,
     propSimulations,
   });
 
+  const parlayProps = filterRealPropsWithSimSupport(sortedProps, propSimulations);
+
   return {
     built: {
       ...built,
-      context: { ...context, realProps: sortedProps },
+      context: { ...context, realProps: parlayProps },
     },
     propSimulations,
   };
