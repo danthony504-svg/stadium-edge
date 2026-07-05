@@ -72,6 +72,36 @@ test("gameLabelsMatch accepts nickname vs full team names", () => {
   assert.equal(gameLabelsMatch("Yankees @ Red Sox", "Mets @ Braves"), false);
 });
 
+test("buildGameLineOptimizerNote omits sub-52% game lines from transparency note", () => {
+  const picks = [
+    {
+      game: "New York Mets @ Atlanta Braves",
+      market: "Spread",
+      pick: "Atlanta Braves -1.5",
+      odds: -110,
+      isProp: false,
+      sport: "mlb",
+      finalAiScore: {
+        grade: "C+",
+        simHit: 0.49,
+        edgePct: 0.5,
+        composite: 6.5,
+        confidencePct: 52,
+        simAligned: false,
+        highRiskValuePlay: false,
+        recommends: false,
+        factors: [],
+        rubric: { scores: {}, composite: 6.5, grade: "C+", confidencePct: 52, edgePct: 0.5 },
+      },
+    },
+  ];
+  const note = buildGameLineOptimizerNote(picks, new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [],
+  });
+  assert.equal(note, "");
+});
+
 test("buildGameLineOptimizerNote lists only final ticket legs with scores", () => {
   const picks = [
     {
@@ -115,6 +145,18 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
       odds: -110,
       isProp: false,
       sport: "mlb",
+      finalAiScore: {
+        grade: "B",
+        simHit: 0.54,
+        edgePct: 1.8,
+        composite: 7.5,
+        confidencePct: 55,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { scores: {}, composite: 7.5, grade: "B", confidencePct: 55, edgePct: 1.8 },
+      },
     },
   ];
   const simByGame = new Map([
