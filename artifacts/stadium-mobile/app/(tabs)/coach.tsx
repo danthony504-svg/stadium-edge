@@ -62,7 +62,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, isChalkHeavyParlay, assembleDeepParlayFromBoard, topUpDeepParlayToTarget } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1516,18 +1516,11 @@ export default function CoachScreen() {
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         if (!isAnalyze && deepMultiLegParlay && !propsOnlyTicket) {
+          picks = dedupeSameTeamGameLegs(picks).picks;
           const seeded = prepareDeepParlaySeed(picks, legTarget, { longshotAsk });
+          picks = seeded.picks;
           if (seeded.stripped > 0) {
-            picks = seeded.picks;
             diversityNote = `_Cleared ${seeded.stripped} chalk game line${seeded.stripped === 1 ? "" : "s"} from the model scaffold — deep parlays are rebuilt from player props and alt rungs on the real board._`;
-          } else if (picks.length > 0) {
-            const rebalanced = rebalanceDeepParlayTicket(picks, {
-              legTarget,
-              minPropFraction: longshotAsk ? 0.65 : undefined,
-              maxGameLegs: longshotAsk ? 3 : undefined,
-            });
-            picks = rebalanced.picks;
-            if (rebalanced.note) diversityNote = rebalanced.note;
           }
         }
         const lockedPropMarket =
@@ -1722,20 +1715,21 @@ export default function CoachScreen() {
         const reachTarget = Math.min(legTarget, MAX_LEGS);
         let reachPool = rotatePool(context.realOdds, trimmed);
         if (slateDay) reachPool = filterOddsForSlateDay(reachPool, slateDay);
-        const rebuildFromBoard =
+        const forceBoardBuild =
           !isAnalyze &&
-          deepMultiLegParlay &&
-          !propsOnlyTicket &&
+          shouldComposeDeepParlayFromBoard(legTarget, {
+            explicitSingleGame,
+            propsOnly: propsOnlyTicket,
+          }) &&
           !oddsThreshold &&
-          !confidenceThreshold &&
-          (longshotAsk || isChalkHeavyParlay(picks, legTarget));
+          !confidenceThreshold;
         const boardBuildOpts = {
           longshotAsk,
           plusMoneyBias: propBackfillOpts.plusMoneyBias,
           diversify: propBackfillOpts.diversify,
           selectionOpts,
         };
-        if (rebuildFromBoard) {
+        if (forceBoardBuild) {
           picks = assembleDeepParlayFromBoard(
             reachTarget,
             mergedPropPool,
@@ -1745,8 +1739,8 @@ export default function CoachScreen() {
           );
           if (picks.length > 0) {
             diversityNote = longshotAsk
-              ? `_Longshot parlays are built from player props and alt rungs on the live board — not 15 chalk moneylines._`
-              : `_Rebuilt your ${reachTarget}-leg ticket from player props and alt rungs on the live board instead of chalk moneylines._`;
+              ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
+              : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
           }
         } else if (
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
@@ -1836,9 +1830,11 @@ export default function CoachScreen() {
                     ...propBackfillOpts,
                   });
                 }
-                const gameOrder = longshotAsk
-                  ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
-                  : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
+                const gameOrder = deepMultiLegFill
+                  ? [/^Alt Spread$/, /^Alt Total$/, /^Team Total$/i, /^Spread$/, /^Total$/]
+                  : longshotAsk
+                    ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
+                    : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
                 const gamesNow = picks.filter((p) => !p.isProp && isGameLinePick(p)).length;
                 const gameCap = Math.min(
                   target,

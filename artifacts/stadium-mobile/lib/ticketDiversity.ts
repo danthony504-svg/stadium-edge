@@ -3,8 +3,6 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
-  ALT_BACKFILL_ORDER,
-  GENERIC_BACKFILL_ORDER,
   backfillPicks,
   backfillProps,
 } from "../components/PickCard.tsx";
@@ -181,6 +179,14 @@ export function needsParlayBackfill(
   return false;
 }
 
+/** Any 6+ leg parlay should be composed from the board, not the model scaffold. */
+export function shouldComposeDeepParlayFromBoard(
+  legTarget: number,
+  opts: { explicitSingleGame?: boolean; propsOnly?: boolean } = {},
+): boolean {
+  return legTarget >= 6 && !opts.explicitSingleGame && !opts.propsOnly;
+}
+
 /** Model scaffold is all/nearly-all chalk game lines — rebuild from the live board. */
 export function isChalkHeavyParlay(picks: ParsedPick[], legTarget: number): boolean {
   if (legTarget < 6 || picks.length === 0) return false;
@@ -198,9 +204,9 @@ function deepParlayMix(legTarget: number, longshotAsk?: boolean) {
 }
 
 function deepParlayGameOrder(longshotAsk?: boolean): RegExp[] {
-  return longshotAsk
-    ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
-    : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
+  void longshotAsk;
+  // Deep tickets never backfill chalk moneylines — alts and sides only.
+  return [/^Alt Spread$/, /^Alt Total$/, /^Team Total$/i, /^Spread$/, /^Total$/];
 }
 
 /**

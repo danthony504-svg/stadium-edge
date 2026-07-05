@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dedupeSameTeamGameLegs,
-  rebalanceDeepParlayTicket,
   rotatePool,
   prepareDeepParlaySeed,
   needsParlayBackfill,
+  shouldComposeDeepParlayFromBoard,
   isChalkHeavyParlay,
   assembleDeepParlayFromBoard,
   topUpDeepParlayToTarget,
@@ -32,16 +32,21 @@ test("dedupeSameTeamGameLegs matches nickname vs full team name", () => {
   assert.equal(out.length, 1);
 });
 
-test("rebalanceDeepParlayTicket trims game legs for prop room", () => {
-  const gameLegs = Array.from({ length: 12 }, (_, i) => ({
+test("shouldComposeDeepParlayFromBoard true for generic 6-leg", () => {
+  assert.equal(shouldComposeDeepParlayFromBoard(6), true);
+  assert.equal(shouldComposeDeepParlayFromBoard(6, { explicitSingleGame: true }), false);
+});
+
+test("rebalance removed — seed always clears model game scaffold", () => {
+  const gameLegs = Array.from({ length: 6 }, (_, i) => ({
     game: `Away${i} @ Home${i}`,
     market: "Moneyline",
     pick: `Home${i} ML`,
     odds: -110,
     isProp: false,
   }));
-  const { picks } = rebalanceDeepParlayTicket(gameLegs, { legTarget: 15 });
-  assert.ok(picks.length < 12);
+  const { picks } = prepareDeepParlaySeed(gameLegs, 6);
+  assert.ok(picks.length <= 3);
 });
 
 test("prepareDeepParlaySeed clears chalk game scaffold", () => {
