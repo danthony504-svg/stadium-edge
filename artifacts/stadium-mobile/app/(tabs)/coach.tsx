@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -120,6 +120,7 @@ import {
   decideBackgroundRestore,
   deserializePendingBuild,
   makeBuildId,
+  pendingBuildMaxWaitMs,
   serializePendingBuild,
   shouldAbortForHandoff,
   shouldHandOffBuild,
@@ -166,9 +167,9 @@ type StatCardResult = {
 const PENDING_BUILD_KEY = "coach.pendingBuild";
 
 // How long we'll wait for a handed-off build's result before treating it as a
-// stall and offering a retry (instead of an endless "still building"). Sized
-// well past a real build's worst case so a genuinely in-flight server build is
-// never cut off. The poll re-checks the stash at PENDING_POLL_MS while we wait.
+// stall and offering a retry (instead of an endless "still building"). Default
+// for non-leg asks; leg-scaled via pendingBuildMaxWaitMs(). The poll re-checks
+// the stash at PENDING_POLL_MS while we wait.
 const PENDING_BUILD_MAX_WAIT_MS = 120_000;
 const PENDING_POLL_MS = 10_000;
 
@@ -2026,7 +2027,9 @@ export default function CoachScreen() {
         // not-ready / failed / replay applies. The side effects below stay here.
         const decision = decideBackgroundRestore(buildId, pending, stash, {
           now: Date.now(),
-          maxWaitMs: PENDING_BUILD_MAX_WAIT_MS,
+          maxWaitMs: pending
+            ? pendingBuildMaxWaitMs(pending.userText)
+            : PENDING_BUILD_MAX_WAIT_MS,
         });
         if (decision.action === "wrong-device") {
           if (!opts?.auto) {
@@ -2093,6 +2096,19 @@ export default function CoachScreen() {
     [send],
   );
 
+  // Re-arm in-memory watch state from AsyncStorage after a kill/relaunch (refs
+  // and bgWatchId are lost, but the pending record survives) and kick a stash
+  // check so a finished ticket replays without waiting for a push tap.
+  const resumePendingBackgroundBuild = useCallback(async () => {
+    if (streamingRef.current) return;
+    const pending = await loadPendingBuild();
+    if (!pending) return;
+    if (restoredBuildRef.current === pending.buildId) return;
+    pendingBgRef.current = { buildId: pending.buildId };
+    setBgWatchId(pending.buildId);
+    await restoreBackgroundBuild(pending.buildId, { auto: true });
+  }, [restoreBackgroundBuild]);
+
   // Hand a build off to the server when the app is backgrounded mid-stream, and
   // pull the finished result back when the user returns.
   useEffect(() => {
@@ -2114,11 +2130,25 @@ export default function CoachScreen() {
         const pend = pendingBgRef.current;
         if (pend && !streamingRef.current) {
           void restoreBackgroundBuild(pend.buildId, { auto: true });
+        } else if (!streamingRef.current) {
+          void resumePendingBackgroundBuild();
         }
       }
     });
     return () => sub.remove();
-  }, [restoreBackgroundBuild]);
+  }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
+
+  // After a force-quit, hydrate the pending build from disk and resume polling.
+  useEffect(() => {
+    void resumePendingBackgroundBuild();
+  }, [resumePendingBackgroundBuild]);
+
+  // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
+  useFocusEffect(
+    useCallback(() => {
+      void resumePendingBackgroundBuild();
+    }, [resumePendingBackgroundBuild]),
+  );
 
   // While a build is handed off, poll the server stash on a timer so the result
   // replays the moment it's ready — and, if it never arrives, the wait-timeout in
@@ -2129,12 +2159,16 @@ export default function CoachScreen() {
   useEffect(() => {
     if (!bgWatchId) return;
     const id = setInterval(() => {
+      if (streamingRef.current) return;
       const pend = pendingBgRef.current;
-      if (!pend || streamingRef.current) return;
-      void restoreBackgroundBuild(pend.buildId, { auto: true });
+      if (pend) {
+        void restoreBackgroundBuild(pend.buildId, { auto: true });
+      } else {
+        void resumePendingBackgroundBuild();
+      }
     }, PENDING_POLL_MS);
     return () => clearInterval(id);
-  }, [bgWatchId, restoreBackgroundBuild]);
+  }, [bgWatchId, restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
   // Tapping the "your ticket is ready" push opens Coach with ?buildId=… — load
   // and replay that finished build. restoredBuildRef guards against re-running.
