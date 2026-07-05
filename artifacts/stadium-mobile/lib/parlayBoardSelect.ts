@@ -4,13 +4,14 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry, MatchupHistoryEntry } from "./api.ts";
 import { fetchPropSimulations } from "./api.ts";
 import type { GameInjuryReport } from "./injuries.ts";
-import { gameLineLegBucket, isGameLinePick, type CoachGameSimEntry } from "./gameSimScoring.ts";
+import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
   evaluateGameLines,
   mergeOddsEntries,
   filterEvaluatedForCloseGameSpread,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
+import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection.ts";
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
@@ -35,7 +36,9 @@ export type BoardScoreAttachOpts = {
   gameSimulations?: Map<string, CoachGameSimEntry>;
 };
 
-const PROP_SIM_CANDIDATE_CAP = 160;
+const PROP_SIM_BATCH_SIZE = 80;
+const PROP_SIM_INITIAL_CAP = 160;
+const PROP_SIM_MAX_CAP = 480;
 
 function simMapFromPropResults(
   rows: Iterable<{ key: string; hitProbability: number | null }>,
@@ -105,56 +108,80 @@ export function collectQualifiedGameLineCandidates(
   return qualified.sort((a, b) => comparePickStrength(b, a));
 }
 
-/** Qualified prop candidates from the full pool (deep-simmed). */
+/** Qualified prop candidates from the full pool (deep-simmed in batches). */
 export async function collectQualifiedPropCandidates(
   propPool: PropPoolEntry[],
   scoreOpts: BoardScoreAttachOpts,
   signal?: AbortSignal,
   rejectsOut?: ParlayLegReject[],
+  reachOpts?: { minQualified?: number; maxDeepSim?: number },
 ): Promise<ParsedPick[]> {
   if (!propPool.length) return [];
-  const preScored = attachPickScores(
-    propPool.map(parsedPickFromPoolEntry),
-    scoreOpts,
-  );
-  const preRanked = preScored
-    .filter((p) => {
-      const edge = resolvePickEdgePct(p, {
-        realOdds: scoreOpts.realOdds,
-        propPool: scoreOpts.propPool ?? propPool,
-      });
-      return edge != null && edge >= 0;
-    })
-    .sort((a, b) => comparePickStrength(b, a))
-    .slice(0, PROP_SIM_CANDIDATE_CAP);
-
-  let propSimulations: Map<string, { hitProbability: number | null }> | undefined;
-  try {
-    const rows = await fetchPropSimulations(preRanked, scoreOpts.propPool ?? propPool, { tier: "deep" }, signal);
-    if (!signal?.aborted) propSimulations = simMapFromPropResults(rows);
-  } catch {
-    /* props without sim fail qualification */
-  }
-
-  const scored = attachPickScores(preRanked, { ...scoreOpts, propSimulations }).map((p) => ({
-    ...p,
-    simulationPending: false,
-  }));
-
-  const qualified: ParsedPick[] = [];
   const edgeOpts = {
     realOdds: scoreOpts.realOdds,
     propPool: scoreOpts.propPool ?? propPool,
   };
-  for (const p of scored) {
-    if (isFullyQualifiedPick(p, edgeOpts)) qualified.push(p);
-    else
-      rejectsOut?.push({
-        pick: p,
-        reason: reasonPickNotQualified(p, edgeOpts),
-        nearScore: nearScoreFromPick(p),
-      });
+  const preScored = attachPickScores(
+    propPool.map(parsedPickFromPoolEntry),
+    scoreOpts,
+  );
+  const ranked = preScored
+    .filter((p) => {
+      const edge = resolvePickEdgePct(p, edgeOpts);
+      return edge != null && edge >= 0;
+    })
+    .sort((a, b) => comparePickStrength(b, a));
+
+  const minQualified = reachOpts?.minQualified ?? 0;
+  const maxDeepSim = Math.min(
+    ranked.length,
+    reachOpts?.maxDeepSim ?? PROP_SIM_INITIAL_CAP,
+  );
+  const qualified: ParsedPick[] = [];
+  const seenFp = new Set<string>();
+
+  for (let offset = 0; offset < maxDeepSim; offset += PROP_SIM_BATCH_SIZE) {
+    if (signal?.aborted) break;
+    const batch = ranked.slice(offset, offset + PROP_SIM_BATCH_SIZE);
+    if (!batch.length) break;
+
+    let propSimulations: Map<string, { hitProbability: number | null }> | undefined;
+    try {
+      const rows = await fetchPropSimulations(
+        batch,
+        scoreOpts.propPool ?? propPool,
+        { tier: "deep" },
+        signal,
+      );
+      if (!signal?.aborted) propSimulations = simMapFromPropResults(rows);
+    } catch {
+      /* batch without sim fails qualification */
+    }
+
+    const scored = attachPickScores(batch, { ...scoreOpts, propSimulations }).map((p) => ({
+      ...p,
+      simulationPending: false,
+    }));
+
+    for (const p of scored) {
+      if (isFullyQualifiedPick(p, edgeOpts)) {
+        const fp = pickLegFingerprint(p);
+        if (!seenFp.has(fp)) {
+          seenFp.add(fp);
+          qualified.push(p);
+        }
+      } else {
+        rejectsOut?.push({
+          pick: p,
+          reason: reasonPickNotQualified(p, edgeOpts),
+          nearScore: nearScoreFromPick(p),
+        });
+      }
+    }
+
+    if (qualified.length >= minQualified && qualified.length >= minQualified * 2) break;
   }
+
   return qualified.sort((a, b) => comparePickStrength(b, a));
 }
 
@@ -171,80 +198,6 @@ export type SelectStrongestParlayOpts = {
   signal?: AbortSignal;
   rejectsOut?: ParlayLegReject[];
 };
-
-function canAddCandidate(
-  pick: ParsedPick,
-  state: {
-    legSeen: Set<string>;
-    bucketSeen: Set<string>;
-    perGame: Map<string, number>;
-    gameLegs: number;
-    maxGameLegs: number;
-    maxPerGame: number;
-  },
-): boolean {
-  const fp = pickLegFingerprint(pick);
-  if (state.legSeen.has(fp)) return false;
-  const gameKey = pick.game.toLowerCase();
-  if ((state.perGame.get(gameKey) ?? 0) >= state.maxPerGame) return false;
-  if (!pick.isProp && isGameLinePick(pick)) {
-    if (state.gameLegs >= state.maxGameLegs) return false;
-    const bucket = gameLineLegBucket(pick.game, pick.market, pick.pick);
-    if (state.bucketSeen.has(bucket)) return false;
-  }
-  return true;
-}
-
-function addCandidate(
-  pick: ParsedPick,
-  state: {
-    legSeen: Set<string>;
-    bucketSeen: Set<string>;
-    perGame: Map<string, number>;
-    gameLegs: number;
-  },
-  out: ParsedPick[],
-): void {
-  const fp = pickLegFingerprint(pick);
-  state.legSeen.add(fp);
-  const gameKey = pick.game.toLowerCase();
-  state.perGame.set(gameKey, (state.perGame.get(gameKey) ?? 0) + 1);
-  if (!pick.isProp && isGameLinePick(pick)) {
-    state.gameLegs += 1;
-    state.bucketSeen.add(gameLineLegBucket(pick.game, pick.market, pick.pick));
-  }
-  out.push(pick);
-}
-
-/** Greedy diversity-aware selection from a strength-sorted candidate pool. Never pads with unqualified legs. */
-export function selectDiverseStrongest(
-  candidates: ParsedPick[],
-  target: number,
-  opts?: { maxGameLegs?: number; maxPerGame?: number },
-): ParsedPick[] {
-  const maxGameLegs = opts?.maxGameLegs ?? Math.ceil(target * 0.5);
-  const maxPerGame = opts?.maxPerGame ?? (target >= 12 ? 4 : 2);
-  const sorted = [...candidates]
-    .filter(isFullyQualifiedPick)
-    .sort((a, b) => comparePickStrength(b, a));
-  const out: ParsedPick[] = [];
-  const state = {
-    legSeen: new Set<string>(),
-    bucketSeen: new Set<string>(),
-    perGame: new Map<string, number>(),
-    gameLegs: 0,
-    maxGameLegs,
-    maxPerGame,
-  };
-
-  for (const p of sorted) {
-    if (out.length >= target) break;
-    if (!canAddCandidate(p, state)) continue;
-    addCandidate(p, state, out);
-  }
-
-  return out;
-}
 
 export type StrongestParlayResult = {
   picks: ParsedPick[];
@@ -271,7 +224,8 @@ export function selectLongshotSectionPicks(
 
 /**
  * Search the entire betting board and return the `target` strongest qualified
- * picks — ranked by edge, sim, confidence, grade, and odds.
+ * picks — ranked by edge, sim, confidence, grade, and odds. Keeps scanning props
+ * and relaxing diversity caps until the target is met or the board is exhausted.
  */
 export async function selectStrongestQualifiedParlay(
   target: number,
@@ -280,6 +234,10 @@ export async function selectStrongestQualifiedParlay(
   if (target <= 0) return { picks: [], longshotPicks: [] };
   const { maxGameLegs } = reachParlayMix(target);
   const rejects = opts.rejectsOut ?? [];
+  const edgeOpts = {
+    realOdds: opts.realOdds,
+    propPool: opts.propPool,
+  };
 
   const gameCandidates = collectQualifiedGameLineCandidates(
     opts.evalLinesByGame,
@@ -292,22 +250,49 @@ export async function selectStrongestQualifiedParlay(
     },
   );
 
-  const propCandidates = await collectQualifiedPropCandidates(
+  let propCandidates = await collectQualifiedPropCandidates(
     opts.propPool,
     { ...opts.scoreOpts, realOdds: opts.realOdds, propPool: opts.propPool },
     opts.signal,
     rejects,
+    { minQualified: target, maxDeepSim: PROP_SIM_INITIAL_CAP },
   );
 
-  const allScored = [...gameCandidates, ...propCandidates];
-  const merged = allScored
-    .filter(isFullyQualifiedPick)
+  let merged = [...gameCandidates, ...propCandidates]
+    .filter((p) => isFullyQualifiedPick(p, edgeOpts))
     .sort((a, b) => comparePickStrength(b, a));
 
-  const picks = selectDiverseStrongest(merged, target, {
+  let picks = reachSelectQualifiedToTarget(merged, target, {
     maxGameLegs,
     maxPerGame: opts.maxPerGame ?? (target >= 12 ? 4 : 2),
   });
+
+  // Deep-sim more prop batches when diversity + game lines are not enough.
+  let propCap = PROP_SIM_INITIAL_CAP;
+  while (
+    picks.length < target &&
+    propCap < PROP_SIM_MAX_CAP &&
+    propCap < opts.propPool.length &&
+    !opts.signal?.aborted
+  ) {
+    propCap = Math.min(propCap + PROP_SIM_BATCH_SIZE * 2, PROP_SIM_MAX_CAP, opts.propPool.length);
+    propCandidates = await collectQualifiedPropCandidates(
+      opts.propPool,
+      { ...opts.scoreOpts, realOdds: opts.realOdds, propPool: opts.propPool },
+      opts.signal,
+      rejects,
+      { minQualified: target, maxDeepSim: propCap },
+    );
+    merged = [...gameCandidates, ...propCandidates]
+      .filter((p) => isFullyQualifiedPick(p, edgeOpts))
+      .sort((a, b) => comparePickStrength(b, a));
+    const next = reachSelectQualifiedToTarget(merged, target, {
+      maxGameLegs,
+      maxPerGame: opts.maxPerGame ?? (target >= 12 ? 4 : 2),
+    });
+    if (next.length > picks.length) picks = next;
+    if (picks.length >= target) break;
+  }
 
   const longshotPicks =
     opts.longshotAsk && rejects.length
@@ -317,5 +302,5 @@ export async function selectStrongestQualifiedParlay(
         )
       : [];
 
-  return { picks, longshotPicks };
+  return { picks: picks.slice(0, target), longshotPicks };
 }
