@@ -29,7 +29,7 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
-import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
+import { enrichPropSimResults, mergeServerOverLocal } from "@/lib/propSimFallback";
 import {
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
@@ -238,6 +238,16 @@ export default function SimulatorScreen() {
   const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
+  const lastSimRequestRef = useRef<{
+    simProps: Array<{
+      player: string;
+      market: string;
+      line: number;
+      side: "Over" | "Under";
+      athleteId: string | null;
+    }>;
+    phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }>;
+  } | null>(null);
 
   const sportFilters = propFiltersForSport(sport);
   const warmedRef = useRef(false);
@@ -552,25 +562,25 @@ export default function SimulatorScreen() {
           }),
         );
         setPlayerHistory(ph);
+        lastSimRequestRef.current = { simProps, phForSim };
         const prQuick = enrichPropSimResults(
           await fetchSimulatorPropSimulationsBatch(
-          sport,
-          simProps,
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            weatherImpact: wx,
-            tier: "quick",
-          },
-        ),
+            sport,
+            simProps,
+            {
+              homeTeam: game.homeTeam,
+              awayTeam: game.awayTeam,
+              homeTeamId: game.homeTeamId,
+              awayTeamId: game.awayTeamId,
+              weatherImpact: wx,
+              tier: "quick",
+            },
+          ),
           phForSim,
         );
         setPropResults(prQuick);
         setSimDeepPending(true);
-        const prDeep = enrichPropSimResults(
-          await fetchSimulatorPropSimulationsBatch(
+        const prDeepRaw = await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
@@ -581,10 +591,9 @@ export default function SimulatorScreen() {
             weatherImpact: wx,
             tier: "deep",
           },
-        ),
-          phForSim,
         );
-        setPropResults(prDeep);
+        const prDeep = enrichPropSimResults(prDeepRaw, phForSim);
+        setPropResults(mergeServerOverLocal(prQuick, prDeep));
         setSimDeepPending(false);
       }
       setRanAt(Date.now());
@@ -625,6 +634,42 @@ export default function SimulatorScreen() {
     injuriesQ.data,
     sport,
   ]);
+
+  // If results used ESPN game-log fallback, retry full Monte Carlo when the API is live.
+  useEffect(() => {
+    const req = lastSimRequestRef.current;
+    if (!req || !game?.homeTeam || !game.awayTeam || running) return;
+    const needsServer = propResults.some((r) => r.hitProbability != null && r.simulations === 0);
+    if (!needsServer) return;
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const serverDeep = await fetchSimulatorPropSimulationsBatch(
+            sport,
+            req.simProps,
+            {
+              homeTeam: game.homeTeam!,
+              awayTeam: game.awayTeam!,
+              homeTeamId: game.homeTeamId,
+              awayTeamId: game.awayTeamId,
+              tier: "deep",
+            },
+          );
+          const upgraded = mergeServerOverLocal(
+            propResults,
+            enrichPropSimResults(serverDeep, req.phForSim),
+          );
+          if (upgraded.some((r) => r.simulations > 0 && r.hitProbability != null)) {
+            setPropResults(upgraded);
+          }
+        } catch {
+          /* keep game-log fallback */
+        }
+      })();
+    }, 25_000);
+    return () => clearTimeout(timer);
+  }, [propResults, game, sport, running]);
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -1146,6 +1191,10 @@ export default function SimulatorScreen() {
                           {r.hitProbability == null && r.sampleGames < 3 ? (
                             <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
                               Not enough recent game log to simulate this line.
+                            </Text>
+                          ) : r.simulations === 0 && r.hitProbability != null ? (
+                            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
+                              Based on recent game log — full Monte Carlo will update when available.
                             </Text>
                           ) : null}
                           <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
