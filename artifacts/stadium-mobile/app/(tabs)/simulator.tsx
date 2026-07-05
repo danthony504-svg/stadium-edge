@@ -33,6 +33,7 @@ import {
   getPlayerHistory,
   propMarketLabel,
   warmApiForCoachBuild,
+  searchPlayer,
   type EspnGame,
   type GameSimulationResult,
   type PlayerProp,
@@ -452,9 +453,41 @@ export default function SimulatorScreen() {
         setGameResult(gr);
       }
       if ((mode === "props" || mode === "full") && selected.length > 0) {
+        const teamTokens = [game.homeTeam, game.awayTeam]
+          .filter(Boolean)
+          .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
+
+        const simProps = await Promise.all(
+          selected.map(async (s) => {
+            let athleteId = s.athleteId;
+            if (!athleteId) {
+              try {
+                const { results } = await searchPlayer(s.player);
+                const hit =
+                  results.find(
+                    (r) =>
+                      r.sport === sport &&
+                      r.team &&
+                      teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
+                  ) ?? results.find((r) => r.sport === sport);
+                athleteId = hit?.athleteId ?? null;
+              } catch {
+                athleteId = null;
+              }
+            }
+            return {
+              player: s.player,
+              market: s.market,
+              line: s.line,
+              side: s.side,
+              athleteId,
+            };
+          }),
+        );
+
         const ph: Record<string, PlayerHistorySlice> = {};
         await Promise.all(
-          selected.map(async (s) => {
+          simProps.map(async (s) => {
             if (!s.athleteId) return;
             try {
               const h = await getPlayerHistory({ sport, athleteId: s.athleteId });
@@ -474,13 +507,7 @@ export default function SimulatorScreen() {
         setPlayerHistory(ph);
         const prQuick = await fetchPropSimulationsBatch(
           sport,
-          selected.map((s) => ({
-            player: s.player,
-            market: s.market,
-            line: s.line,
-            side: s.side,
-            athleteId: s.athleteId,
-          })),
+          simProps,
           {
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
@@ -492,13 +519,7 @@ export default function SimulatorScreen() {
         setSimDeepPending(true);
         const prDeep = await fetchPropSimulationsBatch(
           sport,
-          selected.map((s) => ({
-            player: s.player,
-            market: s.market,
-            line: s.line,
-            side: s.side,
-            athleteId: s.athleteId,
-          })),
+          simProps,
           {
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,

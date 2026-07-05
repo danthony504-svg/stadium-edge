@@ -2,11 +2,20 @@
 // ship the PrizePicks fallback alongside the screen (avoids relying on a fresh
 // re-export from the large api.ts barrel during partial updates).
 import {
+  getGameRoster,
   getProps,
   getPrizePicksProps,
   type GetPropsArgs,
   type PlayerProp,
 } from "./api";
+
+function normPlayerName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
 
 function ppStatToMarketKey(sport: string, stat: string | null | undefined): string {
   if (!stat) return "";
@@ -18,6 +27,7 @@ function ppStatToMarketKey(sport: string, stat: string | null | undefined): stri
     hrs: "batter_home_runs",
     strikeouts: "pitcher_strikeouts",
     "pitcher strikeouts": "pitcher_strikeouts",
+    "hitter strikeouts": "batter_strikeouts",
     ks: "pitcher_strikeouts",
     "stolen bases": "batter_stolen_bases",
     sbs: "batter_stolen_bases",
@@ -25,6 +35,8 @@ function ppStatToMarketKey(sport: string, stat: string | null | undefined): stri
     "hits runs rbis": "batter_hits_runs_rbis",
     "hits+runs+rbis": "batter_hits_runs_rbis",
     rbis: "batter_hits_runs_rbis",
+    singles: "batter_hits",
+    runs: "batter_runs",
   };
   const NBA: Record<string, string> = {
     points: "player_points",
@@ -62,6 +74,35 @@ function mapPrizePicksProps(sport: string, props: unknown): PlayerProp[] {
     }));
 }
 
+/** Keep only players on either team's ESPN roster; attach athleteId for sims. */
+async function applyGameRoster(
+  sport: string,
+  props: PlayerProp[],
+  homeTeamId?: string | null,
+  awayTeamId?: string | null,
+  signal?: AbortSignal,
+): Promise<PlayerProp[]> {
+  if (!props.length || (!homeTeamId && !awayTeamId)) return props;
+  try {
+    const { players } = await getGameRoster(sport, homeTeamId, awayTeamId, signal);
+    if (!players.length) return props;
+    const byName = new Map(players.map((p) => [normPlayerName(p.name), p]));
+    return props
+      .filter((p) => byName.has(normPlayerName(p.player)))
+      .map((p) => {
+        const r = byName.get(normPlayerName(p.player));
+        return {
+          ...p,
+          athleteId: p.athleteId ?? r?.athleteId ?? null,
+          playerTeamId: p.playerTeamId ?? r?.teamId ?? null,
+          headshot: p.headshot ?? r?.headshot ?? null,
+        };
+      });
+  } catch {
+    return props;
+  }
+}
+
 /** Odds-API props first; on empty/502 fall back to PrizePicks DFS lines. Never throws. */
 export async function loadSimulatorProps(
   args: GetPropsArgs,
@@ -72,7 +113,8 @@ export async function loadSimulatorProps(
     const r = await getProps(args, signal);
     const props = Array.isArray(r.props) ? r.props : [];
     if (props.length > 0) {
-      return props.filter((p): p is PlayerProp => !!p && typeof p === "object");
+      const mains = props.filter((p): p is PlayerProp => !!p && typeof p === "object");
+      return applyGameRoster(args.sport, mains, args.homeTeamId, args.awayTeamId, signal);
     }
   } catch {
     // Production often 502s ESPN ids — try PrizePicks below.
@@ -89,7 +131,13 @@ export async function loadSimulatorProps(
       },
       signal,
     );
-    return mapPrizePicksProps(args.sport, pp.props);
+    return applyGameRoster(
+      args.sport,
+      mapPrizePicksProps(args.sport, pp.props),
+      args.homeTeamId,
+      args.awayTeamId,
+      signal,
+    );
   } catch {
     return [];
   }

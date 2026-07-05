@@ -513,6 +513,25 @@ export function getSimulatorGames(sport: string, signal?: AbortSignal): Promise<
   );
 }
 
+export type GameRosterPlayer = {
+  name: string;
+  athleteId: string | null;
+  teamId: string;
+  headshot: string | null;
+};
+
+export function getGameRoster(
+  sport: string,
+  homeTeamId: string | null | undefined,
+  awayTeamId: string | null | undefined,
+  signal?: AbortSignal,
+): Promise<{ sport: string; players: GameRosterPlayer[] }> {
+  const q = new URLSearchParams({ sport });
+  if (homeTeamId) q.set("homeTeamId", homeTeamId);
+  if (awayTeamId) q.set("awayTeamId", awayTeamId);
+  return getJson(`/sports/game-roster?${q.toString()}`, signal);
+}
+
 export function getEspnOdds(
   sport: string,
   eventId: string,

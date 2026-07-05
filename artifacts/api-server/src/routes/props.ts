@@ -791,6 +791,8 @@ function ppStatToMarketKey(sport: string, stat: string): string {
     hrs: "batter_home_runs",
     strikeouts: "pitcher_strikeouts",
     ks: "pitcher_strikeouts",
+    "pitcher strikeouts": "pitcher_strikeouts",
+    "hitter strikeouts": "batter_strikeouts",
     "stolen bases": "batter_stolen_bases",
     sbs: "batter_stolen_bases",
     "total bases": "batter_total_bases",

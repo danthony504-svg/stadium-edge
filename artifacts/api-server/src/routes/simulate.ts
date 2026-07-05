@@ -8,6 +8,11 @@ import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/si
 
 const router: IRouter = Router();
 
+/** Internal self-calls must include the /api mount (see app.ts). */
+function apiBaseFromReq(req: { protocol: string; get(name: string): string | undefined }): string {
+  return `${req.protocol}://${req.get("host")}/api`;
+}
+
 router.use("/sports/simulate", rateLimit({ windowMs: 60_000, max: 60, name: "simulate" }));
 
 type InjuryTeam = {
@@ -262,7 +267,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     return;
   }
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const baseUrl = apiBaseFromReq(req);
   const [homeHist, awayHist] = await Promise.all([
     fetchTeamHistory(baseUrl, sport, homeTeamId),
     fetchTeamHistory(baseUrl, sport, awayTeamId),
@@ -321,7 +326,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     return;
   }
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const baseUrl = apiBaseFromReq(req);
 
   let oppPace: number | null = null;
   let leaguePace: number | null = 100;
@@ -388,7 +393,7 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
     return;
   }
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const baseUrl = apiBaseFromReq(req);
   try {
     const propsUrl = `${baseUrl}/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`;
     const pr = await fetch(propsUrl);

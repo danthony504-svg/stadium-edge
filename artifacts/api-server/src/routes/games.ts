@@ -614,4 +614,28 @@ router.get("/sports/odds-bovada", async (req, res): Promise<void> => {
   }
 });
 
+// ESPN roster for both teams in a matchup — used by the simulator to attach
+// athleteId to PrizePicks lines and filter out mis-tagged players.
+router.get("/sports/game-roster", async (req, res): Promise<void> => {
+  const sport = String(req.query.sport || "").toLowerCase();
+  const homeTeamId = String(req.query.homeTeamId || "").trim();
+  const awayTeamId = String(req.query.awayTeamId || "").trim();
+  if (!sport || (!homeTeamId && !awayTeamId)) {
+    res.status(400).json({ error: "sport and at least one team id required" });
+    return;
+  }
+  if (!ESPN_SPORT_PATHS[sport]) {
+    res.status(400).json({ error: `Unsupported sport: ${sport}` });
+    return;
+  }
+  try {
+    const { fetchGameRoster } = await import("../lib/espnRoster.js");
+    const players = await fetchGameRoster(sport, homeTeamId, awayTeamId);
+    res.json({ sport, players });
+  } catch (err) {
+    req.log.error({ err }, "game-roster failed");
+    res.json({ sport, players: [] });
+  }
+});
+
 export default router;
