@@ -211,16 +211,23 @@ export function ScoreBreakdown({
   title,
   note,
   simulationPending,
+  simHitPct,
+  simConfidence,
+  factorNote,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
   simulationPending?: boolean;
+  simHitPct?: number;
+  simConfidence?: number;
+  factorNote?: string;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
+  const simNote = factorNote ?? note;
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
   // card never carries an empty rubric.
@@ -229,6 +236,20 @@ export function ScoreBreakdown({
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles data={data} />
+        {simHitPct != null || simConfidence != null ? (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {simHitPct != null ? (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                Sim Hit {simHitPct}%
+              </Text>
+            ) : null}
+            {simConfidence != null ? (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                Sim Conf {simConfidence}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         {simulationPending ? (
           <Text
             style={{
@@ -239,6 +260,18 @@ export function ScoreBreakdown({
             }}
           >
             Simulation updating…
+          </Text>
+        ) : null}
+        {simNote ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.body,
+              fontSize: 11,
+              lineHeight: 16,
+            }}
+          >
+            {simNote}
           </Text>
         ) : null}
         <View style={{ flexDirection: "row", gap: 4 }}>
@@ -295,6 +328,20 @@ export function ScoreBreakdown({
         {title ?? "Pick Score"}
       </Text>
       <HeaderTiles data={data} />
+      {simHitPct != null || simConfidence != null ? (
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          {simHitPct != null ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              Sim Hit {simHitPct}%
+            </Text>
+          ) : null}
+          {simConfidence != null ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+              Sim Conf {simConfidence}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
       {simulationPending ? (
         <Text
           style={{
@@ -313,7 +360,7 @@ export function ScoreBreakdown({
         ))}
       </View>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10.5, lineHeight: 15 }}>
-        {note ??
+        {simNote ??
           (present === FACTORS.length
             ? "Grade blends all five signals from real feed data."
             : `Grade blends the ${present} signal${present === 1 ? "" : "s"} we could ground from real data; the rest are shown as no-data.`)}

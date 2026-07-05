@@ -18,6 +18,14 @@ import { propMarketLabel } from "@/lib/propMarketLabel";
 import type { GameInjuryReport } from "@/lib/injuries";
 import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
+  coachPropHasMonteCarlo,
+  coachPropSimRow,
+  coachPickSimKey,
+  type CoachPropSimEntry,
+} from "@/lib/coachPropMonteCarlo";
+import { enrichPropPickSimMeta } from "@/lib/propFactorNotes";
+import { capGradeForSimHit, resolveDisplayEdge } from "@/lib/simPropValidity";
+import {
   combinePickScore,
   injuryFavorGame,
   injuryFavorProp,
@@ -346,7 +354,7 @@ export function propPoolFromPlayerProps(
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
-  simulationByKey?: Map<string, { hitProbability: number | null }>,
+  simulationByKey?: Map<string, CoachPropSimEntry>,
   ctx?: {
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
@@ -374,6 +382,7 @@ function scorePropPick(
       ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
       : null;
   const sim = simKey ? simulationByKey?.get(simKey) : undefined;
+  if (!coachPropHasMonteCarlo(sim)) return null;
   const scores: PickSubScores = {
     matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
     trend: propTrendScore(ph, marketKey, pick.propLine, pick.propSide),
@@ -390,7 +399,14 @@ function scorePropPick(
     simulation: scoreSimulation(sim?.hitProbability ?? null),
   };
   const combined = combinePickScore(scores, edgePct, pick.odds);
-  return combined.composite == null ? null : combined;
+  if (combined.composite == null) return null;
+  const simRow = coachPropSimRow(sim!, pick);
+  const displayEdge = resolveDisplayEdge(combined, simRow, pick.odds);
+  const withEdge =
+    displayEdge != null && displayEdge !== combined.edgePct
+      ? { ...combined, edgePct: displayEdge }
+      : combined;
+  return simRow ? capGradeForSimHit(withEdge, simRow) : withEdge;
 }
 
 // The win-chance inputs for a leg, resolved from its REAL backing entry — the
@@ -433,7 +449,7 @@ export function attachPickScores(
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
     /** Monte Carlo results keyed player|market|line|side */
-    propSimulations?: Map<string, { hitProbability: number | null }>;
+    propSimulations?: Map<string, CoachPropSimEntry>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
     playerHistory?: Record<string, PlayerHistorySlice>;
     /** Raw league injury teams when matchupInjuries report is absent. */
@@ -454,6 +470,9 @@ export function attachPickScores(
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGamePick(p, realOdds, opts.matchupHistory, opts.matchupInjuries);
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    return { ...p, scores };
+    if (!p.isProp || !scores) return { ...p, scores };
+    const key = coachPickSimKey(p);
+    const sim = key ? sims?.get(key) : undefined;
+    return enrichPropPickSimMeta({ ...p, scores }, scores, sim);
   });
 }

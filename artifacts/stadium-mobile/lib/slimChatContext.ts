@@ -49,6 +49,7 @@ export type SlimChatContextInput = {
     fairProb?: number | null;
     edge?: number | null;
     simHitPct?: number | null;
+    simConfidencePct?: number | null;
     selectionScore?: number | null;
   }>;
   matchupHistory?: Record<string, SlimMatchupEntry>;

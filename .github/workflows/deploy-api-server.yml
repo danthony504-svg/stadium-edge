@@ -6,20 +6,30 @@ on:
     paths:
       - "artifacts/api-server/**"
       - ".github/workflows/deploy-api-server.yml"
+      - "scripts/verify-api-sim.sh"
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Trigger Render deploy
         env:
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$RENDER_DEPLOY_HOOK" ]; then
-            echo "RENDER_DEPLOY_HOOK secret not set — skip auto-deploy."
-            echo "Redeploy stadium-edge.onrender.com manually so /api/chat/context-stash and props fixes go live."
-            exit 0
+            echo "::error::RENDER_DEPLOY_HOOK secret not set."
+            echo "Add the Render deploy hook URL to GitHub repo secrets, then re-run this workflow."
+            echo "Manual fallback: open Render dashboard → stadium-edge → Manual Deploy → Deploy latest commit."
+            exit 1
           fi
           curl -sf -X POST "$RENDER_DEPLOY_HOOK"
           echo "Render deploy triggered."
+
+      - name: Wait for deploy
+        run: sleep 120
+
+      - name: Verify simulator endpoints
+        run: bash scripts/verify-api-sim.sh

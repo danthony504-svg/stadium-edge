@@ -33,7 +33,17 @@ test("preferredPropSide uses evSide when present", () => {
 });
 
 test("rankPropPoolEntries prefers higher edge when composite ties", () => {
-  const ranked = rankPropPoolEntries(pool, { propPool: pool });
+  const sims = new Map([
+    [
+      "Alpha|player_points|20.5|Over",
+      { hitProbability: 0.62, completedSims: 1000, simulations: 1000, failedSims: 0 },
+    ],
+    [
+      "Beta|player_points|18.5|Over",
+      { hitProbability: 0.55, completedSims: 1000, simulations: 1000, failedSims: 0 },
+    ],
+  ]);
+  const ranked = rankPropPoolEntries(pool, { propPool: pool, propSimulations: sims });
   assert.equal(ranked[0]?.player, "Alpha");
 });
 
@@ -74,8 +84,14 @@ test("enrichAndSortRealProps attaches simHitPct and sorts by selectionScore", ()
     },
   ];
   const sims = new Map([
-    ["Alpha|player_points|20.5|Over", { hitProbability: 0.62 }],
-    ["Beta|player_points|18.5|Over", { hitProbability: 0.51 }],
+    [
+      "Alpha|player_points|20.5|Over",
+      { hitProbability: 0.62, completedSims: 1000, simulations: 1000, failedSims: 0, confidenceScore: 70 },
+    ],
+    [
+      "Beta|player_points|18.5|Over",
+      { hitProbability: 0.51, completedSims: 1000, simulations: 1000, failedSims: 0, confidenceScore: 55 },
+    ],
   ]);
   const out = enrichAndSortRealProps(realProps, pool, { propPool: pool, propSimulations: sims });
   assert.equal(out[0]?.player, "Alpha");

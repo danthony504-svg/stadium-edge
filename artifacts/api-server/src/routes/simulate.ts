@@ -4,6 +4,8 @@ import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo } from "../lib/gameMonteCarlo.js";
+import { aggregatePropBatchSimRun } from "../lib/simRunStats.js";
+import type { SimRunStats } from "../lib/simRunStats.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
@@ -78,8 +80,9 @@ async function runPropSims(
   gameCtx: GameSimContext,
   isHomeByPlayer: Record<string, boolean>,
   simulations?: number,
-): Promise<{ rows: SimPropRow[]; deepPending: boolean }> {
+): Promise<{ rows: SimPropRow[]; deepPending: boolean; simRun: SimRunStats }> {
   const simCount = tierSimCount(tier, simulations);
+  const batchStartedAt = new Date();
   const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
   let deepPending = false;
 
@@ -140,7 +143,9 @@ async function runPropSims(
     }),
   );
 
-  return { rows, deepPending: tier === "quick" ? deepPending : false };
+  const simRun = aggregatePropBatchSimRun(rows, simCount, batchStartedAt, new Date());
+
+  return { rows, deepPending: tier === "quick" ? deepPending : false, simRun };
 }
 
 function scheduleDeepSim(
@@ -248,6 +253,18 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     return;
   }
 
+  req.log.info(
+    {
+      sport,
+      requestedSims: result.requestedSims,
+      completedSims: result.completedSims,
+      failedSims: result.failedSims,
+      actualSimCount: result.actualSimCount,
+      runTimeMs: result.runTimeMs,
+    },
+    "game outcome simulation complete",
+  );
+
   res.json({
     sport,
     homeTeam: req.body?.homeTeam ?? null,
@@ -331,7 +348,7 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     weatherImpact,
   };
 
-  const { rows, deepPending } = await runPropSims(
+  const { rows, deepPending, simRun } = await runPropSims(
     propsResolved,
     tier,
     gameCtx,
@@ -339,10 +356,41 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
     simulations,
   );
 
+  req.log.info(
+    {
+      tier,
+      requestedSims: simRun.requestedSims,
+      completedSims: simRun.completedSims,
+      failedSims: simRun.failedSims,
+      actualSimCount: simRun.actualSimCount,
+      runTimeMs: simRun.runTimeMs,
+      propCount: rows.length,
+      propSimCounts: rows.map((r) => ({
+        player: r.player,
+        market: r.market,
+        line: r.line,
+        side: r.side,
+        requestedSims: r.requestedSims ?? simRun.requestedSims,
+        completedSims: r.completedSims ?? r.simulations ?? 0,
+        failedSims: r.failedSims ?? 0,
+        actualSimCount: r.actualSimCount ?? r.completedSims ?? r.simulations ?? 0,
+        hitProbability: r.hitProbability,
+      })),
+    },
+    "prop batch simulation complete — per-prop Monte Carlo counts",
+  );
+
   res.json({
     sport,
     tier,
-    simulations: tierSimCount(tier, simulations),
+    simulations: simRun.completedSims,
+    requestedSims: simRun.requestedSims,
+    completedSims: simRun.completedSims,
+    failedSims: simRun.failedSims,
+    actualSimCount: simRun.actualSimCount,
+    startedAt: simRun.startedAt,
+    finishedAt: simRun.finishedAt,
+    runTimeMs: simRun.runTimeMs,
     deepPending: tier === "quick" ? deepPending : false,
     props: rows,
   });

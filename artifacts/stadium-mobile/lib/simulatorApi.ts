@@ -11,7 +11,9 @@ import type {
   MatchupHistoryEntry,
   PlayerHistory,
   PlayerProp,
+  PropSimulationBatchResult,
   PropSimulationResult,
+  SimRunStats,
 } from "./api";
 
 export { propMarketLabel };
@@ -328,16 +330,40 @@ export async function fetchSimulatorPropSimulationsBatch(
     tier?: "quick" | "deep";
   },
   signal?: AbortSignal,
-): Promise<PropSimulationResult[]> {
-  if (!props.length) return [];
+): Promise<PropSimulationBatchResult> {
+  if (!props.length) {
+    return {
+      props: [],
+      simRun: {
+        requestedSims: 0,
+        completedSims: 0,
+        failedSims: 0,
+        actualSimCount: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        runTimeMs: 0,
+      },
+    };
+  }
   const tier = opts?.tier ?? "quick";
-  const json = await simPostJson<{ props?: PropSimulationResult[] }>(
+  const json = await simPostJson<PropSimulationBatchResult & { props?: PropSimulationResult[] }>(
     "/sports/simulate/props",
     { sport, tier, ...opts, props },
     signal,
     tier === "deep" ? 66_000 : 22_000,
   );
-  return json?.props ?? [];
+  const rows = json?.props ?? [];
+  const simRun: SimRunStats = {
+    requestedSims: json?.requestedSims ?? json?.simRun?.requestedSims ?? rows[0]?.requestedSims ?? 0,
+    completedSims: json?.completedSims ?? (rows.length ? Math.min(...rows.map((r) => r.completedSims ?? r.simulations ?? 0)) : 0),
+    failedSims: json?.failedSims ?? json?.simRun?.failedSims ?? rows.reduce((n, r) => n + (r.failedSims ?? 0), 0),
+    actualSimCount: json?.actualSimCount ?? json?.simRun?.actualSimCount ?? json?.completedSims ?? 0,
+    startedAt: json?.startedAt ?? json?.simRun?.startedAt ?? rows[0]?.startedAt ?? new Date().toISOString(),
+    finishedAt: json?.finishedAt ?? json?.simRun?.finishedAt ?? rows[0]?.finishedAt ?? new Date().toISOString(),
+    runTimeMs: json?.runTimeMs ?? json?.simRun?.runTimeMs ?? 0,
+    sampleGames: rows[0]?.sampleGames,
+  };
+  return { props: rows, simRun };
 }
 
 /** Best-effort wake-up before simulator fan-out (cold autoscale hosts). */
