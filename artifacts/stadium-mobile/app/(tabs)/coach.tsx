@@ -166,6 +166,8 @@ type UIMessage = {
   // to render the Ticket Scan summary card above the streamed analysis. Held on
   // the message (not live state) so it stays accurate even if the slip changes.
   analyzeSlip?: TicketScanLeg[];
+  /** Home hero / one-tap shortcuts — still sent to the model, not shown as a bubble. */
+  hideBubble?: boolean;
 };
 
 type StatCardResult = {
@@ -731,6 +733,7 @@ export default function CoachScreen() {
     prefill?: string;
     autoMsg?: string;
     send?: string;
+    silent?: string;
     ts?: string;
     buildId?: string;
   }>() ?? {};
@@ -991,6 +994,7 @@ export default function CoachScreen() {
           gameMeta: GameMeta[];
           todayOnly: boolean;
         };
+        hideUserBubble?: boolean;
       },
     ) => {
       const replay = opts?.replay ?? null;
@@ -1025,7 +1029,7 @@ export default function CoachScreen() {
       const thread = messages.filter((m) => !isWelcomeMessage(m));
       const history: UIMessage[] = [
         ...thread,
-        { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined },
+        { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined, hideBubble: opts?.hideUserBubble },
       ];
       // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
       // streamed breakdown. Snapshot the slip NOW (with each leg's edge note) so
@@ -2639,8 +2643,8 @@ export default function CoachScreen() {
     if (autoSentRef.current === token) return;
     if (streaming) return;
     autoSentRef.current = token;
-    send(String(autoMsg));
-  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, send]);
+    send(String(autoMsg), { hideUserBubble: params.silent === "1" });
+  }, [params.send, params.silent, params.ts, params.autoMsg, params.prefill, streaming, send]);
 
   useEffect(() => {
     return () => {
@@ -2720,6 +2724,7 @@ export default function CoachScreen() {
             // analyze request is waiting, so no empty/spinner bubble flashes ahead
             // of the dedicated progress UI.
             const showBubble =
+              !m.hideBubble &&
               !m.statCard &&
               !m.periodGameLog &&
               !m.teamCard &&

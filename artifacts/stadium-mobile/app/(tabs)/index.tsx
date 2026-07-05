@@ -793,10 +793,15 @@ export default function HomeScreen() {
     stealsQ.isFetching ||
     upsetsQ.isFetching;
 
-  const askCoach = (msg: string) =>
+  const askCoach = (msg: string, silent = false) =>
     router.push({
       pathname: "/coach",
-      params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
+      params: {
+        autoMsg: msg,
+        send: "1",
+        ts: String(Date.now()),
+        ...(silent ? { silent: "1" } : {}),
+      },
     });
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.
@@ -821,7 +826,7 @@ export default function HomeScreen() {
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay"),
+      onPress: () => askCoach("Build me the best parlay", true),
     },
     {
       label: "Easy Money",
@@ -971,7 +976,7 @@ export default function HomeScreen() {
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay")} />
+        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
