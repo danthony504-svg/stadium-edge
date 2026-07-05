@@ -20,6 +20,8 @@ import {
   type PickSubScores,
 } from "./pickScore";
 import { gameValueForMarket, computeAmbiguous } from "./propStats";
+import type { PropSimulationResult } from "./api";
+import { capGradeForSimHit } from "./simPropValidity";
 
 export type SimulatorPlayerHistorySlice = {
   player?: string;
@@ -91,6 +93,89 @@ export function buildSimulatorPropPool(
   return out;
 }
 
+/** Full ladder pool (main + alternate rungs) for alt-line comparison. */
+export function buildSimulatorFullPropPool(
+  props: PlayerProp[],
+  game: string,
+  sport: string,
+  teams?: {
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    homeAbbr?: string | null;
+    awayAbbr?: string | null;
+  },
+): PropPoolEntry[] {
+  const out: PropPoolEntry[] = [];
+  for (const p of props) {
+    if (!p || p.line == null) continue;
+    const marketLabel = propMarketLabel(p.market);
+    const teamAbbr =
+      p.playerTeamId && teams?.homeTeamId && p.playerTeamId === teams.homeTeamId
+        ? (teams.homeAbbr ?? null)
+        : p.playerTeamId && teams?.awayTeamId && p.playerTeamId === teams.awayTeamId
+          ? (teams.awayAbbr ?? null)
+          : null;
+    if (p.overPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Over",
+        odds: p.overPrice,
+        edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+        bookSpread: p.overSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+    if (p.underPrice != null) {
+      out.push({
+        sport,
+        game,
+        marketLabel,
+        player: p.player,
+        line: p.line,
+        side: "Under",
+        odds: p.underPrice,
+        edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+        bookSpread: p.underSpread ?? null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr,
+      });
+    }
+  }
+  return out;
+}
+
+export function simulatorPropKey(s: {
+  player: string;
+  market: string;
+  line: number;
+  side: string;
+}): string {
+  return `${s.player}|${s.market}|${s.line}|${s.side}`;
+}
+
+export function poolEntryToSelected(e: PropPoolEntry): SimulatorSelectedProp {
+  const market = e.marketKey ?? e.marketLabel;
+  return {
+    player: e.player,
+    market,
+    line: e.line as number,
+    side: e.side as "Over" | "Under",
+    odds: e.odds,
+    athleteId: e.athleteId ?? null,
+    headshot: e.headshot ?? null,
+    label: `${e.side} ${e.line} ${e.marketLabel}`,
+  };
+}
+
 export function buildSimulatorPpPropPool(
   props: PlayerProp[],
   gameLabel: string,
@@ -113,6 +198,50 @@ export function buildSimulatorPpPropPool(
       headshot: p.headshot,
       teamAbbr: null,
     }));
+}
+
+export type SimulatorSelectedProp = {
+  player: string;
+  market: string;
+  line: number;
+  side: "Over" | "Under";
+  odds: number;
+  athleteId: string | null;
+  headshot: string | null;
+  label: string;
+};
+
+/** Merge user picks with top +EV pool lines for simulator recommendations. */
+export function buildSimulatorSimCandidates(
+  propPool: PropPoolEntry[],
+  selected: SimulatorSelectedProp[],
+  opts?: { autoLimit?: number },
+): SimulatorSelectedProp[] {
+  const autoLimit = opts?.autoLimit ?? 12;
+  const byKey = new Map<string, SimulatorSelectedProp>();
+  for (const s of selected) {
+    byKey.set(`${s.player}|${s.market}|${s.line}|${s.side}`, s);
+  }
+  const auto = [...propPool]
+    .filter((e) => e.line != null && (e.edge ?? 0) > 0)
+    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0));
+  for (const e of auto) {
+    const market = e.marketKey ?? e.marketLabel;
+    const key = `${e.player}|${market}|${e.line}|${e.side}`;
+    if (byKey.has(key)) continue;
+    if (byKey.size >= autoLimit + selected.length) break;
+    byKey.set(key, {
+      player: e.player,
+      market,
+      line: e.line as number,
+      side: e.side as "Over" | "Under",
+      odds: e.odds,
+      athleteId: e.athleteId ?? null,
+      headshot: e.headshot ?? null,
+      label: `${e.side} ${e.line} ${e.marketLabel}`,
+    });
+  }
+  return [...byKey.values()];
 }
 
 function resolvePropPlayerTeam(
@@ -284,6 +413,7 @@ export function gradeSimulatorProps(
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, SimulatorPlayerHistorySlice>;
     propSimulations?: Map<string, { hitProbability: number | null }>;
+    propSimRows?: Map<string, PropSimulationResult>;
     injuryTeams?: InjuryTeam[];
   },
 ): Map<string, CombinedPickScore> {
@@ -316,7 +446,9 @@ export function gradeSimulatorProps(
       propMarketKey: s.market,
     });
     const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
-    if (scores) out.set(key, scores);
+    const simRow = opts.propSimRows?.get(key);
+    const capped = scores && simRow ? capGradeForSimHit(scores, simRow) : scores;
+    if (capped) out.set(key, capped);
   }
   return out;
 }

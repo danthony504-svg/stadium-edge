@@ -1411,6 +1411,8 @@ export type RealPropEntry = {
   // Quick-tier Monte Carlo hit % (0–100) for the preferred side — one selection
   // input among several, never fabricated. Omitted when no sim ran.
   simHitPct?: number | null;
+  /** Monte Carlo confidence 0–100 when server sim completed. */
+  simConfidencePct?: number | null;
   // Multi-factor composite (1–10) for ordering candidates in context — blends
   // EV, matchup, form, injury, line-shopping, and simulation. Omitted when
   // ungradeable.
@@ -1452,7 +1454,18 @@ export type PropPoolEntry = {
   marketKey?: string;
 };
 
-export type PropSimulationResult = {
+export type SimRunStats = {
+  requestedSims: number;
+  completedSims: number;
+  failedSims: number;
+  actualSimCount: number;
+  startedAt: string;
+  finishedAt: string;
+  runTimeMs: number;
+  sampleGames?: number;
+};
+
+export type PropSimulationResult = SimRunStats & {
   key: string;
   player: string;
   market: string;
@@ -1572,7 +1585,12 @@ export async function fetchPropSimulations(
   return out;
 }
 
-export type GameSimulationResult = {
+export type PropSimulationBatchResult = {
+  props: PropSimulationResult[];
+  simRun: SimRunStats;
+};
+
+export type GameSimulationResult = SimRunStats & {
   sport: string;
   simulations: number;
   homeWinProbability: number;

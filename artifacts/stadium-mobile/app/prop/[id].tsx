@@ -36,6 +36,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import { FactorGrid } from "@/components/FactorCards";
 import { InjuryReport } from "@/components/InjuryReport";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
+import { PropDualScoreCard } from "@/components/PropDualScoreCard";
 import {
   combinePickScore,
   injuryFavorProp,
@@ -47,9 +48,11 @@ import {
   scoreTrend,
 } from "@/lib/pickScore";
 import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
+import { computePropDualScore, dualScoreToPickSub } from "@/lib/propDualScore";
 import { computeHrFlags, type HrFlags } from "@/lib/hrFlags";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { resolveSimConfidence } from "@/lib/propSimFallback";
 import { SPORTS } from "@/lib/sports";
 
 // How many of the most-recent real games we read for the projection / hit-rate.
@@ -619,9 +622,14 @@ export default function PropDetailScreen() {
     return f.green.length === 0 && f.red.length === 0 && !f.windOmitted ? null : f;
   }, [isHrMarket, realMlb]);
 
+  const oppKeyInjuries = useMemo(() => {
+    if (!oppName || !injuriesQ.data) return null;
+    const oppTeam = injuriesQ.data.find((t) => teamNameMatches(t.team, oppName));
+    if (!oppTeam) return null;
+    return summarizeTeamInjuries(sport, oppTeam).highCount;
+  }, [oppName, injuriesQ.data, sport]);
+
   const injTone = playerInjury ? injuryTone(playerInjury.status) : "ok";
-  const toneColor =
-    injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
 
   // The 5-component pick rubric for THIS prop, every sub-score real-or-null:
   //  • Trend       — this player's recent hit-rate vs the line, for the picked side
@@ -658,6 +666,55 @@ export default function PropDetailScreen() {
       odds,
     );
   }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simData]);
+
+  const propDualScore = useMemo(() => {
+    return computePropDualScore(
+      {
+        combined: propScore,
+        simRow: simData ?? null,
+        odds,
+        projection,
+        line: threshold,
+        side,
+        hitPct,
+        playerInjured: playerInjury != null && injuryTone(playerInjury.status) !== "ok",
+      },
+      {
+        sport,
+        marketKey,
+        mlb: realMlb,
+        oppDefense: realOppDefense,
+        opponentKeyInjuries: oppKeyInjuries,
+        side,
+      },
+    );
+  }, [
+    propScore,
+    simData,
+    odds,
+    projection,
+    threshold,
+    side,
+    hitPct,
+    playerInjury,
+    sport,
+    marketKey,
+    realMlb,
+    realOppDefense,
+    oppKeyInjuries,
+  ]);
+
+  const propScoreWithMatchup = useMemo(() => {
+    const matchupSub = dualScoreToPickSub(propDualScore.matchupScore);
+    if (matchupSub == null) return propScore;
+    return {
+      ...propScore,
+      scores: { ...propScore.scores, matchup: matchupSub },
+    };
+  }, [propScore, propDualScore.matchupScore]);
+
+  const toneColor =
+    injTone === "out" ? colors.destructive : injTone === "doubt" ? colors.warning : colors.success;
 
   // Tier colors for the AI-breakdown hero — same thresholds the rubric uses, so
   // the glanceable hero and the full breakdown below always agree.
@@ -931,11 +988,14 @@ export default function PropDetailScreen() {
               <MetricTile
                 icon="shield"
                 label="SIM CONF"
-                value={
-                  simData?.confidenceScore != null
-                    ? `${simData.confidenceScore}`
-                    : "—"
-                }
+                value={(() => {
+                  const conf = resolveSimConfidence({
+                    hitProbability: simData?.hitProbability ?? null,
+                    confidenceScore: simData?.confidenceScore,
+                    sampleGames: simData?.sampleGames,
+                  });
+                  return conf != null ? `${conf}` : "—";
+                })()}
                 caption="model conviction"
                 tint={colors.foreground}
               />
@@ -1123,14 +1183,28 @@ export default function PropDetailScreen() {
 
         {/* Pick rubric — the 5-component grade for this prop, real-or-null. Shown
             only when at least one signal is groundable. */}
-        {propScore.composite != null ? (
+        {/* Player + Matchup dual score — both must clear the bar before recommending */}
+        <PropDualScoreCard data={propDualScore} />
+
+        {/* Pick rubric — the 5-component grade for this prop, real-or-null. Shown
+            only when at least one signal is groundable. Matchup bar uses dual score. */}
+        {propScoreWithMatchup.composite != null ? (
           <Section title="PICK GRADE">
-            <ScoreBreakdown data={propScore} variant="full" simulationPending={simulationPending} />
+            <ScoreBreakdown data={propScoreWithMatchup} variant="full" simulationPending={simulationPending} />
           </Section>
         ) : null}
 
         {/* HR Target Score — MLB batter home-run props only, real-data blend */}
-        {hrScore ? <HrTargetScoreCard data={hrScore} /> : null}
+        {hrScore ? (
+          <HrTargetScoreCard
+            data={hrScore}
+            dualNote={
+              !propDualScore.recommends && propDualScore.matchupScore != null && propDualScore.matchupScore >= 62
+                ? propDualScore.explanation
+                : undefined
+            }
+          />
+        ) : null}
 
         {/* HR Green/Red Flags — the rubric checklist (real-data only). Rendered
             independently of the score so it still shows in the rare case where no
@@ -1254,7 +1328,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // signals we resolved for this batter's matchup. Shows the headline score + band,
 // every present factor with its real value, weight share and 0..1 favorability
 // bar, and an honest list of any factor we didn't have the data for.
-function HrTargetScoreCard({ data }: { data: HrScore }) {
+function HrTargetScoreCard({ data, dualNote }: { data: HrScore; dualNote?: string }) {
   const colors = useColors();
   const score = data.score ?? 0;
   const band = hrScoreBand(score);
@@ -1296,6 +1370,22 @@ function HrTargetScoreCard({ data }: { data: HrScore }) {
         A weighted blend of the real matchup signals we have — scored only on the {data.presentCount}{" "}
         factor{data.presentCount === 1 ? "" : "s"} with data, never on guesses.
       </Text>
+
+      {dualNote ? (
+        <View
+          style={{
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.destructive,
+          }}
+        >
+          <Text style={{ color: colors.destructive, fontFamily: FONT.semibold, fontSize: 12, lineHeight: 17 }}>
+            {dualNote}
+          </Text>
+        </View>
+      ) : null}
 
       <View style={{ gap: 9 }}>
         {present.map((f) => {

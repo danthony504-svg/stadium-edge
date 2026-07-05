@@ -1,10 +1,11 @@
-// Progressive server-side Monte Carlo loading for prop picks. Picks render
-// immediately without waiting for simulation; quick-tier results land first,
-// then deep-tier refines the grade in the background.
-
+// Progressive deep Monte Carlo refinement for Coach prop cards (post-selection).
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
+import {
+  coachPropSimMapFromResults,
+  type CoachPropSimEntry,
+} from "@/lib/coachPropMonteCarlo";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
@@ -17,43 +18,31 @@ export type PropSimAttachOpts = {
   playerHistory?: Record<string, PlayerHistorySlice>;
   injuryTeams?: InjuryTeam[];
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
+  propSimulations?: Map<string, CoachPropSimEntry>;
 };
 
-function simMapFromResults(
-  rows: Map<string, PropSimulationResult> | Iterable<PropSimulationResult>,
-): Map<string, { hitProbability: number | null }> {
-  const out = new Map<string, { hitProbability: number | null }>();
-  if (rows instanceof Map) {
-    for (const [k, v] of rows) out.set(k, { hitProbability: v.hitProbability });
-    return out;
-  }
-  for (const r of rows) out.set(r.key, { hitProbability: r.hitProbability });
+function mergeSimMaps(
+  base: Map<string, CoachPropSimEntry>,
+  rows: Map<string, PropSimulationResult>,
+): Map<string, CoachPropSimEntry> {
+  const out = new Map(base);
+  for (const [k, v] of coachPropSimMapFromResults(rows)) out.set(k, v);
   return out;
 }
 
 function scorePicksWithSim(
   picks: ParsedPick[],
-  sims: Map<string, { hitProbability: number | null }>,
+  sims: Map<string, CoachPropSimEntry>,
   opts: PropSimAttachOpts,
-  simulationPending: boolean,
 ): ParsedPick[] {
-  const scored = attachPickScores(picks, {
+  return attachPickScores(picks, {
     ...opts,
     propSimulations: sims,
   });
-  return scored.map((p) =>
-    p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
-  );
-}
-
-/** Mark prop legs as awaiting simulation without blocking render. */
-export function picksWithSimPending(picks: ParsedPick[]): ParsedPick[] {
-  return picks.map((p) => (p.isProp ? { ...p, simulationPending: true } : p));
 }
 
 /**
- * Load quick then deep simulations on the server (cached) and invoke callbacks
- * as each tier completes. Never throws — failures leave the pick un-simulated.
+ * Refine displayed grades with deep-tier Monte Carlo on the selected prop legs.
  */
 export async function loadPropSimulationsProgressive(
   picks: ParsedPick[],
@@ -66,31 +55,20 @@ export async function loadPropSimulationsProgressive(
 ): Promise<void> {
   if (!picks.some((p) => p.isProp)) return;
 
-  let quickRows = new Map<string, PropSimulationResult>();
-  try {
-    quickRows = await fetchPropSimulations(picks, opts.propPool, { tier: "quick" }, signal);
-    if (signal?.aborted) return;
-    const quickScored = scorePicksWithSim(
-      picks,
-      simMapFromResults(quickRows),
-      opts,
-      true,
-    );
-    callbacks.onQuick?.(quickScored);
-  } catch {
-    /* rubric omits simulation when unavailable */
+  let simMap = new Map(opts.propSimulations ?? []);
+
+  if (simMap.size > 0) {
+    callbacks.onQuick?.(scorePicksWithSim(picks, simMap, opts));
   }
 
   try {
     const deepRows = await fetchPropSimulations(picks, opts.propPool, { tier: "deep" }, signal);
     if (signal?.aborted) return;
-    const deepScored = scorePicksWithSim(picks, simMapFromResults(deepRows), opts, false);
-    callbacks.onDeep?.(deepScored);
+    simMap = mergeSimMaps(simMap, deepRows);
+    callbacks.onDeep?.(scorePicksWithSim(picks, simMap, opts));
   } catch {
-    /* keep quick-tier scores if deep fails */
-    if (quickRows.size > 0) {
-      const fallback = scorePicksWithSim(picks, simMapFromResults(quickRows), opts, false);
-      callbacks.onDeep?.(fallback);
+    if (simMap.size > 0) {
+      callbacks.onDeep?.(scorePicksWithSim(picks, simMap, opts));
     }
   }
 }

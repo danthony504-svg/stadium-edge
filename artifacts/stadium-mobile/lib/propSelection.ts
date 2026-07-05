@@ -1,24 +1,30 @@
 // Multi-factor prop SELECTION ranking — same six-signal rubric used for grading
-// (matchup, trend, EV, injury, line-shopping, simulation) but applied to pick
-// WHICH props to surface. Simulation is a major factor, never the sole driver.
+// (matchup, trend, EV, injury, line-shopping, simulation) applied BEFORE the
+// Coach model picks. Monte Carlo must complete before props enter realProps.
 
 import type { ParsedPick } from "@/components/PickCard";
 import type { BuiltChatContext, PropPoolEntry, RealPropEntry } from "@/lib/api";
 import { fetchPropSimulations } from "@/lib/api";
 import {
-  attachPickScores,
-  type PlayerHistorySlice,
-  type PropSimAttachOpts,
-} from "@/lib/pickScoreContext";
+  coachPropHasMonteCarlo,
+  coachPropSimMapFromResults,
+  filterCoachPropsWithMonteCarlo,
+  type CoachPropSimEntry,
+} from "@/lib/coachPropMonteCarlo";
+import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import { resolveSimConfidence } from "@/lib/propSimFallback";
+import type { PropSimAttachOpts } from "@/lib/propSimProgressive";
+import { capGradeForSimHit } from "@/lib/simPropValidity";
 
-const SIM_SELECTION_TIMEOUT_MS = 2800;
+const QUICK_SIM_TIMEOUT_MS = 6000;
+const DEEP_SIM_TIMEOUT_MS = 18000;
 
 export type PropSelectionOpts = PropSimAttachOpts & {
-  propSimulations?: Map<string, { hitProbability: number | null }>;
+  propSimulations?: Map<string, CoachPropSimEntry>;
 };
 
 export type EnrichChatContextOpts = {
-  /** Scale quick-sim batch to ticket size (3–15 leg parlays). */
+  /** Scale sim batch to ticket size (3–15 leg parlays). */
   requestedLegs?: number;
 };
 
@@ -57,8 +63,7 @@ function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
   };
 }
 
-/** Composite selection score for one prop pool row (null when ungradeable). */
-export function selectionScoreForEntry(
+function cappedSelectionScore(
   entry: PropPoolEntry,
   propPool: PropPoolEntry[],
   opts: PropSelectionOpts,
@@ -67,20 +72,73 @@ export function selectionScoreForEntry(
     ...opts,
     propPool,
   })[0];
-  return scored?.scores?.composite ?? null;
+  if (!scored?.scores) return null;
+  const key =
+    entry.line != null
+      ? propSimKey(entry.player, entry.marketKey ?? entry.marketLabel, entry.line, entry.side)
+      : null;
+  const sim = key ? opts.propSimulations?.get(key) : undefined;
+  if (!sim || !coachPropHasMonteCarlo(sim)) return null;
+  const simRow = {
+    key: key!,
+    player: entry.player,
+    market: entry.marketKey ?? entry.marketLabel,
+    line: entry.line!,
+    side: entry.side,
+    requestedSims: sim.completedSims ?? sim.simulations ?? 0,
+    completedSims: sim.completedSims ?? sim.simulations ?? 0,
+    failedSims: sim.failedSims ?? 0,
+    actualSimCount: sim.completedSims ?? sim.simulations ?? 0,
+    startedAt: "",
+    finishedAt: "",
+    runTimeMs: 0,
+    simulations: sim.completedSims ?? sim.simulations ?? 0,
+    hitProbability: sim.hitProbability,
+    mostLikelyLine: sim.mostLikelyLine ?? null,
+    meanProjection: sim.meanProjection ?? null,
+    medianProjection: sim.medianProjection ?? null,
+    confidenceScore: sim.confidenceScore ?? null,
+    stdDev: null,
+    sampleGames: 0,
+    percentiles: null,
+  };
+  const capped = capGradeForSimHit(scored.scores, simRow);
+  return capped.composite ?? null;
 }
 
-/** Rank prop pool rows best-first by multi-factor composite (sim is one input). */
+/** Composite selection score for one prop pool row (null when ungradeable or no MC). */
+export function selectionScoreForEntry(
+  entry: PropPoolEntry,
+  propPool: PropPoolEntry[],
+  opts: PropSelectionOpts,
+): number | null {
+  return cappedSelectionScore(entry, propPool, opts);
+}
+
+/** Rank prop pool rows best-first by multi-factor composite (sim required). */
 export function rankPropPoolEntries(
   entries: PropPoolEntry[],
   opts: PropSelectionOpts,
 ): PropPoolEntry[] {
   if (!entries.length) return entries;
   const pool = opts.propPool.length ? opts.propPool : entries;
-  const withScore = entries.map((e) => ({
-    e,
-    score: selectionScoreForEntry(e, pool, opts),
-  }));
+  const withScore = entries
+    .map((e) => ({
+      e,
+      score: selectionScoreForEntry(e, pool, opts),
+      simKey:
+        e.line != null
+          ? propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side)
+          : null,
+      hit:
+        e.line != null
+          ? opts.propSimulations?.get(
+              propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side) ?? "",
+            )?.hitProbability
+          : null,
+    }))
+    .filter((x) => x.score != null && coachPropHasMonteCarlo(x.simKey ? opts.propSimulations?.get(x.simKey) : undefined));
+
   return withScore
     .sort((a, b) => {
       const as = a.score ?? -1;
@@ -102,7 +160,7 @@ export function preferredPropSide(rp: RealPropEntry): "Over" | "Under" | null {
   return null;
 }
 
-/** Attach simHitPct from the simulation map and return props sorted by selection score. */
+/** Attach sim fields from Monte Carlo and return props sorted by selection score. */
 export function enrichAndSortRealProps(
   realProps: RealPropEntry[],
   propPool: PropPoolEntry[],
@@ -112,7 +170,8 @@ export function enrichAndSortRealProps(
   const enriched = realProps.map((rp) => {
     const side = preferredPropSide(rp);
     const key = side ? propSimKey(rp.player, rp.market, rp.line, side) : null;
-    const hit = key && sims ? sims.get(key)?.hitProbability : null;
+    const sim = key && sims ? sims.get(key) : undefined;
+    const hit = sim?.hitProbability ?? null;
     const poolEntry =
       side && rp.line != null
         ? propPool.find(
@@ -125,10 +184,14 @@ export function enrichAndSortRealProps(
           )
         : undefined;
     const selectionScore =
-      poolEntry != null ? selectionScoreForEntry(poolEntry, propPool, opts) : null;
+      poolEntry != null && coachPropHasMonteCarlo(sim)
+        ? selectionScoreForEntry(poolEntry, propPool, opts)
+        : null;
+    const simConf = sim ? resolveSimConfidence(sim) : null;
     return {
       ...rp,
       ...(hit != null ? { simHitPct: Math.round(hit * 100) } : {}),
+      ...(simConf != null ? { simConfidencePct: simConf } : {}),
       ...(selectionScore != null ? { selectionScore } : {}),
     };
   });
@@ -146,7 +209,7 @@ export function enrichAndSortRealProps(
   });
 }
 
-/** Build ParsedPick stubs for quick simulation of main prop pool lines. */
+/** Build ParsedPick stubs for Monte Carlo on main prop pool lines. */
 export function picksForPropSimBatch(
   propPool: PropPoolEntry[],
   limit = 32,
@@ -164,15 +227,44 @@ export function picksForPropSimBatch(
   return out;
 }
 
-/** Quick-sim batch size scales with requested leg count. */
+/** Sim batch size scales with requested leg count. */
 export function propSimBatchLimitForLegs(requestedLegs: number): number {
   const n = requestedLegs > 0 ? requestedLegs : 6;
   return Math.min(48, Math.max(20, 12 + n * 2));
 }
 
+async function fetchCoachPropSimulations(
+  simPicks: ParsedPick[],
+  propPool: PropPoolEntry[],
+  requestedLegs: number,
+  signal?: AbortSignal,
+): Promise<Map<string, CoachPropSimEntry>> {
+  const preferDeep = requestedLegs >= 3;
+  const tiers: Array<"deep" | "quick"> = preferDeep ? ["deep", "quick"] : ["quick"];
+
+  for (const tier of tiers) {
+    const timeoutMs = tier === "deep" ? DEEP_SIM_TIMEOUT_MS : QUICK_SIM_TIMEOUT_MS;
+    try {
+      const rows = await Promise.race([
+        fetchPropSimulations(simPicks, propPool, { tier }, signal),
+        new Promise<Map<string, import("@/lib/api").PropSimulationResult>>((resolve) => {
+          setTimeout(() => resolve(new Map()), timeoutMs);
+        }),
+      ]);
+      const mapped = coachPropSimMapFromResults(rows);
+      if ([...mapped.values()].some((v) => coachPropHasMonteCarlo(v))) {
+        return mapped;
+      }
+    } catch {
+      /* try next tier */
+    }
+  }
+  return new Map();
+}
+
 /**
- * Quick-tier server sim + multi-factor sort for realProps (blocks until quick
- * tier returns or times out). Deep tier warms server cache in the background.
+ * Monte Carlo BEFORE Coach selection: sim the prop pool, rank realProps with the
+ * full rubric, and drop any prop without server Monte Carlo backing.
  */
 export async function enrichChatContextProps(
   built: BuiltChatContext,
@@ -180,53 +272,33 @@ export async function enrichChatContextProps(
   enrichOpts?: EnrichChatContextOpts,
 ): Promise<{
   built: BuiltChatContext;
-  propSimulations: Map<string, { hitProbability: number | null }>;
+  propSimulations: Map<string, CoachPropSimEntry>;
 }> {
   const { context, propPool } = built;
   if (!propPool.length || !context.realProps?.length) {
     return { built, propSimulations: new Map() };
   }
 
-  const simLimit = propSimBatchLimitForLegs(enrichOpts?.requestedLegs ?? 0);
-  let propSimulations = new Map<string, { hitProbability: number | null }>();
+  const requestedLegs = enrichOpts?.requestedLegs ?? 0;
+  const simLimit = propSimBatchLimitForLegs(requestedLegs);
   const simPicks = picksForPropSimBatch(propPool, simLimit);
-
-  try {
-    if (simPicks.length) {
-      propSimulations = await Promise.race([
-        fetchPropSimulations(simPicks, propPool, { tier: "quick" }, signal).then((m) => {
-          const out = new Map<string, { hitProbability: number | null }>();
-          for (const [k, v] of m) out.set(k, { hitProbability: v.hitProbability });
-          return out;
-        }),
-        new Promise<Map<string, { hitProbability: number | null }>>((resolve) => {
-          setTimeout(() => resolve(new Map()), SIM_SELECTION_TIMEOUT_MS);
-        }),
-      ]);
-
-      // Warm deep-tier cache for post-pick card grading — never blocks the build.
-      void fetchPropSimulations(simPicks, propPool, { tier: "deep" }).catch(() => {});
-    }
-  } catch {
-    /* selection proceeds without sim */
-  }
+  let propSimulations = await fetchCoachPropSimulations(simPicks, propPool, requestedLegs, signal);
 
   const selectionOpts: PropSelectionOpts = {
     propPool,
     matchupHistory: context.matchupHistory,
     matchupInjuries: context.matchupInjuries,
     playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+    propSimulations,
   };
 
-  const sortedProps = enrichAndSortRealProps(context.realProps, propPool, {
-    ...selectionOpts,
-    propSimulations,
-  });
+  const sortedProps = enrichAndSortRealProps(context.realProps, propPool, selectionOpts);
+  const parlayProps = filterCoachPropsWithMonteCarlo(sortedProps, propSimulations);
 
   return {
     built: {
       ...built,
-      context: { ...context, realProps: sortedProps },
+      context: { ...context, realProps: parlayProps },
     },
     propSimulations,
   };
