@@ -259,7 +259,7 @@ function BaseballMiniPanel() {
   );
 }
 
-/** Compact Discover hero — routes to Coach for a new AI parlay build. */
+/** Compact Discover hero — opens Coach so the user can request a parlay when ready. */
 function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   const colors = useColors();
   return (
@@ -828,7 +828,7 @@ export default function HomeScreen() {
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => goCoach("Build me the best parlay"),
     },
     {
       label: "Easy Money",
@@ -977,8 +977,8 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        {/* Static hero — opens Coach with a prefilled prompt; user taps send when ready. */}
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
@@ -1503,9 +1503,8 @@ export default function HomeScreen() {
 
                   <Pressable
                     onPress={() =>
-                      askCoach(
+                      goCoach(
                         `Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`,
-                        true,
                       )
                     }
                     style={({ pressed }) => ({
