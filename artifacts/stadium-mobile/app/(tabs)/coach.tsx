@@ -60,7 +60,8 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
-import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap } from "@/lib/gameLineOptimizer";
+import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames } from "@/lib/gameLineOptimizer";
+import { rebalanceDeepParlayTicket, rotatePool } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1489,6 +1490,13 @@ export default function CoachScreen() {
         // total). The reach-count backfill below will fill from realProps instead.
         const mentionsProps = mentionsPropIntent(trimmed);
         const propsOnlyTicket = wantsPropsOnly(trimmed);
+        let diversityNote = "";
+        const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
+        if (!isAnalyze && deepMultiLegParlay && picks.length > 0 && !propsOnlyTicket) {
+          const rebalanced = rebalanceDeepParlayTicket(picks, { legTarget });
+          picks = rebalanced.picks;
+          if (rebalanced.note) diversityNote = rebalanced.note;
+        }
         const lockedPropMarket =
           mentionsProps &&
           /\b(strikeouts?|k'?s|home runs?|hrs?|hits?|total bases?|rebounds?|reb|assists?|ast|points?|pts|anytime td|touchdowns?|receptions?|pass yds?|rush yds?|rec yds?|goals?|shots on goal)\b/i.test(
@@ -1729,6 +1737,7 @@ export default function CoachScreen() {
           if (slateDay) {
             backfillPool = filterOddsForSlateDay(backfillPool, slateDay);
           }
+          backfillPool = rotatePool(backfillPool, trimmed);
           if (altSign) {
             picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
@@ -1760,7 +1769,9 @@ export default function CoachScreen() {
               if (!propsOnlyTicket && picks.length < target) {
                 picks = backfillPicks(picks, backfillPool, gameMeta, {
                   target,
-                  order: GENERIC_BACKFILL_ORDER,
+                  order: deepMultiLegFill
+                    ? [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER]
+                    : GENERIC_BACKFILL_ORDER,
                 });
               }
             } else if (explicitSingleGame && includePeriods) {
@@ -1840,7 +1851,14 @@ export default function CoachScreen() {
           const oddsGames = (
             await Promise.all(gameSports.map((s) => getOdds(s).catch(() => [])))
           ).flat();
-          const evalLinesByGame = buildEvalLinesByGameMap(gamesWithLines, oddsGames);
+          const evalLinesByGame = deepMultiLegParlay
+            ? (() => {
+                const all = buildEvalLinesForAllGames(oddsGames);
+                const pickKeys = buildEvalLinesByGameMap(gamesWithLines, oddsGames);
+                for (const [k, v] of pickKeys) all.set(k, v);
+                return all;
+              })()
+            : buildEvalLinesByGameMap(gamesWithLines, oddsGames);
           mergedGameOdds = mergeOddsEntries(
             context.realOdds,
             ...evalLinesByGame.values(),
@@ -1909,6 +1927,9 @@ export default function CoachScreen() {
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
+        }
+        if (diversityNote) {
+          legNote = legNote ? `${legNote}\n\n${diversityNote}` : diversityNote;
         }
         if (propsOnlyNote) {
           legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;

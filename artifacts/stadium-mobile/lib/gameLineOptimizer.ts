@@ -49,6 +49,28 @@ export function gameLabelsMatch(a: string, b: string): boolean {
   return teamsMatch(pa[0]!, pb[0]!) && teamsMatch(pa[1]!, pb[1]!);
 }
 
+/** Fuzzy lookup — pick labels and odds API labels may differ by nickname. */
+export function evalLinesForGame(
+  gameLabel: string,
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+): RealOddsEntry[] {
+  const direct = evalLinesByGame.get(gameLabel);
+  if (direct?.length) return direct;
+  for (const [k, lines] of evalLinesByGame) {
+    if (gameLabelsMatch(k, gameLabel) && lines.length) return lines;
+  }
+  return [];
+}
+
+/** Full eval ladder for every odds API game (props/alt backfill source). */
+export function buildEvalLinesForAllGames(oddsGames: OddsGame[]): Map<string, RealOddsEntry[]> {
+  const map = new Map<string, RealOddsEntry[]>();
+  for (const og of oddsGames) {
+    const label = `${og.awayTeam} @ ${og.homeTeam}`;
+    map.set(label, buildAllEvalGameLines(og));
+  }
+  return map;
+}
 /** Map each pick's game label to the full eval ladder from Odds API games. */
 export function buildEvalLinesByGameMap(
   pickGameLabels: Iterable<string>,
@@ -60,9 +82,9 @@ export function buildEvalLinesByGameMap(
     const oddsLabel = `${og.awayTeam} @ ${og.homeTeam}`;
     for (const pickGame of picks) {
       if (!gameLabelsMatch(pickGame, oddsLabel)) continue;
-      if (!map.has(pickGame)) {
-        map.set(pickGame, buildAllEvalGameLines(og));
-      }
+      const lines = buildAllEvalGameLines(og);
+      if (!map.has(pickGame)) map.set(pickGame, lines);
+      if (!map.has(oddsLabel)) map.set(oddsLabel, lines);
       break;
     }
   }
@@ -189,9 +211,12 @@ function pickLegKey(pick: ParsedPick): string {
 /** Prefer sim-aligned lines; allow sim-opposed only as High-Risk Value Play. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
-  const eligible = ranked.filter(
-    (r) => r.finalAiScore.simAligned || r.finalAiScore.highRiskValuePlay,
-  );
+  const eligible = ranked.filter((r) => {
+    if (r.finalAiScore.highRiskValuePlay) return true;
+    if (!r.finalAiScore.simAligned) return false;
+    const edge = r.edgePct ?? 0;
+    return edge > -1;
+  });
   return bestGameLine(eligible.length ? eligible : ranked);
 }
 
@@ -221,6 +246,9 @@ function rankEvaluated(a: EvaluatedGameLine, b: EvaluatedGameLine): number {
   const ac = a.finalAiScore.composite ?? -1;
   const bc = b.finalAiScore.composite ?? -1;
   if (bc !== ac) return bc - ac;
+  const awp = a.finalAiScore.simAligned ? 1 : 0;
+  const bwp = b.finalAiScore.simAligned ? 1 : 0;
+  if (bwp !== awp) return bwp - awp;
   const ae = a.edgePct ?? -999;
   const be = b.edgePct ?? -999;
   if (be !== ae) return be - ae;
@@ -343,7 +371,7 @@ export function optimizeGameLinePicksToBestFinalAi(
   for (const pick of picks) {
     const bucket = bucketKeyForPick(pick);
     if (!bucket || bestByBucket.has(bucket)) continue;
-    const evalLines = opts.evalLinesByGame.get(pick.game) ?? [];
+    const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
     if (!evalLines.length) continue;
     const sim = simByGame.get(pick.game);
     const best = rankBestForBucket(pick, evalLines, sim, opts);
