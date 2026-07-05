@@ -9,6 +9,8 @@ import type { ParlayLegReject } from "./parlayReachCore.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C";
 export const MIN_MAIN_PICK_CONFIDENCE = 50;
+/** Longshot main-ticket floor — coin-flip alts with +EV may qualify at 49%+. */
+export const LONGSHOT_SIM_MIN_HIT = 0.49;
 
 function gradeMeetsMinimum(grade: string | null | undefined, minGrade: string): boolean {
   return gradeRank(grade) >= gradeRank(minGrade);
@@ -86,6 +88,34 @@ export function isMainTicketQualified(
   return true;
 }
 
+/**
+ * Relaxed main-ticket bar for explicit longshot parlay asks — keeps +EV requirement
+ * but allows 49–51% sim cover when that alt rung beats every other posted line on EV.
+ */
+export function isLongshotMainTicketQualified(
+  score: FinalAiScore | null | undefined,
+  odds: number | null | undefined,
+  edgePct?: number | null,
+): boolean {
+  if (!score) return false;
+  if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
+  const edge = edgePct !== undefined ? edgePct : score.edgePct;
+  if (edge == null || !Number.isFinite(edge) || edge < 0) return false;
+  if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
+  if (
+    score.simHit == null ||
+    !Number.isFinite(score.simHit) ||
+    score.simHit < LONGSHOT_SIM_MIN_HIT
+  ) {
+    return false;
+  }
+  if (score.composite == null || !Number.isFinite(score.composite) || score.composite <= 0) {
+    return false;
+  }
+  if (odds == null || !Number.isFinite(odds)) return false;
+  return true;
+}
+
 /** @deprecated Alias for isMainTicketQualified */
 export function isFullyQualifiedPropFinalAi(
   score: FinalAiScore | null | undefined,
@@ -112,16 +142,19 @@ export function isFullyQualifiedFinalAi(
 
 export function isFullyQualifiedPick(
   pick: ParsedPick,
-  opts?: PickEdgeResolveOpts,
+  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
 ): boolean {
   const edge = resolvePickEdgePct(pick, opts);
+  if (opts?.longshotAsk) {
+    return isLongshotMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
+  }
   return isMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
 }
 
 /** Last-chance filter before rendering a main-ticket parlay. Never pads. */
 export function filterMainTicketPicks(
   picks: ParsedPick[],
-  opts?: PickEdgeResolveOpts & { rejectsOut?: ParlayLegReject[] },
+  opts?: PickEdgeResolveOpts & { rejectsOut?: ParlayLegReject[]; longshotAsk?: boolean },
 ): ParsedPick[] {
   const out: ParsedPick[] = [];
   for (const p of picks) {
@@ -151,7 +184,7 @@ export function isLongshotSectionPick(pick: ParsedPick): boolean {
 
 export function reasonPickNotQualified(
   pick: ParsedPick,
-  opts?: PickEdgeResolveOpts,
+  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
 ): string {
   const s = pick.finalAiScore;
   if (!s) return "missing Final AI Score";
@@ -167,11 +200,12 @@ export function reasonPickNotQualified(
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
   }
   if (s.simHit == null) return "missing Simulation Hit %";
-  if (s.simHit < GAME_SIM_MIN_HIT) {
+  const simFloor = opts?.longshotAsk ? LONGSHOT_SIM_MIN_HIT : GAME_SIM_MIN_HIT;
+  if (s.simHit < simFloor) {
     const pct = Math.round(s.simHit * 100);
-    return `10k sim ${pct}% — simulator does not support this pick (needs ≥${Math.round(GAME_SIM_MIN_HIT * 100)}%)`;
+    return `10k sim ${pct}% — simulator does not support this pick (needs ≥${Math.round(simFloor * 100)}%)`;
   }
-  if (!s.simAligned) {
+  if (!opts?.longshotAsk && !s.simAligned) {
     const pct = Math.round(s.simHit * 100);
     return `Game simulator (${pct}% cover) disagrees with AI Coach`;
   }

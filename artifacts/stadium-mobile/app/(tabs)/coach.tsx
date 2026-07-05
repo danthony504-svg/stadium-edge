@@ -2108,6 +2108,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             excludeMoneyline: composeFromBoard,
+            longshotAsk,
           });
           picks = optimized.picks;
           {
@@ -2214,10 +2215,13 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               excludeMoneyline: true,
+              longshotAsk,
             });
             picks = reoptimized.picks;
             picks = dedupeSameTeamGameLegs(picks).picks;
-            picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame);
+            picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame, {
+              longshotAsk,
+            });
             const postFinalizeSides = enforceConsistentGameSides(picks, {
               simByGame: gameSimulations,
               matchupHistory: context.matchupHistory,
@@ -2420,9 +2424,12 @@ export default function CoachScreen() {
             realOdds: mergedGameOdds,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
+            longshotAsk,
           }).picks;
           picks = attachPickScores(picks, scoreAttachOpts);
-          picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame);
+          picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame, {
+            longshotAsk,
+          });
         }
         if (!propsDeepSimmed) {
           picks = picksWithSimPending(picks);
@@ -2432,6 +2439,7 @@ export default function CoachScreen() {
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
             rejectsOut: parlayRejections,
+            longshotAsk,
           });
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
@@ -2440,6 +2448,7 @@ export default function CoachScreen() {
             realOdds: mergedGameOdds,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
+            longshotAsk,
           });
           gameSimNote = optimizerNote
             ? gameSimSupplementNote
@@ -2599,6 +2608,7 @@ export default function CoachScreen() {
                 const filtered = filterMainTicketPicks(scored, {
                   propPool: mergedPropPool,
                   realOdds: mergedGameOdds,
+                  longshotAsk,
                 });
                 patchLastAssistantPicks(setMessages, filtered);
                 setAiPicks(filtered);
@@ -2608,6 +2618,7 @@ export default function CoachScreen() {
                 const filtered = filterMainTicketPicks(scored, {
                   propPool: mergedPropPool,
                   realOdds: mergedGameOdds,
+                  longshotAsk,
                 });
                 patchLastAssistantPicks(setMessages, filtered);
                 setAiPicks(filtered);

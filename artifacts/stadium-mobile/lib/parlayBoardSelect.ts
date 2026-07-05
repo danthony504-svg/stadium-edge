@@ -19,6 +19,7 @@ import type { MarketPerf } from "./marketWeighting.ts";
 import {
   comparePickStrength,
   isFullyQualifiedPick,
+  isLongshotMainTicketQualified,
   isLongshotSectionPick,
   isMainTicketQualified,
   nearScoreFromPick,
@@ -66,6 +67,7 @@ export function collectQualifiedGameLineCandidates(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     rejectsOut?: ParlayLegReject[];
+    longshotAsk?: boolean;
   },
 ): ParsedPick[] {
   const lineMap = new Map<string, RealOddsEntry>();
@@ -92,17 +94,23 @@ export function collectQualifiedGameLineCandidates(
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
-    const spreadFiltered = filterEvaluatedForCloseGameSpread(ranked, sim, lines);
+    const spreadFiltered = filterEvaluatedForCloseGameSpread(ranked, sim, lines, {
+      longshotAsk: opts.longshotAsk,
+    });
     for (const row of spreadFiltered) {
-      if (!isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) {
+      const pick = evalRowToPick(row);
+      const passes = opts.longshotAsk
+        ? isLongshotMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)
+        : isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null);
+      if (!passes) {
         opts.rejectsOut?.push({
           pick: row.pick,
-          reason: reasonPickNotQualified(evalRowToPick(row)),
-          nearScore: nearScoreFromPick(evalRowToPick(row)),
+          reason: reasonPickNotQualified(pick, { longshotAsk: opts.longshotAsk }),
+          nearScore: nearScoreFromPick(pick),
         });
         continue;
       }
-      qualified.push(evalRowToPick(row));
+      qualified.push(pick);
     }
   }
   return qualified.sort((a, b) => comparePickStrength(b, a));
@@ -237,6 +245,7 @@ export async function selectStrongestQualifiedParlay(
   const edgeOpts = {
     realOdds: opts.realOdds,
     propPool: opts.propPool,
+    longshotAsk: opts.longshotAsk,
   };
 
   const gameCandidates = collectQualifiedGameLineCandidates(
@@ -247,6 +256,7 @@ export async function selectStrongestQualifiedParlay(
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
       rejectsOut: rejects,
+      longshotAsk: opts.longshotAsk,
     },
   );
 

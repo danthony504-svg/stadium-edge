@@ -19,6 +19,8 @@ import {
 
 export {
   isMainTicketQualified,
+  isLongshotMainTicketQualified,
+  LONGSHOT_SIM_MIN_HIT,
   isFullyQualifiedPropFinalAi,
   isFullyQualifiedGameLineFinalAi,
   isFullyQualifiedFinalAi,

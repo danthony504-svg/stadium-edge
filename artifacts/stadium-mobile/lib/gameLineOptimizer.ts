@@ -15,11 +15,13 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { isMainTicketQualified, isLongshotMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
 import {
   filterRowsForCloseGameSpread,
   selectBestTeamSpreadLine,
   type CloseGameSpreadRow,
+  type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
 
 const norm = (s: string) =>
@@ -278,8 +280,18 @@ function fromCloseGameRow(row: CloseGameSpreadRow, ranked: EvaluatedGameLine[]):
 }
 
 /** Prefer sim-aligned game lines with positive edge — no high-risk bypass on game lines. */
-function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
+function selectBestEvaluated(
+  ranked: EvaluatedGameLine[],
+  opts?: CloseGameSpreadOpts,
+): EvaluatedGameLine | null {
   if (!ranked.length) return null;
+  if (opts?.longshotAsk) {
+    const rows = toCloseGameRows(ranked);
+    const best = selectBestAltLineByEv(rows, {
+      qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge),
+    });
+    return best ? fromCloseGameRow(best, ranked) : null;
+  }
   const eligible = ranked.filter((r) =>
     isMainTicketQualified(r.finalAiScore, r.pick.odds ?? null),
   );
@@ -296,8 +308,10 @@ function rankBestForBucket(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     excludeMoneyline?: boolean;
+    longshotAsk?: boolean;
   },
 ): EvaluatedGameLine | null {
+  const spreadOpts: CloseGameSpreadOpts = { longshotAsk: opts.longshotAsk };
   const favoredTeam = simFavoredTeamForGame(pick.game, sim);
   const pool = candidatesForPick(
     pick,
@@ -323,11 +337,12 @@ function rankBestForBucket(
       evalLines,
       team,
       pick.game,
+      spreadOpts,
     );
     return bestLine ? fromCloseGameRow(bestLine, ranked) : null;
   }
 
-  return selectBestEvaluated(ranked);
+  return selectBestEvaluated(ranked, spreadOpts);
 }
 
 function rankEvaluated(a: EvaluatedGameLine, b: EvaluatedGameLine): number {
@@ -388,8 +403,9 @@ export function filterEvaluatedForCloseGameSpread(
   rows: EvaluatedGameLine[],
   sim: CoachGameSimEntry | null | undefined,
   evalLines: RealOddsEntry[],
+  opts?: CloseGameSpreadOpts,
 ): EvaluatedGameLine[] {
-  const closeRows = filterRowsForCloseGameSpread(toCloseGameRows(rows), sim, evalLines);
+  const closeRows = filterRowsForCloseGameSpread(toCloseGameRows(rows), sim, evalLines, opts);
   const keep = new Set(closeRows.map((r) => r.entry));
   return rows.filter((r) => keep.has(r.entry));
 }
@@ -460,6 +476,7 @@ export function optimizeGameLinePicksToBestFinalAi(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     excludeMoneyline?: boolean;
+    longshotAsk?: boolean;
   },
 ): GameLineOptimizeResult {
   let swapped = 0;
@@ -647,13 +664,16 @@ export function buildGameLineOptimizerNote(
     realOdds: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    longshotAsk?: boolean;
   },
 ): string {
   const gameLines = picks.filter(
     (p) =>
       isGameLinePick(p) &&
       !p.isProp &&
-      isMainTicketQualified(p.finalAiScore, p.odds ?? null),
+      (opts.longshotAsk
+        ? isLongshotMainTicketQualified(p.finalAiScore, p.odds ?? null)
+        : isMainTicketQualified(p.finalAiScore, p.odds ?? null)),
   );
   if (!gameLines.length) return "";
 
@@ -715,7 +735,10 @@ export function buildGameLineOptimizerNote(
   }
 
   if (!lines.length) return "";
-  return `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest Final AI Score among posted ML / spread / alt / total / team-total rungs:_\n${lines.map((n) => `• ${n}`).join("\n")}`;
+  const intro = opts.longshotAsk
+    ? `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this longshot ticket use the best expected value among every posted ML / spread / alt / total / team-total rung (positive edge, highest win probability, best payout):_`
+    : `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest Final AI Score among posted ML / spread / alt / total / team-total rungs:_`;
+  return `${intro}\n${lines.map((n) => `• ${n}`).join("\n")}`;
 }
 
 /** Fill remaining parlay slots with highest Final AI Score game lines (alts/totals) from the full eval ladder. */

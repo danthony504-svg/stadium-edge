@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { isLongshotMainTicketQualified } from "./parlayQualifiedGate.ts";
 import {
   COMFORTABLE_WIN_SIM_MIN,
   dropSpreadLadderViolations,
@@ -22,7 +23,23 @@ function mockEvalRow(
   winProb: number,
   game = "New York Mets @ Atlanta Braves",
 ): CloseGameSpreadRow {
-  const qualified = winProb >= 0.52 && edge >= 0;
+  const qualifiedMain = winProb >= 0.52 && edge >= 0;
+  const qualifiedLong = isLongshotMainTicketQualified(
+    {
+      composite: 7,
+      grade: "B",
+      confidencePct: 55,
+      edgePct: edge,
+      simHit: winProb,
+      simAligned: qualifiedMain,
+      highRiskValuePlay: false,
+      recommends: qualifiedMain,
+      factors: [],
+      rubric: { scores: {}, composite: 7, grade: "B", confidencePct: 55, edgePct: edge },
+    },
+    -110,
+    edge,
+  );
   return {
     entry: {
       sport: "mlb",
@@ -38,9 +55,9 @@ function mockEvalRow(
       confidencePct: 55,
       edgePct: edge,
       simHit: winProb,
-      simAligned: qualified,
+      simAligned: qualifiedMain,
       highRiskValuePlay: false,
-      recommends: qualified,
+      recommends: qualifiedMain || qualifiedLong,
       factors: [],
       rubric: { scores: {}, composite: 7, grade: "B", confidencePct: 55, edgePct: edge },
     },
@@ -250,6 +267,27 @@ test("selectBestTeamSpreadLine uses safer policy on close sim", () => {
   ];
   const best = selectBestTeamSpreadLine(rows, TIGHT_SIM, evalLines, "Braves", TIGHT_GAME);
   assert.equal(best?.entry.pick, "Braves +2.5");
+});
+
+test("selectBestTeamSpreadLine uses EV policy on longshot close sim", () => {
+  const evalLines = [
+    {
+      sport: "mlb",
+      game: TIGHT_GAME,
+      market: "Spread",
+      pick: "Braves -1.5",
+      odds: 168,
+      edge: 0.4,
+    },
+  ];
+  const rows = [
+    mockEvalRow("Spread", "Braves -1.5", 0.4, 0.5),
+    mockEvalRow("Alt Spread", "Braves +1.5", 2.2, 0.58),
+  ];
+  const best = selectBestTeamSpreadLine(rows, TIGHT_SIM, evalLines, "Braves", TIGHT_GAME, {
+    longshotAsk: true,
+  });
+  assert.equal(best?.entry.pick, "Braves +1.5");
 });
 
 test("isStandardLaySpread flags main -1.5 board rung", () => {

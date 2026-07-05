@@ -4,8 +4,16 @@
 import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT, gameSimHitForPick, type CoachGameSimEntry } from "./gameSimScoring.ts";
-import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
+import {
+  isLongshotMainTicketQualified,
+  isMainTicketQualified,
+} from "./parlayQualifiedGate.ts";
+import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
 import { isCloseGameForTeamSpread, spreadLineFromPick } from "./spreadSimAlignment.ts";
+
+export type CloseGameSpreadOpts = {
+  longshotAsk?: boolean;
+};
 
 export type CloseGameSpreadRow = {
   entry: RealOddsEntry;
@@ -220,7 +228,13 @@ export function selectBestTeamSpreadLine(
   evalLines: RealOddsEntry[],
   teamName: string,
   game: string,
+  opts?: CloseGameSpreadOpts,
 ): CloseGameSpreadRow | null {
+  if (opts?.longshotAsk) {
+    return selectBestAltLineByEv(ranked, {
+      qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge),
+    });
+  }
   const side = teamSideFromName(game, teamName);
   const close = needsSaferSpreadLine(
     sim,
@@ -259,7 +273,9 @@ export function dropSpreadLadderViolations(
   picks: import("../components/PickCard.tsx").ParsedPick[],
   simByGame: Map<string, CoachGameSimEntry>,
   evalLinesByGame: Map<string, import("./api.ts").RealOddsEntry[]>,
+  opts?: CloseGameSpreadOpts,
 ): import("../components/PickCard.tsx").ParsedPick[] {
+  if (opts?.longshotAsk) return picks;
   return picks.filter((pick) => {
     if (pick.isProp) return true;
     const team = pickTeamName(pick.pick);
@@ -304,8 +320,15 @@ export function filterRowsForCloseGameSpread(
   rows: CloseGameSpreadRow[],
   sim: CoachGameSimEntry | null | undefined,
   evalLines: RealOddsEntry[],
+  opts?: CloseGameSpreadOpts,
 ): CloseGameSpreadRow[] {
-  if (!sim || !rows.length) return rows.filter((r) => !isAggressiveSpreadEntry(r.entry) || (r.winProb ?? 0) >= COMFORTABLE_WIN_SIM_MIN);
+  if (!sim || !rows.length) {
+    return rows.filter(
+      (r) =>
+        !isAggressiveSpreadEntry(r.entry) ||
+        (r.winProb ?? 0) >= COMFORTABLE_WIN_SIM_MIN,
+    );
+  }
 
   const byTeam = new Map<string, CloseGameSpreadRow[]>();
   for (const row of rows) {
@@ -324,7 +347,7 @@ export function filterRowsForCloseGameSpread(
     const team = pickTeamName(teamRows[0]!.entry.pick);
     if (!team) continue;
     const game = teamRows[0]!.entry.game;
-    const best = selectBestTeamSpreadLine(teamRows, sim, evalLines, team, game);
+    const best = selectBestTeamSpreadLine(teamRows, sim, evalLines, team, game, opts);
 
     if (!best) {
       for (const row of teamRows) {
@@ -344,6 +367,7 @@ export function filterRowsForCloseGameSpread(
   return rows.filter((r) => {
     if (drop.has(r)) return false;
     if (keep.has(r)) return true;
+    if (opts?.longshotAsk) return true;
     const team = pickTeamName(r.entry.pick);
     if (team && isTeamSidedFullGameEntry(r.entry) && !isGameTotalEntry(r.entry)) {
       const side = teamSideFromName(r.entry.game, team);

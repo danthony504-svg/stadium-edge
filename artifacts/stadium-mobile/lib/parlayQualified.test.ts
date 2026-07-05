@@ -5,6 +5,7 @@ import {
   filterMainTicketPicks,
   isFullyQualifiedPick,
   isLongshotSectionPick,
+  isLongshotMainTicketQualified,
   isMainTicketQualified,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
@@ -132,6 +133,65 @@ test("main ticket rejects sim disagreement", () => {
     }),
   );
   assert.match(reason, /disagrees/i);
+});
+
+test("longshot main ticket accepts 50% sim with positive edge", () => {
+  const score = {
+    composite: 7,
+    grade: "C+",
+    confidencePct: 55,
+    edgePct: 1.2,
+    simHit: 0.5,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+  };
+  assert.equal(isLongshotMainTicketQualified(score, 110), true);
+  assert.equal(isMainTicketQualified(score, 110), false);
+});
+
+test("longshot main ticket rejects sim below 49%", () => {
+  const score = {
+    composite: 7,
+    grade: "C+",
+    confidencePct: 55,
+    edgePct: 1.2,
+    simHit: 0.48,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+  };
+  assert.equal(isLongshotMainTicketQualified(score, 110), false);
+});
+
+test("filterMainTicketPicks keeps 50% sim leg on longshot ask", () => {
+  const pick = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B +1.5",
+    odds: 110,
+    isProp: false,
+    finalAiScore: {
+      composite: 7,
+      grade: "C+",
+      confidencePct: 55,
+      edgePct: 1.2,
+      simHit: 0.5,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+    },
+  };
+  const filtered = filterMainTicketPicks([pick], { longshotAsk: true });
+  assert.equal(filtered.length, 1);
+  const strict = filterMainTicketPicks([pick]);
+  assert.equal(strict.length, 0);
 });
 
 test("longshot section accepts negative edge when not main-qualified", () => {
