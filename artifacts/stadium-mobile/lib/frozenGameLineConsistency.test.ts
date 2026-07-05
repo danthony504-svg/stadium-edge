@@ -3,10 +3,12 @@ import test from "node:test";
 import {
   assertFrozenTicketConsistency,
   buildFrozenGameLineSummaryNote,
+  composeFrozenGameLineLegNote,
   frozenGameLineHeader,
   frozenLegSurfaceLabels,
   FrozenGameLineConsistencyError,
   mergeTicketPreservingFrozenGameLines,
+  parseAllGameLineMentionsFromNote,
   parseFrozenSummaryGamePicks,
   stripModelGameLineListings,
 } from "./frozenGameLineConsistency.ts";
@@ -156,6 +158,61 @@ test("stripModelGameLineListings removes legacy optimizer paragraphs", () => {
   assert.doesNotMatch(stripped, /edge —/);
   assert.match(stripped, /only 5 cleared/);
 });
+
+test("stripModelGameLineListings removes legacy lines embedded in multi-line blocks", () => {
+  const note = [
+    "_Your 6-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._",
+    "Boston Red Sox @ Los Angeles Angels: Sox -1.5 (Spread) — Final AI: 5+, sim: 69%, edge: --",
+    "Philadelphia Phillies @ Kansas City Royals: Royals +1 (Alt Spread) — Final AI: --, sim: 43%, edge: --",
+  ].join("\n\n");
+  const stripped = stripModelGameLineListings(note);
+  assert.doesNotMatch(stripped, /Sox -1\.5/);
+  assert.doesNotMatch(stripped, /Royals \+1/);
+  assert.match(stripped, /player props and alt rungs/);
+});
+
+test("assertFrozenTicketConsistency throws when summary lists game lines on props-only ticket", () => {
+  const props = [mockProp(0), mockProp(1)];
+  const staleNote = [
+    "_Your 6-leg ticket is built from player props._",
+    "Boston Red Sox @ Los Angeles Angels: Sox -1.5 (Spread) — Final AI: 5+, sim: 69%, edge: --",
+  ].join("\n\n");
+  assert.throws(
+    () => assertFrozenTicketConsistency(props, staleNote),
+    /no game-line card is on the ticket/,
+  );
+});
+
+test("assertFrozenTicketConsistency throws when game-line card is missing from summary", () => {
+  const picks = [mockFrozenGameLine(1), mockProp(0)];
+  const note = "_Built from player props._";
+  assert.throws(
+    () => assertFrozenTicketConsistency(picks, note),
+    /missing from the summary/,
+  );
+});
+
+test("composeFrozenGameLineLegNote strips stale lines and rebuilds from cards", () => {
+  const picks = [mockFrozenGameLine(1), mockProp(0)];
+  const stale = [
+    "_Your 6-leg ticket is built from player props._",
+    "Boston Red Sox @ Los Angeles Angels: Sox -1.5 (Spread) — Final AI: 5+, sim: 69%, edge: --",
+  ].join("\n\n");
+  const note = composeFrozenGameLineLegNote(picks, stale);
+  assert.doesNotMatch(note, /Sox -1\.5/);
+  assert.match(note, /\*\*Angels \+1\.5\*\*/);
+  const mentions = parseAllGameLineMentionsFromNote(note);
+  assert.equal(mentions.size, 1);
+  assert.equal(mentions.get(normGameKey(GAMES[1]!))?.pick, "Angels +1.5");
+});
+
+function normGameKey(game: string) {
+  return game
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 test("mergeTicketPreservingFrozenGameLines keeps frozen game lines when props re-score", () => {
   const frozen = mockFrozenGameLine(0);

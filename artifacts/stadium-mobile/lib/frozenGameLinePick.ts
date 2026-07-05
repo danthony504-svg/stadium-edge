@@ -25,8 +25,10 @@ export {
   frozenGameLineHeader,
   buildFrozenGameLineSummaryNote,
   assertFrozenTicketConsistency,
+  composeFrozenGameLineLegNote,
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,
+  parseAllGameLineMentionsFromNote,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 

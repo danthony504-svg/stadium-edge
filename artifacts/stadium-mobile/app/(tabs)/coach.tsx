@@ -67,9 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import {
   freezeAllGameLinesInTicket,
-  buildFrozenGameLineSummaryNote,
-  assertFrozenTicketConsistency,
-  stripModelGameLineListings,
+  composeFrozenGameLineLegNote,
   mergeTicketPreservingFrozenGameLines,
   FrozenGameLineConsistencyError,
 } from "@/lib/frozenGameLinePick";
@@ -514,7 +512,7 @@ function dedupeLegNoteParagraphs(note: string): string {
 /** Drop legacy / model optimizer bullets that show em-dash placeholders or stale copy. */
 function stripInvalidOptimizerBullets(note: string): string {
   const INVALID =
-    /edge\s*—|edge\s*--|Final AI\s*—|Final AI\s*--|highest Final AI Score among/i;
+    /edge\s*[:—-]\s*[—-]{1,2}|edge\s*—|edge\s*--|Final AI\s*[:—-]|Final AI\s*—|Final AI\s*--|highest Final AI Score among/i;
   const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   const out: string[] = [];
   for (const p of parts) {
@@ -2067,7 +2065,6 @@ export default function CoachScreen() {
         }
         // Game-line legs must pass the SAME 10k-run game simulator the Simulator tab
         // uses — drop any ML/spread/total/alt that the sim does not support.
-        let gameSimNote = "";
         let conflictingLegsDropped = 0;
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
@@ -2618,19 +2615,12 @@ export default function CoachScreen() {
           });
         }
         legNote = stripConflictingLegDropNotes(legNote);
-        legNote = stripModelGameLineListings(legNote);
         legNote = stripInvalidOptimizerBullets(legNote);
         if (conflictingLegsDropped > 0) {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
-        gameSimNote = buildFrozenGameLineSummaryNote(picks);
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
-        if (picks.some((p) => isGameLinePick(p) && !p.isProp)) {
-          assertFrozenTicketConsistency(picks, gameSimNote);
-        }
+        legNote = composeFrozenGameLineLegNote(picks, legNote);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {

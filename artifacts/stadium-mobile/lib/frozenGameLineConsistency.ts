@@ -191,7 +191,12 @@ export function buildFrozenGameLineSummaryNote(picks: ParsedPick[]): string {
     const pick = pickByGame.get(row.gameKey);
     if (!pick) continue;
     const line = formatFrozenGameLineSummaryLine(row, pick);
-    if (line) lines.push(line);
+    if (!line) {
+      throw new FrozenGameLineConsistencyError(
+        `Game-line card on ${row.game} is missing grounded metrics for the summary`,
+      );
+    }
+    lines.push(line);
   }
 
   if (!lines.length) return "";
@@ -199,26 +204,69 @@ export function buildFrozenGameLineSummaryNote(picks: ParsedPick[]): string {
   return `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
 }
 
-/** Parse game/pick pairs from our frozen summary bullets. */
+/** Parse game/pick/market tuples from frozen summary bullets. */
 export function parseFrozenSummaryGamePicks(summaryNote: string): Map<string, string> {
   const out = new Map<string, string>();
-  if (!summaryNote.trim()) return out;
-  const bulletRe = /\*\*([^*]+)\*\*\s*\([^)]+\)\s*·\s*([^\n]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = bulletRe.exec(summaryNote)) !== null) {
-    const pickLabel = m[1]!.trim();
-    const gameLabel = m[2]!.trim();
-    out.set(normGameLabel(gameLabel), normPickLabel(pickLabel));
+  for (const row of parseAllGameLineMentionsFromNote(summaryNote).values()) {
+    out.set(row.gameKey, normPickLabel(row.pick));
   }
   return out;
 }
 
-const MODEL_GAME_LINE_PARAGRAPH =
-  /@.+?(?:spread|moneyline|alt spread|alt total|total)/i;
-const MODEL_GAME_LINE_LEGACY =
-  /(?:Final AI|sim \d+%).*(?:edge\s*[—-]{1,2}|—\s*$)/i;
-const MODEL_GAME_LINE_LISTING =
-  /^[\d•\-*.]+\s*.+@\s*.+\s*[:—-]\s*.+\([A-Za-z ]+\)/m;
+export type GameLineMention = {
+  gameKey: string;
+  game: string;
+  pick: string;
+  market: string;
+};
+
+/** Parse every game-line mention in legNote — frozen bullets and legacy optimizer lines. */
+export function parseAllGameLineMentionsFromNote(note: string): Map<string, GameLineMention> {
+  const out = new Map<string, GameLineMention>();
+  if (!note.trim()) return out;
+
+  for (const rawLine of note.split(/\n/)) {
+    const trimmed = rawLine.trim().replace(/^[•*-]\s+/, "");
+    if (!trimmed || !/@/.test(trimmed)) continue;
+
+    const frozen = trimmed.match(/\*\*([^*]+)\*\*\s*\(([^)]+)\)\s*·\s*(.+)$/);
+    if (frozen) {
+      const game = frozen[3]!.trim();
+      const gameKey = normGameLabel(game);
+      out.set(gameKey, {
+        gameKey,
+        game,
+        pick: frozen[1]!.trim(),
+        market: frozen[2]!.trim(),
+      });
+      continue;
+    }
+
+    const legacy = trimmed.match(/^(.+@\s*.+?):\s*(.+?)\s*\(([^)]+)\)/);
+    if (legacy) {
+      const game = legacy[1]!.trim();
+      const gameKey = normGameLabel(game);
+      out.set(gameKey, {
+        gameKey,
+        game,
+        pick: legacy[2]!.trim(),
+        market: legacy[3]!.trim(),
+      });
+    }
+  }
+  return out;
+}
+
+function looksLikeGameLineListing(text: string): boolean {
+  const t = text.trim();
+  if (!t || !/@/.test(t)) return false;
+  if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*.+@/.test(t)) return true;
+  if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
+  if (/:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
+  if (/Final AI\s*[:—-]/i.test(t) && /@/.test(t)) return true;
+  if (/edge\s*:\s*[—-]{1,2}/i.test(t) && /@/.test(t)) return true;
+  return false;
+}
 
 /** Remove model / legacy optimizer listings so only frozen summary remains. */
 export function stripModelGameLineListings(note: string): string {
@@ -226,46 +274,25 @@ export function stripModelGameLineListings(note: string): string {
   const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
   const out: string[] = [];
   for (const p of parts) {
-    if (MODEL_GAME_LINE_LEGACY.test(p)) continue;
-    if (MODEL_GAME_LINE_LISTING.test(p)) continue;
-    if (MODEL_GAME_LINE_PARAGRAPH.test(p) && /\([A-Za-z ]+ Spread\)/i.test(p)) continue;
+    if (looksLikeGameLineListing(p)) continue;
     if (/^After the 10k sim,/i.test(p)) continue;
-    if (/^•\s+\*\*/.test(p) && /@/.test(p)) continue;
-    out.push(p);
+    const lines = p
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !looksLikeGameLineListing(l));
+    if (!lines.length) continue;
+    const joined = lines.join("\n");
+    if (looksLikeGameLineListing(joined)) continue;
+    out.push(joined);
   }
   return out.join("\n\n");
 }
 
-/**
- * Hard fail before render when frozen ticket surfaces would disagree.
- * Throws FrozenGameLineConsistencyError on any mismatch.
- */
-export function assertFrozenTicketConsistency(
-  picks: ParsedPick[],
-  summaryNote?: string,
-): void {
-  const gameLines = picks.filter((p) => isGameLinePick(p) && !p.isProp);
-  if (!gameLines.length) return;
-
+function ticketGameLineCards(picks: ParsedPick[]): Map<string, ParsedPick> {
   const byGame = new Map<string, ParsedPick>();
-  for (const pick of gameLines) {
-    if (!isGameLineFrozen(pick)) {
-      throw new FrozenGameLineConsistencyError(
-        `Game line on ${pick.game} is not frozen — summary and cards cannot diverge safely`,
-      );
-    }
+  for (const pick of picks) {
+    if (!isGameLinePick(pick) || pick.isProp) continue;
     const header = frozenGameLineHeader(pick);
-    const display = pick.gameLineFinal!.display!;
-    if (
-      normPickLabel(pick.pick) !== normPickLabel(display.pick) ||
-      normPickLabel(header.pick) !== normPickLabel(display.pick) ||
-      normGameLabel(pick.game) !== normGameLabel(display.game)
-    ) {
-      throw new FrozenGameLineConsistencyError(
-        `Frozen display mismatch on ${pick.game}: card="${header.pick}" snapshot="${display.pick}"`,
-      );
-    }
-
     const key = normGameLabel(header.game);
     const prev = byGame.get(key);
     if (prev) {
@@ -281,25 +308,120 @@ export function assertFrozenTicketConsistency(
     }
     byGame.set(key, pick);
   }
+  return byGame;
+}
 
-  if (summaryNote != null && summaryNote.trim()) {
-    const parsed = parseFrozenSummaryGamePicks(summaryNote);
-    for (const [gameKey, pick] of byGame) {
-      const header = frozenGameLineHeader(pick);
-      const summaryPick = parsed.get(gameKey);
-      if (summaryPick == null) continue;
-      if (summaryPick !== normPickLabel(header.pick)) {
-        throw new FrozenGameLineConsistencyError(
-          `Summary vs card mismatch on ${header.game}: summary="${summaryPick}" card="${header.pick}"`,
-        );
-      }
-      if (isOpposingTeamPick(header.game, summaryPick, header.pick)) {
-        throw new FrozenGameLineConsistencyError(
-          `Summary backs opposing side on ${header.game}: summary="${summaryPick}" card="${header.pick}"`,
-        );
-      }
+/**
+ * Hard fail before render when frozen ticket surfaces would disagree.
+ * Validates card ↔ summary ↔ slip ↔ breakdown ↔ share for every game-line leg.
+ * Throws FrozenGameLineConsistencyError on any mismatch.
+ */
+export function assertFrozenTicketConsistency(
+  picks: ParsedPick[],
+  legNote?: string,
+): void {
+  const byGame = ticketGameLineCards(picks);
+
+  for (const pick of byGame.values()) {
+    if (!isGameLineFrozen(pick)) {
+      throw new FrozenGameLineConsistencyError(
+        `Game line on ${pick.game} is not frozen — summary and cards cannot diverge safely`,
+      );
+    }
+    const header = frozenGameLineHeader(pick);
+    const display = pick.gameLineFinal!.display!;
+    if (
+      normPickLabel(pick.pick) !== normPickLabel(display.pick) ||
+      normPickLabel(header.pick) !== normPickLabel(display.pick) ||
+      normGameLabel(pick.game) !== normGameLabel(display.game) ||
+      normPickLabel(header.market) !== normPickLabel(display.market)
+    ) {
+      throw new FrozenGameLineConsistencyError(
+        `Frozen display mismatch on ${pick.game}: card="${header.pick}" snapshot="${display.pick}"`,
+      );
+    }
+
+    const surfaces = frozenLegSurfaceLabels(pick);
+    const canonical = surfaces.card;
+    if (
+      surfaces.slip !== canonical ||
+      surfaces.breakdown !== canonical ||
+      surfaces.share !== canonical
+    ) {
+      throw new FrozenGameLineConsistencyError(
+        `Surface label mismatch on ${pick.game}: card/slip/breakdown/share must match`,
+      );
     }
   }
+
+  if (legNote == null || !legNote.trim()) {
+    if (byGame.size > 0) {
+      throw new FrozenGameLineConsistencyError(
+        "Ticket has game-line cards but legNote has no frozen summary",
+      );
+    }
+    return;
+  }
+
+  const mentioned = parseAllGameLineMentionsFromNote(legNote);
+
+  if (mentioned.size > 0 && byGame.size === 0) {
+    const orphan = [...mentioned.values()][0]!;
+    throw new FrozenGameLineConsistencyError(
+      `Summary lists ${orphan.pick} (${orphan.market}) for ${orphan.game} but no game-line card is on the ticket`,
+    );
+  }
+
+  for (const [gameKey, mention] of mentioned) {
+    const card = byGame.get(gameKey);
+    if (!card) {
+      throw new FrozenGameLineConsistencyError(
+        `Summary lists ${mention.pick} for ${mention.game} but no matching game-line card is on the ticket`,
+      );
+    }
+    const header = frozenGameLineHeader(card);
+    if (normPickLabel(mention.pick) !== normPickLabel(header.pick)) {
+      throw new FrozenGameLineConsistencyError(
+        `Summary vs card mismatch on ${header.game}: summary="${mention.pick}" card="${header.pick}"`,
+      );
+    }
+    if (normPickLabel(mention.market) !== normPickLabel(header.market)) {
+      throw new FrozenGameLineConsistencyError(
+        `Summary vs card market mismatch on ${header.game}: summary="${mention.market}" card="${header.market}"`,
+      );
+    }
+    if (isOpposingTeamPick(header.game, mention.pick, header.pick)) {
+      throw new FrozenGameLineConsistencyError(
+        `Summary backs opposing side on ${header.game}: summary="${mention.pick}" card="${header.pick}"`,
+      );
+    }
+  }
+
+  for (const [gameKey, card] of byGame) {
+    const header = frozenGameLineHeader(card);
+    const mention = mentioned.get(gameKey);
+    if (!mention) {
+      throw new FrozenGameLineConsistencyError(
+        `Game-line card ${header.pick} (${header.market}) on ${header.game} is missing from the summary`,
+      );
+    }
+  }
+}
+
+/**
+ * Strip stale game-line copy, append frozen summary from ticket cards only, assert, return.
+ */
+export function composeFrozenGameLineLegNote(
+  picks: ParsedPick[],
+  contextNote: string,
+): string {
+  let note = stripModelGameLineListings(contextNote);
+  const summary = buildFrozenGameLineSummaryNote(picks);
+  if (summary) {
+    note = note ? `${note}\n\n${summary}` : summary;
+  }
+  assertFrozenTicketConsistency(picks, note);
+  return note;
 }
 
 /** Keep frozen game-line objects intact when props re-score in the background. */
