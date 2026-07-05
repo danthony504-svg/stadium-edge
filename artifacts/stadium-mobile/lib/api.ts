@@ -1452,7 +1452,18 @@ export type PropPoolEntry = {
   marketKey?: string;
 };
 
-export type PropSimulationResult = {
+export type SimRunStats = {
+  requestedSims: number;
+  completedSims: number;
+  failedSims: number;
+  actualSimCount: number;
+  startedAt: string;
+  finishedAt: string;
+  runTimeMs: number;
+  sampleGames?: number;
+};
+
+export type PropSimulationResult = SimRunStats & {
   key: string;
   player: string;
   market: string;
@@ -1572,7 +1583,12 @@ export async function fetchPropSimulations(
   return out;
 }
 
-export type GameSimulationResult = {
+export type PropSimulationBatchResult = {
+  props: PropSimulationResult[];
+  simRun: SimRunStats;
+};
+
+export type GameSimulationResult = SimRunStats & {
   sport: string;
   simulations: number;
   homeWinProbability: number;

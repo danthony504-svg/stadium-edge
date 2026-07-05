@@ -5,6 +5,7 @@
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
+import { enrichSimMapWithLocalFallback } from "@/lib/propSimFallback";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
@@ -70,12 +71,21 @@ export async function loadPropSimulationsProgressive(
   try {
     quickRows = await fetchPropSimulations(picks, opts.propPool, { tier: "quick" }, signal);
     if (signal?.aborted) return;
-    const quickScored = scorePicksWithSim(
-      picks,
-      simMapFromResults(quickRows),
-      opts,
-      true,
+    let simMap = simMapFromResults(quickRows);
+    simMap = enrichSimMapWithLocalFallback(
+      simMap,
+      picks
+        .filter((p) => p.isProp && p.player && p.propLine != null && p.propSide)
+        .map((p) => ({
+          player: p.player!,
+          market: p.propMarketKey ?? p.market ?? "",
+          line: p.propLine!,
+          side: p.propSide === "Under" ? "Under" as const : "Over" as const,
+          athleteId: p.athleteId,
+        })),
+      (opts.playerHistory ?? {}) as Record<string, unknown>,
     );
+    const quickScored = scorePicksWithSim(picks, simMap, opts, true);
     callbacks.onQuick?.(quickScored);
   } catch {
     /* rubric omits simulation when unavailable */
@@ -84,12 +94,40 @@ export async function loadPropSimulationsProgressive(
   try {
     const deepRows = await fetchPropSimulations(picks, opts.propPool, { tier: "deep" }, signal);
     if (signal?.aborted) return;
-    const deepScored = scorePicksWithSim(picks, simMapFromResults(deepRows), opts, false);
+    let deepMap = simMapFromResults(deepRows);
+    deepMap = enrichSimMapWithLocalFallback(
+      deepMap,
+      picks
+        .filter((p) => p.isProp && p.player && p.propLine != null && p.propSide)
+        .map((p) => ({
+          player: p.player!,
+          market: p.propMarketKey ?? p.market ?? "",
+          line: p.propLine!,
+          side: p.propSide === "Under" ? "Under" as const : "Over" as const,
+          athleteId: p.athleteId,
+        })),
+      (opts.playerHistory ?? {}) as Record<string, unknown>,
+    );
+    const deepScored = scorePicksWithSim(picks, deepMap, opts, false);
     callbacks.onDeep?.(deepScored);
   } catch {
     /* keep quick-tier scores if deep fails */
     if (quickRows.size > 0) {
-      const fallback = scorePicksWithSim(picks, simMapFromResults(quickRows), opts, false);
+      let simMap = simMapFromResults(quickRows);
+      simMap = enrichSimMapWithLocalFallback(
+        simMap,
+        picks
+          .filter((p) => p.isProp && p.player && p.propLine != null && p.propSide)
+          .map((p) => ({
+            player: p.player!,
+            market: p.propMarketKey ?? p.market ?? "",
+            line: p.propLine!,
+            side: p.propSide === "Under" ? "Under" as const : "Over" as const,
+            athleteId: p.athleteId,
+          })),
+        (opts.playerHistory ?? {}) as Record<string, unknown>,
+      );
+      const fallback = scorePicksWithSim(picks, simMap, opts, false);
       callbacks.onDeep?.(fallback);
     }
   }

@@ -1,11 +1,12 @@
 import { computeAmbiguous, gameValueForMarket, isDiscreteCountMarket } from "./propStatValue.js";
 import {
   type PropSimulationContext,
-  type PropSimulationResult,
-  type PropSimSide,
   runMonteCarloSimulation,
   simulationKey,
+  type PropSimulationResult,
+  type PropSimSide,
 } from "./monteCarlo.js";
+import { emptySimRunStats } from "./simRunStats.js";
 
 export type SimPropRequest = {
   player: string;
@@ -116,12 +117,14 @@ export function simulateProp(
   const key = simulationKey(req.player, req.market, req.line, req.side);
   const ctx = buildPropSimulationContext(req, history, game);
   if (!ctx) {
+    const requested = simulations ?? 10_000;
     return {
       key,
       player: req.player,
       market: req.market,
       line: req.line,
       side: req.side,
+      ...emptySimRunStats(requested, history?.recent?.length ?? 0),
       simulations: 0,
       hitProbability: null,
       mostLikelyLine: null,
