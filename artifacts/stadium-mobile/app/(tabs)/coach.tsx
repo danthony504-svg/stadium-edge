@@ -67,6 +67,11 @@ import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOd
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
+  recentParlayLegKeys,
+  rememberParlayBuild,
+  rotateParlayDisplayOrder,
+} from "@/lib/parlayVarietyMemory";
+import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
   describeConfidenceThreshold,
@@ -1590,6 +1595,7 @@ export default function CoachScreen() {
           /\b(strikeouts?|k'?s|home runs?|hrs?|hits?|total bases?|rebounds?|reb|assists?|ast|points?|pts|anytime td|touchdowns?|receptions?|pass yds?|rush yds?|rec yds?|goals?|shots on goal)\b/i.test(
             trimmed,
           );
+        const avoidLegKeys = isParlayBuild ? recentParlayLegKeys() : undefined;
         const propBackfillOpts = {
           plusMoneyBias:
             wantsValueRungs ||
@@ -1597,6 +1603,7 @@ export default function CoachScreen() {
           diversify: !lockedPropMarket,
           maxPerMarket: lockedPropMarket ? 99 : undefined,
           varietySeed,
+          avoidLegKeys,
           selectionOpts,
         };
         let propsOnlyNote = "";
@@ -1785,6 +1792,7 @@ export default function CoachScreen() {
           plusMoneyBias: propBackfillOpts.plusMoneyBias,
           diversify: propBackfillOpts.diversify,
           varietySeed,
+          avoidLegKeys,
           selectionOpts,
         };
         if (forceBoardBuild) {
@@ -2391,6 +2399,9 @@ export default function CoachScreen() {
           finalContent =
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
+        if (isParlayBuild && picks.length > 1) {
+          picks = rotateParlayDisplayOrder(picks, varietySeed);
+        }
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
@@ -2403,6 +2414,7 @@ export default function CoachScreen() {
           return copy;
         });
         if (picks.length > 0) setAiPicks(picks);
+        if (isParlayBuild && picks.length > 0) rememberParlayBuild(picks);
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
         if (picks.some((p) => p.isProp)) {
@@ -2948,7 +2960,7 @@ export default function CoachScreen() {
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
                   key={q.label}
-                  onPress={() => send(q.prompt, { freshThread: true })}
+                  onPress={() => send(q.prompt, { freshThread: true, hideUserBubble: true })}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",

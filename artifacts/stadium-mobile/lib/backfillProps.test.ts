@@ -228,3 +228,56 @@ test("backfillProps varies ticket mix across build seeds", () => {
   const legsB = ticketB.map(key).join(";");
   assert.notEqual(legsA, legsB, "different build seeds should produce different tickets");
 });
+
+test("backfillProps skips recent legs on rebuild", () => {
+  const game = "Cardinals @ Cubs";
+  const realToday = [
+    {
+      game,
+      market: "Moneyline",
+      pick: "Cubs ML",
+      odds: -110,
+      sport: "mlb",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+  ];
+  const pool: PropPoolEntry[] = [
+    {
+      sport: "mlb",
+      game,
+      marketLabel: "Hits",
+      player: "Alec Burleson",
+      line: 1.5,
+      side: "Over",
+      odds: 220,
+      marketKey: "hits",
+      headshot: null,
+      teamAbbr: "STL",
+      athleteId: "1",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+    {
+      sport: "mlb",
+      game,
+      marketLabel: "Strikeouts",
+      player: "Other Cub",
+      line: 5.5,
+      side: "Over",
+      odds: 180,
+      marketKey: "k",
+      headshot: null,
+      teamAbbr: "CHC",
+      athleteId: "2",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+  ];
+  const avoid = new Set(["cardinals cubs|alec burleson|hits"]);
+  const out = backfillProps([], pool, realToday, [], {
+    target: 1,
+    diversify: true,
+    varietySeed: "rebuild",
+    avoidLegKeys: avoid,
+  });
+  assert.equal(out.length, 1);
+  assert.notEqual(out[0]!.player, "Alec Burleson");
+});

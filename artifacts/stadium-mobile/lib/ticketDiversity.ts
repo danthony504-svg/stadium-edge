@@ -224,6 +224,7 @@ export function topUpDeepParlayToTarget(
     plusMoneyBias?: boolean;
     diversify?: boolean;
     varietySeed?: string;
+    avoidLegKeys?: Set<string>;
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
@@ -233,6 +234,7 @@ export function topUpDeepParlayToTarget(
     plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
     diversify: opts.diversify ?? true,
     varietySeed: opts.varietySeed ?? opts.selectionOpts?.varietySeed,
+    avoidLegKeys: opts.avoidLegKeys,
     selectionOpts: opts.selectionOpts,
   };
   const gameOrder = deepParlayGameOrder(opts.longshotAsk);

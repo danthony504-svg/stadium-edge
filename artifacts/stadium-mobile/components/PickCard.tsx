@@ -17,6 +17,7 @@ import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
+import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket } from "@/lib/gameSimScoring";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -1872,6 +1873,8 @@ export function backfillProps(
     maxPerSport?: number;
     /** Per-build seed — shuffles market walk order so repeat asks don't clone the same ticket. */
     varietySeed?: string;
+    /** Leg keys from recent builds — deprioritized so repeat taps get a fresh mix. */
+    avoidLegKeys?: Set<string>;
     /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
     selectionOpts?: PropSelectionOpts;
   },
@@ -1887,6 +1890,7 @@ export function backfillProps(
     opts.maxPerSport ??
     (target >= 12 ? Math.max(4, Math.ceil(target / 3)) : target >= 8 ? 6 : 99);
   const varietySeed = opts.varietySeed ?? opts.selectionOpts?.varietySeed;
+  const avoidLegKeys = opts.avoidLegKeys;
   if (existing.length >= target) return existing;
   const out = [...existing];
   // Allowed games come from realToday (= the salvage's sport-filtered,
@@ -1965,6 +1969,8 @@ export function backfillProps(
     const gk = norm(e.game);
     if ((gameCounts.get(gk) ?? 0) >= maxPerGame) return false;
     if (e.sport && (sportCounts.get(e.sport) ?? 0) >= maxPerSport) return false;
+    const legFp = parlayLegKeyFromPool(e);
+    if (avoidLegKeys?.has(legFp) && out.length + 3 < target) return false;
     const canon = canonicalGameKey(e.game);
     const pick =
       e.line != null
@@ -2001,12 +2007,15 @@ export function backfillProps(
     );
     return true;
   };
-  const candidates = opts.selectionOpts
+  let candidates = opts.selectionOpts
     ? rankPropPoolEntries([...byKey.values()], {
         ...opts.selectionOpts,
         propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
       })
     : [...byKey.values()];
+  if (avoidLegKeys?.size) {
+    candidates = deprioritizePropPoolEntries(candidates, avoidLegKeys);
+  }
   if (!diversify) {
     for (const e of candidates) {
       if (out.length >= target) break;
@@ -2062,6 +2071,9 @@ export function backfillProps(
           const cs = cand.sport ?? "";
           if ((gameCounts.get(cg) ?? 0) >= caps.maxPerGame) continue;
           if (cs && (sportCounts.get(cs) ?? 0) >= caps.maxPerSport) continue;
+          if (avoidLegKeys?.has(parlayLegKeyFromPool(cand)) && out.length + 3 < target) {
+            continue;
+          }
           const load = (gameCounts.get(cg) ?? 0) + (cs ? (sportCounts.get(cs) ?? 0) * 0.25 : 0);
           const tie = varietySeed
             ? varietyRankKey(varietySeed, `${mk}|${cand.game}|${cand.player}|${cand.line ?? ""}`)
