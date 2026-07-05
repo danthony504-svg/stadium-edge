@@ -32,6 +32,15 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
+/** Game Simulator pool: pregame only — no in-progress or final games. */
+export function isSimulatorEligible(game: {
+  startsAt?: string | null;
+  state?: string | null;
+}): boolean {
+  if (game.state === "post" || game.state === "in") return false;
+  return isPregameBettable(game.startsAt);
+}
+
 // "Today / tonight only" intent. The user wants games on the CURRENT local
 // calendar day that haven't started yet — no tomorrow, no already-in-progress.
 // "tomorrow" anywhere disables it so "today or tomorrow" keeps the full window.

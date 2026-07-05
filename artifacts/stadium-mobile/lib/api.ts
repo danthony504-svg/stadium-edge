@@ -60,6 +60,7 @@ export {
 export {
   isPickable,
   isPregameBettable,
+  isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,

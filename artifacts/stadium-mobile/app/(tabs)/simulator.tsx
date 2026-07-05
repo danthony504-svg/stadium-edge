@@ -31,7 +31,7 @@ import {
   getParkWeather,
   getPlayerHistory,
   getProps,
-  isPickable,
+  isSimulatorEligible,
   propMarketLabel,
   warmApiForCoachBuild,
   type EspnGame,
@@ -179,9 +179,13 @@ export default function SimulatorScreen() {
   });
 
   const games = useMemo(
-    () => (gamesQ.data ?? []).filter((g) => isPickable(g.startsAt)),
+    () => (gamesQ.data ?? []).filter((g) => isSimulatorEligible(g)),
     [gamesQ.data],
   );
+
+  useEffect(() => {
+    if (gameIdx >= games.length) setGameIdx(0);
+  }, [gameIdx, games.length]);
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
   const gameLabel =
@@ -566,7 +570,7 @@ export default function SimulatorScreen() {
         ) : gamesQ.isError ? (
           <ErrorState onRetry={() => gamesQ.refetch()} />
         ) : !game ? (
-          <EmptyState title="No games" message={`No pickable ${sport.toUpperCase()} games right now.`} />
+          <EmptyState title="No upcoming games" message={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
         ) : (
           <>
             {/* Game picker strip */}
