@@ -36,6 +36,8 @@ test("runMonteCarloSimulation returns hit probability and mode line", () => {
   };
   const result = runMonteCarloSimulation(ctx, 5000);
   assert.equal(result.simulations, 5000);
+  assert.equal(result.completedSims, 5000);
+  assert.equal(result.requestedSims, 5000);
   assert.ok(result.hitProbability != null && result.hitProbability > 0.7);
   assert.ok(result.mostLikelyLine != null && result.mostLikelyLine >= 20);
   assert.ok(result.confidenceScore != null && result.confidenceScore >= 55);

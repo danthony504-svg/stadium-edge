@@ -20,6 +20,8 @@ import {
   type PickSubScores,
 } from "./pickScore";
 import { gameValueForMarket, computeAmbiguous } from "./propStats";
+import type { PropSimulationResult } from "./api";
+import { capGradeForSimHit } from "./simPropValidity";
 
 export type SimulatorPlayerHistorySlice = {
   player?: string;
@@ -113,6 +115,50 @@ export function buildSimulatorPpPropPool(
       headshot: p.headshot,
       teamAbbr: null,
     }));
+}
+
+export type SimulatorSelectedProp = {
+  player: string;
+  market: string;
+  line: number;
+  side: "Over" | "Under";
+  odds: number;
+  athleteId: string | null;
+  headshot: string | null;
+  label: string;
+};
+
+/** Merge user picks with top +EV pool lines for simulator recommendations. */
+export function buildSimulatorSimCandidates(
+  propPool: PropPoolEntry[],
+  selected: SimulatorSelectedProp[],
+  opts?: { autoLimit?: number },
+): SimulatorSelectedProp[] {
+  const autoLimit = opts?.autoLimit ?? 12;
+  const byKey = new Map<string, SimulatorSelectedProp>();
+  for (const s of selected) {
+    byKey.set(`${s.player}|${s.market}|${s.line}|${s.side}`, s);
+  }
+  const auto = [...propPool]
+    .filter((e) => e.line != null && (e.edge ?? 0) > 0)
+    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0));
+  for (const e of auto) {
+    const market = e.marketKey ?? e.marketLabel;
+    const key = `${e.player}|${market}|${e.line}|${e.side}`;
+    if (byKey.has(key)) continue;
+    if (byKey.size >= autoLimit + selected.length) break;
+    byKey.set(key, {
+      player: e.player,
+      market,
+      line: e.line as number,
+      side: e.side as "Over" | "Under",
+      odds: e.odds,
+      athleteId: e.athleteId ?? null,
+      headshot: e.headshot ?? null,
+      label: `${e.side} ${e.line} ${e.marketLabel}`,
+    });
+  }
+  return [...byKey.values()];
 }
 
 function resolvePropPlayerTeam(
@@ -284,6 +330,7 @@ export function gradeSimulatorProps(
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, SimulatorPlayerHistorySlice>;
     propSimulations?: Map<string, { hitProbability: number | null }>;
+    propSimRows?: Map<string, PropSimulationResult>;
     injuryTeams?: InjuryTeam[];
   },
 ): Map<string, CombinedPickScore> {
@@ -316,7 +363,9 @@ export function gradeSimulatorProps(
       propMarketKey: s.market,
     });
     const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
-    if (scores) out.set(key, scores);
+    const simRow = opts.propSimRows?.get(key);
+    const capped = scores && simRow ? capGradeForSimHit(scores, simRow) : scores;
+    if (capped) out.set(key, capped);
   }
   return out;
 }

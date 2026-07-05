@@ -49,9 +49,9 @@ import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContex
 import {
   loadPropSimulationsProgressive,
   patchLastAssistantPicks,
-  picksWithSimPending,
 } from "@/lib/propSimProgressive";
 import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
+import { filterCoachPicksWithMonteCarlo } from "@/lib/coachPropMonteCarlo";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -1280,17 +1280,11 @@ export default function CoachScreen() {
                 buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
-          const enriched =
-            isParlayBuild &&
-            !usePropsOnlyParlayPath &&
-            rawBuilt.propPool.length > 0 &&
-            rawBuilt.context.realProps?.length
-              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
-              : !isParlayBuild &&
-                  rawBuilt.propPool.length > 0 &&
-                  rawBuilt.context.realProps?.length
-                ? await enrichChatContextProps(rawBuilt, controller.signal)
-                : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
+          const shouldEnrichProps =
+            rawBuilt.propPool.length > 0 && (rawBuilt.context.realProps?.length ?? 0) > 0;
+          const enriched = shouldEnrichProps
+            ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
+            : { built: rawBuilt, propSimulations: new Map() };
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
@@ -1542,6 +1536,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            propSimulations,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -1812,6 +1807,7 @@ export default function CoachScreen() {
         // DISPLAY-ONLY — every resolved leg the model returned is kept and shown
         // with its real grade; we never drop a leg for grading low, so a requested
         // N-leg ticket is never trimmed by grade.
+        picks = filterCoachPicksWithMonteCarlo(picks, propSimulations);
         picks = attachPickScores(picks, {
           realOdds: context.realOdds,
           propPool: mergedPropPool,
@@ -1819,8 +1815,8 @@ export default function CoachScreen() {
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          propSimulations,
         });
-        picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1902,8 +1898,7 @@ export default function CoachScreen() {
           return copy;
         });
         if (picks.length > 0) setAiPicks(picks);
-        // Server-side Monte Carlo: quick tier first, deep tier refines in the
-        // background. Picks are already on screen — simulation is one rubric input.
+        // Deep Monte Carlo refines displayed grades after the ticket is grounded.
         if (picks.some((p) => p.isProp)) {
           simAbortRef.current?.abort();
           const simController = new AbortController();
@@ -1914,6 +1909,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
+            propSimulations,
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(
