@@ -482,6 +482,19 @@ function findOddsRowForNote(
   return findBackingOddsRow(pick, rows);
 }
 
+function resolveOddsRowForNote(
+  pick: ParsedPick,
+  evalLines: RealOddsEntry[],
+  realOdds: RealOddsEntry[],
+): RealOddsEntry | undefined {
+  const merged = mergeOddsEntries(realOdds, evalLines);
+  return (
+    findOddsRowForNote(pick, evalLines) ??
+    findOddsRowForNote(pick, realOdds) ??
+    findBackingOddsRow(pick, merged)
+  );
+}
+
 function formatGameLineScoreNote(
   pick: ParsedPick,
   scored: EvaluatedGameLine | null,
@@ -556,19 +569,17 @@ export function buildGameLineOptimizerNote(
 
     const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
     const sim = simForGame(pick.game, simByGame);
-    let match = findOddsRowForNote(pick, evalLines);
+    let match = resolveOddsRowForNote(pick, evalLines, opts.realOdds);
     if (!match && pick.odds != null) {
-      match =
-        findOddsRowForNote(pick, opts.realOdds) ??
-        ({
-          sport: pick.sport ?? "mlb",
-          game: pick.game,
-          market: pick.market,
-          pick: pick.pick,
-          odds: pick.odds,
-          edge: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-          noVigFair: null,
-        } as RealOddsEntry);
+      match = {
+        sport: pick.sport ?? "mlb",
+        game: pick.game,
+        market: pick.market,
+        pick: pick.pick,
+        odds: pick.odds,
+        edge: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+        noVigFair: null,
+      } as RealOddsEntry;
     }
     if (!match) {
       lines.push(

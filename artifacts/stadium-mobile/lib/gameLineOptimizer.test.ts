@@ -160,3 +160,70 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
   assert.doesNotMatch(note, /sim —/);
   assert.doesNotMatch(note, /edge —/);
 });
+
+test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder", () => {
+  const GAME = "St. Louis Cardinals @ Chicago Cubs";
+  const picks = [
+    {
+      game: GAME,
+      market: "Spread",
+      pick: "Cubs -1.5",
+      odds: -110,
+      isProp: false,
+      sport: "mlb",
+      finalAiScore: {
+        grade: "C+",
+        simHit: 0.56,
+        edgePct: 1.5,
+        composite: 7.2,
+        confidencePct: 54,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+      },
+    },
+  ];
+  const simByGame = new Map([
+    [
+      GAME,
+      {
+        sport: "mlb",
+        simulations: 10_000,
+        homeWinProbability: 0.56,
+        awayWinProbability: 0.44,
+        tieProbability: 0,
+        homeProjectedScore: 5,
+        awayProjectedScore: 3.5,
+        mostLikelyWinner: "home" as const,
+        mostLikelyWinnerPct: 0.56,
+        confidenceScore: 56,
+        coverHitRates: {
+          [`${GAME.toLowerCase()}|alt spread|chicago cubs -1.5`]: 0.56,
+        },
+      },
+    ],
+  ]);
+  const note = buildGameLineOptimizerNote(picks, simByGame, {
+    evalLinesByGame: new Map([
+      [
+        GAME,
+        [
+          {
+            sport: "mlb",
+            game: GAME,
+            market: "Alt Spread",
+            pick: "Chicago Cubs -1.5",
+            odds: -110,
+            edge: 1.5,
+          },
+        ],
+      ],
+    ]),
+    realOdds: [],
+  });
+  assert.match(note, /sim 56%/);
+  assert.match(note, /edge \+1\.5%/);
+  assert.doesNotMatch(note, /sim —/);
+});

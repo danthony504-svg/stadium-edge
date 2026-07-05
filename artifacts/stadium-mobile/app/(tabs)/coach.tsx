@@ -2162,6 +2162,16 @@ export default function CoachScreen() {
                 postFinalizeSides.note,
               );
             }
+            if (teamIdMap && coachEvalLinesByGame) {
+              gameSimulations = await supplementCoachGameSimulations(
+                picks,
+                gameSimulations,
+                teamIdMap,
+                abortRef.current?.signal,
+                mergedGameOdds,
+                coachEvalLinesByGame,
+              );
+            }
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
