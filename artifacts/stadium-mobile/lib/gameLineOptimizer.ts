@@ -476,6 +476,13 @@ function formatGameLineScoreNote(pick: ParsedPick, scored: EvaluatedGameLine): s
   return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade}, sim ${wp}, edge ${edge}`;
 }
 
+function isTeamSidedGameLine(pick: ParsedPick): boolean {
+  if (!isGameLinePick(pick) || pick.isProp) return false;
+  const m = String(pick.market ?? "").toLowerCase();
+  if (/total|over|under|o\/u/.test(m) || /\b(over|under)\b/i.test(pick.pick)) return false;
+  return pickTeamName(pick.pick) != null;
+}
+
 /**
  * Transparency note for game-line legs on the FINAL ticket — built after dedupe
  * and side alignment so dropped opposing legs are never listed.
@@ -495,8 +502,14 @@ export function buildGameLineOptimizerNote(
 
   const lines: string[] = [];
   const seenBuckets = new Set<string>();
+  const seenTeamSidedGame = new Set<string>();
 
   for (const pick of gameLines) {
+    if (isTeamSidedGameLine(pick)) {
+      const gameKey = norm(pick.game);
+      if (seenTeamSidedGame.has(gameKey)) continue;
+      seenTeamSidedGame.add(gameKey);
+    }
     const bucket = bucketKeyForPick(pick);
     if (bucket && seenBuckets.has(bucket)) continue;
     if (bucket) seenBuckets.add(bucket);
