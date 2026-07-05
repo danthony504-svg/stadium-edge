@@ -309,7 +309,13 @@ export function PlayerPropsSheet({
     return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
   }, [rungs, chartLine]);
 
-  if (!data) return null;
+  if (!data || !active) {
+    return (
+      <Modal visible={false} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+        <View />
+      </Modal>
+    );
+  }
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
 
@@ -352,7 +358,7 @@ export function PlayerPropsSheet({
   };
 
   return (
-    <Modal visible={active && !!data} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         {/* Header */}
         <View
