@@ -799,6 +799,16 @@ export default function HomeScreen() {
       params: { prefill: msg, send: "1", ts: String(Date.now()) },
     });
 
+  // Open Coach without auto-sending — user can edit the prompt and tap send.
+  const goCoach = (prefill?: string) =>
+    router.push({
+      pathname: "/coach",
+      params: {
+        ...(prefill ? { prefill } : {}),
+        ts: String(Date.now()),
+      },
+    });
+
   const quickActions: {
     label: string;
     subtitle: string;
@@ -961,7 +971,7 @@ export default function HomeScreen() {
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay")} />
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
@@ -1479,7 +1489,9 @@ export default function HomeScreen() {
                   </View>
 
                   <Pressable
-                    onPress={() => askCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)}
+                    onPress={() =>
+                      goCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)
+                    }
                     style={({ pressed }) => ({
                       backgroundColor: "rgba(59,130,246,0.14)",
                       borderWidth: 1,
