@@ -726,7 +726,13 @@ export default function CoachScreen() {
   );
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
-  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>() ?? {};
+  const params = useLocalSearchParams<{
+    prefill?: string;
+    autoMsg?: string;
+    send?: string;
+    ts?: string;
+    buildId?: string;
+  }>() ?? {};
   const autoSentRef = useRef<string | null>(null);
   // Signed-in state gates the background-finish path (the server stashes the
   // result + pushes under the user's account; anonymous users can't be reached).
@@ -876,14 +882,13 @@ export default function CoachScreen() {
   const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (params.send === "1") {
-      // Coach tab stays mounted — clear stale composer text from a prior goCoach()
-      // navigation instead of only skipping the prefill write.
+    // autoMsg + send=1 never touch the composer — prefill is goCoach-only (edit before send).
+    if (params.send === "1" || params.autoMsg) {
       setInput("");
       return;
     }
     if (params.prefill) setInput(String(params.prefill));
-  }, [params.prefill, params.send]);
+  }, [params.prefill, params.autoMsg, params.send]);
 
   // Seed the first assistant bubble with a first-time or returning welcome.
   // AsyncStorage is async (unlike web localStorage), so we set state after the
@@ -2626,13 +2631,14 @@ export default function CoachScreen() {
   // mark sent only once we actually invoke send, and skip while streaming — the
   // effect re-runs when `streaming` flips false, so the send isn't lost.
   useEffect(() => {
-    if (params.send !== "1" || !params.prefill) return;
-    const token = String(params.ts ?? params.prefill);
+    const autoMsg = params.autoMsg ?? (params.send === "1" ? params.prefill : null);
+    if (params.send !== "1" || !autoMsg) return;
+    const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
     if (streaming) return;
     autoSentRef.current = token;
-    send(String(params.prefill));
-  }, [params.send, params.ts, params.prefill, streaming, send]);
+    send(String(autoMsg));
+  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, send]);
 
   useEffect(() => {
     return () => {

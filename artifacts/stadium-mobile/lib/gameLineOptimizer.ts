@@ -508,6 +508,7 @@ function formatGameLineScoreNote(
 ): string {
   const simHit =
     scored?.winProb ??
+    pick.finalAiScore?.simHit ??
     gameSimHitForPick(pick, sim) ??
     (match
       ? gameSimHitForPick(
@@ -517,8 +518,8 @@ function formatGameLineScoreNote(
       : null);
   let edge =
     scored?.edgePct ??
-    match?.edge ??
     pick.finalAiScore?.edgePct ??
+    match?.edge ??
     pick.scores?.edgePct ??
     null;
   if (edge == null && opts) {

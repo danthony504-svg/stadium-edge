@@ -796,7 +796,7 @@ export default function HomeScreen() {
   const askCoach = (msg: string) =>
     router.push({
       pathname: "/coach",
-      params: { prefill: msg, send: "1", ts: String(Date.now()) },
+      params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
     });
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.

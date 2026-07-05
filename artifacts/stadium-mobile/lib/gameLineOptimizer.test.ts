@@ -227,3 +227,35 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
   assert.match(note, /edge \+1\.5%/);
   assert.doesNotMatch(note, /sim —/);
 });
+
+test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pick", () => {
+  const GAME = "St. Louis Cardinals @ Chicago Cubs";
+  const picks = [
+    {
+      game: GAME,
+      market: "Spread",
+      pick: "Cubs -1.5",
+      odds: -110,
+      isProp: false,
+      sport: "mlb",
+      finalAiScore: {
+        grade: "C+",
+        simHit: 0.56,
+        edgePct: 1.5,
+        composite: 7.2,
+        confidencePct: 54,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+      },
+    },
+  ];
+  const note = buildGameLineOptimizerNote(picks, new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [],
+  });
+  assert.match(note, /sim 56%/);
+  assert.match(note, /edge \+1\.5%/);
+});

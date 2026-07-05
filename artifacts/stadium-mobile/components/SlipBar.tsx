@@ -150,7 +150,7 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
     onNavigateAway?.();
     router.push({
       pathname: "/coach",
-      params: { prefill: "Analyze my ticket", send: "1", ts: String(Date.now()) },
+      params: { autoMsg: "Analyze my ticket", send: "1", ts: String(Date.now()) },
     } as any);
   };
 
