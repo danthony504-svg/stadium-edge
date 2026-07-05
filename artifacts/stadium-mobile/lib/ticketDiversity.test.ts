@@ -6,6 +6,8 @@ import {
   rotatePool,
   prepareDeepParlaySeed,
   needsParlayBackfill,
+  isChalkHeavyParlay,
+  assembleDeepParlayFromBoard,
 } from "./ticketDiversity.ts";
 
 test("dedupeSameTeamGameLegs keeps one Braves side leg", () => {
@@ -105,4 +107,41 @@ test("needsParlayBackfill true for 12-leg chalk without longshot keyword", () =>
     },
   ]).flat();
   assert.equal(needsParlayBackfill(picks, 12, { deepParlay: true }), true);
+});
+
+test("isChalkHeavyParlay true for all-ML 9-leg scaffold", () => {
+  const picks = Array.from({ length: 9 }, (_, i) => ({
+    game: `Away${i} @ Home${i}`,
+    market: "Moneyline",
+    pick: `Home${i} ML`,
+    odds: -110,
+    isProp: false,
+  }));
+  assert.equal(isChalkHeavyParlay(picks, 9), true);
+});
+
+test("assembleDeepParlayFromBoard props-first then capped game lines", () => {
+  const kick = "2026-07-05T23:00:00.000Z";
+  const propPool = Array.from({ length: 12 }, (_, i) => ({
+    game: `Away${i % 4} @ Home${i % 4}`,
+    player: `Player${i}`,
+    marketLabel: "Strikeouts",
+    marketKey: "pitcher_strikeouts",
+    line: 5.5,
+    side: "Over" as const,
+    odds: -110,
+    sport: "mlb",
+    startsAt: kick,
+  }));
+  const realOdds = Array.from({ length: 6 }, (_, i) => ({
+    game: `Away${i} @ Home${i}`,
+    market: "Moneyline",
+    pick: `Home${i} ML`,
+    odds: -110,
+    sport: "mlb",
+    startsAt: kick,
+  }));
+  const picks = assembleDeepParlayFromBoard(9, propPool, realOdds, [], {});
+  assert.ok(picks.filter((p) => p.isProp).length >= 5);
+  assert.ok(picks.filter((p) => !p.isProp).length <= 3);
 });

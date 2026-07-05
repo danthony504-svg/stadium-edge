@@ -62,7 +62,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill } from "@/lib/ticketDiversity";
+import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, isChalkHeavyParlay, assembleDeepParlayFromBoard } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1698,7 +1698,34 @@ export default function CoachScreen() {
         // context — never fabricating (only appends real realOdds entries), gated
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
-        if (
+        const reachTarget = Math.min(legTarget, MAX_LEGS);
+        let reachPool = rotatePool(context.realOdds, trimmed);
+        if (slateDay) reachPool = filterOddsForSlateDay(reachPool, slateDay);
+        const rebuildFromBoard =
+          !isAnalyze &&
+          deepMultiLegParlay &&
+          !propsOnlyTicket &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          isChalkHeavyParlay(picks, legTarget);
+        if (rebuildFromBoard) {
+          const rebuilt = assembleDeepParlayFromBoard(
+            reachTarget,
+            mergedPropPool,
+            reachPool,
+            gameMeta,
+            {
+              longshotAsk,
+              plusMoneyBias: propBackfillOpts.plusMoneyBias,
+              diversify: propBackfillOpts.diversify,
+              selectionOpts,
+            },
+          );
+          if (rebuilt.length > 0) {
+            picks = rebuilt;
+            diversityNote = `_Rebuilt your ${reachTarget}-leg ticket from player props and alt rungs on the live board instead of chalk moneylines._`;
+          }
+        } else if (
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
           (picks.length > 0 ||
             mentionsProps ||
@@ -1706,7 +1733,7 @@ export default function CoachScreen() {
           !oddsThreshold &&
           !confidenceThreshold
         ) {
-          const target = Math.min(legTarget, MAX_LEGS);
+          const target = reachTarget;
           // SINGLE-GAME / SPORT LOCK for the backfill pool — shared by EVERY
           // backfill order below so no branch widens a locked ticket. Derived
           // from the model's OWN resolved legs (and any game/sport the user named
@@ -1743,13 +1770,12 @@ export default function CoachScreen() {
                 : null;
           let backfillPool = lockedGame
             ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
-            : context.realOdds;
+            : reachPool;
           if (lockedSports)
             backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
-          if (slateDay) {
+          if (slateDay && backfillPool === reachPool) {
             backfillPool = filterOddsForSlateDay(backfillPool, slateDay);
           }
-          backfillPool = rotatePool(backfillPool, trimmed);
           if (altSign) {
             picks = backfillPicks(picks, backfillPool, gameMeta, {
               target,
@@ -1774,20 +1800,53 @@ export default function CoachScreen() {
               deepMultiLegFill ||
               (legTarget >= 3 && !explicitSingleGame);
             if (mixPropsInBackfill) {
-              picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
-                target,
-                ...propBackfillOpts,
-              });
-              if (!propsOnlyTicket && picks.length < target) {
+              if (deepMultiLegFill) {
+                const minProps = Math.max(1, Math.ceil(target * (longshotAsk ? 0.65 : 0.5)));
+                const maxGameLegs = Math.max(
+                  1,
+                  Math.min(longshotAsk ? 2 : 3, target - minProps),
+                );
+                const propsNow = picks.filter((p) => p.isProp).length;
+                if (propsNow < minProps) {
+                  picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
+                    target: picks.length + (minProps - propsNow),
+                    ...propBackfillOpts,
+                  });
+                }
                 const gameOrder = longshotAsk
                   ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
-                  : deepMultiLegFill
-                    ? [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER]
-                    : GENERIC_BACKFILL_ORDER;
-                picks = backfillPicks(picks, backfillPool, gameMeta, {
+                  : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
+                const gamesNow = picks.filter((p) => !p.isProp && isGameLinePick(p)).length;
+                const gameCap = Math.min(
                   target,
-                  order: gameOrder,
+                  picks.length + Math.max(0, maxGameLegs - gamesNow),
+                );
+                if (!propsOnlyTicket && picks.length < gameCap) {
+                  picks = backfillPicks(picks, backfillPool, gameMeta, {
+                    target: gameCap,
+                    order: gameOrder,
+                  });
+                }
+                if (picks.length < target) {
+                  picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
+                    target,
+                    ...propBackfillOpts,
+                  });
+                }
+              } else {
+                picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
+                  target,
+                  ...propBackfillOpts,
                 });
+                if (!propsOnlyTicket && picks.length < target) {
+                  const gameOrder = longshotAsk
+                    ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
+                    : GENERIC_BACKFILL_ORDER;
+                  picks = backfillPicks(picks, backfillPool, gameMeta, {
+                    target,
+                    order: gameOrder,
+                  });
+                }
               }
             } else if (explicitSingleGame && includePeriods) {
               picks = backfillPicks(picks, backfillPool, gameMeta, {
