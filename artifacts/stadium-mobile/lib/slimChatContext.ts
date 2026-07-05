@@ -193,6 +193,16 @@ export function microSlimChatContextForUpload<T extends SlimChatContextInput>(co
   };
 }
 
+/** Props-only parlay upload — wide prop pool, almost no game-odds payload. */
+export function propsOnlySlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
+  const micro = microSlimChatContextForUpload(context);
+  return {
+    ...micro,
+    realOdds: micro.realOdds.slice(0, 4),
+    realProps: slimRealPropsForUpload(micro.realProps, { maxMains: 32, maxAlts: 10 }),
+  };
+}
+
 /** Upload tier for 4-8 leg generic parlays — wider pool than micro, still under ~20KB. */
 export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
   const slim = slimChatContextForUpload(context);

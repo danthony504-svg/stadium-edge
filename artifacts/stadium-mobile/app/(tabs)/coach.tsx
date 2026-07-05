@@ -105,6 +105,7 @@ import {
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
+  propsOnlySlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1262,7 +1263,10 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            isParlayBuild && rawBuilt.propPool.length > 0 && rawBuilt.context.realProps?.length
+            isParlayBuild &&
+            !usePropsOnlyParlayPath &&
+            rawBuilt.propPool.length > 0 &&
+            rawBuilt.context.realProps?.length
               ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
               : !isParlayBuild &&
                   rawBuilt.propPool.length > 0 &&
@@ -1306,7 +1310,9 @@ export default function CoachScreen() {
 
           let first = true;
           let uploadContext: ChatContext = context;
-          if (isParlayBuild && buildLegs <= 3) {
+          if (usePropsOnlyParlayPath) {
+            uploadContext = propsOnlySlimChatContextForUpload(context);
+          } else if (isParlayBuild && buildLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
           } else if (isParlayBuild && buildLegs <= 8) {
             uploadContext = compactSlimChatContextForUpload(context);
@@ -1370,8 +1376,9 @@ export default function CoachScreen() {
             setWaiting(true);
             scrollToEnd();
             if (isParlayBuild) {
-              uploadContext =
-                buildLegs <= 3
+              uploadContext = usePropsOnlyParlayPath
+                ? propsOnlySlimChatContextForUpload(context)
+                : buildLegs <= 3
                   ? microSlimChatContextForUpload(context)
                   : buildLegs <= 8
                     ? compactSlimChatContextForUpload(context)
