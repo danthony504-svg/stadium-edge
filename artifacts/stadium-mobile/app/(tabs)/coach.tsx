@@ -58,6 +58,7 @@ import {
   fetchCoachGameSimulationsForPicks,
   filterCoachPicksWithGameSim,
   filterNegativeEdgeGameLines,
+  supplementCoachGameSimulations,
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
@@ -1977,6 +1978,7 @@ export default function CoachScreen() {
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
         let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
+        let teamIdMap: Map<string, import("@/lib/coachGameMonteCarlo").GameTeamIds> | null = null;
         if (!isAnalyze && picks.some(isGameLinePick)) {
           picks = dedupeSameTeamGameLegs(picks).picks;
           const gameSports = [
@@ -1992,7 +1994,8 @@ export default function CoachScreen() {
               gameSports.map((s) => getGames(s).catch(() => [])),
             )
           ).flat();
-          const teamIdMap = buildGameTeamIdMap(espnGames);
+          const teamIdMapBuilt = buildGameTeamIdMap(espnGames);
+          teamIdMap = teamIdMapBuilt;
           const gamesWithLines = new Set(
             picks.filter(isGameLinePick).map((p) => p.game),
           );
@@ -2014,7 +2017,7 @@ export default function CoachScreen() {
           );
           gameSimulations = await fetchCoachGameSimulationsForPicks(
             picks,
-            teamIdMap,
+            teamIdMapBuilt,
             abortRef.current?.signal,
             context.realOdds,
             evalLinesByGame,
@@ -2086,6 +2089,57 @@ export default function CoachScreen() {
             gameMeta,
             boardBuildOpts,
           );
+          if (picks.some(isGameLinePick)) {
+            if (!teamIdMap) {
+              const finalizeSports = [
+                ...new Set(
+                  picks
+                    .filter(isGameLinePick)
+                    .map((p) => p.sport)
+                    .filter(Boolean),
+                ),
+              ] as string[];
+              const finalizeEspn = (
+                await Promise.all(
+                  finalizeSports.map((s) => getGames(s).catch(() => [])),
+                )
+              ).flat();
+              teamIdMap = buildGameTeamIdMap(finalizeEspn);
+            }
+            if (!coachEvalLinesByGame) {
+              const finalizeSports = [
+                ...new Set(
+                  picks
+                    .filter(isGameLinePick)
+                    .map((p) => p.sport)
+                    .filter(Boolean),
+                ),
+              ] as string[];
+              const finalizeOdds = (
+                await Promise.all(
+                  finalizeSports.map((s) => getOdds(s).catch(() => [])),
+                )
+              ).flat();
+              const gamesWithLines = new Set(
+                picks.filter(isGameLinePick).map((p) => p.game),
+              );
+              coachEvalLinesByGame = deepMultiLegParlay
+                ? buildEvalLinesForAllGames(finalizeOdds)
+                : buildEvalLinesByGameMap(gamesWithLines, finalizeOdds);
+              mergedGameOdds = mergeOddsEntries(
+                context.realOdds,
+                ...coachEvalLinesByGame.values(),
+              );
+            }
+            gameSimulations = await supplementCoachGameSimulations(
+              picks,
+              gameSimulations,
+              teamIdMap,
+              abortRef.current?.signal,
+              mergedGameOdds,
+              coachEvalLinesByGame,
+            );
+          }
           if (gameSimulations.size > 0 && picks.some(isGameLinePick) && coachEvalLinesByGame) {
             picks = dedupeSameTeamGameLegs(picks).picks;
             const reoptimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {

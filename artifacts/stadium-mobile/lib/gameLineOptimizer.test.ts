@@ -104,3 +104,59 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
   assert.match(note, /edge \+2\.1%/);
   assert.doesNotMatch(note, /\[box/i);
 });
+
+test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", () => {
+  const GAME = "Minnesota Twins @ New York Yankees";
+  const picks = [
+    {
+      game: GAME,
+      market: "Spread",
+      pick: "Twins +1.5",
+      odds: -110,
+      isProp: false,
+      sport: "mlb",
+    },
+  ];
+  const simByGame = new Map([
+    [
+      GAME,
+      {
+        sport: "mlb",
+        simulations: 10_000,
+        homeWinProbability: 0.55,
+        awayWinProbability: 0.45,
+        tieProbability: 0,
+        homeProjectedScore: 5,
+        awayProjectedScore: 4,
+        mostLikelyWinner: "home" as const,
+        mostLikelyWinnerPct: 0.55,
+        confidenceScore: 55,
+        coverHitRates: {
+          [`${GAME.toLowerCase()}|spread|minnesota twins +1.5`]: 0.54,
+        },
+      },
+    ],
+  ]);
+  const note = buildGameLineOptimizerNote(picks, simByGame, {
+    evalLinesByGame: new Map([
+      [
+        GAME,
+        [
+          {
+            sport: "mlb",
+            game: GAME,
+            market: "Spread",
+            pick: "Minnesota Twins +1.5",
+            odds: -110,
+            edge: 1.8,
+          },
+        ],
+      ],
+    ]),
+    realOdds: [],
+  });
+  assert.match(note, /sim 54%/);
+  assert.match(note, /edge \+1\.8%/);
+  assert.doesNotMatch(note, /sim —/);
+  assert.doesNotMatch(note, /edge —/);
+});

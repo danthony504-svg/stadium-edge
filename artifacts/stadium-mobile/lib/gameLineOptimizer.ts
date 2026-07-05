@@ -13,7 +13,7 @@ import {
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
-import { scoreGameLinePick } from "./pickScoreContext.ts";
+import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -468,6 +468,20 @@ export function optimizeGameLinePicksToBestFinalAi(
   return { picks: out, swapped, note: "" };
 }
 
+function findOddsRowForNote(
+  pick: ParsedPick,
+  rows: RealOddsEntry[],
+): RealOddsEntry | undefined {
+  const exact = rows.find(
+    (e) =>
+      gameLabelsMatch(e.game, pick.game) &&
+      e.market === pick.market &&
+      e.pick === pick.pick,
+  );
+  if (exact) return exact;
+  return findBackingOddsRow(pick, rows);
+}
+
 function formatGameLineScoreNote(
   pick: ParsedPick,
   scored: EvaluatedGameLine | null,
@@ -542,21 +556,10 @@ export function buildGameLineOptimizerNote(
 
     const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
     const sim = simForGame(pick.game, simByGame);
-    let match = evalLines.find(
-      (e) =>
-        e.market === pick.market &&
-        e.pick === pick.pick &&
-        gameLabelsMatch(e.game, pick.game),
-    );
+    let match = findOddsRowForNote(pick, evalLines);
     if (!match && pick.odds != null) {
-      const fromOdds = opts.realOdds.find(
-        (e) =>
-          gameLabelsMatch(e.game, pick.game) &&
-          e.market === pick.market &&
-          e.pick === pick.pick,
-      );
       match =
-        fromOdds ??
+        findOddsRowForNote(pick, opts.realOdds) ??
         ({
           sport: pick.sport ?? "mlb",
           game: pick.game,

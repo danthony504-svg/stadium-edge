@@ -179,6 +179,32 @@ export async function fetchCoachGameSimulationsForPicks(
   return out;
 }
 
+/** Fetch 10k sim for game-line legs whose games are missing from an existing map. */
+export async function supplementCoachGameSimulations(
+  picks: ParsedPick[],
+  existing: Map<string, CoachGameSimEntry>,
+  teamIdsByGame: Map<string, GameTeamIds>,
+  signal?: AbortSignal,
+  realOdds?: RealOddsEntry[],
+  evalLinesByGame?: Map<string, RealOddsEntry[]>,
+): Promise<Map<string, CoachGameSimEntry>> {
+  const missing = picks.filter(
+    (p) => isGameLinePick(p) && !coachGameSimForPick(p, existing),
+  );
+  if (!missing.length) return existing;
+  const extra = await fetchCoachGameSimulationsForPicks(
+    missing,
+    teamIdsByGame,
+    signal,
+    realOdds,
+    evalLinesByGame,
+  );
+  if (!extra.size) return existing;
+  const merged = new Map(existing);
+  for (const [k, v] of extra) merged.set(k, v);
+  return merged;
+}
+
 export function coachGameSimForPick(
   pick: ParsedPick,
   simByGame: Map<string, CoachGameSimEntry>,

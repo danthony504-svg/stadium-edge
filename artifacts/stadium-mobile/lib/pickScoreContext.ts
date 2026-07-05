@@ -150,7 +150,7 @@ function teamsLooseMatch(a: string, b: string): boolean {
   return ta[ta.length - 1] === tb[tb.length - 1];
 }
 
-function findBackingOddsRow(pick: ParsedPick, realOdds: RealOddsEntry[]): RealOddsEntry | undefined {
+export function findBackingOddsRow(pick: ParsedPick, realOdds: RealOddsEntry[]): RealOddsEntry | undefined {
   const exact = realOdds.find(
     (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
   );
