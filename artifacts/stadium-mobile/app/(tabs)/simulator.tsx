@@ -134,13 +134,17 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
 }
 
 // React Query payloads must be array-guarded — a malformed API/cache response
-// makes `.filter` throw "undefined is not a function".
+// makes `.filter` throw "undefined is not a function"; null entries crash on `.sport`.
 function asGameList(data: unknown): EspnGame[] {
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data)
+    ? data.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
+    : [];
 }
 
 function asPropList(data: unknown): PlayerProp[] {
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data)
+    ? data.filter((p): p is PlayerProp => !!p && typeof p === "object" && typeof p.player === "string")
+    : [];
 }
 
 function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
@@ -214,17 +218,19 @@ export default function SimulatorScreen() {
   const matchupQ = useQuery({
     queryKey: ["sim-matchup", sport, game?.id],
     enabled: !!game?.homeTeamId && !!game?.awayTeamId && !!gameLabel,
-    queryFn: ({ signal }) =>
-      fetchMatchupHistoryEntry(
+    queryFn: ({ signal }) => {
+      if (!game?.homeTeamId || !game?.awayTeamId) return Promise.resolve(null);
+      return fetchMatchupHistoryEntry(
         {
           sport,
           gameLabel,
-          homeTeamId: game!.homeTeamId!,
-          awayTeamId: game!.awayTeamId!,
-          startsAt: game!.startsAt,
+          homeTeamId: game.homeTeamId,
+          awayTeamId: game.awayTeamId,
+          startsAt: game.startsAt,
         },
         signal,
-      ),
+      );
+    },
     staleTime: 10 * 60_000,
   });
 
@@ -239,23 +245,25 @@ export default function SimulatorScreen() {
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
     enabled: !!game?.id && gameEligible,
-    queryFn: ({ signal }) =>
-      getPropsWithPrizePicksFallback(
+    queryFn: ({ signal }) => {
+      if (!game?.id) return Promise.resolve([] as PlayerProp[]);
+      return getPropsWithPrizePicksFallback(
         {
           sport,
-          eventId: game!.id,
-          home: game!.homeTeam ?? undefined,
-          away: game!.awayTeam ?? undefined,
-          homeTeamId: game!.homeTeamId,
-          awayTeamId: game!.awayTeamId,
-          startsAt: game!.startsAt,
+          eventId: game.id,
+          home: game.homeTeam ?? undefined,
+          away: game.awayTeam ?? undefined,
+          homeTeamId: game.homeTeamId,
+          awayTeamId: game.awayTeamId,
+          startsAt: game.startsAt,
         },
         signal,
       ).then((r) => {
         const props = asPropList(r.props);
-        if (game?.id) rememberSimProps(sport, game.id, props);
+        rememberSimProps(sport, game.id, props);
         return props;
-      }),
+      });
+    },
     staleTime: 5 * 60_000,
     retry: 3,
     retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
@@ -299,7 +307,7 @@ export default function SimulatorScreen() {
 
   const mains = useMemo(() => {
     if (propsLoading) return [];
-    return asPropList(propsQ.data).filter((p) => !p.alt && p.line != null);
+    return asPropList(propsQ.data).filter((p) => !p?.alt && p.line != null);
   }, [propsQ.data, propsLoading]);
 
   const propPool = useMemo(() => {
@@ -311,6 +319,28 @@ export default function SimulatorScreen() {
       awayAbbr: game.awayAbbr,
     });
   }, [mains, gameLabel, game, sport]);
+
+  // PrizePicks DFS lines have no American price — still simulatable with line only.
+  const ppPropPool = useMemo(() => {
+    if (!gameLabel) return mains.filter((p) => p.priceSource === "PrizePicks" && p.line != null);
+    return mains
+      .filter((p) => p.priceSource === "PrizePicks" && p.line != null)
+      .map((p) => ({
+        sport,
+        game: gameLabel,
+        marketLabel: propMarketLabel(p.market),
+        player: p.player,
+        line: p.line as number,
+        side: "Over" as const,
+        odds: 0,
+        edge: null,
+        bookSpread: null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr: null,
+      }));
+  }, [mains, gameLabel, sport]);
 
   const filteredProps = useMemo(() => {
     let list = mains;
@@ -475,7 +505,7 @@ export default function SimulatorScreen() {
       sport,
     }));
     const scored = attachPickScores(picks, {
-      propPool,
+      propPool: [...propPool, ...ppPropPool],
       matchupHistory,
       matchupInjuries,
       playerHistory,
@@ -497,6 +527,7 @@ export default function SimulatorScreen() {
     matchupInjuries,
     playerHistory,
     propPool,
+    ppPropPool,
     injuriesQ.data,
     sport,
   ]);

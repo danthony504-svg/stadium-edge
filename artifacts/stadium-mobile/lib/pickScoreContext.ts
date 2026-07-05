@@ -295,7 +295,7 @@ export function propPoolFromPlayerProps(
 ): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
-    if (p.alt || p.line == null) continue;
+    if (!p || p.alt || p.line == null) continue;
     const marketLabel = propMarketLabel(p.market);
     const teamAbbr =
       p.playerTeamId && teams?.homeTeamId && p.playerTeamId === teams.homeTeamId

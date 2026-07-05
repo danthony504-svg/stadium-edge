@@ -691,7 +691,7 @@ export default function CoachScreen() {
   );
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
-  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>();
+  const params = useLocalSearchParams<{ prefill?: string; send?: string; ts?: string; buildId?: string }>() ?? {};
   const autoSentRef = useRef<string | null>(null);
   // Signed-in state gates the background-finish path (the server stashes the
   // result + pushes under the user's account; anonymous users can't be reached).

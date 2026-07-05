@@ -33,10 +33,13 @@ export function isPregameBettable(startsAt?: string | null): boolean {
 }
 
 /** Game Simulator pool: pregame only — no in-progress or final games. */
-export function isSimulatorEligible(game: {
-  startsAt?: string | null;
-  state?: string | null;
-}): boolean {
+export function isSimulatorEligible(
+  game: {
+    startsAt?: string | null;
+    state?: string | null;
+  } | null | undefined,
+): boolean {
+  if (!game) return false;
   if (game.state === "post" || game.state === "in") return false;
   return isPregameBettable(game.startsAt);
 }

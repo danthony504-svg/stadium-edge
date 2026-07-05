@@ -696,6 +696,9 @@ export type GetPropsArgs = {
 // team ids so it can attach real ESPN headshots. startsAt disambiguates same-
 // team rematches (e.g. MLB doubleheaders) when resolving the Odds API event id.
 export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
+  if (!args?.sport || !args?.eventId) {
+    return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
+  }
   const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
   if (args.home) q.set("home", args.home);
   if (args.away) q.set("away", args.away);
@@ -706,7 +709,8 @@ export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<Prop
   return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
 }
 
-function ppStatToMarketKey(sport: string, stat: string): string {
+function ppStatToMarketKey(sport: string, stat: string | null | undefined): string {
+  if (!stat) return "";
   const s = stat.toLowerCase().replace(/[^a-z0-9+]/g, " ").trim();
   const MLB: Record<string, string> = {
     hits: "batter_hits",
@@ -762,6 +766,9 @@ export async function getPropsWithPrizePicksFallback(
   args: GetPropsArgs,
   signal?: AbortSignal,
 ): Promise<PropsResponse> {
+  if (!args?.sport || !args?.eventId) {
+    return { home: null, away: null, bookmaker: null, props: [] };
+  }
   try {
     const r = await getProps(args, signal);
     if (Array.isArray(r.props) && r.props.length > 0) return r;
@@ -772,12 +779,14 @@ export async function getPropsWithPrizePicksFallback(
     return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
   }
   const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
-  const props = (Array.isArray(pp.props) ? pp.props : []).map((p) => ({
-    ...p,
-    market: ppStatToMarketKey(args.sport, p.market),
-    priceSource: "PrizePicks" as const,
-    overBook: p.overBook ?? "PrizePicks",
-  }));
+  const props = (Array.isArray(pp.props) ? pp.props : [])
+    .filter((p): p is PlayerProp => !!p && typeof p === "object")
+    .map((p) => ({
+      ...p,
+      market: ppStatToMarketKey(args.sport, p.market) || p.market,
+      priceSource: "PrizePicks" as const,
+      overBook: p.overBook ?? "PrizePicks",
+    }));
   return { ...pp, props };
 }
 
@@ -1108,7 +1117,8 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   pitcher_strikeouts: "Strikeouts",
 };
 
-export function propMarketLabel(key: string): string {
+export function propMarketLabel(key: string | null | undefined): string {
+  if (!key) return "Prop";
   let k = key;
   let suffix = "";
   if (k.endsWith("_alternate")) k = k.slice(0, -"_alternate".length);
@@ -1502,7 +1512,7 @@ export async function fetchPropSimulations(
   }> = [];
 
   for (const p of picks) {
-    if (!p.isProp || !p.player || p.propLine == null) continue;
+    if (!p?.isProp || !p.player || p.propLine == null) continue;
     const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
     if (!side) continue;
     const pool =
@@ -3501,6 +3511,7 @@ export type StreamChatArgs = {
 export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
+    if (!p) continue;
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
     if (p.over != null) {
