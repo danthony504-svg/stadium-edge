@@ -19,8 +19,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
-import { Avatar } from "@/components/PlayerPropRow";
-import type { ParsedPick } from "@/components/PickCard";
 import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
@@ -40,17 +38,18 @@ import {
   fetchSimulatorPlayerHistory,
   fetchSimulatorPropSimulationsBatch,
   isSimulatorPregame,
-  propMarketLabel,
   searchSimulatorPlayer,
   warmSimulatorApi,
 } from "@/lib/simulatorApi";
 
+import { propMarketLabel } from "@/lib/propMarketLabel";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
-  attachPickScores,
-  propPoolFromPlayerProps,
-  type PlayerHistorySlice,
-} from "@/lib/pickScoreContext";
+  buildSimulatorPpPropPool,
+  buildSimulatorPropPool,
+  gradeSimulatorProps,
+  type SimulatorPlayerHistorySlice,
+} from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
@@ -115,6 +114,34 @@ function initials(name: string) {
     .map((w) => w[0])
     .join("")
     .toUpperCase();
+}
+
+function SimAvatar({ headshot, name }: { headshot: string | null; name: string }) {
+  const colors = useColors();
+  const label = initials(name);
+  return (
+    <View
+      style={{
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {headshot ? (
+        <Image source={{ uri: headshot }} style={{ width: 38, height: 38 }} contentFit="cover" />
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
+          {label || "?"}
+        </Text>
+      )}
+    </View>
+  );
 }
 
 function simGameTabLabel(g: EspnGame, games: EspnGame[]): string {
@@ -185,7 +212,7 @@ export default function SimulatorScreen() {
   const [gameResult, setGameResult] = useState<GameSimulationResult | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
   const [simDeepPending, setSimDeepPending] = useState(false);
-  const [playerHistory, setPlayerHistory] = useState<Record<string, PlayerHistorySlice>>({});
+  const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
 
@@ -355,7 +382,7 @@ export default function SimulatorScreen() {
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];
-    return propPoolFromPlayerProps(mains, gameLabel, sport, {
+    return buildSimulatorPropPool(mains, gameLabel, sport, {
       homeTeamId: game.homeTeamId,
       awayTeamId: game.awayTeamId,
       homeAbbr: game.homeAbbr,
@@ -363,26 +390,9 @@ export default function SimulatorScreen() {
     });
   }, [mains, gameLabel, game, sport]);
 
-  // PrizePicks DFS lines have no American price — still simulatable with line only.
   const ppPropPool = useMemo(() => {
     if (!gameLabel) return [];
-    return mains
-      .filter((p) => p.priceSource === "PrizePicks" && p.line != null)
-      .map((p) => ({
-        sport,
-        game: gameLabel,
-        marketLabel: propMarketLabel(p.market),
-        player: p.player,
-        line: p.line as number,
-        side: "Over" as const,
-        odds: 0,
-        edge: null,
-        bookSpread: null,
-        athleteId: p.athleteId,
-        marketKey: p.market,
-        headshot: p.headshot,
-        teamAbbr: null,
-      }));
+    return buildSimulatorPpPropPool(mains, gameLabel, sport);
   }, [mains, gameLabel, sport]);
 
   const filteredProps = useMemo(() => {
@@ -490,7 +500,7 @@ export default function SimulatorScreen() {
           }),
         );
 
-        const ph: Record<string, PlayerHistorySlice> = {};
+        const ph: Record<string, SimulatorPlayerHistorySlice> = {};
         await Promise.all(
           simProps.map(async (s) => {
             if (!s.athleteId) return;
@@ -555,38 +565,16 @@ export default function SimulatorScreen() {
     if (!propResults.length || !gameLabel || !selected.length) {
       return new Map<string, CombinedPickScore>();
     }
-    const matchupHistory = matchupQ.data ? { [gameLabel]: matchupQ.data } : {};
     const simMap = new Map(
       propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
     );
-    const picks: ParsedPick[] = selected.map((s) => ({
-      game: gameLabel,
-      market: propMarketLabel(s.market),
-      pick: `${s.player} ${s.side} ${s.line}`,
-      odds: s.odds,
-      isProp: true,
-      player: s.player,
-      propMarketKey: s.market,
-      propLine: s.line,
-      propSide: s.side,
-      athleteId: s.athleteId,
-      sport,
-    }));
-    const scored = attachPickScores(picks, {
-      propPool: [...propPool, ...ppPropPool],
-      matchupHistory,
+    return gradeSimulatorProps(selected, gameLabel, sport, [...propPool, ...ppPropPool], {
+      matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
       playerHistory,
       propSimulations: simMap,
       injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
     });
-    const out = new Map<string, CombinedPickScore>();
-    scored.forEach((p, i) => {
-      const s = selected[i];
-      const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
-      if (p.scores) out.set(key, p.scores);
-    });
-    return out;
   }, [
     propResults,
     selected,
@@ -844,7 +832,7 @@ export default function SimulatorScreen() {
                           borderColor: colors.border,
                         }}
                       >
-                        <Avatar headshot={s.headshot} name={s.player} />
+                        <SimAvatar headshot={s.headshot} name={s.player} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
                             {s.player.split(" ").slice(-1)[0]}: {s.label}
@@ -951,7 +939,7 @@ export default function SimulatorScreen() {
                             borderColor: colors.border,
                           }}
                         >
-                          <Avatar headshot={p.headshot} name={p.player} />
+                          <SimAvatar headshot={p.headshot} name={p.player} />
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
                               {p.player}
