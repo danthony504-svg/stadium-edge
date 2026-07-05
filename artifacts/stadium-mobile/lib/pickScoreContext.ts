@@ -150,14 +150,6 @@ function teamsLooseMatch(a: string, b: string): boolean {
   return ta[ta.length - 1] === tb[tb.length - 1];
 }
 
-function tokens(s: string): string[] {
-  return String(s ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 2);
-}
-
 function findBackingOddsRow(pick: ParsedPick, realOdds: RealOddsEntry[]): RealOddsEntry | undefined {
   const exact = realOdds.find(
     (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
