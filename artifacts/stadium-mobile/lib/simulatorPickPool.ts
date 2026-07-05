@@ -20,6 +20,8 @@ import {
   type PickSubScores,
 } from "./pickScore";
 import { gameValueForMarket, computeAmbiguous } from "./propStats";
+import type { PropSimulationResult } from "./api";
+import { capGradeForSimHit } from "./simPropValidity";
 
 export type SimulatorPlayerHistorySlice = {
   player?: string;
@@ -328,6 +330,7 @@ export function gradeSimulatorProps(
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, SimulatorPlayerHistorySlice>;
     propSimulations?: Map<string, { hitProbability: number | null }>;
+    propSimRows?: Map<string, PropSimulationResult>;
     injuryTeams?: InjuryTeam[];
   },
 ): Map<string, CombinedPickScore> {
@@ -360,7 +363,9 @@ export function gradeSimulatorProps(
       propMarketKey: s.market,
     });
     const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
-    if (scores) out.set(key, scores);
+    const simRow = opts.propSimRows?.get(key);
+    const capped = scores && simRow ? capGradeForSimHit(scores, simRow) : scores;
+    if (capped) out.set(key, capped);
   }
   return out;
 }

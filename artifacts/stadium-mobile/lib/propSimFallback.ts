@@ -104,7 +104,7 @@ export function localPropSimulation(
       confidenceScore: null,
     };
   }
-  const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
+  const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v > args.line)).length;
   const hitProbability = hits / vals.length;
   const sorted = [...vals].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)] ?? null;
@@ -155,11 +155,22 @@ export function resolveSimConfidence(row: {
   hitProbability: number | null;
   confidenceScore?: number | null;
   sampleGames?: number;
+  completedSims?: number;
+  simulations?: number;
 }): number | null {
   if (row.confidenceScore != null && Number.isFinite(row.confidenceScore)) {
     return row.confidenceScore;
   }
   if (row.hitProbability == null || !Number.isFinite(row.hitProbability)) return null;
+  const mcDraws = row.completedSims ?? row.simulations ?? 0;
+  if (mcDraws >= 1_000) {
+    let confidence = 52;
+    if (mcDraws >= 10_000) confidence += 20;
+    else if (mcDraws >= 5_000) confidence += 14;
+    else confidence += 8;
+    confidence += Math.abs(row.hitProbability - 0.5) * 48;
+    return clamp(Math.round(confidence), 5, 95);
+  }
   const games = row.sampleGames ?? 0;
   if (games < 3) return null;
   return simConfidenceFromHit(row.hitProbability, games);

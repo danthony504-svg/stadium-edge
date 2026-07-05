@@ -7,6 +7,7 @@ import {
   isRecommendableProp,
   isVisibleByDefault,
   meetsSimulatorQualityThreshold,
+  resolveDisplayEdge,
   simulatorSimConfidence,
 } from "./simulatorRecommendations";
 
@@ -119,7 +120,7 @@ export function propPickRecommendation(
   if (!isRecommendableProp(combined, simRow)) return "Pass";
 
   const composite = combined?.composite ?? null;
-  const edge = combined?.edgePct ?? null;
+  const edge = resolveDisplayEdge(combined, simRow);
   const hit = simRow?.hitProbability ?? null;
   const conf = combined?.confidencePct ?? null;
 
@@ -141,7 +142,7 @@ export function propRankScore(
   simRow: PropSimulationResult | null | undefined,
 ): number {
   const composite = combined.composite ?? 0;
-  const edge = combined.edgePct ?? 0;
+  const edge = resolveDisplayEdge(combined, simRow) ?? 0;
   const conf = combined.confidencePct ?? 0;
   const hit = simRow?.hitProbability ?? 0;
   const simConf = simRow ? simulatorSimConfidence(simRow) ?? 0 : 0;

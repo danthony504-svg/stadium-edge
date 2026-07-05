@@ -33,7 +33,14 @@ const simRow = {
   market: "batter_hits",
   line: 1.5,
   side: "Over" as const,
-  simulations: 1000,
+  requestedSims: 10_000,
+  completedSims: 10_000,
+  failedSims: 0,
+  actualSimCount: 10_000,
+  startedAt: "2026-01-01T00:00:00.000Z",
+  finishedAt: "2026-01-01T00:00:01.000Z",
+  runTimeMs: 1000,
+  simulations: 10_000,
   hitProbability: 0.58,
   mostLikelyLine: 2,
   meanProjection: 1.8,
@@ -61,11 +68,15 @@ test("meetsSimulatorQualityThreshold requires grade B+ recommendable props", () 
   );
 });
 
-test("isRecommendableProp rejects no edge and low hit rate", () => {
+test("isRecommendableProp rejects incomplete Monte Carlo and low hit rate", () => {
   assert.equal(isRecommendableProp(combined({ grade: "B", edgePct: 2 }), simRow), true);
   assert.equal(isRecommendableProp(combined({ grade: "B", edgePct: 0 }), simRow), false);
   assert.equal(
     isRecommendableProp(combined({ grade: "B", edgePct: 2 }), { ...simRow, hitProbability: 0.4 }),
+    false,
+  );
+  assert.equal(
+    isRecommendableProp(combined({ grade: "B", edgePct: 2 }), { ...simRow, completedSims: 500 }),
     false,
   );
 });

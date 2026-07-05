@@ -73,9 +73,32 @@ test("propPickRecommendation labels quality picks and passes weak ones", () => {
     confidencePct: 68,
     edgePct: 3.1,
   } satisfies CombinedPickScore;
-  assert.equal(propPickRecommendation(combined, { hitProbability: 0.58 } as any), "Best Bet");
-  assert.equal(propPickRecommendation(combined, { hitProbability: 0.4 } as any), "Pass");
-  assert.equal(propPickRecommendation({ ...combined, edgePct: 0 } as any, { hitProbability: 0.58 } as any), "Pass");
+  const mcSim = {
+    key: "k",
+    player: "P",
+    market: "batter_hits",
+    line: 1.5,
+    side: "Over" as const,
+    requestedSims: 10_000,
+    completedSims: 10_000,
+    failedSims: 0,
+    actualSimCount: 10_000,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    finishedAt: "2026-01-01T00:00:01.000Z",
+    runTimeMs: 1000,
+    simulations: 10_000,
+    hitProbability: 0.58,
+    meanProjection: 1.8,
+    medianProjection: 2,
+    mostLikelyLine: 2,
+    confidenceScore: 72,
+    stdDev: null,
+    sampleGames: 8,
+    percentiles: null,
+  };
+  assert.equal(propPickRecommendation(combined, mcSim), "Best Bet");
+  assert.equal(propPickRecommendation(combined, { ...mcSim, hitProbability: 0.4 }), "Pass");
+  assert.equal(propPickRecommendation({ ...combined, edgePct: 0 }, mcSim), "Pass");
 });
 
 test("buildTopAiPicks fills four slots", () => {

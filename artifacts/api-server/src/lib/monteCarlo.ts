@@ -226,6 +226,8 @@ export function runMonteCarloSimulation(
 
   const edgeFrom50 = Math.abs(hitProb - 0.5);
   confidence += edgeFrom50 * 40;
+  if (completedSims >= DEEP_SIMULATIONS) confidence += 10;
+  else if (completedSims >= QUICK_SIMULATIONS) confidence += 4;
 
   if (ctx.vsOpponentValues && ctx.vsOpponentValues.length >= 2) confidence += 4;
   if (ctx.minutesL5 != null && ctx.minutesSeason != null) confidence += 3;

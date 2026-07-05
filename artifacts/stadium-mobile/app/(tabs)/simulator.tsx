@@ -66,9 +66,11 @@ import {
   formatSimHitDisplay,
   isVisibleByDefault,
   primaryPickReason,
-  simulatorSimConfidence,
+  resolveDisplayEdge,
   topSimulatorPickReasons,
+  simulatorSimConfidence,
 } from "@/lib/simulatorRecommendations";
+import { isValidPropSimData } from "@/lib/simPropValidity";
 import {
   advanceSimProgress,
   buildSimSnapshot,
@@ -677,11 +679,13 @@ export default function SimulatorScreen() {
         const simMap = new Map(
           finalPropResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
         );
+        const simRows = new Map(finalPropResults.map((r) => [r.key, r]));
         const localScores = gradeSimulatorProps(toSim, gameLabel, sport, [...propPool, ...ppPropPool], {
           matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
           matchupInjuries,
           playerHistory: ph,
           propSimulations: simMap,
+          propSimRows: simRows,
           injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
         });
         const ranked = rankSimulatorProps(finalPropResults, localScores);
@@ -741,11 +745,13 @@ export default function SimulatorScreen() {
     const simMap = new Map(
       propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
     );
+    const simRows = new Map(propResults.map((r) => [r.key, r]));
     return gradeSimulatorProps(simulatedProps, gameLabel, sport, [...propPool, ...ppPropPool], {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
       playerHistory,
       propSimulations: simMap,
+      propSimRows: simRows,
       injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
     });
   }, [
@@ -760,6 +766,11 @@ export default function SimulatorScreen() {
     injuriesQ.data,
     sport,
   ]);
+
+  const oddsByKey = useMemo(
+    () => new Map(simulatedProps.map((s) => [`${s.player}|${s.market}|${s.line}|${s.side}`, s.odds])),
+    [simulatedProps],
+  );
 
   // If results used ESPN game-log fallback, retry full Monte Carlo when the API is live.
   useEffect(() => {
@@ -1519,14 +1530,15 @@ export default function SimulatorScreen() {
                             : combined.composite >= 5.5
                               ? colors.primary
                               : colors.mutedForeground;
-                      const edgeColor =
-                        combined?.edgePct == null
-                          ? colors.mutedForeground
-                          : combined.edgePct >= 0
-                            ? colors.success
-                            : colors.destructive;
                       const simConf = simulatorSimConfidence(r);
                       const proj = expectedProjection(r);
+                      const displayEdge = resolveDisplayEdge(combined, r, oddsByKey.get(r.key));
+                      const edgeColor =
+                        displayEdge == null
+                          ? colors.mutedForeground
+                          : displayEdge >= 0
+                            ? colors.success
+                            : colors.destructive;
                       const shortReason = primaryPickReason(combined, r);
                       const extraReasons = topSimulatorPickReasons(combined, r, 2).filter((x) => x !== shortReason);
                       return (
@@ -1582,7 +1594,7 @@ export default function SimulatorScreen() {
                             />
                             <MiniStat
                               label="Edge"
-                              value={formatEdgeDisplay(combined.edgePct)}
+                              value={formatEdgeDisplay(displayEdge)}
                               valueColor={edgeColor}
                             />
                             <MiniStat label="Sim Hit %" value={formatSimHitDisplay(r.hitProbability)} />
@@ -1614,7 +1626,9 @@ export default function SimulatorScreen() {
                             </View>
                           ) : recommendation === "Pass" ? (
                             <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 8 }}>
-                              No positive edge or sim hit rate too low to recommend.
+                              {!isValidPropSimData(r)
+                                ? "Simulation data incomplete or inconsistent — not recommended until Monte Carlo completes."
+                                : "No positive edge or sim hit rate too low to recommend."}
                             </Text>
                           ) : null}
                         </View>

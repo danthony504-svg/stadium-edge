@@ -2,6 +2,13 @@
 import type { PropSimulationResult } from "./api";
 import type { CombinedPickScore, PickSubScores } from "./pickScore";
 import { resolveSimConfidence } from "./propSimFallback";
+import {
+  isDeepMonteCarloComplete,
+  isValidPropSimData,
+  resolveDisplayEdge,
+} from "./simPropValidity";
+
+export { resolveDisplayEdge } from "./simPropValidity";
 
 const GRADE_RANK: Record<string, number> = {
   F: 0,
@@ -31,14 +38,18 @@ export function isLowGrade(grade: string | null | undefined): boolean {
   return gradeRank(grade) <= gradeRank("D");
 }
 
-/** Default list filter: hide D/F grades and negative-edge props. */
+/** Default list filter: hide D/F, negative edge, and props without valid sim data. */
 export function isVisibleByDefault(
   combined: CombinedPickScore | null | undefined,
-  _simRow?: PropSimulationResult | null,
+  simRow?: PropSimulationResult | null,
 ): boolean {
   if (!combined?.grade) return false;
   if (isLowGrade(combined.grade)) return false;
-  if (combined.edgePct == null || combined.edgePct < 0) return false;
+  if (combined.edgePct == null || combined.edgePct < 0) {
+    const simEdge = resolveDisplayEdge(combined, simRow);
+    if (simEdge == null || simEdge < 0) return false;
+  }
+  if (simRow && !isValidPropSimData(simRow)) return false;
   return true;
 }
 
@@ -52,15 +63,18 @@ export function meetsSimulatorQualityThreshold(
   return true;
 }
 
-/** Recommendable = positive edge, not D/F, and sim hit rate above floor. */
+/** Recommendable = valid deep Monte Carlo, positive edge, not D/F, sim hit above floor. */
 export function isRecommendableProp(
   combined: CombinedPickScore | null | undefined,
   simRow?: PropSimulationResult | null,
 ): boolean {
   if (!combined?.grade) return false;
   if (isLowGrade(combined.grade)) return false;
-  if (combined.edgePct == null || combined.edgePct <= 0) return false;
-  const hit = simRow?.hitProbability;
+  if (!simRow || !isValidPropSimData(simRow)) return false;
+  if (!isDeepMonteCarloComplete(simRow)) return false;
+  const edge = resolveDisplayEdge(combined, simRow);
+  if (edge == null || edge <= 0) return false;
+  const hit = simRow.hitProbability;
   if (hit == null || hit < MIN_SIM_HIT_RECOMMEND) return false;
   return true;
 }

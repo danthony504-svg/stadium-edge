@@ -365,8 +365,19 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
       actualSimCount: simRun.actualSimCount,
       runTimeMs: simRun.runTimeMs,
       propCount: rows.length,
+      propSimCounts: rows.map((r) => ({
+        player: r.player,
+        market: r.market,
+        line: r.line,
+        side: r.side,
+        requestedSims: r.requestedSims ?? simRun.requestedSims,
+        completedSims: r.completedSims ?? r.simulations ?? 0,
+        failedSims: r.failedSims ?? 0,
+        actualSimCount: r.actualSimCount ?? r.completedSims ?? r.simulations ?? 0,
+        hitProbability: r.hitProbability,
+      })),
     },
-    "prop batch simulation complete",
+    "prop batch simulation complete — per-prop Monte Carlo counts",
   );
 
   res.json({
