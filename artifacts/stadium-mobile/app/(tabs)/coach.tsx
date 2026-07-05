@@ -62,7 +62,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1515,6 +1515,15 @@ export default function CoachScreen() {
         let diversityNote = "";
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
+        const composeFromBoard =
+          !isAnalyze &&
+          shouldComposeDeepParlayFromBoard(legTarget, {
+            explicitSingleGame,
+            propsOnly: propsOnlyTicket,
+          });
+        if (composeFromBoard) {
+          picks = picks.filter((p) => p.isProp);
+        }
         if (!isAnalyze && deepMultiLegParlay && !propsOnlyTicket) {
           picks = dedupeSameTeamGameLegs(picks).picks;
           const seeded = prepareDeepParlaySeed(picks, legTarget, { longshotAsk });
@@ -1716,13 +1725,7 @@ export default function CoachScreen() {
         let reachPool = rotatePool(context.realOdds, trimmed);
         if (slateDay) reachPool = filterOddsForSlateDay(reachPool, slateDay);
         const forceBoardBuild =
-          !isAnalyze &&
-          shouldComposeDeepParlayFromBoard(legTarget, {
-            explicitSingleGame,
-            propsOnly: propsOnlyTicket,
-          }) &&
-          !oddsThreshold &&
-          !confidenceThreshold;
+          composeFromBoard && !oddsThreshold && !confidenceThreshold;
         const boardBuildOpts = {
           longshotAsk,
           plusMoneyBias: propBackfillOpts.plusMoneyBias,
@@ -2013,6 +2016,7 @@ export default function CoachScreen() {
             realOdds: context.realOdds,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
+            excludeMoneyline: composeFromBoard,
           });
           picks = optimized.picks;
           if (optimized.note) gameSimNote = optimized.note;
@@ -2052,6 +2056,18 @@ export default function CoachScreen() {
               ...propBackfillOpts,
             });
           }
+        }
+        if (forceBoardBuild) {
+          let finalPool = rotatePool(context.realOdds, `${trimmed}-final`);
+          if (slateDay) finalPool = filterOddsForSlateDay(finalPool, slateDay);
+          picks = finalizeDeepParlayTicket(
+            picks,
+            reachTarget,
+            mergedPropPool,
+            finalPool,
+            gameMeta,
+            boardBuildOpts,
+          );
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
         // real context the legs were resolved against (odds carry edge +

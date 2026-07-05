@@ -275,4 +275,46 @@ export function assembleDeepParlayFromBoard(
   return topUpDeepParlayToTarget([], legTarget, propPool, realOdds, gameMeta, opts);
 }
 
+/** Last mutating step — strip chalk ML the model/optimizer may have reintroduced. */
+export function finalizeDeepParlayTicket(
+  picks: ParsedPick[],
+  legTarget: number,
+  propPool: PropPoolEntry[],
+  realOdds: RealOddsEntry[],
+  gameMeta: GameMeta[],
+  opts: {
+    longshotAsk?: boolean;
+    plusMoneyBias?: boolean;
+    diversify?: boolean;
+    selectionOpts?: PropSelectionOpts;
+  } = {},
+): ParsedPick[] {
+  const { maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk);
+  const minPropShare = opts.longshotAsk ? 0.5 : 0.35;
+  let out = dedupeSameTeamGameLegs(picks).picks;
+  const withoutMl = out.filter(
+    (p) => p.isProp || !/^moneyline$/i.test(String(p.market ?? "").trim()),
+  );
+  out = withoutMl;
+  const gameLegs = out.filter((p) => !p.isProp && isGameLinePick(p)).length;
+  const needsBoard =
+    out.length < legTarget ||
+    propShare(out) < minPropShare ||
+    gameLegs > maxGameLegs ||
+    withoutMl.length < picks.length;
+  if (needsBoard) {
+    out = topUpDeepParlayToTarget(
+      out.filter((p) => p.isProp),
+      legTarget,
+      propPool,
+      realOdds,
+      gameMeta,
+      opts,
+    );
+  } else if (out.length < legTarget) {
+    out = topUpDeepParlayToTarget(out, legTarget, propPool, realOdds, gameMeta, opts);
+  }
+  return dedupeSameTeamGameLegs(out).picks;
+}
+
 export type { PropPoolEntry };

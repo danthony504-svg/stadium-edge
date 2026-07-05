@@ -147,10 +147,14 @@ function candidatesForPick(
   pick: ParsedPick,
   allLines: RealOddsEntry[],
   matchupHistory?: Record<string, MatchupHistoryEntry>,
+  excludeMoneyline = false,
 ): RealOddsEntry[] {
-  const lines = allLines.filter(
+  let lines = allLines.filter(
     (e) => e.game === pick.game && FULL_GAME_MARKET.test(e.market.trim()),
   );
+  if (excludeMoneyline) {
+    lines = lines.filter((e) => !/^moneyline$/i.test(e.market.trim()));
+  }
   const parts = pick.game.split(" @ ");
   const away = parts[0]?.trim() ?? "";
   const home = parts[1]?.trim() ?? "";
@@ -243,9 +247,15 @@ function rankBestForBucket(
     realOdds: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    excludeMoneyline?: boolean;
   },
 ): EvaluatedGameLine | null {
-  const pool = candidatesForPick(pick, evalLines, opts.matchupHistory);
+  const pool = candidatesForPick(
+    pick,
+    evalLines,
+    opts.matchupHistory,
+    opts.excludeMoneyline,
+  );
   if (!pool.length) return null;
   const ranked = evaluateGameLines({
     lines: pool,
@@ -376,6 +386,7 @@ export function optimizeGameLinePicksToBestFinalAi(
     realOdds: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    excludeMoneyline?: boolean;
   },
 ): GameLineOptimizeResult {
   let swapped = 0;
