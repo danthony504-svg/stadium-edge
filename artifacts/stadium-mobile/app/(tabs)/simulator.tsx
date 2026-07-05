@@ -56,11 +56,26 @@ import {
 import {
   expectedProjection,
   meetsSimulatorQualityThreshold,
-  recommendationTone,
-  simulatorRecommendation,
   simulatorSimConfidence,
   topSimulatorPickReasons,
 } from "@/lib/simulatorRecommendations";
+import {
+  advanceSimProgress,
+  buildSimSnapshot,
+  buildTopAiPicks,
+  completeSimProgress,
+  formatAverageScoreLine,
+  formatFinalScoreLine,
+  gameAiPrediction,
+  gameConfidenceLevel,
+  initialSimProgress,
+  propPickRecommendation,
+  rankSimulatorProps,
+  simulationImpactNotes,
+  type SimProgressStep,
+  type SimRunSnapshot,
+  whatChangedSinceLastRun,
+} from "@/lib/simulatorPresentation";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
@@ -241,6 +256,9 @@ export default function SimulatorScreen() {
   const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
+  const [simProgress, setSimProgress] = useState<SimProgressStep[]>([]);
+  const [whatChanged, setWhatChanged] = useState<string[]>([]);
+  const prevSnapshotRef = useRef<SimRunSnapshot | null>(null);
   const lastSimRequestRef = useRef<{
     simProps: Array<{
       player: string;
@@ -494,11 +512,36 @@ export default function SimulatorScreen() {
     setPropResults([]);
     setSimulatedProps([]);
     setShowAllPicks(false);
+    setWhatChanged([]);
     setPlayerHistory({});
+    setSimProgress(initialSimProgress());
+    let progress = initialSimProgress();
+    const bump = (id: string) => {
+      progress = advanceSimProgress(progress, id);
+      setSimProgress([...progress]);
+    };
+
+    let gr: GameSimulationResult | null = null;
+    let finalPropResults: PropSimulationResult[] = [];
+    let toSim: SelectedProp[] = [];
+    let ph: Record<string, SimulatorPlayerHistorySlice> = {};
+
     try {
       const wx = weatherImpact;
+      bump("lineups");
+      if (matchupQ.data == null) {
+        try {
+          await matchupQ.refetch();
+        } catch {
+          /* cached matchup optional */
+        }
+      }
+      bump("injuries");
+      bump("weather");
+      bump("odds");
+
       if (mode === "game" || mode === "full") {
-        const gr = await fetchSimulatorGameOutcome({
+        gr = await fetchSimulatorGameOutcome({
           sport,
           homeTeamId: game.homeTeamId,
           awayTeamId: game.awayTeamId,
@@ -510,7 +553,7 @@ export default function SimulatorScreen() {
         setGameResult(gr);
       }
       if ((mode === "props" || mode === "full") && propPool.length > 0) {
-        const toSim = buildSimulatorSimCandidates(propPool, selected);
+        toSim = buildSimulatorSimCandidates(propPool, selected);
         setSimulatedProps(toSim);
         const teamTokens = [game.homeTeam, game.awayTeam]
           .filter(Boolean)
@@ -544,7 +587,7 @@ export default function SimulatorScreen() {
           }),
         );
 
-        const ph: Record<string, SimulatorPlayerHistorySlice> = {};
+        const phLocal: Record<string, SimulatorPlayerHistorySlice> = {};
         const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> = {};
         await Promise.all(
           simProps.map(async (s) => {
@@ -557,7 +600,7 @@ export default function SimulatorScreen() {
                 stats: g.stats as Record<string, unknown>,
               }));
               if (recent.length) {
-                ph[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
+                phLocal[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
                 phForSim[`${s.player}#${s.athleteId}`] = {
                   labels: h.labels,
                   recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
@@ -568,7 +611,8 @@ export default function SimulatorScreen() {
             }
           }),
         );
-        setPlayerHistory(ph);
+        ph = phLocal;
+        setPlayerHistory(phLocal);
         lastSimRequestRef.current = { simProps, phForSim };
         const prQuick = enrichPropSimResults(
           await fetchSimulatorPropSimulationsBatch(
@@ -600,12 +644,70 @@ export default function SimulatorScreen() {
           },
         );
         const prDeep = enrichPropSimResults(prDeepRaw, phForSim);
-        setPropResults(mergeServerOverLocal(prQuick, prDeep));
+        finalPropResults = mergeServerOverLocal(prQuick, prDeep);
+        setPropResults(finalPropResults);
         setSimDeepPending(false);
       }
+      bump("sim");
+      setSimProgress(completeSimProgress(progress));
+
+      const injuryCount =
+        matchupInjuries[gameLabel ?? ""]?.sides.reduce(
+          (n, s) => n + (s.keyPlayers?.length ?? 0),
+          0,
+        ) ?? 0;
+
+      if (finalPropResults.length && toSim.length && gameLabel) {
+        const simMap = new Map(
+          finalPropResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
+        );
+        const localScores = gradeSimulatorProps(toSim, gameLabel, sport, [...propPool, ...ppPropPool], {
+          matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
+          matchupInjuries,
+          playerHistory: ph,
+          propSimulations: simMap,
+          injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
+        });
+        const ranked = rankSimulatorProps(finalPropResults, localScores);
+        const snapshot = buildSimSnapshot({
+          gameId: game.id,
+          gameResult: gr,
+          topPropKey: ranked[0]?.key ?? null,
+          weatherLabel,
+          injuryCount,
+        });
+        setWhatChanged(
+          whatChangedSinceLastRun(prevSnapshotRef.current, snapshot, {
+            home: game.homeTeam,
+            away: game.awayTeam,
+          }),
+        );
+        prevSnapshotRef.current = snapshot;
+      } else if (gr) {
+        const snapshot = buildSimSnapshot({
+          gameId: game.id,
+          gameResult: gr,
+          topPropKey: null,
+          weatherLabel,
+          injuryCount:
+            matchupInjuries[gameLabel ?? ""]?.sides.reduce(
+              (n, s) => n + (s.keyPlayers?.length ?? 0),
+              0,
+            ) ?? 0,
+        });
+        setWhatChanged(
+          whatChangedSinceLastRun(prevSnapshotRef.current, snapshot, {
+            home: game.homeTeam,
+            away: game.awayTeam,
+          }),
+        );
+        prevSnapshotRef.current = snapshot;
+      }
+
       setRanAt(Date.now());
     } finally {
       setRunning(false);
+      setSimProgress([]);
     }
   };
 
@@ -679,17 +781,42 @@ export default function SimulatorScreen() {
     return () => clearTimeout(timer);
   }, [propResults, game, sport, running]);
 
-  const displayedPropResults = useMemo(() => {
-    const rows = [...propResults].sort((a, b) => {
-      const ca = propScores.get(a.key)?.composite ?? -1;
-      const cb = propScores.get(b.key)?.composite ?? -1;
-      return cb - ca;
-    });
-    if (showAllPicks) return rows;
-    return rows.filter((r) => meetsSimulatorQualityThreshold(propScores.get(r.key)));
-  }, [propResults, propScores, showAllPicks]);
+  useEffect(() => {
+    prevSnapshotRef.current = null;
+    setWhatChanged([]);
+  }, [game?.id]);
 
-  const hiddenPickCount = propResults.length - displayedPropResults.length;
+  const rankedProps = useMemo(
+    () => rankSimulatorProps(propResults, propScores),
+    [propResults, propScores],
+  );
+
+  const displayedRankedProps = useMemo(() => {
+    if (showAllPicks) return rankedProps;
+    return rankedProps.filter((r) => meetsSimulatorQualityThreshold(r.combined));
+  }, [rankedProps, showAllPicks]);
+
+  const hiddenPickCount = rankedProps.length - displayedRankedProps.length;
+
+  const topAiPicks = useMemo(
+    () => buildTopAiPicks(rankedProps, propMarketLabel),
+    [rankedProps],
+  );
+
+  const impactNotes = useMemo(() => {
+    const injuryCount =
+      matchupInjuries[gameLabel ?? ""]?.sides.reduce(
+        (n, s) => n + (s.keyPlayers?.length ?? 0),
+        0,
+      ) ?? 0;
+    return simulationImpactNotes({
+      sport,
+      weatherImpact,
+      weatherLabel,
+      injuryCount,
+      lineCount: propPool.length,
+    });
+  }, [sport, weatherImpact, weatherLabel, matchupInjuries, gameLabel, propPool.length]);
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -1142,40 +1269,135 @@ export default function SimulatorScreen() {
                 </View>
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
-                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                    <ResultCol title="Win Probability">
-                      <WinBar
-                        awayPct={gameResult.awayWinProbability}
-                        homePct={gameResult.homeWinProbability}
-                        awayLabel={game.awayAbbr ?? game.awayTeam}
-                        homeLabel={game.homeAbbr ?? game.homeTeam}
-                      />
-                    </ResultCol>
-                    <ResultCol title="Projected Score (Avg)">
-                      <ScorePair
-                        away={gameResult.awayProjectedScore}
-                        home={gameResult.homeProjectedScore}
-                        awayLogo={game.awayLogo}
-                        homeLogo={game.homeLogo}
-                      />
-                    </ResultCol>
-                    <ResultCol title="Most Likely Outcome">
-                      <LikelyWinner
-                        winner={
-                          gameResult.mostLikelyWinner === "home" ? game.homeTeam : game.awayTeam
-                        }
-                        logo={gameResult.mostLikelyWinner === "home" ? game.homeLogo : game.awayLogo}
-                        pct={gameResult.mostLikelyWinnerPct}
-                      />
-                    </ResultCol>
-                  </View>
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 10 }}>
+                      AI Game Prediction
+                    </Text>
+                    <View style={{ gap: 10 }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground, textTransform: "uppercase" }}>
+                            AI Prediction
+                          </Text>
+                          <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginTop: 4 }}>
+                            {gameAiPrediction(gameResult, game.homeTeam, game.awayTeam)}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground, textTransform: "uppercase" }}>
+                            Game Confidence
+                          </Text>
+                          <Text
+                            style={{
+                              fontFamily: FONT.bold,
+                              fontSize: 15,
+                              marginTop: 4,
+                              color:
+                                gameConfidenceLevel(gameResult.confidenceScore) === "High"
+                                  ? colors.success
+                                  : gameConfidenceLevel(gameResult.confidenceScore) === "Medium"
+                                    ? colors.primary
+                                    : colors.mutedForeground,
+                            }}
+                          >
+                            {gameConfidenceLevel(gameResult.confidenceScore)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View>
+                        <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground, textTransform: "uppercase", marginBottom: 6 }}>
+                          Win Probability
+                        </Text>
+                        <WinBar
+                          awayPct={gameResult.awayWinProbability}
+                          homePct={gameResult.homeWinProbability}
+                          awayLabel={game.awayAbbr ?? game.awayTeam}
+                          homeLabel={game.homeAbbr ?? game.homeTeam}
+                        />
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        <View style={{ flex: 1, padding: 10, borderRadius: 12, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border }}>
+                          <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground }}>Most Likely Final Score</Text>
+                          <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: colors.foreground, marginTop: 4 }}>
+                            {formatFinalScoreLine(game.awayTeam, game.homeTeam, gameResult)}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, padding: 10, borderRadius: 12, backgroundColor: colors.muted, borderWidth: 1, borderColor: colors.border }}>
+                          <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground }}>Average Projected Score</Text>
+                          <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: colors.foreground, marginTop: 4 }}>
+                            {formatAverageScoreLine(game.awayTeam, game.homeTeam, gameResult)}
+                          </Text>
+                        </View>
+                      </View>
+                      {impactNotes.length > 0 ? (
+                        <View style={{ paddingTop: 4 }}>
+                          {impactNotes.map((note) => (
+                            <Text key={note} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, lineHeight: 16, marginTop: 2 }}>
+                              • {note}
+                            </Text>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  </Card>
+                ) : null}
+
+                {whatChanged.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>
+                      What Changed?
+                    </Text>
+                    {whatChanged.map((line) => (
+                      <View key={line} style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+                        <Text style={{ color: colors.primary, fontFamily: FONT.body, fontSize: 11 }}>•</Text>
+                        <Text style={{ flex: 1, fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, lineHeight: 17 }}>
+                          {line}
+                        </Text>
+                      </View>
+                    ))}
+                  </Card>
+                ) : null}
+
+                {rankedProps.length > 0 ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 10 }}>
+                      Top AI Picks
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {topAiPicks.map((slot) => (
+                        <View
+                          key={slot.id}
+                          style={{
+                            width: "48%",
+                            flexGrow: 1,
+                            padding: 10,
+                            borderRadius: 12,
+                            backgroundColor: colors.muted,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            minWidth: 140,
+                          }}
+                        >
+                          <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: colors.primary, textTransform: "uppercase" }}>
+                            {slot.title}
+                          </Text>
+                          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 6 }} numberOfLines={2}>
+                            {slot.label}
+                          </Text>
+                          <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground, marginTop: 4 }}>
+                            {slot.detail}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  </Card>
                 ) : null}
 
                 {propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                       <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
-                        Recommended Props
+                        Top Prop Picks
                       </Text>
                       <Pressable
                         onPress={() => setShowAllPicks((v) => !v)}
@@ -1200,21 +1422,21 @@ export default function SimulatorScreen() {
                         ? ` ${hiddenPickCount} lower-grade pick${hiddenPickCount === 1 ? "" : "s"} hidden.`
                         : ""}
                     </Text>
-                    {displayedPropResults.length === 0 ? (
+                    {displayedRankedProps.length === 0 ? (
                       <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, paddingVertical: 8 }}>
                         No picks met the Grade B / positive-edge bar. Tap Show All Picks to review everything we simulated.
                       </Text>
                     ) : null}
-                    {displayedPropResults.map((r) => {
-                      const combined = propScores.get(r.key);
-                      const recommendation = simulatorRecommendation(combined, r);
-                      const recTone = recommendationTone(recommendation);
+                    {displayedRankedProps.map((entry, idx) => {
+                      const r = entry.row;
+                      const combined = entry.combined;
+                      const recommendation = entry.recommendation;
                       const recColor =
-                        recTone === "strong" || recTone === "play"
+                        recommendation === "Best Bet"
                           ? colors.success
-                          : recTone === "lean"
+                          : recommendation === "Value"
                             ? colors.primary
-                            : recTone === "monitor"
+                            : recommendation === "Safe"
                               ? colors.foreground
                               : colors.mutedForeground;
                       const gradeColor =
@@ -1244,18 +1466,23 @@ export default function SimulatorScreen() {
                           }}
                         >
                           <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-                            <Text style={{ flex: 1, fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                              {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
-                            </Text>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: colors.primary }}>
+                                #{idx + 1} RANKED
+                              </Text>
+                              <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginTop: 2 }}>
+                                {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
+                              </Text>
+                            </View>
                             <View
                               style={{
                                 paddingHorizontal: 8,
                                 paddingVertical: 4,
                                 borderRadius: 8,
                                 backgroundColor:
-                                  recTone === "strong" || recTone === "play"
+                                  recommendation === "Best Bet"
                                     ? "rgba(34,197,94,0.15)"
-                                    : recTone === "lean"
+                                    : recommendation === "Value"
                                       ? "rgba(59,130,246,0.15)"
                                       : colors.muted,
                               }}
@@ -1285,11 +1512,11 @@ export default function SimulatorScreen() {
                               value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct}%` : "—"}
                               valueColor={edgeColor}
                             />
+                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
                           </View>
                           <View style={{ flexDirection: "row", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
-                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
+                            <MiniStat label="Expected Stat" value={proj ?? "—"} />
                             <MiniStat label="Sim Conf" value={simConf != null ? String(simConf) : "—"} />
-                            <MiniStat label="Expected Proj" value={proj ?? "—"} />
                             <MiniStat label="Recommendation" value={recommendation} valueColor={recColor} />
                           </View>
                           {reasons.length > 0 ? (
@@ -1317,6 +1544,41 @@ export default function SimulatorScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal visible={running && simProgress.length > 0} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "center", padding: 24 }}>
+          <Card>
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 17, color: colors.foreground, marginBottom: 4 }}>
+              Running Simulation
+            </Text>
+            <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, marginBottom: 16 }}>
+              {SIM_COUNT.toLocaleString()} Monte Carlo draws using real lineups, injuries, weather, and odds.
+            </Text>
+            <View style={{ gap: 10 }}>
+              {simProgress.map((step) => (
+                <View key={step.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  {step.status === "done" ? (
+                    <Feather name="check-circle" size={18} color={colors.success} />
+                  ) : step.status === "active" ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1, borderColor: colors.border }} />
+                  )}
+                  <Text
+                    style={{
+                      fontFamily: step.status === "active" ? FONT.semibold : FONT.body,
+                      fontSize: 13,
+                      color: step.status === "pending" ? colors.mutedForeground : colors.foreground,
+                    }}
+                  >
+                    {step.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Card>
+        </View>
+      </Modal>
 
       <Modal visible={howOpen} transparent animationType="fade" onRequestClose={() => setHowOpen(false)}>
         <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 24 }} onPress={() => setHowOpen(false)}>
@@ -1407,16 +1669,6 @@ function SettingRow({
   );
 }
 
-function ResultCol({ title, children }: { title: string; children: ReactNode }) {
-  const colors = useColors();
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.card, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 10 }}>
-      <Text style={{ fontFamily: FONT.medium, fontSize: 10, color: colors.mutedForeground, marginBottom: 8 }}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-
 function WinBar({
   awayPct,
   homePct,
@@ -1440,55 +1692,6 @@ function WinBar({
       </Text>
       <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: FONT.body }}>
         {homeLabel} {(homePct * 100).toFixed(1)}%
-      </Text>
-    </View>
-  );
-}
-
-function ScorePair({
-  away,
-  home,
-  awayLogo,
-  homeLogo,
-}: {
-  away: number;
-  home: number;
-  awayLogo?: string | null;
-  homeLogo?: string | null;
-}) {
-  const colors = useColors();
-  return (
-    <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {awayLogo ? <Image source={{ uri: awayLogo }} style={{ width: 18, height: 18 }} contentFit="contain" /> : null}
-        <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: colors.foreground }}>{away.toFixed(2)}</Text>
-      </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        {homeLogo ? <Image source={{ uri: homeLogo }} style={{ width: 18, height: 18 }} contentFit="contain" /> : null}
-        <Text style={{ fontFamily: FONT.bold, fontSize: 16, color: colors.foreground }}>{home.toFixed(2)}</Text>
-      </View>
-    </View>
-  );
-}
-
-function LikelyWinner({
-  winner,
-  logo,
-  pct,
-}: {
-  winner: string;
-  logo?: string | null;
-  pct: number;
-}) {
-  const colors = useColors();
-  return (
-    <View style={{ alignItems: "center", gap: 6 }}>
-      {logo ? <Image source={{ uri: logo }} style={{ width: 28, height: 28 }} contentFit="contain" /> : null}
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, textAlign: "center" }}>
-        {winner.split(" ").slice(-1)[0]} Win
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>
-        {(pct * 100).toFixed(1)}% of simulations
       </Text>
     </View>
   );
