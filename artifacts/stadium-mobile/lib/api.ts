@@ -1493,6 +1493,15 @@ export type GameSimulationResult = {
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
+  liveAdjusted?: boolean;
+};
+
+export type GameSimulationLiveState = {
+  homeScore: number;
+  awayScore: number;
+  period: number;
+  inningHalf?: "top" | "bottom" | null;
+  regulationPeriods?: number;
 };
 
 export async function fetchGameOutcomeSimulation(
@@ -1504,6 +1513,7 @@ export async function fetchGameOutcomeSimulation(
     awayTeam?: string;
     simulations?: number;
     weatherImpact?: number | null;
+    live?: GameSimulationLiveState | null;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

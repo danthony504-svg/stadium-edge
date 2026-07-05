@@ -253,6 +253,30 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   const weatherImpact =
     req.body?.weatherImpact != null ? Number(req.body.weatherImpact) : null;
 
+  const liveRaw = req.body?.live;
+  const live =
+    liveRaw &&
+    typeof liveRaw === "object" &&
+    Number.isFinite(Number(liveRaw.homeScore)) &&
+    Number.isFinite(Number(liveRaw.awayScore)) &&
+    Number(liveRaw.period) > 0
+      ? {
+          homeScore: Number(liveRaw.homeScore),
+          awayScore: Number(liveRaw.awayScore),
+          period: Number(liveRaw.period),
+          inningHalf:
+            liveRaw.inningHalf === "bottom"
+              ? ("bottom" as const)
+              : liveRaw.inningHalf === "top"
+                ? ("top" as const)
+                : null,
+          regulationPeriods:
+            liveRaw.regulationPeriods != null
+              ? Number(liveRaw.regulationPeriods)
+              : undefined,
+        }
+      : null;
+
   if (!sport || !homeTeamId || !awayTeamId) {
     res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
     return;
@@ -268,6 +292,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     sport,
     simulations,
     weatherImpact,
+    live,
     home: {
       ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
       ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,

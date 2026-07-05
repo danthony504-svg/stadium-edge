@@ -35,6 +35,7 @@ import {
   propMarketLabel,
   warmApiForCoachBuild,
   type EspnGame,
+  type GameSimulationLiveState,
   type GameSimulationResult,
   type PlayerProp,
   type PropSimulationResult,
@@ -133,6 +134,38 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
   return null;
 }
 
+function parseInningHalf(periodLabel: string | null | undefined): "top" | "bottom" | null {
+  if (!periodLabel) return null;
+  const l = periodLabel.toLowerCase();
+  if (l.includes("bot")) return "bottom";
+  if (l.includes("top")) return "top";
+  return null;
+}
+
+function regulationPeriodsForSport(sport: string): number {
+  if (sport === "mlb") return 9;
+  if (sport === "nba" || sport === "wnba") return 4;
+  if (sport === "nhl") return 3;
+  return 4;
+}
+
+function liveStateFromGame(game: EspnGame): GameSimulationLiveState | null {
+  if (game.state !== "in") return null;
+  if (game.homeScore == null || game.awayScore == null) return null;
+  if (!game.period || game.period < 1) return null;
+  return {
+    homeScore: game.homeScore,
+    awayScore: game.awayScore,
+    period: game.period,
+    inningHalf: game.sport === "mlb" ? parseInningHalf(game.periodLabel) : null,
+    regulationPeriods: regulationPeriodsForSport(game.sport),
+  };
+}
+
+function isGameLive(game: EspnGame | null): boolean {
+  return !!game && game.state === "in" && game.homeScore != null && game.awayScore != null;
+}
+
 export default function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -172,6 +205,8 @@ export default function SimulatorScreen() {
         return rows;
       }),
     staleTime: 5 * 60_000,
+    refetchInterval: (q) =>
+      (q.state.data ?? []).some((g) => g.state === "in") ? 30_000 : false,
     initialData: () => {
       const cached = cachedSimGames(sport);
       return cached.length > 0 ? cached : undefined;
@@ -349,6 +384,7 @@ export default function SimulatorScreen() {
     setPlayerHistory({});
     try {
       const wx = weatherImpact;
+      const live = liveStateFromGame(game);
       if (mode === "game" || mode === "full") {
         const gr = await fetchGameOutcomeSimulation({
           sport,
@@ -358,6 +394,7 @@ export default function SimulatorScreen() {
           awayTeam: game.awayTeam,
           simulations: SIM_COUNT,
           weatherImpact: wx,
+          live,
         });
         setGameResult(gr);
       }
@@ -605,13 +642,40 @@ export default function SimulatorScreen() {
                   logo={game.awayLogo}
                   record={game.awayAbbr ?? ""}
                   align="left"
+                  score={isGameLive(game) ? game.awayScore : null}
                 />
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>@</Text>
+                <View style={{ alignItems: "center", gap: 4 }}>
+                  {isGameLive(game) ? (
+                    <>
+                      <View
+                        style={{
+                          paddingHorizontal: 8,
+                          paddingVertical: 3,
+                          borderRadius: 6,
+                          backgroundColor: "rgba(239,68,68,0.18)",
+                        }}
+                      >
+                        <Text style={{ color: "#f87171", fontFamily: FONT.bold, fontSize: 10 }}>LIVE</Text>
+                      </View>
+                      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18 }}>
+                        {game.awayScore} – {game.homeScore}
+                      </Text>
+                      {game.periodLabel ? (
+                        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                          {game.periodLabel}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>@</Text>
+                  )}
+                </View>
                 <TeamCol
                   name={game.homeTeam ?? ""}
                   logo={game.homeLogo}
                   record={game.homeAbbr ?? ""}
                   align="right"
+                  score={isGameLive(game) ? game.homeScore : null}
                 />
               </View>
               <Text
@@ -924,7 +988,20 @@ export default function SimulatorScreen() {
                 </View>
 
                 {gameResult && game.homeTeam && game.awayTeam ? (
-                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                  <View style={{ gap: 10, marginBottom: 12 }}>
+                    {gameResult.liveAdjusted ? (
+                      <Text
+                        style={{
+                          fontFamily: FONT.body,
+                          fontSize: 11,
+                          color: colors.mutedForeground,
+                          lineHeight: 16,
+                        }}
+                      >
+                        Live-adjusted — uses the current score and innings/period remaining, not a full pre-game replay.
+                      </Text>
+                    ) : null}
+                    <View style={{ flexDirection: "row", gap: 10 }}>
                     <ResultCol title="Win Probability">
                       <WinBar
                         awayPct={gameResult.awayWinProbability}
@@ -933,7 +1010,7 @@ export default function SimulatorScreen() {
                         homeLabel={game.homeAbbr ?? game.homeTeam}
                       />
                     </ResultCol>
-                    <ResultCol title="Projected Score (Avg)">
+                    <ResultCol title={gameResult.liveAdjusted ? "Projected Final" : "Projected Score (Avg)"}>
                       <ScorePair
                         away={gameResult.awayProjectedScore}
                         home={gameResult.homeProjectedScore}
@@ -948,8 +1025,11 @@ export default function SimulatorScreen() {
                         }
                         logo={gameResult.mostLikelyWinner === "home" ? game.homeLogo : game.awayLogo}
                         pct={gameResult.mostLikelyWinnerPct}
+                        homeWin={gameResult.homeWinProbability}
+                        awayWin={gameResult.awayWinProbability}
                       />
                     </ResultCol>
+                    </View>
                   </View>
                 ) : null}
 
@@ -1027,9 +1107,10 @@ export default function SimulatorScreen() {
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
-                minutes, injuries, matchup splits, and park weather. The AI Grade rolls simulation together with
-                matchup data, recent form, injuries, sportsbook EV, and line-shopping — simulation is one input,
-                not the whole grade.
+                minutes, injuries, matchup splits, and park weather. For live games, the game-outcome sim starts from
+                the current score and only projects the remaining innings/periods — not a full pre-game replay. The AI
+                Grade rolls simulation together with matchup data, recent form, injuries, sportsbook EV, and line-shopping
+                — simulation is one input, not the whole grade.
               </Text>
             </Card>
           </Pressable>
@@ -1044,11 +1125,13 @@ function TeamCol({
   logo,
   record,
   align,
+  score,
 }: {
   name: string;
   logo?: string | null;
   record: string;
   align: "left" | "right";
+  score?: number | null;
 }) {
   const colors = useColors();
   return (
@@ -1072,7 +1155,9 @@ function TeamCol({
       <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, textAlign: align }}>
         {name.split(" ").slice(-1)[0]}
       </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>{record}</Text>
+      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+        {score != null ? String(score) : record}
+      </Text>
     </View>
   );
 }
@@ -1175,21 +1260,41 @@ function LikelyWinner({
   winner,
   logo,
   pct,
+  homeWin,
+  awayWin,
 }: {
   winner: string;
   logo?: string | null;
   pct: number;
+  homeWin: number;
+  awayWin: number;
 }) {
   const colors = useColors();
+  const gap = Math.abs(homeWin - awayWin);
+  const tooClose = gap < 0.05;
   return (
     <View style={{ alignItems: "center", gap: 6 }}>
-      {logo ? <Image source={{ uri: logo }} style={{ width: 28, height: 28 }} contentFit="contain" /> : null}
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, textAlign: "center" }}>
-        {winner.split(" ").slice(-1)[0]} Win
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>
-        {(pct * 100).toFixed(1)}% of simulations
-      </Text>
+      {tooClose ? (
+        <>
+          <Feather name="minus" size={22} color={colors.mutedForeground} />
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 11, color: colors.foreground, textAlign: "center" }}>
+            Too close to call
+          </Text>
+          <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground, textAlign: "center" }}>
+            Within 5% — essentially a coin flip
+          </Text>
+        </>
+      ) : (
+        <>
+          {logo ? <Image source={{ uri: logo }} style={{ width: 28, height: 28 }} contentFit="contain" /> : null}
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, textAlign: "center" }}>
+            {winner.split(" ").slice(-1)[0]} Win
+          </Text>
+          <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>
+            {(pct * 100).toFixed(1)}% of simulations
+          </Text>
+        </>
+      )}
     </View>
   );
 }
