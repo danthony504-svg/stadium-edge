@@ -1,12 +1,17 @@
-/** Set synchronously before router.push — survives tab navigations that drop query params. */
-let hideNextAutoSendBubble = false;
+/** Home one-tap launches set this synchronously before router.push (tab params may drop). */
+export type CoachLaunchOpts = {
+  hideBubble: boolean;
+  freshThread: boolean;
+};
 
-export function markCoachSilentAutoSend(): void {
-  hideNextAutoSendBubble = true;
+let pendingLaunch: CoachLaunchOpts | null = null;
+
+export function markCoachHomeLaunch(): void {
+  pendingLaunch = { hideBubble: true, freshThread: true };
 }
 
-export function takeCoachSilentAutoSend(): boolean {
-  const hide = hideNextAutoSendBubble;
-  hideNextAutoSendBubble = false;
-  return hide;
+export function takeCoachLaunch(): CoachLaunchOpts | null {
+  const launch = pendingLaunch;
+  pendingLaunch = null;
+  return launch;
 }

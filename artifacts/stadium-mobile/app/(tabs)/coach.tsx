@@ -82,7 +82,7 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
-import { takeCoachSilentAutoSend } from "@/lib/coachSilentLaunch";
+import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
@@ -996,12 +996,18 @@ export default function CoachScreen() {
           todayOnly: boolean;
         };
         hideUserBubble?: boolean;
+        /** Drop prior Coach thread — Home hero / one-tap shortcuts start clean. */
+        freshThread?: boolean;
       },
     ) => {
       const replay = opts?.replay ?? null;
       const trimmed = text.trim();
       const images = replay ? [] : attachedImages;
-      if ((!trimmed && !images.length) || streaming) return;
+      if ((!trimmed && !images.length) || (streaming && !opts?.freshThread)) return;
+      if (opts?.freshThread) {
+        abortRef.current?.abort();
+        simAbortRef.current?.abort();
+      }
       // Drop the keyboard once a message is actually sent so the reply isn't
       // hidden behind it (covers the send button, suggested prompts, auto-send).
       Keyboard.dismiss();
@@ -1027,7 +1033,9 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
-      const thread = messages.filter((m) => !isWelcomeMessage(m));
+      const thread = opts?.freshThread
+        ? []
+        : messages.filter((m) => !isWelcomeMessage(m));
       const history: UIMessage[] = [
         ...thread,
         { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined, hideBubble: opts?.hideUserBubble },
@@ -2642,12 +2650,15 @@ export default function CoachScreen() {
     const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
     const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
     if (sendFlag !== "1" || !autoMsg) return;
+    const launch = takeCoachLaunch();
     const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
-    if (streaming) return;
+    if (streaming && !launch?.freshThread) return;
     autoSentRef.current = token;
-    const hideBubble = takeCoachSilentAutoSend() || !!params.autoMsg;
-    send(String(autoMsg), { hideUserBubble: hideBubble });
+    send(String(autoMsg), {
+      hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
+      freshThread: launch?.freshThread ?? false,
+    });
   }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, send]);
 
   useEffect(() => {

@@ -21,7 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachSilentAutoSend } from "@/lib/coachSilentLaunch";
+import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -795,7 +795,7 @@ export default function HomeScreen() {
     upsetsQ.isFetching;
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachSilentAutoSend();
+    if (silent) markCoachHomeLaunch();
     router.push({
       pathname: "/coach",
       params: {
