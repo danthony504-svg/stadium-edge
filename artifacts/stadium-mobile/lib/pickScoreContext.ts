@@ -39,6 +39,7 @@ import {
   gameSimHitForPick,
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
+import { buildFinalAiScore } from "@/lib/finalAiScore";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
@@ -475,6 +476,31 @@ export function attachPickScores(
           gameSims?.get(p.game),
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    return { ...p, scores };
+    if (!scores) return { ...p, scores: null };
+
+    const propKey =
+      p.isProp && p.player && p.propLine != null && p.propSide
+        ? `${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`
+        : null;
+    const propSimHit =
+      p.isProp && propKey && sims?.get(propKey)?.hitProbability != null
+        ? (sims.get(propKey)!.hitProbability as number)
+        : null;
+
+    const finalAiScore = buildFinalAiScore({
+      pick: p,
+      rubricScores: scores.scores,
+      edgePct: scores.edgePct,
+      odds: p.odds,
+      gameSim: gameSims?.get(p.game),
+      propSimHit,
+    });
+
+    return {
+      ...p,
+      scores: finalAiScore.rubric,
+      finalAiScore,
+      highRiskValuePlay: finalAiScore.highRiskValuePlay || p.highRiskValuePlay,
+    };
   });
 }

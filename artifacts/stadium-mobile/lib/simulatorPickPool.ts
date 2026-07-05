@@ -19,7 +19,13 @@ import {
   type CombinedPickScore,
   type PickSubScores,
 } from "./pickScore";
+import { buildFinalAiScore, type FinalAiScore } from "./finalAiScore";
 import { gameValueForMarket, computeAmbiguous } from "./propStats";
+
+export type SimulatorPropGrade = {
+  rubric: CombinedPickScore;
+  finalAiScore: FinalAiScore;
+};
 
 export type SimulatorPlayerHistorySlice = {
   player?: string;
@@ -286,8 +292,8 @@ export function gradeSimulatorProps(
     propSimulations?: Map<string, { hitProbability: number | null }>;
     injuryTeams?: InjuryTeam[];
   },
-): Map<string, CombinedPickScore> {
-  const out = new Map<string, CombinedPickScore>();
+): Map<string, SimulatorPropGrade> {
+  const out = new Map<string, SimulatorPropGrade>();
   for (const s of selected) {
     const raw = scoreOneSimulatorProp(
       {
@@ -316,7 +322,29 @@ export function gradeSimulatorProps(
       propMarketKey: s.market,
     });
     const key = `${s.player}|${s.market}|${s.line}|${s.side}`;
-    if (scores) out.set(key, scores);
+    if (!scores) continue;
+    const simKey = key;
+    const propSimHit = opts.propSimulations?.get(simKey)?.hitProbability ?? null;
+    const finalAiScore = buildFinalAiScore({
+      pick: {
+        isProp: true,
+        game: gameLabel,
+        sport,
+        market: propMarketLabel(s.market),
+        pick: `${s.player} ${s.side} ${s.line}`,
+        player: s.player,
+        propLine: s.line,
+        propSide: s.side,
+        propMarketKey: s.market,
+        odds: s.odds,
+        athleteId: s.athleteId,
+      },
+      rubricScores: scores.scores,
+      edgePct: scores.edgePct,
+      odds: s.odds,
+      propSimHit,
+    });
+    out.set(key, { rubric: finalAiScore.rubric, finalAiScore });
   }
   return out;
 }

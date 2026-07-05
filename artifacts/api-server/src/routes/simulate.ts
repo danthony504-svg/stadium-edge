@@ -232,6 +232,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   const weatherImpact =
     req.body?.weatherImpact != null ? Number(req.body.weatherImpact) : null;
   const coverQueries = parseCoverQueries(req.body?.coverQueries);
+  const retainOutcomes = req.body?.retainOutcomes !== false;
 
   if (!sport || !homeTeamId || !awayTeamId) {
     res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
@@ -249,6 +250,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     simulations,
     weatherImpact,
     coverQueries,
+    retainOutcomes,
     home: {
       ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
       ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,

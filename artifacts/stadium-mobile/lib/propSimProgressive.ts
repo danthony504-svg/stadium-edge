@@ -6,6 +6,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -41,7 +42,8 @@ function scorePicksWithSim(
     ...opts,
     propSimulations: sims,
   });
-  return scored.map((p) =>
+  const filtered = filterCoachPicksWithPropSim(scored, sims);
+  return filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );
 }

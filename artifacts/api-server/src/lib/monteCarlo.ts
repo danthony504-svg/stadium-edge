@@ -32,6 +32,8 @@ export type PropSimulationContext = {
   /** MLB weather impact rating roughly -1..1 (negative = pitcher-friendly). */
   weatherImpact?: number | null;
   discrete?: boolean;
+  /** Extra lines scored on the SAME 10k draw (alt rungs). */
+  additionalLines?: number[];
 };
 
 export type PropSimulationResult = {
@@ -44,6 +46,8 @@ export type PropSimulationResult = {
   stdDev: number | null;
   sampleGames: number;
   percentiles: { p10: number; p25: number; p50: number; p75: number; p90: number } | null;
+  /** Hit rate per additional line on the same draw (key = line number string). */
+  lineHitRates?: Record<string, number>;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -211,6 +215,19 @@ export function runMonteCarloSimulation(
       : samples.filter((s) => s < ctx.line).length;
   const hitProb = hits / simulations;
 
+  let lineHitRates: Record<string, number> | undefined;
+  const extra = (ctx.additionalLines ?? []).filter((l) => Number.isFinite(l) && l !== ctx.line);
+  if (extra.length > 0) {
+    lineHitRates = {};
+    for (const ln of extra) {
+      const h =
+        ctx.side === "Over"
+          ? samples.filter((s) => s > ln).length
+          : samples.filter((s) => s < ln).length;
+      lineHitRates[String(ln)] = round3(h / simulations);
+    }
+  }
+
   let confidence = 50;
   if (vals.length >= 8) confidence += 14;
   else if (vals.length >= 5) confidence += 8;
@@ -244,6 +261,7 @@ export function runMonteCarloSimulation(
       p75: round2(percentile(sorted, 0.75)),
       p90: round2(percentile(sorted, 0.9)),
     },
+    ...(lineHitRates ? { lineHitRates } : {}),
   };
 }
 

@@ -44,12 +44,14 @@ import {
 } from "@/lib/simulatorApi";
 
 import { propMarketLabel } from "@/lib/propMarketLabel";
-import type { CombinedPickScore } from "@/lib/pickScore";
+import { buildDefaultGameCoverQueries } from "@/lib/gameSimScoring";
+import { finalAiScoreLabel } from "@/lib/finalAiScore";
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
   gradeSimulatorProps,
   type SimulatorPlayerHistorySlice,
+  type SimulatorPropGrade,
 } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
@@ -483,6 +485,8 @@ export default function SimulatorScreen() {
     try {
       const wx = weatherImpact;
       if (mode === "game" || mode === "full") {
+        const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
+        const coverQueries = buildDefaultGameCoverQueries(gameLabel, game.homeTeam, game.awayTeam);
         const gr = await fetchSimulatorGameOutcome({
           sport,
           homeTeamId: game.homeTeamId,
@@ -491,6 +495,8 @@ export default function SimulatorScreen() {
           awayTeam: game.awayTeam,
           simulations: SIM_COUNT,
           weatherImpact: wx,
+          coverQueries,
+          retainOutcomes: true,
         });
         setGameResult(gr);
       }
@@ -601,7 +607,7 @@ export default function SimulatorScreen() {
 
   const propScores = useMemo(() => {
     if (!propResults.length || !gameLabel || !selected.length) {
-      return new Map<string, CombinedPickScore>();
+      return new Map<string, SimulatorPropGrade>();
     }
     const simMap = new Map(
       propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
@@ -1105,6 +1111,30 @@ export default function SimulatorScreen() {
                     </ResultCol>
                   </View>
                 ) : null}
+                {gameResult?.coverHitRates && game.homeTeam && game.awayTeam ? (
+                  <Card style={{ marginBottom: 12 }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginBottom: 6 }}>
+                      Moneyline (same 10k draw)
+                    </Text>
+                    {buildDefaultGameCoverQueries(
+                      `${game.awayTeam} @ ${game.homeTeam}`,
+                      game.homeTeam,
+                      game.awayTeam,
+                    ).map((q) => {
+                      const hit = gameResult.coverHitRates?.[q.id];
+                      if (hit == null) return null;
+                      const team = q.teamSide === "home" ? game.homeTeam : game.awayTeam;
+                      return (
+                        <Text
+                          key={q.id}
+                          style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, marginTop: 4 }}
+                        >
+                          {team} ML — {Math.round(hit * 100)}% hit rate
+                        </Text>
+                      );
+                    })}
+                  </Card>
+                ) : null}
 
                 {propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
@@ -1112,11 +1142,14 @@ export default function SimulatorScreen() {
                       Player Prop Projections
                     </Text>
                     <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      AI Grade combines simulation with matchup, recent form, injuries, line value, and cross-book odds — simulation is one factor, not the only one.
+                      Final AI Score rolls simulation, line value, matchup, recent form, injuries, line shopping, sharp money, and line movement into one grade — simulation is the anchor, not the only input.
                       {simDeepPending ? " Simulation updating…" : ""}
                     </Text>
                     {propResults.map((r) => {
-                      const combined = propScores.get(r.key);
+                      const graded = propScores.get(r.key);
+                      const combined = graded?.rubric;
+                      const finalAi = graded?.finalAiScore;
+                      const simBadge = finalAiScoreLabel(finalAi);
                       const gradeColor =
                         combined?.composite == null
                           ? colors.mutedForeground
@@ -1143,16 +1176,40 @@ export default function SimulatorScreen() {
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
                             {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
                           </Text>
+                          {simBadge ? (
+                            <View
+                              style={{
+                                alignSelf: "flex-start",
+                                marginTop: 6,
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                backgroundColor: finalAi?.highRiskValuePlay
+                                  ? "rgba(234,179,8,0.2)"
+                                  : "rgba(34,197,94,0.15)",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  fontFamily: FONT.bold,
+                                  fontSize: 10,
+                                  color: finalAi?.highRiskValuePlay ? "#eab308" : colors.success,
+                                }}
+                              >
+                                {simBadge}
+                              </Text>
+                            </View>
+                          ) : null}
                           {r.hitProbability == null && r.sampleGames < 3 ? (
                             <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
                               Not enough recent game log to simulate this line.
                             </Text>
                           ) : null}
                           <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                            <MiniStat label="AI Grade" value={combined?.grade ?? "—"} valueColor={gradeColor} />
+                            <MiniStat label="Final AI Score" value={finalAi?.grade ?? combined?.grade ?? "—"} valueColor={gradeColor} />
                             <MiniStat
                               label="Confidence"
-                              value={combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
+                              value={finalAi?.confidencePct != null ? `${finalAi.confidencePct}%` : combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
                             />
                             <MiniStat
                               label="Edge"
@@ -1185,9 +1242,9 @@ export default function SimulatorScreen() {
               </Text>
               <Text style={{ fontFamily: FONT.body, fontSize: 14, color: colors.mutedForeground, lineHeight: 21 }}>
                 Each run performs {SIM_COUNT.toLocaleString()} Monte Carlo draws using real recent game logs, pace,
-                minutes, injuries, matchup splits, and park weather. The AI Grade rolls simulation together with
-                matchup data, recent form, injuries, sportsbook EV, and line-shopping — simulation is one input,
-                not the whole grade.
+                minutes, injuries, matchup splits, and park weather. One draw set powers every market on that game.
+                The Final AI Score rolls simulation together with line value, matchup, recent form, injuries,
+                line shopping, sharp money, and line movement — simulation is the anchor, not the whole grade.
               </Text>
             </Card>
           </Pressable>

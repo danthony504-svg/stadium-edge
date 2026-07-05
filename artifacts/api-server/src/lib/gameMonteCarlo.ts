@@ -1,5 +1,6 @@
 // Monte Carlo game-outcome simulator — projects team scores and win probability
 // from real recent scoring form (pts for/against, venue splits, weather).
+// One 10k draw set powers every game-line market (ML, spread, alt spread, total).
 
 import { DEFAULT_SIMULATIONS } from "./monteCarlo.js";
 
@@ -18,14 +19,21 @@ export type GameCoverQuery = {
   totalSide?: "over" | "under";
 };
 
+export type GameSimOutcomes = {
+  homeScores: number[];
+  awayScores: number[];
+};
+
 export type GameSimInput = {
   sport: string;
   home: GameSimTeamInput;
   away: GameSimTeamInput;
   weatherImpact?: number | null;
   simulations?: number;
-  /** Optional pick-specific cover rates computed during the same MC draw. */
+  /** Pick-specific lines scored against the SAME draw set. */
   coverQueries?: GameCoverQuery[];
+  /** When true (default), return every draw for client-side market derivation. */
+  retainOutcomes?: boolean;
 };
 
 export type GameSimResult = {
@@ -38,8 +46,10 @@ export type GameSimResult = {
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
-  /** Hit probability (0–1) per coverQueries[].id when queries were supplied. */
+  /** Hit probability (0–1) per coverQueries[].id. */
   coverHitRates?: Record<string, number>;
+  /** Full draw store — one run powers all game-line markets. */
+  outcomes?: GameSimOutcomes;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -92,8 +102,27 @@ export function coverQueryHits(
   return false;
 }
 
+/** Score arbitrary lines against a saved draw set (no re-simulation). */
+export function deriveCoverHitRates(
+  outcomes: GameSimOutcomes,
+  queries: GameCoverQuery[],
+): Record<string, number> {
+  const n = outcomes.homeScores.length;
+  if (!n || n !== outcomes.awayScores.length) return {};
+  const rates: Record<string, number> = {};
+  for (const q of queries) {
+    let hits = 0;
+    for (let i = 0; i < n; i++) {
+      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!)) hits += 1;
+    }
+    rates[q.id] = round3(hits / n);
+  }
+  return rates;
+}
+
 export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   const n = input.simulations ?? DEFAULT_SIMULATIONS;
+  const retainOutcomes = input.retainOutcomes !== false;
   const homeMean = teamMean(input.home.ptsFor, input.away.ptsAgainst, 4.5);
   const awayMean = teamMean(input.away.ptsFor, input.home.ptsAgainst, 4.5);
 
@@ -134,13 +163,15 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   let homeTotal = 0;
   let awayTotal = 0;
   const winCounts = { home: 0, away: 0 };
+  const homeScores: number[] = [];
+  const awayScores: number[] = [];
   const coverQueries = input.coverQueries ?? [];
-  const coverHits: Record<string, number> = {};
-  for (const q of coverQueries) coverHits[q.id] = 0;
 
   for (let i = 0; i < n; i++) {
     const hs = Math.max(0, normalSample(hMean, homeStd));
     const as = Math.max(0, normalSample(aMean, awayStd));
+    homeScores.push(round2(hs));
+    awayScores.push(round2(as));
     homeTotal += hs;
     awayTotal += as;
     if (Math.abs(hs - as) < 0.01) ties += 1;
@@ -150,9 +181,6 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
     } else {
       awayWins += 1;
       winCounts.away += 1;
-    }
-    for (const q of coverQueries) {
-      if (coverQueryHits(q, hs, as)) coverHits[q.id] = (coverHits[q.id] ?? 0) + 1;
     }
   }
 
@@ -164,13 +192,9 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   if ((input.away.recentScores?.length ?? 0) >= 5) confidence += 10;
   confidence += Math.abs(homeWins / n - 0.5) * 50;
 
-  let coverHitRates: Record<string, number> | undefined;
-  if (coverQueries.length > 0) {
-    coverHitRates = {};
-    for (const q of coverQueries) {
-      coverHitRates[q.id] = round3((coverHits[q.id] ?? 0) / n);
-    }
-  }
+  const outcomes: GameSimOutcomes = { homeScores, awayScores };
+  const coverHitRates =
+    coverQueries.length > 0 ? deriveCoverHitRates(outcomes, coverQueries) : undefined;
 
   return {
     simulations: n,
@@ -183,5 +207,6 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
     mostLikelyWinnerPct: round3(winnerPct),
     confidenceScore: clamp(Math.round(confidence), 5, 95),
     ...(coverHitRates ? { coverHitRates } : {}),
+    ...(retainOutcomes ? { outcomes } : {}),
   };
 }

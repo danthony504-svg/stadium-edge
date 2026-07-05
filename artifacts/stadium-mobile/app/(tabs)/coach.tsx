@@ -1835,6 +1835,7 @@ export default function CoachScreen() {
             picks,
             teamIdMap,
             abortRef.current?.signal,
+            context.realOdds,
           );
           const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
             matchupHistory: context.matchupHistory,
@@ -2426,7 +2427,26 @@ export default function CoachScreen() {
                       />
                     ) : null}
                     {m.picks!.map((p, j) => (
-                      <PickCard key={`${i}-${j}`} pick={p} onPress={statsHandlerFor(p)} />
+                      <PickCard
+                        key={`${i}-${j}`}
+                        pick={p}
+                        onPress={statsHandlerFor(p)}
+                        badge={
+                          p.highRiskValuePlay
+                            ? {
+                                text: "High-Risk Value Play",
+                                caption: "Simulator disagrees — large line-value edge only",
+                                tone: "value" as const,
+                              }
+                            : p.finalAiScore?.simAligned && p.finalAiScore.recommends
+                              ? {
+                                  text: "Sim-Aligned",
+                                  caption: `10k sim ${p.finalAiScore.simHit != null ? `${Math.round(p.finalAiScore.simHit * 100)}%` : ""} hit`,
+                                  tone: "grade" as const,
+                                }
+                              : null
+                        }
+                      />
                     ))}
                   </View>
                 ) : null}

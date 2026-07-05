@@ -12,6 +12,12 @@ import {
   type GameCoverQuery,
 } from "./gameSimScoring.ts";
 import { enforceConsistentGameSides } from "./gameSideConsistency.ts";
+import {
+  classifySimAlignment,
+  HIGH_RISK_EDGE_MIN,
+  simHitForPick,
+} from "./finalAiScore.ts";
+import type { RealOddsEntry } from "./api.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -70,14 +76,27 @@ function resolveTeamIds(
   return null;
 }
 
-function uniqueCoverQueries(picks: ParsedPick[]): GameCoverQuery[] {
+function uniqueCoverQueries(picks: ParsedPick[], realOdds?: RealOddsEntry[]): GameCoverQuery[] {
   const seen = new Set<string>();
   const out: GameCoverQuery[] = [];
-  for (const p of picks) {
+  const addPick = (p: ParsedPick) => {
     const q = buildGameCoverQuery(p);
-    if (!q || seen.has(q.id)) continue;
+    if (!q || seen.has(q.id)) return;
     seen.add(q.id);
     out.push(q);
+  };
+  for (const p of picks) addPick(p);
+  if (realOdds) {
+    for (const ro of realOdds) {
+      addPick({
+        game: ro.game,
+        market: ro.market,
+        pick: ro.pick,
+        odds: ro.odds,
+        isProp: false,
+        sport: ro.sport,
+      });
+    }
   }
   return out;
 }
@@ -92,6 +111,7 @@ export async function fetchCoachGameSimulationsForPicks(
   picks: ParsedPick[],
   teamIdsByGame: Map<string, GameTeamIds>,
   signal?: AbortSignal,
+  realOdds?: RealOddsEntry[],
 ): Promise<Map<string, CoachGameSimEntry>> {
   const gameLegs = picks.filter(isGameLinePick);
   const byGame = new Map<string, ParsedPick[]>();
@@ -109,7 +129,7 @@ export async function fetchCoachGameSimulationsForPicks(
       const sport = legs[0]?.sport;
       const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
       if (!ids) return;
-      const coverQueries = uniqueCoverQueries(legs);
+      const coverQueries = uniqueCoverQueries(legs, realOdds?.filter((r) => r.game === gameLabel));
       const result = await fetchGameOutcomeSimulation(
         {
           sport: ids.sport || sport || "mlb",
@@ -119,6 +139,7 @@ export async function fetchCoachGameSimulationsForPicks(
           awayTeam: ids.awayTeam,
           simulations: COACH_GAME_SIMS,
           coverQueries,
+          retainOutcomes: true,
         },
         signal,
       );
@@ -169,20 +190,43 @@ export function filterCoachPicksWithGameSim(
       continue;
     }
     const sim = coachGameSimForPick(p, simByGame);
-    const disagree = gameSimDisagreement(p, sim);
-    if (disagree) {
+    const hit = simHitForPick(p, sim, null);
+    const edge = p.scores?.edgePct ?? null;
+    const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+
+    if (!sim) {
+      const disagree = gameSimDisagreement(p, sim);
+      if (disagree) {
+        coverRemoved += 1;
+        warnings.push(`Dropped **${p.pick}** (${p.game}): ${disagree.reason}`);
+        continue;
+      }
+    } else if (!simAligned && !highRiskValuePlay) {
       coverRemoved += 1;
-      warnings.push(`Dropped **${p.pick}** (${p.game}): ${disagree.reason}`);
+      const pct = hit != null ? Math.round(hit * 100) : 0;
+      warnings.push(
+        `Dropped **${p.pick}** (${p.game}): simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
+      );
       continue;
     }
-    kept.push(p);
+
+    kept.push({
+      ...p,
+      highRiskValuePlay: highRiskValuePlay || undefined,
+    });
   }
 
+  const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
   if (sideAligned.note) noteParts.push(sideAligned.note);
   if (coverRemoved > 0) {
     noteParts.push(
-      `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} the simulator did not support (cover rate below 52%)._`,
+      `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that conflicted with the 10,000-run simulator._`,
+    );
+  }
+  if (highRiskCount > 0) {
+    noteParts.push(
+      `_⚠️ ${highRiskCount} leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — the simulator disagrees but the line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%)._`,
     );
   }
   const note = noteParts.join("\n\n");
@@ -196,3 +240,57 @@ export function filterCoachPicksWithGameSim(
 }
 
 export { gamePickCoverQueryId, isGameLinePick };
+
+/** Drop or label prop legs that contradict their 10k-run sim (same rules as game lines). */
+export function filterCoachPicksWithPropSim(
+  picks: ParsedPick[],
+  propSims: Map<string, { hitProbability: number | null }>,
+): GameSimFilterResult {
+  const kept: ParsedPick[] = [];
+  const warnings: string[] = [];
+  let removed = 0;
+
+  for (const p of picks) {
+    if (!p.isProp) {
+      kept.push(p);
+      continue;
+    }
+    const marketKey = p.propMarketKey ?? p.market;
+    const key =
+      p.player && p.propLine != null && p.propSide
+        ? `${p.player}|${marketKey}|${p.propLine}|${p.propSide}`
+        : null;
+    const hit = key ? (propSims.get(key)?.hitProbability ?? null) : null;
+    const edge = p.scores?.edgePct ?? p.finalAiScore?.edgePct ?? null;
+    const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+
+    if (hit != null && !simAligned && !highRiskValuePlay) {
+      removed += 1;
+      const pct = Math.round(hit * 100);
+      warnings.push(
+        `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
+      );
+      continue;
+    }
+
+    kept.push({
+      ...p,
+      highRiskValuePlay: highRiskValuePlay || p.highRiskValuePlay,
+    });
+  }
+
+  const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
+  const noteParts: string[] = [];
+  if (removed > 0) {
+    noteParts.push(
+      `_Removed ${removed} prop leg${removed === 1 ? "" : "s"} that conflicted with the 10,000-run prop simulator._`,
+    );
+  }
+  if (highRiskCount > 0) {
+    noteParts.push(
+      `_⚠️ ${highRiskCount} prop leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — simulator disagrees but line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%)._`,
+    );
+  }
+
+  return { picks: kept, removed, warnings, note: noteParts.join("\n\n") };
+}

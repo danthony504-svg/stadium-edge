@@ -310,6 +310,7 @@ export async function fetchSimulatorGameOutcome(
       line?: number;
       totalSide?: "over" | "under";
     }>;
+    retainOutcomes?: boolean;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

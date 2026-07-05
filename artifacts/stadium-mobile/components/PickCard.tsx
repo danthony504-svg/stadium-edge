@@ -70,6 +70,10 @@ export type ParsedPick = {
   // the prose-derived EdgeReadout when present. Omitted entirely when no signal
   // grounds — the card then falls back to the existing readout. Never fabricated.
   scores?: CombinedPickScore | null;
+  /** Unified Final AI Score (simulation + rubric); shared by Coach and Simulator. */
+  finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
+  /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
+  highRiskValuePlay?: boolean;
 };
 
 if (

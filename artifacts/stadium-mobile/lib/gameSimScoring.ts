@@ -32,6 +32,7 @@ export type GameCoverQuery = {
 
 export type CoachGameSimEntry = GameSimulationResult & {
   coverHitRates?: Record<string, number>;
+  outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
 const GENERIC = new Set([
@@ -93,6 +94,18 @@ export function gamePickCoverQueryId(pick: ParsedPick): string | null {
   return `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
 }
 
+/** Default ML cover queries for both sides — used when no odds board is loaded. */
+export function buildDefaultGameCoverQueries(
+  gameLabel: string,
+  homeTeam: string,
+  awayTeam: string,
+): GameCoverQuery[] {
+  const base = { game: gameLabel, isProp: false as const, odds: 0 };
+  const home = buildGameCoverQuery({ ...base, market: "Moneyline", pick: `${homeTeam} ML` });
+  const away = buildGameCoverQuery({ ...base, market: "Moneyline", pick: `${awayTeam} ML` });
+  return [home, away].filter((q): q is GameCoverQuery => q != null);
+}
+
 /** Build the server cover query for one game-line pick. */
 export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   if (!isGameLinePick(pick)) return null;
@@ -127,6 +140,50 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   return null;
 }
 
+function coverQueryHits(
+  q: GameCoverQuery,
+  homeScore: number,
+  awayScore: number,
+): boolean {
+  const total = homeScore + awayScore;
+  if (q.kind === "ml") {
+    if (q.teamSide === "home") return homeScore > awayScore;
+    if (q.teamSide === "away") return awayScore > homeScore;
+    return false;
+  }
+  if (q.kind === "spread") {
+    const line = q.line ?? 0;
+    if (q.teamSide === "home") return homeScore + line > awayScore;
+    if (q.teamSide === "away") return awayScore + line > homeScore;
+    return false;
+  }
+  if (q.kind === "total") {
+    const line = q.line ?? 0;
+    if (q.totalSide === "over") return total > line;
+    if (q.totalSide === "under") return total < line;
+    return false;
+  }
+  return false;
+}
+
+/** Derive hit rates for arbitrary lines from a saved 10k draw set. */
+export function deriveCoverHitRatesFromOutcomes(
+  outcomes: { homeScores: number[]; awayScores: number[] },
+  queries: GameCoverQuery[],
+): Record<string, number> {
+  const n = outcomes.homeScores.length;
+  if (!n || n !== outcomes.awayScores.length) return {};
+  const rates: Record<string, number> = {};
+  for (const q of queries) {
+    let hits = 0;
+    for (let i = 0; i < n; i++) {
+      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!)) hits += 1;
+    }
+    rates[q.id] = Math.round((hits / n) * 1000) / 1000;
+  }
+  return rates;
+}
+
 export function gameSimHasValidRun(sim: CoachGameSimEntry | null | undefined): boolean {
   if (!sim) return false;
   const n = sim.simulations ?? 0;
@@ -143,6 +200,12 @@ export function gameSimHitForPick(
   if (!query) return null;
   const fromCover = sim!.coverHitRates?.[query.id];
   if (fromCover != null && Number.isFinite(fromCover)) return fromCover;
+
+  if (sim!.outcomes) {
+    const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query]);
+    const hit = derived[query.id];
+    if (hit != null && Number.isFinite(hit)) return hit;
+  }
 
   // Fallback when cover rates were not requested — ML only from win probs.
   if (query.kind === "ml" && query.teamSide) {

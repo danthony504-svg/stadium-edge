@@ -1476,6 +1476,7 @@ export type PropSimulationResult = {
     p75: number;
     p90: number;
   } | null;
+  lineHitRates?: Record<string, number>;
 };
 
 /** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */
@@ -1584,6 +1585,7 @@ export type GameSimulationResult = {
   mostLikelyWinnerPct: number;
   confidenceScore: number;
   coverHitRates?: Record<string, number>;
+  outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
 export type GameCoverQueryInput = {
@@ -1604,6 +1606,7 @@ export async function fetchGameOutcomeSimulation(
     simulations?: number;
     weatherImpact?: number | null;
     coverQueries?: GameCoverQueryInput[];
+    retainOutcomes?: boolean;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

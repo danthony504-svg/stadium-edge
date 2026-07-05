@@ -39,8 +39,11 @@ test("runGameMonteCarlo returns coverHitRates for queries", () => {
       { id: "home-ml", kind: "ml", teamSide: "home" },
       { id: "home-15", kind: "spread", teamSide: "home", line: -1.5 },
     ],
+    retainOutcomes: true,
   });
   assert.ok(result?.coverHitRates);
   assert.ok((result!.coverHitRates!["home-ml"] ?? 0) > 0.4);
   assert.ok((result!.coverHitRates!["home-15"] ?? 0) < (result!.coverHitRates!["home-ml"] ?? 1));
+  assert.ok(result?.outcomes);
+  assert.equal(result!.outcomes!.homeScores.length, 5000);
 });
