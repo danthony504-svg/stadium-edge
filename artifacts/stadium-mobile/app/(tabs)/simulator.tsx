@@ -133,6 +133,20 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
   return null;
 }
 
+// React Query payloads must be array-guarded — a malformed API/cache response
+// makes `.filter` throw "undefined is not a function".
+function asGameList(data: unknown): EspnGame[] {
+  return Array.isArray(data) ? data : [];
+}
+
+function asPropList(data: unknown): PlayerProp[] {
+  return Array.isArray(data) ? data : [];
+}
+
+function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
+  return Array.isArray(data) ? data : [];
+}
+
 export default function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -168,26 +182,25 @@ export default function SimulatorScreen() {
     queryKey: ["sim-games", sport],
     queryFn: ({ signal }) =>
       getGames(sport, signal).then((rows) => {
-        rememberSimGames(sport, rows);
-        return rows;
+        const list = asGameList(rows).filter((g) => isSimulatorEligible(g));
+        rememberSimGames(sport, list);
+        return list;
       }),
     staleTime: 5 * 60_000,
     initialData: () => {
-      const cached = cachedSimGames(sport);
+      const cached = asGameList(cachedSimGames(sport)).filter((g) => isSimulatorEligible(g));
       return cached.length > 0 ? cached : undefined;
     },
   });
 
-  const games = useMemo(
-    () => (gamesQ.data ?? []).filter((g) => isSimulatorEligible(g)),
-    [gamesQ.data],
-  );
+  const games = useMemo(() => asGameList(gamesQ.data), [gamesQ.data]);
 
   useEffect(() => {
     if (gameIdx >= games.length) setGameIdx(0);
   }, [gameIdx, games.length]);
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
+  const gameEligible = !!game && isSimulatorEligible(game);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
 
@@ -216,14 +229,16 @@ export default function SimulatorScreen() {
   });
 
   const matchupInjuries = useMemo(() => {
-    if (!game?.awayTeam || !game?.homeTeam || !injuriesQ.data?.length) return {};
-    const rep = buildGameInjuryReport(sport, injuriesQ.data, game.awayTeam, game.homeTeam);
+    if (!game?.awayTeam || !game?.homeTeam) return {};
+    const teams = Array.isArray(injuriesQ.data) ? injuriesQ.data : [];
+    if (!teams.length) return {};
+    const rep = buildGameInjuryReport(sport, teams, game.awayTeam, game.homeTeam);
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
-    enabled: !!game?.id,
+    enabled: !!game?.id && gameEligible,
     queryFn: ({ signal }) =>
       getProps(
         {
@@ -237,12 +252,13 @@ export default function SimulatorScreen() {
         },
         signal,
       ).then((r) => {
-        const props = r.props ?? [];
+        const props = asPropList(r.props);
         if (game?.id) rememberSimProps(sport, game.id, props);
         return props;
       }),
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
     // Never paint another sport/game's props while this query refetches.
     placeholderData: undefined,
     initialData: () => {
@@ -252,9 +268,8 @@ export default function SimulatorScreen() {
     },
   });
 
-  const gamesBootstrapping = gamesQ.isFetching && games.length === 0;
-  const propsSettling =
-    propsQ.isFetching && (propsQ.data?.length ?? 0) === 0 && !propsQ.isError;
+  const gamesBootstrapping = gamesQ.isPending && games.length === 0;
+  const propsLoading = gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
@@ -264,10 +279,12 @@ export default function SimulatorScreen() {
   });
 
   const weatherForGame = useMemo(() => {
-    if (!game?.homeTeam || !parkQ.data) return null;
+    if (!game?.homeTeam) return null;
+    const parks = asParkList(parkQ.data);
+    if (!parks.length) return null;
     const norm = (s: string) => s.toLowerCase();
     return (
-      parkQ.data.find(
+      parks.find(
         (p) =>
           norm(p.homeTeam).includes(norm(game.homeTeam!)) ||
           norm(game.homeTeam!).includes(norm(p.homeTeam)),
@@ -281,9 +298,9 @@ export default function SimulatorScreen() {
     : "—";
 
   const mains = useMemo(() => {
-    if (propsSettling) return [];
-    return (propsQ.data ?? []).filter((p) => !p.alt && p.line != null);
-  }, [propsQ.data, propsSettling]);
+    if (propsLoading) return [];
+    return asPropList(propsQ.data).filter((p) => !p.alt && p.line != null);
+  }, [propsQ.data, propsLoading]);
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];
@@ -461,7 +478,7 @@ export default function SimulatorScreen() {
       matchupInjuries,
       playerHistory,
       propSimulations: simMap,
-      injuryTeams: injuriesQ.data,
+      injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
     });
     const out = new Map<string, CombinedPickScore>();
     scored.forEach((p, i) => {
@@ -792,8 +809,12 @@ export default function SimulatorScreen() {
                   </View>
                 </ScrollView>
 
-                {propsSettling ? (
+                {propsLoading ? (
                   <Loading label="Loading player props…" />
+                ) : !gameEligible ? (
+                  <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
+                    This game has already started — pick an upcoming matchup to simulate props.
+                  </Text>
                 ) : propsQ.isError ? (
                   <ErrorState onRetry={() => propsQ.refetch()} />
                 ) : filteredProps.length === 0 ? (
