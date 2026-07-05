@@ -1836,7 +1836,9 @@ export default function CoachScreen() {
             teamIdMap,
             abortRef.current?.signal,
           );
-          const filtered = filterCoachPicksWithGameSim(picks, gameSimulations);
+          const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
+            matchupHistory: context.matchupHistory,
+          });
           picks = filtered.picks;
           if (filtered.note) gameSimNote = filtered.note;
           if (filtered.warnings.length > 0 && !gameSimNote) {

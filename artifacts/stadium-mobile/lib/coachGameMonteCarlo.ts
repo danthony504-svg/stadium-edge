@@ -11,6 +11,7 @@ import {
   type CoachGameSimEntry,
   type GameCoverQuery,
 } from "./gameSimScoring.ts";
+import { enforceConsistentGameSides } from "./gameSideConsistency.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -148,10 +149,19 @@ export type GameSimFilterResult = {
 export function filterCoachPicksWithGameSim(
   picks: ParsedPick[],
   simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+  } = {},
 ): GameSimFilterResult {
+  const sideAligned = enforceConsistentGameSides(picks, {
+    simByGame,
+    matchupHistory: opts.matchupHistory,
+  });
+  picks = sideAligned.picks;
+
   const kept: ParsedPick[] = [];
   const warnings: string[] = [];
-  let removed = 0;
+  let coverRemoved = 0;
 
   for (const p of picks) {
     if (!isGameLinePick(p)) {
@@ -161,19 +171,28 @@ export function filterCoachPicksWithGameSim(
     const sim = coachGameSimForPick(p, simByGame);
     const disagree = gameSimDisagreement(p, sim);
     if (disagree) {
-      removed += 1;
+      coverRemoved += 1;
       warnings.push(`Dropped **${p.pick}** (${p.game}): ${disagree.reason}`);
       continue;
     }
     kept.push(p);
   }
 
-  let note = "";
-  if (removed > 0) {
-    note = `_Removed ${removed} game line${removed === 1 ? "" : "s"} that conflicted with the game simulator (same 10,000-run engine as the Simulator tab)._`;
+  const noteParts: string[] = [];
+  if (sideAligned.note) noteParts.push(sideAligned.note);
+  if (coverRemoved > 0) {
+    noteParts.push(
+      `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} the simulator did not support (cover rate below 52%)._`,
+    );
   }
+  const note = noteParts.join("\n\n");
 
-  return { picks: kept, removed, warnings, note };
+  return {
+    picks: kept,
+    removed: sideAligned.dropped + coverRemoved,
+    warnings,
+    note,
+  };
 }
 
 export { gamePickCoverQueryId, isGameLinePick };
