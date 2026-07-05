@@ -19,10 +19,11 @@ import {
   type CombinedPickScore,
   type PickSubScores,
 } from "./pickScore";
-import { gameValueForMarket } from "./propStats";
+import { gameValueForMarket, computeAmbiguous } from "./propStats";
 
 export type SimulatorPlayerHistorySlice = {
   player?: string;
+  labels?: string[];
   recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
 };
 
@@ -167,8 +168,9 @@ function propTrendScore(
   side: string | null | undefined,
 ): PickSubScores["trend"] {
   if (!ph?.recent?.length || line == null) return null;
+  const ambiguous = computeAmbiguous(ph.labels);
   const vals = ph.recent
-    .map((g) => gameValueForMarket(marketKey, (g.stats ?? {}) as Record<string, string>, new Set()))
+    .map((g) => gameValueForMarket(marketKey, (g.stats ?? {}) as Record<string, string>, ambiguous))
     .filter((v): v is number => v != null);
   return scoreTrend(playerTrendMomentum(vals, line, side));
 }

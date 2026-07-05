@@ -79,16 +79,90 @@ export type GameRosterPlayer = {
   headshot: string | null;
 };
 
-export function fetchGameRoster(
+const ESPN_SPORT_PATHS: Record<string, string> = {
+  mlb: "baseball/mlb",
+  nba: "basketball/nba",
+  wnba: "basketball/wnba",
+  nhl: "hockey/nhl",
+  nfl: "football/nfl",
+  ncaaf: "football/college-football",
+  ncaab: "basketball/mens-college-basketball",
+};
+
+type EspnRosterAthlete = {
+  id?: string | number;
+  fullName?: string;
+  displayName?: string;
+  headshot?: { href?: string } | string;
+};
+
+/** Direct ESPN roster fetch when /sports/game-roster isn't deployed yet. */
+async function fetchEspnRosterDirect(
+  sport: string,
+  homeTeamId: string | null | undefined,
+  awayTeamId: string | null | undefined,
+  signal?: AbortSignal,
+): Promise<GameRosterPlayer[]> {
+  const espnPath = ESPN_SPORT_PATHS[sport];
+  if (!espnPath) return [];
+  const teamIds = [homeTeamId, awayTeamId].filter((id): id is string => !!id);
+  const players: GameRosterPlayer[] = [];
+  for (const teamId of teamIds) {
+    try {
+      const res = await expoFetch(
+        `https://site.api.espn.com/apis/site/v2/sports/${espnPath}/teams/${teamId}/roster`,
+        { signal },
+      );
+      if (!res.ok) continue;
+      const data = (await res.json()) as {
+        athletes?: Array<EspnRosterAthlete | { items?: EspnRosterAthlete[] }>;
+      };
+      const flat: EspnRosterAthlete[] = [];
+      for (const entry of data.athletes ?? []) {
+        if (entry && typeof entry === "object" && "items" in entry && Array.isArray(entry.items)) {
+          flat.push(...entry.items);
+        } else {
+          flat.push(entry as EspnRosterAthlete);
+        }
+      }
+      for (const a of flat) {
+        const name = a.fullName ?? a.displayName;
+        if (!name) continue;
+        const href = typeof a.headshot === "string" ? a.headshot : a.headshot?.href;
+        players.push({
+          name,
+          athleteId: a.id != null ? String(a.id) : null,
+          teamId,
+          headshot: href ?? null,
+        });
+      }
+    } catch {
+      /* try next team */
+    }
+  }
+  return players;
+}
+
+export async function fetchGameRoster(
   sport: string,
   homeTeamId: string | null | undefined,
   awayTeamId: string | null | undefined,
   signal?: AbortSignal,
 ): Promise<{ sport: string; players: GameRosterPlayer[] }> {
-  const q = new URLSearchParams({ sport });
-  if (homeTeamId) q.set("homeTeamId", homeTeamId);
-  if (awayTeamId) q.set("awayTeamId", awayTeamId);
-  return simGetJson(`/sports/game-roster?${q.toString()}`, signal);
+  try {
+    const q = new URLSearchParams({ sport });
+    if (homeTeamId) q.set("homeTeamId", homeTeamId);
+    if (awayTeamId) q.set("awayTeamId", awayTeamId);
+    const data = await simGetJson<{ sport: string; players: GameRosterPlayer[] }>(
+      `/sports/game-roster?${q.toString()}`,
+      signal,
+    );
+    if (data.players?.length) return data;
+  } catch {
+    /* fall through to ESPN */
+  }
+  const players = await fetchEspnRosterDirect(sport, homeTeamId, awayTeamId, signal);
+  return { sport, players };
 }
 
 export type SimPlayerSearchHit = {
