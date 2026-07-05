@@ -59,3 +59,55 @@ test("backfillProps diversifies across markets instead of stacking one stat", ()
   const sb = out.filter((p) => p.market === "Stolen Bases").length;
   assert.ok(sb <= 3, `too many stolen-base legs: ${sb}`);
 });
+
+test("backfillProps spreads props across games and sports on deep tickets", () => {
+  const games = [
+    { game: "Yankees @ Red Sox", sport: "mlb", startsAt: "2026-06-28T22:00:00.000Z" },
+    { game: "Lakers @ Celtics", sport: "nba", startsAt: "2026-06-28T23:30:00.000Z" },
+    { game: "Rangers @ Bruins", sport: "nhl", startsAt: "2026-06-28T23:00:00.000Z" },
+    { game: "Dodgers @ Giants", sport: "mlb", startsAt: "2026-06-28T23:45:00.000Z" },
+  ];
+  const realToday = games.flatMap((g) => [
+    {
+      game: g.game,
+      market: "Moneyline",
+      pick: "Home ML",
+      odds: -110,
+      sport: g.sport,
+      startsAt: g.startsAt,
+    },
+  ]);
+  const pool: PropPoolEntry[] = [];
+  for (const g of games) {
+    for (let i = 0; i < 6; i++) {
+      pool.push({
+        sport: g.sport,
+        game: g.game,
+        marketLabel: i % 2 === 0 ? "Points" : "Hits",
+        player: `Player ${g.sport} ${i}`,
+        line: 1.5,
+        side: "Over",
+        odds: 120 + i * 10,
+        marketKey: "test",
+        headshot: null,
+        teamAbbr: "TST",
+        athleteId: String(i),
+        startsAt: g.startsAt,
+      });
+    }
+  }
+  const out = backfillProps([], pool, realToday, [], {
+    target: 12,
+    diversify: true,
+  });
+  assert.equal(out.length, 12);
+  const gameLabels = new Set(out.map((p) => p.game));
+  const sports = new Set(out.map((p) => p.sport));
+  assert.ok(gameLabels.size >= 3, `expected 3+ games, got ${gameLabels.size}`);
+  assert.ok(sports.size >= 2, `expected 2+ sports, got ${sports.size}`);
+  const perGame = new Map<string, number>();
+  for (const p of out) perGame.set(p.game, (perGame.get(p.game) ?? 0) + 1);
+  for (const [g, n] of perGame) {
+    assert.ok(n <= 2, `too many legs on ${g}: ${n}`);
+  }
+});

@@ -1788,7 +1788,9 @@ export default function CoachScreen() {
           //     generic N-leg ask that happened to ground one prop must still
           //     fill across the whole board).
           //   * lockedSports fires for a named sport, else the sport shared by 2+
-          //     resolved legs (a lone leg never locks).
+          //     resolved legs — unless this is a generic 6+ leg ask with no sport
+          //     named, in which case the backfill pool stays multi-sport so props
+          //     can mix across tonight's full slate.
           // For a multi-game ticket both are null, so backfillPool === realOdds
           // and behavior is unchanged. This is what keeps the single-game
           // period/alt fill (the includePeriods branch below) scoped to the one
@@ -1806,12 +1808,16 @@ export default function CoachScreen() {
           const legSports = new Set(
             picks.map((p) => p.sport).filter((s): s is string => !!s),
           );
+          const genericDeepParlay =
+            legTarget >= 6 && !explicitSingleGame && namedSports.size === 0;
           const lockedSports =
             namedSports.size > 0
               ? namedSports
-              : picks.length >= 2 && legSports.size === 1
-                ? legSports
-                : null;
+              : genericDeepParlay
+                ? null
+                : picks.length >= 2 && legSports.size === 1
+                  ? legSports
+                  : null;
           let backfillPool = lockedGame
             ? context.realOdds.filter((e) => norm(e.game) === lockedGame)
             : reachPool;
