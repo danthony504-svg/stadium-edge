@@ -52,6 +52,7 @@ import {
   picksWithSimPending,
 } from "@/lib/propSimProgressive";
 import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
+import { applyCoachParlayPropQuality } from "@/lib/propQualityGate";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
   confidenceSatisfiesThreshold,
@@ -1282,7 +1283,6 @@ export default function CoachScreen() {
               );
           const enriched =
             isParlayBuild &&
-            !usePropsOnlyParlayPath &&
             rawBuilt.propPool.length > 0 &&
             rawBuilt.context.realProps?.length
               ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
@@ -1456,6 +1456,7 @@ export default function CoachScreen() {
         // of those legs" empty-bubble note from ever replacing the analysis if the
         // model were to slip a stray PICK line through.
         const isAnalyze = wantsAnalyzeSlip(trimmed);
+        const enforceParlayPropQuality = isParlayBuild && !isAnalyze;
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
@@ -1619,10 +1620,12 @@ export default function CoachScreen() {
               salvageSports.size > 0
                 ? dayOdds.filter((e) => salvageSports.has(e.sport))
                 : dayOdds;
-            picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
-              target: tgt,
-              ...propBackfillOpts,
-            });
+            if (!enforceParlayPropQuality) {
+              picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+                target: tgt,
+                ...propBackfillOpts,
+              });
+            }
             if (!propsOnlyTicket && picks.length < tgt) {
               picks = backfillPicks(picks, salvagePool, gameMeta, {
                 target: tgt,
@@ -1640,10 +1643,12 @@ export default function CoachScreen() {
                 target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
               });
-              picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
-                target: tgt,
-                ...propBackfillOpts,
-              });
+              if (!enforceParlayPropQuality) {
+                picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
+                  target: tgt,
+                  ...propBackfillOpts,
+                });
+              }
               if (picks.length > 0) salvageBuilt = true;
             }
           }
@@ -1742,7 +1747,7 @@ export default function CoachScreen() {
               (thinSlateDepth && !explicitSingleGame) ||
               deepMultiLegFill ||
               (legTarget >= 3 && !explicitSingleGame);
-            if (mixPropsInBackfill) {
+            if (mixPropsInBackfill && !enforceParlayPropQuality) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
                 ...propBackfillOpts,
@@ -1804,14 +1809,26 @@ export default function CoachScreen() {
         if (picks.length > MAX_LEGS) {
           picks = picks.slice(0, MAX_LEGS);
         }
-        // Grade each resolved leg with the 5-component pick rubric, from the SAME
-        // real context the legs were resolved against (odds carry edge +
-        // book-spread, props carry their +EV/spread; matchup history + injuries
-        // ground the trend/matchup/injury sub-scores). Honest-or-null: any signal
-        // that can't be grounded for a leg stays absent on its card. The grade is
-        // DISPLAY-ONLY — every resolved leg the model returned is kept and shown
-        // with its real grade; we never drop a leg for grading low, so a requested
-        // N-leg ticket is never trimmed by grade.
+        let propQualityNote = "";
+        if (enforceParlayPropQuality && picks.some((p) => p.isProp)) {
+          const quality = await applyCoachParlayPropQuality(picks, {
+            propPool: mergedPropPool,
+            propSimulations,
+            scoreOpts: {
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              perfByFamily: marketPerf,
+            },
+            signal: controller.signal,
+          });
+          picks = quality.picks;
+          propSimulations = quality.propSimulations;
+          propQualityNote = quality.note;
+        }
+        // Grade each resolved leg with the 6-component pick rubric, from the SAME
+        // real context the legs were resolved against. Parlay props already passed
+        // the quality gate (sim required + multi-signal checks) above.
         picks = attachPickScores(picks, {
           realOdds: context.realOdds,
           propPool: mergedPropPool,
@@ -1819,8 +1836,11 @@ export default function CoachScreen() {
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          propSimulations,
         });
-        picks = picksWithSimPending(picks);
+        if (!enforceParlayPropQuality) {
+          picks = picksWithSimPending(picks);
+        }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -1841,6 +1861,9 @@ export default function CoachScreen() {
         }
         if (propsOnlyNote) {
           legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
+        }
+        if (propQualityNote) {
+          legNote = legNote ? `${legNote}\n\n${propQualityNote}` : propQualityNote;
         }
         if (tonightNote) {
           legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
