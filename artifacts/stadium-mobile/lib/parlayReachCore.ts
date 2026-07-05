@@ -57,7 +57,7 @@ export function buildParlayShortfallNote(
   oddsPhrase: string,
 ): string {
   return [
-    `You asked for ${requested} legs. I searched moneylines, spreads, alt spreads, totals, alt totals, and player props across every game on ${oddsPhrase}, but only **${actual}** cleared the quality filters — I won't pad with weak filler.`,
-    `_Every other candidate failed sim cover, edge, or one-side-per-matchup rules. The **${backupCount}** backup card${backupCount === 1 ? "" : "s"} below almost qualified._`,
+    `You asked for ${requested} legs. I searched moneylines, spreads, alt spreads, totals, alt totals, team totals, alt team totals, player props, and alternate player props across every game on ${oddsPhrase}, but only **${actual}** cleared the quality filters — every leg needs a complete AI Grade, Simulation Hit %, Edge %, Confidence, and Final AI Score backed by the 10k sim and positive EV.`,
+    `_Every other candidate was missing data or failed sim cover, edge, or one-side-per-matchup rules. The **${backupCount}** backup card${backupCount === 1 ? "" : "s"} below almost qualified._`,
   ].join("\n\n");
 }

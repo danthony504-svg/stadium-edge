@@ -1725,6 +1725,7 @@ export const GENERIC_BACKFILL_ORDER: RegExp[] = [
 export const FULL_REACH_GAME_ORDER: RegExp[] = [
   /^Alt Spread$/,
   /^Alt Total$/,
+  /^Alt Team Total$/i,
   /^Team Total$/i,
   /^Spread$/,
   /^Total$/,

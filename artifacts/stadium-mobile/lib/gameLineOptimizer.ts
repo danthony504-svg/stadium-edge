@@ -15,6 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
+import { isFullyQualifiedFinalAi } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -716,8 +717,7 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!row.finalAiScore.simAligned && !row.finalAiScore.highRiskValuePlay) continue;
-    if ((row.edgePct ?? 0) < 0 && !row.finalAiScore.highRiskValuePlay) continue;
+    if (!isFullyQualifiedFinalAi(row.finalAiScore, row.pick.odds ?? null)) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);
