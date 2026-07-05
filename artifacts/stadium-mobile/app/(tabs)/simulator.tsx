@@ -238,7 +238,8 @@ export default function SimulatorScreen() {
         return props;
       }),
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
     // Never paint another sport/game's props while this query refetches.
     placeholderData: undefined,
     initialData: () => {
@@ -311,8 +312,10 @@ export default function SimulatorScreen() {
 
   const toggleProp = (p: PlayerProp, side: "Over" | "Under") => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
+    const isPp = p.priceSource === "PrizePicks";
     const price = side === "Over" ? p.overPrice : p.underPrice;
-    if (price == null || p.line == null) return;
+    if (!isPp && (price == null || p.line == null)) return;
+    if (p.line == null) return;
     const label = `${side} ${p.line} ${propMarketLabel(p.market)}`;
     const key = `${p.player}|${p.market}|${p.line}|${side}`;
     const exists = selected.find(
@@ -332,7 +335,7 @@ export default function SimulatorScreen() {
         market: p.market,
         line: p.line as number,
         side,
-        odds: price,
+        odds: price ?? 0,
         athleteId: p.athleteId,
         headshot: p.headshot,
         label,
@@ -794,15 +797,18 @@ export default function SimulatorScreen() {
                   <ErrorState onRetry={() => propsQ.refetch()} />
                 ) : filteredProps.length === 0 ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
-                    No props posted for this game yet — try another filter or check back closer to first pitch.
+                    {propsQ.isError
+                      ? "Props didn't load — check your connection and tap Retry."
+                      : "No props posted for this game yet — try another filter or check back closer to first pitch."}
                   </Text>
                 ) : (
                   <View style={{ gap: 8 }}>
                     {filteredProps.map((p) => {
                       const side: "Over" | "Under" =
                         p.evSide === "Under" ? "Under" : "Over";
+                      const isPp = p.priceSource === "PrizePicks";
                       const price = side === "Over" ? p.overPrice : p.underPrice;
-                      if (price == null) return null;
+                      if (!isPp && price == null) return null;
                       const picked = selected.some(
                         (s) =>
                           s.player === p.player &&
@@ -834,7 +840,7 @@ export default function SimulatorScreen() {
                             </Text>
                           </View>
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {formatAmerican(price)}
+                            {isPp ? "DFS line" : formatAmerican(price!)}
                           </Text>
                           <Pressable
                             onPress={() => toggleProp(p, side)}
