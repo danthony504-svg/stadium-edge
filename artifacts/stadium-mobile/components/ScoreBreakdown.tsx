@@ -4,6 +4,7 @@ import { Text, View } from "react-native";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
+import { confidenceTierLabel } from "@/lib/finalAiScore";
 
 // Renders the 6-component pick rubric (Matchup / Trend / Line Value / Injury /
 // Line-Shopping / Model Sim) plus the combined AI Grade, Confidence, and Edge %
@@ -106,12 +107,9 @@ function gradeBlurb(score: number | null): string {
   if (score >= 5) return "Fair Value";
   return "Thin Value";
 }
-function confidenceBlurb(pct: number | null): string {
+function confidenceBlurb(pct: number | null, composite?: number | null): string {
   if (pct == null) return "—";
-  if (pct >= 75) return "High Confidence";
-  if (pct >= 60) return "Solid Confidence";
-  if (pct >= 45) return "Moderate Confidence";
-  return "Low Confidence";
+  return confidenceTierLabel({ confidencePct: pct, composite });
 }
 
 // The header row of combined metrics: AI Grade, Confidence, and (when real)
@@ -138,7 +136,7 @@ function HeaderTiles({ data }: { data: CombinedPickScore }) {
         label="Confidence"
         value={data.confidencePct == null ? "—" : String(data.confidencePct)}
         valueColor={colors.primary}
-        caption={confidenceBlurb(data.confidencePct)}
+        caption={confidenceBlurb(data.confidencePct, data.composite)}
       />
       {edge != null ? (
         <MetricTile

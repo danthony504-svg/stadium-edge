@@ -458,6 +458,19 @@ function appendUniqueNote(existing: string, addition: string): string {
   return existing ? `${existing}\n\n${next}` : next;
 }
 
+/** Collapse duplicate paragraphs (e.g. repeated side-alignment notes). */
+function dedupeLegNoteParagraphs(note: string): string {
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out.join("\n\n");
+}
+
 // assistantBubbleText also strips the model's trailing responsible-gambling
 // sign-off (see lib/reminderStrip) so it doesn't render as a dangling line.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
@@ -2160,6 +2173,7 @@ export default function CoachScreen() {
         if (gameSimNote) {
           legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
         }
+        legNote = dedupeLegNoteParagraphs(legNote);
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND

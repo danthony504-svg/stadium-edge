@@ -190,6 +190,36 @@ export function finalAiScoreLabel(score: FinalAiScore | null | undefined): strin
   return null;
 }
 
+export type ConfidenceTier = "Elite" | "High" | "Medium" | "Risky" | "Longshot";
+
+/** Plain conviction tier for cards (replaces Moderate/High Confidence blurbs). */
+export function confidenceTierLabel(opts: {
+  composite?: number | null;
+  confidencePct?: number | null;
+  simHit?: number | null;
+  odds?: number | null;
+  highRiskValuePlay?: boolean;
+}): ConfidenceTier {
+  const odds = opts.odds ?? 0;
+  const simHit = opts.simHit ?? null;
+  const composite = opts.composite ?? null;
+  const confidencePct = opts.confidencePct ?? null;
+
+  if (odds >= 500 || (odds >= 350 && simHit != null && simHit < 0.38)) return "Longshot";
+  if (opts.highRiskValuePlay || (simHit != null && simHit < 0.45 && (composite ?? 0) < 6)) {
+    return "Risky";
+  }
+
+  const comp = composite ?? 0;
+  const conf = confidencePct ?? 50;
+  const hit = simHit ?? 0.5;
+
+  if (comp >= 8.2 && hit >= 0.55 && conf >= 72) return "Elite";
+  if (comp >= 7.2 && hit >= 0.52 && conf >= 62) return "High";
+  if (comp >= 5.5 || conf >= 48 || hit >= 0.5) return "Medium";
+  return "Risky";
+}
+
 export function gameSimRequiredButMissing(
   pick: ParsedPick,
   gameSim: CoachGameSimEntry | null | undefined,

@@ -12,6 +12,7 @@ import {
   ML_CUSHION_MAX_PTS,
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
+import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -403,11 +404,12 @@ function edgeBlurb(gap: number): string {
   if (gap < 0) return "Negative Edge";
   return "Even Edge";
 }
-function confidenceBlurb(score: number): string {
-  if (score >= 7.5) return "High Confidence";
-  if (score >= 6) return "Solid Confidence";
-  if (score >= 4.5) return "Moderate Confidence";
-  return "Low Confidence";
+function confidenceBlurb(score: number, odds?: number | null): string {
+  return confidenceTierLabel({
+    confidencePct: Math.round(score * 10),
+    composite: score,
+    odds,
+  });
 }
 
 // Always-visible readout of the projected edge for a leg. Shows the model's
@@ -521,7 +523,7 @@ export function EdgeReadout({
           "Confidence",
           confScore === null ? "—" : String(Math.round(confScore * 10)),
           colors.primary,
-          confScore === null ? "Win chance" : confidenceBlurb(confScore),
+          confScore === null ? "Win chance" : confidenceBlurb(confScore, odds),
           confScore === null ? undefined : "%",
         )}
       </View>
