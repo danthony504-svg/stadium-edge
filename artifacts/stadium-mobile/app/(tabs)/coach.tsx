@@ -60,6 +60,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
+import { enforceSimAlignedSpreadPicks } from "@/lib/spreadSimAlignment";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1844,6 +1845,16 @@ export default function CoachScreen() {
           if (filtered.note) gameSimNote = filtered.note;
           if (filtered.warnings.length > 0 && !gameSimNote) {
             gameSimNote = filtered.warnings.join("\n");
+          }
+          const spreadAligned = enforceSimAlignedSpreadPicks(picks, gameSimulations, {
+            realOdds: context.realOdds,
+            gameMeta,
+          });
+          picks = spreadAligned.picks;
+          if (spreadAligned.note) {
+            gameSimNote = gameSimNote
+              ? `${gameSimNote}\n\n${spreadAligned.note}`
+              : spreadAligned.note;
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
