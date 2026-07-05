@@ -845,7 +845,8 @@ function genericFactors(homeAway: PropFactor, recent: PropFactor, oppCard: PropF
 // with a generic fallback so the section is never empty or wrong. Every set ends
 // with the home/away + recent-vs-season cards, which render REAL numbers when
 // the page supplies them and fall back to generic guidance otherwise.
-export function factorsForProp(opts: FactorContext): PropFactor[] {
+export function factorsForProp(opts: FactorContext | null | undefined): PropFactor[] {
+  if (!opts) return [];
   const sport = (opts.sport || "").toLowerCase();
   const key = `${opts.marketKey} ${opts.marketLabel}`.toLowerCase();
   const real = opts.real ?? null;

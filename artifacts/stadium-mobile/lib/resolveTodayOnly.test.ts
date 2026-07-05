@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPickable, isPregameBettable, resolveTodayOnly } from "./slate.ts";
+import { isPickable, isPregameBettable, isSimulatorEligible, resolveTodayOnly } from "./slate.ts";
 
 // ISO string offset from now, in hours.
 const at = (hoursFromNow: number) =>
@@ -88,4 +88,13 @@ test("isPregameBettable excludes games beyond the 48h window and bad/empty input
   assert.equal(isPregameBettable(null), false);
   assert.equal(isPregameBettable(undefined), false);
   assert.equal(isPregameBettable("not-a-date"), false);
+});
+
+test("isSimulatorEligible: pregame only — drops started, live, and final games", () => {
+  const upcoming = at(2);
+  assert.equal(isSimulatorEligible({ startsAt: upcoming, state: "pre" }), true);
+  assert.equal(isSimulatorEligible({ startsAt: at(-2.5), state: "pre" }), false);
+  assert.equal(isSimulatorEligible({ startsAt: at(-1), state: "in" }), false);
+  assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "post" }), false);
+  assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "pre", status: "Final" }), false);
 });

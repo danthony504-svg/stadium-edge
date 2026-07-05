@@ -22,6 +22,7 @@ import {
 import {
   isPickable,
   isPregameBettable,
+  isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,
@@ -60,6 +61,7 @@ export {
 export {
   isPickable,
   isPregameBettable,
+  isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,
@@ -503,6 +505,14 @@ export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[
   return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
 }
 
+/** Pregame-only slate for Game Simulator — server filters with `simulator=1`. */
+export function getSimulatorGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
+  return getJson<EspnGame[]>(
+    `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
+    signal,
+  );
+}
+
 export function getEspnOdds(
   sport: string,
   eventId: string,
@@ -610,6 +620,8 @@ export type PlayerProp = {
   // omitted — never fabricated. Grounds the prop rubric's Line-Shopping score.
   overSpread?: number | null;
   underSpread?: number | null;
+  // DFS projection fallback (PrizePicks) — real line, no per-leg American price.
+  priceSource?: "PrizePicks" | null;
 };
 
 export type PropsResponse = {
@@ -693,13 +705,102 @@ export type GetPropsArgs = {
 // team ids so it can attach real ESPN headshots. startsAt disambiguates same-
 // team rematches (e.g. MLB doubleheaders) when resolving the Odds API event id.
 export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
+  if (!args?.sport || !args?.eventId) {
+    return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
+  }
   const q = new URLSearchParams({ sport: args.sport, eventId: args.eventId });
   if (args.home) q.set("home", args.home);
   if (args.away) q.set("away", args.away);
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   if (args.startsAt) q.set("startsAt", args.startsAt);
-  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 22_000);
+  // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
+  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+}
+
+function ppStatToMarketKey(sport: string, stat: string | null | undefined): string {
+  if (!stat) return "";
+  const s = stat.toLowerCase().replace(/[^a-z0-9+]/g, " ").trim();
+  const MLB: Record<string, string> = {
+    hits: "batter_hits",
+    "home runs": "batter_home_runs",
+    hr: "batter_home_runs",
+    hrs: "batter_home_runs",
+    strikeouts: "pitcher_strikeouts",
+    "pitcher strikeouts": "pitcher_strikeouts",
+    ks: "pitcher_strikeouts",
+    "stolen bases": "batter_stolen_bases",
+    sbs: "batter_stolen_bases",
+    "total bases": "batter_total_bases",
+    "hits runs rbis": "batter_hits_runs_rbis",
+    "hits+runs+rbis": "batter_hits_runs_rbis",
+    rbis: "batter_hits_runs_rbis",
+  };
+  const NBA: Record<string, string> = {
+    points: "player_points",
+    rebounds: "player_rebounds",
+    assists: "player_assists",
+    "3pt made": "player_threes",
+    threes: "player_threes",
+    "pts+rebs+asts": "player_points_rebounds_assists",
+  };
+  const map =
+    sport === "mlb"
+      ? MLB
+      : sport === "nba" || sport === "wnba"
+        ? NBA
+        : sport === "nhl"
+          ? {
+              points: "player_points",
+              goals: "player_goals",
+              assists: "player_assists",
+              "shots on goal": "player_shots_on_goal",
+            }
+          : {};
+  return map[s] ?? stat;
+}
+
+export function getPrizePicksProps(
+  args: { sport: string; home: string; away: string },
+  signal?: AbortSignal,
+): Promise<PropsResponse> {
+  const q = new URLSearchParams({ sport: args.sport, home: args.home, away: args.away });
+  return getJson<PropsResponse>(`/sports/prizepicks-props?${q.toString()}`, signal, 22_000);
+}
+
+// Odds-API props first; on empty or upstream failure, fall back to PrizePicks DFS
+// lines (real projections, no per-leg American price). Works even when production
+// hasn't redeployed the server-side ESPN→Odds id guard yet.
+export async function getPropsWithPrizePicksFallback(
+  args: GetPropsArgs,
+  signal?: AbortSignal,
+): Promise<PropsResponse> {
+  if (!args?.sport || !args?.eventId) {
+    return { home: null, away: null, bookmaker: null, props: [] };
+  }
+  try {
+    const r = await getProps(args, signal);
+    if (Array.isArray(r.props) && r.props.length > 0) return r;
+  } catch {
+    // Upstream 502 (e.g. stale deploy passing ESPN ids to Odds API) — try PP.
+  }
+  if (!args.home || !args.away) {
+    return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
+  }
+  try {
+    const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
+    const props = (Array.isArray(pp.props) ? pp.props : [])
+      .filter((p): p is PlayerProp => !!p && typeof p === "object")
+      .map((p) => ({
+        ...p,
+        market: ppStatToMarketKey(args.sport, p.market) || p.market,
+        priceSource: "PrizePicks" as const,
+        overBook: p.overBook ?? "PrizePicks",
+      }));
+    return { ...pp, props };
+  } catch {
+    return { home: args.home, away: args.away, bookmaker: null, props: [] };
+  }
 }
 
 // ---------- Player history (real ESPN game logs + season stats) ----------
@@ -1029,7 +1130,8 @@ const PROP_MARKET_LABELS: Record<string, string> = {
   pitcher_strikeouts: "Strikeouts",
 };
 
-export function propMarketLabel(key: string): string {
+export function propMarketLabel(key: string | null | undefined): string {
+  if (!key) return "Prop";
   let k = key;
   let suffix = "";
   if (k.endsWith("_alternate")) k = k.slice(0, -"_alternate".length);
@@ -1423,7 +1525,7 @@ export async function fetchPropSimulations(
   }> = [];
 
   for (const p of picks) {
-    if (!p.isProp || !p.player || p.propLine == null) continue;
+    if (!p?.isProp || !p.player || p.propLine == null) continue;
     const side = p.propSide === "Under" ? "Under" : p.propSide === "Over" ? "Over" : null;
     if (!side) continue;
     const pool =
@@ -3422,6 +3524,7 @@ export type StreamChatArgs = {
 export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
   const out: PropPoolEntry[] = [];
   for (const p of props) {
+    if (!p) continue;
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
     if (p.over != null) {

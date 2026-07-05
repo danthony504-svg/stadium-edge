@@ -1,9 +1,10 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -26,12 +27,10 @@ import {
   fetchGameOutcomeSimulation,
   fetchMatchupHistoryEntry,
   fetchPropSimulationsBatch,
-  getGames,
+  getSimulatorGames,
   getInjuries,
   getParkWeather,
   getPlayerHistory,
-  getProps,
-  isPickable,
   propMarketLabel,
   warmApiForCoachBuild,
   type EspnGame,
@@ -39,6 +38,8 @@ import {
   type PlayerProp,
   type PropSimulationResult,
 } from "@/lib/api";
+import { isSimulatorEligible } from "@/lib/slate";
+import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
@@ -49,8 +50,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
-  cachedSimGames,
-  cachedSimProps,
+  pruneSimGamesCache,
   rememberSimGames,
   rememberSimProps,
 } from "@/lib/simulatorSessionCache";
@@ -111,6 +111,20 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function simGameTabLabel(g: EspnGame, games: EspnGame[]): string {
+  const base = `${g.awayAbbr ?? g.awayTeam} @ ${g.homeAbbr ?? g.homeTeam}`;
+  const dupes = games.filter(
+    (x) =>
+      (x.awayAbbr ?? x.awayTeam) === (g.awayAbbr ?? g.awayTeam) &&
+      (x.homeAbbr ?? x.homeTeam) === (g.homeAbbr ?? g.homeTeam),
+  );
+  if (dupes.length <= 1) return base;
+  const t = Date.parse(g.startsAt ?? "");
+  if (!Number.isFinite(t)) return base;
+  const d = new Date(t);
+  return `${base} · ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
 function formatGameWhen(iso: string) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
@@ -131,6 +145,24 @@ function weatherImpactFromRating(rating: string | undefined): number | null {
   if (r.includes("pitcher") || r.includes("suppressed")) return -0.35;
   if (r.includes("neutral")) return 0;
   return null;
+}
+
+// React Query payloads must be array-guarded — a malformed API/cache response
+// makes `.filter` throw "undefined is not a function"; null entries crash on `.sport`.
+function asGameList(data: unknown): EspnGame[] {
+  return Array.isArray(data)
+    ? data.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
+    : [];
+}
+
+function asPropList(data: unknown): PlayerProp[] {
+  return Array.isArray(data)
+    ? data.filter((p): p is PlayerProp => !!p && typeof p === "object" && typeof p.player === "string")
+    : [];
+}
+
+function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: number; condition: string }; impact?: { rating?: string } }> {
+  return Array.isArray(data) ? data : [];
 }
 
 export default function SimulatorScreen() {
@@ -157,6 +189,13 @@ export default function SimulatorScreen() {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
+  // Re-filter the slate when kickoff passes without waiting for the next refetch.
+  const [clockTick, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Wake cold Render hosts before the first games/props fan-out.
   useEffect(() => {
     if (warmedRef.current) return;
@@ -167,23 +206,35 @@ export default function SimulatorScreen() {
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
     queryFn: ({ signal }) =>
-      getGames(sport, signal).then((rows) => {
-        rememberSimGames(sport, rows);
-        return rows;
+      getSimulatorGames(sport, signal).then((rows) => {
+        const list = asGameList(rows).filter((g) => isSimulatorEligible(g));
+        rememberSimGames(sport, list);
+        return list;
       }),
-    staleTime: 5 * 60_000,
-    initialData: () => {
-      const cached = cachedSimGames(sport);
-      return cached.length > 0 ? cached : undefined;
-    },
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
   });
 
   const games = useMemo(
-    () => (gamesQ.data ?? []).filter((g) => isPickable(g.startsAt)),
-    [gamesQ.data],
+    () => asGameList(gamesQ.data).filter((g) => isSimulatorEligible(g)),
+    [gamesQ.data, clockTick],
   );
 
+  // Drop started games as soon as the user returns to this tab.
+  useFocusEffect(
+    useCallback(() => {
+      pruneSimGamesCache();
+      void gamesQ.refetch();
+    }, [gamesQ.refetch]),
+  );
+
+  useEffect(() => {
+    if (gameIdx >= games.length) setGameIdx(0);
+  }, [gameIdx, games.length]);
+
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
+  const gameEligible = !!game && isSimulatorEligible(game);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
 
@@ -197,60 +248,64 @@ export default function SimulatorScreen() {
   const matchupQ = useQuery({
     queryKey: ["sim-matchup", sport, game?.id],
     enabled: !!game?.homeTeamId && !!game?.awayTeamId && !!gameLabel,
-    queryFn: ({ signal }) =>
-      fetchMatchupHistoryEntry(
+    queryFn: ({ signal }) => {
+      if (!game?.homeTeamId || !game?.awayTeamId) return Promise.resolve(null);
+      return fetchMatchupHistoryEntry(
         {
           sport,
           gameLabel,
-          homeTeamId: game!.homeTeamId!,
-          awayTeamId: game!.awayTeamId!,
-          startsAt: game!.startsAt,
+          homeTeamId: game.homeTeamId,
+          awayTeamId: game.awayTeamId,
+          startsAt: game.startsAt,
         },
         signal,
-      ),
+      );
+    },
     staleTime: 10 * 60_000,
   });
 
   const matchupInjuries = useMemo(() => {
-    if (!game?.awayTeam || !game?.homeTeam || !injuriesQ.data?.length) return {};
-    const rep = buildGameInjuryReport(sport, injuriesQ.data, game.awayTeam, game.homeTeam);
+    if (!game?.awayTeam || !game?.homeTeam) return {};
+    const teams = Array.isArray(injuriesQ.data) ? injuriesQ.data : [];
+    if (!teams.length) return {};
+    const rep = buildGameInjuryReport(sport, teams, game.awayTeam, game.homeTeam);
     return rep && gameLabel ? { [gameLabel]: rep } : {};
   }, [game, injuriesQ.data, sport, gameLabel]);
 
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
-    enabled: !!game?.id,
-    queryFn: ({ signal }) =>
-      getProps(
-        {
-          sport,
-          eventId: game!.id,
-          home: game!.homeTeam ?? undefined,
-          away: game!.awayTeam ?? undefined,
-          homeTeamId: game!.homeTeamId,
-          awayTeamId: game!.awayTeamId,
-          startsAt: game!.startsAt,
-        },
-        signal,
-      ).then((r) => {
-        const props = r.props ?? [];
-        if (game?.id) rememberSimProps(sport, game.id, props);
+    enabled: !!game?.id && gameEligible,
+    throwOnError: false,
+    queryFn: async ({ signal }) => {
+      if (!game?.id) return [] as PlayerProp[];
+      try {
+        const props = await loadSimulatorProps(
+          {
+            sport,
+            eventId: game.id,
+            home: game.homeTeam ?? undefined,
+            away: game.awayTeam ?? undefined,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
+            startsAt: game.startsAt,
+          },
+          signal,
+        );
+        if (props.length > 0) rememberSimProps(sport, game.id, props);
         return props;
-      }),
+      } catch {
+        return [] as PlayerProp[];
+      }
+    },
     staleTime: 5 * 60_000,
-    retry: 1,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 8000),
     // Never paint another sport/game's props while this query refetches.
     placeholderData: undefined,
-    initialData: () => {
-      if (!game?.id) return undefined;
-      const cached = cachedSimProps(sport, game.id);
-      return cached.length > 0 ? cached : undefined;
-    },
   });
 
-  const gamesBootstrapping = gamesQ.isFetching && games.length === 0;
-  const propsSettling =
-    propsQ.isFetching && (propsQ.data?.length ?? 0) === 0 && !propsQ.isError;
+  const gamesBootstrapping = gamesQ.isPending && games.length === 0;
+  const propsLoading = gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
@@ -260,10 +315,12 @@ export default function SimulatorScreen() {
   });
 
   const weatherForGame = useMemo(() => {
-    if (!game?.homeTeam || !parkQ.data) return null;
+    if (!game?.homeTeam) return null;
+    const parks = asParkList(parkQ.data);
+    if (!parks.length) return null;
     const norm = (s: string) => s.toLowerCase();
     return (
-      parkQ.data.find(
+      parks.find(
         (p) =>
           norm(p.homeTeam).includes(norm(game.homeTeam!)) ||
           norm(game.homeTeam!).includes(norm(p.homeTeam)),
@@ -277,9 +334,9 @@ export default function SimulatorScreen() {
     : "—";
 
   const mains = useMemo(() => {
-    if (propsSettling) return [];
-    return (propsQ.data ?? []).filter((p) => !p.alt && p.line != null);
-  }, [propsQ.data, propsSettling]);
+    if (propsLoading) return [];
+    return asPropList(propsQ.data).filter((p) => !p?.alt && p.line != null);
+  }, [propsQ.data, propsLoading]);
 
   const propPool = useMemo(() => {
     if (!gameLabel || !game) return [];
@@ -290,6 +347,28 @@ export default function SimulatorScreen() {
       awayAbbr: game.awayAbbr,
     });
   }, [mains, gameLabel, game, sport]);
+
+  // PrizePicks DFS lines have no American price — still simulatable with line only.
+  const ppPropPool = useMemo(() => {
+    if (!gameLabel) return [];
+    return mains
+      .filter((p) => p.priceSource === "PrizePicks" && p.line != null)
+      .map((p) => ({
+        sport,
+        game: gameLabel,
+        marketLabel: propMarketLabel(p.market),
+        player: p.player,
+        line: p.line as number,
+        side: "Over" as const,
+        odds: 0,
+        edge: null,
+        bookSpread: null,
+        athleteId: p.athleteId,
+        marketKey: p.market,
+        headshot: p.headshot,
+        teamAbbr: null,
+      }));
+  }, [mains, gameLabel, sport]);
 
   const filteredProps = useMemo(() => {
     let list = mains;
@@ -311,8 +390,10 @@ export default function SimulatorScreen() {
 
   const toggleProp = (p: PlayerProp, side: "Over" | "Under") => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
+    const isPp = p.priceSource === "PrizePicks";
     const price = side === "Over" ? p.overPrice : p.underPrice;
-    if (price == null || p.line == null) return;
+    if (!isPp && (price == null || p.line == null)) return;
+    if (p.line == null) return;
     const label = `${side} ${p.line} ${propMarketLabel(p.market)}`;
     const key = `${p.player}|${p.market}|${p.line}|${side}`;
     const exists = selected.find(
@@ -332,7 +413,7 @@ export default function SimulatorScreen() {
         market: p.market,
         line: p.line as number,
         side,
-        odds: price,
+        odds: price ?? 0,
         athleteId: p.athleteId,
         headshot: p.headshot,
         label,
@@ -341,7 +422,7 @@ export default function SimulatorScreen() {
   };
 
   const runSimulation = async () => {
-    if (!game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam) return;
+    if (!gameEligible || !game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setRunning(true);
     setGameResult(null);
@@ -426,6 +507,7 @@ export default function SimulatorScreen() {
   };
 
   const canRun =
+    gameEligible &&
     !!game &&
     !running &&
     (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
@@ -452,12 +534,12 @@ export default function SimulatorScreen() {
       sport,
     }));
     const scored = attachPickScores(picks, {
-      propPool,
+      propPool: [...propPool, ...ppPropPool],
       matchupHistory,
       matchupInjuries,
       playerHistory,
       propSimulations: simMap,
-      injuryTeams: injuriesQ.data,
+      injuryTeams: Array.isArray(injuriesQ.data) ? injuriesQ.data : [],
     });
     const out = new Map<string, CombinedPickScore>();
     scored.forEach((p, i) => {
@@ -474,6 +556,7 @@ export default function SimulatorScreen() {
     matchupInjuries,
     playerHistory,
     propPool,
+    ppPropPool,
     injuriesQ.data,
     sport,
   ]);
@@ -566,7 +649,7 @@ export default function SimulatorScreen() {
         ) : gamesQ.isError ? (
           <ErrorState onRetry={() => gamesQ.refetch()} />
         ) : !game ? (
-          <EmptyState title="No games" message={`No pickable ${sport.toUpperCase()} games right now.`} />
+          <EmptyState title="No upcoming games" message={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
         ) : (
           <>
             {/* Game picker strip */}
@@ -590,7 +673,7 @@ export default function SimulatorScreen() {
                     }}
                   >
                     <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
-                      {g.awayAbbr ?? g.awayTeam} @ {g.homeAbbr ?? g.homeTeam}
+                      {simGameTabLabel(g, games)}
                     </Text>
                   </Pressable>
                 ))}
@@ -788,21 +871,26 @@ export default function SimulatorScreen() {
                   </View>
                 </ScrollView>
 
-                {propsSettling ? (
+                {propsLoading ? (
                   <Loading label="Loading player props…" />
-                ) : propsQ.isError ? (
-                  <ErrorState onRetry={() => propsQ.refetch()} />
+                ) : !gameEligible ? (
+                  <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
+                    This game has already started — pick an upcoming matchup to simulate props.
+                  </Text>
                 ) : filteredProps.length === 0 ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
-                    No props posted for this game yet — try another filter or check back closer to first pitch.
+                    {propsQ.isFetching
+                      ? "Loading player props…"
+                      : "No props posted for this game yet — try another filter or check back closer to first pitch."}
                   </Text>
                 ) : (
                   <View style={{ gap: 8 }}>
                     {filteredProps.map((p) => {
                       const side: "Over" | "Under" =
                         p.evSide === "Under" ? "Under" : "Over";
+                      const isPp = p.priceSource === "PrizePicks";
                       const price = side === "Over" ? p.overPrice : p.underPrice;
-                      if (price == null) return null;
+                      if (!isPp && price == null) return null;
                       const picked = selected.some(
                         (s) =>
                           s.player === p.player &&
@@ -834,7 +922,7 @@ export default function SimulatorScreen() {
                             </Text>
                           </View>
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {formatAmerican(price)}
+                            {isPp ? "DFS line" : formatAmerican(price!)}
                           </Text>
                           <Pressable
                             onPress={() => toggleProp(p, side)}

@@ -32,6 +32,30 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
+/** Game Simulator pool: pregame only — no in-progress or final games. */
+export function isSimulatorEligible(
+  game: {
+    startsAt?: string | null;
+    state?: string | null;
+    status?: string | null;
+  } | null | undefined,
+): boolean {
+  if (!game) return false;
+  if (game.state === "post" || game.state === "in") return false;
+  const status = String(game.status ?? "").toLowerCase();
+  if (
+    status.includes("final") ||
+    status.includes("in progress") ||
+    status.includes("halftime") ||
+    status.includes("end of")
+  ) {
+    return false;
+  }
+  // ESPN often lags `state: pre` after first pitch — the clock is authoritative.
+  if (!isPregameBettable(game.startsAt)) return false;
+  return true;
+}
+
 // "Today / tonight only" intent. The user wants games on the CURRENT local
 // calendar day that haven't started yet — no tomorrow, no already-in-progress.
 // "tomorrow" anywhere disables it so "today or tomorrow" keeps the full window.

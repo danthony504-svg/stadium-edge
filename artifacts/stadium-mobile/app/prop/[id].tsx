@@ -94,7 +94,7 @@ export default function PropDetailScreen() {
     headshot?: string;
     startsAt?: string;
     pick?: string;
-  }>();
+  }>() ?? {};
 
   const player = String(p.player ?? "");
   const marketKey = String(p.marketKey ?? "");

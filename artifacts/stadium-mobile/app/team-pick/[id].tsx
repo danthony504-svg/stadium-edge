@@ -59,7 +59,7 @@ function MatchupLine({ game }: { game: string }) {
 // matchup sheet showing BOTH teams' real combined-scoring. `kind` is fixed per
 // navigation, so each mounted view runs a stable set of hooks.
 export default function TeamPickDetailScreen() {
-  const params = useLocalSearchParams<{ kind?: string }>();
+  const params = useLocalSearchParams<{ kind?: string }>() ?? {};
   if (String(params.kind ?? "") === "total") return <TotalMatchupView />;
   return <TeamPickView />;
 }
@@ -100,7 +100,7 @@ function TeamPickView() {
     game?: string;
     startsAt?: string;
     pick?: string;
-  }>();
+  }>() ?? {};
 
   const team = String(p.team ?? "");
   const opp = String(p.opp ?? "");
@@ -734,7 +734,7 @@ function TotalMatchupView() {
     game?: string;
     startsAt?: string;
     pick?: string;
-  }>();
+  }>() ?? {};
 
   const away = String(p.away ?? "");
   const home = String(p.home ?? "");
