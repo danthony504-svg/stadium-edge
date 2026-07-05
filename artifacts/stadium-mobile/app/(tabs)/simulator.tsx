@@ -55,7 +55,10 @@ import {
 } from "@/lib/simulatorPickPool";
 import {
   expectedProjection,
-  meetsSimulatorQualityThreshold,
+  formatEdgeDisplay,
+  formatSimHitDisplay,
+  isVisibleByDefault,
+  primaryPickReason,
   simulatorSimConfidence,
   topSimulatorPickReasons,
 } from "@/lib/simulatorRecommendations";
@@ -793,7 +796,7 @@ export default function SimulatorScreen() {
 
   const displayedRankedProps = useMemo(() => {
     if (showAllPicks) return rankedProps;
-    return rankedProps.filter((r) => meetsSimulatorQualityThreshold(r.combined));
+    return rankedProps.filter((r) => isVisibleByDefault(r.combined, r.row));
   }, [rankedProps, showAllPicks]);
 
   const hiddenPickCount = rankedProps.length - displayedRankedProps.length;
@@ -1411,20 +1414,22 @@ export default function SimulatorScreen() {
                         }}
                       >
                         <Text style={{ fontFamily: FONT.medium, fontSize: 11, color: showAllPicks ? colors.primary : colors.mutedForeground }}>
-                          {showAllPicks ? "Quality Only" : "Show All Picks"}
+                          {showAllPicks ? "High Quality Only" : "Show All"}
                         </Text>
                       </Pressable>
                     </View>
                     <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      Showing {showAllPicks ? "all simulated" : "Grade B or higher"} picks with positive edge.
+                      {showAllPicks
+                        ? "Showing all simulated props, ranked best to worst."
+                        : "Hiding D/F grades and negative-edge props. Ranked by AI grade, edge, and simulation."}
                       {simDeepPending ? " Simulation updating…" : ""}
                       {!showAllPicks && hiddenPickCount > 0
-                        ? ` ${hiddenPickCount} lower-grade pick${hiddenPickCount === 1 ? "" : "s"} hidden.`
+                        ? ` ${hiddenPickCount} low-quality pick${hiddenPickCount === 1 ? "" : "s"} hidden.`
                         : ""}
                     </Text>
                     {displayedRankedProps.length === 0 ? (
                       <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, paddingVertical: 8 }}>
-                        No picks met the Grade B / positive-edge bar. Tap Show All Picks to review everything we simulated.
+                        No high-quality picks in this run. Tap Show All to review D/F or negative-edge props.
                       </Text>
                     ) : null}
                     {displayedRankedProps.map((entry, idx) => {
@@ -1455,7 +1460,8 @@ export default function SimulatorScreen() {
                             : colors.destructive;
                       const simConf = simulatorSimConfidence(r);
                       const proj = expectedProjection(r);
-                      const reasons = topSimulatorPickReasons(combined, r, 3);
+                      const shortReason = primaryPickReason(combined, r);
+                      const extraReasons = topSimulatorPickReasons(combined, r, 2).filter((x) => x !== shortReason);
                       return (
                         <View
                           key={r.key}
@@ -1501,38 +1507,48 @@ export default function SimulatorScreen() {
                               Based on recent game log — full Monte Carlo will update when available.
                             </Text>
                           ) : null}
-                          <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                            <MiniStat label="AI Grade" value={combined?.grade ?? "—"} valueColor={gradeColor} />
+                          <View style={{ flexDirection: "row", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                            <MiniStat label="AI Grade" value={combined.grade ?? "—"} valueColor={gradeColor} />
                             <MiniStat
                               label="Confidence"
-                              value={combined?.confidencePct != null ? `${combined.confidencePct}%` : "—"}
+                              value={combined.confidencePct != null ? `${combined.confidencePct}%` : "—"}
                             />
                             <MiniStat
                               label="Edge"
-                              value={combined?.edgePct != null ? `${combined.edgePct > 0 ? "+" : ""}${combined.edgePct}%` : "—"}
+                              value={formatEdgeDisplay(combined.edgePct)}
                               valueColor={edgeColor}
                             />
-                            <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                          </View>
-                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
+                            <MiniStat label="Sim Hit %" value={formatSimHitDisplay(r.hitProbability)} />
+                            <MiniStat label="Sim Confidence" value={simConf != null ? String(simConf) : "—"} />
                             <MiniStat label="Expected Stat" value={proj ?? "—"} />
-                            <MiniStat label="Sim Conf" value={simConf != null ? String(simConf) : "—"} />
                             <MiniStat label="Recommendation" value={recommendation} valueColor={recColor} />
                           </View>
-                          {reasons.length > 0 ? (
+                          {shortReason || extraReasons.length > 0 ? (
                             <View style={{ marginTop: 10 }}>
-                              <Text style={{ fontFamily: FONT.semibold, fontSize: 11, color: colors.foreground, marginBottom: 4 }}>
-                                Why this pick
-                              </Text>
-                              {reasons.map((reason) => (
-                                <View key={reason} style={{ flexDirection: "row", gap: 6, marginTop: 3 }}>
-                                  <Text style={{ color: colors.primary, fontFamily: FONT.body, fontSize: 11 }}>•</Text>
-                                  <Text style={{ flex: 1, fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, lineHeight: 16 }}>
-                                    {reason}
-                                  </Text>
-                                </View>
+                              {shortReason ? (
+                                <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground }}>
+                                  {shortReason}
+                                </Text>
+                              ) : null}
+                              {extraReasons.map((reason) => (
+                                <Text
+                                  key={reason}
+                                  style={{
+                                    fontFamily: FONT.body,
+                                    fontSize: 11,
+                                    color: colors.mutedForeground,
+                                    marginTop: shortReason ? 4 : 0,
+                                    lineHeight: 16,
+                                  }}
+                                >
+                                  {reason}
+                                </Text>
                               ))}
                             </View>
+                          ) : recommendation === "Pass" ? (
+                            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 8 }}>
+                              No positive edge or sim hit rate too low to recommend.
+                            </Text>
                           ) : null}
                         </View>
                       );

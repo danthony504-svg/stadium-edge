@@ -17,6 +17,9 @@ const GRADE_RANK: Record<string, number> = {
   "A+": 10,
 };
 
+/** Below this sim hit rate we label the prop Pass (not recommended). */
+export const MIN_SIM_HIT_RECOMMEND = 0.52;
+
 export const SIM_MIN_GRADE = "B";
 
 export function gradeRank(grade: string | null | undefined): number {
@@ -24,13 +27,41 @@ export function gradeRank(grade: string | null | undefined): number {
   return GRADE_RANK[grade] ?? -1;
 }
 
-/** Default simulator filter: AI Grade B+ or better is NOT what user asked — they said B or higher. */
-export function meetsSimulatorQualityThreshold(
+export function isLowGrade(grade: string | null | undefined): boolean {
+  return gradeRank(grade) <= gradeRank("D");
+}
+
+/** Default list filter: hide D/F grades and negative-edge props. */
+export function isVisibleByDefault(
   combined: CombinedPickScore | null | undefined,
+  _simRow?: PropSimulationResult | null,
 ): boolean {
   if (!combined?.grade) return false;
-  if (gradeRank(combined.grade) < gradeRank(SIM_MIN_GRADE)) return false;
+  if (isLowGrade(combined.grade)) return false;
+  if (combined.edgePct == null || combined.edgePct < 0) return false;
+  return true;
+}
+
+/** Stricter bar for Top AI Picks tiles — Grade B+ with real edge and sim support. */
+export function meetsSimulatorQualityThreshold(
+  combined: CombinedPickScore | null | undefined,
+  simRow?: PropSimulationResult | null,
+): boolean {
+  if (!isRecommendableProp(combined, simRow)) return false;
+  if (gradeRank(combined?.grade) < gradeRank(SIM_MIN_GRADE)) return false;
+  return true;
+}
+
+/** Recommendable = positive edge, not D/F, and sim hit rate above floor. */
+export function isRecommendableProp(
+  combined: CombinedPickScore | null | undefined,
+  simRow?: PropSimulationResult | null,
+): boolean {
+  if (!combined?.grade) return false;
+  if (isLowGrade(combined.grade)) return false;
   if (combined.edgePct == null || combined.edgePct <= 0) return false;
+  const hit = simRow?.hitProbability;
+  if (hit == null || hit < MIN_SIM_HIT_RECOMMEND) return false;
   return true;
 }
 
@@ -44,36 +75,6 @@ export function simulatorSimConfidence(row: PropSimulationResult): number | null
   return resolveSimConfidence(row);
 }
 
-export function simulatorRecommendation(
-  combined: CombinedPickScore | null | undefined,
-  simRow: PropSimulationResult | null | undefined,
-): string {
-  const composite = combined?.composite;
-  const edge = combined?.edgePct ?? null;
-  const hit = simRow?.hitProbability ?? null;
-  const simConf = simRow ? resolveSimConfidence(simRow) : null;
-
-  if (
-    composite != null &&
-    composite >= 8 &&
-    edge != null &&
-    edge > 0 &&
-    hit != null &&
-    hit >= 0.55 &&
-    (simConf ?? 0) >= 55
-  ) {
-    return "Strong Play";
-  }
-  if (meetsSimulatorQualityThreshold(combined) && hit != null && hit >= 0.52) {
-    return "Play";
-  }
-  if (composite != null && gradeRank(combined?.grade) >= gradeRank("B-") && edge != null && edge >= 0) {
-    return "Lean";
-  }
-  if (composite != null && composite >= 5.5) return "Monitor";
-  return "Pass";
-}
-
 const REASON_LABELS: Record<keyof PickSubScores, string> = {
   matchup: "Matchup",
   trend: "Recent form",
@@ -83,7 +84,7 @@ const REASON_LABELS: Record<keyof PickSubScores, string> = {
   simulation: "Simulation",
 };
 
-function reasonForFactor(
+function shortReasonForFactor(
   key: keyof PickSubScores,
   score: number,
   edgePct: number | null,
@@ -91,40 +92,31 @@ function reasonForFactor(
 ): string | null {
   switch (key) {
     case "matchup":
-      if (score >= 7.5) return "Matchup history favors this side";
-      if (score >= 6.5) return "Slight matchup edge in this spot";
+      if (score >= 6.5) return "Strong matchup";
       return null;
     case "trend":
-      if (score >= 7.5) return "Recent games trend strongly toward this line";
-      if (score >= 6.5) return "Recent form supports clearing the number";
+      if (score >= 6.5) return "Hot recent form";
       return null;
     case "lineValue":
-      if (edgePct != null && edgePct > 0) {
-        return `+${edgePct}% edge vs fair odds`;
-      }
-      if (score >= 6.5) return "Posted line looks favorable";
+      if (edgePct != null && edgePct > 0) return "Positive line value";
+      if (score >= 6.5) return "Favorable posted line";
       return null;
     case "injury":
-      if (score >= 7) return "Injury report favors this pick";
-      if (score >= 6.5) return "Opponent injuries create a small edge";
+      if (score >= 6.5) return "Injury edge";
       return null;
     case "lineShopping":
-      if (score >= 7) return "Best available price beats the market";
-      if (score >= 6.5) return "Price beats cross-book consensus";
+      if (score >= 6.5) return "Positive line movement";
       return null;
     case "simulation":
-      if (hitPct != null && hitPct >= 0.6) {
-        return `Simulation shows ${Math.round(hitPct * 100)}% hit rate`;
-      }
-      if (score >= 7) return "Monte Carlo leans toward this side";
-      if (score >= 6.5) return "Model simulation supports the line";
+      if (hitPct != null && hitPct >= 0.55) return "High simulation hit rate";
+      if (score >= 6.5) return "Simulation supports the line";
       return null;
     default:
       return null;
   }
 }
 
-/** Top 2–3 human-readable reasons for the pick card. */
+/** Top 1–3 short reasons for the pick card. */
 export function topSimulatorPickReasons(
   combined: CombinedPickScore | null | undefined,
   simRow: PropSimulationResult | null | undefined,
@@ -136,7 +128,7 @@ export function topSimulatorPickReasons(
     .map((key) => {
       const score = combined.scores[key];
       if (score == null || !Number.isFinite(score)) return null;
-      const text = reasonForFactor(key, score, combined.edgePct, hit);
+      const text = shortReasonForFactor(key, score, combined.edgePct, hit);
       if (!text) return null;
       return { key, score, text };
     })
@@ -154,12 +146,19 @@ export function topSimulatorPickReasons(
   return out;
 }
 
-export function recommendationTone(
-  rec: string,
-): "strong" | "play" | "lean" | "monitor" | "pass" {
-  if (rec === "Strong Play") return "strong";
-  if (rec === "Play") return "play";
-  if (rec === "Lean") return "lean";
-  if (rec === "Monitor") return "monitor";
-  return "pass";
+export function primaryPickReason(
+  combined: CombinedPickScore | null | undefined,
+  simRow: PropSimulationResult | null | undefined,
+): string | null {
+  return topSimulatorPickReasons(combined, simRow, 1)[0] ?? null;
+}
+
+export function formatEdgeDisplay(edgePct: number | null | undefined): string {
+  if (edgePct == null || !Number.isFinite(edgePct)) return "—";
+  return `${edgePct > 0 ? "+" : ""}${edgePct}%`;
+}
+
+export function formatSimHitDisplay(hit: number | null | undefined): string {
+  if (hit == null || !Number.isFinite(hit)) return "—";
+  return `${Math.round(hit * 100)}%`;
 }

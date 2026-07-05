@@ -58,7 +58,7 @@ test("whatChangedSinceLastRun detects winner flip", () => {
   assert.ok(changes.some((c) => c.includes("flipped")));
 });
 
-test("propPickRecommendation labels quality picks", () => {
+test("propPickRecommendation labels quality picks and passes weak ones", () => {
   const combined = {
     scores: {
       matchup: 7,
@@ -74,6 +74,8 @@ test("propPickRecommendation labels quality picks", () => {
     edgePct: 3.1,
   } satisfies CombinedPickScore;
   assert.equal(propPickRecommendation(combined, { hitProbability: 0.58 } as any), "Best Bet");
+  assert.equal(propPickRecommendation(combined, { hitProbability: 0.4 } as any), "Pass");
+  assert.equal(propPickRecommendation({ ...combined, edgePct: 0 } as any, { hitProbability: 0.58 } as any), "Pass");
 });
 
 test("buildTopAiPicks fills four slots", () => {

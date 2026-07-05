@@ -4,6 +4,8 @@ import type { CombinedPickScore } from "./pickScore";
 import {
   expectedProjection,
   gradeRank,
+  isRecommendableProp,
+  isVisibleByDefault,
   meetsSimulatorQualityThreshold,
   simulatorSimConfidence,
 } from "./simulatorRecommendations";
@@ -114,34 +116,23 @@ export function propPickRecommendation(
   combined: CombinedPickScore | null | undefined,
   simRow: PropSimulationResult | null | undefined,
 ): PropPickRecommendation {
+  if (!isRecommendableProp(combined, simRow)) return "Pass";
+
   const composite = combined?.composite ?? null;
   const edge = combined?.edgePct ?? null;
   const hit = simRow?.hitProbability ?? null;
   const conf = combined?.confidencePct ?? null;
 
-  if (
-    meetsSimulatorQualityThreshold(combined) &&
-    composite != null &&
-    composite >= 8 &&
-    hit != null &&
-    hit >= 0.55
-  ) {
+  if (composite != null && composite >= 8 && hit != null && hit >= 0.55) {
     return "Best Bet";
   }
-  if (meetsSimulatorQualityThreshold(combined) && edge != null && edge >= 2.5) {
+  if (edge != null && edge >= 2.5) {
     return "Value";
   }
-  if (
-    gradeRank(combined?.grade) >= gradeRank("B") &&
-    hit != null &&
-    hit >= 0.58 &&
-    conf != null &&
-    conf >= 62
-  ) {
+  if (hit != null && hit >= 0.58 && conf != null && conf >= 62) {
     return "Safe";
   }
-  if (meetsSimulatorQualityThreshold(combined)) return "Value";
-  if (gradeRank(combined?.grade) >= gradeRank("B-") && edge != null && edge > 0) return "Value";
+  if (gradeRank(combined?.grade) >= gradeRank("C+")) return "Value";
   return "Pass";
 }
 
@@ -174,7 +165,12 @@ export function rankSimulatorProps(
       };
     })
     .filter((x): x is RankedSimulatorProp => x != null)
-    .sort((a, b) => b.rankScore - a.rankScore);
+    .sort((a, b) => {
+      const aPass = a.recommendation === "Pass" ? 1 : 0;
+      const bPass = b.recommendation === "Pass" ? 1 : 0;
+      if (aPass !== bPass) return aPass - bPass;
+      return b.rankScore - a.rankScore;
+    });
 }
 
 function propLabel(row: PropSimulationResult, marketLabel: string): string {
@@ -185,8 +181,9 @@ export function buildTopAiPicks(
   ranked: RankedSimulatorProp[],
   marketLabelFn: (market: string) => string,
 ): TopAiPickSlot[] {
-  const quality = ranked.filter((r) => meetsSimulatorQualityThreshold(r.combined));
-  const pool = quality.length ? quality : ranked;
+  const recommendable = ranked.filter((r) => r.recommendation !== "Pass");
+  const quality = recommendable.filter((r) => meetsSimulatorQualityThreshold(r.combined, r.row));
+  const pool = quality.length ? quality : recommendable.length ? recommendable : ranked;
 
   const bestBet = [...pool].sort((a, b) => (b.combined.composite ?? 0) - (a.combined.composite ?? 0))[0];
   const bestValue = [...pool].sort((a, b) => (b.combined.edgePct ?? 0) - (a.combined.edgePct ?? 0))[0];
@@ -196,7 +193,9 @@ export function buildTopAiPicks(
     if (bh !== ah) return bh - ah;
     return (b.combined.confidencePct ?? 0) - (a.combined.confidencePct ?? 0);
   })[0];
-  const biggestEdge = [...ranked].sort((a, b) => (b.combined.edgePct ?? 0) - (a.combined.edgePct ?? 0))[0];
+  const biggestEdge = [...recommendable].sort(
+    (a, b) => (b.combined.edgePct ?? 0) - (a.combined.edgePct ?? 0),
+  )[0];
 
   const slot = (
     id: TopAiPickSlot["id"],
