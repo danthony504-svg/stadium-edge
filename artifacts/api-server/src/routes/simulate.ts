@@ -3,7 +3,7 @@ import { rateLimit } from "../lib/sports.js";
 import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
-import { runGameMonteCarlo } from "../lib/gameMonteCarlo.js";
+import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
@@ -16,6 +16,26 @@ function apiBaseFromReq(req: { protocol: string; get(name: string): string | und
 }
 
 router.use("/sports/simulate", rateLimit({ windowMs: 60_000, max: 60, name: "simulate" }));
+
+function parseCoverQueries(raw: unknown): GameCoverQuery[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: GameCoverQuery[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const id = String((item as { id?: string }).id ?? "").trim();
+    const kind = String((item as { kind?: string }).kind ?? "").toLowerCase();
+    if (!id || (kind !== "ml" && kind !== "spread" && kind !== "total")) continue;
+    const q: GameCoverQuery = { id, kind };
+    const teamSide = String((item as { teamSide?: string }).teamSide ?? "").toLowerCase();
+    if (teamSide === "home" || teamSide === "away") q.teamSide = teamSide;
+    const totalSide = String((item as { totalSide?: string }).totalSide ?? "").toLowerCase();
+    if (totalSide === "over" || totalSide === "under") q.totalSide = totalSide;
+    const line = (item as { line?: number }).line;
+    if (line != null && Number.isFinite(line)) q.line = line;
+    out.push(q);
+  }
+  return out.length ? out : undefined;
+}
 
 type GameSimContext = {
   sport: string;
@@ -211,6 +231,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   const simulations = Number(req.body?.simulations) || DEEP_SIMULATIONS;
   const weatherImpact =
     req.body?.weatherImpact != null ? Number(req.body.weatherImpact) : null;
+  const coverQueries = parseCoverQueries(req.body?.coverQueries);
 
   if (!sport || !homeTeamId || !awayTeamId) {
     res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
@@ -227,6 +248,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     sport,
     simulations,
     weatherImpact,
+    coverQueries,
     home: {
       ptsFor: homeHist?.homeSplit?.ptsFor ?? homeHist?.last10?.ptsFor ?? null,
       ptsAgainst: homeHist?.homeSplit?.ptsAgainst ?? homeHist?.last10?.ptsAgainst ?? null,

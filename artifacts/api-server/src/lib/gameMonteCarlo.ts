@@ -9,12 +9,23 @@ export type GameSimTeamInput = {
   recentScores?: number[];
 };
 
+/** Line-aware cover query — same shape the mobile shared scorer builds. */
+export type GameCoverQuery = {
+  id: string;
+  kind: "ml" | "spread" | "total";
+  teamSide?: "home" | "away";
+  line?: number;
+  totalSide?: "over" | "under";
+};
+
 export type GameSimInput = {
   sport: string;
   home: GameSimTeamInput;
   away: GameSimTeamInput;
   weatherImpact?: number | null;
   simulations?: number;
+  /** Optional pick-specific cover rates computed during the same MC draw. */
+  coverQueries?: GameCoverQuery[];
 };
 
 export type GameSimResult = {
@@ -27,6 +38,8 @@ export type GameSimResult = {
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
+  /** Hit probability (0–1) per coverQueries[].id when queries were supplied. */
+  coverHitRates?: Record<string, number>;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -51,6 +64,32 @@ function teamMean(forPts: number | null, oppAgainst: number | null, fallback: nu
   const parts = [forPts, oppAgainst].filter((v): v is number => v != null && Number.isFinite(v));
   if (!parts.length) return fallback;
   return parts.reduce((a, b) => a + b, 0) / parts.length;
+}
+
+export function coverQueryHits(
+  q: GameCoverQuery,
+  homeScore: number,
+  awayScore: number,
+): boolean {
+  const total = homeScore + awayScore;
+  if (q.kind === "ml") {
+    if (q.teamSide === "home") return homeScore > awayScore;
+    if (q.teamSide === "away") return awayScore > homeScore;
+    return false;
+  }
+  if (q.kind === "spread") {
+    const line = q.line ?? 0;
+    if (q.teamSide === "home") return homeScore + line > awayScore;
+    if (q.teamSide === "away") return awayScore + line > homeScore;
+    return false;
+  }
+  if (q.kind === "total") {
+    const line = q.line ?? 0;
+    if (q.totalSide === "over") return total > line;
+    if (q.totalSide === "under") return total < line;
+    return false;
+  }
+  return false;
 }
 
 export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
@@ -95,6 +134,9 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   let homeTotal = 0;
   let awayTotal = 0;
   const winCounts = { home: 0, away: 0 };
+  const coverQueries = input.coverQueries ?? [];
+  const coverHits: Record<string, number> = {};
+  for (const q of coverQueries) coverHits[q.id] = 0;
 
   for (let i = 0; i < n; i++) {
     const hs = Math.max(0, normalSample(hMean, homeStd));
@@ -109,6 +151,9 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
       awayWins += 1;
       winCounts.away += 1;
     }
+    for (const q of coverQueries) {
+      if (coverQueryHits(q, hs, as)) coverHits[q.id] = (coverHits[q.id] ?? 0) + 1;
+    }
   }
 
   const winner = winCounts.home >= winCounts.away ? "home" : "away";
@@ -118,6 +163,14 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   if ((input.home.recentScores?.length ?? 0) >= 5) confidence += 10;
   if ((input.away.recentScores?.length ?? 0) >= 5) confidence += 10;
   confidence += Math.abs(homeWins / n - 0.5) * 50;
+
+  let coverHitRates: Record<string, number> | undefined;
+  if (coverQueries.length > 0) {
+    coverHitRates = {};
+    for (const q of coverQueries) {
+      coverHitRates[q.id] = round3((coverHits[q.id] ?? 0) / n);
+    }
+  }
 
   return {
     simulations: n,
@@ -129,5 +182,6 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
     mostLikelyWinner: winner,
     mostLikelyWinnerPct: round3(winnerPct),
     confidenceScore: clamp(Math.round(confidence), 5, 95),
+    ...(coverHitRates ? { coverHitRates } : {}),
   };
 }

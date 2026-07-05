@@ -35,6 +35,10 @@ import {
 } from "@/lib/pickScore";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { gameValueForMarket } from "@/lib/propStats";
+import {
+  gameSimHitForPick,
+  type CoachGameSimEntry,
+} from "@/lib/gameSimScoring";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
@@ -134,6 +138,7 @@ function scoreGamePick(
   realOdds: RealOddsEntry[],
   matchupHistory: Record<string, MatchupHistoryEntry> | undefined,
   matchupInjuries: Record<string, GameInjuryReport> | undefined,
+  gameSim?: CoachGameSimEntry | null,
 ): CombinedPickScore | null {
   // Line Value + Line-Shopping come straight off the backing odds row, which
   // parsePicks copied verbatim — so an exact game/market/pick match is the row.
@@ -170,7 +175,14 @@ function scoreGamePick(
     injury = scoreInjury(injuryFavorGame(ie, pickSide === "home"));
   }
 
-  const scores: PickSubScores = { matchup, trend, lineValue, injury, lineShopping, simulation: null };
+  const scores: PickSubScores = {
+    matchup,
+    trend,
+    lineValue,
+    injury,
+    lineShopping,
+    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim)),
+  };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
   // of a two-sided main market, so a pick on the non-+EV side (which carries no
@@ -434,6 +446,8 @@ export function attachPickScores(
     perfByFamily?: Map<string, MarketPerf>;
     /** Monte Carlo results keyed player|market|line|side */
     propSimulations?: Map<string, { hitProbability: number | null }>;
+    /** Game-outcome sim keyed by "Away @ Home" (same engine as Simulator tab). */
+    gameSimulations?: Map<string, CoachGameSimEntry>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
     playerHistory?: Record<string, PlayerHistorySlice>;
     /** Raw league injury teams when matchupInjuries report is absent. */
@@ -443,6 +457,7 @@ export function attachPickScores(
   const realOdds = opts.realOdds ?? [];
   const propPool = opts.propPool ?? [];
   const sims = opts.propSimulations;
+  const gameSims = opts.gameSimulations;
   const propCtx = {
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
@@ -452,7 +467,13 @@ export function attachPickScores(
   return picks.map((p) => {
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
-      : scoreGamePick(p, realOdds, opts.matchupHistory, opts.matchupInjuries);
+      : scoreGamePick(
+          p,
+          realOdds,
+          opts.matchupHistory,
+          opts.matchupInjuries,
+          gameSims?.get(p.game),
+        );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     return { ...p, scores };
   });

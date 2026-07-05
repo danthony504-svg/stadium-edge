@@ -303,6 +303,13 @@ export async function fetchSimulatorGameOutcome(
     awayTeam?: string;
     simulations?: number;
     weatherImpact?: number | null;
+    coverQueries?: Array<{
+      id: string;
+      kind: "ml" | "spread" | "total";
+      teamSide?: "home" | "away";
+      line?: number;
+      totalSide?: "over" | "under";
+    }>;
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {

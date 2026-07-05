@@ -54,6 +54,13 @@ import {
 import { enrichChatContextProps, type PropSelectionOpts } from "@/lib/propSelection";
 import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforcement";
 import {
+  buildGameTeamIdMap,
+  fetchCoachGameSimulationsForPicks,
+  filterCoachPicksWithGameSim,
+  type CoachGameSimEntry,
+} from "@/lib/coachGameMonteCarlo";
+import { isGameLinePick } from "@/lib/gameSimScoring";
+import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
   describeConfidenceThreshold,
@@ -90,6 +97,7 @@ import {
   buildPropsOnlyParlayContext,
   buildMlbSlateContext,
   gameMatchesFocalText,
+  getGames,
   getPlayerHistory,
   getStatmuseGamelog,
   getTeamHistory,
@@ -1804,6 +1812,37 @@ export default function CoachScreen() {
         if (picks.length > MAX_LEGS) {
           picks = picks.slice(0, MAX_LEGS);
         }
+        // Game-line legs must pass the SAME 10k-run game simulator the Simulator tab
+        // uses — drop any ML/spread/total/alt that the sim does not support.
+        let gameSimNote = "";
+        let gameSimulations = new Map<string, CoachGameSimEntry>();
+        if (!isAnalyze && picks.some(isGameLinePick)) {
+          const gameSports = [
+            ...new Set(
+              picks
+                .filter(isGameLinePick)
+                .map((p) => p.sport)
+                .filter(Boolean),
+            ),
+          ] as string[];
+          const espnGames = (
+            await Promise.all(
+              gameSports.map((s) => getGames(s).catch(() => [])),
+            )
+          ).flat();
+          const teamIdMap = buildGameTeamIdMap(espnGames);
+          gameSimulations = await fetchCoachGameSimulationsForPicks(
+            picks,
+            teamIdMap,
+            abortRef.current?.signal,
+          );
+          const filtered = filterCoachPicksWithGameSim(picks, gameSimulations);
+          picks = filtered.picks;
+          if (filtered.note) gameSimNote = filtered.note;
+          if (filtered.warnings.length > 0 && !gameSimNote) {
+            gameSimNote = filtered.warnings.join("\n");
+          }
+        }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
         // real context the legs were resolved against (odds carry edge +
         // book-spread, props carry their +EV/spread; matchup history + injuries
@@ -1819,6 +1858,7 @@ export default function CoachScreen() {
           matchupInjuries: context.matchupInjuries,
           perfByFamily: marketPerf,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+          gameSimulations,
         });
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
@@ -1844,6 +1884,9 @@ export default function CoachScreen() {
         }
         if (tonightNote) {
           legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
+        }
+        if (gameSimNote) {
+          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds

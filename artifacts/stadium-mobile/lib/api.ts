@@ -1583,6 +1583,15 @@ export type GameSimulationResult = {
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
+  coverHitRates?: Record<string, number>;
+};
+
+export type GameCoverQueryInput = {
+  id: string;
+  kind: "ml" | "spread" | "total";
+  teamSide?: "home" | "away";
+  line?: number;
+  totalSide?: "over" | "under";
 };
 
 export async function fetchGameOutcomeSimulation(
@@ -1594,6 +1603,7 @@ export async function fetchGameOutcomeSimulation(
     awayTeam?: string;
     simulations?: number;
     weatherImpact?: number | null;
+    coverQueries?: GameCoverQueryInput[];
   },
   signal?: AbortSignal,
 ): Promise<GameSimulationResult | null> {
