@@ -29,7 +29,7 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
-import { enrichPropSimResults, mergeServerOverLocal } from "@/lib/propSimFallback";
+import { enrichPropSimResults, mergeServerOverLocal, resolveSimConfidence } from "@/lib/propSimFallback";
 import {
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
@@ -1212,7 +1212,10 @@ export default function SimulatorScreen() {
                           <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
                             <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
                             <MiniStat label="Likely" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
-                            <MiniStat label="Sim Conf" value={r.confidenceScore != null ? String(r.confidenceScore) : "—"} />
+                            <MiniStat label="Sim Conf" value={(() => {
+                              const conf = resolveSimConfidence(r);
+                              return conf != null ? String(conf) : "—";
+                            })()} />
                           </View>
                         </View>
                       );

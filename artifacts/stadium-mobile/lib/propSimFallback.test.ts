@@ -5,6 +5,8 @@ import {
   enrichSimMapWithLocalFallback,
   filterRealPropsWithSimSupport,
   localPropSimulation,
+  resolveSimConfidence,
+  simConfidenceFromHit,
 } from "./propSimFallback.ts";
 
 const hitsHistory = {
@@ -90,4 +92,12 @@ test("filterRealPropsWithSimSupport drops props without sim or fallback", () => 
   );
   assert.equal(kept.length, 1);
   assert.equal(kept[0]!.player, "Test Player");
+});
+
+test("resolveSimConfidence derives score from hit rate when confidence missing", () => {
+  assert.equal(
+    resolveSimConfidence({ hitProbability: 0.3, confidenceScore: null, sampleGames: 5 }),
+    simConfidenceFromHit(0.3, 5),
+  );
+  assert.equal(resolveSimConfidence({ hitProbability: null, confidenceScore: null }), null);
 });

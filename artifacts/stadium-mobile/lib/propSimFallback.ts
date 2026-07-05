@@ -131,36 +131,92 @@ export function localPropSimulation(
   };
 }
 
+export function simConfidenceFromHit(
+  hitProbability: number,
+  sampleGames: number,
+  opts?: { coefficientOfVariation?: number | null },
+): number {
+  let confidence = 50;
+  if (sampleGames >= 8) confidence += 14;
+  else if (sampleGames >= 5) confidence += 8;
+  else confidence -= 6;
+  const cv = opts?.coefficientOfVariation;
+  if (cv != null && Number.isFinite(cv)) {
+    if (cv < 0.22) confidence += 10;
+    else if (cv < 0.38) confidence += 4;
+    else confidence -= 4;
+  }
+  confidence += Math.abs(hitProbability - 0.5) * 40;
+  return clamp(Math.round(confidence), 5, 95);
+}
+
+/** Never show a blank Sim Conf when hit probability is known. */
+export function resolveSimConfidence(row: {
+  hitProbability: number | null;
+  confidenceScore?: number | null;
+  sampleGames?: number;
+}): number | null {
+  if (row.confidenceScore != null && Number.isFinite(row.confidenceScore)) {
+    return row.confidenceScore;
+  }
+  if (row.hitProbability == null || !Number.isFinite(row.hitProbability)) return null;
+  const games = row.sampleGames ?? 0;
+  if (games < 3) return null;
+  return simConfidenceFromHit(row.hitProbability, games);
+}
+
 function isServerSim(row: PropSimulationResult): boolean {
   return row.hitProbability != null && row.sampleGames >= 3 && row.simulations > 0;
+}
+
+function historySliceForPlayer(
+  player: string,
+  histories: Record<string, SimHistorySlice>,
+): SimHistorySlice | undefined {
+  return (
+    Object.entries(histories).find(([k]) => k.startsWith(`${player}#`))?.[1] ?? histories[player]
+  );
 }
 
 function applyLocalToRow(
   r: PropSimulationResult,
   histories: Record<string, SimHistorySlice>,
 ): PropSimulationResult {
-  if (isServerSim(r)) return r;
-  const slice =
-    Object.entries(histories).find(([k]) => k.startsWith(`${r.player}#`))?.[1] ??
-    histories[r.player];
+  const slice = historySliceForPlayer(r.player, histories);
   const local = localPropSimulation(slice, {
     player: r.player,
     market: r.market,
     line: r.line,
     side: r.side,
   });
-  if (!local || local.hitProbability == null) return r;
-  return {
-    ...r,
-    hitProbability: local.hitProbability,
-    sampleGames: Math.max(r.sampleGames, local.sampleGames),
-    mostLikelyLine: r.mostLikelyLine ?? local.mostLikelyLine,
-    medianProjection: r.medianProjection ?? local.medianProjection,
-    meanProjection: r.meanProjection ?? local.meanProjection,
-    confidenceScore: r.confidenceScore ?? local.confidenceScore,
-    simulations: r.simulations > 0 ? r.simulations : 0,
-    tier: r.tier ?? "quick",
-  };
+
+  const serverBacked = isServerSim(r);
+  const merged: PropSimulationResult = serverBacked
+    ? {
+        ...r,
+        confidenceScore: r.confidenceScore ?? local?.confidenceScore ?? null,
+        mostLikelyLine: r.mostLikelyLine ?? local?.mostLikelyLine ?? null,
+        medianProjection: r.medianProjection ?? local?.medianProjection ?? null,
+        meanProjection: r.meanProjection ?? local?.meanProjection ?? null,
+      }
+    : local?.hitProbability == null
+      ? r
+      : {
+          ...r,
+          hitProbability: local.hitProbability,
+          sampleGames: Math.max(r.sampleGames, local.sampleGames),
+          mostLikelyLine: r.mostLikelyLine ?? local.mostLikelyLine,
+          medianProjection: r.medianProjection ?? local.medianProjection,
+          meanProjection: r.meanProjection ?? local.meanProjection,
+          confidenceScore: r.confidenceScore ?? local.confidenceScore,
+          simulations: r.simulations > 0 ? r.simulations : 0,
+          tier: r.tier ?? "quick",
+        };
+
+  const confidence = resolveSimConfidence(merged);
+  return confidence != null && merged.confidenceScore == null
+    ? { ...merged, confidenceScore: confidence }
+    : merged;
 }
 
 /** Prefer server Monte Carlo rows; fill gaps from ESPN game logs. */
@@ -189,7 +245,27 @@ export function enrichSimMapWithLocalFallback(
     const key = simKey(p.player, p.market, p.line, p.side);
     if (!key) continue;
     const existing = out.get(key);
-    if (existing?.hitProbability != null) continue;
+    if (existing?.hitProbability != null) {
+      if (existing.confidenceScore == null) {
+        const slice = findPlayerHistorySlice(p.player, p.athleteId, playerHistory);
+        const local = localPropSimulation(slice, {
+          player: p.player,
+          market: p.market,
+          line: p.line,
+          side: p.side,
+        });
+        const confidence =
+          local?.confidenceScore ??
+          resolveSimConfidence({
+            hitProbability: existing.hitProbability,
+            sampleGames: local?.sampleGames ?? 5,
+          });
+        if (confidence != null) {
+          out.set(key, { ...existing, confidenceScore: confidence });
+        }
+      }
+      continue;
+    }
     const slice = findPlayerHistorySlice(p.player, p.athleteId, playerHistory);
     const local = localPropSimulation(slice, {
       player: p.player,
@@ -235,8 +311,27 @@ export function mergeServerOverLocal(
   const byKey = new Map(serverRows.map((r) => [r.key, r]));
   return localRows.map((r) => {
     const server = byKey.get(r.key);
-    if (server && isServerSim(server)) return server;
-    if (server?.hitProbability != null && r.hitProbability == null) return server;
-    return r;
+    if (server && isServerSim(server)) {
+      const merged = {
+        ...server,
+        confidenceScore: server.confidenceScore ?? r.confidenceScore ?? null,
+        mostLikelyLine: server.mostLikelyLine ?? r.mostLikelyLine ?? null,
+      };
+      const confidence = resolveSimConfidence(merged);
+      return confidence != null && merged.confidenceScore == null
+        ? { ...merged, confidenceScore: confidence }
+        : merged;
+    }
+    if (server?.hitProbability != null && r.hitProbability == null) {
+      const merged = { ...server };
+      const confidence = resolveSimConfidence(merged);
+      return confidence != null && merged.confidenceScore == null
+        ? { ...merged, confidenceScore: confidence }
+        : merged;
+    }
+    const confidence = resolveSimConfidence(r);
+    return confidence != null && r.confidenceScore == null
+      ? { ...r, confidenceScore: confidence }
+      : r;
   });
 }
