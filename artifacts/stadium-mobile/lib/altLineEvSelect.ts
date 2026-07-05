@@ -11,8 +11,10 @@ import {
 } from "./gameLineFinalScore.ts";
 import {
   GAME_LINE_EXCEPTIONAL_EV_PCT,
-  GAME_LINE_SIM_MIN_HIT,
+  GAME_LINE_STRONG_EV_PCT,
   isGameLineMainTicketQualified,
+  isSimAboveFifty,
+  isSimExactlyFifty,
 } from "./parlayQualifiedGate.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
 import { spreadLineFromPick } from "./spreadSimAlignment.ts";
@@ -64,24 +66,60 @@ function marketFamilyLabel(market: string): string {
   return String(market ?? "Line").trim() || "Line";
 }
 
+/** True when this row's +EV is highest among every posted rung (within 0.05 pts). */
+export function isBestEvAmongRows(
+  row: CloseGameSpreadRow,
+  allRows: CloseGameSpreadRow[],
+): boolean {
+  const selEv = resolveRowExpectedValue(row);
+  if (selEv == null || selEv <= 0) return false;
+  let maxEv = -Infinity;
+  for (const r of allRows) {
+    const ev = resolveRowExpectedValue(r);
+    if (ev != null && ev > maxEv) maxEv = ev;
+  }
+  return maxEv > 0 && selEv >= maxEv - 0.05;
+}
+
+/** Short headline for cards — Highest EV, Simulation Favorite, Best Alt Line, etc. */
+export function primaryGameLineWinLabel(
+  selected: CloseGameSpreadRow,
+  allRows: CloseGameSpreadRow[],
+): string {
+  const sim = selected.winProb ?? selected.finalAiScore.simHit ?? null;
+  const selEv = resolveRowExpectedValue(selected);
+  const market = String(selected.entry.market ?? "").toLowerCase();
+  if (isBestEvAmongRows(selected, allRows) && selEv != null && selEv > 0) {
+    return "Highest EV";
+  }
+  if (isSimAboveFifty(sim)) return "Simulation Favorite";
+  if (isSimExactlyFifty(sim) && selEv != null && selEv >= GAME_LINE_STRONG_EV_PCT) {
+    return "Strong +EV";
+  }
+  if (/alt|team total/.test(market)) return "Best Alt Line";
+  return "Best Line";
+}
+
 /** Plain-English bullets explaining why this rung won selection. */
 export function buildGameLineSelectionBullets(
   selected: CloseGameSpreadRow,
   allRows: CloseGameSpreadRow[],
 ): string[] {
   const bullets: string[] = [];
-  const qualified = allRows.filter(gameLineRowQualifies);
+  const qualified = allRows.filter((r) => gameLineRowQualifies(r, allRows));
   const selEv = resolveRowExpectedValue(selected);
   const edge = selected.edgePct ?? selected.entry.edge ?? null;
   const sim = selected.winProb ?? selected.finalAiScore.simHit ?? null;
+  const headline = primaryGameLineWinLabel(selected, allRows);
+  bullets.push(headline);
 
   const maxEv = qualified.reduce((best, row) => {
     const ev = resolveRowExpectedValue(row);
     return ev != null && ev > best ? ev : best;
   }, -Infinity);
 
-  if (selEv != null && selEv > 0 && (maxEv <= 0 || selEv >= maxEv - 0.05)) {
-    bullets.push("Highest EV among all posted lines");
+  if (isBestEvAmongRows(selected, allRows) && selEv != null && selEv > 0) {
+    bullets.push("Highest EV among every posted line (ML, spread, alt, total)");
   }
 
   if (edge != null && edge > 0) {
@@ -102,11 +140,13 @@ export function buildGameLineSelectionBullets(
     if (rowScore < selScore - 0.05) beatenFamilies.add(fam);
   }
   if (beatenFamilies.size > 0) {
-    bullets.push(`Beat ${[...beatenFamilies].sort().join(" and ")}`);
+    bullets.push(`Beat ${[...beatenFamilies].sort().join(" and ")} on Final Score`);
   }
 
-  if (sim != null && sim >= GAME_LINE_SIM_MIN_HIT) {
-    bullets.push(`10,000-run simulation approved (${Math.round(sim * 100)}%)`);
+  if (isSimAboveFifty(sim)) {
+    bullets.push(`Simulation favorite (${Math.round((sim ?? 0) * 100)}% hit)`);
+  } else if (isSimExactlyFifty(sim) && selEv != null && selEv >= GAME_LINE_STRONG_EV_PCT) {
+    bullets.push(`Coin-flip sim (50%) cleared by strong +${selEv.toFixed(1)}% EV`);
   } else if (
     edge != null &&
     edge >= GAME_LINE_EXCEPTIONAL_EV_PCT &&
@@ -116,7 +156,8 @@ export function buildGameLineSelectionBullets(
     bullets.push("Exceptional value — large +EV overcomes a coin-flip sim");
   }
 
-  return bullets;
+  void maxEv;
+  return [...new Set(bullets)];
 }
 
 function pickBest(
@@ -128,11 +169,15 @@ function pickBest(
 }
 
 /** Shared qualification read for a scored game-line row. */
-export function gameLineRowQualifies(row: CloseGameSpreadRow): boolean {
+export function gameLineRowQualifies(
+  row: CloseGameSpreadRow,
+  allRows?: CloseGameSpreadRow[],
+): boolean {
   const edge = row.edgePct ?? row.entry.edge ?? null;
   const ev = resolveRowExpectedValue(row);
   if (edge == null || edge <= 0) return false;
   if (ev == null || ev <= 0) return false;
+  const pool = allRows ?? [row];
   return isGameLineMainTicketQualified(
     row.finalAiScore,
     row.entry.odds ?? null,
@@ -142,6 +187,7 @@ export function gameLineRowQualifies(row: CloseGameSpreadRow): boolean {
       evPct: ev,
       bookSpread: row.entry.bookSpread ?? null,
       finalAiScore: row.finalAiScore,
+      isBestEvLine: isBestEvAmongRows(row, pool),
     },
   );
 }
@@ -190,11 +236,13 @@ function hasCloseSimTeamSpread(rows: CloseGameSpreadRow[]): boolean {
 export function selectBestGameLineByFinalScore(
   ranked: CloseGameSpreadRow[],
   opts?: {
-    qualify?: (row: CloseGameSpreadRow) => boolean;
+    qualify?: (row: CloseGameSpreadRow, allRows: CloseGameSpreadRow[]) => boolean;
   },
 ): GameLineSelectionResult | null {
-  const qualify = opts?.qualify ?? gameLineRowQualifies;
-  const eligible = ranked.filter(qualify);
+  const qualify =
+    opts?.qualify ??
+    ((row, all) => gameLineRowQualifies(row, all));
+  const eligible = ranked.filter((r) => qualify(r, ranked));
   if (!eligible.length) return null;
 
   let pool = eligible;
@@ -209,9 +257,10 @@ export function selectBestGameLineByFinalScore(
   if (!best) return null;
 
   const bullets = buildGameLineSelectionBullets(best, ranked);
+  const headline = primaryGameLineWinLabel(best, ranked);
   return {
     row: best,
-    reason: bullets.join(" · "),
+    reason: headline,
     bullets,
   };
 }
@@ -223,7 +272,7 @@ export function selectBestGameLineByFinalScore(
 export function selectBestGameLineByEv(
   ranked: CloseGameSpreadRow[],
   opts?: {
-    qualify?: (row: CloseGameSpreadRow) => boolean;
+    qualify?: (row: CloseGameSpreadRow, allRows: CloseGameSpreadRow[]) => boolean;
   },
 ): CloseGameSpreadRow | null {
   return selectBestGameLineByFinalScore(ranked, opts)?.row ?? null;
@@ -233,7 +282,7 @@ export function selectBestGameLineByEv(
 export function selectBestGameLineWithReason(
   ranked: CloseGameSpreadRow[],
   opts?: {
-    qualify?: (row: CloseGameSpreadRow) => boolean;
+    qualify?: (row: CloseGameSpreadRow, allRows: CloseGameSpreadRow[]) => boolean;
   },
 ): GameLineSelectionResult | null {
   return selectBestGameLineByFinalScore(ranked, opts);
@@ -249,13 +298,17 @@ export function selectBestAltLineByEv(
   ranked: CloseGameSpreadRow[],
   opts?: {
     minSim?: number;
-    qualify?: (score: FinalAiScore | null | undefined, odds: number | null, edge: number | null) => boolean;
+    qualify?: (
+      score: FinalAiScore | null | undefined,
+      odds: number | null,
+      edge: number | null,
+    ) => boolean;
   },
 ): CloseGameSpreadRow | null {
   void opts?.minSim;
   return selectBestGameLineByEv(ranked, {
     qualify: opts?.qualify
-      ? (row) => {
+      ? (row, all) => {
           const edge = row.edgePct ?? row.entry.edge ?? null;
           return opts.qualify!(row.finalAiScore, row.entry.odds ?? null, edge);
         }

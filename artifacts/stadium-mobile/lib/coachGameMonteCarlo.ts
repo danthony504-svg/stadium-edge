@@ -20,7 +20,7 @@ import {
 } from "./finalAiScore.ts";
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
-import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
+import { resolvePickEdgePct, resolvePickExpectedValue, gameLineMeetsSimBar } from "./parlayQualifiedGate.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -327,9 +327,37 @@ export function filterCoachPicksWithGameSim(
       continue;
     }
     const sim = coachGameSimForPick(p, simByGame);
-    const hit = simHitForPick(p, sim, null);
+    const hit = p.finalAiScore?.simHit ?? simHitForPick(p, sim, null);
     const edge = edgeForPick(p);
     const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+
+    if (p.gameLineFinal) {
+      const ev = resolvePickExpectedValue(p, { realOdds: opts.oddsForEdge });
+      if (
+        !gameLineMeetsSimBar(hit, edge, {
+          evPct: ev,
+          isBestEvLine: p.gameLineFinal.isBestEv,
+          finalAiScore: p.finalAiScore,
+        })
+      ) {
+        coverRemoved += 1;
+        const pct = hit != null ? Math.round(hit * 100) : 0;
+        warnings.push(
+          `Dropped **${p.pick}** (${p.game}): 10k sim ${pct}% — game line failed sim bar after alt-line search.`,
+        );
+        opts.rejectsOut?.push({
+          pick: p,
+          reason: `10k sim ${pct}% — needs sim >50% or exactly 50% with strong +EV / best EV`,
+          nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
+        });
+        continue;
+      }
+      kept.push({
+        ...p,
+        highRiskValuePlay: highRiskValuePlay || undefined,
+      });
+      continue;
+    }
 
     if (!sim) {
       const disagree = gameSimDisagreement(p, sim);

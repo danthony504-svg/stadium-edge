@@ -90,7 +90,7 @@ test("buildGameLineSelectionReason lists EV edge and sim approval bullets", () =
   const reason = buildGameLineSelectionReason(alt, [main, alt], main);
   assert.match(reason, /Highest EV/i);
   assert.match(reason, /\+1\.8% edge/i);
-  assert.match(reason, /simulation approved/i);
+  assert.match(reason, /Simulation favorite/i);
 });
 
 test("rankGameLineByEv breaks ties toward higher payout", () => {

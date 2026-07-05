@@ -15,7 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { selectBestGameLineByEv, gameLineRowQualifies, selectBestGameLineWithReason } from "./altLineEvSelect.ts";
+import { selectBestGameLineByEv, gameLineRowQualifies, selectBestGameLineWithReason, isBestEvAmongRows } from "./altLineEvSelect.ts";
 import { rankGameLineByFinalScore, computeGameLineFinalScoreBreakdown } from "./gameLineFinalScore.ts";
 import {
   filterRowsForCloseGameSpread,
@@ -501,7 +501,8 @@ export function finalizeGameLinePickForGame(
   if (!selection) return null;
   const row = selection.row;
   const breakdown = computeGameLineFinalScoreBreakdown(row);
-  return {
+  const allRows = toCloseGameRows(ranked);
+  const finalPick: ParsedPick = {
     ...template,
     game,
     market: row.entry.market,
@@ -516,8 +517,13 @@ export function finalizeGameLinePickForGame(
       reason: selection.reason,
       finalScore: breakdown.finalScore,
       bullets: selection.bullets,
+      isBestEv: isBestEvAmongRows(row, allRows),
     },
   };
+  if (!isFullyQualifiedPick(finalPick, { realOdds: mergeOddsEntries(opts.realOdds, pool) })) {
+    return null;
+  }
+  return finalPick;
 }
 
 /**
@@ -640,6 +646,9 @@ function formatFinalGameLineNote(
     !grade ||
     conf == null ||
     !Number.isFinite(conf) ||
+    score?.composite == null ||
+    !Number.isFinite(score.composite) ||
+    score.composite <= 0 ||
     !pick.gameLineFinal
   ) {
     return null;

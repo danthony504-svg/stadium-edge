@@ -13,7 +13,7 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
-import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE } from "@/lib/parlayQualifiedGate";
+import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE, GAME_LINE_MIN_CONFIDENCE, pickHasCoachCardMetrics } from "@/lib/parlayQualifiedGate";
 import { gradeRank } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
@@ -21,7 +21,7 @@ import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
-import { gameLineLegBucket } from "@/lib/gameSimScoring";
+import { gameLineLegBucket, isGameLinePick } from "@/lib/gameSimScoring";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -89,6 +89,8 @@ export type ParsedPick = {
     reason: string;
     finalScore: number;
     bullets?: string[];
+    /** Highest +EV among every posted rung for this game. */
+    isBestEv?: boolean;
   };
 };
 
@@ -588,12 +590,17 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
   const rubric = pick.scores ?? finalAi?.rubric ?? null;
   const edge = resolvePickEdgePct(pick);
   const ev = resolvePickExpectedValue(pick);
+  const isGameLine = !pick.isProp && isGameLinePick(pick);
+  const minConf = isGameLine ? GAME_LINE_MIN_CONFIDENCE : MIN_MAIN_PICK_CONFIDENCE;
   if (
     !finalAi?.grade ||
     gradeRank(finalAi.grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
     finalAi.confidencePct == null ||
-    finalAi.confidencePct < MIN_MAIN_PICK_CONFIDENCE ||
+    finalAi.confidencePct < minConf ||
     finalAi.simHit == null ||
+    finalAi.composite == null ||
+    !Number.isFinite(finalAi.composite) ||
+    finalAi.composite <= 0 ||
     edge == null ||
     edge <= 0 ||
     ev == null ||
@@ -704,6 +711,65 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
           }}
         >
           Simulation updating…
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** Why the 10k sim optimizer chose this rung over every other posted line. */
+function GameLineWhyWon({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const meta = pick.gameLineFinal;
+  if (!meta?.reason && !meta?.bullets?.length) return null;
+  const bullets = meta.bullets?.length
+    ? meta.bullets
+    : meta.reason
+      ? [meta.reason]
+      : [];
+  if (!bullets.length) return null;
+
+  return (
+    <View
+      style={{
+        gap: 6,
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.semibold,
+          fontSize: 10,
+          letterSpacing: 0.4,
+          textTransform: "uppercase",
+        }}
+      >
+        Why this line won
+      </Text>
+      {bullets.map((b) => (
+        <View key={b} style={{ flexDirection: "row", gap: 6, alignItems: "flex-start" }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>•</Text>
+          <Text
+            style={{
+              flex: 1,
+              color: colors.foreground,
+              fontFamily: FONT.medium,
+              fontSize: 12,
+              lineHeight: 17,
+            }}
+          >
+            {b}
+          </Text>
+        </View>
+      ))}
+      {meta.finalScore != null && Number.isFinite(meta.finalScore) ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+          Final Score {meta.finalScore.toFixed(1)}
         </Text>
       ) : null}
     </View>
@@ -918,9 +984,12 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.finalAiScore?.grade ? (
-        <CoachPickMetrics pick={pick} />
-      ) : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
+      {hideReadout ? null : pickHasCoachCardMetrics(pick) ? (
+        <View style={{ gap: 8 }}>
+          <CoachPickMetrics pick={pick} />
+          {!pick.isProp && isGameLinePick(pick) ? <GameLineWhyWon pick={pick} /> : null}
+        </View>
+      ) : !pick.isProp && isGameLinePick(pick) ? null : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
         <ScoreBreakdown
           data={(pick.scores ?? pick.finalAiScore?.rubric)!}
           variant="compact"

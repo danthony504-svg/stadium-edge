@@ -199,7 +199,7 @@ test("game line rejects 49% sim without exceptional edge", () => {
   );
 });
 
-test("game line accepts 50% sim with positive edge and EV at full bar", () => {
+test("game line accepts 50% sim only with strong +EV or best EV", () => {
   const score = {
     composite: 7,
     grade: "C+",
@@ -212,55 +212,25 @@ test("game line accepts 50% sim with positive edge and EV at full bar", () => {
     factors: [],
     rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
   };
-  const ev = expectedValuePct(0.5, 110, null, 1.2);
-  assert.ok(ev != null && ev > 0);
-  assert.equal(isGameLineMainTicketQualified(score, 110, 1.2, ev), true);
-  assert.equal(gameLineMeetsSimBar(0.5, 1.2), true);
+  const weakEv = expectedValuePct(0.5, 105, null, 1.2);
+  assert.ok(weakEv != null && weakEv > 0 && weakEv < 3);
+  assert.equal(isGameLineMainTicketQualified(score, 105, 1.2, weakEv), false);
+  assert.equal(gameLineMeetsSimBar(0.5, 1.2, { evPct: weakEv }), false);
+
+  const strongEv = expectedValuePct(0.5, 250, null, 4);
+  assert.ok(strongEv != null && strongEv >= 3);
+  assert.equal(isGameLineMainTicketQualified(score, 250, 4, strongEv), true);
+  assert.equal(gameLineMeetsSimBar(0.5, 4, { evPct: strongEv }), true);
+  assert.equal(gameLineMeetsSimBar(0.5, 1.2, { evPct: weakEv, isBestEvLine: true }), true);
 });
 
-test("game line rejects 49% sim without exceptional edge", () => {
-  const score = {
-    composite: 7,
-    grade: "C+",
-    confidencePct: 55,
-    edgePct: 1.2,
-    simHit: 0.49,
-    simAligned: false,
-    highRiskValuePlay: false,
-    recommends: false,
-    factors: [],
-    rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
-  };
-  const ev = expectedValuePct(0.49, -110, null, 1.2);
-  assert.equal(isGameLineMainTicketQualified(score, -110, 1.2, ev), false);
-});
-
-test("game line 50% sim qualifies with sharp book spread agreement", () => {
-  const pick = qualifiedPick({
-    finalAiScore: { ...qualifiedPick().finalAiScore!, simHit: 0.5 },
-  });
-  assert.equal(
-    gameLineMeetsSimBar(0.5, 1.2, {
-      pick,
-      evPct: 1.0,
-      bookSpread: 2.5,
-      finalAiScore: pick.finalAiScore,
-    }),
-    true,
-  );
-  assert.equal(
-    gameLineHasSharpAgreement(pick, { realOdds: [{ game: pick.game, market: pick.market, pick: pick.pick, odds: pick.odds, bookSpread: 2.5 }] }),
-    true,
-  );
-});
-
-test("game line allows sub-50% sim only with exceptional edge and positive EV", () => {
+test("game line rejects 49% sim even with exceptional edge", () => {
   const score = {
     composite: 7,
     grade: "C+",
     confidencePct: 55,
     edgePct: GAME_LINE_EXCEPTIONAL_EV_PCT,
-    simHit: 0.48,
+    simHit: 0.49,
     simAligned: false,
     highRiskValuePlay: false,
     recommends: true,
@@ -273,9 +243,10 @@ test("game line allows sub-50% sim only with exceptional edge and positive EV", 
       edgePct: GAME_LINE_EXCEPTIONAL_EV_PCT,
     },
   };
-  const ev = expectedValuePct(0.48, 250, null, GAME_LINE_EXCEPTIONAL_EV_PCT);
+  const ev = expectedValuePct(0.49, 250, null, GAME_LINE_EXCEPTIONAL_EV_PCT);
   assert.ok(ev != null && ev > 0);
-  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT, ev), true);
+  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT, ev), false);
+  assert.equal(gameLineMeetsSimBar(0.49, GAME_LINE_EXCEPTIONAL_EV_PCT, { evPct: ev }), false);
 });
 
 test("longshot main ticket accepts 50% sim prop with positive edge", () => {
@@ -335,17 +306,20 @@ test("filterMainTicketPicks rejects game line without scores or positive EV", ()
   assert.equal(filterMainTicketPicks([gamePick]).length, 0);
 });
 
-test("filterMainTicketPicks keeps 50% sim game line with full display", () => {
+test("filterMainTicketPicks keeps 50% sim game line with full display when best EV", () => {
   const gamePick = qualifiedPick({
     game: "Toronto Blue Jays @ Seattle Mariners",
     market: "Spread",
     pick: "Mariners +1.5",
-    odds: 110,
+    odds: 105,
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
       simHit: 0.5,
       simAligned: false,
+      edgePct: 1.2,
     },
+    scores: { ...qualifiedPick().scores!, edgePct: 1.2 },
+    gameLineFinal: { reason: "Highest EV", finalScore: 6.2, isBestEv: true },
   });
   assert.equal(filterMainTicketPicks([gamePick]).length, 1);
 });

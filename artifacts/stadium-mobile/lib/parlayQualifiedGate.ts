@@ -10,11 +10,17 @@ import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
+/** Prop main-ticket confidence floor. */
 export const MIN_MAIN_PICK_CONFIDENCE = 52;
-/** Game-line sim floor — 50%+ standard; below 50% needs exceptional value signals. */
+/** Game-line main-ticket confidence floor (prefer {@link GAME_LINE_PREFERRED_CONFIDENCE}). */
+export const GAME_LINE_MIN_CONFIDENCE = 50;
+export const GAME_LINE_PREFERRED_CONFIDENCE = 55;
+/** Game-line sim floor — 50%+ standard; exactly 50% needs strong +EV or best EV on the board. */
 export const GAME_LINE_SIM_MIN_HIT = 0.5;
-/** Sub-50% band — only exceptional +EV / market signals may qualify. */
+/** @deprecated Sub-50% coin-flip band removed — alt-line search runs before reject. */
 export const GAME_LINE_COIN_FLIP_LOW = 0.48;
+/** Strong +EV (pct pts) required when sim is exactly 50%. */
+export const GAME_LINE_STRONG_EV_PCT = 3;
 /** Sub-52% game lines need edge/EV at or above this to qualify as exceptional value. */
 export const GAME_LINE_EXCEPTIONAL_EV_PCT = 4.5;
 /** Cross-book shopping advantage (pct pts) that counts as sharp agreement. */
@@ -104,10 +110,11 @@ function sharedMainTicketChecks(
   score: FinalAiScore,
   odds: number | null | undefined,
   edge: number | null,
+  minConfidence: number = MIN_MAIN_PICK_CONFIDENCE,
 ): boolean {
   if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
-  if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
+  if (score.confidencePct == null || score.confidencePct < minConfidence) return false;
   if (score.composite == null || !Number.isFinite(score.composite) || score.composite <= 0) {
     return false;
   }
@@ -115,10 +122,27 @@ function sharedMainTicketChecks(
   return true;
 }
 
+/** Rounded sim hit % for game-line bar checks (e.g. 0.504 → 50). */
+export function simHitPctRounded(simHit: number | null | undefined): number | null {
+  if (simHit == null || !Number.isFinite(simHit)) return null;
+  return Math.round(simHit * 100);
+}
+
+export function isSimExactlyFifty(simHit: number | null | undefined): boolean {
+  return simHitPctRounded(simHit) === 50;
+}
+
+export function isSimAboveFifty(simHit: number | null | undefined): boolean {
+  const pct = simHitPctRounded(simHit);
+  return pct != null && pct > 50;
+}
+
 export type GameLineSimBarCtx = {
   evPct?: number | null;
   bookSpread?: number | null;
   finalAiScore?: FinalAiScore | null;
+  /** True when this rung carries the highest +EV among every posted line for the game. */
+  isBestEvLine?: boolean;
 };
 
 function factorScore(
@@ -201,27 +225,27 @@ export function gameLineMeetsExceptionalCoinFlip(
 }
 
 /**
- * True when a game-line sim hit clears 52%, or carries exceptional value /
- * market signals in the coin-flip band (48–52%).
+ * Game-line sim bar — default ≥50% (rounded). Exactly 50% only when strong +EV
+ * or best EV on the board. Below 50% never qualifies (caller searches alts first).
  */
 export function gameLineMeetsSimBar(
   simHit: number | null | undefined,
   edge: number | null | undefined,
   ctx?: GameLineSimBarCtx & { pick?: ParsedPick; opts?: PickEdgeResolveOpts },
 ): boolean {
+  void edge;
+  void ctx?.pick;
+  void ctx?.opts;
   if (simHit == null || !Number.isFinite(simHit)) return false;
-  if (simHit >= GAME_LINE_SIM_MIN_HIT) return true;
-  if (ctx?.pick && simHit >= GAME_LINE_COIN_FLIP_LOW) {
-    return gameLineMeetsExceptionalCoinFlip(
-      simHit,
-      edge,
-      ctx.evPct,
-      ctx.pick,
-      ctx.opts,
-      ctx,
-    );
+  const pct = simHitPctRounded(simHit)!;
+  if (pct > 50) return true;
+  if (pct === 50) {
+    const ev = ctx?.evPct;
+    if (ctx?.isBestEvLine) return true;
+    if (ev != null && Number.isFinite(ev) && ev >= GAME_LINE_STRONG_EV_PCT) return true;
+    return false;
   }
-  return edge != null && Number.isFinite(edge) && edge >= GAME_LINE_EXCEPTIONAL_EV_PCT;
+  return false;
 }
 
 /** Rubric attached for card rendering — scores field or Final AI rubric fallback. */
@@ -239,7 +263,11 @@ export function pickHasCoachCardMetrics(
   const s = pick.finalAiScore;
   if (!s?.grade || !gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) return false;
   if (s.confidencePct == null || !Number.isFinite(s.confidencePct)) return false;
-  if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
+  const minConf = isGameLinePickForGate(pick)
+    ? GAME_LINE_MIN_CONFIDENCE
+    : MIN_MAIN_PICK_CONFIDENCE;
+  if (s.confidencePct < minConf) return false;
+  if (s.composite == null || !Number.isFinite(s.composite) || s.composite <= 0) return false;
   if (s.simHit == null || !Number.isFinite(s.simHit)) return false;
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
@@ -247,7 +275,12 @@ export function pickHasCoachCardMetrics(
   if (ev == null || !Number.isFinite(ev) || ev <= 0) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
   if (!pick.scores?.composite || !Number.isFinite(pick.scores.composite)) return false;
-  if (isGameLinePickForGate(pick) && !pick.gameLineFinal) return false;
+  if (isGameLinePickForGate(pick)) {
+    if (!pick.gameLineFinal) return false;
+    if (pick.gameLineFinal.finalScore == null || !Number.isFinite(pick.gameLineFinal.finalScore)) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -292,7 +325,7 @@ export function isGameLineMainTicketQualified(
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (!sharedMainTicketChecks(score, odds, edge)) return false;
+  if (!sharedMainTicketChecks(score, odds, edge, GAME_LINE_MIN_CONFIDENCE)) return false;
   if (evPct == null || evPct <= 0) return false;
   return gameLineMeetsSimBar(score.simHit, edge, { ...ctx, evPct, finalAiScore: score });
 }
@@ -373,6 +406,7 @@ export function isFullyQualifiedPick(
         bookSpread: backingBookSpread(pick, opts?.realOdds ?? []),
         finalAiScore: score,
         evPct: ev,
+        isBestEvLine: pick.gameLineFinal?.isBestEv,
       }) && gameLineHasCompleteDisplay(pick, opts)
     );
   }
@@ -431,8 +465,11 @@ export function reasonPickNotQualified(
     if (ev == null || ev <= 0) return `${ev ?? "—"}% expected value — non-positive EV, rejected`;
   }
   if (s.confidencePct == null) return "missing Confidence";
-  if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) {
-    return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
+  const minConf = isGameLinePickForGate(pick)
+    ? GAME_LINE_MIN_CONFIDENCE
+    : MIN_MAIN_PICK_CONFIDENCE;
+  if (s.confidencePct < minConf) {
+    return `Confidence ${s.confidencePct}% — needs ≥${minConf}%`;
   }
   if (s.simHit == null) return "missing Simulation Hit %";
   if (!pickHasCoachCardMetrics(pick, opts)) {
@@ -440,9 +477,20 @@ export function reasonPickNotQualified(
   }
   if (isGameLinePickForGate(pick)) {
     if (!pick.gameLineFinal) return "game line not finalized after 10k sim";
-    if (!gameLineMeetsSimBar(s.simHit, edge, { pick, opts, evPct: ev, finalAiScore: s })) {
+    if (
+      !gameLineMeetsSimBar(s.simHit, edge, {
+        pick,
+        opts,
+        evPct: ev,
+        finalAiScore: s,
+        isBestEvLine: pick.gameLineFinal?.isBestEv,
+      })
+    ) {
       const pct = Math.round(s.simHit * 100);
-      return `10k sim ${pct}% — game line needs ≥${Math.round(GAME_LINE_SIM_MIN_HIT * 100)}% sim, or exceptional +EV / sharp money / line movement below that`;
+      if (pct === 50) {
+        return `10k sim 50% — needs strong +EV (≥${GAME_LINE_STRONG_EV_PCT}%) or best EV among all posted lines`;
+      }
+      return `10k sim ${pct}% — game line needs sim >50%, or exactly 50% with strong +EV / best EV after alt-line search`;
     }
   } else if (opts?.longshotAsk) {
     if (s.simHit < LONGSHOT_SIM_MIN_HIT) {
@@ -472,11 +520,11 @@ export function reasonPickNotQualified(
 export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
   const sa = a.finalAiScore;
   const sb = b.finalAiScore;
-  if (isGameLinePickForGate(a) && isGameLinePickForGate(b)) {
-    const fsA = computePickFinalScore(a) ?? -999;
-    const fsB = computePickFinalScore(b) ?? -999;
-    if (fsB !== fsA) return fsB - fsA;
-  }
+  const fsA = isGameLinePickForGate(a) ? computePickFinalScore(a) : null;
+  const fsB = isGameLinePickForGate(b) ? computePickFinalScore(b) : null;
+  if (fsA != null && fsB != null && fsB !== fsA) return fsB - fsA;
+  if (fsA != null && fsB == null) return -1;
+  if (fsA == null && fsB != null) return 1;
   const edgeA = resolvePickEdgePct(a) ?? -999;
   const edgeB = resolvePickEdgePct(b) ?? -999;
   if (edgeB !== edgeA) return edgeB - edgeA;
