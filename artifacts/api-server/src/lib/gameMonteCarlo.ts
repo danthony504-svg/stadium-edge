@@ -9,12 +9,25 @@ export type GameSimTeamInput = {
   recentScores?: number[];
 };
 
+/** In-progress game state for live-adjusted simulations. */
+export type LiveGameState = {
+  homeScore: number;
+  awayScore: number;
+  /** Inning/quarter/period number (1-based). */
+  period: number;
+  /** MLB inning half; omit for other sports. */
+  inningHalf?: "top" | "bottom" | null;
+  /** Regulation length (9 MLB, 4 NBA quarters, 3 NHL periods, etc.). */
+  regulationPeriods?: number;
+};
+
 export type GameSimInput = {
   sport: string;
   home: GameSimTeamInput;
   away: GameSimTeamInput;
   weatherImpact?: number | null;
   simulations?: number;
+  live?: LiveGameState | null;
 };
 
 export type GameSimResult = {
@@ -27,6 +40,7 @@ export type GameSimResult = {
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
+  liveAdjusted?: boolean;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -51,6 +65,83 @@ function teamMean(forPts: number | null, oppAgainst: number | null, fallback: nu
   const parts = [forPts, oppAgainst].filter((v): v is number => v != null && Number.isFinite(v));
   if (!parts.length) return fallback;
   return parts.reduce((a, b) => a + b, 0) / parts.length;
+}
+
+/** Remaining offensive half-innings per team in MLB regulation. */
+export function mlbRemainingHalfInnings(
+  inning: number,
+  half: "top" | "bottom",
+  regulationInnings = 9,
+): { home: number; away: number } {
+  const inn = clamp(inning, 1, regulationInnings);
+  if (half === "top") {
+    return { away: regulationInnings - inn + 1, home: regulationInnings - inn + 1 };
+  }
+  return { away: regulationInnings - inn, home: regulationInnings - inn + 1 };
+}
+
+function regulationPeriodsForSport(sport: string): number {
+  if (sport === "mlb") return 9;
+  if (sport === "nba" || sport === "wnba") return 4;
+  if (sport === "nhl") return 3;
+  return 4;
+}
+
+/** Fraction of regulation scoring still to play (0–1). */
+function fractionScoringRemaining(sport: string, period: number, regulation: number): number {
+  const p = clamp(period, 1, regulation);
+  // Mid-period estimate: half the current period remains plus all later periods.
+  return clamp((regulation - p + 0.5) / regulation, 0.05, 1);
+}
+
+function sampleRemainingRuns(meanPerGame: number, halves: number, stdScale: number): number {
+  const perHalf = meanPerGame / (meanPerGame >= 6 ? 18 : 8);
+  const std = Math.max(perHalf * stdScale, 0.35);
+  let total = 0;
+  for (let i = 0; i < halves; i++) {
+    total += Math.max(0, normalSample(perHalf, std));
+  }
+  return total;
+}
+
+function simulateFinalScores(
+  input: GameSimInput,
+  hMean: number,
+  aMean: number,
+  homeStd: number,
+  awayStd: number,
+): { home: number; away: number } {
+  const live = input.live;
+  if (
+    live &&
+    Number.isFinite(live.homeScore) &&
+    Number.isFinite(live.awayScore) &&
+    live.period > 0
+  ) {
+    if (input.sport === "mlb") {
+      const half = live.inningHalf === "bottom" ? "bottom" : "top";
+      const rem = mlbRemainingHalfInnings(
+        live.period,
+        half,
+        live.regulationPeriods ?? 9,
+      );
+      const stdScale = homeStd / Math.max(hMean, 0.8);
+      return {
+        home: live.homeScore + sampleRemainingRuns(hMean, rem.home, stdScale),
+        away: live.awayScore + sampleRemainingRuns(aMean, rem.away, stdScale),
+      };
+    }
+    const reg = live.regulationPeriods ?? regulationPeriodsForSport(input.sport);
+    const frac = fractionScoringRemaining(input.sport, live.period, reg);
+    return {
+      home: live.homeScore + Math.max(0, normalSample(hMean * frac, homeStd * frac)),
+      away: live.awayScore + Math.max(0, normalSample(aMean * frac, awayStd * frac)),
+    };
+  }
+  return {
+    home: Math.max(0, normalSample(hMean, homeStd)),
+    away: Math.max(0, normalSample(aMean, awayStd)),
+  };
 }
 
 export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
@@ -97,8 +188,7 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   const winCounts = { home: 0, away: 0 };
 
   for (let i = 0; i < n; i++) {
-    const hs = Math.max(0, normalSample(hMean, homeStd));
-    const as = Math.max(0, normalSample(aMean, awayStd));
+    const { home: hs, away: as } = simulateFinalScores(input, hMean, aMean, homeStd, awayStd);
     homeTotal += hs;
     awayTotal += as;
     if (Math.abs(hs - as) < 0.01) ties += 1;
@@ -118,6 +208,7 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
   if ((input.home.recentScores?.length ?? 0) >= 5) confidence += 10;
   if ((input.away.recentScores?.length ?? 0) >= 5) confidence += 10;
   confidence += Math.abs(homeWins / n - 0.5) * 50;
+  if (input.live) confidence += 15;
 
   return {
     simulations: n,
@@ -129,5 +220,6 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
     mostLikelyWinner: winner,
     mostLikelyWinnerPct: round3(winnerPct),
     confidenceScore: clamp(Math.round(confidence), 5, 95),
+    ...(input.live ? { liveAdjusted: true } : {}),
   };
 }
