@@ -87,6 +87,7 @@ import {
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
+  buildPropsOnlyParlayContext,
   buildMlbSlateContext,
   gameMatchesFocalText,
   getPlayerHistory,
@@ -1228,9 +1229,10 @@ export default function CoachScreen() {
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
-          const useTinyParlayPath = genericParlayPath && buildLegs <= 3;
+          const usePropsOnlyParlayPath = genericParlayPath && wantsPropsOnly(trimmed);
+          const useTinyParlayPath = genericParlayPath && !usePropsOnlyParlayPath && buildLegs <= 3;
           const useCompactParlayPath =
-            genericParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
+            genericParlayPath && !usePropsOnlyParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
           const useMlbSlatePath =
             !genericParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
@@ -1242,6 +1244,8 @@ export default function CoachScreen() {
           const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
+            : usePropsOnlyParlayPath
+              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
             : useCompactParlayPath
               ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath

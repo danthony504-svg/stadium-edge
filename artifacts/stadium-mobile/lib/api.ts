@@ -2578,6 +2578,25 @@ export async function buildCompactParlayContext(
   });
 }
 
+/**
+ * Props-only parlay asks ("player props only parlay") — skip the wide game-odds
+ * slice and fan out fewer sports/prop games so context build + /api/chat connect
+ * finish on cellular before the client times out.
+ */
+export async function buildPropsOnlyParlayContext(
+  requestedLegs: number,
+  signal?: AbortSignal,
+): Promise<BuiltChatContext> {
+  const n = Math.max(4, Math.min(12, requestedLegs || 6));
+  return buildLightParlayContext(signal, {
+    maxSports: 3,
+    maxPropGames: Math.min(8, n + 1),
+    maxOddsGames: Math.min(10, n + 2),
+    propsBalanceCap: Math.min(64, n * 9),
+    oddsSliceCap: 6,
+  });
+}
+
 /** MLB-only slate context for pitcher/bullpen targeting asks — avoids all-sport fan-out. */
 export async function buildMlbSlateContext(signal?: AbortSignal): Promise<BuiltChatContext> {
   return buildLightParlayContext(signal, {
