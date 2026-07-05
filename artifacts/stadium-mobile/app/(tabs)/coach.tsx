@@ -2623,10 +2623,11 @@ export default function CoachScreen() {
         composeFrozenGameLineLegNote(picks, legNote);
         setMessages((prev) => {
           const copy = [...prev];
+          const { legNote: _dropNote, ...prevAssistant } = copy[copy.length - 1];
           copy[copy.length - 1] = {
-            ...copy[copy.length - 1],
+            ...prevAssistant,
             role: "assistant",
-            content: finalContent,
+            content: picks.length > 0 ? "" : finalContent,
             picks,
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),
@@ -2982,6 +2983,8 @@ export default function CoachScreen() {
             )
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
+            const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
+            const hidePickReplyProse = hasPicks || ticketPicks.length > 0;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -3021,13 +3024,14 @@ export default function CoachScreen() {
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
             const bubbleText =
-              m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
+              m.role === "assistant"
+                ? assistantBubbleText(m.content, hidePickReplyProse)
+                : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
-            // the cards (and their EDGE notes) carry everything. Also hide it while
-            // a parlay is building (the AnalysisProgress card stands in) or while an
-            // analyze request is waiting, so no empty/spinner bubble flashes ahead
-            // of the dedicated progress UI.
+            // the cards carry everything. Also hide it while a parlay is building
+            // (the AnalysisProgress card stands in) or while an analyze request is waiting.
             const showBubble =
+              !hidePickReplyProse &&
               !m.hideBubble &&
               !m.statCard &&
               !m.periodGameLog &&
@@ -3036,7 +3040,6 @@ export default function CoachScreen() {
               !analyzeWaiting &&
               !askWaiting &&
               (bubbleText.length > 0 || !!m.imageUris?.length);
-            const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
             return (
               <View key={i}>
                 {m.analyzeSlip?.length ? (
