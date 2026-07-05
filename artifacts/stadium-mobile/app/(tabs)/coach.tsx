@@ -102,6 +102,7 @@ import {
   ultraSlimChatContextForUpload,
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
+  largeCompactSlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -1216,7 +1217,7 @@ export default function CoachScreen() {
           setWaiting(false);
         } else {
           const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
-          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= 10;
+          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= MAX_LEGS;
           const genericParlayPath =
             fastParlay &&
             !oddsThreshold &&
@@ -1226,7 +1227,7 @@ export default function CoachScreen() {
             focalSportsFromText(focalForPools).size === 0;
           const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
           const useCompactParlayPath =
-            genericParlayPath && requestedLegs > 3 && requestedLegs <= 8;
+            genericParlayPath && requestedLegs > 3 && requestedLegs <= MAX_LEGS;
           const useMlbSlatePath =
             !genericParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
@@ -1296,11 +1297,10 @@ export default function CoachScreen() {
           let uploadContext: ChatContext = context;
           if (isParlayBuild && requestedLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
-          } else if (isParlayBuild && requestedLegs <= 10) {
-            uploadContext =
-              requestedLegs >= 9
-                ? slimChatContextForUpload(context)
-                : compactSlimChatContextForUpload(context);
+          } else if (isParlayBuild && requestedLegs <= 8) {
+            uploadContext = compactSlimChatContextForUpload(context);
+          } else if (isParlayBuild && requestedLegs <= MAX_LEGS) {
+            uploadContext = largeCompactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
           } else {
@@ -1308,6 +1308,8 @@ export default function CoachScreen() {
             // context never connect-stalls when /chat/context-stash is unavailable.
             uploadContext = slimChatContextForUpload(context);
           }
+          const parlayFirstTokenMs =
+            requestedLegs >= 12 ? 120_000 : requestedLegs >= 9 ? 90_000 : requestedLegs >= 6 ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             await warmP;
@@ -1318,6 +1320,7 @@ export default function CoachScreen() {
               signal: controller.signal,
               notifyOnBackground: bg,
               buildId,
+              firstTokenMs: isParlayBuild ? parlayFirstTokenMs : undefined,
               onProps: (rows: RealPropEntry[]) => {
                 serverPropPool.push(...propPoolFromRealProps(rows));
               },
@@ -1359,7 +1362,7 @@ export default function CoachScreen() {
               uploadContext =
                 requestedLegs <= 3
                   ? microSlimChatContextForUpload(context)
-                  : requestedLegs <= 10
+                  : requestedLegs <= 8
                     ? compactSlimChatContextForUpload(context)
                     : ultraSlimChatContextForUpload(context);
             }

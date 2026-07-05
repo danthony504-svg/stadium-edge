@@ -11,7 +11,13 @@ import {
 import { buildGameInjuryReport, type GameInjuryReport } from "./injuries";
 import type { EspnOddsSnapshot } from "./gameResolve";
 import { slipPropPlayerName } from "./slipPlayer";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload } from "./slimChatContext";
+import {
+  slimChatContextForUpload,
+  ultraSlimChatContextForUpload,
+  microSlimChatContextForUpload,
+  compactSlimChatContextForUpload,
+  largeCompactSlimChatContextForUpload,
+} from "./slimChatContext";
 import {
   isPickable,
   isPregameBettable,
@@ -39,7 +45,14 @@ import {
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
-export { gameMatchesFocalText, slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload };
+export {
+  gameMatchesFocalText,
+  slimChatContextForUpload,
+  ultraSlimChatContextForUpload,
+  microSlimChatContextForUpload,
+  compactSlimChatContextForUpload,
+  largeCompactSlimChatContextForUpload,
+};
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
@@ -2539,18 +2552,18 @@ export async function buildTinyParlayContext(signal?: AbortSignal): Promise<Buil
   });
 }
 
-/** Light context for generic 4-10 leg parlays: up to three sports, six prop games. */
+/** Light context for generic 4-15 leg parlays — avoids all-sport fan-out on big tickets. */
 export async function buildCompactParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
-  const n = Math.max(4, Math.min(12, requestedLegs));
+  const n = Math.max(4, Math.min(15, requestedLegs));
   return buildLightParlayContext(signal, {
-    maxSports: n >= 9 ? 5 : 4,
-    maxPropGames: Math.min(12, n + 2),
-    maxOddsGames: Math.min(20, n + 6),
-    propsBalanceCap: Math.min(80, n * 8),
-    oddsSliceCap: Math.min(64, n * 8),
+    maxSports: n >= 11 ? 6 : n >= 9 ? 5 : 4,
+    maxPropGames: Math.min(14, n + 2),
+    maxOddsGames: Math.min(24, n + 8),
+    propsBalanceCap: Math.min(96, n * 8),
+    oddsSliceCap: Math.min(80, n * 8),
   });
 }
 
@@ -3314,6 +3327,8 @@ export type StreamChatArgs = {
   // client saved so the same pick cards can be rebuilt on return.
   notifyOnBackground?: boolean;
   buildId?: string;
+  /** Override pre-first-token read budget (big parlays need longer reasoning). */
+  firstTokenMs?: number;
 };
 
 // Convert the server's realProps (one row per player+market with both posted
@@ -3498,7 +3513,18 @@ export function chatStreamFailureMessage(err: unknown): string {
 //      succeeds on a later attempt. Once real tokens have started we never retry
 //      (that would duplicate text); and a real caller abort (unmount / user
 //      cancel) propagates immediately and is never retried.
-export async function streamChat({ messages, context, onToken, signal, imageDataUrl, imageDataUrls, onProps, notifyOnBackground, buildId }: StreamChatArgs): Promise<string> {
+export async function streamChat({
+  messages,
+  context,
+  onToken,
+  signal,
+  imageDataUrl,
+  imageDataUrls,
+  onProps,
+  notifyOnBackground,
+  buildId,
+  firstTokenMs: firstTokenMsOverride,
+}: StreamChatArgs): Promise<string> {
   // Attach the Clerk bearer token so the server can identify the user. This is
   // required for the background-finish path (it stashes the result + pushes
   // under the account); harmless for normal chats. Resolved once up front.
@@ -3559,7 +3585,8 @@ export async function streamChat({ messages, context, onToken, signal, imageData
   });
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
-    bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000;
+    firstTokenMsOverride ??
+    (bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000);
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body AND the server's time-to-first-byte. The body is NOT small for a build:
   // production logs show a multi-leg "tonight" context serializes to ~130KB and a
