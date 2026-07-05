@@ -40,6 +40,8 @@ export {
   filterMainTicketPicks,
 } from "./parlayQualifiedGate.ts";
 
+export { computePickFinalScore, GAME_LINE_FINAL_SCORE_WEIGHTS } from "./gameLineFinalScore.ts";
+
 export type PickScoreAttachOpts = {
   realOdds?: RealOddsEntry[];
   propPool?: PropPoolEntry[];

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildGameLineSelectionReason,
   expectedValuePct,
   rankGameLineByEv,
   selectBestGameLineByEv,
@@ -58,7 +59,7 @@ test("expectedValuePct uses win probability and american odds", () => {
   assert.ok(ev != null && ev > 0);
 });
 
-test("selectBestGameLineByEv picks highest EV line, not forced -1.5", () => {
+test("selectBestGameLineByEv picks highest Final Score line, not forced -1.5", () => {
   const best = selectBestGameLineByEv([
     row("Spread", "Brewers -1.5", -154, 0.4, 0.5),
     row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58),
@@ -78,6 +79,13 @@ test("selectBestGameLineByEv skips sub-50% sim without exceptional edge", () => 
 test("gameLineRowQualifies rejects sub-50% sim without exceptional edge", () => {
   const bad = row("Spread", "Mariners +1.5", -110, 1.2, 0.49);
   assert.equal(gameLineRowQualifies(bad), false);
+});
+
+test("buildGameLineSelectionReason explains main line rejection on close sim", () => {
+  const main = row("Spread", "Brewers -1.5", -154, 0.4, 0.5);
+  const alt = row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58);
+  const reason = buildGameLineSelectionReason(alt, [main, alt], main);
+  assert.match(reason, /Main line rejected/i);
 });
 
 test("rankGameLineByEv breaks ties toward higher payout", () => {

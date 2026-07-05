@@ -8,7 +8,6 @@ import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
   evaluateGameLines,
   mergeOddsEntries,
-  filterEvaluatedForCloseGameSpread,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
@@ -16,7 +15,7 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection.ts";
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
-import { gameLineRowQualifies } from "./altLineEvSelect.ts";
+import { selectBestGameLineWithReason } from "./altLineEvSelect.ts";
 import {
   comparePickStrength,
   isFullyQualifiedPick,
@@ -93,28 +92,27 @@ export function collectQualifiedGameLineCandidates(
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
-    const spreadFiltered = filterEvaluatedForCloseGameSpread(ranked, sim, lines, {
-      longshotAsk: opts.longshotAsk,
-    });
-    for (const row of spreadFiltered) {
-      const pick = evalRowToPick(row);
-      const rowAsClose = {
-        entry: row.entry,
-        finalAiScore: row.finalAiScore,
-        winProb: row.winProb,
-        edgePct: row.edgePct,
-      };
-      const passes = gameLineRowQualifies(rowAsClose);
-      if (!passes) {
+    const closeRows = ranked.map((row) => ({
+      entry: row.entry,
+      finalAiScore: row.finalAiScore,
+      winProb: row.winProb,
+      edgePct: row.edgePct,
+    }));
+    const selection = selectBestGameLineWithReason(closeRows);
+    if (!selection) {
+      for (const row of ranked) {
+        const pick = evalRowToPick(row);
         opts.rejectsOut?.push({
           pick: row.pick,
           reason: reasonPickNotQualified(pick, { longshotAsk: opts.longshotAsk }),
           nearScore: nearScoreFromPick(pick),
         });
-        continue;
       }
-      qualified.push(pick);
+      continue;
     }
+    const bestRow = ranked.find((r) => r.entry === selection.row.entry);
+    if (!bestRow) continue;
+    qualified.push(evalRowToPick(bestRow));
   }
   return qualified.sort((a, b) => comparePickStrength(b, a));
 }
@@ -190,7 +188,13 @@ export async function collectQualifiedPropCandidates(
       }
     }
 
-    if (qualified.length >= minQualified && qualified.length >= minQualified * 2) break;
+    if (
+      minQualified < 12 &&
+      qualified.length >= minQualified &&
+      qualified.length >= minQualified * 2
+    ) {
+      break;
+    }
   }
 
   return qualified.sort((a, b) => comparePickStrength(b, a));
@@ -282,13 +286,18 @@ export async function selectStrongestQualifiedParlay(
 
   // Deep-sim more prop batches when diversity + game lines are not enough.
   let propCap = PROP_SIM_INITIAL_CAP;
+  const deepReach = target >= 12;
   while (
     picks.length < target &&
-    propCap < PROP_SIM_MAX_CAP &&
-    propCap < opts.propPool.length &&
+    (deepReach ? propCap < opts.propPool.length : propCap < PROP_SIM_MAX_CAP) &&
+    propCap < (deepReach ? opts.propPool.length : PROP_SIM_MAX_CAP) &&
     !opts.signal?.aborted
   ) {
-    propCap = Math.min(propCap + PROP_SIM_BATCH_SIZE * 2, PROP_SIM_MAX_CAP, opts.propPool.length);
+    propCap = Math.min(
+      propCap + PROP_SIM_BATCH_SIZE * 2,
+      deepReach ? opts.propPool.length : PROP_SIM_MAX_CAP,
+      opts.propPool.length,
+    );
     propCandidates = await collectQualifiedPropCandidates(
       opts.propPool,
       { ...opts.scoreOpts, realOdds: opts.realOdds, propPool: opts.propPool },

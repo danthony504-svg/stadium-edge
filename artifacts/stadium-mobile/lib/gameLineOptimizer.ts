@@ -15,7 +15,8 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { selectBestGameLineByEv, gameLineRowQualifies, rankGameLineByEv } from "./altLineEvSelect.ts";
+import { selectBestGameLineByEv, gameLineRowQualifies, selectBestGameLineWithReason, buildGameLineSelectionReason } from "./altLineEvSelect.ts";
+import { rankGameLineByFinalScore, computeGameLineFinalScoreBreakdown } from "./gameLineFinalScore.ts";
 import {
   filterRowsForCloseGameSpread,
   selectBestTeamSpreadLine,
@@ -349,7 +350,7 @@ function rankEvaluated(a: EvaluatedGameLine, b: EvaluatedGameLine): number {
     winProb: b.winProb,
     edgePct: b.edgePct,
   };
-  return rankGameLineByEv(rowA, rowB);
+  return rankGameLineByFinalScore(rowA, rowB);
 }
 
 export function evaluateGameLines(input: {
@@ -599,6 +600,7 @@ function formatGameLineScoreNote(
     evalLines?: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    selectionReason?: string;
   },
 ): string {
   const simHit =
@@ -634,7 +636,32 @@ function formatGameLineScoreNote(
   const grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
   const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
-  return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade}, sim ${wp}, edge ${edgeStr}`;
+  const scoreRow = scored
+    ? {
+        entry: scored.entry,
+        finalAiScore: scored.finalAiScore,
+        winProb: scored.winProb,
+        edgePct: scored.edgePct,
+      }
+    : pick.finalAiScore
+      ? {
+          entry: match ?? {
+            sport: pick.sport ?? "mlb",
+            game: pick.game,
+            market: pick.market,
+            pick: pick.pick,
+            odds: pick.odds ?? -110,
+            edge,
+          },
+          finalAiScore: pick.finalAiScore,
+          winProb: simHit,
+          edgePct: edge,
+        }
+      : null;
+  const finalScore = scoreRow ? computeGameLineFinalScoreBreakdown(scoreRow).finalScore : null;
+  const fsStr = finalScore != null ? `Final Score ${finalScore}` : "—";
+  const reason = opts?.selectionReason ? ` — ${opts.selectionReason}` : "";
+  return `${pick.game}: ${pick.pick} (${pick.market}) — ${fsStr}, AI ${grade}, sim ${wp}, edge ${edgeStr}${reason}`;
 }
 
 function isTeamSidedGameLine(pick: ParsedPick): boolean {
@@ -707,25 +734,40 @@ export function buildGameLineOptimizerNote(
       continue;
     }
     const mergedOdds = mergeOddsEntries(opts.realOdds, evalLines);
-    const ranked = evaluateGameLines({
-      lines: [match],
+    const allRanked = evaluateGameLines({
+      lines: evalLines.length ? evalLines : match ? [match] : [],
       gameSim: sim,
       realOdds: mergedOdds,
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
     });
+    const closeRows = toCloseGameRows(allRanked);
+    const selection = selectBestGameLineWithReason(closeRows);
+    const scored =
+      allRanked.find((r) => r.entry.market === pick.market && r.entry.pick === pick.pick) ??
+      allRanked[0] ??
+      null;
+    const selectionReason =
+      selection?.reason ??
+      (closeRows.length
+        ? buildGameLineSelectionReason(
+            closeRows.find((r) => r.entry.market === pick.market && r.entry.pick === pick.pick) ?? closeRows[0]!,
+            closeRows,
+          )
+        : undefined);
     lines.push(
-      formatGameLineScoreNote(pick, ranked[0] ?? null, sim, match, {
+      formatGameLineScoreNote(pick, scored, sim, match, {
         realOdds: mergedOdds,
         evalLines,
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
+        selectionReason,
       }),
     );
   }
 
   if (!lines.length) return "";
-  const intro = `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest expected value among every posted ML / spread / alt / total / team-total rung (positive EV, positive edge, C+ or better, confidence 50+):_`;
+  const intro = `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} ranked by Final Score (40% EV · 30% sim · 15% confidence · 10% grade · 5% market movement) across every ML / spread / alt / total / team-total rung:_`;
   return `${intro}\n${lines.map((n) => `• ${n}`).join("\n")}`;
 }
 

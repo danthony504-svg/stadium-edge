@@ -3,6 +3,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { expectedValuePct } from "./altLineEvSelect.ts";
+import { computePickFinalScore } from "./gameLineFinalScore.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
@@ -320,9 +321,9 @@ export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
   const sa = a.finalAiScore;
   const sb = b.finalAiScore;
   if (isGameLinePickForGate(a) && isGameLinePickForGate(b)) {
-    const evA = resolvePickExpectedValue(a) ?? -999;
-    const evB = resolvePickExpectedValue(b) ?? -999;
-    if (evB !== evA) return evB - evA;
+    const fsA = computePickFinalScore(a) ?? -999;
+    const fsB = computePickFinalScore(b) ?? -999;
+    if (fsB !== fsA) return fsB - fsA;
   }
   const edgeA = resolvePickEdgePct(a) ?? -999;
   const edgeB = resolvePickEdgePct(b) ?? -999;
@@ -347,6 +348,10 @@ export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
 
 export function nearScoreFromPick(pick: ParsedPick): number {
   const s = pick.finalAiScore;
+  if (isGameLinePickForGate(pick)) {
+    const fs = computePickFinalScore(pick);
+    if (fs != null) return fs * 10;
+  }
   const edge = Math.max(0, resolvePickEdgePct(pick) ?? 0);
   const sim = s?.simHit ?? 0;
   const conf = s?.confidencePct ?? 0;

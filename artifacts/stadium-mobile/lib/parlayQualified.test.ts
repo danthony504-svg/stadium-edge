@@ -344,15 +344,21 @@ test("longshot section accepts negative edge when not main-qualified", () => {
   assert.equal(isLongshotSectionPick(p), true);
 });
 
-test("comparePickStrength ranks higher EV first for game lines", () => {
+test("comparePickStrength ranks higher Final Score first for game lines", () => {
   const low = qualifiedPick({
-    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 1.0, simHit: 0.52 },
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 1.0, simHit: 0.52, grade: "C+" },
     odds: -110,
   });
   const high = qualifiedPick({
     game: "C @ D",
     pick: "C +1.5",
-    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 2.5, simHit: 0.58 },
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      edgePct: 2.5,
+      simHit: 0.58,
+      grade: "A-",
+      confidencePct: 72,
+    },
     odds: 120,
   });
   assert.ok(comparePickStrength(high, low) < 0);
