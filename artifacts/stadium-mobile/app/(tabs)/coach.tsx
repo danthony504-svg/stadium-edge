@@ -79,6 +79,7 @@ import {
   tonightExhaustedNote,
   todayBuildNote,
   wantsPropsOnly,
+  effectiveBuildLegCount,
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
 } from "@/lib/slate";
@@ -1122,6 +1123,8 @@ export default function CoachScreen() {
         // Computed up here (not just before the reach-N backstop below) because a
         // single-game high-leg ask needs it to decide includePeriods.
         const requestedLegs = requestedLegCount(trimmed);
+        const buildLegs = effectiveBuildLegCount(trimmed);
+        const legTarget = requestedLegs > 0 ? requestedLegs : buildLegs;
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
@@ -1216,8 +1219,8 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
-          const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
-          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= MAX_LEGS;
+          const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
+          const fastParlay = isParlayBuild && buildLegs > 0 && buildLegs <= MAX_LEGS;
           const genericParlayPath =
             fastParlay &&
             !oddsThreshold &&
@@ -1225,9 +1228,9 @@ export default function CoachScreen() {
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
-          const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
+          const useTinyParlayPath = genericParlayPath && buildLegs <= 3;
           const useCompactParlayPath =
-            genericParlayPath && requestedLegs > 3 && requestedLegs <= MAX_LEGS;
+            genericParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
           const useMlbSlatePath =
             !genericParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
@@ -1240,7 +1243,7 @@ export default function CoachScreen() {
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
             : useCompactParlayPath
-              ? await buildCompactParlayContext(requestedLegs, controller.signal)
+              ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
                 : await buildChatContext(
@@ -1251,12 +1254,12 @@ export default function CoachScreen() {
                 includePeriods,
                 focalForPools,
                 altSign,
-                requestedLegs,
+                buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
             isParlayBuild && rawBuilt.propPool.length > 0 && rawBuilt.context.realProps?.length
-              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs })
+              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
               : !isParlayBuild &&
                   rawBuilt.propPool.length > 0 &&
                   rawBuilt.context.realProps?.length
@@ -1299,11 +1302,11 @@ export default function CoachScreen() {
 
           let first = true;
           let uploadContext: ChatContext = context;
-          if (isParlayBuild && requestedLegs <= 3) {
+          if (isParlayBuild && buildLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
-          } else if (isParlayBuild && requestedLegs <= 8) {
+          } else if (isParlayBuild && buildLegs <= 8) {
             uploadContext = compactSlimChatContextForUpload(context);
-          } else if (isParlayBuild && requestedLegs <= MAX_LEGS) {
+          } else if (isParlayBuild && buildLegs <= MAX_LEGS) {
             uploadContext = largeCompactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
@@ -1313,7 +1316,7 @@ export default function CoachScreen() {
             uploadContext = slimChatContextForUpload(context);
           }
           const parlayFirstTokenMs =
-            requestedLegs >= 12 ? 120_000 : requestedLegs >= 9 ? 90_000 : requestedLegs >= 6 ? 75_000 : undefined;
+            buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             await warmP;
@@ -1364,9 +1367,9 @@ export default function CoachScreen() {
             scrollToEnd();
             if (isParlayBuild) {
               uploadContext =
-                requestedLegs <= 3
+                buildLegs <= 3
                   ? microSlimChatContextForUpload(context)
-                  : requestedLegs <= 8
+                  : buildLegs <= 8
                     ? compactSlimChatContextForUpload(context)
                     : ultraSlimChatContextForUpload(context);
             }
@@ -1591,7 +1594,7 @@ export default function CoachScreen() {
           // to safely build from today's already-filtered real odds.
           const salvageEligible =
             picks.length === 0 &&
-            requestedLegs > 0 &&
+            legTarget > 0 &&
             !oddsThreshold &&
             !confidenceThreshold &&
             // A "+ alt" / "- alt" sign lock already ran its own filter above; a
@@ -1603,7 +1606,7 @@ export default function CoachScreen() {
             ? focalSportsFromText(trimmed)
             : new Set<string>();
           if (salvageEligible) {
-            const tgt = Math.min(requestedLegs, MAX_LEGS);
+            const tgt = Math.min(legTarget, MAX_LEGS);
             if (mentionsPropIntent(trimmed)) {
               const dayOdds = slateDay
                 ? filterOddsForSlateDay(context.realOdds, slateDay)
@@ -1693,12 +1696,14 @@ export default function CoachScreen() {
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
         if (
-          requestedLegs > picks.length &&
-          (picks.length > 0 || mentionsProps) &&
+          legTarget > picks.length &&
+          (picks.length > 0 ||
+            mentionsProps ||
+            (legTarget >= 3 && !explicitSingleGame)) &&
           !oddsThreshold &&
           !confidenceThreshold
         ) {
-          const target = Math.min(requestedLegs, MAX_LEGS);
+          const target = Math.min(legTarget, MAX_LEGS);
           // SINGLE-GAME / SPORT LOCK for the backfill pool — shared by EVERY
           // backfill order below so no branch widens a locked ticket. Derived
           // from the model's OWN resolved legs (and any game/sport the user named
@@ -1754,7 +1759,7 @@ export default function CoachScreen() {
             // doesn't stall at a handful of moneylines. Skip when the user locked
             // the build to one game.
             const deepMultiLegFill =
-              requestedLegs >= 6 && !explicitSingleGame;
+              legTarget >= 6 && !explicitSingleGame;
             // Server rule: 3+ leg tickets should mix props when available. Generic
             // "N-leg parlay" asks don't mention props, so we still backfill from
             // realProps — otherwise reach-N only walks game ML/spread/total and
@@ -1763,7 +1768,7 @@ export default function CoachScreen() {
               mentionsProps ||
               (thinSlateDepth && !explicitSingleGame) ||
               deepMultiLegFill ||
-              (requestedLegs >= 3 && !explicitSingleGame);
+              (legTarget >= 3 && !explicitSingleGame);
             if (mixPropsInBackfill) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
