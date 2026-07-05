@@ -7,7 +7,8 @@ import { ConfidenceRing } from "@/components/PropVisuals";
 import { FONT } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { propMarketLabel, type PlayerProp } from "@/lib/api";
+import { propMarketLabel } from "@/lib/propMarketLabel";
+import type { PlayerProp } from "@/lib/api";
 import { formatAmerican, impliedProb } from "@/lib/format";
 
 // Shared presentational pieces for player-prop rows. Kept in one place so the
