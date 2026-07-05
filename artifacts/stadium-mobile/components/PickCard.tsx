@@ -1921,17 +1921,48 @@ export function backfillProps(
   };
   const startsAtByGame = new Map<string, string | null>();
   const daysByGame = new Map<string, Set<string>>();
-  const canonicalGameKey = (game: string): string | null => {
+  const gameLabelByCanon = new Map<string, string>();
+  const sportByCanon = new Map<string, string>();
+  const canonicalGameKey = (game: string, sport?: string): string | null => {
     const kn = norm(game);
-    if (startsAtByGame.has(kn)) return kn;
+    if (startsAtByGame.has(kn)) {
+      const gs = sportByCanon.get(kn);
+      if (sport && gs && sport !== gs) return null;
+      return kn;
+    }
     for (const k of startsAtByGame.keys()) {
+      const gs = sportByCanon.get(k);
+      if (sport && gs && sport !== gs) continue;
       if (gameLabelsMatch(k, game)) return k;
     }
     return null;
   };
+  const propFitsGame = (e: PropPoolEntry, displayGame: string, canon: string): boolean => {
+    if (e.sport) {
+      const gs = sportByCanon.get(canon);
+      if (gs && e.sport !== gs) return false;
+    }
+    if (e.teamAbbr) {
+      const m = gameMeta.find((gm) => sameGame(gm.game, displayGame));
+      if (m) {
+        const ab = e.teamAbbr.toUpperCase();
+        const onCard =
+          ab === m.awayAbbr?.toUpperCase() || ab === m.homeAbbr?.toUpperCase();
+        if (!onCard) return false;
+      }
+    }
+    const propDay = dayOf(e.startsAt);
+    const allowedDays = daysByGame.get(canon);
+    if (propDay && allowedDays && allowedDays.size > 0 && !allowedDays.has(propDay)) {
+      return false;
+    }
+    return true;
+  };
   for (const e of realToday) {
     const k = norm(e.game);
     if (!startsAtByGame.has(k)) startsAtByGame.set(k, e.startsAt ?? null);
+    if (!gameLabelByCanon.has(k)) gameLabelByCanon.set(k, e.game);
+    if (!sportByCanon.has(k)) sportByCanon.set(k, e.sport);
     const day = dayOf(e.startsAt);
     if (day) {
       const set = daysByGame.get(k) ?? new Set<string>();
@@ -1947,18 +1978,22 @@ export function backfillProps(
   // the real posted rungs — never a deep longshot or a no-equity favorite.
   const byKey = new Map<string, PropPoolEntry>();
   for (const e of propPool) {
-    const canon = canonicalGameKey(e.game);
-    if (!canon) continue; // no matching game on today's board
+    const canon = canonicalGameKey(e.game, e.sport);
+    if (!canon) continue;
+    const displayGame = gameLabelByCanon.get(canon) ?? e.game;
+    if (!propFitsGame(e, displayGame, canon)) continue;
     if (typeof e.odds !== "number" || e.odds <= -1000) continue;
-    const propDay = dayOf(e.startsAt);
-    const allowedDays = daysByGame.get(canon);
-    if (propDay && allowedDays && allowedDays.size > 0 && !allowedDays.has(propDay)) {
-      continue;
-    }
     const key = `${canon}|${norm(e.player)}|${norm(e.marketLabel)}`;
     const cur = byKey.get(key);
-    if (!cur || Math.abs(ip(e.odds) - 0.5) < Math.abs(ip(cur.odds) - 0.5)) {
-      byKey.set(key, e);
+    const eExact = gameLabelsMatch(e.game, displayGame);
+    const curExact = cur ? gameLabelsMatch(cur.game, displayGame) : false;
+    const prefer =
+      !cur ||
+      (eExact && !curExact) ||
+      (eExact === curExact &&
+        Math.abs(ip(e.odds) - 0.5) < Math.abs(ip(cur.odds) - 0.5));
+    if (prefer) {
+      byKey.set(key, { ...e, game: displayGame });
     }
   }
   const marketCounts = new Map<string, number>();
@@ -1976,26 +2011,29 @@ export function backfillProps(
     if (out.length >= target) return false;
     const mk = norm(e.marketLabel);
     if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
-    const gk = norm(e.game);
-    if ((gameCounts.get(gk) ?? 0) >= maxPerGame) return false;
     if (e.sport && (sportCounts.get(e.sport) ?? 0) >= maxPerSport) return false;
     const legFp = parlayLegKeyFromPool(e);
     if (avoidLegKeys?.has(legFp) && out.length + 3 < target) return false;
-    const canon = canonicalGameKey(e.game);
+    const canon = canonicalGameKey(e.game, e.sport);
+    if (!canon) return false;
+    const displayGame = gameLabelByCanon.get(canon) ?? e.game;
+    if (!propFitsGame(e, displayGame, canon)) return false;
+    const dgk = norm(displayGame);
+    if ((gameCounts.get(dgk) ?? 0) >= maxPerGame) return false;
     const pick =
       e.line != null
         ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
         : `${e.player} ${e.marketLabel}`;
-    const legKey = `${e.game}|${e.marketLabel}|${pick}`.toLowerCase();
+    const legKey = `${displayGame}|${e.marketLabel}|${pick}`.toLowerCase();
     if (legSeen.has(legKey)) return false;
     legSeen.add(legKey);
     marketCounts.set(mk, (marketCounts.get(mk) ?? 0) + 1);
-    gameCounts.set(gk, (gameCounts.get(gk) ?? 0) + 1);
+    gameCounts.set(norm(displayGame), (gameCounts.get(norm(displayGame)) ?? 0) + 1);
     if (e.sport) sportCounts.set(e.sport, (sportCounts.get(e.sport) ?? 0) + 1);
     out.push(
       enrichPickMeta(
         {
-          game: e.game,
+          game: displayGame,
           market: e.marketLabel,
           pick,
           odds: e.odds,

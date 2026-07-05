@@ -229,6 +229,90 @@ test("backfillProps varies ticket mix across build seeds", () => {
   assert.notEqual(legsA, legsB, "different build seeds should produce different tickets");
 });
 
+test("backfillProps rejects prop when teamAbbr does not match game", () => {
+  const mlbGame = "New York Mets @ Atlanta Braves";
+  const wrongGame = "Detroit Tigers @ Texas Rangers";
+  const realToday = [
+    {
+      game: mlbGame,
+      market: "Moneyline",
+      pick: "Braves ML",
+      odds: -110,
+      sport: "mlb",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+    {
+      game: wrongGame,
+      market: "Moneyline",
+      pick: "Rangers ML",
+      odds: -120,
+      sport: "mlb",
+      startsAt: "2026-06-28T20:00:00.000Z",
+    },
+  ];
+  const gameMeta = [
+    {
+      game: mlbGame,
+      sport: "mlb",
+      homeTeam: "Atlanta Braves",
+      awayTeam: "New York Mets",
+      awayAbbr: "NYM",
+      homeAbbr: "ATL",
+      awayLogo: "",
+      homeLogo: "",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+    {
+      game: wrongGame,
+      sport: "mlb",
+      homeTeam: "Texas Rangers",
+      awayTeam: "Detroit Tigers",
+      awayAbbr: "DET",
+      homeAbbr: "TEX",
+      awayLogo: "",
+      homeLogo: "",
+      startsAt: "2026-06-28T20:00:00.000Z",
+    },
+  ];
+  const pool: PropPoolEntry[] = [
+    {
+      sport: "mlb",
+      game: wrongGame,
+      marketLabel: "Hits",
+      player: "Brandon Nimmo",
+      line: 0.5,
+      side: "Under",
+      odds: 159,
+      marketKey: "hits",
+      headshot: null,
+      teamAbbr: "NYM",
+      athleteId: "1",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+    {
+      sport: "mlb",
+      game: mlbGame,
+      marketLabel: "Hits",
+      player: "Brandon Nimmo",
+      line: 0.5,
+      side: "Under",
+      odds: 165,
+      marketKey: "hits",
+      headshot: null,
+      teamAbbr: "NYM",
+      athleteId: "1",
+      startsAt: "2026-06-28T19:00:00.000Z",
+    },
+  ];
+  const out = backfillProps([], pool, realToday, gameMeta, {
+    target: 1,
+    diversify: false,
+  });
+  assert.equal(out.length, 1);
+  assert.match(out[0]!.game, /Mets.*Braves/i);
+  assert.equal(out[0]!.player, "Brandon Nimmo");
+});
+
 test("backfillProps skips recent legs on rebuild", () => {
   const game = "Cardinals @ Cubs";
   const realToday = [
