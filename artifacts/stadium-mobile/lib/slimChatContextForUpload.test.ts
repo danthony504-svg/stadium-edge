@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload, largeCompactSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
 
 function heavyContext(): SlimChatContextInput {
   const game = "Away Team @ Home Team";
@@ -157,7 +157,7 @@ test("microSlimChatContextForUpload caps further for 3-leg cellular uploads", ()
   assert.ok(JSON.stringify(micro).length < JSON.stringify(ultraSlimChatContextForUpload(heavy)).length);
 });
 
-test("compactSlimChatContextForUpload caps 4-10 leg cellular uploads", () => {
+test("compactSlimChatContextForUpload caps 4-8 leg cellular uploads", () => {
   const heavy: SlimChatContextInput = {
     selectedSports: ["mlb", "wnba", "nba", "nhl"],
     currentSlip: [],
@@ -181,4 +181,29 @@ test("compactSlimChatContextForUpload caps 4-10 leg cellular uploads", () => {
   assert.ok(compact.realProps.length <= 48);
   assert.equal(compact.matchupHistory, undefined);
   assert.equal(compact.realGames.length, 0);
+});
+
+test("largeCompactSlimChatContextForUpload caps 9-15 leg cellular uploads", () => {
+  const heavy: SlimChatContextInput = {
+    selectedSports: ["mlb", "wnba", "nba", "nhl", "soccer", "ufc"],
+    currentSlip: [],
+    realGames: Array(20).fill({ sport: "mlb", game: "A @ B", status: "pre" }),
+    realOdds: Array(100).fill({ sport: "mlb", game: "A @ B", market: "h2h", pick: "A", odds: -110, startsAt: new Date().toISOString() }),
+    realProps: Array(120).fill({
+      sport: "mlb",
+      game: "A @ B",
+      startsAt: new Date().toISOString(),
+      player: "P",
+      market: "batter_hits",
+      line: 0.5,
+      over: -120,
+      under: 100,
+      alt: false,
+    }),
+  };
+  const large = largeCompactSlimChatContextForUpload(heavy);
+  assert.ok(large.realOdds.length <= 48);
+  assert.ok(large.realProps.length <= 64);
+  assert.ok((large.selectedSports?.length ?? 0) <= 6);
+  assert.equal(large.matchupHistory, undefined);
 });

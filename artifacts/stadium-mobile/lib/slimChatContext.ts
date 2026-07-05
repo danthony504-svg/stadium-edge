@@ -175,7 +175,7 @@ export function microSlimChatContextForUpload<T extends SlimChatContextInput>(co
   };
 }
 
-/** Upload tier for 4-10 leg generic parlays — wider pool than micro, still under ~20KB. */
+/** Upload tier for 4-8 leg generic parlays — wider pool than micro, still under ~20KB. */
 export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
   const slim = slimChatContextForUpload(context);
   return {
@@ -183,6 +183,25 @@ export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(
     selectedSports: slim.selectedSports?.slice(0, 4),
     realOdds: slim.realOdds.slice(0, 32),
     realProps: slim.realProps.slice(0, 48),
+    matchupHistory: undefined,
+    modelStrengths: undefined,
+    fightAnalysis: undefined,
+    playerHistory: undefined,
+    mlbPlatoon: undefined,
+    mlbGameEnv: undefined,
+    matchupInjuries: undefined,
+    realGames: [],
+  };
+}
+
+/** Upload tier for 9-15 leg generic parlays — enough breadth for big tickets, still cellular-safe. */
+export function largeCompactSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
+  const slim = slimChatContextForUpload(context);
+  return {
+    ...slim,
+    selectedSports: slim.selectedSports?.slice(0, 6),
+    realOdds: slim.realOdds.slice(0, 48),
+    realProps: slim.realProps.slice(0, 64),
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
