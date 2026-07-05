@@ -1,9 +1,10 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, useEffect, useRef, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -30,8 +31,6 @@ import {
   getInjuries,
   getParkWeather,
   getPlayerHistory,
-  getPropsWithPrizePicksFallback,
-  isSimulatorEligible,
   propMarketLabel,
   warmApiForCoachBuild,
   type EspnGame,
@@ -39,6 +38,8 @@ import {
   type PlayerProp,
   type PropSimulationResult,
 } from "@/lib/api";
+import { isSimulatorEligible } from "@/lib/slate";
+import { loadSimulatorProps } from "@/lib/simulatorProps";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
@@ -204,6 +205,13 @@ export default function SimulatorScreen() {
     [gamesQ.data],
   );
 
+  // Drop started games as soon as the user returns to this tab.
+  useFocusEffect(
+    useCallback(() => {
+      void gamesQ.refetch();
+    }, [gamesQ.refetch]),
+  );
+
   useEffect(() => {
     if (gameIdx >= games.length) setGameIdx(0);
   }, [gameIdx, games.length]);
@@ -254,7 +262,7 @@ export default function SimulatorScreen() {
     queryFn: async ({ signal }) => {
       if (!game?.id) return [] as PlayerProp[];
       try {
-        const r = await getPropsWithPrizePicksFallback(
+        const props = await loadSimulatorProps(
           {
             sport,
             eventId: game.id,
@@ -266,7 +274,6 @@ export default function SimulatorScreen() {
           },
           signal,
         );
-        const props = asPropList(r.props);
         if (props.length > 0) rememberSimProps(sport, game.id, props);
         return props;
       } catch {
@@ -331,7 +338,7 @@ export default function SimulatorScreen() {
 
   // PrizePicks DFS lines have no American price — still simulatable with line only.
   const ppPropPool = useMemo(() => {
-    if (!gameLabel) return mains.filter((p) => p.priceSource === "PrizePicks" && p.line != null);
+    if (!gameLabel) return [];
     return mains
       .filter((p) => p.priceSource === "PrizePicks" && p.line != null)
       .map((p) => ({

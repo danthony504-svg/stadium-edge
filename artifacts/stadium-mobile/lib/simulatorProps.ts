@@ -1,0 +1,90 @@
+// Simulator-only props loader — kept in a small module so OTA bundles always
+// ship the PrizePicks fallback alongside the screen (avoids relying on a fresh
+// re-export from the large api.ts barrel during partial updates).
+import {
+  getProps,
+  getPrizePicksProps,
+  type GetPropsArgs,
+  type PlayerProp,
+} from "./api";
+
+function ppStatToMarketKey(sport: string, stat: string | null | undefined): string {
+  if (!stat) return "";
+  const s = stat.toLowerCase().replace(/[^a-z0-9+]/g, " ").trim();
+  const MLB: Record<string, string> = {
+    hits: "batter_hits",
+    "home runs": "batter_home_runs",
+    hr: "batter_home_runs",
+    hrs: "batter_home_runs",
+    strikeouts: "pitcher_strikeouts",
+    "pitcher strikeouts": "pitcher_strikeouts",
+    ks: "pitcher_strikeouts",
+    "stolen bases": "batter_stolen_bases",
+    sbs: "batter_stolen_bases",
+    "total bases": "batter_total_bases",
+    "hits runs rbis": "batter_hits_runs_rbis",
+    "hits+runs+rbis": "batter_hits_runs_rbis",
+    rbis: "batter_hits_runs_rbis",
+  };
+  const NBA: Record<string, string> = {
+    points: "player_points",
+    rebounds: "player_rebounds",
+    assists: "player_assists",
+    "3pt made": "player_threes",
+    threes: "player_threes",
+    "pts+rebs+asts": "player_points_rebounds_assists",
+  };
+  const map =
+    sport === "mlb"
+      ? MLB
+      : sport === "nba" || sport === "wnba"
+        ? NBA
+        : sport === "nhl"
+          ? {
+              points: "player_points",
+              goals: "player_goals",
+              assists: "player_assists",
+              "shots on goal": "player_shots_on_goal",
+            }
+          : {};
+  return map[s] ?? stat;
+}
+
+function mapPrizePicksProps(sport: string, props: unknown): PlayerProp[] {
+  if (!Array.isArray(props)) return [];
+  return props
+    .filter((p): p is PlayerProp => !!p && typeof p === "object" && typeof p.player === "string")
+    .map((p) => ({
+      ...p,
+      market: ppStatToMarketKey(sport, p.market) || p.market,
+      priceSource: "PrizePicks" as const,
+      overBook: p.overBook ?? "PrizePicks",
+    }));
+}
+
+/** Odds-API props first; on empty/502 fall back to PrizePicks DFS lines. Never throws. */
+export async function loadSimulatorProps(
+  args: GetPropsArgs,
+  signal?: AbortSignal,
+): Promise<PlayerProp[]> {
+  if (!args?.sport || !args?.eventId) return [];
+  try {
+    const r = await getProps(args, signal);
+    const props = Array.isArray(r.props) ? r.props : [];
+    if (props.length > 0) {
+      return props.filter((p): p is PlayerProp => !!p && typeof p === "object");
+    }
+  } catch {
+    // Production often 502s ESPN ids — try PrizePicks below.
+  }
+  if (!args.home || !args.away) return [];
+  try {
+    const pp = await getPrizePicksProps(
+      { sport: args.sport, home: args.home, away: args.away },
+      signal,
+    );
+    return mapPrizePicksProps(args.sport, pp.props);
+  } catch {
+    return [];
+  }
+}

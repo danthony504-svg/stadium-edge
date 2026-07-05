@@ -22,6 +22,7 @@ import {
 import {
   isPickable,
   isPregameBettable,
+  isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,

@@ -41,7 +41,9 @@ export function isSimulatorEligible(
 ): boolean {
   if (!game) return false;
   if (game.state === "post" || game.state === "in") return false;
-  return isPregameBettable(game.startsAt);
+  // ESPN often lags `state: pre` after first pitch — the clock is authoritative.
+  if (!isPregameBettable(game.startsAt)) return false;
+  return true;
 }
 
 // "Today / tonight only" intent. The user wants games on the CURRENT local
