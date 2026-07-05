@@ -1593,78 +1593,44 @@ export default function CoachScreen() {
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
+        const beforeSlateFilter = picks.length;
         if (slateDay) {
-          const before = picks.length;
           picks = filterPicksForSlateDay(picks, slateDay);
-          // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
-          // (it reached for props on non-today games via the server's prop
-          // backfill, or whiffed) WHILE the user named a sport that still has a
-          // real upcoming-today game on the board. Rather than show zero, build
-          // the best real ticket today's remaining game(s) honestly support from
-          // their full-game mains — never fabricating: backfillPicks only appends
-          // real realOdds entries, which are already today-filtered here, so every
-          // leg is real, today, and upcoming. One soccer match can't honestly
-          // yield 7 uncorrelated legs, so this often lands short of the requested
-          // count — the honest leg-count note below says exactly how many held up.
-          // Runs for a NAMED sport AND for a generic "N-leg ... tonight" ask: a
-          // late-evening generic ask whose only remaining today game(s) can't fill
-          // the count (the model grounds legs on non-today backfill that then gets
-          // filtered) would otherwise fall through to a flat refusal. Skipped under
-          // the odds/confidence locks whose own filters stay
-          // authoritative. backfillPicks' own (game, market-family) dedup keeps the
-          // salvage to one main per family per game, so it never stacks correlated
-          // same-line sides even when the whole ticket sits on one game.
-          // NOTE: this fires even when the model emitted ZERO PICK lines. For an
-          // ask one real game can't honestly fill ("7 leg soccer parlay" with one
-          // soccer match on the board), the model often REFUSES outright rather
-          // than return legs that then get filtered — so an `emittedPickLines > 0`
-          // gate would skip the salvage exactly when it's needed and the user just
-          // sees the generic "board is thin" refusal. A genuine build request is
-          // signalled by an explicit leg count (requestedLegs > 0), which is enough
-          // to safely build from today's already-filtered real odds.
-          const salvageEligible =
-            picks.length === 0 &&
-            legTarget > 0 &&
-            !oddsThreshold &&
-            !confidenceThreshold &&
-            // A "+ alt" / "- alt" sign lock already ran its own filter above; a
-            // salvage of unsigned game mains would violate the requested sign, so
-            // skip it. A props-only / prop-market ask wants players, not game
-            // moneylines, so don't silently fall back to game mains there either.
-            !altSign;
-          const salvageSports = salvageEligible
-            ? focalSportsFromText(trimmed)
-            : new Set<string>();
-          if (salvageEligible) {
-            const tgt = Math.min(legTarget, MAX_LEGS);
-            if (mentionsPropIntent(trimmed)) {
-              const dayOdds = slateDay
-                ? filterOddsForSlateDay(context.realOdds, slateDay)
-                : context.realOdds;
-              const salvagePool =
-                salvageSports.size > 0
-                  ? dayOdds.filter((e) => salvageSports.has(e.sport))
-                  : dayOdds;
-              picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+        }
+        // SALVAGE — model emitted zero grounded legs (prose-only reply, every leg
+        // filtered, or PICK lines that failed to resolve). Build the best honest
+        // ticket from the real board — tonight/tomorrow when slateDay is set, else
+        // the full pregame 48h pool. Fires even when the model emitted ZERO PICK
+        // lines (a common failure mode: marketing prose with no PICK: scaffold).
+        const salvageEligible =
+          picks.length === 0 &&
+          legTarget > 0 &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          !altSign;
+        const salvageSports = salvageEligible ? focalSportsFromText(trimmed) : new Set<string>();
+        if (salvageEligible) {
+          const tgt = Math.min(legTarget, MAX_LEGS);
+          const dayOdds = slateDay
+            ? filterOddsForSlateDay(context.realOdds, slateDay)
+            : context.realOdds;
+          if (mentionsPropIntent(trimmed)) {
+            const salvagePool =
+              salvageSports.size > 0
+                ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                : dayOdds;
+            picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+              target: tgt,
+              ...propBackfillOpts,
+            });
+            if (!propsOnlyTicket && picks.length < tgt) {
+              picks = backfillPicks(picks, salvagePool, gameMeta, {
                 target: tgt,
-                ...propBackfillOpts,
+                order: GENERIC_BACKFILL_ORDER,
               });
-              if (!propsOnlyTicket && picks.length < tgt) {
-                picks = backfillPicks(picks, salvagePool, gameMeta, {
-                  target: tgt,
-                  order: GENERIC_BACKFILL_ORDER,
-                });
-              }
-              if (picks.length > 0) salvageBuilt = true;
-            } else {
-            // Named sport → salvage only that sport's remaining today games; a
-            // GENERIC "N-leg parlay for tonight" (no sport named) → salvage from
-            // EVERY today-upcoming game on the board. context.realOdds is already
-            // startsTodayUpcoming-filtered here, so either pool is real + today +
-            // upcoming and nothing is invented.
-            const dayOdds = slateDay
-              ? filterOddsForSlateDay(context.realOdds, slateDay)
-              : context.realOdds;
+            }
+            if (picks.length > 0) salvageBuilt = true;
+          } else {
             const salvagePool =
               salvageSports.size > 0
                 ? dayOdds.filter((e) => salvageSports.has(e.sport))
@@ -1674,43 +1640,20 @@ export default function CoachScreen() {
                 target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
               });
-              // Top up with REAL player/game props from the SAME today-upcoming
-              // games so the salvage ticket isn't all moneylines/spreads on one
-              // match (user: "what about all the player and game props"). Honest:
-              // backfillProps only emits real posted prop lines and is today-gated
-              // to the games in salvagePool (already startsTodayUpcoming-filtered),
-              // so it never fabricates or reaches a tomorrow/started game. When the
-              // game has no real props (e.g. club soccer) it adds nothing and the
-              // ticket stays game-lines only — still honest, still real.
               picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
                 ...propBackfillOpts,
               });
               if (picks.length > 0) salvageBuilt = true;
             }
-            }
           }
-          // Honest, non-contradictory note (pure helper, unit-tested in
-          // slate.test.ts) — only when the salvage above ALSO came up empty (no
-          // real today game in the named sport, or no sport named). Never claims
-          // "nothing is upcoming"; todayOnly being true guarantees a game is still
-          // to come, so it distinguishes "legs were on started/non-today games"
-          // (before>0) from "slate too thin to ground the requested ticket"
-          // (before===0, the soccer case).
-          if (picks.length === 0) {
-            todayNote = todayBuildNote({
-              before,
-              surviving: picks.length,
-              // Treat any salvage-eligible build (named OR generic) that still
-              // produced nothing the same as an emitted one so the note is the
-              // honest "slate too thin / nothing today" message instead of silence
-              // — silence would fall through to the generic backstop refusal. This
-              // only reaches here when the salvage above also came up empty (no real
-              // today odds at all), which is rare since todayOnly guarantees a
-              // qualifying start time, but possible if that game carried no odds.
-              emittedPickLines: emittedPickLines || (salvageEligible ? requestedLegs : 0),
-            });
-          }
+        }
+        if (slateDay && picks.length === 0) {
+          todayNote = todayBuildNote({
+            before: beforeSlateFilter,
+            surviving: picks.length,
+            emittedPickLines: emittedPickLines || (salvageEligible ? legTarget : 0),
+          });
         }
         // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
         // REACH-N rule and returns a leg or two short even when the real board has
@@ -1928,6 +1871,18 @@ export default function CoachScreen() {
             todayNote ||
             "\n\n_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
+        } else if (picks.length === 0 && requestedLegs > 0) {
+          // Model wrote parlay marketing prose but emitted no grounded legs (no
+          // PICK: scaffold, or every line failed resolve + salvage/reach-N empty).
+          // Hide that prose so we never show a "9-leg ticket" narrative with zero cards.
+          const note =
+            todayNote ||
+            thresholdNote ||
+            confidenceNote ||
+            signNote ||
+            legNote ||
+            "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._";
+          finalContent = note.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
