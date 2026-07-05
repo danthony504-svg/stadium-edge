@@ -27,6 +27,8 @@ export {
   comparePickStrength,
   reasonPickNotQualified,
   partitionQualifiedPicks,
+  resolvePickEdgePct,
+  filterMainTicketPicks,
 } from "./parlayQualifiedGate.ts";
 
 export type PickScoreAttachOpts = {

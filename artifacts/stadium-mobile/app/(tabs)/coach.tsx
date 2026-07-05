@@ -79,6 +79,7 @@ import {
   type ParlayLegReject,
 } from "@/lib/parlayReach";
 import {
+  filterMainTicketPicks,
   filterToQualifiedPicks,
 } from "@/lib/parlayQualified";
 import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
@@ -2307,7 +2308,7 @@ export default function CoachScreen() {
           isParlayBuild &&
           !oddsThreshold &&
           !confidenceThreshold &&
-          requestedLegs > 0;
+          legTarget > 0;
         let propsDeepSimmed = false;
         let longshotPicks: ParsedPick[] = [];
         if (shouldQualifyReplenish) {
@@ -2423,6 +2424,13 @@ export default function CoachScreen() {
         if (!propsDeepSimmed) {
           picks = picksWithSimPending(picks);
         }
+        if (isParlayBuild && picks.length > 0) {
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+          });
+        }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2434,7 +2442,7 @@ export default function CoachScreen() {
         const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         let backupPicks: ParsedPick[] = [];
         let backupNote = "";
-        if (requestedLegs > picks.length && picks.length > 0) {
+        if (legTarget > picks.length && picks.length > 0) {
           const nearMisses = coachEvalLinesByGame
             ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
                 realOdds: mergedGameOdds,
@@ -2443,7 +2451,7 @@ export default function CoachScreen() {
               })
             : [];
           const mergedRejects = mergeParlayRejects(parlayRejections, nearMisses);
-          const backupTarget = Math.min(4, requestedLegs - picks.length);
+          const backupTarget = Math.min(4, legTarget - picks.length);
           backupPicks = selectParlayBackupPicks(picks, mergedRejects, backupTarget);
           if (backupPicks.length > 0) {
             backupPicks = attachPickScores(backupPicks, {
@@ -2456,7 +2464,7 @@ export default function CoachScreen() {
               gameSimulations,
             });
             backupNote = buildParlayShortfallNote(
-              requestedLegs,
+              legTarget,
               picks.length,
               mergedRejects,
               backupPicks.length,
@@ -2464,12 +2472,12 @@ export default function CoachScreen() {
             );
           }
         }
-        if (picks.length > 0 && requestedLegs > picks.length) {
+        if (picks.length > 0 && legTarget > picks.length) {
           legNote =
             backupNote ||
-            (requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
-              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : `You asked for ${requestedLegs} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs a complete AI Grade, Simulation Hit %, Edge %, Confidence, and Final AI Score backed by the 10k sim and positive EV.`);
+            (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
+              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs a complete AI Grade, Simulation Hit %, Edge % ≥ 0, Confidence, and Final AI Score backed by the 10k sim and positive EV.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2570,13 +2578,21 @@ export default function CoachScreen() {
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
+                const filtered = filterMainTicketPicks(scored, {
+                  propPool: mergedPropPool,
+                  realOdds: mergedGameOdds,
+                });
+                patchLastAssistantPicks(setMessages, filtered);
+                setAiPicks(filtered);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
+                const filtered = filterMainTicketPicks(scored, {
+                  propPool: mergedPropPool,
+                  realOdds: mergedGameOdds,
+                });
+                patchLastAssistantPicks(setMessages, filtered);
+                setAiPicks(filtered);
               },
             },
             simController.signal,

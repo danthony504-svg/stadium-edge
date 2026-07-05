@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   comparePickStrength,
+  filterMainTicketPicks,
   isFullyQualifiedPick,
   isLongshotSectionPick,
   isMainTicketQualified,
@@ -9,6 +10,7 @@ import {
   MIN_MAIN_PICK_GRADE,
   partitionQualifiedPicks,
   reasonPickNotQualified,
+  resolvePickEdgePct,
 } from "./parlayQualifiedGate.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
@@ -73,6 +75,33 @@ test("main ticket rejects negative edge", () => {
     qualifiedPick({ finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: -0.5 } }),
   );
   assert.match(reason, /negative EV/i);
+});
+
+test("main ticket accepts zero edge", () => {
+  const score = qualifiedPick().finalAiScore!;
+  assert.equal(isMainTicketQualified({ ...score, edgePct: 0 }, -110, 0), true);
+});
+
+test("resolvePickEdgePct uses conservative min across score sources", () => {
+  const pick = qualifiedPick({
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 2.5 },
+    scores: { ...qualifiedPick().finalAiScore!.rubric, edgePct: -0.9 },
+  });
+  assert.equal(resolvePickEdgePct(pick), -0.9);
+  assert.equal(isFullyQualifiedPick(pick), false);
+});
+
+test("filterMainTicketPicks drops negative-edge legs", () => {
+  const good = qualifiedPick();
+  const bad = qualifiedPick({
+    game: "C @ D",
+    pick: "C +1.5",
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: -0.9 },
+    scores: { ...qualifiedPick().finalAiScore!.rubric, edgePct: -0.9 },
+  });
+  const filtered = filterMainTicketPicks([good, bad]);
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].game, good.game);
 });
 
 test("main ticket rejects sim below 52% and high-risk bypass", () => {

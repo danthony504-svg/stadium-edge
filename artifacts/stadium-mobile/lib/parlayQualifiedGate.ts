@@ -1,15 +1,63 @@
 // Pure qualification gate — no API / React imports (testable in Node).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT } from "./gameSimScoring.ts";
+import type { ParlayLegReject } from "./parlayReachCore.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C";
 export const MIN_MAIN_PICK_CONFIDENCE = 50;
 
 function gradeMeetsMinimum(grade: string | null | undefined, minGrade: string): boolean {
   return gradeRank(grade) >= gradeRank(minGrade);
+}
+
+export type PickEdgeResolveOpts = {
+  realOdds?: RealOddsEntry[];
+  propPool?: PropPoolEntry[];
+};
+
+function backingEdgePct(
+  pick: ParsedPick,
+  realOdds: RealOddsEntry[],
+  propPool: PropPoolEntry[],
+): number | null {
+  if (pick.isProp) {
+    const same = (e: PropPoolEntry) =>
+      e.game === pick.game && e.player === pick.player && e.side === pick.propSide;
+    const entry =
+      propPool.find((e) => same(e) && e.line === pick.propLine) ?? propPool.find(same);
+    const edge = entry?.edge ?? null;
+    return edge != null && Number.isFinite(edge) ? edge : null;
+  }
+  const row = realOdds.find(
+    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
+  );
+  const edge = row?.edge ?? null;
+  return edge != null && Number.isFinite(edge) ? edge : null;
+}
+
+/**
+ * Conservative edge read for gating — uses every grounded source on the pick and
+ * the backing odds/prop pool row. When sources disagree, the lowest edge wins so
+ * a negative card readout cannot slip through on stale Final AI metadata.
+ */
+export function resolvePickEdgePct(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): number | null {
+  const edges: number[] = [];
+  for (const e of [pick.finalAiScore?.edgePct, pick.scores?.edgePct]) {
+    if (e != null && Number.isFinite(e)) edges.push(e);
+  }
+  if (opts?.realOdds?.length || opts?.propPool?.length) {
+    const edge = backingEdgePct(pick, opts.realOdds ?? [], opts.propPool ?? []);
+    if (edge != null) edges.push(edge);
+  }
+  if (!edges.length) return null;
+  return Math.min(...edges);
 }
 
 /**
@@ -20,10 +68,12 @@ function gradeMeetsMinimum(grade: string | null | undefined, minGrade: string): 
 export function isMainTicketQualified(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
+  edgePct?: number | null,
 ): boolean {
   if (!score) return false;
   if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
-  if (score.edgePct == null || !Number.isFinite(score.edgePct) || score.edgePct <= 0) return false;
+  const edge = edgePct !== undefined ? edgePct : score.edgePct;
+  if (edge == null || !Number.isFinite(edge) || edge < 0) return false;
   if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
   if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
     return false;
@@ -60,29 +110,58 @@ export function isFullyQualifiedFinalAi(
   return isMainTicketQualified(score, odds);
 }
 
-export function isFullyQualifiedPick(pick: ParsedPick): boolean {
-  return isMainTicketQualified(pick.finalAiScore, pick.odds ?? null);
+export function isFullyQualifiedPick(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): boolean {
+  const edge = resolvePickEdgePct(pick, opts);
+  return isMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
+}
+
+/** Last-chance filter before rendering a main-ticket parlay. Never pads. */
+export function filterMainTicketPicks(
+  picks: ParsedPick[],
+  opts?: PickEdgeResolveOpts & { rejectsOut?: ParlayLegReject[] },
+): ParsedPick[] {
+  const out: ParsedPick[] = [];
+  for (const p of picks) {
+    if (isFullyQualifiedPick(p, opts)) {
+      out.push(p);
+      continue;
+    }
+    opts?.rejectsOut?.push({
+      pick: p,
+      reason: reasonPickNotQualified(p, opts),
+      nearScore: nearScoreFromPick(p),
+    });
+  }
+  return out;
 }
 
 /** Negative-edge or sim-opposed legs for the optional longshot section only. */
 export function isLongshotSectionPick(pick: ParsedPick): boolean {
   const s = pick.finalAiScore;
   if (!s?.grade || pick.odds == null || !Number.isFinite(pick.odds)) return false;
-  const negativeEdge = s.edgePct == null || s.edgePct <= 0;
+  const edge = resolvePickEdgePct(pick);
+  const negativeEdge = edge == null || edge < 0;
   const simUnsupported = !s.simAligned || s.simHit == null || s.simHit < GAME_SIM_MIN_HIT;
   if (!negativeEdge && !simUnsupported) return false;
-  return s.simHit != null || s.edgePct != null;
+  return s.simHit != null || edge != null;
 }
 
-export function reasonPickNotQualified(pick: ParsedPick): string {
+export function reasonPickNotQualified(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): string {
   const s = pick.finalAiScore;
   if (!s) return "missing Final AI Score";
   if (!s.grade) return "missing AI Grade";
   if (!gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) {
     return `AI Grade ${s.grade} — main picks need C or better`;
   }
-  if (s.edgePct == null) return "missing Edge %";
-  if (s.edgePct <= 0) return `${s.edgePct}% edge — negative EV, rejected`;
+  const edge = resolvePickEdgePct(pick, opts);
+  if (edge == null) return "missing Edge %";
+  if (edge < 0) return `${edge}% edge — negative EV, rejected`;
   if (s.confidencePct == null) return "missing Confidence";
   if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) {
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
@@ -109,8 +188,8 @@ export function reasonPickNotQualified(pick: ParsedPick): string {
 export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
   const sa = a.finalAiScore;
   const sb = b.finalAiScore;
-  const edgeA = sa?.edgePct ?? -999;
-  const edgeB = sb?.edgePct ?? -999;
+  const edgeA = resolvePickEdgePct(a) ?? -999;
+  const edgeB = resolvePickEdgePct(b) ?? -999;
   if (edgeB !== edgeA) return edgeB - edgeA;
 
   const simA = sa?.simHit ?? 0;
@@ -132,7 +211,7 @@ export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
 
 export function nearScoreFromPick(pick: ParsedPick): number {
   const s = pick.finalAiScore;
-  const edge = Math.max(0, s?.edgePct ?? 0);
+  const edge = Math.max(0, resolvePickEdgePct(pick) ?? 0);
   const sim = s?.simHit ?? 0;
   const conf = s?.confidencePct ?? 0;
   const grade = gradeRank(s?.grade);
@@ -140,14 +219,17 @@ export function nearScoreFromPick(pick: ParsedPick): number {
   return edge * 1000 + sim * 500 + conf * 2 + grade * 10 + odds * 0.01;
 }
 
-export function partitionQualifiedPicks(picks: ParsedPick[]): {
+export function partitionQualifiedPicks(
+  picks: ParsedPick[],
+  opts?: PickEdgeResolveOpts,
+): {
   qualified: ParsedPick[];
   unqualified: ParsedPick[];
 } {
   const qualified: ParsedPick[] = [];
   const unqualified: ParsedPick[] = [];
   for (const p of picks) {
-    if (isFullyQualifiedPick(p)) qualified.push(p);
+    if (isFullyQualifiedPick(p, opts)) qualified.push(p);
     else unqualified.push(p);
   }
   return { qualified, unqualified };

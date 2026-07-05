@@ -21,6 +21,7 @@ import {
   isMainTicketQualified,
   nearScoreFromPick,
   reasonPickNotQualified,
+  resolvePickEdgePct,
 } from "./parlayQualifiedGate.ts";
 
 export type BoardScoreAttachOpts = {
@@ -115,7 +116,13 @@ export async function collectQualifiedPropCandidates(
     scoreOpts,
   );
   const preRanked = preScored
-    .filter((p) => isMainTicketQualified(p.finalAiScore, p.odds ?? null) || (p.finalAiScore?.edgePct ?? 0) > 0)
+    .filter((p) => {
+      const edge = resolvePickEdgePct(p, {
+        realOdds: scoreOpts.realOdds,
+        propPool: scoreOpts.propPool ?? propPool,
+      });
+      return edge != null && edge >= 0;
+    })
     .sort((a, b) => comparePickStrength(b, a))
     .slice(0, PROP_SIM_CANDIDATE_CAP);
 
@@ -133,12 +140,16 @@ export async function collectQualifiedPropCandidates(
   }));
 
   const qualified: ParsedPick[] = [];
+  const edgeOpts = {
+    realOdds: scoreOpts.realOdds,
+    propPool: scoreOpts.propPool ?? propPool,
+  };
   for (const p of scored) {
-    if (isFullyQualifiedPick(p)) qualified.push(p);
+    if (isFullyQualifiedPick(p, edgeOpts)) qualified.push(p);
     else
       rejectsOut?.push({
         pick: p,
-        reason: reasonPickNotQualified(p),
+        reason: reasonPickNotQualified(p, edgeOpts),
         nearScore: nearScoreFromPick(p),
       });
   }
