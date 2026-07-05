@@ -99,9 +99,7 @@ export function collectQualifiedGameLineCandidates(
     });
     for (const row of spreadFiltered) {
       const pick = evalRowToPick(row);
-      const passes = opts.longshotAsk
-        ? isLongshotMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)
-        : isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null);
+      const passes = isGameLineMainTicketQualified(row.finalAiScore, row.pick.odds ?? null);
       if (!passes) {
         opts.rejectsOut?.push({
           pick: row.pick,

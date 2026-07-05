@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isLongshotMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { isGameLineMainTicketQualified } from "./parlayQualifiedGate.ts";
 import {
   COMFORTABLE_WIN_SIM_MIN,
   dropSpreadLadderViolations,
@@ -23,8 +23,8 @@ function mockEvalRow(
   winProb: number,
   game = "New York Mets @ Atlanta Braves",
 ): CloseGameSpreadRow {
-  const qualifiedMain = winProb >= 0.52 && edge >= 0;
-  const qualifiedLong = isLongshotMainTicketQualified(
+  const qualifiedMain = winProb >= 0.5 && edge > 0;
+  const qualified = isGameLineMainTicketQualified(
     {
       composite: 7,
       grade: "B",
@@ -57,7 +57,7 @@ function mockEvalRow(
       simHit: winProb,
       simAligned: qualifiedMain,
       highRiskValuePlay: false,
-      recommends: qualifiedMain || qualifiedLong,
+      recommends: qualified,
       factors: [],
       rubric: { scores: {}, composite: 7, grade: "B", confidencePct: 55, edgePct: edge },
     },
@@ -80,11 +80,10 @@ const TIGHT_SIM = {
   confidenceScore: 50,
 };
 
-test("isCloseSimWinProb treats sub-52% as close projection", () => {
-  assert.equal(isCloseSimWinProb(0.5), true);
-  assert.equal(isCloseSimWinProb(0.519), true);
+test("isCloseSimWinProb treats sub-50% as close projection", () => {
+  assert.equal(isCloseSimWinProb(0.49), true);
+  assert.equal(isCloseSimWinProb(0.5), false);
   assert.equal(isCloseSimWinProb(0.52), false);
-  assert.equal(isCloseSimWinProb(0.56), false);
 });
 
 test("spreadViolatesLadderPolicy rejects -1.5 main spread at 50% sim", () => {

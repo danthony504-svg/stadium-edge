@@ -3,10 +3,10 @@
 
 import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
-import { GAME_SIM_MIN_HIT, gameSimHitForPick, type CoachGameSimEntry } from "./gameSimScoring.ts";
+import { gameSimHitForPick, type CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
-  isLongshotMainTicketQualified,
-  isMainTicketQualified,
+  GAME_LINE_SIM_MIN_HIT,
+  isGameLineMainTicketQualified,
 } from "./parlayQualifiedGate.ts";
 import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
 import { isCloseGameForTeamSpread, spreadLineFromPick } from "./spreadSimAlignment.ts";
@@ -29,10 +29,10 @@ export const CLOSE_GAME_SIM_CEILING = 0.54;
 /** Aggressive alt lays (-2, -2.5, …) need sim support above this. */
 export const COMFORTABLE_WIN_SIM_MIN = 0.55;
 
-/** True when this line's cover probability is below the main-ticket sim floor. */
+/** True when this line's cover probability is below the game-line sim floor. */
 export function isCloseSimWinProb(winProb: number | null | undefined): boolean {
   if (winProb == null || !Number.isFinite(winProb)) return false;
-  return winProb < GAME_SIM_MIN_HIT;
+  return winProb < GAME_LINE_SIM_MIN_HIT;
 }
 
 export function needsSaferSpreadLine(
@@ -65,7 +65,7 @@ export function spreadViolatesLadderPolicy(
   if (isMoneylineEntry(entry)) return false;
   if (!isSpreadFamilyMarket(entry.market)) return false;
   const hit = winProb ?? 0;
-  if (hit < GAME_SIM_MIN_HIT) {
+  if (hit < GAME_LINE_SIM_MIN_HIT) {
     if (isStandardLaySpread(entry) || isAggressiveSpreadEntry(entry)) return true;
   }
   if (needsSaferSpreadLine(sim, side, evalLines, teamName, winProb)) {
@@ -168,7 +168,8 @@ function isTeamSidedFullGameEntry(entry: RealOddsEntry): boolean {
 }
 
 function isQualifiedRow(row: CloseGameSpreadRow): boolean {
-  return isMainTicketQualified(row.finalAiScore, row.entry.odds ?? null);
+  const edge = row.edgePct ?? row.entry.edge ?? null;
+  return isGameLineMainTicketQualified(row.finalAiScore, row.entry.odds ?? null, edge);
 }
 
 /** Close games: maximize cover probability, then edge. */
@@ -232,7 +233,7 @@ export function selectBestTeamSpreadLine(
 ): CloseGameSpreadRow | null {
   if (opts?.longshotAsk) {
     return selectBestAltLineByEv(ranked, {
-      qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge),
+      qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge),
     });
   }
   const side = teamSideFromName(game, teamName);

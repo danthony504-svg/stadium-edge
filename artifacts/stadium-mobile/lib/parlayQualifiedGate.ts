@@ -4,12 +4,16 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
-import { GAME_SIM_MIN_HIT } from "./gameSimScoring.ts";
+import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
 export const MIN_MAIN_PICK_CONFIDENCE = 50;
-/** Longshot main-ticket floor — coin-flip alts with +EV may qualify at 49%+. */
+/** Game-line sim floor — below this, only exceptional +EV may qualify. */
+export const GAME_LINE_SIM_MIN_HIT = 0.5;
+/** Sub-50% game lines need edge at or above this to qualify as exceptional value. */
+export const GAME_LINE_EXCEPTIONAL_EV_PCT = 4.5;
+/** Longshot prop floor — props keep the relaxed longshot bar; game lines do not. */
 export const LONGSHOT_SIM_MIN_HIT = 0.49;
 
 function gradeMeetsMinimum(grade: string | null | undefined, minGrade: string): boolean {
@@ -62,25 +66,14 @@ export function resolvePickEdgePct(
   return Math.min(...edges);
 }
 
-/**
- * Main-ticket quality bar — applies to every game line and prop on the primary
- * parlay. Rejects losing-value picks: grade below C+, non-positive edge/EV,
- * confidence under 50%, or simulator disagreement.
- */
-export function isMainTicketQualified(
-  score: FinalAiScore | null | undefined,
+function sharedMainTicketChecks(
+  score: FinalAiScore,
   odds: number | null | undefined,
-  edgePct?: number | null,
+  edge: number | null,
 ): boolean {
-  if (!score) return false;
   if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
-  const edge = edgePct !== undefined ? edgePct : score.edgePct;
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
-  if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
-    return false;
-  }
-  if (!score.simAligned) return false;
   if (score.composite == null || !Number.isFinite(score.composite) || score.composite <= 0) {
     return false;
   }
@@ -88,9 +81,63 @@ export function isMainTicketQualified(
   return true;
 }
 
+/** True when a game-line sim hit clears the 50% floor or carries exceptional +EV below it. */
+export function gameLineMeetsSimBar(
+  simHit: number | null | undefined,
+  edge: number | null | undefined,
+): boolean {
+  if (simHit == null || !Number.isFinite(simHit)) return false;
+  if (simHit >= GAME_LINE_SIM_MIN_HIT) return true;
+  return edge != null && Number.isFinite(edge) && edge >= GAME_LINE_EXCEPTIONAL_EV_PCT;
+}
+
 /**
- * Relaxed main-ticket bar for explicit longshot parlay asks — keeps +EV requirement
- * but allows 49–51% sim cover when that alt rung beats every other posted line on EV.
+ * Prop main-ticket bar — 52% sim, sim-aligned, C+, strictly positive edge.
+ * Unchanged from prior prop standards.
+ */
+export function isPropMainTicketQualified(
+  score: FinalAiScore | null | undefined,
+  odds: number | null | undefined,
+  edgePct?: number | null,
+): boolean {
+  if (!score) return false;
+  const edge = edgePct !== undefined ? edgePct : score.edgePct;
+  if (!sharedMainTicketChecks(score, odds, edge)) return false;
+  if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
+    return false;
+  }
+  if (!score.simAligned) return false;
+  return true;
+}
+
+/**
+ * Game-line main-ticket bar — sim ≥ 50% with +EV, or exceptional +EV when sim is
+ * sub-50%. Never recommends a coin-flip line without sim support or value.
+ */
+export function isGameLineMainTicketQualified(
+  score: FinalAiScore | null | undefined,
+  odds: number | null | undefined,
+  edgePct?: number | null,
+): boolean {
+  if (!score) return false;
+  const edge = edgePct !== undefined ? edgePct : score.edgePct;
+  if (!sharedMainTicketChecks(score, odds, edge)) return false;
+  return gameLineMeetsSimBar(score.simHit, edge);
+}
+
+/**
+ * Main-ticket quality bar for props (legacy alias).
+ */
+export function isMainTicketQualified(
+  score: FinalAiScore | null | undefined,
+  odds: number | null | undefined,
+  edgePct?: number | null,
+): boolean {
+  return isPropMainTicketQualified(score, odds, edgePct);
+}
+
+/**
+ * Relaxed main-ticket bar for explicit longshot **prop** asks only.
  */
 export function isLongshotMainTicketQualified(
   score: FinalAiScore | null | undefined,
@@ -98,10 +145,8 @@ export function isLongshotMainTicketQualified(
   edgePct?: number | null,
 ): boolean {
   if (!score) return false;
-  if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
-  if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
+  if (!sharedMainTicketChecks(score, odds, edge)) return false;
   if (
     score.simHit == null ||
     !Number.isFinite(score.simHit) ||
@@ -109,35 +154,35 @@ export function isLongshotMainTicketQualified(
   ) {
     return false;
   }
-  if (score.composite == null || !Number.isFinite(score.composite) || score.composite <= 0) {
-    return false;
-  }
-  if (odds == null || !Number.isFinite(odds)) return false;
   return true;
 }
 
-/** @deprecated Alias for isMainTicketQualified */
+/** @deprecated Alias for isPropMainTicketQualified */
 export function isFullyQualifiedPropFinalAi(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
 ): boolean {
-  return isMainTicketQualified(score, odds);
+  return isPropMainTicketQualified(score, odds);
 }
 
-/** @deprecated Alias for isMainTicketQualified */
+/** @deprecated Alias for isGameLineMainTicketQualified */
 export function isFullyQualifiedGameLineFinalAi(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
 ): boolean {
-  return isMainTicketQualified(score, odds);
+  return isGameLineMainTicketQualified(score, odds);
 }
 
-/** @deprecated Alias for isMainTicketQualified */
+/** @deprecated Use isPropMainTicketQualified or isGameLineMainTicketQualified */
 export function isFullyQualifiedFinalAi(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
 ): boolean {
-  return isMainTicketQualified(score, odds);
+  return isPropMainTicketQualified(score, odds);
+}
+
+function isGameLinePickForGate(pick: ParsedPick): boolean {
+  return !pick.isProp && isGameLinePick(pick);
 }
 
 export function isFullyQualifiedPick(
@@ -146,10 +191,15 @@ export function isFullyQualifiedPick(
 ): boolean {
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || edge <= 0) return false;
-  if (opts?.longshotAsk) {
-    return isLongshotMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
+  const score = pick.finalAiScore;
+  const odds = pick.odds ?? null;
+  if (isGameLinePickForGate(pick)) {
+    return isGameLineMainTicketQualified(score, odds, edge);
   }
-  return isMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
+  if (opts?.longshotAsk) {
+    return isLongshotMainTicketQualified(score, odds, edge);
+  }
+  return isPropMainTicketQualified(score, odds, edge);
 }
 
 /** Last-chance filter before rendering a main-ticket parlay. Never pads. */
@@ -201,14 +251,25 @@ export function reasonPickNotQualified(
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
   }
   if (s.simHit == null) return "missing Simulation Hit %";
-  const simFloor = opts?.longshotAsk ? LONGSHOT_SIM_MIN_HIT : GAME_SIM_MIN_HIT;
-  if (s.simHit < simFloor) {
-    const pct = Math.round(s.simHit * 100);
-    return `10k sim ${pct}% — simulator does not support this pick (needs ≥${Math.round(simFloor * 100)}%)`;
-  }
-  if (!opts?.longshotAsk && !s.simAligned) {
-    const pct = Math.round(s.simHit * 100);
-    return `Game simulator (${pct}% cover) disagrees with AI Coach`;
+  if (isGameLinePickForGate(pick)) {
+    if (!gameLineMeetsSimBar(s.simHit, edge)) {
+      const pct = Math.round(s.simHit * 100);
+      return `10k sim ${pct}% — game line needs ≥${Math.round(GAME_LINE_SIM_MIN_HIT * 100)}% sim support or ≥${GAME_LINE_EXCEPTIONAL_EV_PCT}% exceptional edge`;
+    }
+  } else if (opts?.longshotAsk) {
+    if (s.simHit < LONGSHOT_SIM_MIN_HIT) {
+      const pct = Math.round(s.simHit * 100);
+      return `10k sim ${pct}% — simulator does not support this pick (needs ≥${Math.round(LONGSHOT_SIM_MIN_HIT * 100)}%)`;
+    }
+  } else {
+    if (s.simHit < GAME_SIM_MIN_HIT) {
+      const pct = Math.round(s.simHit * 100);
+      return `10k sim ${pct}% — simulator does not support this pick (needs ≥${Math.round(GAME_SIM_MIN_HIT * 100)}%)`;
+    }
+    if (!s.simAligned) {
+      const pct = Math.round(s.simHit * 100);
+      return `Game simulator (${pct}% cover) disagrees with AI Coach`;
+    }
   }
   if (s.composite == null || s.composite <= 0) return "non-positive Final AI Score / EV";
   if (pick.odds == null || !Number.isFinite(pick.odds)) return "no real sportsbook odds";

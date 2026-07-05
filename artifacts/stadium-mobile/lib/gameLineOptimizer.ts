@@ -15,7 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { isMainTicketQualified, isLongshotMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { isGameLineMainTicketQualified } from "./parlayQualifiedGate.ts";
 import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
 import {
   filterRowsForCloseGameSpread,
@@ -288,12 +288,12 @@ function selectBestEvaluated(
   if (opts?.longshotAsk) {
     const rows = toCloseGameRows(ranked);
     const best = selectBestAltLineByEv(rows, {
-      qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge),
+      qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge),
     });
     return best ? fromCloseGameRow(best, ranked) : null;
   }
   const eligible = ranked.filter((r) =>
-    isMainTicketQualified(r.finalAiScore, r.pick.odds ?? null),
+    isGameLineMainTicketQualified(r.finalAiScore, r.pick.odds ?? null),
   );
   if (eligible.length) return bestGameLine(eligible);
   return null;
@@ -671,9 +671,7 @@ export function buildGameLineOptimizerNote(
     (p) =>
       isGameLinePick(p) &&
       !p.isProp &&
-      (opts.longshotAsk
-        ? isLongshotMainTicketQualified(p.finalAiScore, p.odds ?? null)
-        : isMainTicketQualified(p.finalAiScore, p.odds ?? null)),
+      isGameLineMainTicketQualified(p.finalAiScore, p.odds ?? null),
   );
   if (!gameLines.length) return "";
 
@@ -816,7 +814,7 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
+    if (!isGameLineMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);

@@ -4,7 +4,7 @@ import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { americanToImplied } from "./pickScore.ts";
 import { americanToDecimal } from "./format.ts";
-import { LONGSHOT_SIM_MIN_HIT } from "./parlayQualifiedGate.ts";
+import { GAME_LINE_SIM_MIN_HIT } from "./parlayQualifiedGate.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
 
 /** Expected value in pct points per $1 staked: (winProb × decimalOdds − 1) × 100. */
@@ -97,7 +97,7 @@ export function selectBestAltLineByEv(
     qualify?: (score: FinalAiScore | null | undefined, odds: number | null, edge: number | null) => boolean;
   },
 ): CloseGameSpreadRow | null {
-  const minSim = opts?.minSim ?? LONGSHOT_SIM_MIN_HIT;
+  const minSim = opts?.minSim ?? GAME_LINE_SIM_MIN_HIT;
   const qualify =
     opts?.qualify ??
     ((score, odds, edge) => {

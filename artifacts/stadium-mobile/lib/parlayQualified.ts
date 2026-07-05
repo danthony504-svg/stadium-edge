@@ -18,8 +18,12 @@ import {
 } from "./parlayQualifiedGate.ts";
 
 export {
+  isGameLineMainTicketQualified,
+  isPropMainTicketQualified,
   isMainTicketQualified,
   isLongshotMainTicketQualified,
+  GAME_LINE_SIM_MIN_HIT,
+  GAME_LINE_EXCEPTIONAL_EV_PCT,
   LONGSHOT_SIM_MIN_HIT,
   MIN_MAIN_PICK_GRADE,
   MIN_MAIN_PICK_CONFIDENCE,

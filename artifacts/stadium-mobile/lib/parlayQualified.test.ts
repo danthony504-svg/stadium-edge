@@ -3,12 +3,17 @@ import { test } from "node:test";
 import {
   comparePickStrength,
   filterMainTicketPicks,
+  gameLineMeetsSimBar,
   isFullyQualifiedPick,
+  isGameLineMainTicketQualified,
   isLongshotSectionPick,
   isLongshotMainTicketQualified,
   isMainTicketQualified,
+  isPropMainTicketQualified,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
+  GAME_LINE_SIM_MIN_HIT,
+  GAME_LINE_EXCEPTIONAL_EV_PCT,
   partitionQualifiedPicks,
   reasonPickNotQualified,
   resolvePickEdgePct,
@@ -47,8 +52,8 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
 
 test("main ticket rejects grade below C+", () => {
   const score = qualifiedPick().finalAiScore!;
-  assert.equal(isMainTicketQualified({ ...score, grade: "C" }, -110), false);
-  assert.equal(isMainTicketQualified({ ...score, grade: "C+" }, -110), true);
+  assert.equal(isPropMainTicketQualified({ ...score, grade: "C" }, -110), false);
+  assert.equal(isPropMainTicketQualified({ ...score, grade: "C+" }, -110), true);
 });
 
 test("main ticket rejects confidence below 50", () => {
@@ -105,10 +110,13 @@ test("filterMainTicketPicks drops non-positive-edge legs", () => {
   assert.equal(filtered[0].game, good.game);
 });
 
-test("main ticket rejects sim below 52% and high-risk bypass", () => {
+test("prop main ticket rejects sim below 52% even with high-risk bypass", () => {
   assert.equal(
     isFullyQualifiedPick(
       qualifiedPick({
+        isProp: true,
+        market: "Strikeouts",
+        pick: "Player Over 3.5 Strikeouts",
         finalAiScore: {
           ...qualifiedPick().finalAiScore!,
           simHit: 0.48,
@@ -122,9 +130,12 @@ test("main ticket rejects sim below 52% and high-risk bypass", () => {
   );
 });
 
-test("main ticket rejects sim disagreement", () => {
+test("prop main ticket rejects sim disagreement", () => {
   const reason = reasonPickNotQualified(
     qualifiedPick({
+      isProp: true,
+      market: "Strikeouts",
+      pick: "Player Over 3.5 Strikeouts",
       finalAiScore: {
         ...qualifiedPick().finalAiScore!,
         simAligned: false,
@@ -148,7 +159,73 @@ test("main ticket rejects grade D and confidence under 50", () => {
   );
 });
 
-test("longshot main ticket accepts 50% sim with positive edge", () => {
+test("game line rejects 49% sim without exceptional edge", () => {
+  const score = {
+    composite: 7,
+    grade: "C+",
+    confidencePct: 55,
+    edgePct: 1.2,
+    simHit: 0.49,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: false,
+    factors: [],
+    rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+  };
+  assert.equal(isGameLineMainTicketQualified(score, -110), false);
+  assert.equal(gameLineMeetsSimBar(0.49, 1.2), false);
+  assert.equal(
+    isFullyQualifiedPick({
+      game: "A @ B",
+      market: "Spread",
+      pick: "B +1.5",
+      odds: -110,
+      isProp: false,
+      finalAiScore: score,
+    }),
+    false,
+  );
+});
+
+test("game line accepts 50% sim with positive edge", () => {
+  const score = {
+    composite: 7,
+    grade: "C+",
+    confidencePct: 55,
+    edgePct: 1.2,
+    simHit: 0.5,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+  };
+  assert.equal(isGameLineMainTicketQualified(score, -110), true);
+});
+
+test("game line allows sub-50% sim only with exceptional edge", () => {
+  const score = {
+    composite: 7,
+    grade: "C+",
+    confidencePct: 55,
+    edgePct: GAME_LINE_EXCEPTIONAL_EV_PCT,
+    simHit: 0.48,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: {
+      scores: {},
+      composite: 7,
+      grade: "C+",
+      confidencePct: 55,
+      edgePct: GAME_LINE_EXCEPTIONAL_EV_PCT,
+    },
+  };
+  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT), true);
+});
+
+test("longshot main ticket accepts 50% sim prop with positive edge", () => {
   const score = {
     composite: 7,
     grade: "C+",
@@ -181,11 +258,11 @@ test("longshot main ticket rejects sim below 49%", () => {
   assert.equal(isLongshotMainTicketQualified(score, 110), false);
 });
 
-test("filterMainTicketPicks keeps 50% sim leg on longshot ask", () => {
-  const pick = {
-    game: "A @ B",
+test("filterMainTicketPicks keeps 50% sim game line under game-line bar", () => {
+  const gamePick = {
+    game: "Toronto Blue Jays @ Seattle Mariners",
     market: "Spread",
-    pick: "B +1.5",
+    pick: "Mariners +1.5",
     odds: 110,
     isProp: false,
     finalAiScore: {
@@ -201,10 +278,54 @@ test("filterMainTicketPicks keeps 50% sim leg on longshot ask", () => {
       rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
     },
   };
-  const filtered = filterMainTicketPicks([pick], { longshotAsk: true });
-  assert.equal(filtered.length, 1);
-  const strict = filterMainTicketPicks([pick]);
-  assert.equal(strict.length, 0);
+  assert.equal(filterMainTicketPicks([gamePick]).length, 1);
+});
+
+test("filterMainTicketPicks rejects 49% game line", () => {
+  const gamePick = {
+    game: "Toronto Blue Jays @ Seattle Mariners",
+    market: "Spread",
+    pick: "Mariners +1.5",
+    odds: -110,
+    isProp: false,
+    finalAiScore: {
+      composite: 7,
+      grade: "C+",
+      confidencePct: 55,
+      edgePct: 1.2,
+      simHit: 0.49,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+    },
+  };
+  assert.equal(filterMainTicketPicks([gamePick]).length, 0);
+});
+
+test("filterMainTicketPicks keeps 50% sim prop on longshot ask only", () => {
+  const propPick = {
+    game: "A @ B",
+    market: "Strikeouts",
+    pick: "Player Over 3.5 Strikeouts",
+    odds: 110,
+    isProp: true,
+    finalAiScore: {
+      composite: 7,
+      grade: "C+",
+      confidencePct: 55,
+      edgePct: 1.2,
+      simHit: 0.5,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: { scores: {}, composite: 7, grade: "C+", confidencePct: 55, edgePct: 1.2 },
+    },
+  };
+  assert.equal(filterMainTicketPicks([propPick], { longshotAsk: true }).length, 1);
+  assert.equal(filterMainTicketPicks([propPick]).length, 0);
 });
 
 test("longshot section accepts negative edge when not main-qualified", () => {

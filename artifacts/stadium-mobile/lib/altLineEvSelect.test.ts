@@ -6,7 +6,7 @@ import {
   selectBestAltLineByEv,
 } from "./altLineEvSelect.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
-import { isLongshotMainTicketQualified } from "./parlayQualifiedGate.ts";
+import { isGameLineMainTicketQualified } from "./parlayQualifiedGate.ts";
 
 const GAME = "Milwaukee Brewers @ Arizona Diamondbacks";
 
@@ -17,7 +17,7 @@ function row(
   edge: number,
   winProb: number,
 ): CloseGameSpreadRow {
-  const qualified = isLongshotMainTicketQualified(
+  const qualified = isGameLineMainTicketQualified(
     {
       composite: 7,
       grade: "C+",
@@ -64,21 +64,20 @@ test("selectBestAltLineByEv picks highest EV close-sim line, not forced -1.5", (
       row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58),
       row("Moneyline", "Brewers ML", -105, 1.2, 0.52),
     ],
-    { qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge) },
+    { qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge) },
   );
   assert.match(best?.entry.pick ?? "", /\+1\.5/);
 });
 
-test("selectBestAltLineByEv allows 49-50% sim when EV and edge are best", () => {
-  const best = selectBestAltLineByEv(
+test("selectBestAltLineByEv requires at least 50% sim unless exceptional edge", () => {
+  const low = selectBestAltLineByEv(
     [
-      row("Alt Spread", "Brewers +1.5", 120, 2.5, 0.49),
-      row("Spread", "Brewers +1.5", -110, 0.5, 0.49),
+      row("Spread", "Mariners +1.5", -110, 1.2, 0.49),
+      row("Alt Spread", "Mariners +2.5", 120, 1.0, 0.56),
     ],
-    { qualify: (score, odds, edge) => isLongshotMainTicketQualified(score, odds, edge) },
+    { qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge) },
   );
-  assert.ok(best != null);
-  assert.equal(best?.entry.odds, 120);
+  assert.match(low?.entry.pick ?? "", /\+2\.5/);
 });
 
 test("rankAltLineByValue breaks ties toward higher payout", () => {
