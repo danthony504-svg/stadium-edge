@@ -5,14 +5,24 @@
 import type { InjuryTeam, MatchupHistoryEntry, PropSimulationResult } from "./api.ts";
 import type { CombinedPickScore } from "./pickScore.ts";
 import { americanToImplied, gradeFromComposite, matchupAlignment } from "./pickScore.ts";
-import { computeHrScore, type HrScoreInput } from "./hrScore.ts";
 import type { RealPropSignals } from "./propFactors.ts";
 import { computeAmbiguous, gameValueForMarket } from "./propStats.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import { summarizeTeamInjuries, teamNameMatches } from "./injuries.ts";
+import {
+  buildSportMatchupFactors,
+  weightedMatchupScore,
+  type MatchupScoreFactor,
+} from "./sportMatchupScore.ts";
+
+export type { MatchupScoreFactor } from "./sportMatchupScore.ts";
 
 export const MIN_PLAYER_SCORE = 55;
 export const MIN_MATCHUP_SCORE = 55;
+export const MIN_FINAL_AI_SCORE = 55;
+export const MIN_CONFIDENCE_PCT = 55;
+export const MIN_SIM_HIT = 0.52;
+export const MIN_GRADE = "B+";
 export const HOT_PLAYER_THRESHOLD = 62;
 export const HOT_MATCHUP_THRESHOLD = 62;
 export const COLD_PLAYER_THRESHOLD = 48;
@@ -45,7 +55,7 @@ export type PlayerScoreFactor = {
   display: string | null;
 };
 
-export type MatchupScoreFactor = {
+export type FinalAiScoreFactor = {
   key: string;
   label: string;
   weight: number;
@@ -56,14 +66,20 @@ export type MatchupScoreFactor = {
 export type PropDualScore = {
   playerScore: number | null;
   matchupScore: number | null;
+  finalAiScore: number | null;
   playerFactors: PlayerScoreFactor[];
   matchupFactors: MatchupScoreFactor[];
+  finalAiFactors: FinalAiScoreFactor[];
   passesPlayer: boolean;
   passesMatchup: boolean;
+  passesFinalAi: boolean;
   recommends: boolean;
   headline: string;
   explanation: string;
 };
+
+// Back-compat alias
+export type PickTripleScore = PropDualScore;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 const lin = (x: number, lo: number, hi: number) => clamp01((x - lo) / (hi - lo));
@@ -156,29 +172,11 @@ export function computePlayerScore(input: PlayerScoreInput): {
     simDisplay = `sim signal ${combined.scores.simulation.toFixed(1)}`;
   }
 
-  let gradeSub: number | null = null;
-  let gradeDisplay: string | null = null;
-  if (combined?.composite != null) {
-    gradeSub = lin(combined.composite, 5.5, 8.5);
-    gradeDisplay = combined.grade ?? gradeFromComposite(combined.composite) ?? null;
-  }
-
   let confSub: number | null = null;
   let confDisplay: string | null = null;
   if (combined?.confidencePct != null) {
     confSub = lin(combined.confidencePct, 45, 75);
     confDisplay = `${combined.confidencePct}% confidence`;
-  }
-
-  const edge = resolveDisplayEdge(combined, simRow, input.odds);
-  let edgeSub: number | null = null;
-  let edgeDisplay: string | null = null;
-  if (edge != null) {
-    edgeSub = lin(edge, 0, 5);
-    edgeDisplay = `${edge > 0 ? "+" : ""}${edge}%`;
-  } else if (combined?.scores.lineValue != null) {
-    edgeSub = subFromPickScore(combined.scores.lineValue);
-    edgeDisplay = `line value ${combined.scores.lineValue.toFixed(1)}`;
   }
 
   let projSub: number | null = null;
@@ -202,12 +200,10 @@ export function computePlayerScore(input: PlayerScoreInput): {
   }
 
   const factors: PlayerScoreFactor[] = [
-    { key: "form", label: "Recent form", weight: 22, sub: formSub, display: formDisplay },
-    { key: "sim", label: "Simulation", weight: 20, sub: simSub, display: simDisplay },
-    { key: "grade", label: "AI Grade", weight: 18, sub: gradeSub, display: gradeDisplay },
-    { key: "confidence", label: "Confidence", weight: 12, sub: confSub, display: confDisplay },
-    { key: "edge", label: "Edge", weight: 13, sub: edgeSub, display: edgeDisplay },
-    { key: "projection", label: "Projection", weight: 15, sub: projSub, display: projDisplay },
+    { key: "form", label: "Recent form", weight: 26, sub: formSub, display: formDisplay },
+    { key: "sim", label: "Simulation", weight: 24, sub: simSub, display: simDisplay },
+    { key: "confidence", label: "Confidence", weight: 16, sub: confSub, display: confDisplay },
+    { key: "projection", label: "Projection", weight: 20, sub: projSub, display: projDisplay },
   ];
   if (injurySub != null) {
     factors.push({
@@ -227,186 +223,130 @@ export type MatchupScoreInput = {
   marketKey: string;
   mlb?: RealPropSignals["mlb"] | null;
   oppDefense?: RealPropSignals["oppDefense"] | null;
-  /** mlLean alignment for the player's team: +1 on lean side, -1 against. */
+  matchup?: MatchupHistoryEntry | null;
+  homeAway?: RealPropSignals["homeAway"] | null;
+  playerSide?: "home" | "away" | null;
+  usageMinutes?: number | null;
   mlLeanAligned?: 1 | 0 | -1 | null;
   mlLeanEdge?: number | null;
-  /** High-impact opponent injuries modestly help overs. */
   opponentKeyInjuries?: number | null;
   side?: string;
 };
-
-function isHrMarket(sport: string, marketKey: string): boolean {
-  return sport === "mlb" && (/home_?run/i.test(marketKey) || /batter_home_runs/.test(marketKey));
-}
 
 export function computeMatchupScore(input: MatchupScoreInput): {
   score: number | null;
   factors: MatchupScoreFactor[];
 } {
-  const { sport, marketKey, mlb, oppDefense, mlLeanAligned, mlLeanEdge, opponentKeyInjuries, side } =
-    input;
-  const factors: MatchupScoreFactor[] = [];
+  const factors = buildSportMatchupFactors({
+    sport: input.sport,
+    marketKey: input.marketKey,
+    side: input.side,
+    mlb: input.mlb,
+    oppDefense: input.oppDefense,
+    matchup: input.matchup,
+    homeAway: input.homeAway,
+    playerSide: input.playerSide,
+    usageMinutes: input.usageMinutes,
+    mlLeanAligned: input.mlLeanAligned,
+    mlLeanEdge: input.mlLeanEdge,
+    opponentKeyInjuries: input.opponentKeyInjuries,
+  });
+  return { score: weightedMatchupScore(factors), factors };
+}
 
-  if (sport === "mlb" && mlb) {
-    if (isHrMarket(sport, marketKey)) {
-      const hrInput: HrScoreInput = {
-        hrPer9: mlb.pitcher?.hrPer9 ?? null,
-        barrelPctAllowed: mlb.pitcher?.barrelPctAllowed ?? null,
-        hardHitPctAllowed: mlb.pitcher?.hardHitPctAllowed ?? null,
-        battedBallEvents: mlb.pitcher?.battedBallEvents ?? null,
-        flyBallPct: mlb.pitcher?.flyBallPct ?? null,
-        hrIndex: mlb.ballpark?.hrIndex ?? null,
-        tempF: mlb.ballpark?.tempF ?? null,
-        dome: mlb.ballpark?.dome ?? null,
-        platoonOps: mlb.platoon?.ops ?? null,
-      };
-      const hr = computeHrScore(hrInput);
-      for (const f of hr.factors) {
-        if (f.sub == null) continue;
-        factors.push({
-          key: f.key,
-          label: f.label,
-          weight: f.weight,
-          sub: f.sub,
-          display: f.display,
-        });
-      }
-      if (mlb.pitcher?.name) {
-        factors.push({
-          key: "pitcher",
-          label: "Opposing starter",
-          weight: 5,
-          sub: mlb.pitcher.kPer9 != null ? lin(9 - mlb.pitcher.kPer9, 0, 5) : 0.5,
-          display: mlb.pitcher.name,
-        });
-      }
-    } else {
-      const p = mlb.pitcher;
-      if (p?.hrPer9 != null) {
-        factors.push({
-          key: "hr9",
-          label: "Pitcher HR/9",
-          weight: 15,
-          sub: lin(p.hrPer9, 0.6, 1.8),
-          display: `${p.hrPer9.toFixed(2)} HR/9`,
-        });
-      }
-      if (p?.oppOPS != null) {
-        factors.push({
-          key: "oppops",
-          label: "Pitcher opp OPS",
-          weight: 20,
-          sub: lin(p.oppOPS, 0.65, 0.85),
-          display: `${p.oppOPS.toFixed(3)} OPS`,
-        });
-      }
-      if (p?.kPer9 != null && /strikeout|pitcher_strikeout/i.test(marketKey)) {
-        factors.push({
-          key: "k9",
-          label: "Pitcher K/9",
-          weight: 25,
-          sub: lin(11 - p.kPer9, 0, 4),
-          display: `${p.kPer9.toFixed(1)} K/9`,
-        });
-      }
-      if (mlb.platoon?.ops != null) {
-        factors.push({
-          key: "platoon",
-          label: "Platoon OPS",
-          weight: 15,
-          sub: lin(mlb.platoon.ops, 0.65, 0.95),
-          display: `${mlb.platoon.ops.toFixed(3)} vs ${mlb.platoon.hand}`,
-        });
-      }
-      if (mlb.ballpark?.hrIndex != null && /total.?base|hit|rbi/i.test(marketKey)) {
-        factors.push({
-          key: "park",
-          label: "Park factor",
-          weight: 10,
-          sub: lin(mlb.ballpark.hrIndex, 90, 115),
-          display: `${Math.round(mlb.ballpark.hrIndex)} index`,
-        });
-      }
-      if (mlb.ballpark?.tempF != null || mlb.ballpark?.dome) {
-        const sub = mlb.ballpark.dome ? 0.5 : lin(mlb.ballpark.tempF ?? 50, 50, 90);
-        factors.push({
-          key: "weather",
-          label: "Weather",
-          weight: 8,
-          sub,
-          display: mlb.ballpark.dome ? "Dome" : `${mlb.ballpark.tempF}°F`,
-        });
-      }
-      if (p?.name) {
-        factors.push({
-          key: "starter",
-          label: "Probable starter",
-          weight: 5,
-          sub: 0.55,
-          display: p.name,
-        });
-      }
-    }
+export type FinalAiScoreInput = {
+  playerScore: number | null;
+  matchupScore: number | null;
+  combined: CombinedPickScore | null;
+  simRow: PropSimulationResult | null;
+  odds?: number | null;
+};
+
+export function computeFinalAiScore(input: FinalAiScoreInput): {
+  score: number | null;
+  factors: FinalAiScoreFactor[];
+} {
+  const { playerScore, matchupScore, combined, simRow, odds } = input;
+  const factors: FinalAiScoreFactor[] = [];
+
+  if (playerScore != null) {
+    factors.push({
+      key: "player",
+      label: "Player Score",
+      weight: 28,
+      sub: playerScore / 100,
+      display: String(playerScore),
+    });
+  }
+  if (matchupScore != null) {
+    factors.push({
+      key: "matchup",
+      label: "Matchup Score",
+      weight: 28,
+      sub: matchupScore / 100,
+      display: String(matchupScore),
+    });
   }
 
-  if (oppDefense?.pointsAgainst != null) {
+  const grade = combined?.grade ?? (combined?.composite != null ? gradeFromComposite(combined.composite) : null);
+  if (combined?.composite != null) {
     factors.push({
-      key: "defense",
-      label: "Opp scoring allowed",
+      key: "grade",
+      label: "AI Grade",
       weight: 18,
-      sub: lin(oppDefense.pointsAgainst, 100, 118),
-      display: `${oppDefense.pointsAgainst.toFixed(1)}/game`,
-    });
-  }
-  if (oppDefense?.blocks != null) {
-    factors.push({
-      key: "blocks",
-      label: "Opp blocks",
-      weight: 8,
-      sub: lin(6 - oppDefense.blocks, 0, 3),
-      display: `${oppDefense.blocks.toFixed(1)} blk/g`,
+      sub: lin(combined.composite, 5.5, 8.5),
+      display: grade,
     });
   }
 
-  if (mlLeanAligned != null && mlLeanEdge != null && mlLeanEdge > 0) {
-    const sub = mlLeanAligned === 1 ? lin(mlLeanEdge, 0, 4) : mlLeanAligned === -1 ? lin(4 - mlLeanEdge, 0, 4) : 0.5;
+  const edge = resolveDisplayEdge(combined, simRow, odds);
+  if (edge != null) {
     factors.push({
-      key: "lean",
-      label: "Game lean",
+      key: "edge",
+      label: "Edge",
       weight: 14,
-      sub,
-      display: mlLeanAligned === 1 ? "on your side" : mlLeanAligned === -1 ? "against" : "neutral",
+      sub: lin(edge, 0, 5),
+      display: `${edge > 0 ? "+" : ""}${edge}%`,
+    });
+  } else if (combined?.scores.lineValue != null) {
+    factors.push({
+      key: "ev",
+      label: "Expected value",
+      weight: 14,
+      sub: subFromPickScore(combined.scores.lineValue),
+      display: `line value ${combined.scores.lineValue.toFixed(1)}`,
     });
   }
 
-  if (opponentKeyInjuries != null && opponentKeyInjuries > 0) {
-    const helpsOver = String(side ?? "over").toLowerCase() !== "under";
+  if (simRow?.hitProbability != null && isValidPropSim(simRow)) {
+    const hit = simRow.hitProbability;
     factors.push({
-      key: "opp_inj",
-      label: "Opp injuries",
-      weight: 10,
-      sub: helpsOver ? lin(opponentKeyInjuries, 0, 4) : lin(4 - opponentKeyInjuries, 0, 4),
-      display: `${opponentKeyInjuries} key out`,
+      key: "sim_hit",
+      label: "Monte Carlo",
+      weight: 12,
+      sub: lin(hit, 0.45, 0.65),
+      display: `${Math.round(hit * 100)}% hit`,
     });
   }
 
   return { score: weightedScore(factors), factors };
 }
 
-function bandLabel(score: number | null, kind: "player" | "matchup"): string {
-  if (score == null) return "Not enough data";
-  if (score >= HOT_PLAYER_THRESHOLD) return kind === "player" ? "Hot player" : "Great matchup";
-  if (score >= MIN_PLAYER_SCORE) return kind === "player" ? "Solid player" : "Favorable matchup";
-  if (score >= COLD_PLAYER_THRESHOLD) return kind === "player" ? "Mixed form" : "Mixed matchup";
-  return kind === "player" ? "Cold player" : "Tough matchup";
-}
-
 export function buildPropDualVerdict(
   playerScore: number | null,
   matchupScore: number | null,
-): { headline: string; explanation: string; recommends: boolean; passesPlayer: boolean; passesMatchup: boolean } {
+  finalAiScore: number | null,
+): {
+  headline: string;
+  explanation: string;
+  recommends: boolean;
+  passesPlayer: boolean;
+  passesMatchup: boolean;
+  passesFinalAi: boolean;
+} {
   const passesPlayer = playerScore != null && playerScore >= MIN_PLAYER_SCORE;
   const passesMatchup = matchupScore != null && matchupScore >= MIN_MATCHUP_SCORE;
+  const passesFinalAi = finalAiScore != null && finalAiScore >= MIN_FINAL_AI_SCORE;
   const playerHot = playerScore != null && playerScore >= HOT_PLAYER_THRESHOLD;
   const playerCold = playerScore != null && playerScore < COLD_PLAYER_THRESHOLD;
   const matchupHot = matchupScore != null && matchupScore >= HOT_MATCHUP_THRESHOLD;
@@ -415,9 +355,9 @@ export function buildPropDualVerdict(
   let headline = "Pass";
   let explanation = "";
 
-  if (passesPlayer && passesMatchup) {
+  if (passesPlayer && passesMatchup && passesFinalAi) {
     headline = "Recommend";
-    explanation = "Player form and matchup both clear the quality bar.";
+    explanation = "Player, matchup, and Final AI scores all clear the quality bar.";
   } else if (matchupHot && playerCold) {
     headline = "Pass";
     explanation = "Great matchup, but player is cold — won't recommend on spot alone.";
@@ -430,14 +370,17 @@ export function buildPropDualVerdict(
   } else if (!passesPlayer) {
     headline = "Pass";
     explanation = `Matchup is fine (${matchupScore}), but player score (${playerScore}) is below the bar.`;
-  } else {
+  } else if (!passesMatchup) {
     headline = "Pass";
     explanation = `Player looks okay (${playerScore}), but matchup score (${matchupScore}) is below the bar.`;
+  } else if (!passesFinalAi) {
+    headline = "Pass";
+    explanation = `Player and matchup pass, but Final AI score (${finalAiScore}) is below the bar — edge, grade, or EV too weak.`;
   }
 
-  const recommends = passesPlayer && passesMatchup;
+  const recommends = passesPlayer && passesMatchup && passesFinalAi;
 
-  return { headline, explanation, recommends, passesPlayer, passesMatchup };
+  return { headline, explanation, recommends, passesPlayer, passesMatchup, passesFinalAi };
 }
 
 export function computePropDualScore(
@@ -446,28 +389,65 @@ export function computePropDualScore(
 ): PropDualScore {
   const player = computePlayerScore(playerInput);
   const matchup = computeMatchupScore(matchupInput);
-  const verdict = buildPropDualVerdict(player.score, matchup.score);
+  const finalAi = computeFinalAiScore({
+    playerScore: player.score,
+    matchupScore: matchup.score,
+    combined: playerInput.combined,
+    simRow: playerInput.simRow,
+    odds: playerInput.odds,
+  });
+  const verdict = buildPropDualVerdict(player.score, matchup.score, finalAi.score);
 
   return {
     playerScore: player.score,
     matchupScore: matchup.score,
+    finalAiScore: finalAi.score,
     playerFactors: player.factors,
     matchupFactors: matchup.factors,
+    finalAiFactors: finalAi.factors,
     passesPlayer: verdict.passesPlayer,
     passesMatchup: verdict.passesMatchup,
+    passesFinalAi: verdict.passesFinalAi,
     recommends: verdict.recommends,
     headline: verdict.headline,
     explanation: verdict.explanation,
   };
 }
 
-/** Stricter recommendability for Coach / Simulator tickets. */
-export function propDualScoreRecommends(dual: PropDualScore | null | undefined): boolean {
-  if (!dual?.recommends) return false;
-  const grade = dual.playerFactors.find((f) => f.key === "grade")?.display;
-  if (grade && gradeRank(grade) < gradeRank("B+")) return false;
+/** Full recommendability gate for Coach / Simulator / prop cards. */
+export function propDualScoreRecommends(
+  triple: PropDualScore | null | undefined,
+  simRow?: PropSimulationResult | null,
+  combined?: CombinedPickScore | null,
+): boolean {
+  if (!triple?.recommends) return false;
+
+  const grade =
+    triple.finalAiFactors.find((f) => f.key === "grade")?.display ??
+    combined?.grade ??
+    null;
+  if (grade && gradeRank(grade) < gradeRank(MIN_GRADE)) return false;
+
+  const conf = combined?.confidencePct;
+  if (conf == null || conf < MIN_CONFIDENCE_PCT) return false;
+
+  const edgeFactor = triple.finalAiFactors.find((f) => f.key === "edge");
+  const edge =
+    edgeFactor?.display != null
+      ? Number.parseFloat(String(edgeFactor.display).replace(/[^0-9.-]/g, ""))
+      : combined?.edgePct ?? null;
+  if (edge == null || edge <= 0) return false;
+
+  if (simRow != null) {
+    if (!isValidPropSim(simRow)) return false;
+    const hit = simRow.hitProbability;
+    if (hit == null || hit < MIN_SIM_HIT) return false;
+  }
+
   return true;
 }
+
+export const pickTripleScoreRecommends = propDualScoreRecommends;
 
 /** Map 0..100 dual score to the 1..10 pick-rubric sub-score scale. */
 export function dualScoreToPickSub(score: number | null | undefined): number | null {
@@ -552,6 +532,17 @@ function opponentKeyInjuries(
   return null;
 }
 
+function resolvePlayerSide(
+  game: string,
+  playerTeam: string | null,
+): "home" | "away" | null {
+  if (!playerTeam) return null;
+  const { away, home } = splitGameLabel(game);
+  if (teamNameMatches(playerTeam, home)) return "home";
+  if (teamNameMatches(playerTeam, away)) return "away";
+  return null;
+}
+
 export type PropDualBuildOpts = {
   sport: string;
   marketKey: string;
@@ -568,9 +559,31 @@ export type PropDualBuildOpts = {
   injuryTeams?: InjuryTeam[];
   mlb?: RealPropSignals["mlb"] | null;
   oppDefense?: RealPropSignals["oppDefense"] | null;
+  homeAway?: RealPropSignals["homeAway"] | null;
+  usageMinutes?: number | null;
   playerInjured?: boolean;
   projection?: number | null;
 };
+
+function avgMinutesFromGames(
+  recent?: Array<{ stats?: Record<string, string> }>,
+  labels?: string[],
+): number | null {
+  if (!recent?.length) return null;
+  const minLabel = labels?.find((l) => /^min(ute)?s?$/i.test(l.trim()));
+  if (!minLabel) return null;
+  const vals: number[] = [];
+  for (const g of recent) {
+    const raw = g.stats?.[minLabel];
+    if (raw == null) continue;
+    const m = String(raw).match(/^(\d+)(?::(\d+))?/);
+    if (!m) continue;
+    const v = Number(m[1]) + (m[2] ? Number(m[2]) / 60 : 0);
+    if (Number.isFinite(v) && v > 0) vals.push(v);
+  }
+  if (vals.length === 0) return null;
+  return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+}
 
 /** Build dual score for Coach / Simulator legs from shared context. */
 export function buildPropDualScoreForLeg(
@@ -579,6 +592,7 @@ export function buildPropDualScoreForLeg(
   opts: PropDualBuildOpts,
 ): PropDualScore {
   const playerTeam = resolvePlayerTeam(opts.game, opts.teamAbbr, opts.recentGames);
+  const playerSide = resolvePlayerSide(opts.game, playerTeam);
   const entry = opts.matchupHistory?.[opts.game];
   const { aligned, leanEdge } = matchupAlignment(entry?.mlLean, playerTeam);
   const mlLeanAligned =
@@ -586,6 +600,7 @@ export function buildPropDualScoreForLeg(
   const hitPct =
     hitPctFromRecent(opts.recentGames, opts.labels, opts.marketKey, opts.line, opts.side) ??
     null;
+  const usageMinutes = opts.usageMinutes ?? avgMinutesFromGames(opts.recentGames, opts.labels);
 
   return computePropDualScore(
     {
@@ -603,6 +618,10 @@ export function buildPropDualScoreForLeg(
       marketKey: opts.marketKey,
       mlb: opts.mlb,
       oppDefense: opts.oppDefense,
+      matchup: entry ?? null,
+      homeAway: opts.homeAway,
+      playerSide,
+      usageMinutes,
       mlLeanAligned,
       mlLeanEdge: leanEdge > 0 ? leanEdge : null,
       opponentKeyInjuries: opponentKeyInjuries(

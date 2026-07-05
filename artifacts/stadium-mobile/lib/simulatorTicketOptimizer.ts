@@ -98,7 +98,7 @@ export function evaluateSimulatorTicketQuality(
     dual &&
     dual.playerScore != null &&
     dual.matchupScore != null &&
-    !propDualScoreRecommends(dual)
+    !propDualScoreRecommends(dual, simRow, combined)
   ) {
     reasons.push(dual.explanation || "player and matchup must both clear the bar");
     if (!dual.passesPlayer) reasons.push("player score below bar");

@@ -117,7 +117,7 @@ export function evaluateCoachLegQuality(
     dual &&
     dual.playerScore != null &&
     dual.matchupScore != null &&
-    !propDualScoreRecommends(dual)
+    !propDualScoreRecommends(dual, simRow, scores)
   ) {
     failures.push("dual_score");
     if (!dual.passesPlayer && !failures.includes("weak_form")) failures.push("weak_form");

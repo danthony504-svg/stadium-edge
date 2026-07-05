@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CombinedPickScore } from "./pickScore.ts";
+import type { PropSimulationResult } from "./api.ts";
 import {
   buildPropDualVerdict,
+  computeFinalAiScore,
   computeMatchupScore,
   computePlayerScore,
   computePropDualScore,
+  MIN_FINAL_AI_SCORE,
   MIN_MATCHUP_SCORE,
   MIN_PLAYER_SCORE,
   propDualScoreRecommends,
@@ -30,28 +33,53 @@ function mockCombined(overrides: Partial<CombinedPickScore> = {}): CombinedPickS
   };
 }
 
+function mockSim(hit = 0.58): PropSimulationResult {
+  return {
+    key: "k",
+    player: "P",
+    market: "m",
+    line: 24.5,
+    side: "Over",
+    requestedSims: 10_000,
+    completedSims: 10_000,
+    failedSims: 0,
+    actualSimCount: 10_000,
+    startedAt: "",
+    finishedAt: "",
+    runTimeMs: 0,
+    simulations: 10_000,
+    hitProbability: hit,
+    mostLikelyLine: 26,
+    meanProjection: 26,
+    medianProjection: 26,
+    confidenceScore: 72,
+    stdDev: null,
+    sampleGames: 10,
+    percentiles: null,
+  };
+}
+
 test("buildPropDualVerdict: hot player + tough matchup", () => {
-  const v = buildPropDualVerdict(72, 40);
+  const v = buildPropDualVerdict(72, 40, 58);
   assert.equal(v.recommends, false);
-  assert.equal(v.headline, "Pass");
   assert.match(v.explanation, /Hot player, but tough matchup/);
 });
 
 test("buildPropDualVerdict: great matchup + cold player", () => {
-  const v = buildPropDualVerdict(38, 74);
+  const v = buildPropDualVerdict(38, 74, 50);
   assert.equal(v.recommends, false);
   assert.match(v.explanation, /Great matchup, but player is cold/);
 });
 
-test("buildPropDualVerdict: both clear the bar", () => {
-  const v = buildPropDualVerdict(60, 58);
+test("buildPropDualVerdict: all three scores pass", () => {
+  const v = buildPropDualVerdict(60, 58, 62);
   assert.equal(v.recommends, true);
-  assert.equal(v.headline, "Recommend");
+  assert.equal(v.passesFinalAi, true);
 });
 
-test("computePlayerScore: cold recent form drags score down", () => {
-  const { score } = computePlayerScore({
-    combined: mockCombined({ grade: "D", composite: 4.5, confidencePct: 42, edgePct: -1 }),
+test("computePlayerScore: focuses on form, sim, confidence, projection — not grade", () => {
+  const { score, factors } = computePlayerScore({
+    combined: mockCombined({ grade: "D", composite: 4.5 }),
     simRow: null,
     projection: 0.1,
     line: 0.5,
@@ -60,37 +88,43 @@ test("computePlayerScore: cold recent form drags score down", () => {
   });
   assert.ok(score != null);
   assert.ok(score < MIN_PLAYER_SCORE);
+  assert.ok(!factors.some((f) => f.key === "grade"));
+  assert.ok(!factors.some((f) => f.key === "edge"));
 });
 
-test("computeMatchupScore: MLB HR market uses pitcher and park signals", () => {
+test("computeMatchupScore: NBA uses pace and defense", () => {
   const { score, factors } = computeMatchupScore({
-    sport: "mlb",
-    marketKey: "batter_home_runs",
-    mlb: {
-      pitcher: {
-        name: "Soft Toss",
-        hrPer9: 1.6,
-        oppOPS: 0.82,
-        kPer9: 7,
-        barrelPctAllowed: 12,
-        hardHitPctAllowed: 45,
-        flyBallPct: 42,
-        battedBallEvents: 120,
-        throws: "R",
-      },
-      ballpark: { hrIndex: 112, tempF: 82, dome: false, venue: "Test Park" },
-      platoon: { ops: 0.88, hand: "RHP", bats: "L" },
-    },
+    sport: "nba",
+    marketKey: "player_points",
+    oppDefense: { pointsAgainst: 115, blocks: 4.5 },
+    matchup: { homePace: 101, awayPace: 99 } as never,
+    playerSide: "home",
+    usageMinutes: 34,
   });
   assert.ok(score != null);
-  assert.ok(score >= MIN_MATCHUP_SCORE);
-  assert.ok(factors.some((f) => f.key === "hr9" || f.key === "pitcher"));
+  assert.ok(factors.some((f) => f.key === "pace" || f.key === "defense"));
+});
+
+test("computeFinalAiScore: blends player, matchup, grade, edge", () => {
+  const { score, factors } = computeFinalAiScore({
+    playerScore: 62,
+    matchupScore: 60,
+    combined: mockCombined(),
+    simRow: mockSim(),
+    odds: -110,
+  });
+  assert.ok(score != null);
+  assert.ok(score >= MIN_FINAL_AI_SCORE);
+  assert.ok(factors.some((f) => f.key === "player"));
+  assert.ok(factors.some((f) => f.key === "matchup"));
+  assert.ok(factors.some((f) => f.key === "grade"));
+  assert.ok(factors.some((f) => f.key === "edge"));
 });
 
 test("computePropDualScore: Jordan Walker pattern — great HR spot, cold batter", () => {
   const dual = computePropDualScore(
     {
-      combined: mockCombined({ grade: "D", composite: 4.8, confidencePct: 48 }),
+      combined: mockCombined({ grade: "D", composite: 4.8, confidencePct: 48, edgePct: -1 }),
       simRow: null,
       projection: 0.05,
       line: 0.5,
@@ -123,11 +157,11 @@ test("computePropDualScore: Jordan Walker pattern — great HR spot, cold batter
   assert.ok((dual.playerScore ?? 100) < MIN_PLAYER_SCORE);
 });
 
-test("propDualScoreRecommends: requires B+ even when dual scores pass", () => {
+test("propDualScoreRecommends: requires B+, edge, confidence, and sim", () => {
   const dual = computePropDualScore(
     {
-      combined: mockCombined({ grade: "C", composite: 6.2 }),
-      simRow: null,
+      combined: mockCombined({ grade: "C", composite: 6.2, confidencePct: 48, edgePct: -0.5 }),
+      simRow: mockSim(0.44),
       hitPct: 62,
       line: 20,
       side: "Over",
@@ -139,6 +173,30 @@ test("propDualScoreRecommends: requires B+ even when dual scores pass", () => {
       oppDefense: { pointsAgainst: 116 },
     },
   );
-  assert.equal(dual.recommends, true);
-  assert.equal(propDualScoreRecommends(dual), false);
+  assert.equal(propDualScoreRecommends(dual, mockSim(0.44), mockCombined({ grade: "C" })), false);
+});
+
+test("propDualScoreRecommends: strong pick passes all gates", () => {
+  const combined = mockCombined();
+  const sim = mockSim(0.58);
+  const dual = computePropDualScore(
+    {
+      combined,
+      simRow: sim,
+      hitPct: 70,
+      line: 20,
+      side: "Over",
+      projection: 26,
+      odds: -110,
+    },
+    {
+      sport: "nba",
+      marketKey: "player_points",
+      oppDefense: { pointsAgainst: 116 },
+      matchup: { homePace: 102, awayPace: 100 } as never,
+      playerSide: "home",
+      usageMinutes: 35,
+    },
+  );
+  assert.equal(propDualScoreRecommends(dual, sim, combined), true);
 });

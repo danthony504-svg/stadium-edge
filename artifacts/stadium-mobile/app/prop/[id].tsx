@@ -667,6 +667,13 @@ export default function PropDetailScreen() {
     );
   }, [games, line, side, propMetaQ.data, oppName, injuriesQ.data, sport, odds, simData]);
 
+  const playerSide = useMemo((): "home" | "away" | null => {
+    if (!teamName || !homeName || !awayName) return null;
+    if (teamNameMatches(teamName, homeName)) return "home";
+    if (teamNameMatches(teamName, awayName)) return "away";
+    return null;
+  }, [teamName, homeName, awayName]);
+
   const propDualScore = useMemo(() => {
     return computePropDualScore(
       {
@@ -684,6 +691,9 @@ export default function PropDetailScreen() {
         marketKey,
         mlb: realMlb,
         oppDefense: realOppDefense,
+        homeAway: realHomeAway,
+        playerSide,
+        usageMinutes: usage?.avg ?? null,
         opponentKeyInjuries: oppKeyInjuries,
         side,
       },
@@ -701,6 +711,9 @@ export default function PropDetailScreen() {
     marketKey,
     realMlb,
     realOppDefense,
+    realHomeAway,
+    playerSide,
+    usage,
     oppKeyInjuries,
   ]);
 

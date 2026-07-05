@@ -65,14 +65,52 @@ function FactorRow({
   );
 }
 
+function ScoreTile({
+  label,
+  score,
+  caption,
+}: {
+  label: string;
+  score: number | null;
+  caption: string;
+}) {
+  const colors = useColors();
+  const tone = scoreTone(score, colors);
+  return (
+    <View
+      style={{
+        flex: 1,
+        minWidth: 96,
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: "center",
+        gap: 3,
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 8, letterSpacing: 0.4 }}>
+        {label}
+      </Text>
+      <Text style={{ color: tone, fontFamily: FONT.display, fontSize: 24, lineHeight: 26 }}>
+        {score ?? "—"}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, textAlign: "center" }}>
+        {caption}
+      </Text>
+    </View>
+  );
+}
+
 export function PropDualScoreCard({ data }: { data: PropDualScore }) {
   const colors = useColors();
-  const playerTone = scoreTone(data.playerScore, colors);
-  const matchupTone = scoreTone(data.matchupScore, colors);
   const verdictTone = data.recommends ? colors.success : colors.destructive;
   const playerFactors = data.playerFactors.filter((f) => f.sub != null);
   const matchupFactors = data.matchupFactors.filter((f) => f.sub != null);
-  const hasAny = data.playerScore != null || data.matchupScore != null;
+  const finalFactors = data.finalAiFactors.filter((f) => f.sub != null);
+  const hasAny =
+    data.playerScore != null || data.matchupScore != null || data.finalAiScore != null;
   if (!hasAny) return null;
 
   return (
@@ -89,7 +127,7 @@ export function PropDualScoreCard({ data }: { data: PropDualScore }) {
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         <View style={{ flex: 1, gap: 4 }}>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 }}>
-            PLAYER + MATCHUP SCORE
+            PLAYER · MATCHUP · FINAL AI
           </Text>
           <Text style={{ color: verdictTone, fontFamily: FONT.bold, fontSize: 14 }}>{data.headline}</Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
@@ -103,51 +141,22 @@ export function PropDualScoreCard({ data }: { data: PropDualScore }) {
         />
       </View>
 
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <View
-          style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.5 }}>
-            PLAYER SCORE
-          </Text>
-          <Text style={{ color: playerTone, fontFamily: FONT.display, fontSize: 28, lineHeight: 30 }}>
-            {data.playerScore ?? "—"}
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
-            form · sim · grade · edge
-          </Text>
-        </View>
-        <View
-          style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 9, letterSpacing: 0.5 }}>
-            MATCHUP SCORE
-          </Text>
-          <Text style={{ color: matchupTone, fontFamily: FONT.display, fontSize: 28, lineHeight: 30 }}>
-            {data.matchupScore ?? "—"}
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
-            pitcher · park · defense · lean
-          </Text>
-        </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <ScoreTile
+          label="PLAYER SCORE"
+          score={data.playerScore}
+          caption="form · sim · confidence · projection"
+        />
+        <ScoreTile
+          label="MATCHUP SCORE"
+          score={data.matchupScore}
+          caption="opponent · defense · pace · rest"
+        />
+        <ScoreTile
+          label="FINAL AI SCORE"
+          score={data.finalAiScore}
+          caption="player + matchup + edge + EV"
+        />
       </View>
 
       {playerFactors.length > 0 ? (
@@ -179,6 +188,23 @@ export function PropDualScoreCard({ data }: { data: PropDualScore }) {
               display={f.display}
               sub={f.sub}
               last={i === matchupFactors.length - 1}
+            />
+          ))}
+        </View>
+      ) : null}
+
+      {finalFactors.length > 0 ? (
+        <View style={{ gap: 6 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.6 }}>
+            FINAL AI FACTORS
+          </Text>
+          {finalFactors.map((f, i) => (
+            <FactorRow
+              key={f.key}
+              label={f.label}
+              display={f.display}
+              sub={f.sub}
+              last={i === finalFactors.length - 1}
             />
           ))}
         </View>
