@@ -6,6 +6,7 @@ import {
   gameSimAgreesWithPick,
   gameSimDisagreement,
   gameSimHitForPick,
+  lookupGameSim,
 } from "./gameSimScoring.ts";
 
 function gamePick(overrides: Partial<ParsedPick> = {}): ParsedPick {
@@ -64,4 +65,11 @@ test("gameSimAgreesWithPick for strong home ML", () => {
   };
   assert.equal(gameSimAgreesWithPick(mlPick, mlSim), true);
   assert.equal(gameSimDisagreement(mlPick, mlSim), null);
+});
+
+test("lookupGameSim matches nickname game labels", () => {
+  const map = new Map([
+    ["New York Mets @ Atlanta Braves", sim as import("./gameSimScoring.ts").CoachGameSimEntry],
+  ]);
+  assert.ok(lookupGameSim("Mets @ Braves", map));
 });

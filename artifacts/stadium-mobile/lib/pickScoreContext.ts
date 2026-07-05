@@ -37,6 +37,7 @@ import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
 import { gameValueForMarket } from "@/lib/propStats";
 import {
   gameSimHitForPick,
+  lookupGameSim,
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
@@ -466,6 +467,7 @@ export function attachPickScores(
     injuryTeams: opts.injuryTeams,
   };
   return picks.map((p) => {
+    const gameSim = lookupGameSim(p.game, gameSims);
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGameLinePick(
@@ -473,7 +475,7 @@ export function attachPickScores(
           realOdds,
           opts.matchupHistory,
           opts.matchupInjuries,
-          gameSims?.get(p.game),
+          gameSim,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     if (!scores) return { ...p, scores: null };
@@ -492,7 +494,7 @@ export function attachPickScores(
       rubricScores: scores.scores,
       edgePct: scores.edgePct,
       odds: p.odds,
-      gameSim: gameSims?.get(p.game),
+      gameSim,
       propSimHit,
     });
 

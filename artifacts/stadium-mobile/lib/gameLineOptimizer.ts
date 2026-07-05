@@ -514,29 +514,46 @@ export function buildGameLineOptimizerNote(
     if (bucket && seenBuckets.has(bucket)) continue;
     if (bucket) seenBuckets.add(bucket);
 
-    const grade = pick.finalAiScore?.grade;
-    const simHit = pick.finalAiScore?.simHit;
-    const edge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct;
-    if (grade != null || simHit != null || edge != null) {
-      const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
-      const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
-      lines.push(
-        `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade ?? "—"}, sim ${wp}, edge ${edgeStr}`,
-      );
-      continue;
-    }
-
     const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
-    if (!evalLines.length) continue;
     const sim = simForGame(pick.game, simByGame);
-    const match = evalLines.find(
+    let match = evalLines.find(
       (e) =>
         e.market === pick.market &&
         e.pick === pick.pick &&
         gameLabelsMatch(e.game, pick.game),
     );
+    if (!match && pick.odds != null) {
+      const fromOdds = opts.realOdds.find(
+        (e) =>
+          gameLabelsMatch(e.game, pick.game) &&
+          e.market === pick.market &&
+          e.pick === pick.pick,
+      );
+      match =
+        fromOdds ??
+        ({
+          sport: pick.sport ?? "mlb",
+          game: pick.game,
+          market: pick.market,
+          pick: pick.pick,
+          odds: pick.odds,
+          edge: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+          noVigFair: null,
+        } as RealOddsEntry);
+    }
     if (!match) {
-      lines.push(`${pick.game}: ${pick.pick} (${pick.market})`);
+      const grade = pick.finalAiScore?.grade;
+      const simHit = pick.finalAiScore?.simHit;
+      const edge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct;
+      if (grade != null || simHit != null || edge != null) {
+        const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
+        const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
+        lines.push(
+          `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade ?? "—"}, sim ${wp}, edge ${edgeStr}`,
+        );
+      } else {
+        lines.push(`${pick.game}: ${pick.pick} (${pick.market})`);
+      }
       continue;
     }
     const ranked = evaluateGameLines({

@@ -36,6 +36,34 @@ export type CoachGameSimEntry = GameSimulationResult & {
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };
 
+function gameLabelsMatch(a: string, b: string): boolean {
+  const pa = splitLabel(a);
+  const pb = splitLabel(b);
+  if (!pa.away || !pa.home || !pb.away || !pb.home) {
+    return String(a).toLowerCase().trim() === String(b).toLowerCase().trim();
+  }
+  const overlap = (x: string, y: string) => {
+    const tx = tokens(x);
+    const ty = tokens(y);
+    return tx.some((t) => ty.includes(t)) || ty.some((t) => tx.includes(t));
+  };
+  return overlap(pa.away, pb.away) && overlap(pa.home, pb.home);
+}
+
+/** Fuzzy lookup — pick labels and sim map keys may differ by nickname. */
+export function lookupGameSim(
+  gameLabel: string,
+  simByGame: Map<string, CoachGameSimEntry> | undefined,
+): CoachGameSimEntry | undefined {
+  if (!simByGame) return undefined;
+  const direct = simByGame.get(gameLabel);
+  if (direct) return direct;
+  for (const [label, sim] of simByGame) {
+    if (gameLabelsMatch(label, gameLabel)) return sim;
+  }
+  return undefined;
+}
+
 const GENERIC = new Set([
   "fc", "sc", "the", "of", "and", "los", "san", "new", "city", "club", "cf",
   "afc", "ac", "real",

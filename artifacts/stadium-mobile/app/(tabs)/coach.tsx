@@ -451,6 +451,13 @@ function requestedLegCount(text: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function appendUniqueNote(existing: string, addition: string): string {
+  const next = addition.trim();
+  if (!next) return existing;
+  if (existing.includes(next)) return existing;
+  return existing ? `${existing}\n\n${next}` : next;
+}
+
 // assistantBubbleText also strips the model's trailing responsible-gambling
 // sign-off (see lib/reminderStrip) so it doesn't render as a dangling line.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
@@ -2037,13 +2044,11 @@ export default function CoachScreen() {
           picks = filtered.picks;
           const edgeFiltered = filterNegativeEdgeGameLines(picks, mergedGameOdds);
           picks = edgeFiltered.picks;
-          const supplementParts: string[] = [];
-          if (edgeFiltered.note) supplementParts.push(edgeFiltered.note);
-          if (filtered.note) supplementParts.push(filtered.note);
-          if (filtered.warnings.length > 0 && supplementParts.length === 0) {
-            supplementParts.push(filtered.warnings.join("\n"));
+          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
+          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
+          if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
+            gameSimSupplementNote = filtered.warnings.join("\n");
           }
-          gameSimSupplementNote = supplementParts.join("\n\n");
           if (
             deepMultiLegParlay &&
             propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
@@ -2084,10 +2089,11 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
             });
             picks = postFinalizeSides.picks;
-            if (postFinalizeSides.note) {
-              gameSimSupplementNote = gameSimSupplementNote
-                ? `${gameSimSupplementNote}\n\n${postFinalizeSides.note}`
-                : postFinalizeSides.note;
+            if (postFinalizeSides.dropped > 0) {
+              gameSimSupplementNote = appendUniqueNote(
+                gameSimSupplementNote,
+                postFinalizeSides.note,
+              );
             }
           }
         }
