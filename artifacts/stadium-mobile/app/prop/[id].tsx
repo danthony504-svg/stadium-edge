@@ -932,11 +932,14 @@ export default function PropDetailScreen() {
               <MetricTile
                 icon="shield"
                 label="SIM CONF"
-                value={
-                  simData?.confidenceScore != null
-                    ? `${simData.confidenceScore}`
-                    : "—"
-                }
+                value={(() => {
+                  const conf = resolveSimConfidence({
+                    hitProbability: simData?.hitProbability ?? null,
+                    confidenceScore: simData?.confidenceScore,
+                    sampleGames: simData?.sampleGames,
+                  });
+                  return conf != null ? `${conf}` : "—";
+                })()}
                 caption="model conviction"
                 tint={colors.foreground}
               />

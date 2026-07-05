@@ -29,7 +29,7 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
-import { enrichPropSimResults, mergeServerOverLocal, resolveSimConfidence } from "@/lib/propSimFallback";
+import { enrichPropSimResults, mergeServerOverLocal } from "@/lib/propSimFallback";
 import {
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
@@ -48,9 +48,19 @@ import type { CombinedPickScore } from "@/lib/pickScore";
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
+  buildSimulatorSimCandidates,
   gradeSimulatorProps,
   type SimulatorPlayerHistorySlice,
+  type SimulatorSelectedProp,
 } from "@/lib/simulatorPickPool";
+import {
+  expectedProjection,
+  meetsSimulatorQualityThreshold,
+  recommendationTone,
+  simulatorRecommendation,
+  simulatorSimConfidence,
+  topSimulatorPickReasons,
+} from "@/lib/simulatorRecommendations";
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
@@ -67,16 +77,7 @@ const MAX_PROPS = 6;
 
 type SimMode = "game" | "props" | "full";
 
-type SelectedProp = {
-  player: string;
-  market: string;
-  line: number;
-  side: "Over" | "Under";
-  odds: number;
-  athleteId: string | null;
-  headshot: string | null;
-  label: string;
-};
+type SelectedProp = SimulatorSelectedProp;
 
 const MLB_PROP_FILTERS: { id: string; label: string; icon?: keyof typeof Feather.glyphMap; markets?: string[] }[] = [
   { id: "popular", label: "Popular", icon: "zap" },
@@ -231,6 +232,8 @@ export default function SimulatorScreen() {
   const [filter, setFilter] = useState("popular");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<SelectedProp[]>([]);
+  const [simulatedProps, setSimulatedProps] = useState<SelectedProp[]>([]);
+  const [showAllPicks, setShowAllPicks] = useState(false);
   const [running, setRunning] = useState(false);
   const [gameResult, setGameResult] = useState<GameSimulationResult | null>(null);
   const [propResults, setPropResults] = useState<PropSimulationResult[]>([]);
@@ -489,6 +492,8 @@ export default function SimulatorScreen() {
     setRunning(true);
     setGameResult(null);
     setPropResults([]);
+    setSimulatedProps([]);
+    setShowAllPicks(false);
     setPlayerHistory({});
     try {
       const wx = weatherImpact;
@@ -504,13 +509,15 @@ export default function SimulatorScreen() {
         });
         setGameResult(gr);
       }
-      if ((mode === "props" || mode === "full") && selected.length > 0) {
+      if ((mode === "props" || mode === "full") && propPool.length > 0) {
+        const toSim = buildSimulatorSimCandidates(propPool, selected);
+        setSimulatedProps(toSim);
         const teamTokens = [game.homeTeam, game.awayTeam]
           .filter(Boolean)
           .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
 
         const simProps = await Promise.all(
-          selected.map(async (s) => {
+          toSim.map(async (s) => {
             let athleteId = s.athleteId;
             if (!athleteId) {
               try {
@@ -606,16 +613,17 @@ export default function SimulatorScreen() {
     gameEligible &&
     !!game &&
     !running &&
-    (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
+    (mode === "game" ||
+      ((mode === "props" || mode === "full") && (selected.length >= 1 || propPool.length > 0)));
 
   const propScores = useMemo(() => {
-    if (!propResults.length || !gameLabel || !selected.length) {
+    if (!propResults.length || !gameLabel || !simulatedProps.length) {
       return new Map<string, CombinedPickScore>();
     }
     const simMap = new Map(
       propResults.map((r) => [r.key, { hitProbability: r.hitProbability }]),
     );
-    return gradeSimulatorProps(selected, gameLabel, sport, [...propPool, ...ppPropPool], {
+    return gradeSimulatorProps(simulatedProps, gameLabel, sport, [...propPool, ...ppPropPool], {
       matchupHistory: matchupQ.data ? { [gameLabel]: matchupQ.data } : {},
       matchupInjuries,
       playerHistory,
@@ -624,7 +632,7 @@ export default function SimulatorScreen() {
     });
   }, [
     propResults,
-    selected,
+    simulatedProps,
     gameLabel,
     matchupQ.data,
     matchupInjuries,
@@ -670,6 +678,18 @@ export default function SimulatorScreen() {
     }, 25_000);
     return () => clearTimeout(timer);
   }, [propResults, game, sport, running]);
+
+  const displayedPropResults = useMemo(() => {
+    const rows = [...propResults].sort((a, b) => {
+      const ca = propScores.get(a.key)?.composite ?? -1;
+      const cb = propScores.get(b.key)?.composite ?? -1;
+      return cb - ca;
+    });
+    if (showAllPicks) return rows;
+    return rows.filter((r) => meetsSimulatorQualityThreshold(propScores.get(r.key)));
+  }, [propResults, propScores, showAllPicks]);
+
+  const hiddenPickCount = propResults.length - displayedPropResults.length;
 
   const modes: { id: SimMode; label: string }[] = [
     { id: "game", label: "Game Outcome" },
@@ -1153,15 +1173,50 @@ export default function SimulatorScreen() {
 
                 {propResults.length > 0 ? (
                   <Card style={{ marginBottom: 16 }}>
-                    <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
-                      Player Prop Projections
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground }}>
+                        Recommended Props
+                      </Text>
+                      <Pressable
+                        onPress={() => setShowAllPicks((v) => !v)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 8,
+                          backgroundColor: showAllPicks ? "rgba(59,130,246,0.2)" : colors.muted,
+                          borderWidth: 1,
+                          borderColor: showAllPicks ? colors.primary : colors.border,
+                        }}
+                      >
+                        <Text style={{ fontFamily: FONT.medium, fontSize: 11, color: showAllPicks ? colors.primary : colors.mutedForeground }}>
+                          {showAllPicks ? "Quality Only" : "Show All Picks"}
+                        </Text>
+                      </Pressable>
+                    </View>
                     <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }}>
-                      AI Grade combines simulation with matchup, recent form, injuries, line value, and cross-book odds — simulation is one factor, not the only one.
+                      Showing {showAllPicks ? "all simulated" : "Grade B or higher"} picks with positive edge.
                       {simDeepPending ? " Simulation updating…" : ""}
+                      {!showAllPicks && hiddenPickCount > 0
+                        ? ` ${hiddenPickCount} lower-grade pick${hiddenPickCount === 1 ? "" : "s"} hidden.`
+                        : ""}
                     </Text>
-                    {propResults.map((r) => {
+                    {displayedPropResults.length === 0 ? (
+                      <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, paddingVertical: 8 }}>
+                        No picks met the Grade B / positive-edge bar. Tap Show All Picks to review everything we simulated.
+                      </Text>
+                    ) : null}
+                    {displayedPropResults.map((r) => {
                       const combined = propScores.get(r.key);
+                      const recommendation = simulatorRecommendation(combined, r);
+                      const recTone = recommendationTone(recommendation);
+                      const recColor =
+                        recTone === "strong" || recTone === "play"
+                          ? colors.success
+                          : recTone === "lean"
+                            ? colors.primary
+                            : recTone === "monitor"
+                              ? colors.foreground
+                              : colors.mutedForeground;
                       const gradeColor =
                         combined?.composite == null
                           ? colors.mutedForeground
@@ -1176,18 +1231,40 @@ export default function SimulatorScreen() {
                           : combined.edgePct >= 0
                             ? colors.success
                             : colors.destructive;
+                      const simConf = simulatorSimConfidence(r);
+                      const proj = expectedProjection(r);
+                      const reasons = topSimulatorPickReasons(combined, r, 3);
                       return (
                         <View
                           key={r.key}
                           style={{
-                            paddingVertical: 10,
+                            paddingVertical: 12,
                             borderTopWidth: 1,
                             borderTopColor: colors.border,
                           }}
                         >
-                          <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
-                          </Text>
+                          <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                            <Text style={{ flex: 1, fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
+                              {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
+                            </Text>
+                            <View
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                                backgroundColor:
+                                  recTone === "strong" || recTone === "play"
+                                    ? "rgba(34,197,94,0.15)"
+                                    : recTone === "lean"
+                                      ? "rgba(59,130,246,0.15)"
+                                      : colors.muted,
+                              }}
+                            >
+                              <Text style={{ fontFamily: FONT.bold, fontSize: 10, color: recColor }}>
+                                {recommendation}
+                              </Text>
+                            </View>
+                          </View>
                           {r.hitProbability == null && r.sampleGames < 3 ? (
                             <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
                               Not enough recent game log to simulate this line.
@@ -1209,14 +1286,27 @@ export default function SimulatorScreen() {
                               valueColor={edgeColor}
                             />
                           </View>
-                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
+                          <View style={{ flexDirection: "row", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
                             <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                            <MiniStat label="Likely" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
-                            <MiniStat label="Sim Conf" value={(() => {
-                              const conf = resolveSimConfidence(r);
-                              return conf != null ? String(conf) : "—";
-                            })()} />
+                            <MiniStat label="Sim Conf" value={simConf != null ? String(simConf) : "—"} />
+                            <MiniStat label="Expected Proj" value={proj ?? "—"} />
+                            <MiniStat label="Recommendation" value={recommendation} valueColor={recColor} />
                           </View>
+                          {reasons.length > 0 ? (
+                            <View style={{ marginTop: 10 }}>
+                              <Text style={{ fontFamily: FONT.semibold, fontSize: 11, color: colors.foreground, marginBottom: 4 }}>
+                                Why this pick
+                              </Text>
+                              {reasons.map((reason) => (
+                                <View key={reason} style={{ flexDirection: "row", gap: 6, marginTop: 3 }}>
+                                  <Text style={{ color: colors.primary, fontFamily: FONT.body, fontSize: 11 }}>•</Text>
+                                  <Text style={{ flex: 1, fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, lineHeight: 16 }}>
+                                    {reason}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null}
                         </View>
                       );
                     })}
