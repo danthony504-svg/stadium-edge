@@ -15,6 +15,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
+import { coachPropHasMonteCarlo } from "@/lib/coachPropMonteCarlo";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -63,6 +64,12 @@ export type ParsedPick = {
   // True while a server-side Monte Carlo run is still refining this prop leg's
   // simulation sub-score. Picks render immediately; the grade updates when done.
   simulationPending?: boolean;
+  /** Monte Carlo hit % (0–100) for the picked side. */
+  simHitPct?: number;
+  /** Monte Carlo confidence 0–100. */
+  simConfidence?: number;
+  /** Short note when grade, edge, and sim signals disagree. */
+  factorNote?: string;
   // The 5-component pick rubric (Matchup / Trend / Line Value / Injury /
   // Line-Shopping) rolled into AI Grade + Confidence + Edge. Attached at resolve
   // time ONLY when real scoring inputs are available (see lib/pickScoreContext);
@@ -762,7 +769,14 @@ export function PickCard({
       <LineLadder pick={pick} />
 
       {hideReadout ? null : pick.scores ? (
-        <ScoreBreakdown data={pick.scores} variant="compact" simulationPending={pick.simulationPending} />
+        <ScoreBreakdown
+          data={pick.scores}
+          variant="compact"
+          simulationPending={pick.simulationPending}
+          simHitPct={pick.simHitPct}
+          simConfidence={pick.simConfidence}
+          factorNote={pick.factorNote}
+        />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
@@ -1862,6 +1876,8 @@ export function backfillProps(
     maxPerMarket?: number;
     /** Multi-factor ranking (EV, matchup, form, injury, sim, …) for which props to add. */
     selectionOpts?: PropSelectionOpts;
+    /** When set, only entries that pass this gate are added (Coach quality bar). */
+    qualityGate?: (entry: PropPoolEntry) => boolean;
   },
 ): ParsedPick[] {
   const { target, plusMoneyBias = false, diversify = true } = opts;
@@ -1931,6 +1947,11 @@ export function backfillProps(
   }
   const tryAdd = (e: PropPoolEntry): boolean => {
     if (out.length >= target) return false;
+    if (opts.qualityGate && !opts.qualityGate(e)) return false;
+    if (opts.selectionOpts?.propSimulations) {
+      const simKey = `${e.player}|${e.marketKey ?? e.marketLabel}|${e.line}|${e.side}`;
+      if (!coachPropHasMonteCarlo(opts.selectionOpts.propSimulations.get(simKey))) return false;
+    }
     const mk = norm(e.marketLabel);
     if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
     const pick =

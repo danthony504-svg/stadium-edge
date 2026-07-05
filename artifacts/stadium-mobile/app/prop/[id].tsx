@@ -50,6 +50,7 @@ import { computeHrScore, hrScoreBand, type HrScore } from "@/lib/hrScore";
 import { computeHrFlags, type HrFlags } from "@/lib/hrFlags";
 import { factorsForProp, type RealPropSignals } from "@/lib/propFactors";
 import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
+import { resolveSimConfidence } from "@/lib/propSimFallback";
 import { SPORTS } from "@/lib/sports";
 
 // How many of the most-recent real games we read for the projection / hit-rate.
@@ -931,11 +932,14 @@ export default function PropDetailScreen() {
               <MetricTile
                 icon="shield"
                 label="SIM CONF"
-                value={
-                  simData?.confidenceScore != null
-                    ? `${simData.confidenceScore}`
-                    : "—"
-                }
+                value={(() => {
+                  const conf = resolveSimConfidence({
+                    hitProbability: simData?.hitProbability ?? null,
+                    confidenceScore: simData?.confidenceScore,
+                    sampleGames: simData?.sampleGames,
+                  });
+                  return conf != null ? `${conf}` : "—";
+                })()}
                 caption="model conviction"
                 tint={colors.foreground}
               />

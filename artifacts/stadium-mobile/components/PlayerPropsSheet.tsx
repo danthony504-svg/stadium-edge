@@ -150,11 +150,13 @@ export function PlayerPropsSheet({
     queryKey: ["player-history", data?.sport, data?.athleteId, isSoccer ? data?.player : null],
     enabled: !!data?.sport && (!!data?.athleteId || (isSoccer && !!data?.player)),
     staleTime: 10 * 60_000,
-    queryFn: ({ signal }) =>
-      getPlayerHistory(
-        { sport: data!.sport, athleteId: data!.athleteId, name: isSoccer ? data!.player : null },
+    queryFn: ({ signal }) => {
+      if (!data?.sport) throw new Error("player sheet closed");
+      return getPlayerHistory(
+        { sport: data.sport, athleteId: data.athleteId, name: isSoccer ? data.player : null },
         signal,
-      ),
+      );
+    },
   });
 
   // Labels appearing more than once in the gamelog header are ambiguous after
@@ -198,7 +200,10 @@ export function PlayerPropsSheet({
   }, [data, market]);
 
   const grid = useMemo(
-    () => (historyQ.data ? buildGrid(data!.sport, historyQ.data.seasonSummary, ambiguous) : null),
+    () =>
+      historyQ.data && data
+        ? buildGrid(data.sport, historyQ.data.seasonSummary, ambiguous)
+        : null,
     [historyQ.data, data, ambiguous],
   );
 
@@ -299,17 +304,24 @@ export function PlayerPropsSheet({
     return { side, price, hits, total, pct, tier, line: bookLine };
   }, [selectedProp, bookLine, bars]);
 
-  if (!data) return null;
+  const rungAt = useMemo(() => {
+    if (chartLine == null) return null;
+    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
+  }, [rungs, chartLine]);
+
+  if (!data || !active) {
+    return (
+      <Modal visible={false} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+        <View />
+      </Modal>
+    );
+  }
 
   const teamLine = [data.teamAbbr, sportLabel].filter(Boolean).join(" · ");
 
   // The hit-rate explorer only ever offers a REAL price, and only AT a posted
   // rung (main or alternate). The current line matches a rung → show its live
   // Over/Under prices; between rungs there is no real number, so we show none.
-  const rungAt = useMemo(() => {
-    if (chartLine == null) return null;
-    return rungs.find((r) => r.line != null && Math.abs(r.line - chartLine) < 0.01) ?? null;
-  }, [rungs, chartLine]);
   const stepOverPrice = rungAt?.overPrice ?? null;
   const stepUnderPrice = rungAt?.underPrice ?? null;
   const mlabel = propMarketLabel(market);
@@ -346,7 +358,7 @@ export function PlayerPropsSheet({
   };
 
   return (
-    <Modal visible={active} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         {/* Header */}
         <View

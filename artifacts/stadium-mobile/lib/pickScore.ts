@@ -264,7 +264,7 @@ export function lineShoppingAdvantage(
 // Weights express each signal's relative importance. They are renormalized over
 // whatever scores are PRESENT, so omitting a signal reweights the rest rather
 // than dragging the composite toward a phantom 0.
-const WEIGHTS: Record<keyof PickSubScores, number> = {
+const BASE_WEIGHTS: Record<keyof PickSubScores, number> = {
   lineValue: 0.27,
   matchup: 0.23,
   trend: 0.18,
@@ -272,6 +272,34 @@ const WEIGHTS: Record<keyof PickSubScores, number> = {
   lineShopping: 0.08,
   simulation: 0.1,
 };
+
+let learnedWeightDelta: Partial<Record<keyof PickSubScores, number>> = {};
+
+/** Apply settled-result factor learning deltas (from lib/factorLearning). */
+export function setLearnedWeightOverrides(
+  delta: Partial<Record<keyof PickSubScores, number>>,
+): void {
+  learnedWeightDelta = delta;
+}
+
+/** Renormalized rubric weights — base prior plus learned nudges. */
+export function getPickScoreWeights(): Record<keyof PickSubScores, number> {
+  const raw = { ...BASE_WEIGHTS };
+  (Object.keys(raw) as Array<keyof PickSubScores>).forEach((k) => {
+    const d = learnedWeightDelta[k] ?? 0;
+    raw[k] = Math.max(0.04, BASE_WEIGHTS[k] + d);
+  });
+  let sum = 0;
+  (Object.keys(raw) as Array<keyof PickSubScores>).forEach((k) => {
+    sum += raw[k];
+  });
+  if (sum <= 0) return { ...BASE_WEIGHTS };
+  const out = { ...raw };
+  (Object.keys(out) as Array<keyof PickSubScores>).forEach((k) => {
+    out[k] = round1(out[k] / sum);
+  });
+  return out;
+}
 
 // Confidence is BUILT UP from the real signals: it starts at a neutral baseline
 // and AWARDS points for every strong factor we could ground (a good matchup, hot
@@ -289,9 +317,10 @@ const CONFIDENCE_BASELINE = 50;
 const CONFIDENCE_NEUTRAL = 5.5; // a 1-10 sub-score at/below this adds nothing/subtracts
 const CONFIDENCE_PER_FACTOR = 10; // max points one strong factor can add or remove
 export function confidenceFromSignals(scores: PickSubScores): number | null {
+  const weights = getPickScoreWeights();
   let present = 0;
   let pts = CONFIDENCE_BASELINE;
-  (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
+  (Object.keys(weights) as Array<keyof PickSubScores>).forEach((k) => {
     const s = scores[k];
     if (s != null && Number.isFinite(s)) {
       present += 1;
@@ -336,13 +365,14 @@ export function combinePickScore(
 ): CombinedPickScore {
   void oddsAmerican;
   void fairProb;
+  const weights = getPickScoreWeights();
   let wSum = 0;
   let acc = 0;
-  (Object.keys(WEIGHTS) as Array<keyof PickSubScores>).forEach((k) => {
+  (Object.keys(weights) as Array<keyof PickSubScores>).forEach((k) => {
     const s = scores[k];
     if (s != null && Number.isFinite(s)) {
-      wSum += WEIGHTS[k];
-      acc += WEIGHTS[k] * s;
+      wSum += weights[k];
+      acc += weights[k] * s;
     }
   });
   const composite = wSum > 0 ? round1(acc / wSum) : null;
