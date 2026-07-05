@@ -509,7 +509,15 @@ export function attachPickScores(
           gameSim,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    if (!scores) return { ...p, scores: null };
+    if (!scores) {
+      return {
+        ...p,
+        scores: null,
+        finalAiScore: null,
+        gameLineFinal: undefined,
+        highRiskValuePlay: undefined,
+      };
+    }
 
     const propKey =
       p.isProp && p.player && p.propLine != null && p.propSide

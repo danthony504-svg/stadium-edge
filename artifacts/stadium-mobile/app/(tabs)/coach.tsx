@@ -64,21 +64,29 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
+import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
+import { enforceConsistentGameSides, conflictingLegDropMessage, stripConflictingLegDropNotes } from "@/lib/gameSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
-  rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
 import {
   buildParlayShortfallNote,
   collectNearMissGameLines,
   mergeParlayRejects,
-  replenishParlayToTarget,
   selectParlayBackupPicks,
   type ParlayLegReject,
 } from "@/lib/parlayReach";
+import {
+  filterMainTicketPicks,
+  filterToQualifiedPicks,
+  comparePickStrength,
+  isFullyQualifiedPick,
+  MIN_MAIN_PICK_CONFIDENCE,
+  MIN_MAIN_PICK_GRADE,
+} from "@/lib/parlayQualified";
+import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -95,7 +103,7 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import { consumeCoachLaunch, peekCoachLaunch } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
@@ -170,6 +178,8 @@ type UIMessage = {
   /** Near-miss legs that almost cleared quality filters when ticket is short of requested count. */
   backupPicks?: ParsedPick[];
   backupNote?: string;
+  /** High-risk / negative-edge legs shown only when user asked for longshots. */
+  longshotPicks?: ParsedPick[];
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
@@ -487,6 +497,20 @@ function dedupeLegNoteParagraphs(note: string): string {
   for (const p of parts) {
     if (seen.has(p)) continue;
     seen.add(p);
+    out.push(p);
+  }
+  return out.join("\n\n");
+}
+
+/** Drop legacy / model optimizer bullets that show em-dash placeholders or stale copy. */
+function stripInvalidOptimizerBullets(note: string): string {
+  const INVALID =
+    /edge\s*—|edge\s*--|Final AI\s*—|Final AI\s*--|highest Final AI Score among/i;
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (INVALID.test(p)) continue;
+    if (/^•\s+.+(?:sim \d+%).+(?:edge\s*—|--)/i.test(p)) continue;
     out.push(p);
   }
   return out.join("\n\n");
@@ -903,8 +927,9 @@ export default function CoachScreen() {
   const [bgWatchId, setBgWatchId] = useState<string | null>(null);
 
   useEffect(() => {
+    const launch = peekCoachLaunch();
     // autoMsg + send=1 never touch the composer — prefill is goCoach-only (edit before send).
-    if (params.send === "1" || params.autoMsg) {
+    if (launch?.autoMsg || params.send === "1" || params.autoMsg) {
       setInput("");
       return;
     }
@@ -1913,7 +1938,7 @@ export default function CoachScreen() {
                   });
                 }
                 const gameOrder = deepMultiLegFill
-                  ? [/^Alt Spread$/, /^Alt Total$/, /^Team Total$/i, /^Spread$/, /^Total$/]
+                  ? [/^Alt Spread$/, /^Alt Total$/, /^Alt Team Total$/i, /^Team Total$/i, /^Spread$/, /^Total$/]
                   : longshotAsk
                     ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
                     : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
@@ -2029,6 +2054,7 @@ export default function CoachScreen() {
         // uses — drop any ML/spread/total/alt that the sim does not support.
         let gameSimNote = "";
         let gameSimSupplementNote = "";
+        let conflictingLegsDropped = 0;
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
         let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
@@ -2101,6 +2127,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             excludeMoneyline: composeFromBoard,
+            longshotAsk,
           });
           picks = optimized.picks;
           {
@@ -2113,10 +2140,12 @@ export default function CoachScreen() {
             rejectsOut: reachFull ? parlayRejections : undefined,
           });
           picks = filtered.picks;
+          conflictingLegsDropped += filtered.conflictingDropped;
           const edgeFiltered = filterNegativeEdgeGameLines(
             picks,
             mergedGameOdds,
             reachFull ? parlayRejections : undefined,
+            mergedPropPool,
           );
           picks = edgeFiltered.picks;
           gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
@@ -2207,20 +2236,19 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               excludeMoneyline: true,
+              longshotAsk,
             });
             picks = reoptimized.picks;
             picks = dedupeSameTeamGameLegs(picks).picks;
+            picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame, {
+              longshotAsk,
+            });
             const postFinalizeSides = enforceConsistentGameSides(picks, {
               simByGame: gameSimulations,
               matchupHistory: context.matchupHistory,
             });
             picks = postFinalizeSides.picks;
-            if (postFinalizeSides.dropped > 0) {
-              gameSimSupplementNote = appendUniqueNote(
-                gameSimSupplementNote,
-                postFinalizeSides.note,
-              );
-            }
+            conflictingLegsDropped += postFinalizeSides.dropped;
             if (teamIdMap && coachEvalLinesByGame) {
               gameSimulations = await supplementCoachGameSimulations(
                 picks,
@@ -2283,15 +2311,12 @@ export default function CoachScreen() {
             gameSimulations = aliasCoachGameSimLabels(picks, gameSimulations);
           }
         }
-        // Grade each resolved leg with the 5-component pick rubric, from the SAME
-        // real context the legs were resolved against (odds carry edge +
-        // book-spread, props carry their +EV/spread; matchup history + injuries
-        // ground the trend/matchup/injury sub-scores). Honest-or-null: any signal
-        // that can't be grounded for a leg stays absent on its card. The grade is
-        // DISPLAY-ONLY — every resolved leg the model returned is kept and shown
-        // with its real grade; we never drop a leg for grading low, so a requested
-        // N-leg ticket is never trimmed by grade.
-        picks = attachPickScores(picks, {
+        // Score every leg and enforce the qualification gate: AI Grade, Simulation
+        // Hit %, Edge %, Confidence, and Final AI Score must all be grounded on
+        // real odds + the 10k sim before a pick can appear. Unqualified legs are
+        // dropped and replaced from the full board until the requested count is met
+        // or every market family is exhausted.
+        const scoreAttachOpts = {
           realOdds: mergedGameOdds,
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
@@ -2299,17 +2324,17 @@ export default function CoachScreen() {
           perfByFamily: marketPerf,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
-        });
-        if (
-          forceBoardBuild &&
+        };
+        const shouldQualifyReplenish =
           !isAnalyze &&
-          picks.length < reachTarget &&
+          isParlayBuild &&
           !oddsThreshold &&
-          !confidenceThreshold
-        ) {
-          let latePool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-late`);
-          if (slateDay) latePool = filterOddsForSlateDay(latePool, slateDay);
-          if (reachFull && !coachEvalLinesByGame) {
+          !confidenceThreshold &&
+          legTarget > 0;
+        let propsDeepSimmed = false;
+        let longshotPicks: ParsedPick[] = [];
+        if (shouldQualifyReplenish) {
+          if (!coachEvalLinesByGame) {
             const reachSports = [
               ...new Set(
                 [...mergedPropPool.map((e) => e.sport), ...context.realOdds.map((e) => e.sport)].filter(
@@ -2325,60 +2350,122 @@ export default function CoachScreen() {
               context.realOdds,
               ...coachEvalLinesByGame.values(),
             );
+            scoreAttachOpts.realOdds = mergedGameOdds;
           }
-          if (reachFull) {
-            picks = replenishParlayToTarget(picks, reachTarget, {
-              longshotAsk,
-              plusMoneyBias: propBackfillOpts.plusMoneyBias,
-              diversify: propBackfillOpts.diversify,
-              varietySeed,
-              avoidLegKeys,
-              selectionOpts,
-              propPool: mergedPropPool,
-              realOdds: context.realOdds,
-              mergedGameOdds,
-              gameMeta,
-              evalLinesByGame: coachEvalLinesByGame,
-              gameSimulations,
-              matchupHistory: context.matchupHistory,
-              matchupInjuries: context.matchupInjuries,
-            });
-          } else {
-            picks = topUpDeepParlayToTarget(
-              picks,
-              reachTarget,
-              mergedPropPool,
-              latePool,
-              gameMeta,
-              boardBuildOpts,
-            );
+          if (coachEvalLinesByGame) {
+            if (!teamIdMap) {
+              const simSports = [
+                ...new Set(
+                  [
+                    ...mergedPropPool.map((e) => e.sport),
+                    ...context.realOdds.map((e) => e.sport),
+                  ].filter(Boolean),
+                ),
+              ] as string[];
+              const espnGames = (
+                await Promise.all(simSports.map((s) => getGames(s).catch(() => [])))
+              ).flat();
+              teamIdMap = buildGameTeamIdMap(espnGames);
+            }
+            const boardProbePicks: ParsedPick[] = [];
+            for (const game of coachEvalLinesByGame.keys()) {
+              const sport =
+                mergedPropPool.find((e) => e.game === game)?.sport ??
+                context.realOdds.find((e) => e.game === game)?.sport ??
+                "mlb";
+              boardProbePicks.push({
+                game,
+                market: "Moneyline",
+                pick: "ML",
+                odds: -110,
+                isProp: false,
+                sport,
+              });
+            }
+            if (boardProbePicks.length && teamIdMap) {
+              const boardSims = await fetchCoachGameSimulationsForPicks(
+                boardProbePicks,
+                teamIdMap,
+                abortRef.current?.signal,
+                mergedGameOdds,
+                coachEvalLinesByGame,
+              );
+              gameSimulations = new Map([...gameSimulations, ...boardSims]);
+              gameSimulations = await supplementCoachGameSimulations(
+                boardProbePicks,
+                gameSimulations,
+                teamIdMap,
+                abortRef.current?.signal,
+                mergedGameOdds,
+                coachEvalLinesByGame,
+              );
+              scoreAttachOpts.gameSimulations = gameSimulations;
+            }
           }
-          picks = attachPickScores(picks, {
-            realOdds: mergedGameOdds,
+          const boardResult = await selectStrongestQualifiedParlay(reachTarget, {
+            evalLinesByGame: coachEvalLinesByGame!,
+            gameSimulations,
             propPool: mergedPropPool,
+            realOdds: mergedGameOdds,
+            scoreOpts: scoreAttachOpts,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
-            perfByFamily: marketPerf,
-            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            gameSimulations,
+            longshotAsk,
+            signal: abortRef.current?.signal,
+            rejectsOut: parlayRejections,
           });
+          picks = boardResult.picks;
+          longshotPicks = boardResult.longshotPicks;
+          propsDeepSimmed = picks.some((p) => p.isProp);
+        } else if (isParlayBuild && !isAnalyze && !oddsThreshold && !confidenceThreshold) {
+          picks = await filterToQualifiedPicks(
+            picks,
+            scoreAttachOpts,
+            parlayRejections,
+            abortRef.current?.signal,
+          );
+          propsDeepSimmed = picks.some((p) => p.isProp);
+        } else {
+          picks = attachPickScores(picks, scoreAttachOpts);
         }
-        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
-          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
+        if (
+          coachEvalLinesByGame &&
+          gameSimulations.size > 0 &&
+          picks.some(isGameLinePick) &&
+          isParlayBuild &&
+          !isAnalyze
+        ) {
+          const sideAligned = enforceConsistentGameSides(picks, {
+            simByGame: gameSimulations,
+            matchupHistory: context.matchupHistory,
+          });
+          picks = sideAligned.picks;
+          conflictingLegsDropped += sideAligned.dropped;
+          picks = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
             evalLinesByGame: coachEvalLinesByGame,
             realOdds: mergedGameOdds,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
+            longshotAsk,
+          }).picks;
+          picks = attachPickScores(picks, scoreAttachOpts);
+          picks = dropSpreadLadderViolations(picks, gameSimulations, coachEvalLinesByGame, {
+            longshotAsk,
           });
-          gameSimNote = optimizerNote
-            ? gameSimSupplementNote
-              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
-              : optimizerNote
-            : gameSimSupplementNote;
-        } else if (gameSimSupplementNote) {
-          gameSimNote = gameSimSupplementNote;
         }
-        picks = picksWithSimPending(picks);
+        if (!propsDeepSimmed) {
+          picks = picksWithSimPending(picks);
+        }
+        if (isParlayBuild && picks.length > 0) {
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+            longshotAsk,
+          });
+        }
+        // Optimizer transparency note is built after the final ticket filter below
+        // so summary bullets always match the pick cards on screen.
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2390,7 +2477,7 @@ export default function CoachScreen() {
         const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         let backupPicks: ParsedPick[] = [];
         let backupNote = "";
-        if (reachFull && requestedLegs > picks.length && picks.length > 0) {
+        if (legTarget > picks.length && picks.length > 0) {
           const nearMisses = coachEvalLinesByGame
             ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
                 realOdds: mergedGameOdds,
@@ -2399,7 +2486,7 @@ export default function CoachScreen() {
               })
             : [];
           const mergedRejects = mergeParlayRejects(parlayRejections, nearMisses);
-          const backupTarget = Math.min(4, requestedLegs - picks.length);
+          const backupTarget = Math.min(4, legTarget - picks.length);
           backupPicks = selectParlayBackupPicks(picks, mergedRejects, backupTarget);
           if (backupPicks.length > 0) {
             backupPicks = attachPickScores(backupPicks, {
@@ -2412,7 +2499,7 @@ export default function CoachScreen() {
               gameSimulations,
             });
             backupNote = buildParlayShortfallNote(
-              requestedLegs,
+              legTarget,
               picks.length,
               mergedRejects,
               backupPicks.length,
@@ -2420,12 +2507,12 @@ export default function CoachScreen() {
             );
           }
         }
-        if (picks.length > 0 && requestedLegs > picks.length) {
+        if (picks.length > 0 && legTarget > picks.length) {
           legNote =
             backupNote ||
-            (requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
-              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`);
+            (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
+              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_MAIN_PICK_GRADE} or better, Simulation Hit %, strictly positive Edge % and EV, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2439,10 +2526,6 @@ export default function CoachScreen() {
         if (tonightNote) {
           legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
         }
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
-        legNote = dedupeLegNoteParagraphs(legNote);
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
@@ -2489,8 +2572,41 @@ export default function CoachScreen() {
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
         if (isParlayBuild && picks.length > 1) {
-          picks = rotateParlayDisplayOrder(picks, varietySeed);
+          picks = [...picks].sort((a, b) => comparePickStrength(b, a));
         }
+        if (isParlayBuild && picks.length > 0) {
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+            longshotAsk,
+          });
+        }
+        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            longshotAsk,
+          });
+          gameSimNote = optimizerNote
+            ? gameSimSupplementNote
+              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
+              : optimizerNote
+            : gameSimSupplementNote;
+        } else {
+          gameSimNote = gameSimSupplementNote;
+        }
+        if (gameSimNote) {
+          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
+        }
+        legNote = stripConflictingLegDropNotes(legNote);
+        legNote = stripInvalidOptimizerBullets(legNote);
+        if (conflictingLegsDropped > 0) {
+          legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
+        }
+        legNote = dedupeLegNoteParagraphs(legNote);
         setMessages((prev) => {
           const copy = [...prev];
           copy[copy.length - 1] = {
@@ -2500,14 +2616,15 @@ export default function CoachScreen() {
             picks,
             ...(legNote ? { legNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
+            ...(longshotPicks.length ? { longshotPicks } : {}),
           };
           return copy;
         });
         if (picks.length > 0) setAiPicks(picks);
         if (isParlayBuild && picks.length > 0) rememberParlayBuild(picks);
-        // Server-side Monte Carlo: quick tier first, deep tier refines in the
-        // background. Picks are already on screen — simulation is one rubric input.
-        if (picks.some((p) => p.isProp)) {
+        // Server-side Monte Carlo refines prop grades when not already deep-simmed
+        // during the qualification pass (parlay builds await deep sim before render).
+        if (picks.some((p) => p.isProp) && !propsDeepSimmed) {
           simAbortRef.current?.abort();
           const simController = new AbortController();
           simAbortRef.current = simController;
@@ -2525,13 +2642,23 @@ export default function CoachScreen() {
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
+                const filtered = filterMainTicketPicks(scored, {
+                  propPool: mergedPropPool,
+                  realOdds: mergedGameOdds,
+                  longshotAsk,
+                });
+                patchLastAssistantPicks(setMessages, filtered);
+                setAiPicks(filtered);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
+                const filtered = filterMainTicketPicks(scored, {
+                  propPool: mergedPropPool,
+                  realOdds: mergedGameOdds,
+                  longshotAsk,
+                });
+                patchLastAssistantPicks(setMessages, filtered);
+                setAiPicks(filtered);
               },
             },
             simController.signal,
@@ -2781,15 +2908,21 @@ export default function CoachScreen() {
   // mark sent only once we actually invoke send, and skip while streaming — the
   // effect re-runs when `streaming` flips false, so the send isn't lost.
   useEffect(() => {
-    const sendFlag = Array.isArray(params.send) ? params.send[0] : params.send;
-    const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
+    const launch = peekCoachLaunch();
+    const sendFlag = launch
+      ? "1"
+      : Array.isArray(params.send)
+        ? params.send[0]
+        : params.send;
+    const autoMsgRaw =
+      launch?.autoMsg ?? params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
     const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
     if (sendFlag !== "1" || !autoMsg) return;
-    const launch = takeCoachLaunch();
-    const token = String(params.ts ?? autoMsg);
+    const token = String(params.ts ?? launch?.autoMsg ?? autoMsg);
     if (autoSentRef.current === token) return;
     if (streaming && !launch?.freshThread) return;
     autoSentRef.current = token;
+    consumeCoachLaunch();
     send(String(autoMsg), {
       hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
       freshThread: launch?.freshThread ?? false,
@@ -2882,6 +3015,7 @@ export default function CoachScreen() {
               !analyzeWaiting &&
               !askWaiting &&
               (bubbleText.length > 0 || !!m.imageUris?.length);
+            const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
             return (
               <View key={i}>
                 {m.analyzeSlip?.length ? (
@@ -2968,7 +3102,7 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {hasPicks ? (
+                {ticketPicks.length > 0 ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {m.legNote ? (
                       <Text
@@ -2982,16 +3116,16 @@ export default function CoachScreen() {
                         {m.legNote}
                       </Text>
                     ) : null}
-                    {m.picks!.length > 1 ? (
+                    {ticketPicks.length > 1 ? (
                       <AddAllButton
-                        picks={m.picks!}
+                        picks={ticketPicks}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
                     ) : null}
-                    {m.picks!.map((p, j) => (
+                    {ticketPicks.map((p, j) => (
                       <PickCard
                         key={`${i}-${j}`}
                         pick={p}
@@ -3013,6 +3147,44 @@ export default function CoachScreen() {
                         }
                       />
                     ))}
+                    {m.longshotPicks && m.longshotPicks.length > 0 ? (
+                      <View style={{ gap: 8, marginTop: 12 }}>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.semibold,
+                            fontSize: 13,
+                          }}
+                        >
+                          High Risk / Longshot — not on main ticket
+                        </Text>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.medium,
+                            fontSize: 11,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          These legs have negative edge or weak sim support — shown because you asked for longshots.
+                        </Text>
+                        {m.longshotPicks.map((p, j) => (
+                          <PickCard
+                            key={`${i}-longshot-${j}`}
+                            pick={p}
+                            onPress={statsHandlerFor(p)}
+                            badge={{
+                              text: "High Risk / Longshot",
+                              caption:
+                                p.finalAiScore?.edgePct != null && p.finalAiScore.edgePct <= 0
+                                  ? `${p.finalAiScore.edgePct}% edge — negative EV`
+                                  : "Simulator does not fully support this line",
+                              tone: "value" as const,
+                            }}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
                     {m.backupPicks && m.backupPicks.length > 0 ? (
                       <View style={{ gap: 8, marginTop: 12 }}>
                         <Text

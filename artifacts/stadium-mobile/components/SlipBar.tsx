@@ -21,6 +21,7 @@ import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
 import { formatAmerican, payout } from "@/lib/format";
 import { saveSlipToPhotos } from "@/lib/slipImage";
+import { queueCoachAutoSend } from "@/lib/coachSilentLaunch";
 
 if (
   Platform.OS === "android" &&
@@ -148,6 +149,7 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
     if (Platform.OS !== "web") Haptics.selectionAsync();
     setOpen(false);
     onNavigateAway?.();
+    queueCoachAutoSend("Analyze my ticket");
     router.push({
       pathname: "/coach",
       params: { autoMsg: "Analyze my ticket", send: "1", ts: String(Date.now()) },

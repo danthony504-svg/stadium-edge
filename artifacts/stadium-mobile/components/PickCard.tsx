@@ -13,6 +13,8 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE } from "@/lib/parlayQualifiedGate";
+import { gradeRank } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -79,6 +81,15 @@ export type ParsedPick = {
   finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
   /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
   highRiskValuePlay?: boolean;
+  /**
+   * Set once when the 10k sim finalizes a game line — single source of truth for
+   * cards, optimizer note, slip, and breakdown. Never re-derived elsewhere.
+   */
+  gameLineFinal?: {
+    reason: string;
+    finalScore: number;
+    bullets?: string[];
+  };
 };
 
 if (
@@ -563,6 +574,142 @@ export function EdgeReadout({
   );
 }
 
+function coachMetricColor(score: number | null, colors: ReturnType<typeof useColors>): string {
+  if (score == null) return colors.mutedForeground;
+  if (score >= 7) return colors.success;
+  if (score >= 5.5) return colors.primary;
+  return colors.mutedForeground;
+}
+
+/** Coach cards: AI Grade, Confidence, Edge, EV, Sim % — only when every value is real. */
+function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const finalAi = pick.finalAiScore;
+  const rubric = pick.scores ?? finalAi?.rubric ?? null;
+  const edge = resolvePickEdgePct(pick);
+  const ev = resolvePickExpectedValue(pick);
+  if (
+    !finalAi?.grade ||
+    gradeRank(finalAi.grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
+    finalAi.confidencePct == null ||
+    finalAi.confidencePct < MIN_MAIN_PICK_CONFIDENCE ||
+    finalAi.simHit == null ||
+    edge == null ||
+    edge <= 0 ||
+    ev == null ||
+    ev <= 0 ||
+    rubric?.composite == null
+  ) {
+    return null;
+  }
+
+  const gradeColor = coachMetricColor(rubric.composite, colors);
+  const edgeColor = edge >= 0 ? colors.success : colors.destructive;
+  const evColor = ev > 0 ? colors.success : colors.destructive;
+  const simPct = Math.round(finalAi.simHit * 100);
+
+  const cell = (
+    icon: keyof typeof Feather.glyphMap,
+    label: string,
+    value: string,
+    valueColor: string,
+    caption: string,
+    suffix?: string,
+  ) => (
+    <View
+      key={label}
+      style={{
+        flex: 1,
+        minWidth: 72,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        borderRadius: 14,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Feather name={icon} size={11} color={valueColor} />
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          style={{
+            flexShrink: 1,
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 8.5,
+            letterSpacing: 0.3,
+            textTransform: "uppercase",
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+      <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 22, marginTop: 6 }}>
+        {value}
+        {suffix ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 12 }}>
+            {suffix}
+          </Text>
+        ) : null}
+      </Text>
+      <Text
+        style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5, marginTop: 3 }}
+        numberOfLines={2}
+      >
+        {caption}
+      </Text>
+    </View>
+  );
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {cell("award", "AI Grade", finalAi.grade, gradeColor, confidenceTierLabel(finalAi))}
+        {cell(
+          "target",
+          "Confidence",
+          String(finalAi.confidencePct),
+          colors.primary,
+          "Conviction score",
+          "%",
+        )}
+        {cell(
+          "trending-up",
+          "Edge",
+          `${edge > 0 ? "+" : ""}${edge.toFixed(1)}`,
+          edgeColor,
+          edge > 0 ? "Positive edge" : "Negative edge",
+          "%",
+        )}
+        {cell(
+          "activity",
+          "EV",
+          `+${ev.toFixed(1)}`,
+          evColor,
+          "Expected value",
+          "%",
+        )}
+        {cell("cpu", "Sim", String(simPct), colors.accent, "10k-run hit rate", "%")}
+      </View>
+      {pick.simulationPending ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 11,
+            fontStyle: "italic",
+          }}
+        >
+          Simulation updating…
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function PickCard({
   pick,
   onPress,
@@ -771,13 +918,19 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.scores ? (
-        <ScoreBreakdown data={pick.scores} variant="compact" simulationPending={pick.simulationPending} />
+      {hideReadout ? null : pick.finalAiScore?.grade ? (
+        <CoachPickMetrics pick={pick} />
+      ) : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
+        <ScoreBreakdown
+          data={(pick.scores ?? pick.finalAiScore?.rubric)!}
+          variant="compact"
+          simulationPending={pick.simulationPending}
+        />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
 
-      {pick.edge ? (
+      {pick.edge && !pick.finalAiScore?.grade ? (
         <View>
           <Pressable
             onPress={toggleEdge}
@@ -1725,6 +1878,7 @@ export const GENERIC_BACKFILL_ORDER: RegExp[] = [
 export const FULL_REACH_GAME_ORDER: RegExp[] = [
   /^Alt Spread$/,
   /^Alt Total$/,
+  /^Alt Team Total$/i,
   /^Team Total$/i,
   /^Spread$/,
   /^Total$/,

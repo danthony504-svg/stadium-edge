@@ -21,7 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import { queueCoachAutoSend } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -259,7 +259,7 @@ function BaseballMiniPanel() {
   );
 }
 
-/** Compact Discover hero — routes to Coach for a new AI parlay build. */
+/** Compact Discover hero — opens Coach so the user can request a parlay when ready. */
 function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   const colors = useColors();
   return (
@@ -795,7 +795,7 @@ export default function HomeScreen() {
     upsetsQ.isFetching;
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+    queueCoachAutoSend(msg, { hideBubble: silent, freshThread: silent });
     router.push({
       pathname: "/coach",
       params: {
@@ -828,7 +828,7 @@ export default function HomeScreen() {
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => goCoach("Build me the best parlay"),
     },
     {
       label: "Easy Money",
@@ -977,8 +977,8 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        {/* Static hero — opens Coach with a prefilled prompt; user taps send when ready. */}
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
@@ -1503,7 +1503,9 @@ export default function HomeScreen() {
 
                   <Pressable
                     onPress={() =>
-                      goCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)
+                      goCoach(
+                        `Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`,
+                      )
                     }
                     style={({ pressed }) => ({
                       backgroundColor: "rgba(59,130,246,0.14)",

@@ -37,7 +37,7 @@ export function propSimKey(
   return `${player}|${market}|${line}|${s}`;
 }
 
-function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
+export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
   const pick =
     e.line != null
       ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
