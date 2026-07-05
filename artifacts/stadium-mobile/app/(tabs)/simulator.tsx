@@ -234,6 +234,15 @@ export default function SimulatorScreen() {
   }, [gameIdx, games.length]);
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
+
+  // Switching games must drop prior selections (PP lines are per-matchup).
+  useEffect(() => {
+    setSelected([]);
+    setPropResults([]);
+    setGameResult(null);
+    setRanAt(null);
+  }, [game?.id, sport]);
+
   const gameEligible = !!game && isSimulatorEligible(game);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
@@ -1076,8 +1085,13 @@ export default function SimulatorScreen() {
                           }}
                         >
                           <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>
-                            {r.player} — {r.side} {r.line}
+                            {r.player} — {r.side} {r.line} {propMarketLabel(r.market)}
                           </Text>
+                          {r.hitProbability == null && r.sampleGames < 3 ? (
+                            <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
+                              Not enough recent game log to simulate this line.
+                            </Text>
+                          ) : null}
                           <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
                             <MiniStat label="AI Grade" value={combined?.grade ?? "—"} valueColor={gradeColor} />
                             <MiniStat

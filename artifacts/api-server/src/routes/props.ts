@@ -376,7 +376,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
         "unresolved ESPN event id; trying PrizePicks fallback",
       );
       if (homeName && awayName) {
-        const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName).catch(() => []);
+        const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
+          homeTeamId: homeTeamId || null,
+          awayTeamId: awayTeamId || null,
+        }).catch(() => []);
         if (pp.length > 0) {
           res.json({
             home: homeName,
@@ -710,7 +713,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     });
 
     if (props.length === 0 && homeName && awayName) {
-      const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName).catch(() => []);
+      const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
+        homeTeamId: homeTeamId || null,
+        awayTeamId: awayTeamId || null,
+      }).catch(() => []);
       if (pp.length > 0) {
         res.json({
           home: homeName,
@@ -733,7 +739,10 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     req.log.error({ err, sport, homeName, awayName }, "Failed to fetch player props; trying PrizePicks fallback");
     if (homeName && awayName) {
       try {
-        const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName);
+        const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName, {
+          homeTeamId: homeTeamId || null,
+          awayTeamId: awayTeamId || null,
+        });
         if (pp.length > 0) {
           res.json({
             home: homeName,
@@ -828,6 +837,7 @@ async function fetchPrizePicksPropsForGame(
   sport: string,
   home: string,
   away: string,
+  opts?: { homeTeamId?: string | null; awayTeamId?: string | null },
 ): Promise<
   Array<{
     player: string;
@@ -889,6 +899,23 @@ async function fetchPrizePicksPropsForGame(
   const wantedFull = new Set([home, away]);
   const normTeam = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const wantedNorm = new Set([home, away].map(normTeam));
+
+  // ESPN rosters are authoritative — PrizePicks team tags are often wrong
+  // (e.g. Juan Soto listed on NYM). When we have team ids, only keep roster players.
+  let rosterMap: Map<string, RosterEntry> | null = null;
+  const espnPath = ESPN_SPORT_PATHS[sport];
+  const homeTeamId = opts?.homeTeamId?.trim() || "";
+  const awayTeamId = opts?.awayTeamId?.trim() || "";
+  if (espnPath && (homeTeamId || awayTeamId)) {
+    const maps = await Promise.all(
+      [homeTeamId, awayTeamId].filter(Boolean).map((tid) =>
+        fetchRosterMap(espnPath, tid).catch(() => new Map<string, RosterEntry>()),
+      ),
+    );
+    rosterMap = new Map<string, RosterEntry>();
+    for (const m of maps) for (const [k, v] of m) rosterMap.set(k, v);
+  }
+
   const props: Array<{
     player: string;
     market: string;
@@ -910,11 +937,18 @@ async function fetchPrizePicksPropsForGame(
     if (!playerId) continue;
     const pl = playerById.get(playerId);
     if (!pl) continue;
-    const teamOk =
-      wantedFull.has(pl.teamFull) ||
-      wantedNorm.has(normTeam(pl.teamFull)) ||
-      [...wantedNorm].some((w) => normTeam(pl.teamFull).includes(w) || w.includes(normTeam(pl.teamFull)));
-    if (!teamOk) continue;
+
+    const roster = rosterMap?.get(normalizeName(pl.name)) ?? null;
+    if (rosterMap) {
+      // Roster-filtered: drop anyone not on either team's ESPN roster.
+      if (!roster) continue;
+    } else {
+      // No roster ids — strict full-name match only (no substring "newyork" leaks).
+      const teamOk =
+        wantedFull.has(pl.teamFull) || wantedNorm.has(normTeam(pl.teamFull));
+      if (!teamOk) continue;
+    }
+
     const a = p.attributes ?? {};
     const line = typeof a.line_score === "number" ? a.line_score : null;
     const stat = a.stat_type ?? null;
@@ -932,9 +966,9 @@ async function fetchPrizePicksPropsForGame(
       overBook: "PrizePicks",
       underBook: null,
       alt: false,
-      headshot: pl.image,
-      athleteId: null,
-      playerTeamId: null,
+      headshot: roster?.headshot ?? pl.image,
+      athleteId: roster?.athleteId ?? null,
+      playerTeamId: roster?.teamId ?? null,
       priceSource: "PrizePicks",
     });
   }
@@ -947,13 +981,18 @@ router.get("/sports/prizepicks-props", async (req, res): Promise<void> => {
   const sport = String(req.query["sport"] || "").toLowerCase();
   const home = String(req.query["home"] || "").trim();
   const away = String(req.query["away"] || "").trim();
+  const homeTeamId = String(req.query["homeTeamId"] || "").trim();
+  const awayTeamId = String(req.query["awayTeamId"] || "").trim();
   if (!sport || !home || !away) {
     res.status(400).json({ error: "sport, home, and away are required" });
     return;
   }
 
   try {
-    const props = await fetchPrizePicksPropsForGame(sport, home, away);
+    const props = await fetchPrizePicksPropsForGame(sport, home, away, {
+      homeTeamId: homeTeamId || null,
+      awayTeamId: awayTeamId || null,
+    });
     res.json({ source: "PrizePicks", home, away, props });
   } catch (err) {
     req.log.error({ err }, "Failed to fetch PrizePicks props");

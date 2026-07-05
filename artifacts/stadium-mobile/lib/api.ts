@@ -761,10 +761,18 @@ function ppStatToMarketKey(sport: string, stat: string | null | undefined): stri
 }
 
 export function getPrizePicksProps(
-  args: { sport: string; home: string; away: string },
+  args: {
+    sport: string;
+    home: string;
+    away: string;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+  },
   signal?: AbortSignal,
 ): Promise<PropsResponse> {
   const q = new URLSearchParams({ sport: args.sport, home: args.home, away: args.away });
+  if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
+  if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   return getJson<PropsResponse>(`/sports/prizepicks-props?${q.toString()}`, signal, 22_000);
 }
 
@@ -788,7 +796,16 @@ export async function getPropsWithPrizePicksFallback(
     return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
   }
   try {
-    const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
+    const pp = await getPrizePicksProps(
+      {
+        sport: args.sport,
+        home: args.home,
+        away: args.away,
+        homeTeamId: args.homeTeamId,
+        awayTeamId: args.awayTeamId,
+      },
+      signal,
+    );
     const props = (Array.isArray(pp.props) ? pp.props : [])
       .filter((p): p is PlayerProp => !!p && typeof p === "object")
       .map((p) => ({

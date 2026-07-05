@@ -80,7 +80,13 @@ export async function loadSimulatorProps(
   if (!args.home || !args.away) return [];
   try {
     const pp = await getPrizePicksProps(
-      { sport: args.sport, home: args.home, away: args.away },
+      {
+        sport: args.sport,
+        home: args.home,
+        away: args.away,
+        homeTeamId: args.homeTeamId,
+        awayTeamId: args.awayTeamId,
+      },
       signal,
     );
     return mapPrizePicksProps(args.sport, pp.props);
