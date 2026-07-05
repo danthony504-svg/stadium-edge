@@ -2544,13 +2544,13 @@ export async function buildCompactParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
-  const n = Math.max(4, Math.min(10, requestedLegs));
+  const n = Math.max(4, Math.min(12, requestedLegs));
   return buildLightParlayContext(signal, {
-    maxSports: 4,
-    maxPropGames: Math.min(8, n + 1),
-    maxOddsGames: Math.min(16, n + 4),
-    propsBalanceCap: Math.min(60, n * 6),
-    oddsSliceCap: Math.min(56, n * 7),
+    maxSports: n >= 9 ? 5 : 4,
+    maxPropGames: Math.min(12, n + 2),
+    maxOddsGames: Math.min(20, n + 6),
+    propsBalanceCap: Math.min(80, n * 8),
+    oddsSliceCap: Math.min(64, n * 8),
   });
 }
 

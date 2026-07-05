@@ -1225,7 +1225,8 @@ export default function CoachScreen() {
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
           const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
-          const useCompactParlayPath = genericParlayPath && requestedLegs > 3;
+          const useCompactParlayPath =
+            genericParlayPath && requestedLegs > 3 && requestedLegs <= 8;
           const useMlbSlatePath =
             !genericParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
@@ -1296,7 +1297,10 @@ export default function CoachScreen() {
           if (isParlayBuild && requestedLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
           } else if (isParlayBuild && requestedLegs <= 10) {
-            uploadContext = compactSlimChatContextForUpload(context);
+            uploadContext =
+              requestedLegs >= 9
+                ? slimChatContextForUpload(context)
+                : compactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
           } else {
@@ -1737,13 +1741,23 @@ export default function CoachScreen() {
               order: ALT_BACKFILL_ORDER,
             });
           } else {
-            // High-leg "tonight" asks must reach N across the FULL slate — props
-            // first (the board has hundreds), then game mains, then period markets.
-            // Do NOT infer a single-game lock just because the model's first legs
-            // landed on one matchup (the reported 15-leg → 3-leg bug).
-            const deepTonightFill =
-              thinSlateDepth && !explicitSingleGame && requestedLegs >= 9;
-            if (mentionsProps || deepTonightFill) {
+            // High-leg asks must reach N across the FULL slate — props first (the
+            // board has hundreds), then game mains, then period markets. Applies
+            // to any 6+ leg ticket (not only "tonight") so a bare "9-leg parlay"
+            // doesn't stall at a handful of moneylines. Skip when the user locked
+            // the build to one game.
+            const deepMultiLegFill =
+              requestedLegs >= 6 && !explicitSingleGame;
+            // Server rule: 3+ leg tickets should mix props when available. Generic
+            // "N-leg parlay" asks don't mention props, so we still backfill from
+            // realProps — otherwise reach-N only walks game ML/spread/total and
+            // lands short with chalky favorites.
+            const mixPropsInBackfill =
+              mentionsProps ||
+              (thinSlateDepth && !explicitSingleGame) ||
+              deepMultiLegFill ||
+              (requestedLegs >= 3 && !explicitSingleGame);
+            if (mixPropsInBackfill) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
                 ...propBackfillOpts,
