@@ -2457,63 +2457,74 @@ async function buildLightParlayContext(
       );
       propGamesFetched++;
       const game = `${g.awayTeam} @ ${g.homeTeam}`;
-      const usable = (r.props ?? []).filter((p) => !p.alt && (p.overPrice != null || p.underPrice != null));
-      for (const p of usable) {
-        realProps.push({
-          sport: g.sport,
-          game,
-          startsAt: g.commenceTime,
-          player: p.player,
-          athleteId: p.athleteId ?? null,
-          market: p.market,
-          line: p.line,
-          over: p.overPrice ?? null,
-          under: p.underPrice ?? null,
-          alt: false,
-          ev: p.ev ?? null,
-          evSide: p.evSide ?? null,
-          fairProb: p.fairProb ?? null,
-          edge: p.edge ?? null,
-        });
-        const headshot = p.headshot ?? null;
-        const teamAbbr = p.playerTeamId
-          ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
-          : null;
-        const marketLabel = propMarketLabel(p.market);
-        const athleteId = p.athleteId ?? null;
-        if (p.overPrice != null) {
-          propPool.push({
+      const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+      const altRungs = new Map<string, number>();
+      const ALT_RUNGS_PER_PROP = 3;
+      for (const altPass of [false, true]) {
+        for (const p of usable) {
+          if (!!p.alt !== altPass) continue;
+          if (p.alt) {
+            const k = `${p.player}|${p.market}`.toLowerCase();
+            const n = altRungs.get(k) ?? 0;
+            if (n >= ALT_RUNGS_PER_PROP) continue;
+            altRungs.set(k, n + 1);
+          }
+          realProps.push({
             sport: g.sport,
             game,
-            marketLabel,
+            startsAt: g.commenceTime,
             player: p.player,
+            athleteId: p.athleteId ?? null,
+            market: p.market,
             line: p.line,
-            side: "Over",
-            odds: p.overPrice,
-            headshot,
-            teamAbbr,
-            athleteId,
-            marketKey: p.market,
-            edge: p.evSide === "Over" ? (p.edge ?? null) : null,
-            bookSpread: p.overSpread ?? null,
+            over: p.overPrice ?? null,
+            under: p.underPrice ?? null,
+            alt: !!p.alt,
+            ev: p.ev ?? null,
+            evSide: p.evSide ?? null,
+            fairProb: p.fairProb ?? null,
+            edge: p.edge ?? null,
           });
-        }
-        if (p.line != null && p.underPrice != null) {
-          propPool.push({
-            sport: g.sport,
-            game,
-            marketLabel,
-            player: p.player,
-            line: p.line,
-            side: "Under",
-            odds: p.underPrice,
-            headshot,
-            teamAbbr,
-            athleteId,
-            marketKey: p.market,
-            edge: p.evSide === "Under" ? (p.edge ?? null) : null,
-            bookSpread: p.underSpread ?? null,
-          });
+          const headshot = p.headshot ?? null;
+          const teamAbbr = p.playerTeamId
+            ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
+            : null;
+          const marketLabel = propMarketLabel(p.market);
+          const athleteId = p.athleteId ?? null;
+          if (p.overPrice != null) {
+            propPool.push({
+              sport: g.sport,
+              game,
+              marketLabel,
+              player: p.player,
+              line: p.line,
+              side: "Over",
+              odds: p.overPrice,
+              headshot,
+              teamAbbr,
+              athleteId,
+              marketKey: p.market,
+              edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+              bookSpread: p.overSpread ?? null,
+            });
+          }
+          if (p.line != null && p.underPrice != null) {
+            propPool.push({
+              sport: g.sport,
+              game,
+              marketLabel,
+              player: p.player,
+              line: p.line,
+              side: "Under",
+              odds: p.underPrice,
+              headshot,
+              teamAbbr,
+              athleteId,
+              marketKey: p.market,
+              edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+              bookSpread: p.underSpread ?? null,
+            });
+          }
         }
       }
     } catch {

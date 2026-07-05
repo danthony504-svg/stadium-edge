@@ -60,6 +60,25 @@ export type SlimChatContextInput = {
   matchupInjuries?: Record<string, unknown>;
 };
 
+type SlimProp = SlimChatContextInput["realProps"][number];
+
+function stripPropUploadFields(p: SlimProp): SlimProp {
+  const { ev: _ev, evSide: _es, fairProb: _fp, edge: _e, simHitPct: _sh, selectionScore: _ss, ...rest } = p;
+  return rest;
+}
+
+/** Mains first, then capped alt ladder rungs — keeps upload size bounded but honest. */
+function slimRealPropsForUpload(
+  props: SlimProp[],
+  opts?: { maxMains?: number; maxAlts?: number },
+): SlimProp[] {
+  const maxMains = opts?.maxMains ?? Number.POSITIVE_INFINITY;
+  const maxAlts = opts?.maxAlts ?? 48;
+  const mains = props.filter((p) => !p.alt).map(stripPropUploadFields).slice(0, maxMains);
+  const alts = props.filter((p) => p.alt).map(stripPropUploadFields).slice(0, maxAlts);
+  return [...mains, ...alts];
+}
+
 export function slimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
   const slimMatchup: Record<string, SlimMatchupEntry> = {};
   if (context.matchupHistory) {
@@ -103,9 +122,7 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
   const slimOdds = context.realOdds.map(
     ({ noVigFair: _nf, edge: _e, bookSpread: _bs, ...rest }) => rest,
   );
-  const slimProps = context.realProps
-    .filter((p) => !p.alt)
-    .map(({ ev: _ev, evSide: _es, fairProb: _fp, edge: _e, simHitPct: _sh, selectionScore: _ss, ...rest }) => rest);
+  const slimProps = slimRealPropsForUpload(context.realProps);
   const hasUfc = context.selectedSports?.includes("ufc");
   return {
     ...context,
@@ -166,7 +183,7 @@ export function microSlimChatContextForUpload<T extends SlimChatContextInput>(co
     ...ultra,
     selectedSports: ultra.selectedSports?.slice(0, 4),
     realOdds: ultra.realOdds.slice(0, 16),
-    realProps: ultra.realProps.slice(0, 18),
+    realProps: slimRealPropsForUpload(ultra.realProps, { maxMains: 14, maxAlts: 6 }),
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
@@ -182,7 +199,7 @@ export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(
     ...slim,
     selectedSports: slim.selectedSports?.slice(0, 4),
     realOdds: slim.realOdds.slice(0, 32),
-    realProps: slim.realProps.slice(0, 48),
+    realProps: slimRealPropsForUpload(slim.realProps, { maxMains: 40, maxAlts: 16 }),
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
@@ -201,7 +218,7 @@ export function largeCompactSlimChatContextForUpload<T extends SlimChatContextIn
     ...slim,
     selectedSports: slim.selectedSports?.slice(0, 6),
     realOdds: slim.realOdds.slice(0, 48),
-    realProps: slim.realProps.slice(0, 64),
+    realProps: slimRealPropsForUpload(slim.realProps, { maxMains: 56, maxAlts: 24 }),
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
