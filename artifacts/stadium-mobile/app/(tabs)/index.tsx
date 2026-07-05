@@ -21,6 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { markCoachSilentAutoSend } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -793,16 +794,17 @@ export default function HomeScreen() {
     stealsQ.isFetching ||
     upsetsQ.isFetching;
 
-  const askCoach = (msg: string, silent = false) =>
+  const askCoach = (msg: string, silent = false) => {
+    if (silent) markCoachSilentAutoSend();
     router.push({
       pathname: "/coach",
       params: {
         autoMsg: msg,
         send: "1",
         ts: String(Date.now()),
-        ...(silent ? { silent: "1" } : {}),
       },
     });
+  };
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.
   const goCoach = (prefill?: string) =>

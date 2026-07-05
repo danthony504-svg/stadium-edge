@@ -82,6 +82,7 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
+import { takeCoachSilentAutoSend } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
 import {
   filterOddsForSlateDay,
@@ -2637,14 +2638,17 @@ export default function CoachScreen() {
   // mark sent only once we actually invoke send, and skip while streaming — the
   // effect re-runs when `streaming` flips false, so the send isn't lost.
   useEffect(() => {
-    const autoMsg = params.autoMsg ?? (params.send === "1" ? params.prefill : null);
-    if (params.send !== "1" || !autoMsg) return;
+    const sendFlag = Array.isArray(params.send) ? params.send[0] : params.send;
+    const autoMsgRaw = params.autoMsg ?? (sendFlag === "1" ? params.prefill : null);
+    const autoMsg = Array.isArray(autoMsgRaw) ? autoMsgRaw[0] : autoMsgRaw;
+    if (sendFlag !== "1" || !autoMsg) return;
     const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
     if (streaming) return;
     autoSentRef.current = token;
-    send(String(autoMsg), { hideUserBubble: params.silent === "1" });
-  }, [params.send, params.silent, params.ts, params.autoMsg, params.prefill, streaming, send]);
+    const hideBubble = takeCoachSilentAutoSend() || !!params.autoMsg;
+    send(String(autoMsg), { hideUserBubble: hideBubble });
+  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, send]);
 
   useEffect(() => {
     return () => {
