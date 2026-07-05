@@ -91,6 +91,7 @@ export function rebalanceDeepParlayTicket(
   opts: {
     legTarget: number;
     minPropFraction?: number;
+    maxGameLegs?: number;
   },
 ): { picks: ParsedPick[]; note: string } {
   const minPropFraction = opts.minPropFraction ?? (opts.legTarget >= 12 ? 0.55 : opts.legTarget >= 6 ? 0.4 : 0);
@@ -109,7 +110,8 @@ export function rebalanceDeepParlayTicket(
   const currentProps = out.filter((p) => p.isProp).length;
   if (currentProps >= minProps) return { picks: out, note: notes.join("\n") };
 
-  const maxGameLegs = Math.max(2, opts.legTarget - minProps);
+  const maxGameLegs =
+    opts.maxGameLegs ?? Math.max(2, opts.legTarget - minProps);
   const trimmed = trimGameLegsForPropMix(out, { legTarget: opts.legTarget, maxGameLegs });
   out = trimmed.picks;
   if (trimmed.trimmed > 0) {

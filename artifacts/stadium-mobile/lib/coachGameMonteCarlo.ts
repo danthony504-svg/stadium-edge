@@ -17,6 +17,7 @@ import {
   HIGH_RISK_EDGE_MIN,
   simHitForPick,
 } from "./finalAiScore.ts";
+import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import type { RealOddsEntry } from "./api.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
@@ -175,7 +176,58 @@ export function coachGameSimForPick(
   pick: ParsedPick,
   simByGame: Map<string, CoachGameSimEntry>,
 ): CoachGameSimEntry | undefined {
-  return simByGame.get(pick.game);
+  const direct = simByGame.get(pick.game);
+  if (direct) return direct;
+  for (const [label, sim] of simByGame) {
+    if (gameLabelsMatch(label, pick.game)) return sim;
+  }
+  return undefined;
+}
+
+/** Drop game-line legs with negative no-vig edge unless High-Risk Value Play. */
+export function filterNegativeEdgeGameLines(
+  picks: ParsedPick[],
+  oddsForEdge: RealOddsEntry[] = [],
+): GameSimFilterResult {
+  const kept: ParsedPick[] = [];
+  const warnings: string[] = [];
+  let removed = 0;
+
+  const edgeForPick = (p: ParsedPick): number | null => {
+    if (p.scores?.edgePct != null) return p.scores.edgePct;
+    const ro = oddsForEdge.find(
+      (r) =>
+        gameLabelsMatch(r.game, p.game) &&
+        r.market === p.market &&
+        r.pick === p.pick,
+    );
+    return ro?.edge ?? null;
+  };
+
+  for (const p of picks) {
+    if (!isGameLinePick(p) || p.isProp) {
+      kept.push(p);
+      continue;
+    }
+    const edge = edgeForPick(p);
+    const hit = null;
+    const { highRiskValuePlay } = classifySimAlignment(hit, edge);
+    if (edge != null && edge < 0 && !highRiskValuePlay) {
+      removed += 1;
+      warnings.push(
+        `Dropped **${p.pick}** (${p.game}): ${edge}% edge — keeping only non-negative or High-Risk Value (≥+${HIGH_RISK_EDGE_MIN}%) lines after the 10k sim ranking.`,
+      );
+      continue;
+    }
+    kept.push(p);
+  }
+
+  const note =
+    removed > 0
+      ? `_Removed ${removed} game line${removed === 1 ? "" : "s"} with negative edge after Final AI Score optimization._`
+      : "";
+
+  return { picks: kept, removed, warnings, note };
 }
 
 export type GameSimFilterResult = {

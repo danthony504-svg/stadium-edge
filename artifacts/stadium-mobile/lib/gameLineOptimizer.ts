@@ -208,16 +208,31 @@ function pickLegKey(pick: ParsedPick): string {
   return `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}`;
 }
 
-/** Prefer sim-aligned lines; allow sim-opposed only as High-Risk Value Play. */
+function simForGame(
+  gameLabel: string,
+  simByGame: Map<string, CoachGameSimEntry>,
+): CoachGameSimEntry | undefined {
+  const direct = simByGame.get(gameLabel);
+  if (direct) return direct;
+  for (const [label, sim] of simByGame) {
+    if (gameLabelsMatch(label, gameLabel)) return sim;
+  }
+  return undefined;
+}
+
+/** Prefer sim-aligned lines with non-negative edge; high-risk value if sim-opposed. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
   const eligible = ranked.filter((r) => {
     if (r.finalAiScore.highRiskValuePlay) return true;
     if (!r.finalAiScore.simAligned) return false;
-    const edge = r.edgePct ?? 0;
-    return edge > -1;
+    const edge = r.edgePct;
+    return edge == null || edge >= 0;
   });
-  return bestGameLine(eligible.length ? eligible : ranked);
+  if (eligible.length) return bestGameLine(eligible);
+  const highRisk = ranked.filter((r) => r.finalAiScore.highRiskValuePlay);
+  if (highRisk.length) return bestGameLine(highRisk);
+  return null;
 }
 
 function rankBestForBucket(
@@ -373,7 +388,7 @@ export function optimizeGameLinePicksToBestFinalAi(
     if (!bucket || bestByBucket.has(bucket)) continue;
     const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
     if (!evalLines.length) continue;
-    const sim = simByGame.get(pick.game);
+    const sim = simForGame(pick.game, simByGame);
     const best = rankBestForBucket(pick, evalLines, sim, opts);
     if (best) bestByBucket.set(bucket, best);
   }
@@ -395,6 +410,8 @@ export function optimizeGameLinePicksToBestFinalAi(
         deduped += 1;
         continue;
       }
+      // No sim-aligned line with non-negative edge — drop chalk ML/spread.
+      if (isGameLinePick(pick)) continue;
       seenLegs.add(key);
       out.push(pick);
       continue;

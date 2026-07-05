@@ -57,11 +57,12 @@ import {
   buildGameTeamIdMap,
   fetchCoachGameSimulationsForPicks,
   filterCoachPicksWithGameSim,
+  filterNegativeEdgeGameLines,
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames } from "@/lib/gameLineOptimizer";
-import { rebalanceDeepParlayTicket, rotatePool } from "@/lib/ticketDiversity";
+import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1492,8 +1493,13 @@ export default function CoachScreen() {
         const propsOnlyTicket = wantsPropsOnly(trimmed);
         let diversityNote = "";
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
+        const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         if (!isAnalyze && deepMultiLegParlay && picks.length > 0 && !propsOnlyTicket) {
-          const rebalanced = rebalanceDeepParlayTicket(picks, { legTarget });
+          const rebalanced = rebalanceDeepParlayTicket(picks, {
+            legTarget,
+            minPropFraction: longshotAsk ? 0.65 : undefined,
+            maxGameLegs: longshotAsk ? 3 : undefined,
+          });
           picks = rebalanced.picks;
           if (rebalanced.note) diversityNote = rebalanced.note;
         }
@@ -1806,6 +1812,13 @@ export default function CoachScreen() {
             }
           }
         }
+        {
+          const dedupedAfterBackfill = dedupeSameTeamGameLegs(picks);
+          picks = dedupedAfterBackfill.picks;
+          if (dedupedAfterBackfill.dropped > 0 && !diversityNote) {
+            diversityNote = `_Dropped ${dedupedAfterBackfill.dropped} duplicate team leg${dedupedAfterBackfill.dropped === 1 ? "" : "s"} after backfill._`;
+          }
+        }
         if (slateDay) {
           picks = filterPicksForSlateDay(picks, slateDay);
           if (slateDay === "tonight") {
@@ -1831,6 +1844,7 @@ export default function CoachScreen() {
         let gameSimulations = new Map<string, CoachGameSimEntry>();
         let mergedGameOdds = context.realOdds;
         if (!isAnalyze && picks.some(isGameLinePick)) {
+          picks = dedupeSameTeamGameLegs(picks).picks;
           const gameSports = [
             ...new Set(
               picks
@@ -1878,11 +1892,22 @@ export default function CoachScreen() {
           });
           picks = optimized.picks;
           if (optimized.note) gameSimNote = optimized.note;
+          {
+            const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
+            picks = dedupedAfterOpt.picks;
+          }
           const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
             matchupHistory: context.matchupHistory,
             oddsForEdge: mergedGameOdds,
           });
           picks = filtered.picks;
+          const edgeFiltered = filterNegativeEdgeGameLines(picks, mergedGameOdds);
+          picks = edgeFiltered.picks;
+          if (edgeFiltered.note) {
+            gameSimNote = gameSimNote
+              ? `${gameSimNote}\n\n${edgeFiltered.note}`
+              : edgeFiltered.note;
+          }
           if (filtered.note) {
             gameSimNote = gameSimNote
               ? `${gameSimNote}\n\n${filtered.note}`
@@ -1890,6 +1915,19 @@ export default function CoachScreen() {
           }
           if (filtered.warnings.length > 0 && !gameSimNote) {
             gameSimNote = filtered.warnings.join("\n");
+          }
+          if (
+            longshotAsk &&
+            deepMultiLegParlay &&
+            propShare(picks) < 0.5 &&
+            picks.length < Math.min(legTarget, MAX_LEGS)
+          ) {
+            let pool = rotatePool(context.realOdds, `${trimmed}-props2`);
+            if (slateDay) pool = filterOddsForSlateDay(pool, slateDay);
+            picks = backfillProps(picks, mergedPropPool, pool, gameMeta, {
+              target: Math.min(legTarget, MAX_LEGS),
+              ...propBackfillOpts,
+            });
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
