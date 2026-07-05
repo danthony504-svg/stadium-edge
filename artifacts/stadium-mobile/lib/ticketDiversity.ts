@@ -197,6 +197,59 @@ function deepParlayMix(legTarget: number, longshotAsk?: boolean) {
   return { minProps, maxGameLegs };
 }
 
+function deepParlayGameOrder(longshotAsk?: boolean): RegExp[] {
+  return longshotAsk
+    ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
+    : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
+}
+
+/**
+ * Fill toward legTarget without blowing past the game-leg cap — props first, then
+ * alts, never 15 chalk moneylines after a board rebuild.
+ */
+export function topUpDeepParlayToTarget(
+  picks: ParsedPick[],
+  legTarget: number,
+  propPool: PropPoolEntry[],
+  realOdds: RealOddsEntry[],
+  gameMeta: GameMeta[],
+  opts: {
+    longshotAsk?: boolean;
+    plusMoneyBias?: boolean;
+    diversify?: boolean;
+    selectionOpts?: PropSelectionOpts;
+  } = {},
+): ParsedPick[] {
+  if (picks.length >= legTarget) return dedupeSameTeamGameLegs(picks).picks;
+  const { minProps, maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk);
+  const propOpts = {
+    plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
+    diversify: opts.diversify ?? true,
+    selectionOpts: opts.selectionOpts,
+  };
+  const gameOrder = deepParlayGameOrder(opts.longshotAsk);
+  let out = [...picks];
+  const propsNow = out.filter((p) => p.isProp).length;
+  if (propsNow < minProps) {
+    out = backfillProps(out, propPool, realOdds, gameMeta, {
+      target: out.length + (minProps - propsNow),
+      ...propOpts,
+    });
+  }
+  const gamesNow = out.filter((p) => !p.isProp && isGameLinePick(p)).length;
+  const gameCap = Math.min(legTarget, out.length + Math.max(0, maxGameLegs - gamesNow));
+  if (out.length < gameCap) {
+    out = backfillPicks(out, realOdds, gameMeta, { target: gameCap, order: gameOrder });
+  }
+  if (out.length < legTarget) {
+    out = backfillProps(out, propPool, realOdds, gameMeta, {
+      target: legTarget,
+      ...propOpts,
+    });
+  }
+  return dedupeSameTeamGameLegs(out).picks;
+}
+
 /**
  * Build a deep parlay from the real board: props first, then capped alt/game rungs.
  * Ignores model chalk scaffolding.
@@ -213,30 +266,7 @@ export function assembleDeepParlayFromBoard(
     selectionOpts?: PropSelectionOpts;
   } = {},
 ): ParsedPick[] {
-  const { minProps, maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk);
-  const propOpts = {
-    plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
-    diversify: opts.diversify ?? true,
-    selectionOpts: opts.selectionOpts,
-  };
-  const gameOrder = opts.longshotAsk
-    ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
-    : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
-
-  let picks: ParsedPick[] = [];
-  picks = backfillProps(picks, propPool, realOdds, gameMeta, {
-    target: minProps,
-    ...propOpts,
-  });
-  const gameCap = Math.min(legTarget, picks.length + maxGameLegs);
-  picks = backfillPicks(picks, realOdds, gameMeta, { target: gameCap, order: gameOrder });
-  if (picks.length < legTarget) {
-    picks = backfillProps(picks, propPool, realOdds, gameMeta, {
-      target: legTarget,
-      ...propOpts,
-    });
-  }
-  return dedupeSameTeamGameLegs(picks).picks;
+  return topUpDeepParlayToTarget([], legTarget, propPool, realOdds, gameMeta, opts);
 }
 
 export type { PropPoolEntry };

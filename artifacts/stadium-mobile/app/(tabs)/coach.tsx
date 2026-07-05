@@ -62,7 +62,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, isChalkHeavyParlay, assembleDeepParlayFromBoard } from "@/lib/ticketDiversity";
+import { rebalanceDeepParlayTicket, rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, isChalkHeavyParlay, assembleDeepParlayFromBoard, topUpDeepParlayToTarget } from "@/lib/ticketDiversity";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1728,23 +1728,25 @@ export default function CoachScreen() {
           !propsOnlyTicket &&
           !oddsThreshold &&
           !confidenceThreshold &&
-          isChalkHeavyParlay(picks, legTarget);
+          (longshotAsk || isChalkHeavyParlay(picks, legTarget));
+        const boardBuildOpts = {
+          longshotAsk,
+          plusMoneyBias: propBackfillOpts.plusMoneyBias,
+          diversify: propBackfillOpts.diversify,
+          selectionOpts,
+        };
         if (rebuildFromBoard) {
-          const rebuilt = assembleDeepParlayFromBoard(
+          picks = assembleDeepParlayFromBoard(
             reachTarget,
             mergedPropPool,
             reachPool,
             gameMeta,
-            {
-              longshotAsk,
-              plusMoneyBias: propBackfillOpts.plusMoneyBias,
-              diversify: propBackfillOpts.diversify,
-              selectionOpts,
-            },
+            boardBuildOpts,
           );
-          if (rebuilt.length > 0) {
-            picks = rebuilt;
-            diversityNote = `_Rebuilt your ${reachTarget}-leg ticket from player props and alt rungs on the live board instead of chalk moneylines._`;
+          if (picks.length > 0) {
+            diversityNote = longshotAsk
+              ? `_Longshot parlays are built from player props and alt rungs on the live board — not 15 chalk moneylines._`
+              : `_Rebuilt your ${reachTarget}-leg ticket from player props and alt rungs on the live board instead of chalk moneylines._`;
           }
         } else if (
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
@@ -1916,18 +1918,14 @@ export default function CoachScreen() {
             const target = Math.min(legTarget, MAX_LEGS);
             let topUpPool = rotatePool(context.realOdds, `${trimmed}-topup`);
             if (slateDay) topUpPool = filterOddsForSlateDay(topUpPool, slateDay);
-            picks = backfillProps(picks, mergedPropPool, topUpPool, gameMeta, {
+            picks = topUpDeepParlayToTarget(
+              picks,
               target,
-              ...propBackfillOpts,
-            });
-            if (!propsOnlyTicket && picks.length < target) {
-              const gameOrder = longshotAsk
-                ? [...ALT_BACKFILL_ORDER, /^Team Total$/i, ...GENERIC_BACKFILL_ORDER]
-                : [...ALT_BACKFILL_ORDER, ...GENERIC_BACKFILL_ORDER];
-              picks = backfillPicks(picks, topUpPool, gameMeta, { target, order: gameOrder });
-            }
-            const dedupedTopUp = dedupeSameTeamGameLegs(picks);
-            picks = dedupedTopUp.picks;
+              mergedPropPool,
+              topUpPool,
+              gameMeta,
+              boardBuildOpts,
+            );
           }
         }
         if (slateDay) {
@@ -1995,7 +1993,12 @@ export default function CoachScreen() {
             context.realOdds,
             evalLinesByGame,
           );
-          if (deepMultiLegParlay && picks.length < Math.min(legTarget, MAX_LEGS)) {
+          if (
+            deepMultiLegParlay &&
+            !longshotAsk &&
+            picks.length < Math.min(legTarget, MAX_LEGS) &&
+            propShare(picks) >= 0.35
+          ) {
             picks = backfillGameLinesFromEvalScores(
               picks,
               Math.min(legTarget, MAX_LEGS),
