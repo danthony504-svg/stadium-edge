@@ -10,10 +10,10 @@ import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
-export const MIN_MAIN_PICK_CONFIDENCE = 50;
-/** Game-line sim floor — same bar as props; coin-flip band needs exceptional signals. */
-export const GAME_LINE_SIM_MIN_HIT = 0.52;
-/** 48–52% sim band — only exceptional value / market signals may qualify. */
+export const MIN_MAIN_PICK_CONFIDENCE = 52;
+/** Game-line sim floor — 50%+ standard; below 50% needs exceptional value signals. */
+export const GAME_LINE_SIM_MIN_HIT = 0.5;
+/** Sub-50% band — only exceptional +EV / market signals may qualify. */
 export const GAME_LINE_COIN_FLIP_LOW = 0.48;
 /** Sub-52% game lines need edge/EV at or above this to qualify as exceptional value. */
 export const GAME_LINE_EXCEPTIONAL_EV_PCT = 4.5;
@@ -239,11 +239,14 @@ export function pickHasCoachCardMetrics(
   const s = pick.finalAiScore;
   if (!s?.grade || !gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) return false;
   if (s.confidencePct == null || !Number.isFinite(s.confidencePct)) return false;
+  if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
   if (s.simHit == null || !Number.isFinite(s.simHit)) return false;
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
+  const ev = resolvePickExpectedValue(pick, opts);
+  if (ev == null || !Number.isFinite(ev) || ev <= 0) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
-  if (!pickRubricForDisplay(pick)) return false;
+  if (!pick.scores?.composite || !Number.isFinite(pick.scores.composite)) return false;
   if (isGameLinePickForGate(pick) && !pick.gameLineFinal) return false;
   return true;
 }
@@ -439,7 +442,7 @@ export function reasonPickNotQualified(
     if (!pick.gameLineFinal) return "game line not finalized after 10k sim";
     if (!gameLineMeetsSimBar(s.simHit, edge, { pick, opts, evPct: ev, finalAiScore: s })) {
       const pct = Math.round(s.simHit * 100);
-      return `10k sim ${pct}% — game line needs >${Math.round(GAME_LINE_SIM_MIN_HIT * 100)}% sim, or exceptional +EV / sharp money / line movement in the coin-flip band`;
+      return `10k sim ${pct}% — game line needs ≥${Math.round(GAME_LINE_SIM_MIN_HIT * 100)}% sim, or exceptional +EV / sharp money / line movement below that`;
     }
   } else if (opts?.longshotAsk) {
     if (s.simHit < LONGSHOT_SIM_MIN_HIT) {

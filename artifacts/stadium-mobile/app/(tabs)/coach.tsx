@@ -502,6 +502,20 @@ function dedupeLegNoteParagraphs(note: string): string {
   return out.join("\n\n");
 }
 
+/** Drop legacy / model optimizer bullets that show em-dash placeholders or stale copy. */
+function stripInvalidOptimizerBullets(note: string): string {
+  const INVALID =
+    /edge\s*—|edge\s*--|Final AI\s*—|Final AI\s*--|highest Final AI Score among/i;
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (INVALID.test(p)) continue;
+    if (/^•\s+.+(?:sim \d+%).+(?:edge\s*—|--)/i.test(p)) continue;
+    out.push(p);
+  }
+  return out.join("\n\n");
+}
+
 // assistantBubbleText also strips the model's trailing responsible-gambling
 // sign-off (see lib/reminderStrip) so it doesn't render as a dangling line.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
@@ -2498,7 +2512,7 @@ export default function CoachScreen() {
             backupNote ||
             (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
-              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_MAIN_PICK_GRADE} or better, Simulation Hit %, strictly positive Edge %, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_MAIN_PICK_GRADE} or better, Simulation Hit %, strictly positive Edge % and EV, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2588,6 +2602,7 @@ export default function CoachScreen() {
           legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
         }
         legNote = stripConflictingLegDropNotes(legNote);
+        legNote = stripInvalidOptimizerBullets(legNote);
         if (conflictingLegsDropped > 0) {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }

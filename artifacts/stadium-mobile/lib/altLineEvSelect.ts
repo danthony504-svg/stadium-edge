@@ -4,12 +4,14 @@ import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   isCloseSimBand,
+  computeGameLineFinalScoreBreakdown,
   rankGameLineByFinalScore,
   resolveRowExpectedValue,
   type GameLineScoreRow,
 } from "./gameLineFinalScore.ts";
 import {
   GAME_LINE_EXCEPTIONAL_EV_PCT,
+  GAME_LINE_SIM_MIN_HIT,
   isGameLineMainTicketQualified,
 } from "./parlayQualifiedGate.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
@@ -48,7 +50,74 @@ function isSaferSpreadEntry(entry: RealOddsEntry): boolean {
 export type GameLineSelectionResult = {
   row: CloseGameSpreadRow;
   reason: string;
+  bullets: string[];
 };
+
+function marketFamilyLabel(market: string): string {
+  const m = String(market ?? "").toLowerCase();
+  if (/moneyline/.test(m)) return "Moneyline";
+  if (/alt.*spread|alternate spread/.test(m)) return "Alt Spread";
+  if (/spread|run ?line|puck ?line/.test(m)) return "Spread";
+  if (/alt.*total/.test(m)) return "Alt Total";
+  if (/team total/.test(m)) return "Team Total";
+  if (/total|over|under|o\/u/.test(m)) return "Total";
+  return String(market ?? "Line").trim() || "Line";
+}
+
+/** Plain-English bullets explaining why this rung won selection. */
+export function buildGameLineSelectionBullets(
+  selected: CloseGameSpreadRow,
+  allRows: CloseGameSpreadRow[],
+): string[] {
+  const bullets: string[] = [];
+  const qualified = allRows.filter(gameLineRowQualifies);
+  const selEv = resolveRowExpectedValue(selected);
+  const edge = selected.edgePct ?? selected.entry.edge ?? null;
+  const sim = selected.winProb ?? selected.finalAiScore.simHit ?? null;
+
+  const maxEv = qualified.reduce((best, row) => {
+    const ev = resolveRowExpectedValue(row);
+    return ev != null && ev > best ? ev : best;
+  }, -Infinity);
+
+  if (selEv != null && selEv > 0 && (maxEv <= 0 || selEv >= maxEv - 0.05)) {
+    bullets.push("Highest EV among all posted lines");
+  }
+
+  if (edge != null && edge > 0) {
+    bullets.push(`+${edge}% edge`);
+  }
+
+  if (selEv != null && selEv > 0) {
+    bullets.push(`+${selEv.toFixed(1)}% expected value`);
+  }
+
+  const selScore = computeGameLineFinalScoreBreakdown(selected).finalScore;
+  const beatenFamilies = new Set<string>();
+  for (const row of qualified) {
+    if (row.entry === selected.entry) continue;
+    const fam = marketFamilyLabel(row.entry.market);
+    if (fam === marketFamilyLabel(selected.entry.market)) continue;
+    const rowScore = computeGameLineFinalScoreBreakdown(row).finalScore;
+    if (rowScore < selScore - 0.05) beatenFamilies.add(fam);
+  }
+  if (beatenFamilies.size > 0) {
+    bullets.push(`Beat ${[...beatenFamilies].sort().join(" and ")}`);
+  }
+
+  if (sim != null && sim >= GAME_LINE_SIM_MIN_HIT) {
+    bullets.push(`10,000-run simulation approved (${Math.round(sim * 100)}%)`);
+  } else if (
+    edge != null &&
+    edge >= GAME_LINE_EXCEPTIONAL_EV_PCT &&
+    selEv != null &&
+    selEv >= GAME_LINE_EXCEPTIONAL_EV_PCT
+  ) {
+    bullets.push("Exceptional value — large +EV overcomes a coin-flip sim");
+  }
+
+  return bullets;
+}
 
 function pickBest(
   rows: CloseGameSpreadRow[],
@@ -100,40 +169,10 @@ export function findMainSpreadRow(rows: CloseGameSpreadRow[]): CloseGameSpreadRo
 export function buildGameLineSelectionReason(
   selected: CloseGameSpreadRow,
   allRows: CloseGameSpreadRow[],
-  mainLine?: CloseGameSpreadRow | null,
+  _mainLine?: CloseGameSpreadRow | null,
 ): string {
-  const main = mainLine ?? findMainSpreadRow(allRows);
-  if (!main || main.entry === selected.entry) {
-    return "Selected because it had the highest Final Score.";
-  }
-
-  const mainSim = main.winProb ?? main.finalAiScore.simHit ?? null;
-  const mainRejected =
-    isCloseSimBand(mainSim) &&
-    (isStandardLaySpread(main.entry) || !isSaferSpreadEntry(main.entry));
-
-  if (mainRejected) {
-    const alt = isMoneylineEntry(selected.entry)
-      ? "Moneyline"
-      : `Alt ${spreadLineLabel(selected)}`;
-    return `Main line rejected. ${alt} selected — highest Final Score among safer +EV lines.`;
-  }
-
-  const mainEv = resolveRowExpectedValue(main);
-  const selEv = resolveRowExpectedValue(selected);
-  if (
-    selEv != null &&
-    mainEv != null &&
-    selEv > mainEv + 0.05 &&
-    selected.entry !== main.entry
-  ) {
-    const alt = isMoneylineEntry(selected.entry)
-      ? "Moneyline"
-      : `Alt ${spreadLineLabel(selected)}`;
-    return `${alt} had higher EV.`;
-  }
-
-  return "Selected because it had the highest Final Score.";
+  void _mainLine;
+  return buildGameLineSelectionBullets(selected, allRows).join(" · ");
 }
 
 function hasCloseSimTeamSpread(rows: CloseGameSpreadRow[]): boolean {
@@ -169,9 +208,11 @@ export function selectBestGameLineByFinalScore(
   const best = pickBest(pool, rankGameLineByFinalScore as (a: GameLineScoreRow, b: GameLineScoreRow) => number);
   if (!best) return null;
 
+  const bullets = buildGameLineSelectionBullets(best, ranked);
   return {
     row: best,
-    reason: buildGameLineSelectionReason(best, ranked),
+    reason: bullets.join(" · "),
+    bullets,
   };
 }
 

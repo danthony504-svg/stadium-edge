@@ -13,7 +13,8 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
-import { resolvePickEdgePct } from "@/lib/parlayQualifiedGate";
+import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE } from "@/lib/parlayQualifiedGate";
+import { gradeRank } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -87,6 +88,7 @@ export type ParsedPick = {
   gameLineFinal?: {
     reason: string;
     finalScore: number;
+    bullets?: string[];
   };
 };
 
@@ -579,18 +581,23 @@ function coachMetricColor(score: number | null, colors: ReturnType<typeof useCol
   return colors.mutedForeground;
 }
 
-/** Coach cards: AI Grade, Confidence, Edge, Sim % — only when every value is real. */
+/** Coach cards: AI Grade, Confidence, Edge, EV, Sim % — only when every value is real. */
 function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
   const finalAi = pick.finalAiScore;
   const rubric = pick.scores ?? finalAi?.rubric ?? null;
   const edge = resolvePickEdgePct(pick);
+  const ev = resolvePickExpectedValue(pick);
   if (
     !finalAi?.grade ||
+    gradeRank(finalAi.grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
     finalAi.confidencePct == null ||
+    finalAi.confidencePct < MIN_MAIN_PICK_CONFIDENCE ||
     finalAi.simHit == null ||
     edge == null ||
     edge <= 0 ||
+    ev == null ||
+    ev <= 0 ||
     rubric?.composite == null
   ) {
     return null;
@@ -598,6 +605,7 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
 
   const gradeColor = coachMetricColor(rubric.composite, colors);
   const edgeColor = edge >= 0 ? colors.success : colors.destructive;
+  const evColor = ev > 0 ? colors.success : colors.destructive;
   const simPct = Math.round(finalAi.simHit * 100);
 
   const cell = (
@@ -674,6 +682,14 @@ function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
           `${edge > 0 ? "+" : ""}${edge.toFixed(1)}`,
           edgeColor,
           edge > 0 ? "Positive edge" : "Negative edge",
+          "%",
+        )}
+        {cell(
+          "activity",
+          "EV",
+          `+${ev.toFixed(1)}`,
+          evColor,
+          "Expected value",
           "%",
         )}
         {cell("cpu", "Sim", String(simPct), colors.accent, "10k-run hit rate", "%")}

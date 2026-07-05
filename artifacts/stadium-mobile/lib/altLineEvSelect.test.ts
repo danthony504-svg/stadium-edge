@@ -19,6 +19,7 @@ function row(
   edge: number,
   winProb: number,
 ): CloseGameSpreadRow {
+  const ev = expectedValuePct(winProb, odds, null, edge);
   const qualified = isGameLineMainTicketQualified(
     {
       composite: 7,
@@ -34,6 +35,8 @@ function row(
     },
     odds,
     edge,
+    ev,
+    { evPct: ev, bookSpread: null, finalAiScore: undefined },
   );
   return {
     entry: { sport: "mlb", game: GAME, market, pick, odds, edge },
@@ -81,11 +84,13 @@ test("gameLineRowQualifies rejects sub-50% sim without exceptional edge", () => 
   assert.equal(gameLineRowQualifies(bad), false);
 });
 
-test("buildGameLineSelectionReason explains main line rejection on close sim", () => {
+test("buildGameLineSelectionReason lists EV edge and sim approval bullets", () => {
   const main = row("Spread", "Brewers -1.5", -154, 0.4, 0.5);
   const alt = row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58);
   const reason = buildGameLineSelectionReason(alt, [main, alt], main);
-  assert.match(reason, /Main line rejected/i);
+  assert.match(reason, /Highest EV/i);
+  assert.match(reason, /\+1\.8% edge/i);
+  assert.match(reason, /simulation approved/i);
 });
 
 test("rankGameLineByEv breaks ties toward higher payout", () => {

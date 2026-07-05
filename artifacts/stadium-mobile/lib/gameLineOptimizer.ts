@@ -23,7 +23,7 @@ import {
   type CloseGameSpreadRow,
   type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
-import { isFullyQualifiedPick, resolvePickEdgePct } from "./parlayQualifiedGate.ts";
+import { isFullyQualifiedPick, resolvePickEdgePct, resolvePickExpectedValue } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -515,6 +515,7 @@ export function finalizeGameLinePickForGame(
     gameLineFinal: {
       reason: selection.reason,
       finalScore: breakdown.finalScore,
+      bullets: selection.bullets,
     },
   };
 }
@@ -617,16 +618,43 @@ function probeSimHitFromEvalLadder(
   return null;
 }
 
-function formatFinalGameLineNote(pick: ParsedPick): string {
+function formatFinalGameLineNote(
+  pick: ParsedPick,
+  realOdds: RealOddsEntry[],
+): string | null {
   const score = pick.finalAiScore;
+  const edge = resolvePickEdgePct(pick, { realOdds });
+  const ev = resolvePickExpectedValue(pick, { realOdds });
   const simHit = score?.simHit;
-  const edge = resolvePickEdgePct(pick);
   const grade = score?.grade;
-  const wp = `${Math.round(simHit! * 100)}%`;
-  const edgeStr = `${edge! > 0 ? "+" : ""}${edge}%`;
-  const fs = pick.gameLineFinal!.finalScore;
-  const reason = pick.gameLineFinal?.reason ? ` — ${pick.gameLineFinal.reason}` : "";
-  return `${pick.game}: ${pick.pick} (${pick.market}) — Final Score ${fs}, AI ${grade}, sim ${wp}, edge ${edgeStr}${reason}`;
+  const conf = score?.confidencePct;
+  if (
+    simHit == null ||
+    !Number.isFinite(simHit) ||
+    edge == null ||
+    !Number.isFinite(edge) ||
+    edge <= 0 ||
+    ev == null ||
+    !Number.isFinite(ev) ||
+    ev <= 0 ||
+    !grade ||
+    conf == null ||
+    !Number.isFinite(conf) ||
+    !pick.gameLineFinal
+  ) {
+    return null;
+  }
+
+  const header = `**${pick.pick}** (${pick.market}) · ${pick.game}`;
+  const metrics = `Sim ${Math.round(simHit * 100)}% · Edge +${edge}% · EV +${ev.toFixed(1)}% · Conf ${conf} · Grade ${grade}`;
+  const bullets = pick.gameLineFinal.bullets ?? [];
+  const why =
+    bullets.length > 0
+      ? `Selected because:\n${bullets.map((b) => `  • ${b}`).join("\n")}`
+      : pick.gameLineFinal.reason
+        ? `Selected because: ${pick.gameLineFinal.reason}`
+        : "";
+  return why ? `${header}\n${metrics}\n${why}` : `${header}\n${metrics}`;
 }
 
 function isTeamSidedGameLine(pick: ParsedPick): boolean {
@@ -666,12 +694,13 @@ export function buildGameLineOptimizerNote(
     const gameKey = norm(pick.game);
     if (seenGames.has(gameKey)) continue;
     seenGames.add(gameKey);
-    lines.push(formatFinalGameLineNote(pick));
+    const line = formatFinalGameLineNote(pick, opts.realOdds);
+    if (line) lines.push(line);
   }
 
   if (!lines.length) return "";
-  const intro = `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} ranked by Final Score (40% EV · 30% sim · 15% confidence · 10% grade · 5% market movement) across every ML / spread / alt / total / team-total rung:_`;
-  return `${intro}\n${lines.map((n) => `• ${n}`).join("\n")}`;
+  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every metric is grounded (Sim, Edge, EV, Confidence, Grade). Each pick below shows why it was selected:_`;
+  return `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
 }
 
 /** Fill remaining parlay slots with highest-EV qualified game lines from the eval ladder. */
