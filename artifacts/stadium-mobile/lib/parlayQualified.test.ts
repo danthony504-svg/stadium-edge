@@ -12,12 +12,13 @@ import {
   isPropMainTicketQualified,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
-  GAME_LINE_SIM_MIN_HIT,
   GAME_LINE_EXCEPTIONAL_EV_PCT,
+  GAME_LINE_SIM_MIN_HIT,
   partitionQualifiedPicks,
   reasonPickNotQualified,
   resolvePickEdgePct,
 } from "./parlayQualifiedGate.ts";
+import { expectedValuePct } from "./altLineEvSelect.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
@@ -203,7 +204,7 @@ test("game line accepts 50% sim with positive edge", () => {
   assert.equal(isGameLineMainTicketQualified(score, -110), true);
 });
 
-test("game line allows sub-50% sim only with exceptional edge", () => {
+test("game line allows sub-50% sim only with exceptional edge and positive EV", () => {
   const score = {
     composite: 7,
     grade: "C+",
@@ -222,7 +223,9 @@ test("game line allows sub-50% sim only with exceptional edge", () => {
       edgePct: GAME_LINE_EXCEPTIONAL_EV_PCT,
     },
   };
-  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT), true);
+  const ev = expectedValuePct(0.48, 250, null, GAME_LINE_EXCEPTIONAL_EV_PCT);
+  assert.ok(ev != null && ev > 0);
+  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT, ev), true);
 });
 
 test("longshot main ticket accepts 50% sim prop with positive edge", () => {
@@ -341,14 +344,16 @@ test("longshot section accepts negative edge when not main-qualified", () => {
   assert.equal(isLongshotSectionPick(p), true);
 });
 
-test("comparePickStrength ranks higher edge first", () => {
+test("comparePickStrength ranks higher EV first for game lines", () => {
   const low = qualifiedPick({
-    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 1.0 },
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 1.0, simHit: 0.52 },
+    odds: -110,
   });
   const high = qualifiedPick({
     game: "C @ D",
     pick: "C +1.5",
-    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 4.5, simHit: 0.54 },
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 2.5, simHit: 0.58 },
+    odds: 120,
   });
   assert.ok(comparePickStrength(high, low) < 0);
 });

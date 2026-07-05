@@ -15,7 +15,8 @@ import {
 } from "./gameLineOptimizer.ts";
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
-import { isGameLineMainTicketQualified, reasonPickNotQualified } from "./parlayQualifiedGate.ts";
+import { gameLineRowQualifies } from "./altLineEvSelect.ts";
+import { reasonPickNotQualified } from "./parlayQualifiedGate.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -85,7 +86,12 @@ export function collectNearMissGameLines(
     for (const row of ranked) {
       const fp = pickLegFingerprint(row.pick);
       if (onTicket.has(fp)) continue;
-      if (isGameLineMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
+      if (gameLineRowQualifies({
+        entry: row.entry,
+        finalAiScore: row.finalAiScore,
+        winProb: row.winProb,
+        edgePct: row.edgePct,
+      })) continue;
       rejects.push({
         pick: row.pick,
         reason: reasonForEvalReject(row),

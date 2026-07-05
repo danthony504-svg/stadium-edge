@@ -16,12 +16,11 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection.ts";
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
+import { gameLineRowQualifies } from "./altLineEvSelect.ts";
 import {
   comparePickStrength,
   isFullyQualifiedPick,
-  isLongshotMainTicketQualified,
   isLongshotSectionPick,
-  isMainTicketQualified,
   nearScoreFromPick,
   reasonPickNotQualified,
   resolvePickEdgePct,
@@ -99,7 +98,13 @@ export function collectQualifiedGameLineCandidates(
     });
     for (const row of spreadFiltered) {
       const pick = evalRowToPick(row);
-      const passes = isGameLineMainTicketQualified(row.finalAiScore, row.pick.odds ?? null);
+      const rowAsClose = {
+        entry: row.entry,
+        finalAiScore: row.finalAiScore,
+        winProb: row.winProb,
+        edgePct: row.edgePct,
+      };
+      const passes = gameLineRowQualifies(rowAsClose);
       if (!passes) {
         opts.rejectsOut?.push({
           pick: row.pick,

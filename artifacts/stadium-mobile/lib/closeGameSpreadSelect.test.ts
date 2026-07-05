@@ -249,7 +249,7 @@ test("filterRowsForCloseGameSpread drops team-sided lines when no safer +EV line
   assert.match(filtered[0]!.entry.market, /Total/i);
 });
 
-test("selectBestTeamSpreadLine uses safer policy on close sim", () => {
+test("selectBestTeamSpreadLine picks highest EV qualified line on close sim", () => {
   const evalLines = [
     {
       sport: "mlb",
@@ -261,14 +261,14 @@ test("selectBestTeamSpreadLine uses safer policy on close sim", () => {
     },
   ];
   const rows = [
-    mockEvalRow("Alt Spread", "Braves -2.5", 2.0, 0.52),
-    mockEvalRow("Alt Spread", "Braves +2.5", 1.0, 0.61),
+    mockEvalRow("Spread", "Braves -1.5", 0.4, 0.5),
+    mockEvalRow("Alt Spread", "Braves +1.5", 2.2, 0.58),
   ];
   const best = selectBestTeamSpreadLine(rows, TIGHT_SIM, evalLines, "Braves", TIGHT_GAME);
-  assert.equal(best?.entry.pick, "Braves +2.5");
+  assert.equal(best?.entry.pick, "Braves +1.5");
 });
 
-test("selectBestTeamSpreadLine uses EV policy on longshot close sim", () => {
+test("selectBestTeamSpreadLine uses EV ranking not longshot-only path", () => {
   const evalLines = [
     {
       sport: "mlb",

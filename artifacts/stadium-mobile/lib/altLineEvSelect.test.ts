@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   expectedValuePct,
-  rankAltLineByValue,
-  selectBestAltLineByEv,
+  rankGameLineByEv,
+  selectBestGameLineByEv,
+  gameLineRowQualifies,
 } from "./altLineEvSelect.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
 import { isGameLineMainTicketQualified } from "./parlayQualifiedGate.ts";
@@ -57,31 +58,30 @@ test("expectedValuePct uses win probability and american odds", () => {
   assert.ok(ev != null && ev > 0);
 });
 
-test("selectBestAltLineByEv picks highest EV close-sim line, not forced -1.5", () => {
-  const best = selectBestAltLineByEv(
-    [
-      row("Spread", "Brewers -1.5", -154, 0.4, 0.5),
-      row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58),
-      row("Moneyline", "Brewers ML", -105, 1.2, 0.52),
-    ],
-    { qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge) },
-  );
+test("selectBestGameLineByEv picks highest EV line, not forced -1.5", () => {
+  const best = selectBestGameLineByEv([
+    row("Spread", "Brewers -1.5", -154, 0.4, 0.5),
+    row("Alt Spread", "Brewers +1.5", -130, 1.8, 0.58),
+    row("Moneyline", "Brewers ML", -105, 1.2, 0.52),
+  ]);
   assert.match(best?.entry.pick ?? "", /\+1\.5/);
 });
 
-test("selectBestAltLineByEv requires at least 50% sim unless exceptional edge", () => {
-  const low = selectBestAltLineByEv(
-    [
-      row("Spread", "Mariners +1.5", -110, 1.2, 0.49),
-      row("Alt Spread", "Mariners +2.5", 120, 1.0, 0.56),
-    ],
-    { qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge) },
-  );
+test("selectBestGameLineByEv skips sub-50% sim without exceptional edge", () => {
+  const low = selectBestGameLineByEv([
+    row("Spread", "Mariners +1.5", -110, 1.2, 0.49),
+    row("Alt Spread", "Mariners +2.5", 120, 1.0, 0.56),
+  ]);
   assert.match(low?.entry.pick ?? "", /\+2\.5/);
 });
 
-test("rankAltLineByValue breaks ties toward higher payout", () => {
+test("gameLineRowQualifies rejects sub-50% sim without exceptional edge", () => {
+  const bad = row("Spread", "Mariners +1.5", -110, 1.2, 0.49);
+  assert.equal(gameLineRowQualifies(bad), false);
+});
+
+test("rankGameLineByEv breaks ties toward higher payout", () => {
   const a = row("Alt Spread", "Brewers +1.5", -130, 2.0, 0.55);
   const b = row("Alt Spread", "Brewers +1.5", 110, 2.0, 0.55);
-  assert.ok(rankAltLineByValue(a, b) > 0);
+  assert.ok(rankGameLineByEv(a, b) > 0);
 });

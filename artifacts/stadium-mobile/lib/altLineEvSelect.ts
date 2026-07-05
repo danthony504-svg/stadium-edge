@@ -1,10 +1,13 @@
-// Longshot parlay line selection — compare every posted alt rung by expected value.
+// Game-line selection — rank every posted rung by expected value (EV).
 
 import type { RealOddsEntry } from "./api.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { americanToImplied } from "./pickScore.ts";
 import { americanToDecimal } from "./format.ts";
-import { GAME_LINE_SIM_MIN_HIT } from "./parlayQualifiedGate.ts";
+import {
+  GAME_LINE_EXCEPTIONAL_EV_PCT,
+  isGameLineMainTicketQualified,
+} from "./parlayQualifiedGate.ts";
 import type { CloseGameSpreadRow } from "./closeGameSpreadSelect.ts";
 
 /** Expected value in pct points per $1 staked: (winProb × decimalOdds − 1) × 100. */
@@ -44,9 +47,9 @@ export function resolveRowExpectedValue(row: CloseGameSpreadRow): number | null 
 }
 
 /**
- * Rank alt lines for longshot builds: EV first, then edge, win probability, payout.
+ * Rank game lines: EV first, then edge, win probability, payout.
  */
-export function rankAltLineByValue(a: CloseGameSpreadRow, b: CloseGameSpreadRow): number {
+export function rankGameLineByEv(a: CloseGameSpreadRow, b: CloseGameSpreadRow): number {
   const evA = resolveRowExpectedValue(a) ?? -999;
   const evB = resolveRowExpectedValue(b) ?? -999;
   if (evB !== evA) return evB - evA;
@@ -64,6 +67,9 @@ export function rankAltLineByValue(a: CloseGameSpreadRow, b: CloseGameSpreadRow)
   return oddsB - oddsA;
 }
 
+/** @deprecated Use rankGameLineByEv */
+export const rankAltLineByValue = rankGameLineByEv;
+
 function pickBest(
   rows: CloseGameSpreadRow[],
   rank: (a: CloseGameSpreadRow, b: CloseGameSpreadRow) => number,
@@ -72,24 +78,37 @@ function pickBest(
   return [...rows].sort(rank)[0]!;
 }
 
-function longshotRowEligible(
-  row: CloseGameSpreadRow,
-  minSim: number,
-  qualify: (score: FinalAiScore | null | undefined, odds: number | null, edge: number | null) => boolean,
-): boolean {
+/** Shared qualification read for a scored game-line row. */
+export function gameLineRowQualifies(row: CloseGameSpreadRow): boolean {
   const edge = row.edgePct ?? row.entry.edge ?? null;
-  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
-  const wp = row.winProb;
-  if (wp == null || !Number.isFinite(wp) || wp < minSim) return false;
   const ev = resolveRowExpectedValue(row);
+  if (edge == null || edge <= 0) return false;
   if (ev == null || ev <= 0) return false;
-  return qualify(row.finalAiScore, row.entry.odds ?? null, edge);
+  return isGameLineMainTicketQualified(
+    row.finalAiScore,
+    row.entry.odds ?? null,
+    edge,
+    ev,
+  );
 }
 
 /**
- * On close longshot sims, search every posted alt rung (ML, spreads, team totals, …)
- * and return the line with the best overall value — never force a specific rung.
+ * Compare every posted rung (ML, spread, alt spread, total, team total, …) and
+ * return the qualified line with the highest EV — never the first line that
+ * merely clears a sim floor.
  */
+export function selectBestGameLineByEv(
+  ranked: CloseGameSpreadRow[],
+  opts?: {
+    qualify?: (row: CloseGameSpreadRow) => boolean;
+  },
+): CloseGameSpreadRow | null {
+  const qualify = opts?.qualify ?? gameLineRowQualifies;
+  const eligible = ranked.filter(qualify);
+  return pickBest(eligible, rankGameLineByEv);
+}
+
+/** @deprecated Use selectBestGameLineByEv */
 export function selectBestAltLineByEv(
   ranked: CloseGameSpreadRow[],
   opts?: {
@@ -97,20 +116,20 @@ export function selectBestAltLineByEv(
     qualify?: (score: FinalAiScore | null | undefined, odds: number | null, edge: number | null) => boolean;
   },
 ): CloseGameSpreadRow | null {
-  const minSim = opts?.minSim ?? GAME_LINE_SIM_MIN_HIT;
-  const qualify =
-    opts?.qualify ??
-    ((score, odds, edge) => {
-      void score;
-      void odds;
-      void edge;
-      return true;
-    });
-  const eligible = ranked.filter((r) => longshotRowEligible(r, minSim, qualify));
-  return pickBest(eligible, rankAltLineByValue);
+  void opts?.minSim;
+  return selectBestGameLineByEv(ranked, {
+    qualify: opts?.qualify
+      ? (row) => {
+          const edge = row.edgePct ?? row.entry.edge ?? null;
+          return opts.qualify!(row.finalAiScore, row.entry.odds ?? null, edge);
+        }
+      : undefined,
+  });
 }
 
-/** @deprecated Use selectBestAltLineByEv */
+/** @deprecated Use selectBestGameLineByEv */
 export function selectBestLongshotAltLine(ranked: CloseGameSpreadRow[]): CloseGameSpreadRow | null {
-  return selectBestAltLineByEv(ranked);
+  return selectBestGameLineByEv(ranked);
 }
+
+export { GAME_LINE_EXCEPTIONAL_EV_PCT };

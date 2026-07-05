@@ -36,6 +36,7 @@ export {
   reasonPickNotQualified,
   partitionQualifiedPicks,
   resolvePickEdgePct,
+  resolvePickExpectedValue,
   filterMainTicketPicks,
 } from "./parlayQualifiedGate.ts";
 

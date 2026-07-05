@@ -1,5 +1,5 @@
-// After the 10k game sim, rank EVERY posted full-game line by Final AI Score and
-// swap each Coach game-line leg to the best win-probability + value combination.
+// After the 10k game sim, rank EVERY posted full-game line by expected value and
+// swap each Coach game-line leg to the highest-EV qualified rung.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { GameInjuryReport } from "./injuries.ts";
@@ -15,14 +15,14 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { isGameLineMainTicketQualified } from "./parlayQualifiedGate.ts";
-import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
+import { selectBestGameLineByEv, gameLineRowQualifies, rankGameLineByEv } from "./altLineEvSelect.ts";
 import {
   filterRowsForCloseGameSpread,
   selectBestTeamSpreadLine,
   type CloseGameSpreadRow,
   type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
+import { isGameLineMainTicketQualified, resolvePickEdgePct, resolvePickExpectedValue } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -279,24 +279,15 @@ function fromCloseGameRow(row: CloseGameSpreadRow, ranked: EvaluatedGameLine[]):
   };
 }
 
-/** Prefer sim-aligned game lines with positive edge — no high-risk bypass on game lines. */
+/** Pick the highest-EV qualified line from evaluated game lines. */
 function selectBestEvaluated(
   ranked: EvaluatedGameLine[],
-  opts?: CloseGameSpreadOpts,
+  _opts?: CloseGameSpreadOpts,
 ): EvaluatedGameLine | null {
+  void _opts;
   if (!ranked.length) return null;
-  if (opts?.longshotAsk) {
-    const rows = toCloseGameRows(ranked);
-    const best = selectBestAltLineByEv(rows, {
-      qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge),
-    });
-    return best ? fromCloseGameRow(best, ranked) : null;
-  }
-  const eligible = ranked.filter((r) =>
-    isGameLineMainTicketQualified(r.finalAiScore, r.pick.odds ?? null),
-  );
-  if (eligible.length) return bestGameLine(eligible);
-  return null;
+  const best = selectBestGameLineByEv(toCloseGameRows(ranked));
+  return best ? fromCloseGameRow(best, ranked) : null;
 }
 
 function rankBestForBucket(
@@ -346,18 +337,19 @@ function rankBestForBucket(
 }
 
 function rankEvaluated(a: EvaluatedGameLine, b: EvaluatedGameLine): number {
-  const ac = a.finalAiScore.composite ?? -1;
-  const bc = b.finalAiScore.composite ?? -1;
-  if (bc !== ac) return bc - ac;
-  const awp = a.finalAiScore.simAligned ? 1 : 0;
-  const bwp = b.finalAiScore.simAligned ? 1 : 0;
-  if (bwp !== awp) return bwp - awp;
-  const ae = a.edgePct ?? -999;
-  const be = b.edgePct ?? -999;
-  if (be !== ae) return be - ae;
-  const aw = a.winProb ?? 0;
-  const bw = b.winProb ?? 0;
-  return bw - aw;
+  const rowA: CloseGameSpreadRow = {
+    entry: a.entry,
+    finalAiScore: a.finalAiScore,
+    winProb: a.winProb,
+    edgePct: a.edgePct,
+  };
+  const rowB: CloseGameSpreadRow = {
+    entry: b.entry,
+    finalAiScore: b.finalAiScore,
+    winProb: b.winProb,
+    edgePct: b.edgePct,
+  };
+  return rankGameLineByEv(rowA, rowB);
 }
 
 export function evaluateGameLines(input: {
@@ -464,7 +456,7 @@ export type GameLineOptimizeResult = {
 };
 
 /**
- * Replace each game-line leg with the highest Final AI Score line in its pool
+ * Replace each game-line leg with the highest-EV qualified line in its pool
  * (all ML/spread/alt/total/team-total rungs scored against the same 10k sim).
  */
 export function optimizeGameLinePicksToBestFinalAi(
@@ -667,12 +659,12 @@ export function buildGameLineOptimizerNote(
     longshotAsk?: boolean;
   },
 ): string {
-  const gameLines = picks.filter(
-    (p) =>
-      isGameLinePick(p) &&
-      !p.isProp &&
-      isGameLineMainTicketQualified(p.finalAiScore, p.odds ?? null),
-  );
+  const gameLines = picks.filter((p) => {
+    if (!isGameLinePick(p) || p.isProp) return false;
+    const edge = resolvePickEdgePct(p, { realOdds: opts.realOdds });
+    const ev = resolvePickExpectedValue(p, { realOdds: opts.realOdds });
+    return isGameLineMainTicketQualified(p.finalAiScore, p.odds ?? null, edge, ev);
+  });
   if (!gameLines.length) return "";
 
   const lines: string[] = [];
@@ -733,13 +725,11 @@ export function buildGameLineOptimizerNote(
   }
 
   if (!lines.length) return "";
-  const intro = opts.longshotAsk
-    ? `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this longshot ticket use the best expected value among every posted ML / spread / alt / total / team-total rung (positive edge, highest win probability, best payout):_`
-    : `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest Final AI Score among posted ML / spread / alt / total / team-total rungs:_`;
+  const intro = `_After the 10k sim, ${lines.length} game line${lines.length === 1 ? "" : "s"} on this ticket use the highest expected value among every posted ML / spread / alt / total / team-total rung (positive EV, positive edge, C+ or better, confidence 50+):_`;
   return `${intro}\n${lines.map((n) => `• ${n}`).join("\n")}`;
 }
 
-/** Fill remaining parlay slots with highest Final AI Score game lines (alts/totals) from the full eval ladder. */
+/** Fill remaining parlay slots with highest-EV qualified game lines from the eval ladder. */
 export function backfillGameLinesFromEvalScores(
   existing: ParsedPick[],
   target: number,
@@ -814,7 +804,12 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!isGameLineMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
+    if (!gameLineRowQualifies({
+      entry: row.entry,
+      finalAiScore: row.finalAiScore,
+      winProb: row.winProb,
+      edgePct: row.edgePct,
+    })) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);

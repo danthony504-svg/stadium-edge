@@ -2,6 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
+import { expectedValuePct } from "./altLineEvSelect.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
@@ -66,6 +67,32 @@ export function resolvePickEdgePct(
   return Math.min(...edges);
 }
 
+function backingFairProb(
+  pick: ParsedPick,
+  realOdds: RealOddsEntry[],
+): number | null {
+  const row = realOdds.find(
+    (r) => r.game === pick.game && r.market === pick.market && r.pick === pick.pick,
+  );
+  const fair = row?.noVigFair ?? null;
+  return fair != null && Number.isFinite(fair) ? fair : null;
+}
+
+/** Expected value in pct points per $1 staked for a scored pick. */
+export function resolvePickExpectedValue(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): number | null {
+  const edge = resolvePickEdgePct(pick, opts);
+  const simHit = pick.finalAiScore?.simHit ?? null;
+  const odds = pick.odds ?? null;
+  const fairProb =
+    opts?.realOdds?.length && !pick.isProp
+      ? backingFairProb(pick, opts.realOdds)
+      : null;
+  return expectedValuePct(simHit, odds, fairProb, edge);
+}
+
 function sharedMainTicketChecks(
   score: FinalAiScore,
   odds: number | null | undefined,
@@ -81,7 +108,7 @@ function sharedMainTicketChecks(
   return true;
 }
 
-/** True when a game-line sim hit clears the 50% floor or carries exceptional +EV below it. */
+/** True when a game-line sim hit clears 50% or carries exceptional edge below it. */
 export function gameLineMeetsSimBar(
   simHit: number | null | undefined,
   edge: number | null | undefined,
@@ -111,17 +138,20 @@ export function isPropMainTicketQualified(
 }
 
 /**
- * Game-line main-ticket bar — sim ≥ 50% with +EV, or exceptional +EV when sim is
- * sub-50%. Never recommends a coin-flip line without sim support or value.
+ * Game-line main-ticket bar — positive EV, positive edge, C+, confidence 50+.
+ * Sim under 50% is allowed only when edge is exceptional (≥ 4.5%); otherwise
+ * the caller should search alternate lines or skip the game.
  */
 export function isGameLineMainTicketQualified(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
   edgePct?: number | null,
+  evPct?: number | null,
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
   if (!sharedMainTicketChecks(score, odds, edge)) return false;
+  if (evPct != null && evPct <= 0) return false;
   return gameLineMeetsSimBar(score.simHit, edge);
 }
 
@@ -194,7 +224,8 @@ export function isFullyQualifiedPick(
   const score = pick.finalAiScore;
   const odds = pick.odds ?? null;
   if (isGameLinePickForGate(pick)) {
-    return isGameLineMainTicketQualified(score, odds, edge);
+    const ev = resolvePickExpectedValue(pick, opts);
+    return isGameLineMainTicketQualified(score, odds, edge, ev);
   }
   if (opts?.longshotAsk) {
     return isLongshotMainTicketQualified(score, odds, edge);
@@ -246,6 +277,10 @@ export function reasonPickNotQualified(
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null) return "missing Edge %";
   if (edge <= 0) return `${edge}% edge — non-positive EV, rejected`;
+  if (isGameLinePickForGate(pick)) {
+    const ev = resolvePickExpectedValue(pick, opts);
+    if (ev != null && ev <= 0) return `${ev}% expected value — non-positive EV, rejected`;
+  }
   if (s.confidencePct == null) return "missing Confidence";
   if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) {
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
@@ -277,13 +312,18 @@ export function reasonPickNotQualified(
 }
 
 /**
- * Ranking priority for main-ticket selection:
- * 1. Positive edge  2. Simulation support  3. Confidence
- * 4. AI Grade  5. Best available odds (higher payout)
+ * Ranking priority for main-ticket selection.
+ * Game lines: EV first, then edge, sim, confidence, grade, payout.
+ * Props: edge, sim, confidence, grade, payout.
  */
 export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
   const sa = a.finalAiScore;
   const sb = b.finalAiScore;
+  if (isGameLinePickForGate(a) && isGameLinePickForGate(b)) {
+    const evA = resolvePickExpectedValue(a) ?? -999;
+    const evB = resolvePickExpectedValue(b) ?? -999;
+    if (evB !== evA) return evB - evA;
+  }
   const edgeA = resolvePickEdgePct(a) ?? -999;
   const edgeB = resolvePickEdgePct(b) ?? -999;
   if (edgeB !== edgeA) return edgeB - edgeA;

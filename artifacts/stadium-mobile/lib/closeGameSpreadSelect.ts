@@ -6,9 +6,8 @@ import type { FinalAiScore } from "./finalAiScore.ts";
 import { gameSimHitForPick, type CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
   GAME_LINE_SIM_MIN_HIT,
-  isGameLineMainTicketQualified,
 } from "./parlayQualifiedGate.ts";
-import { selectBestAltLineByEv } from "./altLineEvSelect.ts";
+import { selectBestGameLineByEv, gameLineRowQualifies } from "./altLineEvSelect.ts";
 import { isCloseGameForTeamSpread, spreadLineFromPick } from "./spreadSimAlignment.ts";
 
 export type CloseGameSpreadOpts = {
@@ -168,8 +167,7 @@ function isTeamSidedFullGameEntry(entry: RealOddsEntry): boolean {
 }
 
 function isQualifiedRow(row: CloseGameSpreadRow): boolean {
-  const edge = row.edgePct ?? row.entry.edge ?? null;
-  return isGameLineMainTicketQualified(row.finalAiScore, row.entry.odds ?? null, edge);
+  return gameLineRowQualifies(row);
 }
 
 /** Close games: maximize cover probability, then edge. */
@@ -220,37 +218,22 @@ export function selectBestSpreadLineForOpenGame(
 }
 
 /**
- * Unified team spread picker — close games search safer rungs; open games may
- * take aggressive alt lays only when sim cover is comfortable and edge is +EV.
+ * Pick the highest-EV qualified line across every posted rung for this team/game.
  */
 export function selectBestTeamSpreadLine(
   ranked: CloseGameSpreadRow[],
-  sim: CoachGameSimEntry | null | undefined,
-  evalLines: RealOddsEntry[],
-  teamName: string,
-  game: string,
-  opts?: CloseGameSpreadOpts,
+  _sim: CoachGameSimEntry | null | undefined,
+  _evalLines: RealOddsEntry[],
+  _teamName: string,
+  _game: string,
+  _opts?: CloseGameSpreadOpts,
 ): CloseGameSpreadRow | null {
-  if (opts?.longshotAsk) {
-    return selectBestAltLineByEv(ranked, {
-      qualify: (score, odds, edge) => isGameLineMainTicketQualified(score, odds, edge),
-    });
-  }
-  const side = teamSideFromName(game, teamName);
-  const close = needsSaferSpreadLine(
-    sim,
-    side,
-    evalLines,
-    teamName,
-    ranked.reduce<number | null>((worst, r) => {
-      const hit = r.winProb;
-      if (hit == null) return worst;
-      if (worst == null) return hit;
-      return Math.min(worst, hit);
-    }, null),
-  );
-  if (close) return selectBestSaferLineForCloseGame(ranked);
-  return selectBestSpreadLineForOpenGame(ranked);
+  void _sim;
+  void _evalLines;
+  void _teamName;
+  void _game;
+  void _opts;
+  return selectBestGameLineByEv(ranked);
 }
 
 /** @deprecated Use selectBestSaferLineForCloseGame */
