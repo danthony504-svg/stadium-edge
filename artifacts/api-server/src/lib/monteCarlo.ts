@@ -1,5 +1,7 @@
+import { collectMonteCarloSamples, finalizeSimRunStats, emptySimRunStats } from "./simRunStats.js";
+import type { SimRunStats } from "./simRunStats.js";
+
 // Monte Carlo prop simulator — 10,000 draws per prop using real game-log samples,
-// pace, minutes, injuries, matchup splits, weather (MLB), and recent form.
 // Outputs hit probability, most-likely stat line, and a confidence score.
 // Designed as ONE input to the pick rubric, not a standalone oracle.
 
@@ -34,7 +36,8 @@ export type PropSimulationContext = {
   discrete?: boolean;
 };
 
-export type PropSimulationResult = {
+export type PropSimulationResult = SimRunStats & {
+  /** @deprecated use completedSims — kept for backward compatibility */
   simulations: number;
   hitProbability: number | null;
   mostLikelyLine: number | null;
@@ -166,7 +169,9 @@ export function runMonteCarloSimulation(
   ctx: PropSimulationContext,
   simulations = DEFAULT_SIMULATIONS,
 ): PropSimulationResult {
-  const empty: PropSimulationResult = {
+  const startedAt = new Date();
+  const baseEmpty = (sampleGames: number): PropSimulationResult => ({
+    ...emptySimRunStats(simulations, sampleGames),
     simulations: 0,
     hitProbability: null,
     mostLikelyLine: null,
@@ -174,31 +179,29 @@ export function runMonteCarloSimulation(
     medianProjection: null,
     confidenceScore: null,
     stdDev: null,
-    sampleGames: ctx.recentValues.length,
+    sampleGames,
     percentiles: null,
-  };
+  });
 
   const vals = ctx.recentValues.filter((v) => Number.isFinite(v));
-  if (vals.length < 3 || !Number.isFinite(ctx.line)) return empty;
+  if (vals.length < 3 || !Number.isFinite(ctx.line)) return baseEmpty(vals.length);
 
   const mean = buildProjectionMean(ctx);
-  if (mean == null) return empty;
+  if (mean == null) return baseEmpty(vals.length);
 
   const historicalStd = sampleStd(vals);
   const std = Math.max(historicalStd, mean * 0.12, 0.35);
   const discrete = ctx.discrete ?? false;
 
-  const samples: number[] = new Array(simulations);
-  for (let i = 0; i < simulations; i++) {
-    let draw: number;
-    if (discrete && mean < 4) {
-      draw = poissonSample(mean);
-    } else if (discrete) {
-      draw = Math.max(0, Math.round(normalSample(mean, std)));
-    } else {
-      draw = Math.max(0, normalSample(mean, std));
-    }
-    samples[i] = draw;
+  const { samples, completedSims, failedSims } = collectMonteCarloSamples(simulations, () => {
+    if (discrete && mean < 4) return poissonSample(mean);
+    if (discrete) return Math.max(0, Math.round(normalSample(mean, std)));
+    return Math.max(0, normalSample(mean, std));
+  });
+
+  const runMeta = finalizeSimRunStats(startedAt, simulations, completedSims, failedSims, vals.length);
+  if (completedSims === 0) {
+    return { ...baseEmpty(vals.length), ...runMeta };
   }
 
   const sorted = [...samples].sort((a, b) => a - b);
@@ -209,7 +212,7 @@ export function runMonteCarloSimulation(
     ctx.side === "Over"
       ? samples.filter((s) => s > ctx.line).length
       : samples.filter((s) => s < ctx.line).length;
-  const hitProb = hits / simulations;
+  const hitProb = hits / completedSims;
 
   let confidence = 50;
   if (vals.length >= 8) confidence += 14;
@@ -223,13 +226,16 @@ export function runMonteCarloSimulation(
 
   const edgeFrom50 = Math.abs(hitProb - 0.5);
   confidence += edgeFrom50 * 40;
+  if (completedSims >= DEEP_SIMULATIONS) confidence += 10;
+  else if (completedSims >= QUICK_SIMULATIONS) confidence += 4;
 
   if (ctx.vsOpponentValues && ctx.vsOpponentValues.length >= 2) confidence += 4;
   if (ctx.minutesL5 != null && ctx.minutesSeason != null) confidence += 3;
   if (ctx.oppPace != null) confidence += 3;
 
   return {
-    simulations,
+    ...runMeta,
+    simulations: completedSims,
     hitProbability: round3(hitProb),
     mostLikelyLine: modeRounded(samples),
     meanProjection: round2(simMean),

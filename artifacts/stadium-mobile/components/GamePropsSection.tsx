@@ -97,7 +97,7 @@ export function GamePropsSection({ game }: { game: OddsGame }) {
 
       <PlayerPropsSheet
         data={sheet}
-        active={!sheetHidden}
+        active={!!sheet && !sheetHidden}
         onHide={() => setSheetHidden(true)}
         onClose={() => {
           setSheet(null);

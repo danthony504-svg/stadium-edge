@@ -9,6 +9,9 @@ import {
 
 const router: IRouter = Router();
 
+/** Bumped when simulator/roster endpoints change — verify script checks this. */
+export const SIM_API_VERSION = 2;
+
 router.get("/healthz", async (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
   const configured = isOpenAIConfigured();
@@ -17,6 +20,7 @@ router.get("/healthz", async (_req, res) => {
   const chatProbe = configured ? await probeOpenAIChat() : null;
   res.json({
     ...data,
+    simApiVersion: SIM_API_VERSION,
     ai: {
       configured,
       provider,

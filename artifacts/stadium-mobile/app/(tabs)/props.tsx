@@ -1659,7 +1659,7 @@ export default function PropsScreen() {
       </ScrollView>
       <PlayerPropsSheet
         data={sheet}
-        active={!sheetHidden}
+        active={!!sheet && !sheetHidden}
         onHide={() => setSheetHidden(true)}
         onClose={() => {
           setSheet(null);
