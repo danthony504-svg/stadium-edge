@@ -171,7 +171,7 @@ const PENDING_BUILD_KEY = "coach.pendingBuild";
 // for non-leg asks; leg-scaled via pendingBuildMaxWaitMs(). The poll re-checks
 // the stash at PENDING_POLL_MS while we wait.
 const PENDING_BUILD_MAX_WAIT_MS = 120_000;
-const PENDING_POLL_MS = 10_000;
+const PENDING_POLL_MS = 5_000;
 
 type PendingBuild = {
   buildId: string;
@@ -1285,9 +1285,9 @@ export default function CoachScreen() {
           if (bg) {
             pendingBgRef.current = { buildId };
             handedOffRef.current = false;
-            // Don't block the stream on a large AsyncStorage write — the server
-            // build can start while we persist the local replay snapshot.
-            void savePendingBuild({
+            // Persist before streaming so a quick background/kill can still resume
+            // from disk (a fire-and-forget write often lost the race).
+            await savePendingBuild({
               buildId,
               userText: trimmed,
               context,
@@ -1956,7 +1956,8 @@ export default function CoachScreen() {
           // Start polling the server stash so the finished ticket replays (or a
           // stalled build surfaces a retry) even if the user just stays on this
           // screen and never re-foregrounds the app.
-          if (pendingBgRef.current) setBgWatchId(pendingBgRef.current.buildId);
+          const handedBuildId = pendingBgRef.current?.buildId;
+          if (handedBuildId) setBgWatchId(handedBuildId);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -2158,7 +2159,7 @@ export default function CoachScreen() {
   // resolves (replay/failed clear bgWatchId) or a new stream starts.
   useEffect(() => {
     if (!bgWatchId) return;
-    const id = setInterval(() => {
+    const poll = () => {
       if (streamingRef.current) return;
       const pend = pendingBgRef.current;
       if (pend) {
@@ -2166,7 +2167,9 @@ export default function CoachScreen() {
       } else {
         void resumePendingBackgroundBuild();
       }
-    }, PENDING_POLL_MS);
+    };
+    void poll();
+    const id = setInterval(poll, PENDING_POLL_MS);
     return () => clearInterval(id);
   }, [bgWatchId, restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
