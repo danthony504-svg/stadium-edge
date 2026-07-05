@@ -15,7 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { isFullyQualifiedFinalAi } from "./parlayQualifiedGate.ts";
+import { isFullyQualifiedGameLineFinalAi } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -240,18 +240,13 @@ function simForGame(
   return undefined;
 }
 
-/** Prefer sim-aligned lines with non-negative edge; high-risk value if sim-opposed. */
+/** Prefer sim-aligned game lines with positive edge — no high-risk bypass on game lines. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
-  const eligible = ranked.filter((r) => {
-    if (r.finalAiScore.highRiskValuePlay) return true;
-    if (!r.finalAiScore.simAligned) return false;
-    const edge = r.edgePct;
-    return edge == null || edge >= 0;
-  });
+  const eligible = ranked.filter((r) =>
+    isFullyQualifiedGameLineFinalAi(r.finalAiScore, r.pick.odds ?? null),
+  );
   if (eligible.length) return bestGameLine(eligible);
-  const highRisk = ranked.filter((r) => r.finalAiScore.highRiskValuePlay);
-  if (highRisk.length) return bestGameLine(highRisk);
   return null;
 }
 
@@ -717,7 +712,7 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!isFullyQualifiedFinalAi(row.finalAiScore, row.pick.odds ?? null)) continue;
+    if (!isFullyQualifiedGameLineFinalAi(row.finalAiScore, row.pick.odds ?? null)) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);

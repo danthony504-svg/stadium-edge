@@ -79,9 +79,9 @@ import {
   type ParlayLegReject,
 } from "@/lib/parlayReach";
 import {
-  ensureQualifiedParlayToTarget,
   filterToQualifiedPicks,
 } from "@/lib/parlayQualified";
+import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -2326,22 +2326,65 @@ export default function CoachScreen() {
             );
             scoreAttachOpts.realOdds = mergedGameOdds;
           }
-          picks = await ensureQualifiedParlayToTarget(picks, reachTarget, {
-            longshotAsk,
-            plusMoneyBias: propBackfillOpts.plusMoneyBias,
-            diversify: propBackfillOpts.diversify,
-            varietySeed,
-            avoidLegKeys,
-            selectionOpts,
-            propPool: mergedPropPool,
-            realOdds: context.realOdds,
-            mergedGameOdds,
-            gameMeta,
+          if (coachEvalLinesByGame) {
+            if (!teamIdMap) {
+              const simSports = [
+                ...new Set(
+                  [
+                    ...mergedPropPool.map((e) => e.sport),
+                    ...context.realOdds.map((e) => e.sport),
+                  ].filter(Boolean),
+                ),
+              ] as string[];
+              const espnGames = (
+                await Promise.all(simSports.map((s) => getGames(s).catch(() => [])))
+              ).flat();
+              teamIdMap = buildGameTeamIdMap(espnGames);
+            }
+            const boardProbePicks: ParsedPick[] = [];
+            for (const game of coachEvalLinesByGame.keys()) {
+              const sport =
+                mergedPropPool.find((e) => e.game === game)?.sport ??
+                context.realOdds.find((e) => e.game === game)?.sport ??
+                "mlb";
+              boardProbePicks.push({
+                game,
+                market: "Moneyline",
+                pick: "ML",
+                odds: -110,
+                isProp: false,
+                sport,
+              });
+            }
+            if (boardProbePicks.length && teamIdMap) {
+              const boardSims = await fetchCoachGameSimulationsForPicks(
+                boardProbePicks,
+                teamIdMap,
+                abortRef.current?.signal,
+                mergedGameOdds,
+                coachEvalLinesByGame,
+              );
+              gameSimulations = new Map([...gameSimulations, ...boardSims]);
+              gameSimulations = await supplementCoachGameSimulations(
+                boardProbePicks,
+                gameSimulations,
+                teamIdMap,
+                abortRef.current?.signal,
+                mergedGameOdds,
+                coachEvalLinesByGame,
+              );
+              scoreAttachOpts.gameSimulations = gameSimulations;
+            }
+          }
+          picks = await selectStrongestQualifiedParlay(reachTarget, {
             evalLinesByGame: coachEvalLinesByGame,
             gameSimulations,
+            propPool: mergedPropPool,
+            realOdds: mergedGameOdds,
+            scoreOpts: scoreAttachOpts,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
-            scoreOpts: scoreAttachOpts,
+            longshotAsk,
             signal: abortRef.current?.signal,
             rejectsOut: parlayRejections,
           });

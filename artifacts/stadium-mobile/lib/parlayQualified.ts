@@ -18,6 +18,8 @@ import {
 } from "./parlayQualifiedGate.ts";
 
 export {
+  isFullyQualifiedPropFinalAi,
+  isFullyQualifiedGameLineFinalAi,
   isFullyQualifiedFinalAi,
   isFullyQualifiedPick,
   reasonPickNotQualified,

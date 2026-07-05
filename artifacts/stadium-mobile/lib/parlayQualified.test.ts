@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  isFullyQualifiedGameLineFinalAi,
   isFullyQualifiedPick,
   partitionQualifiedPicks,
   reasonPickNotQualified,
@@ -37,49 +38,15 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
   };
 }
 
-test("isFullyQualifiedPick requires grade, sim, edge, confidence, composite, and odds", () => {
-  assert.equal(isFullyQualifiedPick(qualifiedPick()), true);
-  assert.equal(isFullyQualifiedPick(qualifiedPick({ finalAiScore: undefined })), false);
+test("game lines reject sim below 52% even with positive edge", () => {
+  const score = qualifiedPick().finalAiScore!;
   assert.equal(
-    isFullyQualifiedPick(
-      qualifiedPick({
-        finalAiScore: {
-          ...qualifiedPick().finalAiScore!,
-          simHit: null,
-        },
-      }),
-    ),
-    false,
-  );
-  assert.equal(
-    isFullyQualifiedPick(
-      qualifiedPick({
-        finalAiScore: {
-          ...qualifiedPick().finalAiScore!,
-          edgePct: null,
-        },
-      }),
-    ),
-    false,
-  );
-  assert.equal(isFullyQualifiedPick(qualifiedPick({ odds: null })), false);
-});
-
-test("isFullyQualifiedPick rejects non-positive edge", () => {
-  assert.equal(
-    isFullyQualifiedPick(
-      qualifiedPick({
-        finalAiScore: {
-          ...qualifiedPick().finalAiScore!,
-          edgePct: -0.5,
-        },
-      }),
-    ),
+    isFullyQualifiedGameLineFinalAi({ ...score, simHit: 0.5, simAligned: false }, -110),
     false,
   );
 });
 
-test("isFullyQualifiedPick allows high-risk value play with complete fields", () => {
+test("game lines reject high-risk value play bypass", () => {
   assert.equal(
     isFullyQualifiedPick(
       qualifiedPick({
@@ -92,16 +59,40 @@ test("isFullyQualifiedPick allows high-risk value play with complete fields", ()
         },
       }),
     ),
-    true,
+    false,
   );
 });
 
-test("reasonPickNotQualified names the first missing field", () => {
-  const p = qualifiedPick({ finalAiScore: undefined });
-  assert.match(reasonPickNotQualified(p), /Final AI Score/i);
-  assert.match(
-    reasonPickNotQualified(qualifiedPick({ finalAiScore: { ...qualifiedPick().finalAiScore!, simHit: null } })),
-    /Simulation Hit/i,
+test("game lines require sim alignment", () => {
+  const reason = reasonPickNotQualified(
+    qualifiedPick({
+      finalAiScore: {
+        ...qualifiedPick().finalAiScore!,
+        simAligned: false,
+        highRiskValuePlay: false,
+      },
+    }),
+  );
+  assert.match(reason, /simulator.*disagrees/i);
+});
+
+test("props still allow high-risk value play with complete fields", () => {
+  assert.equal(
+    isFullyQualifiedPick({
+      ...qualifiedPick({
+        isProp: true,
+        market: "Hits",
+        player: "Star",
+        finalAiScore: {
+          ...qualifiedPick().finalAiScore!,
+          simHit: 0.48,
+          simAligned: false,
+          highRiskValuePlay: true,
+          edgePct: 5.2,
+        },
+      }),
+    }),
+    true,
   );
 });
 
