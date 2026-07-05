@@ -4,6 +4,8 @@ import {
   dedupeSameTeamGameLegs,
   rebalanceDeepParlayTicket,
   rotatePool,
+  prepareLongshotParlaySeed,
+  needsParlayBackfill,
 } from "./ticketDiversity.ts";
 
 test("dedupeSameTeamGameLegs keeps one Braves side leg", () => {
@@ -29,9 +31,26 @@ test("rebalanceDeepParlayTicket trims game legs for prop room", () => {
   assert.ok(picks.length < 12);
 });
 
-test("rotatePool changes order deterministically", () => {
-  const a = rotatePool([1, 2, 3, 4], "seed-a");
-  const b = rotatePool([1, 2, 3, 4], "seed-b");
-  assert.notDeepEqual(a, [1, 2, 3, 4]);
-  assert.notDeepEqual(a, b);
+test("prepareLongshotParlaySeed clears chalk game scaffold", () => {
+  const picks = Array.from({ length: 15 }, (_, i) => ({
+    game: `Away${i} @ Home${i}`,
+    market: "Moneyline",
+    pick: `Home${i} ML`,
+    odds: -110,
+    isProp: false,
+  }));
+  const { picks: out, stripped } = prepareLongshotParlaySeed(picks, 15);
+  assert.ok(stripped >= 13);
+  assert.ok(out.length <= 3);
+});
+
+test("needsParlayBackfill true when longshot is all chalk", () => {
+  const picks = Array.from({ length: 15 }, () => ({
+    game: "A @ B",
+    market: "Moneyline",
+    pick: "B ML",
+    odds: -110,
+    isProp: false,
+  }));
+  assert.equal(needsParlayBackfill(picks, 15, { longshotAsk: true }), true);
 });

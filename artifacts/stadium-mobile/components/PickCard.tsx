@@ -15,6 +15,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
+import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -1892,6 +1893,14 @@ export function backfillProps(
   };
   const startsAtByGame = new Map<string, string | null>();
   const daysByGame = new Map<string, Set<string>>();
+  const canonicalGameKey = (game: string): string | null => {
+    const kn = norm(game);
+    if (startsAtByGame.has(kn)) return kn;
+    for (const k of startsAtByGame.keys()) {
+      if (gameLabelsMatch(k, game)) return k;
+    }
+    return null;
+  };
   for (const e of realToday) {
     const k = norm(e.game);
     if (!startsAtByGame.has(k)) startsAtByGame.set(k, e.startsAt ?? null);
@@ -1910,18 +1919,15 @@ export function backfillProps(
   // the real posted rungs — never a deep longshot or a no-equity favorite.
   const byKey = new Map<string, PropPoolEntry>();
   for (const e of propPool) {
-    const k = norm(e.game);
-    if (!startsAtByGame.has(k)) continue; // named sport's allowed games only
+    const canon = canonicalGameKey(e.game);
+    if (!canon) continue; // no matching game on today's board
     if (typeof e.odds !== "number" || e.odds <= -1000) continue;
-    // Date guard: if we know both the prop's day and the game's allowed days,
-    // the prop must fall on one of them — otherwise it's a same-label game on a
-    // different date and must NOT be admitted (would be a fabricated kickoff).
     const propDay = dayOf(e.startsAt);
-    const allowedDays = daysByGame.get(k);
+    const allowedDays = daysByGame.get(canon);
     if (propDay && allowedDays && allowedDays.size > 0 && !allowedDays.has(propDay)) {
       continue;
     }
-    const key = `${k}|${norm(e.player)}|${norm(e.marketLabel)}`;
+    const key = `${canon}|${norm(e.player)}|${norm(e.marketLabel)}`;
     const cur = byKey.get(key);
     if (!cur || Math.abs(ip(e.odds) - 0.5) < Math.abs(ip(cur.odds) - 0.5)) {
       byKey.set(key, e);
@@ -1937,6 +1943,7 @@ export function backfillProps(
     if (out.length >= target) return false;
     const mk = norm(e.marketLabel);
     if ((marketCounts.get(mk) ?? 0) >= maxPerMarket) return false;
+    const canon = canonicalGameKey(e.game);
     const pick =
       e.line != null
         ? `${e.player} ${e.side} ${e.line} ${e.marketLabel}`
@@ -1954,7 +1961,7 @@ export function backfillProps(
           odds: e.odds,
           sport: e.sport,
           isProp: true,
-          startsAt: e.startsAt ?? startsAtByGame.get(norm(e.game)) ?? null,
+          startsAt: e.startsAt ?? (canon ? startsAtByGame.get(canon) : null) ?? null,
           headshot: e.headshot ?? null,
           teamAbbr: e.teamAbbr ?? null,
           player: e.player,

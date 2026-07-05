@@ -463,6 +463,75 @@ export function optimizeGameLinePicksToBestFinalAi(
   return { picks: out, swapped, note: noteParts.join("\n\n") };
 }
 
+/** Fill remaining parlay slots with highest Final AI Score game lines (alts/totals) from the full eval ladder. */
+export function backfillGameLinesFromEvalScores(
+  existing: ParsedPick[],
+  target: number,
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    maxGameLegs?: number;
+  },
+): ParsedPick[] {
+  if (existing.length >= target) return existing;
+  const maxGame =
+    opts.maxGameLegs ?? Math.max(3, Math.ceil(target * 0.35));
+  const gameCount = existing.filter((p) => isGameLinePick(p) && !p.isProp).length;
+  if (gameCount >= maxGame) return existing;
+
+  const seenLegs = new Set(existing.map((p) => pickLegKey(p)));
+  const seenBuckets = new Set(
+    existing
+      .map((p) => bucketKeyForPick(p))
+      .filter((b): b is string => b != null),
+  );
+
+  const lineMap = new Map<string, RealOddsEntry>();
+  for (const lines of evalLinesByGame.values()) {
+    for (const e of lines) lineMap.set(oddsEntryKey(e), e);
+  }
+
+  const ranked: EvaluatedGameLine[] = [];
+  const byGame = new Map<string, RealOddsEntry[]>();
+  for (const e of lineMap.values()) {
+    const arr = byGame.get(e.game) ?? [];
+    arr.push(e);
+    byGame.set(e.game, arr);
+  }
+  for (const [game, lines] of byGame) {
+    const sim = simForGame(game, simByGame);
+    ranked.push(
+      ...evaluateGameLines({
+        lines,
+        gameSim: sim,
+        realOdds: mergeOddsEntries(opts.realOdds, lines),
+        matchupHistory: opts.matchupHistory,
+        matchupInjuries: opts.matchupInjuries,
+      }),
+    );
+  }
+  ranked.sort(rankEvaluated);
+
+  const out = [...existing];
+  for (const row of ranked) {
+    if (out.length >= target) break;
+    if (out.filter((p) => isGameLinePick(p) && !p.isProp).length >= maxGame) break;
+    const bucket = bucketKeyForPick(row.pick);
+    if (bucket && seenBuckets.has(bucket)) continue;
+    const leg = pickLegKey(row.pick);
+    if (seenLegs.has(leg)) continue;
+    if (!row.finalAiScore.simAligned && !row.finalAiScore.highRiskValuePlay) continue;
+    if ((row.edgePct ?? 0) < 0 && !row.finalAiScore.highRiskValuePlay) continue;
+    seenLegs.add(leg);
+    if (bucket) seenBuckets.add(bucket);
+    out.push(row.pick);
+  }
+  return out;
+}
+
 /** Build cover queries for every eval line so the sim scores all rungs in one draw. */
 export function coverQueriesFromEvalLines(
   evalLinesByGame: Map<string, RealOddsEntry[]>,

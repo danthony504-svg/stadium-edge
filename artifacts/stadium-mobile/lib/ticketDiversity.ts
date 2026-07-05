@@ -132,8 +132,33 @@ export function rotatePool<T>(items: T[], seed: string): T[] {
   return [...items.slice(offset), ...items.slice(0, offset)];
 }
 
-export function existingLegKeys(picks: ParsedPick[]): Set<string> {
-  return new Set(picks.map(legKey));
+/** Strip model chalk so reach-backfill must run for longshot parlays. */
+export function prepareLongshotParlaySeed(
+  picks: ParsedPick[],
+  legTarget: number,
+): { picks: ParsedPick[]; stripped: number } {
+  const minProps = Math.max(1, Math.ceil(legTarget * 0.65));
+  const maxGameLegs = Math.max(0, Math.min(2, legTarget - minProps));
+  const props = picks.filter((p) => p.isProp);
+  const gameLegs = dedupeSameTeamGameLegs(
+    picks.filter((p) => !p.isProp && isGameLinePick(p)),
+  ).picks.slice(0, maxGameLegs);
+  const stripped = picks.length - props.length - gameLegs.length;
+  return { picks: [...props, ...gameLegs], stripped };
+}
+
+export function needsParlayBackfill(
+  picks: ParsedPick[],
+  legTarget: number,
+  opts: { longshotAsk?: boolean } = {},
+): boolean {
+  if (legTarget <= picks.length && !opts.longshotAsk) return false;
+  if (legTarget > picks.length) return true;
+  if (opts.longshotAsk && legTarget >= 6 && propShare(picks) < 0.55) return true;
+  if (opts.longshotAsk && picks.filter((p) => !p.isProp && isGameLinePick(p)).length > 3) {
+    return true;
+  }
+  return false;
 }
 
 export type { PropPoolEntry };
