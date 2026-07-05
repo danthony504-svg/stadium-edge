@@ -63,7 +63,8 @@ export type SlimChatContextInput = {
 type SlimProp = SlimChatContextInput["realProps"][number];
 
 function stripPropUploadFields(p: SlimProp): SlimProp {
-  const { ev: _ev, evSide: _es, fairProb: _fp, edge: _e, simHitPct: _sh, selectionScore: _ss, ...rest } = p;
+  // Keep edge + pre-build selection signals for the model; drop verbose EV internals.
+  const { ev: _ev, evSide: _es, fairProb: _fp, ...rest } = p;
   return rest;
 }
 

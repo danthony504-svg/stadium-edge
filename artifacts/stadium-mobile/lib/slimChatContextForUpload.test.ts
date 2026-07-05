@@ -94,12 +94,27 @@ test("slimChatContextForUpload drops heavy upload-only fields", () => {
   assert.equal(slim.realProps[0].player, "Player One");
   assert.equal(slim.realProps[1].alt, true);
   assert.equal("ev" in slim.realProps[0], false);
+  assert.equal(slim.realProps[0].edge, 2.1);
   assert.equal("noVigFair" in slim.realOdds[0], false);
   assert.equal(slim.mlbPlatoon, undefined);
   assert.equal(slim.mlbGameEnv, undefined);
   assert.equal(slim.matchupInjuries, undefined);
   assert.equal(slim.matchupHistory?.["Away Team @ Home Team"]?.mlLean?.side, "Home Team");
   assert.equal(slim.matchupHistory?.["Away Team @ Home Team"]?.home, null);
+});
+
+test("slimChatContextForUpload preserves pre-build selection signals on props", () => {
+  const ctx = heavyContext();
+  ctx.realProps[0] = {
+    ...ctx.realProps[0],
+    simHitPct: 64,
+    selectionScore: 7.8,
+    edge: 2.1,
+  };
+  const slim = slimChatContextForUpload(ctx);
+  assert.equal(slim.realProps[0].simHitPct, 64);
+  assert.equal(slim.realProps[0].selectionScore, 7.8);
+  assert.equal(slim.realProps[0].edge, 2.1);
 });
 
 test("slimChatContextForUpload shrinks serialized upload size", () => {
