@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  isFullyQualifiedGameLineFinalAi,
+  comparePickStrength,
   isFullyQualifiedPick,
+  isLongshotSectionPick,
+  isMainTicketQualified,
+  MIN_MAIN_PICK_CONFIDENCE,
+  MIN_MAIN_PICK_GRADE,
   partitionQualifiedPicks,
   reasonPickNotQualified,
 } from "./parlayQualifiedGate.ts";
@@ -38,15 +42,40 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
   };
 }
 
-test("game lines reject sim below 52% even with positive edge", () => {
+test("main ticket rejects grade below C", () => {
+  const score = qualifiedPick().finalAiScore!;
+  assert.equal(isMainTicketQualified({ ...score, grade: "C-" }, -110), false);
+  assert.equal(isMainTicketQualified({ ...score, grade: "C" }, -110), true);
+});
+
+test("main ticket rejects confidence below 50", () => {
   const score = qualifiedPick().finalAiScore!;
   assert.equal(
-    isFullyQualifiedGameLineFinalAi({ ...score, simHit: 0.5, simAligned: false }, -110),
+    isMainTicketQualified({ ...score, confidencePct: MIN_MAIN_PICK_CONFIDENCE - 1 }, -110),
     false,
+  );
+  assert.equal(
+    isMainTicketQualified({ ...score, confidencePct: MIN_MAIN_PICK_CONFIDENCE }, -110),
+    true,
   );
 });
 
-test("game lines reject high-risk value play bypass", () => {
+test("main ticket rejects negative edge", () => {
+  assert.equal(
+    isFullyQualifiedPick(
+      qualifiedPick({
+        finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: -1.2 },
+      }),
+    ),
+    false,
+  );
+  const reason = reasonPickNotQualified(
+    qualifiedPick({ finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: -0.5 } }),
+  );
+  assert.match(reason, /negative EV/i);
+});
+
+test("main ticket rejects sim below 52% and high-risk bypass", () => {
   assert.equal(
     isFullyQualifiedPick(
       qualifiedPick({
@@ -63,7 +92,7 @@ test("game lines reject high-risk value play bypass", () => {
   );
 });
 
-test("game lines require sim alignment", () => {
+test("main ticket rejects sim disagreement", () => {
   const reason = reasonPickNotQualified(
     qualifiedPick({
       finalAiScore: {
@@ -73,27 +102,32 @@ test("game lines require sim alignment", () => {
       },
     }),
   );
-  assert.match(reason, /simulator.*disagrees/i);
+  assert.match(reason, /disagrees/i);
 });
 
-test("props still allow high-risk value play with complete fields", () => {
-  assert.equal(
-    isFullyQualifiedPick({
-      ...qualifiedPick({
-        isProp: true,
-        market: "Hits",
-        player: "Star",
-        finalAiScore: {
-          ...qualifiedPick().finalAiScore!,
-          simHit: 0.48,
-          simAligned: false,
-          highRiskValuePlay: true,
-          edgePct: 5.2,
-        },
-      }),
-    }),
-    true,
-  );
+test("longshot section accepts negative edge when not main-qualified", () => {
+  const p = qualifiedPick({
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      edgePct: -2,
+      simAligned: false,
+      simHit: 0.45,
+    },
+  });
+  assert.equal(isFullyQualifiedPick(p), false);
+  assert.equal(isLongshotSectionPick(p), true);
+});
+
+test("comparePickStrength ranks higher edge first", () => {
+  const low = qualifiedPick({
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 1.0 },
+  });
+  const high = qualifiedPick({
+    game: "C @ D",
+    pick: "C +1.5",
+    finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: 4.5, simHit: 0.54 },
+  });
+  assert.ok(comparePickStrength(high, low) < 0);
 });
 
 test("partitionQualifiedPicks splits ticket", () => {
@@ -102,4 +136,8 @@ test("partitionQualifiedPicks splits ticket", () => {
   const { qualified, unqualified } = partitionQualifiedPicks([good, bad]);
   assert.equal(qualified.length, 1);
   assert.equal(unqualified.length, 1);
+});
+
+test("MIN_MAIN_PICK_GRADE is C", () => {
+  assert.equal(MIN_MAIN_PICK_GRADE, "C");
 });

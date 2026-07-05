@@ -15,7 +15,7 @@ import {
 } from "./gameLineOptimizer.ts";
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
-import { isFullyQualifiedGameLineFinalAi } from "./parlayQualifiedGate.ts";
+import { isMainTicketQualified, reasonPickNotQualified } from "./parlayQualifiedGate.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -41,19 +41,12 @@ function nearScoreFromEval(row: EvaluatedGameLine): number {
 }
 
 function reasonForEvalReject(row: EvaluatedGameLine): string {
-  if (!isFullyQualifiedGameLineFinalAi(row.finalAiScore, row.pick.odds ?? null)) {
-    const hit = row.finalAiScore.simHit;
-    const edge = row.edgePct ?? row.finalAiScore.edgePct;
-    if (hit != null && hit < 0.52) {
-      return `10k sim ${Math.round(hit * 100)}% cover — game lines need ≥52% and sim alignment`;
-    }
-    if (!row.finalAiScore.simAligned) {
-      return "Game simulator disagrees with AI Coach — game lines must be sim-aligned";
-    }
-    if ((edge ?? 0) <= 0) return `${edge}% edge — game lines need positive EV`;
-    return "game line quality bar not met";
-  }
-  return "quality bar not met";
+  const pick = {
+    ...row.pick,
+    finalAiScore: row.finalAiScore,
+    scores: row.finalAiScore.rubric,
+  };
+  return reasonPickNotQualified(pick);
 }
 
 /** Rank eval-ladder rungs that almost made the ticket (not already on it). */
@@ -92,7 +85,7 @@ export function collectNearMissGameLines(
     for (const row of ranked) {
       const fp = pickLegFingerprint(row.pick);
       if (onTicket.has(fp)) continue;
-      if (isFullyQualifiedGameLineFinalAi(row.finalAiScore, row.pick.odds ?? null)) continue;
+      if (isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
       rejects.push({
         pick: row.pick,
         reason: reasonForEvalReject(row),

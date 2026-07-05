@@ -15,7 +15,7 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
-import { isFullyQualifiedGameLineFinalAi } from "./parlayQualifiedGate.ts";
+import { isMainTicketQualified } from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -244,7 +244,7 @@ function simForGame(
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
   const eligible = ranked.filter((r) =>
-    isFullyQualifiedGameLineFinalAi(r.finalAiScore, r.pick.odds ?? null),
+    isMainTicketQualified(r.finalAiScore, r.pick.odds ?? null),
   );
   if (eligible.length) return bestGameLine(eligible);
   return null;
@@ -712,7 +712,7 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!isFullyQualifiedGameLineFinalAi(row.finalAiScore, row.pick.odds ?? null)) continue;
+    if (!isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);

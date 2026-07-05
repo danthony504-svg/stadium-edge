@@ -15,8 +15,10 @@ import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import {
-  isFullyQualifiedGameLineFinalAi,
+  comparePickStrength,
   isFullyQualifiedPick,
+  isLongshotSectionPick,
+  isMainTicketQualified,
   nearScoreFromPick,
   reasonPickNotQualified,
 } from "./parlayQualifiedGate.ts";
@@ -86,7 +88,7 @@ export function collectQualifiedGameLineCandidates(
       matchupInjuries: opts.matchupInjuries,
     });
     for (const row of ranked) {
-      if (!isFullyQualifiedGameLineFinalAi(row.finalAiScore, row.pick.odds ?? null)) {
+      if (!isMainTicketQualified(row.finalAiScore, row.pick.odds ?? null)) {
         opts.rejectsOut?.push({
           pick: row.pick,
           reason: reasonPickNotQualified(evalRowToPick(row)),
@@ -97,7 +99,7 @@ export function collectQualifiedGameLineCandidates(
       qualified.push(evalRowToPick(row));
     }
   }
-  return qualified.sort((a, b) => nearScoreFromPick(b) - nearScoreFromPick(a));
+  return qualified.sort((a, b) => comparePickStrength(b, a));
 }
 
 /** Qualified prop candidates from the full pool (deep-simmed). */
@@ -113,8 +115,8 @@ export async function collectQualifiedPropCandidates(
     scoreOpts,
   );
   const preRanked = preScored
-    .filter((p) => (p.finalAiScore?.composite ?? 0) > 0 && (p.finalAiScore?.edgePct ?? 0) > 0)
-    .sort((a, b) => nearScoreFromPick(b) - nearScoreFromPick(a))
+    .filter((p) => isMainTicketQualified(p.finalAiScore, p.odds ?? null) || (p.finalAiScore?.edgePct ?? 0) > 0)
+    .sort((a, b) => comparePickStrength(b, a))
     .slice(0, PROP_SIM_CANDIDATE_CAP);
 
   let propSimulations: Map<string, { hitProbability: number | null }> | undefined;
@@ -140,7 +142,7 @@ export async function collectQualifiedPropCandidates(
         nearScore: nearScoreFromPick(p),
       });
   }
-  return qualified.sort((a, b) => nearScoreFromPick(b) - nearScoreFromPick(a));
+  return qualified.sort((a, b) => comparePickStrength(b, a));
 }
 
 export type SelectStrongestParlayOpts = {
@@ -201,16 +203,17 @@ function addCandidate(
   out.push(pick);
 }
 
-/** Greedy diversity-aware selection from a strength-sorted candidate pool. */
+/** Greedy diversity-aware selection from a strength-sorted candidate pool. Never pads with unqualified legs. */
 export function selectDiverseStrongest(
   candidates: ParsedPick[],
   target: number,
-  opts?: { maxGameLegs?: number; minProps?: number; maxPerGame?: number },
+  opts?: { maxGameLegs?: number; maxPerGame?: number },
 ): ParsedPick[] {
-  const { maxGameLegs = Math.ceil(target * 0.5), minProps = Math.floor(target * 0.35) } =
-    opts ?? {};
+  const maxGameLegs = opts?.maxGameLegs ?? Math.ceil(target * 0.5);
   const maxPerGame = opts?.maxPerGame ?? (target >= 12 ? 4 : 2);
-  const sorted = [...candidates].sort((a, b) => nearScoreFromPick(b) - nearScoreFromPick(a));
+  const sorted = [...candidates]
+    .filter(isFullyQualifiedPick)
+    .sort((a, b) => comparePickStrength(b, a));
   const out: ParsedPick[] = [];
   const state = {
     legSeen: new Set<string>(),
@@ -221,42 +224,48 @@ export function selectDiverseStrongest(
     maxPerGame,
   };
 
-  let propLegs = 0;
-  for (const p of sorted) {
-    if (propLegs >= minProps) break;
-    if (!p.isProp) continue;
-    if (!canAddCandidate(p, state)) continue;
-    addCandidate(p, state, out);
-    propLegs += 1;
-  }
-
   for (const p of sorted) {
     if (out.length >= target) break;
     if (!canAddCandidate(p, state)) continue;
     addCandidate(p, state, out);
   }
 
-  if (out.length < target) {
-    for (const p of sorted) {
-      if (out.length >= target) break;
-      if (state.legSeen.has(pickLegFingerprint(p))) continue;
-      out.push(p);
-    }
-  }
+  return out;
+}
 
-  return out.slice(0, target);
+export type StrongestParlayResult = {
+  picks: ParsedPick[];
+  longshotPicks: ParsedPick[];
+};
+
+/** Longshot / high-risk legs — never on the main ticket. */
+export function selectLongshotSectionPicks(
+  candidates: ParsedPick[],
+  limit: number,
+): ParsedPick[] {
+  const onMain = new Set<string>();
+  return candidates
+    .filter((p) => isLongshotSectionPick(p) && !isFullyQualifiedPick(p))
+    .sort((a, b) => (b.odds ?? 0) - (a.odds ?? 0))
+    .filter((p) => {
+      const fp = pickLegFingerprint(p);
+      if (onMain.has(fp)) return false;
+      onMain.add(fp);
+      return true;
+    })
+    .slice(0, limit);
 }
 
 /**
  * Search the entire betting board and return the `target` strongest qualified
- * picks — not the first N that pass filters.
+ * picks — ranked by edge, sim, confidence, grade, and odds.
  */
 export async function selectStrongestQualifiedParlay(
   target: number,
   opts: SelectStrongestParlayOpts,
-): Promise<ParsedPick[]> {
-  if (target <= 0) return [];
-  const { minProps, maxGameLegs } = reachParlayMix(target);
+): Promise<StrongestParlayResult> {
+  if (target <= 0) return { picks: [], longshotPicks: [] };
+  const { maxGameLegs } = reachParlayMix(target);
   const rejects = opts.rejectsOut ?? [];
 
   const gameCandidates = collectQualifiedGameLineCandidates(
@@ -277,13 +286,23 @@ export async function selectStrongestQualifiedParlay(
     rejects,
   );
 
-  const merged = [...gameCandidates, ...propCandidates].sort(
-    (a, b) => nearScoreFromPick(b) - nearScoreFromPick(a),
-  );
+  const allScored = [...gameCandidates, ...propCandidates];
+  const merged = allScored
+    .filter(isFullyQualifiedPick)
+    .sort((a, b) => comparePickStrength(b, a));
 
-  return selectDiverseStrongest(merged, target, {
+  const picks = selectDiverseStrongest(merged, target, {
     maxGameLegs,
-    minProps: opts.longshotAsk ? Math.max(minProps, Math.floor(target * 0.5)) : minProps,
     maxPerGame: opts.maxPerGame ?? (target >= 12 ? 4 : 2),
   });
+
+  const longshotPicks =
+    opts.longshotAsk && rejects.length
+      ? selectLongshotSectionPicks(
+          rejects.map((r) => r.pick),
+          Math.min(6, target),
+        )
+      : [];
+
+  return { picks, longshotPicks };
 }

@@ -173,6 +173,8 @@ type UIMessage = {
   /** Near-miss legs that almost cleared quality filters when ticket is short of requested count. */
   backupPicks?: ParsedPick[];
   backupNote?: string;
+  /** High-risk / negative-edge legs shown only when user asked for longshots. */
+  longshotPicks?: ParsedPick[];
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
@@ -2307,6 +2309,7 @@ export default function CoachScreen() {
           !confidenceThreshold &&
           requestedLegs > 0;
         let propsDeepSimmed = false;
+        let longshotPicks: ParsedPick[] = [];
         if (shouldQualifyReplenish) {
           if (!coachEvalLinesByGame) {
             const reachSports = [
@@ -2376,8 +2379,8 @@ export default function CoachScreen() {
               scoreAttachOpts.gameSimulations = gameSimulations;
             }
           }
-          picks = await selectStrongestQualifiedParlay(reachTarget, {
-            evalLinesByGame: coachEvalLinesByGame,
+          const boardResult = await selectStrongestQualifiedParlay(reachTarget, {
+            evalLinesByGame: coachEvalLinesByGame!,
             gameSimulations,
             propPool: mergedPropPool,
             realOdds: mergedGameOdds,
@@ -2388,6 +2391,8 @@ export default function CoachScreen() {
             signal: abortRef.current?.signal,
             rejectsOut: parlayRejections,
           });
+          picks = boardResult.picks;
+          longshotPicks = boardResult.longshotPicks;
           propsDeepSimmed = picks.some((p) => p.isProp);
         } else if (isParlayBuild && !isAnalyze && !oddsThreshold && !confidenceThreshold) {
           picks = await filterToQualifiedPicks(
@@ -2539,6 +2544,7 @@ export default function CoachScreen() {
             picks,
             ...(legNote ? { legNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
+            ...(longshotPicks.length ? { longshotPicks } : {}),
           };
           return copy;
         });
@@ -3052,6 +3058,44 @@ export default function CoachScreen() {
                         }
                       />
                     ))}
+                    {m.longshotPicks && m.longshotPicks.length > 0 ? (
+                      <View style={{ gap: 8, marginTop: 12 }}>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.semibold,
+                            fontSize: 13,
+                          }}
+                        >
+                          High Risk / Longshot — not on main ticket
+                        </Text>
+                        <Text
+                          style={{
+                            color: colors.mutedForeground,
+                            fontFamily: FONT.medium,
+                            fontSize: 11,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          These legs have negative edge or weak sim support — shown because you asked for longshots.
+                        </Text>
+                        {m.longshotPicks.map((p, j) => (
+                          <PickCard
+                            key={`${i}-longshot-${j}`}
+                            pick={p}
+                            onPress={statsHandlerFor(p)}
+                            badge={{
+                              text: "High Risk / Longshot",
+                              caption:
+                                p.finalAiScore?.edgePct != null && p.finalAiScore.edgePct <= 0
+                                  ? `${p.finalAiScore.edgePct}% edge — negative EV`
+                                  : "Simulator does not fully support this line",
+                              tone: "value" as const,
+                            }}
+                          />
+                        ))}
+                      </View>
+                    ) : null}
                     {m.backupPicks && m.backupPicks.length > 0 ? (
                       <View style={{ gap: 8, marginTop: 12 }}>
                         <Text
