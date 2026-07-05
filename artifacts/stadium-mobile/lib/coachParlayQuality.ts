@@ -23,6 +23,7 @@ import {
   COACH_MIN_GRADE,
   COACH_MIN_GRADE_RANK,
 } from "./coachLegQuality";
+import { buildPropDualScoreForLeg } from "./propDualScore";
 
 export {
   evaluateCoachLegQuality,
@@ -41,6 +42,72 @@ export type CoachScoreOpts = {
   playerHistory?: Record<string, PlayerHistorySlice>;
   propSimulations?: Map<string, CoachPropSimEntry>;
 };
+
+function propPoolEntryForPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
+  const mk = pick.propMarketKey ?? pick.market;
+  return (
+    pool.find(
+      (e) =>
+        e.game === pick.game &&
+        e.player === pick.player &&
+        (e.marketKey ?? e.marketLabel) === mk &&
+        e.side === pick.propSide &&
+        e.line === pick.propLine,
+    ) ??
+    pool.find(
+      (e) =>
+        e.game === pick.game &&
+        e.player === pick.player &&
+        e.side === pick.propSide &&
+        e.line === pick.propLine,
+    )
+  );
+}
+
+function playerHistoryForCoach(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, PlayerHistorySlice>,
+): PlayerHistorySlice | undefined {
+  if (!map) return undefined;
+  if (athleteId) {
+    const hit =
+      map[`${player}#${athleteId}`] ??
+      Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1];
+    if (hit) return hit;
+  }
+  if (player) {
+    return Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1];
+  }
+  return undefined;
+}
+
+function dualForCoachPick(
+  pick: ParsedPick,
+  combined: CombinedPickScore | null | undefined,
+  simRow: PropSimulationResult | null,
+  scoreOpts: CoachScoreOpts,
+  propPool: PropPoolEntry[],
+) {
+  if (!pick.isProp || !pick.sport) return null;
+  const entry = propPoolEntryForPick(pick, propPool);
+  const ph = playerHistoryForCoach(pick.player, pick.athleteId ?? entry?.athleteId, scoreOpts.playerHistory);
+  return buildPropDualScoreForLeg(combined, simRow, {
+    sport: pick.sport,
+    marketKey: pick.propMarketKey ?? entry?.marketKey ?? pick.market,
+    game: pick.game,
+    player: pick.player,
+    line: pick.propLine ?? entry?.line ?? null,
+    side: pick.propSide ?? entry?.side ?? "Over",
+    odds: pick.odds,
+    teamAbbr: entry?.teamAbbr ?? pick.teamAbbr,
+    recentGames: ph?.recent?.map((g) => ({ stats: g.stats, opp: g.opp })),
+    labels: ph?.labels,
+    matchupHistory: scoreOpts.matchupHistory,
+    matchupInjuries: scoreOpts.matchupInjuries,
+    injuryTeams: undefined,
+  });
+}
 
 function propSimRowForPick(
   pick: ParsedPick,
@@ -144,7 +211,11 @@ export function optimizePropPickRung(
     let combined = capGradeForSimHit(scored.scores, simRow);
     const edge = effectiveEdge(combined, simRow, scored.odds);
     const hit = simRow?.hitProbability ?? null;
-    const quality = evaluateCoachLegQuality({ ...scored, scores: combined }, simRow);
+    const quality = evaluateCoachLegQuality(
+      { ...scored, scores: combined },
+      simRow,
+      dualForCoachPick({ ...scored, scores: combined }, combined, simRow, scoreOpts, propPool),
+    );
     if (!quality.passes) continue;
 
     const utility = rungBalanceScore(combined, hit, edge);
@@ -208,7 +279,8 @@ export function filterAndReplaceCoachParlay(
   for (const p of picks) {
     const scored = scorePick(p);
     const simRow = propSimRowForPick(scored, sims);
-    const q = evaluateCoachLegQuality(scored, simRow);
+    const dual = dualForCoachPick(scored, scored.scores, simRow, scoreOpts, propPool);
+    const q = evaluateCoachLegQuality(scored, simRow, dual);
     if (q.passes) kept.push(scored);
     else if (scored.isProp) droppedProps.push(scored);
   }
@@ -239,7 +311,8 @@ export function filterAndReplaceCoachParlay(
         const optimized = optimizePropPickRung(candidate, propPool, scoreOpts);
         const scored = scorePick(optimized);
         const simRow = propSimRowForPick(scored, sims);
-        const q = evaluateCoachLegQuality(scored, simRow);
+        const dual = dualForCoachPick(scored, scored.scores, simRow, scoreOpts, propPool);
+        const q = evaluateCoachLegQuality(scored, simRow, dual);
         if (!q.passes) continue;
 
         kept.push(scored);
@@ -285,5 +358,6 @@ export function propEntryPassesCoachQuality(
   if (!scored?.scores) return false;
   const simRow = propSimRowForPick(scored, scoreOpts.propSimulations);
   const capped = simRow ? capGradeForSimHit(scored.scores, simRow) : scored.scores;
-  return evaluateCoachLegQuality({ ...scored, scores: capped }, simRow).passes;
+  const dual = dualForCoachPick({ ...scored, scores: capped }, capped, simRow, scoreOpts, propPool);
+  return evaluateCoachLegQuality({ ...scored, scores: capped }, simRow, dual).passes;
 }

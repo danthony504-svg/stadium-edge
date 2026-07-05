@@ -22,6 +22,7 @@ import {
 import type { InjuryTeam, MatchupHistoryEntry } from "./api";
 import type { GameInjuryReport } from "./injuries";
 import { propMarketLabel } from "./propMarketLabel";
+import { buildPropDualScoreForLeg, propDualScoreRecommends, type PropDualScore } from "./propDualScore";
 
 export const SIM_TICKET_MIN_GRADE = "B+";
 export const SIM_TICKET_MIN_CONFIDENCE = 55;
@@ -64,6 +65,7 @@ function propLabel(s: SimulatorSelectedProp): string {
 export function evaluateSimulatorTicketQuality(
   combined: CombinedPickScore | null | undefined,
   simRow: PropSimulationResult | null | undefined,
+  dual?: PropDualScore | null,
 ): { passes: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (!combined?.grade) reasons.push("no grade");
@@ -92,7 +94,52 @@ export function evaluateSimulatorTicketQuality(
     reasons.push("weak line value vs other books");
   }
 
+  if (
+    dual &&
+    dual.playerScore != null &&
+    dual.matchupScore != null &&
+    !propDualScoreRecommends(dual)
+  ) {
+    reasons.push(dual.explanation || "player and matchup must both clear the bar");
+    if (!dual.passesPlayer) reasons.push("player score below bar");
+    if (!dual.passesMatchup) reasons.push("matchup score below bar");
+  }
+
   return { passes: reasons.length === 0, reasons };
+}
+
+function dualForSimulatorProp(
+  prop: SimulatorSelectedProp,
+  combined: CombinedPickScore | null,
+  simRow: PropSimulationResult | null,
+  ctx: SimulatorGradingCtx,
+): PropDualScore | null {
+  const entry =
+    ctx.fullPool.find(
+      (e) =>
+        e.game === ctx.gameLabel &&
+        e.player === prop.player &&
+        (e.marketKey ?? e.marketLabel) === prop.market &&
+        e.side === prop.side &&
+        e.line === prop.line,
+    ) ?? ctx.propPool.find((e) => e.player === prop.player && e.side === prop.side);
+  const ph = ctx.playerHistory?.[`${prop.player}#${prop.athleteId ?? entry?.athleteId ?? ""}`] ??
+    Object.entries(ctx.playerHistory ?? {}).find(([k]) => k.startsWith(`${prop.player}#`))?.[1];
+  return buildPropDualScoreForLeg(combined, simRow, {
+    sport: ctx.sport,
+    marketKey: prop.market,
+    game: ctx.gameLabel,
+    player: prop.player,
+    line: prop.line,
+    side: prop.side,
+    odds: prop.odds,
+    teamAbbr: entry?.teamAbbr,
+    recentGames: ph?.recent?.map((g) => ({ stats: g.stats as Record<string, string>, opp: g.opp })),
+    labels: ph?.labels,
+    matchupHistory: ctx.matchupHistory,
+    matchupInjuries: ctx.matchupInjuries,
+    injuryTeams: ctx.injuryTeams,
+  });
 }
 
 function gradeOne(
@@ -208,7 +255,8 @@ function bestRungForSlot(
     if (!simRow) continue;
     const { combined } = gradeOne(prop, simRows, ctx);
     if (!combined) continue;
-    const quality = evaluateSimulatorTicketQuality(combined, simRow);
+    const dual = dualForSimulatorProp(prop, combined, simRow, ctx);
+    const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
     if (!quality.passes) continue;
     const rankScore = propRankScore(combined, simRow);
     if (!best || rankScore > best.rankScore) {
@@ -265,7 +313,8 @@ export function optimizeSimulatorTicket(
 
     if (!best) {
       const { combined, simRow } = gradeOne(s, simRows, ctx);
-      const quality = evaluateSimulatorTicketQuality(combined, simRow);
+      const dual = dualForSimulatorProp(s, combined, simRow, ctx);
+      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
       const reason = quality.reasons[0] ?? "didn't clear the quality bar";
       changes.push({ kind: "removed", label: propLabel(s), reason });
       explanation.push(`Removed ${propLabel(s)} — ${reason}.`);
@@ -303,7 +352,8 @@ export function optimizeSimulatorTicket(
       const simRow = simRows.get(key);
       if (!simRow) continue;
       const { combined } = gradeOne(prop, simRows, ctx);
-      const quality = evaluateSimulatorTicketQuality(combined, simRow);
+      const dual = dualForSimulatorProp(prop, combined, simRow, ctx);
+      const quality = evaluateSimulatorTicketQuality(combined, simRow, dual);
       if (!quality.passes || !combined) continue;
 
       const rankScore = propRankScore(combined, simRow);

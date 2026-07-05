@@ -4,6 +4,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropSimulationResult } from "./api.ts";
 import type { CombinedPickScore } from "./pickScore.ts";
 import { americanToImplied } from "./pickScore.ts";
+import { propDualScoreRecommends, type PropDualScore } from "./propDualScore.ts";
 
 const GRADE_RANK: Record<string, number> = {
   F: 0,
@@ -42,7 +43,8 @@ export type CoachQualityFailure =
   | "weak_matchup"
   | "weak_form"
   | "injury_concern"
-  | "weak_line_shopping";
+  | "weak_line_shopping"
+  | "dual_score";
 
 export type CoachQualityResult = {
   passes: boolean;
@@ -76,6 +78,7 @@ function simSupportsProp(simRow: PropSimulationResult | null): boolean {
 export function evaluateCoachLegQuality(
   pick: ParsedPick,
   simRow: PropSimulationResult | null,
+  dual?: PropDualScore | null,
 ): CoachQualityResult {
   const failures: CoachQualityFailure[] = [];
   const scores = pick.scores;
@@ -107,6 +110,18 @@ export function evaluateCoachLegQuality(
   if (sub?.injury != null && sub.injury < COACH_INJURY_FLOOR) failures.push("injury_concern");
   if (sub?.lineShopping != null && sub.lineShopping < COACH_MIN_SUBSCORE) {
     failures.push("weak_line_shopping");
+  }
+
+  if (
+    pick.isProp &&
+    dual &&
+    dual.playerScore != null &&
+    dual.matchupScore != null &&
+    !propDualScoreRecommends(dual)
+  ) {
+    failures.push("dual_score");
+    if (!dual.passesPlayer && !failures.includes("weak_form")) failures.push("weak_form");
+    if (!dual.passesMatchup && !failures.includes("weak_matchup")) failures.push("weak_matchup");
   }
 
   return { passes: failures.length === 0, failures };
