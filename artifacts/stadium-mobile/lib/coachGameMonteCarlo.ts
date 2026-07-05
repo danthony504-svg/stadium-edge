@@ -7,6 +7,7 @@ import {
   buildGameCoverQuery,
   gamePickCoverQueryId,
   gameSimDisagreement,
+  gameSimHitForPick,
   isGameLinePick,
   type CoachGameSimEntry,
   type GameCoverQuery,
@@ -172,7 +173,13 @@ export async function fetchCoachGameSimulationsForPicks(
         },
         signal,
       );
-      if (result) out.set(gameLabel, result as CoachGameSimEntry);
+      if (result) {
+        const sim = result as CoachGameSimEntry;
+        out.set(gameLabel, sim);
+        for (const leg of legs) {
+          if (leg.game !== gameLabel) out.set(leg.game, sim);
+        }
+      }
     }),
   );
 
@@ -202,7 +209,24 @@ export async function supplementCoachGameSimulations(
   if (!extra.size) return existing;
   const merged = new Map(existing);
   for (const [k, v] of extra) merged.set(k, v);
+  for (const p of picks.filter(isGameLinePick)) {
+    const sim = coachGameSimForPick(p, merged);
+    if (sim) merged.set(p.game, sim);
+  }
   return merged;
+}
+
+/** Register every game-line label on the ticket against its fuzzy-matched sim row. */
+export function aliasCoachGameSimLabels(
+  picks: ParsedPick[],
+  simByGame: Map<string, CoachGameSimEntry>,
+): Map<string, CoachGameSimEntry> {
+  const out = new Map(simByGame);
+  for (const p of picks.filter(isGameLinePick)) {
+    const sim = coachGameSimForPick(p, out);
+    if (sim) out.set(p.game, sim);
+  }
+  return out;
 }
 
 export function coachGameSimForPick(

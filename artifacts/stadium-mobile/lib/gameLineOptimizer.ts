@@ -10,6 +10,7 @@ import {
   buildGameCoverQuery,
   gameSimHitForPick,
   isGameLinePick,
+  lookupGameSim,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
@@ -495,6 +496,33 @@ function resolveOddsRowForNote(
   );
 }
 
+function probeSimHitFromEvalLadder(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | undefined,
+  evalLines: RealOddsEntry[],
+): number | null {
+  if (!sim) return null;
+  const direct = gameSimHitForPick(pick, sim);
+  if (direct != null) return direct;
+  for (const row of evalLines) {
+    if (!/spread|moneyline|total/i.test(row.market)) continue;
+    const hit = gameSimHitForPick(
+      {
+        ...pick,
+        game: row.game,
+        market: row.market,
+        pick: row.pick,
+        odds: row.odds,
+        isProp: false,
+        sport: row.sport ?? pick.sport,
+      },
+      sim,
+    );
+    if (hit != null) return hit;
+  }
+  return null;
+}
+
 function formatGameLineScoreNote(
   pick: ParsedPick,
   scored: EvaluatedGameLine | null,
@@ -502,13 +530,15 @@ function formatGameLineScoreNote(
   match: RealOddsEntry | null,
   opts?: {
     realOdds: RealOddsEntry[];
+    evalLines?: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
   },
 ): string {
   const simHit =
-    scored?.winProb ??
     pick.finalAiScore?.simHit ??
+    scored?.winProb ??
+    probeSimHitFromEvalLadder(pick, sim, opts?.evalLines ?? []) ??
     gameSimHitForPick(pick, sim) ??
     (match
       ? gameSimHitForPick(
@@ -516,10 +546,13 @@ function formatGameLineScoreNote(
           sim,
         )
       : null);
+  const resolvedRow =
+    match ??
+    (opts ? resolveOddsRowForNote(pick, opts.evalLines ?? [], opts.realOdds) : undefined);
   let edge =
-    scored?.edgePct ??
     pick.finalAiScore?.edgePct ??
-    match?.edge ??
+    scored?.edgePct ??
+    resolvedRow?.edge ??
     pick.scores?.edgePct ??
     null;
   if (edge == null && opts) {
@@ -577,7 +610,7 @@ export function buildGameLineOptimizerNote(
     if (bucket) seenBuckets.add(bucket);
 
     const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
-    const sim = simForGame(pick.game, simByGame);
+    const sim = lookupGameSim(pick.game, simByGame) ?? simForGame(pick.game, simByGame);
     let match = resolveOddsRowForNote(pick, evalLines, opts.realOdds);
     if (!match && pick.odds != null) {
       match = {
@@ -594,6 +627,7 @@ export function buildGameLineOptimizerNote(
       lines.push(
         formatGameLineScoreNote(pick, null, sim, null, {
           realOdds: mergeOddsEntries(opts.realOdds, evalLines),
+          evalLines,
           matchupHistory: opts.matchupHistory,
           matchupInjuries: opts.matchupInjuries,
         }),
@@ -611,6 +645,7 @@ export function buildGameLineOptimizerNote(
     lines.push(
       formatGameLineScoreNote(pick, ranked[0] ?? null, sim, match, {
         realOdds: mergedOdds,
+        evalLines,
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
       }),

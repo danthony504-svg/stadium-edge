@@ -59,6 +59,7 @@ import {
   filterCoachPicksWithGameSim,
   filterNegativeEdgeGameLines,
   supplementCoachGameSimulations,
+  aliasCoachGameSimLabels,
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
@@ -2232,6 +2233,7 @@ export default function CoachScreen() {
               mergedGameOdds,
               coachEvalLinesByGame,
             );
+            gameSimulations = aliasCoachGameSimLabels(picks, gameSimulations);
           }
         }
         // Grade each resolved leg with the 5-component pick rubric, from the SAME
