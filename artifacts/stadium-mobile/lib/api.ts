@@ -17,6 +17,7 @@ import {
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
+  propsOnlySlimChatContextForUpload,
 } from "./slimChatContext";
 import {
   isPickable,
@@ -52,12 +53,14 @@ export {
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
+  propsOnlySlimChatContextForUpload,
 };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
 export {
   isPickable,
   isPregameBettable,
+  isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,
@@ -701,6 +704,81 @@ export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<Prop
   if (args.startsAt) q.set("startsAt", args.startsAt);
   // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
   return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+}
+
+function ppStatToMarketKey(sport: string, stat: string): string {
+  const s = stat.toLowerCase().replace(/[^a-z0-9+]/g, " ").trim();
+  const MLB: Record<string, string> = {
+    hits: "batter_hits",
+    "home runs": "batter_home_runs",
+    hr: "batter_home_runs",
+    hrs: "batter_home_runs",
+    strikeouts: "pitcher_strikeouts",
+    "pitcher strikeouts": "pitcher_strikeouts",
+    ks: "pitcher_strikeouts",
+    "stolen bases": "batter_stolen_bases",
+    sbs: "batter_stolen_bases",
+    "total bases": "batter_total_bases",
+    "hits runs rbis": "batter_hits_runs_rbis",
+    "hits+runs+rbis": "batter_hits_runs_rbis",
+    rbis: "batter_hits_runs_rbis",
+  };
+  const NBA: Record<string, string> = {
+    points: "player_points",
+    rebounds: "player_rebounds",
+    assists: "player_assists",
+    "3pt made": "player_threes",
+    threes: "player_threes",
+    "pts+rebs+asts": "player_points_rebounds_assists",
+  };
+  const map =
+    sport === "mlb"
+      ? MLB
+      : sport === "nba" || sport === "wnba"
+        ? NBA
+        : sport === "nhl"
+          ? {
+              points: "player_points",
+              goals: "player_goals",
+              assists: "player_assists",
+              "shots on goal": "player_shots_on_goal",
+            }
+          : {};
+  return map[s] ?? stat;
+}
+
+export function getPrizePicksProps(
+  args: { sport: string; home: string; away: string },
+  signal?: AbortSignal,
+): Promise<PropsResponse> {
+  const q = new URLSearchParams({ sport: args.sport, home: args.home, away: args.away });
+  return getJson<PropsResponse>(`/sports/prizepicks-props?${q.toString()}`, signal, 22_000);
+}
+
+// Odds-API props first; on empty or upstream failure, fall back to PrizePicks DFS
+// lines (real projections, no per-leg American price). Works even when production
+// hasn't redeployed the server-side ESPN→Odds id guard yet.
+export async function getPropsWithPrizePicksFallback(
+  args: GetPropsArgs,
+  signal?: AbortSignal,
+): Promise<PropsResponse> {
+  try {
+    const r = await getProps(args, signal);
+    if (Array.isArray(r.props) && r.props.length > 0) return r;
+  } catch {
+    // Upstream 502 (e.g. stale deploy passing ESPN ids to Odds API) — try PP.
+  }
+  if (!args.home || !args.away) {
+    return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
+  }
+  const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
+  const props = (Array.isArray(pp.props) ? pp.props : []).map((p) => ({
+    ...p,
+    market: ppStatToMarketKey(args.sport, p.market),
+    priceSource: "PrizePicks" as const,
+    overBook: p.overBook ?? "PrizePicks",
+  }));
+  return { ...pp, props };
 }
 
 // ---------- Player history (real ESPN game logs + season stats) ----------
@@ -2371,6 +2449,10 @@ type LightParlayOpts = {
   maxOddsGames: number;
   propsBalanceCap: number;
   oddsSliceCap: number;
+  /** Fan out odds+games for the first N sports at once (props-only fast path). */
+  parallelSports?: boolean;
+  /** Fetch prop boards for all candidate games concurrently. */
+  parallelPropFetch?: boolean;
 };
 
 async function buildLightParlayContext(
@@ -2382,19 +2464,42 @@ async function buildLightParlayContext(
   const activeSports: string[] = [];
   const sportList = opts.sports ?? TINY_PARLAY_SPORTS;
 
-  for (const s of sportList) {
-    if (activeSports.length >= opts.maxSports) break;
-    const [o, g] = await Promise.all([
-      getOdds(s, signal).catch(() => [] as OddsGame[]),
-      getGames(s, signal).catch(() => [] as EspnGame[]),
-    ]);
-    const pickable = o
-      .filter((x) => isPregameBettable(x.commenceTime))
-      .map((x) => ({ ...x, sport: s }));
-    if (pickable.length > 0) {
-      activeSports.push(s);
-      allOdds.push(...pickable);
-      gamesBySport.set(s, g);
+  if (opts.parallelSports) {
+    const probes = await Promise.all(
+      sportList.slice(0, Math.max(opts.maxSports + 2, 4)).map(async (s) => {
+        const [o, g] = await Promise.all([
+          getOdds(s, signal).catch(() => [] as OddsGame[]),
+          getGames(s, signal).catch(() => [] as EspnGame[]),
+        ]);
+        const pickable = o
+          .filter((x) => isPregameBettable(x.commenceTime))
+          .map((x) => ({ ...x, sport: s }));
+        return { s, pickable, games: g };
+      }),
+    );
+    for (const { s, pickable, games } of probes) {
+      if (activeSports.length >= opts.maxSports) break;
+      if (pickable.length > 0) {
+        activeSports.push(s);
+        allOdds.push(...pickable);
+        gamesBySport.set(s, games);
+      }
+    }
+  } else {
+    for (const s of sportList) {
+      if (activeSports.length >= opts.maxSports) break;
+      const [o, g] = await Promise.all([
+        getOdds(s, signal).catch(() => [] as OddsGame[]),
+        getGames(s, signal).catch(() => [] as EspnGame[]),
+      ]);
+      const pickable = o
+        .filter((x) => isPregameBettable(x.commenceTime))
+        .map((x) => ({ ...x, sport: s }));
+      if (pickable.length > 0) {
+        activeSports.push(s);
+        allOdds.push(...pickable);
+        gamesBySport.set(s, g);
+      }
     }
   }
 
@@ -2439,99 +2544,120 @@ async function buildLightParlayContext(
 
   const realProps: RealPropEntry[] = [];
   const propPool: PropPoolEntry[] = [];
-  let propGamesFetched = 0;
-  for (const g of allOdds) {
-    if (propGamesFetched >= opts.maxPropGames) break;
-    if (!PROPS_SPORTS.includes(g.sport) || !g.homeTeam || !g.awayTeam) continue;
+  const ALT_RUNGS_PER_PROP = 3;
+
+  const mergePropsResponse = (g: OddsGame, r: PropsResponse) => {
+    const game = `${g.awayTeam} @ ${g.homeTeam}`;
+    const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+    const altRungs = new Map<string, number>();
+    for (const altPass of [false, true]) {
+      for (const p of usable) {
+        if (!!p.alt !== altPass) continue;
+        if (p.alt) {
+          const k = `${p.player}|${p.market}`.toLowerCase();
+          const n = altRungs.get(k) ?? 0;
+          if (n >= ALT_RUNGS_PER_PROP) continue;
+          altRungs.set(k, n + 1);
+        }
+        realProps.push({
+          sport: g.sport,
+          game,
+          startsAt: g.commenceTime,
+          player: p.player,
+          athleteId: p.athleteId ?? null,
+          market: p.market,
+          line: p.line,
+          over: p.overPrice ?? null,
+          under: p.underPrice ?? null,
+          alt: !!p.alt,
+          ev: p.ev ?? null,
+          evSide: p.evSide ?? null,
+          fairProb: p.fairProb ?? null,
+          edge: p.edge ?? null,
+        });
+        const headshot = p.headshot ?? null;
+        const teamAbbr = p.playerTeamId
+          ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
+          : null;
+        const marketLabel = propMarketLabel(p.market);
+        const athleteId = p.athleteId ?? null;
+        if (p.overPrice != null) {
+          propPool.push({
+            sport: g.sport,
+            game,
+            marketLabel,
+            player: p.player,
+            line: p.line,
+            side: "Over",
+            odds: p.overPrice,
+            headshot,
+            teamAbbr,
+            athleteId,
+            marketKey: p.market,
+            edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+            bookSpread: p.overSpread ?? null,
+          });
+        }
+        if (p.line != null && p.underPrice != null) {
+          propPool.push({
+            sport: g.sport,
+            game,
+            marketLabel,
+            player: p.player,
+            line: p.line,
+            side: "Under",
+            odds: p.underPrice,
+            headshot,
+            teamAbbr,
+            athleteId,
+            marketKey: p.market,
+            edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+            bookSpread: p.underSpread ?? null,
+          });
+        }
+      }
+    }
+  };
+
+  const fetchPropsForGame = async (g: OddsGame): Promise<PropsResponse | null> => {
     const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
-    const ids = idMap.get(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()) ?? null;
+    const ids = idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
     try {
-      const r = await getProps(
+      return await getProps(
         {
           sport: g.sport,
           eventId: g.id,
-          home: g.homeTeam,
-          away: g.awayTeam,
+          home: g.homeTeam!,
+          away: g.awayTeam!,
           homeTeamId: ids?.homeTeamId,
           awayTeamId: ids?.awayTeamId,
           startsAt: g.commenceTime,
         },
         signal,
       );
-      propGamesFetched++;
-      const game = `${g.awayTeam} @ ${g.homeTeam}`;
-      const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
-      const altRungs = new Map<string, number>();
-      const ALT_RUNGS_PER_PROP = 3;
-      for (const altPass of [false, true]) {
-        for (const p of usable) {
-          if (!!p.alt !== altPass) continue;
-          if (p.alt) {
-            const k = `${p.player}|${p.market}`.toLowerCase();
-            const n = altRungs.get(k) ?? 0;
-            if (n >= ALT_RUNGS_PER_PROP) continue;
-            altRungs.set(k, n + 1);
-          }
-          realProps.push({
-            sport: g.sport,
-            game,
-            startsAt: g.commenceTime,
-            player: p.player,
-            athleteId: p.athleteId ?? null,
-            market: p.market,
-            line: p.line,
-            over: p.overPrice ?? null,
-            under: p.underPrice ?? null,
-            alt: !!p.alt,
-            ev: p.ev ?? null,
-            evSide: p.evSide ?? null,
-            fairProb: p.fairProb ?? null,
-            edge: p.edge ?? null,
-          });
-          const headshot = p.headshot ?? null;
-          const teamAbbr = p.playerTeamId
-            ? (teamMetaById.get(p.playerTeamId)?.abbr ?? null)
-            : null;
-          const marketLabel = propMarketLabel(p.market);
-          const athleteId = p.athleteId ?? null;
-          if (p.overPrice != null) {
-            propPool.push({
-              sport: g.sport,
-              game,
-              marketLabel,
-              player: p.player,
-              line: p.line,
-              side: "Over",
-              odds: p.overPrice,
-              headshot,
-              teamAbbr,
-              athleteId,
-              marketKey: p.market,
-              edge: p.evSide === "Over" ? (p.edge ?? null) : null,
-              bookSpread: p.overSpread ?? null,
-            });
-          }
-          if (p.line != null && p.underPrice != null) {
-            propPool.push({
-              sport: g.sport,
-              game,
-              marketLabel,
-              player: p.player,
-              line: p.line,
-              side: "Under",
-              odds: p.underPrice,
-              headshot,
-              teamAbbr,
-              athleteId,
-              marketKey: p.market,
-              edge: p.evSide === "Under" ? (p.edge ?? null) : null,
-              bookSpread: p.underSpread ?? null,
-            });
-          }
-        }
-      }
     } catch {
-      /* narrower pool */
+      return null;
+    }
+  };
+
+  const propCandidates: OddsGame[] = [];
+  for (const g of allOdds) {
+    if (!PROPS_SPORTS.includes(g.sport) || !g.homeTeam || !g.awayTeam) continue;
+    propCandidates.push(g);
+    if (propCandidates.length >= opts.maxPropGames) break;
+  }
+
+  if (opts.parallelPropFetch && propCandidates.length > 0) {
+    const rows = await Promise.all(
+      propCandidates.map(async (g) => ({ g, r: await fetchPropsForGame(g) })),
+    );
+    for (const { g, r } of rows) {
+      if (r) mergePropsResponse(g, r);
+    }
+  } else {
+    for (const g of propCandidates) {
+      const r = await fetchPropsForGame(g);
+      if (r) mergePropsResponse(g, r);
     }
   }
 
@@ -2578,6 +2704,27 @@ export async function buildCompactParlayContext(
     maxOddsGames: Math.min(24, n + 8),
     propsBalanceCap: Math.min(96, n * 8),
     oddsSliceCap: Math.min(80, n * 8),
+  });
+}
+
+/**
+ * Props-only parlay asks ("player props only parlay") — skip the wide game-odds
+ * slice and fan out fewer sports/prop games so context build + /api/chat connect
+ * finish on cellular before the client times out.
+ */
+export async function buildPropsOnlyParlayContext(
+  requestedLegs: number,
+  signal?: AbortSignal,
+): Promise<BuiltChatContext> {
+  const n = Math.max(4, Math.min(12, requestedLegs || 6));
+  return buildLightParlayContext(signal, {
+    maxSports: 2,
+    maxPropGames: 3,
+    maxOddsGames: 5,
+    propsBalanceCap: Math.min(48, n * 8),
+    oddsSliceCap: 4,
+    parallelSports: true,
+    parallelPropFetch: true,
   });
 }
 

@@ -369,12 +369,25 @@ router.get("/sports/props", async (req, res): Promise<void> => {
     }
 
     // Never query the Odds API with an ESPN/Bovada id — it 422s and the mobile
-    // client retries for tens of seconds. Empty props is the honest outcome.
+    // client retries for tens of seconds. Try PrizePicks before returning empty.
     if (!looksLikeOddsApiId && effectiveEventId === eventId) {
       req.log.warn(
         { sport, eventId, homeName, awayName, startsAt },
-        "unresolved ESPN event id; returning empty props",
+        "unresolved ESPN event id; trying PrizePicks fallback",
       );
+      if (homeName && awayName) {
+        const pp = await fetchPrizePicksPropsForGame(sport, homeName, awayName).catch(() => []);
+        if (pp.length > 0) {
+          res.json({
+            home: homeName,
+            away: awayName,
+            bookmaker: "PrizePicks",
+            props: pp,
+            source: "PrizePicks",
+          });
+          return;
+        }
+      }
       res.json({ home: null, away: null, props: [] });
       return;
     }

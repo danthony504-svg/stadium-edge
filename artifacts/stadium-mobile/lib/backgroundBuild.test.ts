@@ -6,6 +6,7 @@ import {
   deserializePendingBuild,
   makeBuildId,
   serializePendingBuild,
+  pendingBuildMaxWaitMs,
   shouldAbortForHandoff,
   shouldHandOffBuild,
   type CoachBuildStashShape,
@@ -224,4 +225,11 @@ test("without timing opts the original wait-forever not-ready behavior is preser
     decideBackgroundRestore("abc123", samplePending, null).action,
     "not-ready",
   );
+});
+
+test("pendingBuildMaxWaitMs scales with requested leg count", () => {
+  assert.equal(pendingBuildMaxWaitMs("build me a 3 leg parlay"), 150_000);
+  assert.equal(pendingBuildMaxWaitMs("Build me a 8 leg"), 200_000);
+  assert.equal(pendingBuildMaxWaitMs("15-leg parlay"), 270_000);
+  assert.equal(pendingBuildMaxWaitMs("best parlay tonight"), 120_000);
 });

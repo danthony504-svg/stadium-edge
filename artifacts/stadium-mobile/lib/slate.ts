@@ -32,6 +32,15 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
+/** Game Simulator pool: pregame only — no in-progress or final games. */
+export function isSimulatorEligible(game: {
+  startsAt?: string | null;
+  state?: string | null;
+}): boolean {
+  if (game.state === "post" || game.state === "in") return false;
+  return isPregameBettable(game.startsAt);
+}
+
 // "Today / tonight only" intent. The user wants games on the CURRENT local
 // calendar day that haven't started yet — no tomorrow, no already-in-progress.
 // "tomorrow" anywhere disables it so "today or tomorrow" keeps the full window.
@@ -325,4 +334,24 @@ export function wantsPropsOnly(text?: string | null): boolean {
     return true;
   }
   return false;
+}
+
+/** Explicit N-leg count from user text, or 0 when omitted. */
+export function parseRequestedLegCount(text: string): number {
+  const m = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+  if (!m) return 0;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Leg target for compact parlay builds when the user omits a count ("build a
+ * parlay", "player props only parlay"). Without this, those asks fall through
+ * to full buildChatContext and often connect-stall on mobile.
+ */
+export function effectiveBuildLegCount(text: string): number {
+  const explicit = parseRequestedLegCount(text);
+  if (explicit > 0) return explicit;
+  if (!PARLAY_BUILD_RE.test(text)) return 0;
+  return wantsPropsOnly(text) ? 6 : 8;
 }

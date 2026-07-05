@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -79,6 +79,7 @@ import {
   tonightExhaustedNote,
   todayBuildNote,
   wantsPropsOnly,
+  effectiveBuildLegCount,
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
 } from "@/lib/slate";
@@ -86,6 +87,7 @@ import {
   buildChatContext,
   buildTinyParlayContext,
   buildCompactParlayContext,
+  buildPropsOnlyParlayContext,
   buildMlbSlateContext,
   gameMatchesFocalText,
   getPlayerHistory,
@@ -103,6 +105,7 @@ import {
   microSlimChatContextForUpload,
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
+  propsOnlySlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   type AltSign,
@@ -120,6 +123,7 @@ import {
   decideBackgroundRestore,
   deserializePendingBuild,
   makeBuildId,
+  pendingBuildMaxWaitMs,
   serializePendingBuild,
   shouldAbortForHandoff,
   shouldHandOffBuild,
@@ -166,11 +170,11 @@ type StatCardResult = {
 const PENDING_BUILD_KEY = "coach.pendingBuild";
 
 // How long we'll wait for a handed-off build's result before treating it as a
-// stall and offering a retry (instead of an endless "still building"). Sized
-// well past a real build's worst case so a genuinely in-flight server build is
-// never cut off. The poll re-checks the stash at PENDING_POLL_MS while we wait.
+// stall and offering a retry (instead of an endless "still building"). Default
+// for non-leg asks; leg-scaled via pendingBuildMaxWaitMs(). The poll re-checks
+// the stash at PENDING_POLL_MS while we wait.
 const PENDING_BUILD_MAX_WAIT_MS = 120_000;
-const PENDING_POLL_MS = 10_000;
+const PENDING_POLL_MS = 5_000;
 
 type PendingBuild = {
   buildId: string;
@@ -1122,6 +1126,8 @@ export default function CoachScreen() {
         // Computed up here (not just before the reach-N backstop below) because a
         // single-game high-leg ask needs it to decide includePeriods.
         const requestedLegs = requestedLegCount(trimmed);
+        const buildLegs = effectiveBuildLegCount(trimmed);
+        const legTarget = requestedLegs > 0 ? requestedLegs : buildLegs;
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
@@ -1216,8 +1222,8 @@ export default function CoachScreen() {
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
         } else {
-          const buildSports = coachBuildSports(focalForPools, requestedLegs, DEFAULT_SPORTS);
-          const fastParlay = isParlayBuild && requestedLegs > 0 && requestedLegs <= MAX_LEGS;
+          const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
+          const fastParlay = isParlayBuild && buildLegs > 0 && buildLegs <= MAX_LEGS;
           const genericParlayPath =
             fastParlay &&
             !oddsThreshold &&
@@ -1225,9 +1231,22 @@ export default function CoachScreen() {
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSportsFromText(focalForPools).size === 0;
-          const useTinyParlayPath = genericParlayPath && requestedLegs <= 3;
+          // Props-only must never depend on genericParlayPath — a future focal-sport
+          // false positive or gate tweak would otherwise fall through to full
+          // buildChatContext and connect-stall on cellular.
+          const usePropsOnlyParlayPath =
+            isParlayBuild &&
+            wantsPropsOnly(trimmed) &&
+            buildLegs > 0 &&
+            buildLegs <= MAX_LEGS &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            !includePeriods &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !altSign;
+          const useTinyParlayPath = genericParlayPath && !usePropsOnlyParlayPath && buildLegs <= 3;
           const useCompactParlayPath =
-            genericParlayPath && requestedLegs > 3 && requestedLegs <= MAX_LEGS;
+            genericParlayPath && !usePropsOnlyParlayPath && buildLegs > 3 && buildLegs <= MAX_LEGS;
           const useMlbSlatePath =
             !genericParlayPath &&
             wantsMlbPitcherSlateAsk(trimmed) &&
@@ -1235,12 +1254,19 @@ export default function CoachScreen() {
             !oddsThreshold &&
             !altSign;
           const streamWarmBuild =
-            isParlayBuild || useMlbSlatePath || genericParlayPath;
+            isParlayBuild || useMlbSlatePath || genericParlayPath || usePropsOnlyParlayPath;
           const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
+          if (usePropsOnlyParlayPath) {
+            // Props-only: wake cold autoscale BEFORE prop fan-out so /api/chat isn't
+            // the first heavy hit after a 20s parallel props fetch.
+            await warmP;
+          }
           const rawBuilt = useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
+            : usePropsOnlyParlayPath
+              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
             : useCompactParlayPath
-              ? await buildCompactParlayContext(requestedLegs, controller.signal)
+              ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
                 : await buildChatContext(
@@ -1251,12 +1277,15 @@ export default function CoachScreen() {
                 includePeriods,
                 focalForPools,
                 altSign,
-                requestedLegs,
+                buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            isParlayBuild && rawBuilt.propPool.length > 0 && rawBuilt.context.realProps?.length
-              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs })
+            isParlayBuild &&
+            !usePropsOnlyParlayPath &&
+            rawBuilt.propPool.length > 0 &&
+            rawBuilt.context.realProps?.length
+              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
               : !isParlayBuild &&
                   rawBuilt.propPool.length > 0 &&
                   rawBuilt.context.realProps?.length
@@ -1284,9 +1313,9 @@ export default function CoachScreen() {
           if (bg) {
             pendingBgRef.current = { buildId };
             handedOffRef.current = false;
-            // Don't block the stream on a large AsyncStorage write — the server
-            // build can start while we persist the local replay snapshot.
-            void savePendingBuild({
+            // Persist before streaming so a quick background/kill can still resume
+            // from disk (a fire-and-forget write often lost the race).
+            await savePendingBuild({
               buildId,
               userText: trimmed,
               context,
@@ -1299,11 +1328,13 @@ export default function CoachScreen() {
 
           let first = true;
           let uploadContext: ChatContext = context;
-          if (isParlayBuild && requestedLegs <= 3) {
+          if (usePropsOnlyParlayPath) {
+            uploadContext = propsOnlySlimChatContextForUpload(context);
+          } else if (isParlayBuild && buildLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
-          } else if (isParlayBuild && requestedLegs <= 8) {
+          } else if (isParlayBuild && buildLegs <= 8) {
             uploadContext = compactSlimChatContextForUpload(context);
-          } else if (isParlayBuild && requestedLegs <= MAX_LEGS) {
+          } else if (isParlayBuild && buildLegs <= MAX_LEGS) {
             uploadContext = largeCompactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
@@ -1313,10 +1344,11 @@ export default function CoachScreen() {
             uploadContext = slimChatContextForUpload(context);
           }
           const parlayFirstTokenMs =
-            requestedLegs >= 12 ? 120_000 : requestedLegs >= 9 ? 90_000 : requestedLegs >= 6 ? 75_000 : undefined;
+            buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
-            await warmP;
+            if (!usePropsOnlyParlayPath) await warmP;
+            else await warmApiForCoachBuild(controller.signal);
             return streamChat({
               messages: apiMessages,
               context: streamContext,
@@ -1363,10 +1395,11 @@ export default function CoachScreen() {
             setWaiting(true);
             scrollToEnd();
             if (isParlayBuild) {
-              uploadContext =
-                requestedLegs <= 3
+              uploadContext = usePropsOnlyParlayPath
+                ? propsOnlySlimChatContextForUpload(context)
+                : buildLegs <= 3
                   ? microSlimChatContextForUpload(context)
-                  : requestedLegs <= 8
+                  : buildLegs <= 8
                     ? compactSlimChatContextForUpload(context)
                     : ultraSlimChatContextForUpload(context);
             }
@@ -1560,78 +1593,44 @@ export default function CoachScreen() {
         // that contradicts the real cards we're about to show, so finalContent
         // gets a clean lead-in instead of that prose.
         let salvageBuilt = false;
+        const beforeSlateFilter = picks.length;
         if (slateDay) {
-          const before = picks.length;
           picks = filterPicksForSlateDay(picks, slateDay);
-          // SALVAGE — the model emitted a ticket but EVERY leg got filtered out
-          // (it reached for props on non-today games via the server's prop
-          // backfill, or whiffed) WHILE the user named a sport that still has a
-          // real upcoming-today game on the board. Rather than show zero, build
-          // the best real ticket today's remaining game(s) honestly support from
-          // their full-game mains — never fabricating: backfillPicks only appends
-          // real realOdds entries, which are already today-filtered here, so every
-          // leg is real, today, and upcoming. One soccer match can't honestly
-          // yield 7 uncorrelated legs, so this often lands short of the requested
-          // count — the honest leg-count note below says exactly how many held up.
-          // Runs for a NAMED sport AND for a generic "N-leg ... tonight" ask: a
-          // late-evening generic ask whose only remaining today game(s) can't fill
-          // the count (the model grounds legs on non-today backfill that then gets
-          // filtered) would otherwise fall through to a flat refusal. Skipped under
-          // the odds/confidence locks whose own filters stay
-          // authoritative. backfillPicks' own (game, market-family) dedup keeps the
-          // salvage to one main per family per game, so it never stacks correlated
-          // same-line sides even when the whole ticket sits on one game.
-          // NOTE: this fires even when the model emitted ZERO PICK lines. For an
-          // ask one real game can't honestly fill ("7 leg soccer parlay" with one
-          // soccer match on the board), the model often REFUSES outright rather
-          // than return legs that then get filtered — so an `emittedPickLines > 0`
-          // gate would skip the salvage exactly when it's needed and the user just
-          // sees the generic "board is thin" refusal. A genuine build request is
-          // signalled by an explicit leg count (requestedLegs > 0), which is enough
-          // to safely build from today's already-filtered real odds.
-          const salvageEligible =
-            picks.length === 0 &&
-            requestedLegs > 0 &&
-            !oddsThreshold &&
-            !confidenceThreshold &&
-            // A "+ alt" / "- alt" sign lock already ran its own filter above; a
-            // salvage of unsigned game mains would violate the requested sign, so
-            // skip it. A props-only / prop-market ask wants players, not game
-            // moneylines, so don't silently fall back to game mains there either.
-            !altSign;
-          const salvageSports = salvageEligible
-            ? focalSportsFromText(trimmed)
-            : new Set<string>();
-          if (salvageEligible) {
-            const tgt = Math.min(requestedLegs, MAX_LEGS);
-            if (mentionsPropIntent(trimmed)) {
-              const dayOdds = slateDay
-                ? filterOddsForSlateDay(context.realOdds, slateDay)
-                : context.realOdds;
-              const salvagePool =
-                salvageSports.size > 0
-                  ? dayOdds.filter((e) => salvageSports.has(e.sport))
-                  : dayOdds;
-              picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+        }
+        // SALVAGE — model emitted zero grounded legs (prose-only reply, every leg
+        // filtered, or PICK lines that failed to resolve). Build the best honest
+        // ticket from the real board — tonight/tomorrow when slateDay is set, else
+        // the full pregame 48h pool. Fires even when the model emitted ZERO PICK
+        // lines (a common failure mode: marketing prose with no PICK: scaffold).
+        const salvageEligible =
+          picks.length === 0 &&
+          legTarget > 0 &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          !altSign;
+        const salvageSports = salvageEligible ? focalSportsFromText(trimmed) : new Set<string>();
+        if (salvageEligible) {
+          const tgt = Math.min(legTarget, MAX_LEGS);
+          const dayOdds = slateDay
+            ? filterOddsForSlateDay(context.realOdds, slateDay)
+            : context.realOdds;
+          if (mentionsPropIntent(trimmed)) {
+            const salvagePool =
+              salvageSports.size > 0
+                ? dayOdds.filter((e) => salvageSports.has(e.sport))
+                : dayOdds;
+            picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
+              target: tgt,
+              ...propBackfillOpts,
+            });
+            if (!propsOnlyTicket && picks.length < tgt) {
+              picks = backfillPicks(picks, salvagePool, gameMeta, {
                 target: tgt,
-                ...propBackfillOpts,
+                order: GENERIC_BACKFILL_ORDER,
               });
-              if (!propsOnlyTicket && picks.length < tgt) {
-                picks = backfillPicks(picks, salvagePool, gameMeta, {
-                  target: tgt,
-                  order: GENERIC_BACKFILL_ORDER,
-                });
-              }
-              if (picks.length > 0) salvageBuilt = true;
-            } else {
-            // Named sport → salvage only that sport's remaining today games; a
-            // GENERIC "N-leg parlay for tonight" (no sport named) → salvage from
-            // EVERY today-upcoming game on the board. context.realOdds is already
-            // startsTodayUpcoming-filtered here, so either pool is real + today +
-            // upcoming and nothing is invented.
-            const dayOdds = slateDay
-              ? filterOddsForSlateDay(context.realOdds, slateDay)
-              : context.realOdds;
+            }
+            if (picks.length > 0) salvageBuilt = true;
+          } else {
             const salvagePool =
               salvageSports.size > 0
                 ? dayOdds.filter((e) => salvageSports.has(e.sport))
@@ -1641,43 +1640,20 @@ export default function CoachScreen() {
                 target: tgt,
                 order: GENERIC_BACKFILL_ORDER,
               });
-              // Top up with REAL player/game props from the SAME today-upcoming
-              // games so the salvage ticket isn't all moneylines/spreads on one
-              // match (user: "what about all the player and game props"). Honest:
-              // backfillProps only emits real posted prop lines and is today-gated
-              // to the games in salvagePool (already startsTodayUpcoming-filtered),
-              // so it never fabricates or reaches a tomorrow/started game. When the
-              // game has no real props (e.g. club soccer) it adds nothing and the
-              // ticket stays game-lines only — still honest, still real.
               picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
                 target: tgt,
                 ...propBackfillOpts,
               });
               if (picks.length > 0) salvageBuilt = true;
             }
-            }
           }
-          // Honest, non-contradictory note (pure helper, unit-tested in
-          // slate.test.ts) — only when the salvage above ALSO came up empty (no
-          // real today game in the named sport, or no sport named). Never claims
-          // "nothing is upcoming"; todayOnly being true guarantees a game is still
-          // to come, so it distinguishes "legs were on started/non-today games"
-          // (before>0) from "slate too thin to ground the requested ticket"
-          // (before===0, the soccer case).
-          if (picks.length === 0) {
-            todayNote = todayBuildNote({
-              before,
-              surviving: picks.length,
-              // Treat any salvage-eligible build (named OR generic) that still
-              // produced nothing the same as an emitted one so the note is the
-              // honest "slate too thin / nothing today" message instead of silence
-              // — silence would fall through to the generic backstop refusal. This
-              // only reaches here when the salvage above also came up empty (no real
-              // today odds at all), which is rare since todayOnly guarantees a
-              // qualifying start time, but possible if that game carried no odds.
-              emittedPickLines: emittedPickLines || (salvageEligible ? requestedLegs : 0),
-            });
-          }
+        }
+        if (slateDay && picks.length === 0) {
+          todayNote = todayBuildNote({
+            before: beforeSlateFilter,
+            surviving: picks.length,
+            emittedPickLines: emittedPickLines || (salvageEligible ? legTarget : 0),
+          });
         }
         // REACH-THE-COUNT backstop. The model reliably ignores the prompt's
         // REACH-N rule and returns a leg or two short even when the real board has
@@ -1693,12 +1669,14 @@ export default function CoachScreen() {
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
         if (
-          requestedLegs > picks.length &&
-          (picks.length > 0 || mentionsProps) &&
+          legTarget > picks.length &&
+          (picks.length > 0 ||
+            mentionsProps ||
+            (legTarget >= 3 && !explicitSingleGame)) &&
           !oddsThreshold &&
           !confidenceThreshold
         ) {
-          const target = Math.min(requestedLegs, MAX_LEGS);
+          const target = Math.min(legTarget, MAX_LEGS);
           // SINGLE-GAME / SPORT LOCK for the backfill pool — shared by EVERY
           // backfill order below so no branch widens a locked ticket. Derived
           // from the model's OWN resolved legs (and any game/sport the user named
@@ -1754,7 +1732,7 @@ export default function CoachScreen() {
             // doesn't stall at a handful of moneylines. Skip when the user locked
             // the build to one game.
             const deepMultiLegFill =
-              requestedLegs >= 6 && !explicitSingleGame;
+              legTarget >= 6 && !explicitSingleGame;
             // Server rule: 3+ leg tickets should mix props when available. Generic
             // "N-leg parlay" asks don't mention props, so we still backfill from
             // realProps — otherwise reach-N only walks game ML/spread/total and
@@ -1763,7 +1741,7 @@ export default function CoachScreen() {
               mentionsProps ||
               (thinSlateDepth && !explicitSingleGame) ||
               deepMultiLegFill ||
-              (requestedLegs >= 3 && !explicitSingleGame);
+              (legTarget >= 3 && !explicitSingleGame);
             if (mixPropsInBackfill) {
               picks = backfillProps(picks, mergedPropPool, backfillPool, gameMeta, {
                 target,
@@ -1893,6 +1871,18 @@ export default function CoachScreen() {
             todayNote ||
             "\n\n_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
           finalContent = `${lead}${note}`.trim();
+        } else if (picks.length === 0 && requestedLegs > 0) {
+          // Model wrote parlay marketing prose but emitted no grounded legs (no
+          // PICK: scaffold, or every line failed resolve + salvage/reach-N empty).
+          // Hide that prose so we never show a "9-leg ticket" narrative with zero cards.
+          const note =
+            todayNote ||
+            thresholdNote ||
+            confidenceNote ||
+            signNote ||
+            legNote ||
+            "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._";
+          finalContent = note.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
@@ -1955,7 +1945,8 @@ export default function CoachScreen() {
           // Start polling the server stash so the finished ticket replays (or a
           // stalled build surfaces a retry) even if the user just stays on this
           // screen and never re-foregrounds the app.
-          if (pendingBgRef.current) setBgWatchId(pendingBgRef.current.buildId);
+          const handedBuildId = pendingBgRef.current?.buildId;
+          if (handedBuildId) setBgWatchId(handedBuildId);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -2026,7 +2017,9 @@ export default function CoachScreen() {
         // not-ready / failed / replay applies. The side effects below stay here.
         const decision = decideBackgroundRestore(buildId, pending, stash, {
           now: Date.now(),
-          maxWaitMs: PENDING_BUILD_MAX_WAIT_MS,
+          maxWaitMs: pending
+            ? pendingBuildMaxWaitMs(pending.userText)
+            : PENDING_BUILD_MAX_WAIT_MS,
         });
         if (decision.action === "wrong-device") {
           if (!opts?.auto) {
@@ -2093,6 +2086,19 @@ export default function CoachScreen() {
     [send],
   );
 
+  // Re-arm in-memory watch state from AsyncStorage after a kill/relaunch (refs
+  // and bgWatchId are lost, but the pending record survives) and kick a stash
+  // check so a finished ticket replays without waiting for a push tap.
+  const resumePendingBackgroundBuild = useCallback(async () => {
+    if (streamingRef.current) return;
+    const pending = await loadPendingBuild();
+    if (!pending) return;
+    if (restoredBuildRef.current === pending.buildId) return;
+    pendingBgRef.current = { buildId: pending.buildId };
+    setBgWatchId(pending.buildId);
+    await restoreBackgroundBuild(pending.buildId, { auto: true });
+  }, [restoreBackgroundBuild]);
+
   // Hand a build off to the server when the app is backgrounded mid-stream, and
   // pull the finished result back when the user returns.
   useEffect(() => {
@@ -2114,11 +2120,25 @@ export default function CoachScreen() {
         const pend = pendingBgRef.current;
         if (pend && !streamingRef.current) {
           void restoreBackgroundBuild(pend.buildId, { auto: true });
+        } else if (!streamingRef.current) {
+          void resumePendingBackgroundBuild();
         }
       }
     });
     return () => sub.remove();
-  }, [restoreBackgroundBuild]);
+  }, [restoreBackgroundBuild, resumePendingBackgroundBuild]);
+
+  // After a force-quit, hydrate the pending build from disk and resume polling.
+  useEffect(() => {
+    void resumePendingBackgroundBuild();
+  }, [resumePendingBackgroundBuild]);
+
+  // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
+  useFocusEffect(
+    useCallback(() => {
+      void resumePendingBackgroundBuild();
+    }, [resumePendingBackgroundBuild]),
+  );
 
   // While a build is handed off, poll the server stash on a timer so the result
   // replays the moment it's ready — and, if it never arrives, the wait-timeout in
@@ -2128,13 +2148,19 @@ export default function CoachScreen() {
   // resolves (replay/failed clear bgWatchId) or a new stream starts.
   useEffect(() => {
     if (!bgWatchId) return;
-    const id = setInterval(() => {
+    const poll = () => {
+      if (streamingRef.current) return;
       const pend = pendingBgRef.current;
-      if (!pend || streamingRef.current) return;
-      void restoreBackgroundBuild(pend.buildId, { auto: true });
-    }, PENDING_POLL_MS);
+      if (pend) {
+        void restoreBackgroundBuild(pend.buildId, { auto: true });
+      } else {
+        void resumePendingBackgroundBuild();
+      }
+    };
+    void poll();
+    const id = setInterval(poll, PENDING_POLL_MS);
     return () => clearInterval(id);
-  }, [bgWatchId, restoreBackgroundBuild]);
+  }, [bgWatchId, restoreBackgroundBuild, resumePendingBackgroundBuild]);
 
   // Tapping the "your ticket is ready" push opens Coach with ?buildId=… — load
   // and replay that finished build. restoredBuildRef guards against re-running.
