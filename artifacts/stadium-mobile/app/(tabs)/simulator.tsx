@@ -29,6 +29,7 @@ import type {
 } from "@/lib/api";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
+import { enrichPropSimResults } from "@/lib/simulatorLocalSim";
 import {
   fetchSimulatorGameOutcome,
   fetchSimulatorGames,
@@ -501,6 +502,7 @@ export default function SimulatorScreen() {
         );
 
         const ph: Record<string, SimulatorPlayerHistorySlice> = {};
+        const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> = {};
         await Promise.all(
           simProps.map(async (s) => {
             if (!s.athleteId) return;
@@ -512,7 +514,11 @@ export default function SimulatorScreen() {
                 stats: g.stats as Record<string, unknown>,
               }));
               if (recent.length) {
-                ph[`${s.player}#${s.athleteId}`] = { player: s.player, recent };
+                ph[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
+                phForSim[`${s.player}#${s.athleteId}`] = {
+                  labels: h.labels,
+                  recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
+                };
               }
             } catch {
               /* honest no-history skip */
@@ -520,7 +526,8 @@ export default function SimulatorScreen() {
           }),
         );
         setPlayerHistory(ph);
-        const prQuick = await fetchSimulatorPropSimulationsBatch(
+        const prQuick = enrichPropSimResults(
+          await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
@@ -531,10 +538,13 @@ export default function SimulatorScreen() {
             weatherImpact: wx,
             tier: "quick",
           },
+        ),
+          phForSim,
         );
         setPropResults(prQuick);
         setSimDeepPending(true);
-        const prDeep = await fetchSimulatorPropSimulationsBatch(
+        const prDeep = enrichPropSimResults(
+          await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
@@ -545,6 +555,8 @@ export default function SimulatorScreen() {
             weatherImpact: wx,
             tier: "deep",
           },
+        ),
+          phForSim,
         );
         setPropResults(prDeep);
         setSimDeepPending(false);
