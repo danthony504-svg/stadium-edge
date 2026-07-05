@@ -1808,6 +1808,154 @@ router.post("/chat", async (req, res): Promise<void> => {
     ) as typeof lockedContext;
   }
 
+  // PROPS-ONLY SERVER BACKFILL: the mobile fast path may ship odds/games only
+  // (zero client getProps) so /api/chat connect finishes on cellular. Hydrate
+  // realProps from our cached /sports/props feed — same pattern as market-lock
+  // backfill, but without a market filter.
+  const propsOnlyBuildEarly =
+    /\b(?:player\s+)?props?\s+only\b/i.test(latestUser) ||
+    /\bonly\s+(?:player\s+)?props?\b/i.test(latestUser) ||
+    /\b(?:player\s+)?props?\s+parlay\b/i.test(latestUser) ||
+    /\bparlay\s+(?:of\s+)?(?:player\s+)?props?\b/i.test(latestUser) ||
+    (/\bparlay\b/i.test(latestUser) &&
+      /\b(strikeouts?|k'?s|home runs?|hrs?|anytime td|receptions?|hits?|total bases?)\b/i.test(
+        latestUser,
+      ));
+  if (
+    propsOnlyBuildEarly &&
+    !lockedMarket &&
+    !periodIntent &&
+    lockedContext &&
+    typeof lockedContext === "object"
+  ) {
+    type PropRow = {
+      sport?: string;
+      game?: string;
+      player?: string;
+      market?: string;
+      line?: number;
+      over?: number;
+      under?: number;
+      alt?: boolean;
+      startsAt?: string;
+    };
+    const ctxFull = lockedContext as {
+      realProps?: PropRow[];
+      realOdds?: Array<{ sport?: string; game?: string }>;
+      realGames?: Array<{ sport?: string; game?: string; awayTeam?: string; homeTeam?: string }>;
+    } & Record<string, unknown>;
+    const existing = ctxFull.realProps || [];
+    const distinctPlayers = new Set(
+      existing.map((p) => String(p.player || "").toLowerCase()).filter(Boolean),
+    ).size;
+    if (existing.length < 30 || distinctPlayers < 8) {
+      try {
+        const propSports = new Set(Object.keys(MARKETS_BY_SPORT));
+        const gamesBySport = new Map<string, Set<string>>();
+        const addGame = (sport: unknown, label: string) => {
+          const sp = typeof sport === "string" ? sport : "";
+          if (!sp || !label || !propSports.has(sp)) return;
+          if (!gamesBySport.has(sp)) gamesBySport.set(sp, new Set());
+          gamesBySport.get(sp)!.add(label);
+        };
+        for (const o of ctxFull.realOdds || []) addGame(o.sport, String(o.game || ""));
+        for (const g of ctxFull.realGames || []) {
+          const label =
+            typeof g.game === "string" && g.game
+              ? g.game
+              : g.awayTeam && g.homeTeam
+                ? `${g.awayTeam} @ ${g.homeTeam}`
+                : "";
+          addGame(g.sport, label);
+        }
+        if (gamesBySport.size > 0) {
+          const selfPort = process.env["PORT"] || "8080";
+          const selfBase = `http://127.0.0.1:${selfPort}`;
+          const freshProps: PropRow[] = [];
+          await Promise.all(
+            Array.from(gamesBySport.entries()).map(async ([sport, gameSet]) => {
+              try {
+                const oddsRes = await fetch(
+                  `${selfBase}/api/sports/odds?sport=${encodeURIComponent(sport)}`,
+                );
+                if (!oddsRes.ok) return;
+                const oddsList = (await oddsRes.json()) as Array<{
+                  id?: string;
+                  homeTeam?: string;
+                  awayTeam?: string;
+                  commenceTime?: string;
+                }>;
+                const idsToFetch: string[] = [];
+                for (const e of oddsList) {
+                  if (e.commenceTime && Date.parse(e.commenceTime) <= Date.now()) continue;
+                  const label = `${e.awayTeam} @ ${e.homeTeam}`;
+                  if (e.id && gameSet.has(label)) idsToFetch.push(e.id);
+                  if (idsToFetch.length >= 8) break;
+                }
+                await Promise.all(
+                  idsToFetch.map(async (eventId) => {
+                    try {
+                      const propsRes = await fetch(
+                        `${selfBase}/api/sports/props?sport=${encodeURIComponent(sport)}&eventId=${encodeURIComponent(eventId)}`,
+                      );
+                      if (!propsRes.ok) return;
+                      const data = (await propsRes.json()) as {
+                        home?: string;
+                        away?: string;
+                        props?: Array<{
+                          player: string;
+                          market: string;
+                          line: number;
+                          overPrice: number;
+                          underPrice: number;
+                          alt?: boolean;
+                          startsAt?: string;
+                        }>;
+                      };
+                      const gameLabel = `${data.away} @ ${data.home}`;
+                      for (const pr of data.props || []) {
+                        freshProps.push({
+                          sport,
+                          game: gameLabel,
+                          player: pr.player,
+                          market: pr.market,
+                          line: pr.line,
+                          ...(pr.overPrice != null ? { over: pr.overPrice } : {}),
+                          ...(pr.underPrice != null ? { under: pr.underPrice } : {}),
+                          alt: pr.alt === true,
+                          ...(pr.startsAt ? { startsAt: pr.startsAt } : {}),
+                        });
+                      }
+                    } catch {
+                      /* per-event failure is non-fatal */
+                    }
+                  }),
+                );
+              } catch {
+                /* per-sport failure is non-fatal */
+              }
+            }),
+          );
+          if (freshProps.length > 0) {
+            const keyOf = (p: PropRow) =>
+              `${p.sport || ""}|${p.game || ""}|${String(p.player || "").toLowerCase()}|${p.market}|${p.line}|${p.alt === true}`;
+            const merged = [...existing];
+            const seen = new Set(existing.map((p) => keyOf(p)));
+            for (const fp of freshProps) {
+              const key = keyOf(fp);
+              if (seen.has(key)) continue;
+              seen.add(key);
+              merged.push(fp);
+            }
+            lockedContext = { ...ctxFull, realProps: merged };
+          }
+        }
+      } catch {
+        /* fallback is best-effort; honest result if it fails */
+      }
+    }
+  }
+
   const contextBlock =
     lockedContext && Object.keys(lockedContext).length > 0
       ? `\n\nCurrent app context:\n${

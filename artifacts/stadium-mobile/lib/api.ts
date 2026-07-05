@@ -2374,6 +2374,8 @@ type LightParlayOpts = {
   parallelSports?: boolean;
   /** Fetch prop boards for all candidate games concurrently. */
   parallelPropFetch?: boolean;
+  /** Cap parallel sport probes (default maxSports+2, floor 4). */
+  sportProbeLimit?: number;
 };
 
 async function buildLightParlayContext(
@@ -2385,9 +2387,10 @@ async function buildLightParlayContext(
   const activeSports: string[] = [];
   const sportList = opts.sports ?? TINY_PARLAY_SPORTS;
 
+  const probeLimit = opts.sportProbeLimit ?? Math.max(opts.maxSports + 2, 4);
   if (opts.parallelSports) {
     const probes = await Promise.all(
-      sportList.slice(0, Math.max(opts.maxSports + 2, 4)).map(async (s) => {
+      sportList.slice(0, probeLimit).map(async (s) => {
         const [o, g] = await Promise.all([
           getOdds(s, signal).catch(() => [] as OddsGame[]),
           getGames(s, signal).catch(() => [] as EspnGame[]),
@@ -2637,15 +2640,16 @@ export async function buildPropsOnlyParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
-  const n = Math.max(4, Math.min(12, requestedLegs || 6));
+  // Skip client getProps — the server backfills realProps from its cached
+  // /sports/props feed so connect finishes on cellular before budgets exhaust.
   return buildLightParlayContext(signal, {
-    maxSports: 2,
-    maxPropGames: 3,
-    maxOddsGames: 5,
-    propsBalanceCap: Math.min(48, n * 8),
-    oddsSliceCap: 4,
+    maxSports: 1,
+    maxPropGames: 0,
+    maxOddsGames: 6,
+    propsBalanceCap: 0,
+    oddsSliceCap: 6,
     parallelSports: true,
-    parallelPropFetch: true,
+    sportProbeLimit: 2,
   });
 }
 
@@ -3411,6 +3415,8 @@ export type StreamChatArgs = {
   buildId?: string;
   /** Override pre-first-token read budget (big parlays need longer reasoning). */
   firstTokenMs?: number;
+  /** Override connect/upload deadline (cold autoscale + tiny uplink). */
+  connectMs?: number;
 };
 
 // Convert the server's realProps (one row per player+market with both posted
@@ -3435,7 +3441,10 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
 }
 
 /** Best-effort wake-up before a heavy Coach build POST (cold autoscale hosts). */
-export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
+export async function warmApiForCoachBuild(
+  signal?: AbortSignal,
+  opts?: { propsOnly?: boolean },
+): Promise<void> {
   let authToken: string | null = null;
   try {
     authToken = authTokenGetter ? await authTokenGetter() : null;
@@ -3443,14 +3452,31 @@ export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> 
     authToken = null;
   }
   try {
-    await Promise.all([
+    const warmers: Promise<unknown>[] = [
       withTimeout(
         expoFetch(`${API_BASE}/healthz`, { signal }) as unknown as Promise<Response>,
         8_000,
         "/healthz",
       ),
       probeContextStashEndpoint(authToken, signal),
-    ]);
+    ];
+    // Props-only builds lean on server-side prop backfill — prime the odds/props
+    // caches while waking cold autoscale so the first /api/chat isn't a cache miss.
+    if (opts?.propsOnly) {
+      warmers.push(
+        withTimeout(
+          expoFetch(`${API_BASE}/sports/odds?sport=mlb`, { signal }) as unknown as Promise<Response>,
+          10_000,
+          "/sports/odds?sport=mlb",
+        ),
+        withTimeout(
+          expoFetch(`${API_BASE}/sports/odds?sport=wnba`, { signal }) as unknown as Promise<Response>,
+          10_000,
+          "/sports/odds?sport=wnba",
+        ),
+      );
+    }
+    await Promise.all(warmers);
   } catch {
     // Never block the build on a warm-up miss.
   }
@@ -3606,6 +3632,7 @@ export async function streamChat({
   notifyOnBackground,
   buildId,
   firstTokenMs: firstTokenMsOverride,
+  connectMs: connectMsOverride,
 }: StreamChatArgs): Promise<string> {
   // Attach the Clerk bearer token so the server can identify the user. This is
   // required for the background-finish path (it stashes the result + pushes
@@ -3682,13 +3709,15 @@ export async function streamChat({
   // genuinely dead link still aborts in reasonable time (the background-build path
   // is the safety net if we do give up). ~120ms/KB over a 40KB floor ≈ tolerates a
   // ~70kbps uplink: 130KB→~23s, 500KB→capped 30s; a 5KB chat stays at 12s.
-  const CONNECT_MS = Math.min(
-    120_000,
-    Math.max(
-      bodyKB > 16 ? 20_000 : 15_000,
-      Math.round((bodyKB > 16 ? 20_000 : 15_000) + Math.max(0, bodyKB - 16) * 300),
-    ),
-  );
+  const CONNECT_MS =
+    connectMsOverride ??
+    Math.min(
+      120_000,
+      Math.max(
+        bodyKB > 16 ? 20_000 : 15_000,
+        Math.round((bodyKB > 16 ? 20_000 : 15_000) + Math.max(0, bodyKB - 16) * 300),
+      ),
+    );
   const MAX_ATTEMPTS = 6;
 
   let lastErr: unknown = null;

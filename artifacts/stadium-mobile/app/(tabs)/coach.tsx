@@ -1255,10 +1255,12 @@ export default function CoachScreen() {
             !altSign;
           const streamWarmBuild =
             isParlayBuild || useMlbSlatePath || genericParlayPath || usePropsOnlyParlayPath;
-          const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
+          const warmP = streamWarmBuild
+            ? warmApiForCoachBuild(controller.signal, { propsOnly: usePropsOnlyParlayPath })
+            : Promise.resolve();
           if (usePropsOnlyParlayPath) {
-            // Props-only: wake cold autoscale BEFORE prop fan-out so /api/chat isn't
-            // the first heavy hit after a 20s parallel props fetch.
+            // Props-only: wake cold autoscale BEFORE the slim odds slice so /api/chat
+            // isn't the first heavy hit after context build.
             await warmP;
           }
           const rawBuilt = useTinyParlayPath
@@ -1348,7 +1350,7 @@ export default function CoachScreen() {
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             if (!usePropsOnlyParlayPath) await warmP;
-            else await warmApiForCoachBuild(controller.signal);
+            else await warmApiForCoachBuild(controller.signal, { propsOnly: true });
             return streamChat({
               messages: apiMessages,
               context: streamContext,
@@ -1357,6 +1359,7 @@ export default function CoachScreen() {
               notifyOnBackground: bg,
               buildId,
               firstTokenMs: isParlayBuild ? parlayFirstTokenMs : undefined,
+              connectMs: usePropsOnlyParlayPath ? 45_000 : undefined,
               onProps: (rows: RealPropEntry[]) => {
                 serverPropPool.push(...propPoolFromRealProps(rows));
               },
