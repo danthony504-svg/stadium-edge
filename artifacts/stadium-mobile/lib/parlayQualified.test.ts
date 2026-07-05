@@ -45,10 +45,10 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
   };
 }
 
-test("main ticket rejects grade below C", () => {
+test("main ticket rejects grade below C+", () => {
   const score = qualifiedPick().finalAiScore!;
-  assert.equal(isMainTicketQualified({ ...score, grade: "C-" }, -110), false);
-  assert.equal(isMainTicketQualified({ ...score, grade: "C" }, -110), true);
+  assert.equal(isMainTicketQualified({ ...score, grade: "C" }, -110), false);
+  assert.equal(isMainTicketQualified({ ...score, grade: "C+" }, -110), true);
 });
 
 test("main ticket rejects confidence below 50", () => {
@@ -75,12 +75,12 @@ test("main ticket rejects negative edge", () => {
   const reason = reasonPickNotQualified(
     qualifiedPick({ finalAiScore: { ...qualifiedPick().finalAiScore!, edgePct: -0.5 } }),
   );
-  assert.match(reason, /negative EV/i);
+  assert.match(reason, /non-positive EV/i);
 });
 
-test("main ticket accepts zero edge", () => {
+test("main ticket rejects zero edge", () => {
   const score = qualifiedPick().finalAiScore!;
-  assert.equal(isMainTicketQualified({ ...score, edgePct: 0 }, -110, 0), true);
+  assert.equal(isMainTicketQualified({ ...score, edgePct: 0 }, -110, 0), false);
 });
 
 test("resolvePickEdgePct uses conservative min across score sources", () => {
@@ -92,7 +92,7 @@ test("resolvePickEdgePct uses conservative min across score sources", () => {
   assert.equal(isFullyQualifiedPick(pick), false);
 });
 
-test("filterMainTicketPicks drops negative-edge legs", () => {
+test("filterMainTicketPicks drops non-positive-edge legs", () => {
   const good = qualifiedPick();
   const bad = qualifiedPick({
     game: "C @ D",
@@ -133,6 +133,19 @@ test("main ticket rejects sim disagreement", () => {
     }),
   );
   assert.match(reason, /disagrees/i);
+});
+
+test("main ticket rejects grade D and confidence under 50", () => {
+  const score = qualifiedPick().finalAiScore!;
+  assert.equal(isMainTicketQualified({ ...score, grade: "D" }, -110), false);
+  assert.equal(
+    isFullyQualifiedPick(
+      qualifiedPick({
+        finalAiScore: { ...score, grade: "D", edgePct: -2.4, confidencePct: 48 },
+      }),
+    ),
+    false,
+  );
 });
 
 test("longshot main ticket accepts 50% sim with positive edge", () => {
@@ -227,6 +240,6 @@ test("partitionQualifiedPicks splits ticket", () => {
   assert.equal(unqualified.length, 1);
 });
 
-test("MIN_MAIN_PICK_GRADE is C", () => {
-  assert.equal(MIN_MAIN_PICK_GRADE, "C");
+test("MIN_MAIN_PICK_GRADE is C+", () => {
+  assert.equal(MIN_MAIN_PICK_GRADE, "C+");
 });

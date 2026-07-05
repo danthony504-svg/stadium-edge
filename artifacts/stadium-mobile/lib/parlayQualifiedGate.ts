@@ -7,7 +7,7 @@ import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
 
-export const MIN_MAIN_PICK_GRADE = "C";
+export const MIN_MAIN_PICK_GRADE = "C+";
 export const MIN_MAIN_PICK_CONFIDENCE = 50;
 /** Longshot main-ticket floor — coin-flip alts with +EV may qualify at 49%+. */
 export const LONGSHOT_SIM_MIN_HIT = 0.49;
@@ -64,7 +64,7 @@ export function resolvePickEdgePct(
 
 /**
  * Main-ticket quality bar — applies to every game line and prop on the primary
- * parlay. Rejects losing-value picks: grade below C, negative edge/EV,
+ * parlay. Rejects losing-value picks: grade below C+, non-positive edge/EV,
  * confidence under 50%, or simulator disagreement.
  */
 export function isMainTicketQualified(
@@ -75,7 +75,7 @@ export function isMainTicketQualified(
   if (!score) return false;
   if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (edge == null || !Number.isFinite(edge) || edge < 0) return false;
+  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
   if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
     return false;
@@ -100,7 +100,7 @@ export function isLongshotMainTicketQualified(
   if (!score) return false;
   if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (edge == null || !Number.isFinite(edge) || edge < 0) return false;
+  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   if (score.confidencePct == null || score.confidencePct < MIN_MAIN_PICK_CONFIDENCE) return false;
   if (
     score.simHit == null ||
@@ -145,6 +145,7 @@ export function isFullyQualifiedPick(
   opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
 ): boolean {
   const edge = resolvePickEdgePct(pick, opts);
+  if (edge == null || edge <= 0) return false;
   if (opts?.longshotAsk) {
     return isLongshotMainTicketQualified(pick.finalAiScore, pick.odds ?? null, edge);
   }
@@ -176,7 +177,7 @@ export function isLongshotSectionPick(pick: ParsedPick): boolean {
   const s = pick.finalAiScore;
   if (!s?.grade || pick.odds == null || !Number.isFinite(pick.odds)) return false;
   const edge = resolvePickEdgePct(pick);
-  const negativeEdge = edge == null || edge < 0;
+  const negativeEdge = edge == null || edge <= 0;
   const simUnsupported = !s.simAligned || s.simHit == null || s.simHit < GAME_SIM_MIN_HIT;
   if (!negativeEdge && !simUnsupported) return false;
   return s.simHit != null || edge != null;
@@ -190,11 +191,11 @@ export function reasonPickNotQualified(
   if (!s) return "missing Final AI Score";
   if (!s.grade) return "missing AI Grade";
   if (!gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) {
-    return `AI Grade ${s.grade} — main picks need C or better`;
+    return `AI Grade ${s.grade} — main picks need ${MIN_MAIN_PICK_GRADE} or better`;
   }
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null) return "missing Edge %";
-  if (edge < 0) return `${edge}% edge — negative EV, rejected`;
+  if (edge <= 0) return `${edge}% edge — non-positive EV, rejected`;
   if (s.confidencePct == null) return "missing Confidence";
   if (s.confidencePct < MIN_MAIN_PICK_CONFIDENCE) {
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;

@@ -136,7 +136,7 @@ export async function collectQualifiedPropCandidates(
   const ranked = preScored
     .filter((p) => {
       const edge = resolvePickEdgePct(p, edgeOpts);
-      return edge != null && edge >= 0;
+      return edge != null && edge > 0;
     })
     .sort((a, b) => comparePickStrength(b, a));
 

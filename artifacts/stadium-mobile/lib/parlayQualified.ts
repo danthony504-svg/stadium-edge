@@ -21,6 +21,8 @@ export {
   isMainTicketQualified,
   isLongshotMainTicketQualified,
   LONGSHOT_SIM_MIN_HIT,
+  MIN_MAIN_PICK_GRADE,
+  MIN_MAIN_PICK_CONFIDENCE,
   isFullyQualifiedPropFinalAi,
   isFullyQualifiedGameLineFinalAi,
   isFullyQualifiedFinalAi,
@@ -95,8 +97,18 @@ export async function ensureQualifiedParlayToTarget(
   target: number,
   opts: EnsureQualifiedParlayOpts,
 ): Promise<ParsedPick[]> {
-  if (target <= 0) return picks.filter(isFullyQualifiedPick);
+  if (target <= 0) {
+    const edgeOpts = {
+      realOdds: opts.scoreOpts.realOdds,
+      propPool: opts.scoreOpts.propPool,
+    };
+    return picks.filter((p) => isFullyQualifiedPick(p, edgeOpts));
+  }
   const rejects = opts.rejectsOut ?? [];
+  const edgeOpts = {
+    realOdds: opts.scoreOpts.realOdds,
+    propPool: opts.scoreOpts.propPool,
+  };
   const triedLegs = new Set<string>();
   let out = [...picks];
 
@@ -104,14 +116,14 @@ export async function ensureQualifiedParlayToTarget(
     if (opts.signal?.aborted) break;
     out = await scorePicksForQualification(out, opts.scoreOpts, opts.signal);
 
-    const { qualified, unqualified } = partitionQualifiedPicks(out);
+    const { qualified, unqualified } = partitionQualifiedPicks(out, edgeOpts);
     for (const p of unqualified) {
       const fp = pickLegFingerprint(p);
       if (triedLegs.has(fp)) continue;
       triedLegs.add(fp);
       rejects.push({
         pick: p,
-        reason: reasonPickNotQualified(p),
+        reason: reasonPickNotQualified(p, edgeOpts),
         nearScore: nearScoreFromPick(p),
       });
     }
@@ -126,7 +138,7 @@ export async function ensureQualifiedParlayToTarget(
   }
 
   out = await scorePicksForQualification(out, opts.scoreOpts, opts.signal);
-  return out.filter(isFullyQualifiedPick).slice(0, target);
+  return out.filter((p) => isFullyQualifiedPick(p, edgeOpts)).slice(0, target);
 }
 
 /** Filter-only pass when replenishment is not requested. */
@@ -136,13 +148,14 @@ export async function filterToQualifiedPicks(
   rejectsOut?: ParlayLegReject[],
   signal?: AbortSignal,
 ): Promise<ParsedPick[]> {
+  const edgeOpts = { realOdds: opts.realOdds, propPool: opts.propPool };
   const scored = await scorePicksForQualification(picks, opts, signal);
-  const { qualified, unqualified } = partitionQualifiedPicks(scored);
+  const { qualified, unqualified } = partitionQualifiedPicks(scored, edgeOpts);
   if (rejectsOut) {
     for (const p of unqualified) {
       rejectsOut.push({
         pick: p,
-        reason: reasonPickNotQualified(p),
+        reason: reasonPickNotQualified(p, edgeOpts),
         nearScore: nearScoreFromPick(p),
       });
     }

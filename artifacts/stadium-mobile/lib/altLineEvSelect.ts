@@ -78,7 +78,7 @@ function longshotRowEligible(
   qualify: (score: FinalAiScore | null | undefined, odds: number | null, edge: number | null) => boolean,
 ): boolean {
   const edge = row.edgePct ?? row.entry.edge ?? null;
-  if (edge == null || !Number.isFinite(edge) || edge < 0) return false;
+  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   const wp = row.winProb;
   if (wp == null || !Number.isFinite(wp) || wp < minSim) return false;
   const ev = resolveRowExpectedValue(row);

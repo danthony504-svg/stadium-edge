@@ -82,6 +82,8 @@ import {
 import {
   filterMainTicketPicks,
   filterToQualifiedPicks,
+  MIN_MAIN_PICK_CONFIDENCE,
+  MIN_MAIN_PICK_GRADE,
 } from "@/lib/parlayQualified";
 import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
 import {
@@ -2125,6 +2127,7 @@ export default function CoachScreen() {
             picks,
             mergedGameOdds,
             reachFull ? parlayRejections : undefined,
+            mergedPropPool,
           );
           picks = edgeFiltered.picks;
           gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
@@ -2504,7 +2507,7 @@ export default function CoachScreen() {
             backupNote ||
             (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
-              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs a complete AI Grade, Simulation Hit %, Edge % ≥ 0, Confidence, and Final AI Score backed by the 10k sim and positive EV.`);
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_MAIN_PICK_GRADE} or better, Simulation Hit %, strictly positive Edge %, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2569,6 +2572,14 @@ export default function CoachScreen() {
         }
         if (isParlayBuild && picks.length > 1) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
+        }
+        if (isParlayBuild && picks.length > 0) {
+          picks = filterMainTicketPicks(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            rejectsOut: parlayRejections,
+            longshotAsk,
+          });
         }
         setMessages((prev) => {
           const copy = [...prev];
