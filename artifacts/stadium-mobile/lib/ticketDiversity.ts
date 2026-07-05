@@ -128,14 +128,14 @@ export function rebalanceDeepParlayTicket(
   return { picks: out, note: notes.join("\n\n") };
 }
 
+import { shuffleWithSeed } from "./varietySeed.ts";
+
 /** Stable shuffle so backfill doesn't always walk the same first games. */
 export function rotatePool<T>(items: T[], seed: string): T[] {
-  if (items.length <= 1) return items;
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  const offset = h % items.length;
-  return [...items.slice(offset), ...items.slice(0, offset)];
+  return shuffleWithSeed(items, seed);
 }
+
+export { varietyRankKey } from "./varietySeed.ts";
 
 /** Strip model chalk so reach-backfill must run for deep parlays (6+ legs). */
 export function prepareDeepParlaySeed(

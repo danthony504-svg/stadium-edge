@@ -1002,6 +1002,9 @@ export default function CoachScreen() {
     ) => {
       const replay = opts?.replay ?? null;
       const trimmed = text.trim();
+      // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
+      // replay the same ranked props and game-line walk order every tap.
+      const varietySeed = makeBuildId();
       const images = replay ? [] : attachedImages;
       if ((!trimmed && !images.length) || (streaming && !opts?.freshThread)) return;
       if (opts?.freshThread) {
@@ -1508,6 +1511,7 @@ export default function CoachScreen() {
           matchupInjuries: context.matchupInjuries,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           propSimulations,
+          varietySeed,
         };
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
@@ -1592,6 +1596,7 @@ export default function CoachScreen() {
             /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed),
           diversify: !lockedPropMarket,
           maxPerMarket: lockedPropMarket ? 99 : undefined,
+          varietySeed,
           selectionOpts,
         };
         let propsOnlyNote = "";
@@ -1771,7 +1776,7 @@ export default function CoachScreen() {
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
         const reachTarget = Math.min(legTarget, MAX_LEGS);
-        let reachPool = rotatePool(context.realOdds, trimmed);
+        let reachPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}`);
         if (slateDay) reachPool = filterOddsForSlateDay(reachPool, slateDay);
         const forceBoardBuild =
           composeFromBoard && !oddsThreshold && !confidenceThreshold;
@@ -1965,7 +1970,7 @@ export default function CoachScreen() {
             !confidenceThreshold
           ) {
             const target = Math.min(legTarget, MAX_LEGS);
-            let topUpPool = rotatePool(context.realOdds, `${trimmed}-topup`);
+            let topUpPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-topup`);
             if (slateDay) topUpPool = filterOddsForSlateDay(topUpPool, slateDay);
             picks = topUpDeepParlayToTarget(
               picks,
@@ -2095,7 +2100,7 @@ export default function CoachScreen() {
             propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
             picks.length < Math.min(legTarget, MAX_LEGS)
           ) {
-            let pool = rotatePool(context.realOdds, `${trimmed}-props2`);
+            let pool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-props2`);
             if (slateDay) pool = filterOddsForSlateDay(pool, slateDay);
             picks = backfillProps(picks, mergedPropPool, pool, gameMeta, {
               target: Math.min(legTarget, MAX_LEGS),
@@ -2104,7 +2109,7 @@ export default function CoachScreen() {
           }
         }
         if (forceBoardBuild) {
-          let finalPool = rotatePool(context.realOdds, `${trimmed}-final`);
+          let finalPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-final`);
           if (slateDay) finalPool = filterOddsForSlateDay(finalPool, slateDay);
           picks = finalizeDeepParlayTicket(
             picks,

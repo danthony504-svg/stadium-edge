@@ -10,11 +10,14 @@ import {
   type PlayerHistorySlice,
   type PropSimAttachOpts,
 } from "@/lib/pickScoreContext";
+import { varietyRankKey } from "@/lib/varietySeed";
 
 const SIM_SELECTION_TIMEOUT_MS = 2800;
 
 export type PropSelectionOpts = PropSimAttachOpts & {
   propSimulations?: Map<string, { hitProbability: number | null }>;
+  /** Per-build seed so identical prompts don't always surface the same top props. */
+  varietySeed?: string;
 };
 
 export type EnrichChatContextOpts = {
@@ -81,12 +84,22 @@ export function rankPropPoolEntries(
     e,
     score: selectionScoreForEntry(e, pool, opts),
   }));
+  const seed = opts.varietySeed;
+  const entryKey = (e: PropPoolEntry) =>
+    `${e.game}|${e.player}|${e.marketLabel}|${e.line ?? ""}|${e.side}`;
   return withScore
     .sort((a, b) => {
-      const as = a.score ?? -1;
-      const bs = b.score ?? -1;
+      const jitter = (e: PropPoolEntry, score: number | null) =>
+        seed && score != null
+          ? ((varietyRankKey(seed, entryKey(e)) % 1000) / 10000) * 0.12
+          : 0;
+      const as = (a.score ?? -1) + jitter(a.e, a.score);
+      const bs = (b.score ?? -1) + jitter(b.e, b.score);
       if (bs !== as) return bs - as;
-      return (b.e.edge ?? 0) - (a.e.edge ?? 0);
+      const edgeDiff = (b.e.edge ?? 0) - (a.e.edge ?? 0);
+      if (edgeDiff !== 0) return edgeDiff;
+      if (!seed) return 0;
+      return varietyRankKey(seed, entryKey(a.e)) - varietyRankKey(seed, entryKey(b.e));
     })
     .map((x) => x.e);
 }
