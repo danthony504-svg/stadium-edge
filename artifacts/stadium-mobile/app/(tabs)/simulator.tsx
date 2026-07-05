@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { useMemo, useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   ActivityIndicator,
   Modal,
