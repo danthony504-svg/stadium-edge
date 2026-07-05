@@ -2,12 +2,11 @@
 // ship the PrizePicks fallback alongside the screen (avoids relying on a fresh
 // re-export from the large api.ts barrel during partial updates).
 import {
-  getGameRoster,
   getProps,
-  getPrizePicksProps,
   type GetPropsArgs,
   type PlayerProp,
 } from "./api";
+import { fetchGameRoster, fetchSimulatorPrizePicks } from "./simulatorApi";
 
 function normPlayerName(s: string): string {
   return s
@@ -84,7 +83,7 @@ async function applyGameRoster(
 ): Promise<PlayerProp[]> {
   if (!props.length || (!homeTeamId && !awayTeamId)) return props;
   try {
-    const { players } = await getGameRoster(sport, homeTeamId, awayTeamId, signal);
+    const { players } = await fetchGameRoster(sport, homeTeamId, awayTeamId, signal);
     if (!players.length) return props;
     const byName = new Map(players.map((p) => [normPlayerName(p.name), p]));
     return props
@@ -121,7 +120,7 @@ export async function loadSimulatorProps(
   }
   if (!args.home || !args.away) return [];
   try {
-    const pp = await getPrizePicksProps(
+    const pp = await fetchSimulatorPrizePicks(
       {
         sport: args.sport,
         home: args.home,

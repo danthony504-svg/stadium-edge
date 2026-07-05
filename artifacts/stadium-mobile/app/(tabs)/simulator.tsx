@@ -27,13 +27,11 @@ import {
   fetchGameOutcomeSimulation,
   fetchMatchupHistoryEntry,
   fetchPropSimulationsBatch,
-  getSimulatorGames,
   getInjuries,
   getParkWeather,
   getPlayerHistory,
   propMarketLabel,
   warmApiForCoachBuild,
-  searchPlayer,
   type EspnGame,
   type GameSimulationResult,
   type PlayerProp,
@@ -41,6 +39,7 @@ import {
 } from "@/lib/api";
 import { isSimulatorEligible } from "@/lib/slate";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
+import { fetchSimulatorGames, searchSimulatorPlayer } from "@/lib/simulatorApi";
 import { buildGameInjuryReport } from "@/lib/injuries";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
@@ -207,7 +206,7 @@ export default function SimulatorScreen() {
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
     queryFn: ({ signal }) =>
-      getSimulatorGames(sport, signal).then((rows) => {
+      fetchSimulatorGames(sport, signal).then((rows) => {
         const list = asGameList(rows).filter((g) => isSimulatorEligible(g));
         rememberSimGames(sport, list);
         return list;
@@ -462,7 +461,7 @@ export default function SimulatorScreen() {
             let athleteId = s.athleteId;
             if (!athleteId) {
               try {
-                const { results } = await searchPlayer(s.player);
+                const { results } = await searchSimulatorPlayer(s.player);
                 const hit =
                   results.find(
                     (r) =>
@@ -683,7 +682,7 @@ export default function SimulatorScreen() {
         ) : gamesQ.isError ? (
           <ErrorState onRetry={() => gamesQ.refetch()} />
         ) : !game ? (
-          <EmptyState title="No upcoming games" message={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
+          <EmptyState title="No upcoming games" subtitle={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
         ) : (
           <>
             {/* Game picker strip */}
