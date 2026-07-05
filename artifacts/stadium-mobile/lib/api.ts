@@ -208,16 +208,16 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new Error(`aborted: ${path}`);
     try {
-      const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), REQUEST_TIMEOUT_MS, path);
+      const res = await withTimeout(expoFetch(`${API_BASE}${path}`, { signal }), timeoutMs, path);
       if (res.ok) {
-        return await withTimeout(res.json() as Promise<T>, REQUEST_TIMEOUT_MS, `${path} (body)`);
+        return await withTimeout(res.json() as Promise<T>, timeoutMs, `${path} (body)`);
       }
       // Only 429 (rate limit) and 5xx (server/upstream blip) are transient.
       if (res.status !== 429 && res.status < 500) throw new Error(`HTTP ${res.status}`);
@@ -608,6 +608,8 @@ export type PlayerProp = {
   // omitted — never fabricated. Grounds the prop rubric's Line-Shopping score.
   overSpread?: number | null;
   underSpread?: number | null;
+  // DFS projection fallback (PrizePicks) — real line, no per-leg American price.
+  priceSource?: "PrizePicks" | null;
 };
 
 export type PropsResponse = {
@@ -697,7 +699,8 @@ export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<Prop
   if (args.homeTeamId) q.set("homeTeamId", args.homeTeamId);
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   if (args.startsAt) q.set("startsAt", args.startsAt);
-  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal);
+  // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
+  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
 }
 
 // ---------- Player history (real ESPN game logs + season stats) ----------
