@@ -214,7 +214,9 @@ function RootLayoutNav() {
 function DiscoverHydrateBridge() {
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
-    void warmApiForCoachBuild();
+    if (typeof warmApiForCoachBuild === "function") {
+      void warmApiForCoachBuild();
+    }
   }, []);
   return null;
 }

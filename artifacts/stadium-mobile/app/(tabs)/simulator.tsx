@@ -23,31 +23,28 @@ import { Avatar } from "@/components/PlayerPropRow";
 import type { ParsedPick } from "@/components/PickCard";
 import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import {
-  fetchGameOutcomeSimulation,
-  fetchMatchupHistoryEntry,
-  fetchPropSimulationsBatch,
-  getInjuries,
-  getParkWeather,
-  getPlayerHistory,
-  propMarketLabel,
-  warmApiForCoachBuild,
-  type EspnGame,
-  type GameSimulationResult,
-  type PlayerProp,
-  type PropSimulationResult,
+import type {
+  EspnGame,
+  GameSimulationResult,
+  PlayerProp,
+  PropSimulationResult,
 } from "@/lib/api";
-import { isSimulatorEligible as slateSimulatorEligible } from "@/lib/slate";
+import { buildGameInjuryReport } from "@/lib/injuries";
 import { loadSimulatorProps } from "@/lib/simulatorProps";
 import {
+  fetchSimulatorGameOutcome,
   fetchSimulatorGames,
+  fetchSimulatorInjuries,
+  fetchSimulatorMatchupHistory,
+  fetchSimulatorParkWeather,
+  fetchSimulatorPlayerHistory,
+  fetchSimulatorPropSimulationsBatch,
   isSimulatorPregame,
+  propMarketLabel,
   searchSimulatorPlayer,
+  warmSimulatorApi,
 } from "@/lib/simulatorApi";
 
-const gameEligibleForSim =
-  typeof slateSimulatorEligible === "function" ? slateSimulatorEligible : isSimulatorPregame;
-import { buildGameInjuryReport } from "@/lib/injuries";
 import type { CombinedPickScore } from "@/lib/pickScore";
 import {
   attachPickScores,
@@ -61,6 +58,8 @@ import {
   rememberSimGames,
   rememberSimProps,
 } from "@/lib/simulatorSessionCache";
+
+const gameEligibleForSim = isSimulatorPregame;
 
 const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer"] as const;
 const SIM_COUNT = 10_000;
@@ -207,18 +206,15 @@ export default function SimulatorScreen() {
   useEffect(() => {
     if (warmedRef.current) return;
     warmedRef.current = true;
-    void warmApiForCoachBuild();
+    void warmSimulatorApi();
   }, []);
 
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
     queryFn: async ({ signal }) => {
-      const rows =
-        typeof fetchSimulatorGames === "function"
-          ? await fetchSimulatorGames(sport, signal)
-          : [];
+      const rows = await fetchSimulatorGames(sport, signal);
       const list = asGameList(rows).filter((g) => gameEligibleForSim(g));
-      if (typeof rememberSimGames === "function") rememberSimGames(sport, list);
+      rememberSimGames(sport, list);
       return list;
     },
     staleTime: 30_000,
@@ -234,7 +230,7 @@ export default function SimulatorScreen() {
   // Drop started games as soon as the user returns to this tab.
   useFocusEffect(
     useCallback(() => {
-      if (typeof pruneSimGamesCache === "function") pruneSimGamesCache();
+      pruneSimGamesCache();
       gamesQ.refetch?.();
     }, [gamesQ.refetch]),
   );
@@ -259,7 +255,7 @@ export default function SimulatorScreen() {
 
   const injuriesQ = useQuery({
     queryKey: ["sim-injuries", sport],
-    queryFn: ({ signal }) => getInjuries(sport, signal),
+    queryFn: ({ signal }) => fetchSimulatorInjuries(sport, signal),
     staleTime: 10 * 60_000,
     enabled: !!game,
   });
@@ -269,7 +265,7 @@ export default function SimulatorScreen() {
     enabled: !!game?.homeTeamId && !!game?.awayTeamId && !!gameLabel,
     queryFn: ({ signal }) => {
       if (!game?.homeTeamId || !game?.awayTeamId) return Promise.resolve(null);
-      return fetchMatchupHistoryEntry(
+      return fetchSimulatorMatchupHistory(
         {
           sport,
           gameLabel,
@@ -296,7 +292,7 @@ export default function SimulatorScreen() {
     enabled: !!game?.id && gameEligible,
     throwOnError: false,
     queryFn: async ({ signal }) => {
-      if (!game?.id || typeof loadSimulatorProps !== "function") return [] as PlayerProp[];
+      if (!game?.id) return [] as PlayerProp[];
       try {
         const props = await loadSimulatorProps(
           {
@@ -329,7 +325,7 @@ export default function SimulatorScreen() {
   const parkQ = useQuery({
     queryKey: ["sim-park-wx", sport],
     enabled: sport === "mlb" && !!game,
-    queryFn: ({ signal }) => getParkWeather("mlb", signal),
+    queryFn: ({ signal }) => fetchSimulatorParkWeather("mlb", signal),
     staleTime: 10 * 60_000,
   });
 
@@ -450,7 +446,7 @@ export default function SimulatorScreen() {
     try {
       const wx = weatherImpact;
       if (mode === "game" || mode === "full") {
-        const gr = await fetchGameOutcomeSimulation({
+        const gr = await fetchSimulatorGameOutcome({
           sport,
           homeTeamId: game.homeTeamId,
           awayTeamId: game.awayTeamId,
@@ -499,11 +495,11 @@ export default function SimulatorScreen() {
           simProps.map(async (s) => {
             if (!s.athleteId) return;
             try {
-              const h = await getPlayerHistory({ sport, athleteId: s.athleteId });
+              const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
               const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
-                date: g.date,
-                opp: g.opponentName,
-                stats: g.stats,
+                date: g.date ?? undefined,
+                opp: g.opponentName ?? undefined,
+                stats: g.stats as Record<string, unknown>,
               }));
               if (recent.length) {
                 ph[`${s.player}#${s.athleteId}`] = { player: s.player, recent };
@@ -514,7 +510,7 @@ export default function SimulatorScreen() {
           }),
         );
         setPlayerHistory(ph);
-        const prQuick = await fetchPropSimulationsBatch(
+        const prQuick = await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
@@ -528,7 +524,7 @@ export default function SimulatorScreen() {
         );
         setPropResults(prQuick);
         setSimDeepPending(true);
-        const prDeep = await fetchPropSimulationsBatch(
+        const prDeep = await fetchSimulatorPropSimulationsBatch(
           sport,
           simProps,
           {
