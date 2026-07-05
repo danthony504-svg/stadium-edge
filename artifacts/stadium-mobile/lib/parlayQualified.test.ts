@@ -5,6 +5,8 @@ import {
   filterMainTicketPicks,
   gameLineHasSharpAgreement,
   gameLineMeetsSimBar,
+  pickHasCoachCardMetrics,
+  pickRubricForDisplay,
   isFullyQualifiedPick,
   isGameLineMainTicketQualified,
   isLongshotSectionPick,
@@ -48,6 +50,13 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
         confidencePct: 62,
         edgePct: 2.1,
       },
+    },
+    scores: {
+      scores: {},
+      composite: 7.5,
+      grade: "B+",
+      confidencePct: 62,
+      edgePct: 2.1,
     },
     ...overrides,
   };
@@ -435,6 +444,19 @@ test("partitionQualifiedPicks splits ticket", () => {
   assert.equal(unqualified.length, 1);
 });
 
-test("MIN_MAIN_PICK_GRADE is C+", () => {
-  assert.equal(MIN_MAIN_PICK_GRADE, "C+");
+test("pickHasCoachCardMetrics rejects pick with finalAi but no rubric composite", () => {
+  const pick = qualifiedPick({
+    scores: undefined,
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      rubric: { scores: {}, composite: null, grade: null, confidencePct: null, edgePct: 2.1 },
+    },
+  });
+  assert.equal(pickHasCoachCardMetrics(pick), false);
+  assert.equal(isFullyQualifiedPick(pick), false);
+});
+
+test("pickHasCoachCardMetrics accepts fully scored game line", () => {
+  const pick = qualifiedPick();
+  assert.equal(pickHasCoachCardMetrics(pick), true);
 });

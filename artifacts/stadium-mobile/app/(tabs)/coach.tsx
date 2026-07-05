@@ -82,6 +82,7 @@ import {
   filterMainTicketPicks,
   filterToQualifiedPicks,
   comparePickStrength,
+  isFullyQualifiedPick,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
 } from "@/lib/parlayQualified";
@@ -2999,6 +3000,7 @@ export default function CoachScreen() {
               !analyzeWaiting &&
               !askWaiting &&
               (bubbleText.length > 0 || !!m.imageUris?.length);
+            const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
             return (
               <View key={i}>
                 {m.analyzeSlip?.length ? (
@@ -3085,7 +3087,7 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {hasPicks ? (
+                {ticketPicks.length > 0 ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {m.legNote ? (
                       <Text
@@ -3099,16 +3101,16 @@ export default function CoachScreen() {
                         {m.legNote}
                       </Text>
                     ) : null}
-                    {m.picks!.length > 1 ? (
+                    {ticketPicks.length > 1 ? (
                       <AddAllButton
-                        picks={m.picks!}
+                        picks={ticketPicks}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
                     ) : null}
-                    {m.picks!.map((p, j) => (
+                    {ticketPicks.map((p, j) => (
                       <PickCard
                         key={`${i}-${j}`}
                         pick={p}

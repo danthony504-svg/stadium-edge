@@ -224,8 +224,15 @@ export function gameLineMeetsSimBar(
   return edge != null && Number.isFinite(edge) && edge >= GAME_LINE_EXCEPTIONAL_EV_PCT;
 }
 
-/** Every field the pick card must render for a game line (grade, conf, edge, sim, best line). */
-export function gameLineHasCompleteDisplay(
+/** Rubric attached for card rendering — scores field or Final AI rubric fallback. */
+export function pickRubricForDisplay(pick: ParsedPick): import("./pickScore.ts").CombinedPickScore | null {
+  const rubric = pick.scores ?? pick.finalAiScore?.rubric ?? null;
+  if (rubric?.composite == null || !Number.isFinite(rubric.composite)) return null;
+  return rubric;
+}
+
+/** True when every metric tile on a Coach pick card can be filled (no dashes). */
+export function pickHasCoachCardMetrics(
   pick: ParsedPick,
   opts?: PickEdgeResolveOpts,
 ): boolean {
@@ -236,8 +243,17 @@ export function gameLineHasCompleteDisplay(
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   if (pick.odds == null || !Number.isFinite(pick.odds)) return false;
-  if (!pick.gameLineFinal) return false;
+  if (!pickRubricForDisplay(pick)) return false;
+  if (isGameLinePickForGate(pick) && !pick.gameLineFinal) return false;
   return true;
+}
+
+/** Every field the pick card must render for a game line (grade, conf, edge, sim, best line). */
+export function gameLineHasCompleteDisplay(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): boolean {
+  return pickHasCoachCardMetrics(pick, opts);
 }
 
 /**
@@ -342,6 +358,7 @@ export function isFullyQualifiedPick(
   pick: ParsedPick,
   opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
 ): boolean {
+  if (!pickHasCoachCardMetrics(pick, opts)) return false;
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || edge <= 0) return false;
   const score = pick.finalAiScore;
@@ -415,9 +432,11 @@ export function reasonPickNotQualified(
     return `Confidence ${s.confidencePct}% — needs ≥${MIN_MAIN_PICK_CONFIDENCE}%`;
   }
   if (s.simHit == null) return "missing Simulation Hit %";
+  if (!pickHasCoachCardMetrics(pick, opts)) {
+    return "incomplete pick score — grade, confidence, edge, sim, or best line missing";
+  }
   if (isGameLinePickForGate(pick)) {
     if (!pick.gameLineFinal) return "game line not finalized after 10k sim";
-    if (!gameLineHasCompleteDisplay(pick, opts)) return "incomplete game-line score (grade, confidence, edge, sim, or best line)";
     if (!gameLineMeetsSimBar(s.simHit, edge, { pick, opts, evPct: ev, finalAiScore: s })) {
       const pct = Math.round(s.simHit * 100);
       return `10k sim ${pct}% — game line needs >${Math.round(GAME_LINE_SIM_MIN_HIT * 100)}% sim, or exceptional +EV / sharp money / line movement in the coin-flip band`;

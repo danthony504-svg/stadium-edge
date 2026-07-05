@@ -32,6 +32,8 @@ export {
   isFullyQualifiedFinalAi,
   isFullyQualifiedPick,
   isLongshotSectionPick,
+  pickHasCoachCardMetrics,
+  pickRubricForDisplay,
   comparePickStrength,
   reasonPickNotQualified,
   partitionQualifiedPicks,
