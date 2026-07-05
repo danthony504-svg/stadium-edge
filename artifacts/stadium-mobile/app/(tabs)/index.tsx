@@ -971,7 +971,7 @@ export default function HomeScreen() {
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
+        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay")} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
