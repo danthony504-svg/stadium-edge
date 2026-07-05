@@ -50,8 +50,8 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
-  cachedSimGames,
   cachedSimProps,
+  pruneSimGamesCache,
   rememberSimGames,
   rememberSimProps,
 } from "@/lib/simulatorSessionCache";
@@ -176,6 +176,13 @@ export default function SimulatorScreen() {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
+  // Re-filter the slate when kickoff passes without waiting for the next refetch.
+  const [clockTick, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Wake cold Render hosts before the first games/props fan-out.
   useEffect(() => {
     if (warmedRef.current) return;
@@ -194,20 +201,17 @@ export default function SimulatorScreen() {
     staleTime: 30_000,
     refetchOnMount: "always",
     refetchInterval: 60_000,
-    initialData: () => {
-      const cached = cachedSimGames(sport);
-      return cached.length > 0 ? cached : undefined;
-    },
   });
 
   const games = useMemo(
     () => asGameList(gamesQ.data).filter((g) => isSimulatorEligible(g)),
-    [gamesQ.data],
+    [gamesQ.data, clockTick],
   );
 
   // Drop started games as soon as the user returns to this tab.
   useFocusEffect(
     useCallback(() => {
+      pruneSimGamesCache();
       void gamesQ.refetch();
     }, [gamesQ.refetch]),
   );
