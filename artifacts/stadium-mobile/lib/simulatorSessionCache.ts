@@ -1,14 +1,18 @@
 import type { EspnGame, PlayerProp } from "./api";
+import { isSimulatorEligible } from "./slate";
 
 const gamesBySport = new Map<string, EspnGame[]>();
 const propsByGame = new Map<string, PlayerProp[]>();
 
 export function cachedSimGames(sport: string): EspnGame[] {
-  return gamesBySport.get(sport) ?? [];
+  // Re-filter on read — a game that was pregame when cached may have started since.
+  return (gamesBySport.get(sport) ?? []).filter((g) => isSimulatorEligible(g));
 }
 
 export function rememberSimGames(sport: string, games: EspnGame[]): void {
-  if (games.length > 0) gamesBySport.set(sport, games);
+  const eligible = games.filter((g) => isSimulatorEligible(g));
+  if (eligible.length > 0) gamesBySport.set(sport, eligible);
+  else gamesBySport.delete(sport);
 }
 
 export function simPropsCacheKey(sport: string, gameId: string): string {

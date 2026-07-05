@@ -190,14 +190,19 @@ export default function SimulatorScreen() {
         rememberSimGames(sport, list);
         return list;
       }),
-    staleTime: 5 * 60_000,
+    staleTime: 30_000,
+    refetchOnMount: "always",
+    refetchInterval: 60_000,
     initialData: () => {
-      const cached = asGameList(cachedSimGames(sport)).filter((g) => isSimulatorEligible(g));
+      const cached = cachedSimGames(sport);
       return cached.length > 0 ? cached : undefined;
     },
   });
 
-  const games = useMemo(() => asGameList(gamesQ.data), [gamesQ.data]);
+  const games = useMemo(
+    () => asGameList(gamesQ.data).filter((g) => isSimulatorEligible(g)),
+    [gamesQ.data],
+  );
 
   useEffect(() => {
     if (gameIdx >= games.length) setGameIdx(0);
@@ -245,24 +250,28 @@ export default function SimulatorScreen() {
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
     enabled: !!game?.id && gameEligible,
-    queryFn: ({ signal }) => {
-      if (!game?.id) return Promise.resolve([] as PlayerProp[]);
-      return getPropsWithPrizePicksFallback(
-        {
-          sport,
-          eventId: game.id,
-          home: game.homeTeam ?? undefined,
-          away: game.awayTeam ?? undefined,
-          homeTeamId: game.homeTeamId,
-          awayTeamId: game.awayTeamId,
-          startsAt: game.startsAt,
-        },
-        signal,
-      ).then((r) => {
+    throwOnError: false,
+    queryFn: async ({ signal }) => {
+      if (!game?.id) return [] as PlayerProp[];
+      try {
+        const r = await getPropsWithPrizePicksFallback(
+          {
+            sport,
+            eventId: game.id,
+            home: game.homeTeam ?? undefined,
+            away: game.awayTeam ?? undefined,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
+            startsAt: game.startsAt,
+          },
+          signal,
+        );
         const props = asPropList(r.props);
-        rememberSimProps(sport, game.id, props);
+        if (props.length > 0) rememberSimProps(sport, game.id, props);
         return props;
-      });
+      } catch {
+        return [] as PlayerProp[];
+      }
     },
     staleTime: 5 * 60_000,
     retry: 3,
@@ -394,7 +403,7 @@ export default function SimulatorScreen() {
   };
 
   const runSimulation = async () => {
-    if (!game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam) return;
+    if (!gameEligible || !game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setRunning(true);
     setGameResult(null);
@@ -479,6 +488,7 @@ export default function SimulatorScreen() {
   };
 
   const canRun =
+    gameEligible &&
     !!game &&
     !running &&
     (mode === "game" || (mode === "props" && selected.length >= 1) || (mode === "full" && selected.length >= 1));
@@ -848,12 +858,10 @@ export default function SimulatorScreen() {
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
                     This game has already started — pick an upcoming matchup to simulate props.
                   </Text>
-                ) : propsQ.isError ? (
-                  <ErrorState onRetry={() => propsQ.refetch()} />
                 ) : filteredProps.length === 0 ? (
                   <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, textAlign: "center", paddingVertical: 16 }}>
-                    {propsQ.isError
-                      ? "Props didn't load — check your connection and tap Retry."
+                    {propsQ.isFetching
+                      ? "Loading player props…"
                       : "No props posted for this game yet — try another filter or check back closer to first pitch."}
                   </Text>
                 ) : (

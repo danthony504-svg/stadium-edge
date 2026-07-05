@@ -778,16 +778,20 @@ export async function getPropsWithPrizePicksFallback(
   if (!args.home || !args.away) {
     return { home: args.home ?? null, away: args.away ?? null, bookmaker: null, props: [] };
   }
-  const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
-  const props = (Array.isArray(pp.props) ? pp.props : [])
-    .filter((p): p is PlayerProp => !!p && typeof p === "object")
-    .map((p) => ({
-      ...p,
-      market: ppStatToMarketKey(args.sport, p.market) || p.market,
-      priceSource: "PrizePicks" as const,
-      overBook: p.overBook ?? "PrizePicks",
-    }));
-  return { ...pp, props };
+  try {
+    const pp = await getPrizePicksProps({ sport: args.sport, home: args.home, away: args.away }, signal);
+    const props = (Array.isArray(pp.props) ? pp.props : [])
+      .filter((p): p is PlayerProp => !!p && typeof p === "object")
+      .map((p) => ({
+        ...p,
+        market: ppStatToMarketKey(args.sport, p.market) || p.market,
+        priceSource: "PrizePicks" as const,
+        overBook: p.overBook ?? "PrizePicks",
+      }));
+    return { ...pp, props };
+  } catch {
+    return { home: args.home, away: args.away, bookmaker: null, props: [] };
+  }
 }
 
 // ---------- Player history (real ESPN game logs + season stats) ----------
