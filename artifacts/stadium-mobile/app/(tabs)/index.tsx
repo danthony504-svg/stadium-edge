@@ -374,12 +374,21 @@ export default function HomeScreen() {
   const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
-  const [stickyUpcoming, setStickyUpcoming] = useState<OddsGame[]>(() => cachedUpcomingGames(sport));
+  const [stickyUpcoming, setStickyUpcoming] = useState<{ sport: string; games: OddsGame[] }>(() => ({
+    sport,
+    games: cachedUpcomingGames(sport),
+  }));
+
+  const selectSport = useCallback((id: string) => {
+    setSport(id);
+    setStickyLiveGames(cachedLiveGames(id));
+    setStickyUpcoming({ sport: id, games: cachedUpcomingGames(id) });
+  }, []);
 
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
       setStickyLiveGames(cachedLiveGames(sport));
-      setStickyUpcoming(cachedUpcomingGames(sport));
+      setStickyUpcoming({ sport, games: cachedUpcomingGames(sport) });
     });
   }, []);
 
@@ -398,7 +407,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     setStickyLiveGames(cachedLiveGames(sport));
-    setStickyUpcoming(cachedUpcomingGames(sport));
+    setStickyUpcoming({ sport, games: cachedUpcomingGames(sport) });
   }, [sport]);
 
   const oddsQ = useQuery({
@@ -467,15 +476,17 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (games.length > 0) {
-      setStickyUpcoming(games);
+      setStickyUpcoming({ sport, games });
       rememberUpcomingGames(sport, games);
     }
   }, [games, sport]);
   const upcomingGames = useMemo(() => {
     if (games.length > 0) return games;
-    if (stickyUpcoming.length > 0) return stickyUpcoming;
+    if (stickyUpcoming.sport === sport && stickyUpcoming.games.length > 0) {
+      return stickyUpcoming.games;
+    }
     return games;
-  }, [games, stickyUpcoming]);
+  }, [games, stickyUpcoming, sport]);
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -909,7 +920,7 @@ export default function HomeScreen() {
             return (
               <Pressable
                 key={s.id}
-                onPress={() => setSport(s.id)}
+                onPress={() => selectSport(s.id)}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -1612,7 +1623,25 @@ export default function HomeScreen() {
                   </View>
                 ))}
               </View>
-              <PerformanceSparkline width={Math.min(140, Math.max(100, width * 0.3))} />
+              {showTrack ? (
+                <PerformanceSparkline width={Math.min(140, Math.max(100, width * 0.3))} />
+              ) : stealsQ.isLoading ? (
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                  Loading…
+                </Text>
+              ) : (
+                <Text
+                  style={{
+                    color: colors.mutedForeground,
+                    fontFamily: FONT.medium,
+                    fontSize: 11,
+                    maxWidth: 100,
+                    textAlign: "right",
+                  }}
+                >
+                  No settled picks yet
+                </Text>
+              )}
             </View>
           </Pressable>
         </View>
@@ -1679,7 +1708,7 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
         </View>
-        {!oddsQ.data && oddsQ.isLoading && stickyUpcoming.length === 0 ? (
+        {!oddsQ.data && oddsQ.isLoading && stickyUpcoming.games.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
