@@ -16,6 +16,7 @@ import {
   canonicalizeFrozenTicket,
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
+  containsLegacyGameLineOptimizerCopy,
 } from "./frozenGameLineConsistency.ts";
 
 type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
@@ -320,5 +321,17 @@ test("assertFrozenGameLineSummaryClean rejects placeholder Final AI and edge das
   assert.throws(
     () => assertFrozenGameLineSummaryClean(bad),
     FrozenGameLineConsistencyError,
+  );
+});
+
+test("containsLegacyGameLineOptimizerCopy detects streamed model optimizer bullets", () => {
+  const legacy =
+    "New York Yankees @ Tampa Bay Rays: Yankees -1.5 (Spread) — Final AI C+, sim 52%, edge —";
+  assert.equal(containsLegacyGameLineOptimizerCopy(legacy), true);
+  assert.equal(
+    containsLegacyGameLineOptimizerCopy(
+      "• **Yankees -1.5** (Spread) · New York Yankees @ Tampa Bay Rays\nFinal AI B+ · Sim 52% · Edge +3.1% · Conf 55",
+    ),
+    false,
   );
 });

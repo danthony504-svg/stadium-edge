@@ -8,6 +8,7 @@ import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
+import { gameLineFrozenMetricsComplete } from "./gameLineFrozenQual.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
 /** Prop main-ticket confidence floor. */
@@ -400,6 +401,7 @@ export function isFullyQualifiedPick(
   const score = pick.finalAiScore;
   const odds = pick.odds ?? null;
   if (isGameLinePickForGate(pick)) {
+    if (!gameLineFrozenMetricsComplete(pick)) return false;
     const ev = resolvePickExpectedValue(pick, opts);
     return (
       isGameLineMainTicketQualified(score, odds, edge, ev, {
@@ -499,7 +501,12 @@ export function reasonPickNotQualified(
     return "incomplete pick score — grade, confidence, edge, sim, or best line missing";
   }
   if (isGameLinePickForGate(pick)) {
-    if (!pick.gameLineFinal) return "game line not finalized after 10k sim";
+    if (!pick.gameLineFrozen || !pick.gameLineFinal?.display) {
+      return "game line not frozen — refusing incomplete display";
+    }
+    if (!gameLineFrozenMetricsComplete(pick)) {
+      return "game line missing Final AI Grade, Confidence, Sim %, or Edge % on frozen display";
+    }
     if (
       !gameLineMeetsSimBar(s.simHit, edge, {
         pick,

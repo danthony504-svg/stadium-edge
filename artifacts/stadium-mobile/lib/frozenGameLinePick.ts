@@ -34,6 +34,7 @@ export {
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,
   parseAllGameLineMentionsFromNote,
+  containsLegacyGameLineOptimizerCopy,
   canonicalizeFrozenGameLinePick,
   canonicalizeFrozenTicket,
   validateFrozenTicketForRender,

@@ -27,14 +27,36 @@ import { expectedValuePct } from "./altLineEvSelect.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
-  return {
-    game: "A @ B",
-    market: "Spread",
-    pick: "A +1.5",
-    odds: -110,
+  const game = overrides.game ?? "A @ B";
+  const pick = overrides.pick ?? "A +1.5";
+  const market = overrides.market ?? "Spread";
+  const odds = overrides.odds ?? -110;
+  const base: ParsedPick = {
+    game,
+    market,
+    pick,
+    odds,
     isProp: false,
     sport: "mlb",
-    gameLineFinal: { reason: "test", finalScore: 6.5 },
+    gameLineFrozen: true,
+    gameLineFinal: {
+      reason: "test",
+      finalScore: 6.5,
+      frozenAt: 1,
+      isBestEv: true,
+      display: {
+        pick: String(pick),
+        market: String(market),
+        odds: Number(odds),
+        game: String(game),
+        grade: "B+",
+        confidencePct: 62,
+        edgePct: 2.1,
+        evPct: 3.2,
+        simHit: 0.55,
+        simPct: 55,
+      },
+    },
     finalAiScore: {
       grade: "B+",
       simHit: 0.55,
@@ -60,8 +82,8 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
       confidencePct: 62,
       edgePct: 2.1,
     },
-    ...overrides,
   };
+  return { ...base, ...overrides, gameLineFinal: overrides.gameLineFinal ?? base.gameLineFinal };
 }
 
 test("main ticket rejects grade below C+", () => {
@@ -311,7 +333,6 @@ test("filterMainTicketPicks rejects game line without scores or positive EV", ()
 test("filterMainTicketPicks keeps 50% sim game line with full display when best EV", () => {
   const gamePick = qualifiedPick({
     game: "Toronto Blue Jays @ Seattle Mariners",
-    market: "Spread",
     pick: "Mariners +1.5",
     odds: 105,
     finalAiScore: {
@@ -321,7 +342,24 @@ test("filterMainTicketPicks keeps 50% sim game line with full display when best 
       edgePct: 1.2,
     },
     scores: { ...qualifiedPick().scores!, edgePct: 1.2 },
-    gameLineFinal: { reason: "Highest EV", finalScore: 6.2, isBestEv: true },
+    gameLineFinal: {
+      reason: "Highest EV",
+      finalScore: 6.2,
+      frozenAt: 1,
+      isBestEv: true,
+      display: {
+        pick: "Mariners +1.5",
+        market: "Spread",
+        odds: 105,
+        game: "Toronto Blue Jays @ Seattle Mariners",
+        grade: "B+",
+        confidencePct: 62,
+        edgePct: 1.2,
+        evPct: 3.5,
+        simHit: 0.5,
+        simPct: 50,
+      },
+    },
   });
   assert.equal(filterMainTicketPicks([gamePick]).length, 1);
 });

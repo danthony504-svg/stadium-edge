@@ -294,23 +294,38 @@ export function buildFrozenGameLineSummaryNote(
   picks: ParsedPick[],
   realOdds?: RealOddsEntry[],
 ): string {
+  const gameLinePicks = picks.filter((p) => isGameLinePick(p) && !p.isProp);
+  if (!gameLinePicks.length) return "";
+
   const rows = getFrozenGameLineLegs(picks);
-  if (!rows.length) return "";
+  if (rows.length !== gameLinePicks.length) {
+    throw new FrozenGameLineConsistencyError(
+      "Every game-line leg on the ticket must have a complete frozen display before summary render",
+    );
+  }
 
   const pickByGame = new Map<string, ParsedPick>();
-  for (const pick of picks) {
-    if (!isGameLinePick(pick) || pick.isProp) continue;
+  for (const pick of gameLinePicks) {
     pickByGame.set(normGameLabel(frozenGameLineHeader(pick).game), pick);
   }
 
   const lines: string[] = [];
   for (const row of rows) {
     const pick = pickByGame.get(row.gameKey);
-    if (!pick) continue;
+    if (!pick) {
+      throw new FrozenGameLineConsistencyError(
+        `Game line ${row.pick} (${row.game}) missing from frozen ticket`,
+      );
+    }
     lines.push(formatFrozenGameLineSummaryLine(row, pick, realOdds));
   }
 
-  if (!lines.length) return "";
+  if (lines.length !== gameLinePicks.length) {
+    throw new FrozenGameLineConsistencyError(
+      "Game-line summary is missing one or more ticket legs — refusing partial summary",
+    );
+  }
+
   const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every line shows Final AI Grade, Simulation %, Edge %, and Confidence from the frozen pick:_`;
   const summary = `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
   assertFrozenGameLineSummaryClean(summary);
@@ -373,12 +388,27 @@ export function parseAllGameLineMentionsFromNote(note: string): Map<string, Game
 function looksLikeGameLineListing(text: string): boolean {
   const t = text.trim();
   if (!t || !/@/.test(t)) return false;
+  if (/highest Final AI Score among/i.test(t)) return true;
   if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*.+@/.test(t)) return true;
   if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
   if (/:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
   if (/Final AI\s*[:—-]/i.test(t) && /@/.test(t)) return true;
-  if (/edge\s*:\s*[—-]{1,2}/i.test(t) && /@/.test(t)) return true;
+  if (/edge\s*[:—-]/i.test(t) && /@/.test(t)) return true;
+  if (/sim\s*\d+%.*edge\s*[—\-]{1,2}/i.test(t)) return true;
   return false;
+}
+
+/** True when text contains legacy optimizer game-line copy that must never render. */
+export function containsLegacyGameLineOptimizerCopy(text: string): boolean {
+  if (!text.trim()) return false;
+  if (/highest Final AI Score among/i.test(text)) return true;
+  return text.split(/\n/).some((line) => {
+    const t = line.trim();
+    if (!t) return false;
+    // Frozen summary lines are always allowed.
+    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*.+@/.test(t)) return false;
+    return looksLikeGameLineListing(t);
+  });
 }
 
 /** Remove model / legacy optimizer listings so only frozen summary remains. */
@@ -389,6 +419,7 @@ export function stripModelGameLineListings(note: string): string {
   for (const p of parts) {
     if (looksLikeGameLineListing(p)) continue;
     if (/^After the 10k sim,/i.test(p)) continue;
+    if (/highest Final AI Score among/i.test(p)) continue;
     const lines = p
       .split("\n")
       .map((l) => l.trim())

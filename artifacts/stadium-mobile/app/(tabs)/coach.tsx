@@ -72,6 +72,8 @@ import {
   assertFrozenGameLineSummaryClean,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
+  containsLegacyGameLineOptimizerCopy,
+  isGameLineFrozen,
   FrozenGameLineConsistencyError,
 } from "@/lib/frozenGameLinePick";
 import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
@@ -537,7 +539,8 @@ function assistantBubbleText(content: string, hasPicks: boolean): string {
   const lines = content.split("\n");
   const idx = lines.findIndex((l) => PICK_SCAFFOLD_RE.test(l.trim()));
   const kept = idx === -1 ? lines : lines.slice(0, idx);
-  return stripTrailingReminder(kept.join("\n"));
+  const stripped = stripTrailingReminder(stripModelGameLineListings(kept.join("\n")));
+  return containsLegacyGameLineOptimizerCopy(stripped) ? "" : stripped;
 }
 
 // Does the user want the coach's TAKE/projection, not just the raw stat card?
@@ -1521,6 +1524,19 @@ export default function CoachScreen() {
 
           try {
             full = await runStream();
+            // Drop model optimizer prose immediately — the ticket is built from parsed
+            // PICK lines + sim scoring, not streamed narrative. Prevents legacy
+            // "Final AI — / edge —" listings from flashing during the scoring pass.
+            if (isParlayBuild && !isAnalyze) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                const last = copy[copy.length - 1];
+                if (last?.role === "assistant") {
+                  copy[copy.length - 1] = { ...last, content: "" };
+                }
+                return copy;
+              });
+            }
           } catch (streamErr: any) {
             const retryable =
               (isParlayBuild || useMlbSlatePath) &&
@@ -2617,6 +2633,9 @@ export default function CoachScreen() {
             longshotAsk,
             buildAltOptions: (best, pool) => gameAltOptions(best, pool),
           });
+          picks = picks.filter(
+            (p) => p.isProp || !isGameLinePick(p) || isGameLineFrozen(p),
+          );
           picks = filterMainTicketPicks(picks, {
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
@@ -3040,6 +3059,12 @@ export default function CoachScreen() {
             // lead-in prose never flashes) or PICK lines have started arriving.
             const parlayBuildIntent =
               m.role === "assistant" && PARLAY_BUILD_RE.test(messages[i - 1]?.content || "");
+            const isScoringParlay =
+              m.role === "assistant" &&
+              streaming &&
+              i === messages.length - 1 &&
+              parlayBuildIntent &&
+              !hasPicks;
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
@@ -3069,15 +3094,19 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
+            const ticketRendered = hasPicks || ticketPicks.length > 0 || !!m.gameLineSummary;
             const bubbleText =
               m.role === "assistant"
-                ? assistantBubbleText(m.content, hidePickReplyProse)
+                ? ticketRendered
+                  ? ""
+                  : assistantBubbleText(m.content, false)
                 : m.content;
             // Drop the bubble entirely when a pick reply left no lead-in text —
             // the cards carry everything. Also hide it while a parlay is building
             // (the AnalysisProgress card stands in) or while an analyze request is waiting.
             const showBubble =
               !hidePickReplyProse &&
+              !isScoringParlay &&
               !m.hideBubble &&
               !m.statCard &&
               !m.periodGameLog &&
@@ -3164,7 +3193,7 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {isBuildingParlay ? (
+                {isBuildingParlay || isScoringParlay ? (
                   <AnalysisProgress mode="build" legCount={buildingLegCount} />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
@@ -3176,7 +3205,14 @@ export default function CoachScreen() {
                   (() => {
                     try {
                       assertMainTicketPicksQualified(ticketPicks);
-                      if (m.gameLineSummary) assertFrozenGameLineSummaryClean(m.gameLineSummary);
+                      if (m.gameLineSummary) {
+                        assertFrozenGameLineSummaryClean(m.gameLineSummary);
+                        if (containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
+                          throw new FrozenGameLineConsistencyError(
+                            "Legacy optimizer copy in gameLineSummary — render blocked",
+                          );
+                        }
+                      }
                       validateFrozenTicketForRender(ticketPicks, m.gameLineSummary);
                     } catch (e) {
                       if (
