@@ -36,6 +36,7 @@ import {
   fetchSimulatorGames,
   fetchSimulatorInjuries,
   fetchSimulatorMatchupHistory,
+  fetchSimulatorMlbProbables,
   fetchSimulatorOdds,
   fetchSimulatorParkWeather,
   fetchSimulatorPlayerHistory,
@@ -86,6 +87,16 @@ import {
   rememberSimGames,
   rememberSimProps,
 } from "@/lib/simulatorSessionCache";
+import {
+  buildSimInputFingerprint,
+  fingerprintKey,
+  fingerprintInjuries,
+  fingerprintLineups,
+  fingerprintOddsLines,
+  fingerprintWeather,
+  getCachedGameSim,
+  rememberGameSim,
+} from "@/lib/simulatorResultCache";
 
 const gameEligibleForSim = isSimulatorPregame;
 
@@ -271,6 +282,8 @@ export default function SimulatorScreen() {
 
   const sportFilters = propFiltersForSport(sport);
   const warmedRef = useRef(false);
+  const runInFlightRef = useRef(false);
+  const lastAutoRunKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
@@ -328,12 +341,15 @@ export default function SimulatorScreen() {
     enabled: !!game,
   });
 
-  // Switching games must drop prior selections (PP lines are per-matchup).
+  // Switching games must drop prior prop selections (PP lines are per-matchup).
   useEffect(() => {
     setSelected([]);
     setPropResults([]);
+    setPlayerHistory({});
+    setSimDeepPending(false);
     setGameResult(null);
     setRanAt(null);
+    lastAutoRunKeyRef.current = null;
   }, [game?.id, sport]);
 
   const gameEligible = !!game && gameEligibleForSim(game);
@@ -537,6 +553,13 @@ export default function SimulatorScreen() {
     staleTime: 10 * 60_000,
   });
 
+  const probablesQ = useQuery({
+    queryKey: ["sim-mlb-probables"],
+    enabled: sport === "mlb" && !!game,
+    queryFn: ({ signal }) => fetchSimulatorMlbProbables(signal),
+    staleTime: 5 * 60_000,
+  });
+
   const weatherForGame = useMemo(() => {
     if (!game?.homeTeam) return null;
     const parks = asParkList(parkQ.data);
@@ -561,6 +584,55 @@ export default function SimulatorScreen() {
     condition: weatherForGame?.current?.condition ?? null,
   });
   const showWeatherRow = weatherLabel != null;
+
+  const simInputFingerprint = useMemo(() => {
+    if (!game?.id || !game.homeTeam || !game.awayTeam) return null;
+    const injuryTeams = Array.isArray(injuriesQ.data) ? injuriesQ.data : [];
+    const injuryRep = buildGameInjuryReport(sport, injuryTeams, game.awayTeam, game.homeTeam);
+    const homeProb =
+      sport === "mlb" && game.homeTeamId ? probablesQ.data?.probables?.[game.homeTeamId] : null;
+    const awayProb =
+      sport === "mlb" && game.awayTeamId ? probablesQ.data?.probables?.[game.awayTeamId] : null;
+    return buildSimInputFingerprint({
+      odds: fingerprintOddsLines(gameOddsLines),
+      injuries: fingerprintInjuries(injuryRep),
+      weather: fingerprintWeather(
+        weatherForGame
+          ? {
+              tempF: weatherForGame.current?.tempF,
+              condition: weatherForGame.current?.condition,
+              climateControlled: (weatherForGame as { climateControlled?: boolean }).climateControlled,
+              impactRating: weatherForGame.impact?.rating,
+            }
+          : null,
+        weatherImpact,
+      ),
+      lineups: fingerprintLineups({
+        homeStarterId: homeProb?.athleteId,
+        awayStarterId: awayProb?.athleteId,
+        homeStarterName: homeProb?.name,
+        awayStarterName: awayProb?.name,
+      }),
+    });
+  }, [
+    game,
+    sport,
+    gameOddsLines,
+    injuriesQ.data,
+    weatherForGame,
+    weatherImpact,
+    probablesQ.data,
+  ]);
+
+  const simInputsReady =
+    gameEligible &&
+    !!game?.id &&
+    !!game.homeTeamId &&
+    !!game.awayTeamId &&
+    oddsQ.isFetched &&
+    injuriesQ.isFetched &&
+    (sport !== "mlb" || parkQ.isFetched) &&
+    (sport !== "mlb" || probablesQ.isFetched);
 
   const mains = useMemo(() => {
     if (propsLoading) return [];
@@ -637,133 +709,209 @@ export default function SimulatorScreen() {
     ]);
   };
 
-  const runSimulation = async () => {
-    if (!gameEligible || !game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam) return;
-    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setRunning(true);
-    setGameResult(null);
-    setPropResults([]);
-    setPlayerHistory({});
-    try {
-      const wx = weatherImpact;
-      if (mode === "game" || mode === "full") {
-        const gameLabel = `${game.awayTeam} @ ${game.homeTeam}`;
-        const evalMap = new Map([[gameLabel, gameOddsLines]]);
-        const coverQueries = mergeCoverQueries(
-          buildDefaultGameCoverQueries(gameLabel, game.homeTeam, game.awayTeam),
-          coverQueriesFromEvalLines(evalMap),
-        );
-        const gr = await fetchSimulatorGameOutcome({
-          sport,
-          homeTeamId: game.homeTeamId,
-          awayTeamId: game.awayTeamId,
-          homeTeam: game.homeTeam,
-          awayTeam: game.awayTeam,
-          simulations: SIM_COUNT,
-          weatherImpact: wx,
-          coverQueries,
-          retainOutcomes: true,
-        });
-        setGameResult(gr);
+  const runSimulation = useCallback(
+    async (opts?: { force?: boolean; auto?: boolean }) => {
+      if (!gameEligible || !game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam || !game.id) {
+        return;
       }
-      if ((mode === "props" || mode === "full") && selected.length > 0) {
-        const teamTokens = [game.homeTeam, game.awayTeam]
-          .filter(Boolean)
-          .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
+      if (runInFlightRef.current) return;
 
-        const simProps = await Promise.all(
-          selected.map(async (s) => {
-            let athleteId = s.athleteId;
-            if (!athleteId) {
+      const fp = simInputFingerprint;
+      if (!opts?.force && fp) {
+        const cached = getCachedGameSim(sport, game.id, fp);
+        if (cached) {
+          setGameResult(cached.gameResult);
+          setRanAt(cached.ranAt);
+          lastAutoRunKeyRef.current = fingerprintKey(fp);
+          return;
+        }
+      }
+
+      const runGame = opts?.auto || mode === "game" || mode === "full";
+      const runProps = !opts?.auto && (mode === "props" || mode === "full") && selected.length > 0;
+      if (!runGame && !runProps) return;
+
+      if (!opts?.force && !opts?.auto) {
+        if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+
+      runInFlightRef.current = true;
+      setRunning(true);
+      if (opts?.force) {
+        setGameResult(null);
+        setPropResults([]);
+        setPlayerHistory({});
+      } else if (!opts?.auto) {
+        setGameResult(null);
+        setPropResults([]);
+        setPlayerHistory({});
+      }
+
+      try {
+        const wx = weatherImpact;
+        if (runGame) {
+          const label = `${game.awayTeam} @ ${game.homeTeam}`;
+          const evalMap = new Map([[label, gameOddsLines]]);
+          const coverQueries = mergeCoverQueries(
+            buildDefaultGameCoverQueries(label, game.homeTeam, game.awayTeam),
+            coverQueriesFromEvalLines(evalMap),
+          );
+          const gr = await fetchSimulatorGameOutcome({
+            sport,
+            homeTeamId: game.homeTeamId,
+            awayTeamId: game.awayTeamId,
+            homeTeam: game.homeTeam,
+            awayTeam: game.awayTeam,
+            simulations: SIM_COUNT,
+            weatherImpact: wx,
+            coverQueries,
+            retainOutcomes: true,
+          });
+          if (gr) {
+            setGameResult(gr);
+            const ran = Date.now();
+            setRanAt(ran);
+            if (fp) {
+              rememberGameSim(sport, game.id, { gameResult: gr, ranAt: ran, fingerprint: fp });
+              lastAutoRunKeyRef.current = fingerprintKey(fp);
+            }
+          } else if (opts?.auto) {
+            lastAutoRunKeyRef.current = null;
+          }
+        }
+        if (runProps) {
+          const teamTokens = [game.homeTeam, game.awayTeam]
+            .filter(Boolean)
+            .map((t) => t!.split(/\s+/).pop()!.toLowerCase());
+
+          const simProps = await Promise.all(
+            selected.map(async (s) => {
+              let athleteId = s.athleteId;
+              if (!athleteId) {
+                try {
+                  const { results } = await searchSimulatorPlayer(s.player);
+                  const hit =
+                    results.find(
+                      (r) =>
+                        r.sport === sport &&
+                        r.team &&
+                        teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
+                    ) ?? results.find((r) => r.sport === sport);
+                  athleteId = hit?.athleteId ?? null;
+                } catch {
+                  athleteId = null;
+                }
+              }
+              return {
+                player: s.player,
+                market: s.market,
+                line: s.line,
+                side: s.side,
+                athleteId,
+              };
+            }),
+          );
+
+          const ph: Record<string, SimulatorPlayerHistorySlice> = {};
+          const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> =
+            {};
+          await Promise.all(
+            simProps.map(async (s) => {
+              if (!s.athleteId) return;
               try {
-                const { results } = await searchSimulatorPlayer(s.player);
-                const hit =
-                  results.find(
-                    (r) =>
-                      r.sport === sport &&
-                      r.team &&
-                      teamTokens.some((tok) => r.team!.toLowerCase().includes(tok)),
-                  ) ?? results.find((r) => r.sport === sport);
-                athleteId = hit?.athleteId ?? null;
+                const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
+                const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
+                  date: g.date ?? undefined,
+                  opp: g.opponentName ?? undefined,
+                  stats: g.stats as Record<string, unknown>,
+                }));
+                if (recent.length) {
+                  ph[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
+                  phForSim[`${s.player}#${s.athleteId}`] = {
+                    labels: h.labels,
+                    recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
+                  };
+                }
               } catch {
-                athleteId = null;
+                /* honest no-history skip */
               }
-            }
-            return {
-              player: s.player,
-              market: s.market,
-              line: s.line,
-              side: s.side,
-              athleteId,
-            };
-          }),
-        );
-
-        const ph: Record<string, SimulatorPlayerHistorySlice> = {};
-        const phForSim: Record<string, { labels?: string[]; recent?: { stats?: Record<string, string> }[] }> = {};
-        await Promise.all(
-          simProps.map(async (s) => {
-            if (!s.athleteId) return;
-            try {
-              const h = await fetchSimulatorPlayerHistory({ sport, athleteId: s.athleteId });
-              const recent = (h.recent ?? []).slice(0, 10).map((g) => ({
-                date: g.date ?? undefined,
-                opp: g.opponentName ?? undefined,
-                stats: g.stats as Record<string, unknown>,
-              }));
-              if (recent.length) {
-                ph[`${s.player}#${s.athleteId}`] = { player: s.player, labels: h.labels, recent };
-                phForSim[`${s.player}#${s.athleteId}`] = {
-                  labels: h.labels,
-                  recent: (h.recent ?? []).slice(0, 10).map((g) => ({ stats: g.stats })),
-                };
-              }
-            } catch {
-              /* honest no-history skip */
-            }
-          }),
-        );
-        setPlayerHistory(ph);
-        const prQuick = enrichPropSimResults(
-          await fetchSimulatorPropSimulationsBatch(
-          sport,
-          simProps,
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            weatherImpact: wx,
-            tier: "quick",
-          },
-        ),
-          phForSim,
-        );
-        setPropResults(prQuick);
-        setSimDeepPending(true);
-        const prDeep = enrichPropSimResults(
-          await fetchSimulatorPropSimulationsBatch(
-          sport,
-          simProps,
-          {
-            homeTeam: game.homeTeam,
-            awayTeam: game.awayTeam,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
-            weatherImpact: wx,
-            tier: "deep",
-          },
-        ),
-          phForSim,
-        );
-        setPropResults(prDeep);
-        setSimDeepPending(false);
+            }),
+          );
+          setPlayerHistory(ph);
+          const prQuick = enrichPropSimResults(
+            await fetchSimulatorPropSimulationsBatch(
+              sport,
+              simProps,
+              {
+                homeTeam: game.homeTeam,
+                awayTeam: game.awayTeam,
+                homeTeamId: game.homeTeamId,
+                awayTeamId: game.awayTeamId,
+                weatherImpact: wx,
+                tier: "quick",
+              },
+            ),
+            phForSim,
+          );
+          setPropResults(prQuick);
+          setSimDeepPending(true);
+          const prDeep = enrichPropSimResults(
+            await fetchSimulatorPropSimulationsBatch(
+              sport,
+              simProps,
+              {
+                homeTeam: game.homeTeam,
+                awayTeam: game.awayTeam,
+                homeTeamId: game.homeTeamId,
+                awayTeamId: game.awayTeamId,
+                weatherImpact: wx,
+                tier: "deep",
+              },
+            ),
+            phForSim,
+          );
+          setPropResults(prDeep);
+          setSimDeepPending(false);
+        }
+        if (!runGame) setRanAt(Date.now());
+      } finally {
+        runInFlightRef.current = false;
+        setRunning(false);
       }
-      setRanAt(Date.now());
-    } finally {
-      setRunning(false);
+    },
+    [
+      gameEligible,
+      game,
+      simInputFingerprint,
+      sport,
+      mode,
+      selected,
+      gameOddsLines,
+      weatherImpact,
+    ],
+  );
+
+  // Auto-run game outcome sim when a game opens; reuse cache when inputs are unchanged.
+  useEffect(() => {
+    if (!simInputsReady || !game?.id || !simInputFingerprint) return;
+
+    const fpKey = fingerprintKey(simInputFingerprint);
+    const cached = getCachedGameSim(sport, game.id, simInputFingerprint);
+    if (cached) {
+      setGameResult(cached.gameResult);
+      setRanAt(cached.ranAt);
+      lastAutoRunKeyRef.current = fpKey;
+      return;
     }
-  };
+
+    if (lastAutoRunKeyRef.current !== fpKey) {
+      setGameResult(null);
+      setRanAt(null);
+    }
+    if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
+    lastAutoRunKeyRef.current = fpKey;
+    void runSimulation({ auto: true });
+  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
 
   const canRun =
     gameEligible &&
@@ -1196,7 +1344,7 @@ export default function SimulatorScreen() {
 
             {/* Run */}
             <Pressable
-              onPress={runSimulation}
+              onPress={() => runSimulation({ force: true })}
               disabled={!canRun}
               style={{ marginHorizontal: 16, marginBottom: 20, opacity: canRun ? 1 : 0.5 }}
             >

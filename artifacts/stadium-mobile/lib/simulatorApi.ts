@@ -360,6 +360,26 @@ export async function fetchSimulatorPropSimulationsBatch(
   return json?.props ?? [];
 }
 
+export type SimMlbProbable = {
+  name: string;
+  athleteId: string;
+};
+
+export type SimMlbProbablesResp = {
+  probables: Record<string, SimMlbProbable>;
+};
+
+/** Probable starters — used for lineup-aware sim cache invalidation (MLB). */
+export async function fetchSimulatorMlbProbables(
+  signal?: AbortSignal,
+): Promise<SimMlbProbablesResp> {
+  try {
+    return await simGetJson<SimMlbProbablesResp>(`/sports/mlb-probables`, signal);
+  } catch {
+    return { probables: {} };
+  }
+}
+
 /** Best-effort wake-up before simulator fan-out (cold autoscale hosts). */
 export async function warmSimulatorApi(signal?: AbortSignal): Promise<void> {
   try {
