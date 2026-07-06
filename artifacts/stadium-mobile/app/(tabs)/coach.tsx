@@ -1365,7 +1365,8 @@ export default function CoachScreen() {
             const copy = [...prev];
             const last = copy[copy.length - 1];
             if (last?.role === "assistant") {
-              copy[copy.length - 1] = { ...last, content: "" };
+              const { legNote: _ln, gameLineSummary: _gs, ticketNote: _tn, ...rest } = last;
+              copy[copy.length - 1] = { ...rest, content: "" };
             }
             return copy;
           });
@@ -2718,15 +2719,16 @@ export default function CoachScreen() {
         }
         setMessages((prev) => {
           const copy = [...prev];
-          const { legNote: _dropNote, gameLineSummary: _dropSummary, ticketNote: _dropTicket, ...prevAssistant } =
-            copy[copy.length - 1];
+          const {
+            legNote: _dropNote,
+            gameLineSummary: _dropSummary,
+            ticketNote: _dropTicket,
+            ...prevAssistant
+          } = copy[copy.length - 1];
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content:
-              picks.length > 0 || ticketNote || gameLineSummary
-                ? ""
-                : stripModelGameLineListings(finalContent),
+            content: picks.length > 0 ? "" : stripModelGameLineListings(finalContent),
             picks,
             ...(picks.length
               ? {
@@ -2737,9 +2739,6 @@ export default function CoachScreen() {
                   longshotBuild: longshotAsk,
                 }
               : {}),
-            ...(legNote ? { legNote } : {}),
-            ...(gameLineSummary ? { gameLineSummary } : {}),
-            ...(ticketNote ? { ticketNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),
           };
@@ -2793,10 +2792,7 @@ export default function CoachScreen() {
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, deduped.picks, {
-                  gameLineSummary: rebuiltSummary || undefined,
-                  ticketNote: rebuiltTicketNote || undefined,
-                });
+                patchLastAssistantPicks(setMessages, deduped.picks);
                 setAiPicks(deduped.picks);
               },
               onDeep: (scored) => {
@@ -2827,10 +2823,7 @@ export default function CoachScreen() {
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, deduped.picks, {
-                  gameLineSummary: rebuiltSummary || undefined,
-                  ticketNote: rebuiltTicketNote || undefined,
-                });
+                patchLastAssistantPicks(setMessages, deduped.picks);
                 setAiPicks(deduped.picks);
               },
             },
@@ -3157,9 +3150,8 @@ export default function CoachScreen() {
                   longshotAsk: m.longshotBuild,
                 }),
               ) ?? [];
-            const hasTicketNote = !!(m.ticketNote?.trim() || m.gameLineSummary?.trim() || m.legNote?.trim());
-            const safeContent =
-              hasPicks || ticketPicks.length > 0 || hasTicketNote ? "" : m.content;
+            const ticketActive = hasPicks || ticketPicks.length > 0;
+            const safeContent = ticketActive ? "" : m.content;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -3204,18 +3196,16 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
-            const ticketRendered = hasPicks || ticketPicks.length > 0 || hasTicketNote;
             const bubbleText =
               m.role === "assistant"
-                ? ticketRendered
+                ? ticketActive
                   ? ""
-                  : assistantBubbleText(safeContent, false)
+                  : assistantBubbleText(safeContent, ticketActive)
                 : safeContent;
-            // Drop the bubble entirely when a pick reply left no lead-in text —
-            // the cards carry everything. Also hide it while a parlay is building
-            // (the AnalysisProgress card stands in) or while an analyze request is waiting.
+            // Parlay tickets are cards-only — never show streamed optimizer prose or
+            // stored legNote/ticketNote above the slip button.
             const showBubble =
-              !ticketRendered &&
+              !ticketActive &&
               !isScoringParlay &&
               !m.hideBubble &&
               !m.statCard &&
@@ -3314,34 +3304,6 @@ export default function CoachScreen() {
                 {ticketPicks.length > 0 ? (
                   (() => {
                     try {
-                      if (safeContent && containsLegacyGameLineOptimizerCopy(safeContent)) {
-                        throw new FrozenGameLineConsistencyError(
-                          "Legacy optimizer summary blocked — use frozen ticketNote only",
-                        );
-                      }
-                      if (m.content && hasPicks && containsLegacyGameLineOptimizerCopy(m.content)) {
-                        throw new FrozenGameLineConsistencyError(
-                          "Streamed model copy with placeholder metrics blocked — use frozen ticketNote only",
-                        );
-                      }
-                      if (m.ticketNote && containsLegacyGameLineOptimizerCopy(m.ticketNote)) {
-                        throw new FrozenGameLineConsistencyError(
-                          "Legacy optimizer copy in ticketNote — render blocked",
-                        );
-                      }
-                      if (m.gameLineSummary && containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
-                        throw new FrozenGameLineConsistencyError(
-                          "Legacy optimizer copy in gameLineSummary — render blocked",
-                        );
-                      }
-                      if (
-                        (m.ticketNote || m.gameLineSummary) &&
-                        textHasPlaceholderGameLineMetrics(m.ticketNote ?? m.gameLineSummary ?? "")
-                      ) {
-                        throw new FrozenGameLineConsistencyError(
-                          "Game-line summary contains placeholder Final AI or Edge dashes",
-                        );
-                      }
                       const canonicalPicks = assertProductionCoachTicketIntegrity(
                         ticketPicks,
                         undefined,
@@ -3354,14 +3316,6 @@ export default function CoachScreen() {
                         if (!displaySummary) {
                           throw new FrozenGameLineConsistencyError(
                             "Game-line ticket missing frozen optimizer summary",
-                          );
-                        }
-                        if (
-                          m.gameLineSummary?.trim() &&
-                          m.gameLineSummary.trim() !== displaySummary.trim()
-                        ) {
-                          throw new FrozenGameLineConsistencyError(
-                            "Stored game-line summary does not match frozen cards — refusing stale optimizer copy",
                           );
                         }
                         assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);

@@ -110,7 +110,6 @@ export function patchLastAssistantPicks<
 >(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
-  opts?: { gameLineSummary?: string; ticketNote?: string },
 ): void {
   setMessages((prev) => {
     const copy = [...prev];
@@ -121,16 +120,9 @@ export function patchLastAssistantPicks<
           ...rest,
           picks,
           content: picks.length > 0 ? "" : rest.content,
-          ...(opts?.gameLineSummary
-            ? { gameLineSummary: opts.gameLineSummary }
-            : rest.gameLineSummary
-              ? { gameLineSummary: rest.gameLineSummary }
-              : {}),
-          ...(opts?.ticketNote
-            ? { ticketNote: opts.ticketNote }
-            : rest.ticketNote
-              ? { ticketNote: rest.ticketNote }
-              : {}),
+          legNote: undefined,
+          gameLineSummary: undefined,
+          ticketNote: undefined,
         };
         return copy;
       }
