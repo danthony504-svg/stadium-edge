@@ -761,6 +761,48 @@ export function composeFrozenGameLineLegNote(
   return note;
 }
 
+const INVALID_OPTIMIZER_BULLET =
+  /edge\s*[:—-]\s*[—-]{1,2}|edge\s*—|edge\s*--|Final AI\s*[:—-]|Final AI\s*—|Final AI\s*--|highest Final AI Score among|posted ML \/ spread|game lines on the bowl/i;
+
+/** Drop legacy / model optimizer bullets that show em-dash placeholders or stale copy. */
+export function stripInvalidOptimizerBullets(note: string): string {
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (INVALID_OPTIMIZER_BULLET.test(p)) continue;
+    if (/^•\s+.+(?:sim \d+%).+(?:edge\s*—|--)/i.test(p)) continue;
+    if (looksLikeGameLineListing(p)) continue;
+    out.push(p);
+  }
+  return out.join("\n\n");
+}
+
+/**
+ * Production Coach ticket note — diversity / drop transparency plus frozen game-line
+ * summary only. Never includes streamed model optimizer copy or placeholder dashes.
+ */
+export function buildCoachTicketDisplayNote(
+  picks: ParsedPick[],
+  contextNote?: string,
+  realOdds?: RealOddsEntry[],
+): string {
+  let note = stripModelGameLineListings(contextNote ?? "");
+  note = stripInvalidOptimizerBullets(note);
+  const summary = buildFrozenGameLineSummaryNote(picks, realOdds);
+  if (summary) {
+    note = note ? `${note}\n\n${summary}` : summary;
+  }
+  if (!note.trim()) return "";
+  if (containsLegacyGameLineOptimizerCopy(note)) {
+    throw new FrozenGameLineConsistencyError(
+      "Coach ticket note contains legacy optimizer copy — render refused",
+    );
+  }
+  assertNoPlaceholderGameLineMetrics(note);
+  if (summary) assertFrozenSummaryMetricsLinesComplete(note);
+  return note.trim();
+}
+
 /** Keep frozen game-line objects intact when props re-score in the background. */
 export function mergeTicketPreservingFrozenGameLines(
   prior: ParsedPick[],

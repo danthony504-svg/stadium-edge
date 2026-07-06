@@ -4,6 +4,7 @@ import {
   assertFrozenGameLineMetricsComplete,
   assertFrozenTicketConsistency,
   buildFrozenGameLineSummaryNote,
+  buildCoachTicketDisplayNote,
   composeFrozenGameLineLegNote,
   frozenGameLineHeader,
   frozenLegSurfaceLabels,
@@ -247,6 +248,25 @@ test("composeFrozenGameLineLegNote strips stale lines and rebuilds from cards", 
   const mentions = parseAllGameLineMentionsFromNote(note);
   assert.equal(mentions.size, 1);
   assert.equal(mentions.get(normGameKey(GAMES[1]!))?.pick, "Angels +1.5");
+});
+
+test("buildCoachTicketDisplayNote keeps diversity note and drops legacy optimizer bullets", () => {
+  const picks = [mockFrozenGameLine(1), mockProp(0)];
+  const context = [
+    "_Your 8-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._",
+    "After the 10k sim, 3 game lines on the bowl use the highest Final AI Score among posted ML / spread / alt / total / team-total rungs.",
+    "Boston Red Sox @ Los Angeles Angels: Sox -1.5 (Spread) — Final AI C, sim 49%, edge —",
+    "Houston Astros @ Washington Nationals: Nationals +1 (Alt Spread) — Final AI —, sim 55%, edge —",
+    "Dropped 1 leg that backed the opposing team on the same game — one side per matchup (aligned to the game simulator when available).",
+  ].join("\n\n");
+  const note = buildCoachTicketDisplayNote(picks, context);
+  assert.match(note, /built from player props/i);
+  assert.match(note, /opposing team/i);
+  assert.match(note, /\*\*Angels \+1\.5\*\*/);
+  assert.match(note, /Final AI: B\+ · Confidence:/);
+  assert.doesNotMatch(note, /highest Final AI Score among/i);
+  assert.doesNotMatch(note, /edge\s*—/i);
+  assert.doesNotMatch(note, /Final AI\s*—/i);
 });
 
 function normGameKey(game: string) {

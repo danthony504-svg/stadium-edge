@@ -32,6 +32,8 @@ export {
   assertAllFrozenGameLineMetrics,
   assertFrozenGameLineSummaryClean,
   composeFrozenGameLineLegNote,
+  buildCoachTicketDisplayNote,
+  stripInvalidOptimizerBullets,
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,
   parseAllGameLineMentionsFromNote,

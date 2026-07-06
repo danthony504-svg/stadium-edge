@@ -68,6 +68,7 @@ import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByG
 import {
   freezeAllGameLinesInTicket,
   buildFrozenGameLineSummaryNote,
+  buildCoachTicketDisplayNote,
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
   assertSummaryCardSurfaceAlignment,
@@ -76,6 +77,7 @@ import {
   assertFrozenSummaryMetricsLinesComplete,
   textHasPlaceholderGameLineMetrics,
   assertNoPlaceholderGameLineMetrics,
+  stripInvalidOptimizerBullets,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   containsLegacyGameLineOptimizerCopy,
@@ -198,6 +200,8 @@ type UIMessage = {
   legNote?: string;
   /** Frozen game-line optimizer summary — single source of truth for summary UI. */
   gameLineSummary?: string;
+  /** Full ticket note above cards — transparency + frozen game-line summary only. */
+  ticketNote?: string;
   /** Near-miss legs that almost cleared quality filters when ticket is short of requested count. */
   backupPicks?: ParsedPick[];
   backupNote?: string;
@@ -520,20 +524,6 @@ function dedupeLegNoteParagraphs(note: string): string {
   for (const p of parts) {
     if (seen.has(p)) continue;
     seen.add(p);
-    out.push(p);
-  }
-  return out.join("\n\n");
-}
-
-/** Drop legacy / model optimizer bullets that show em-dash placeholders or stale copy. */
-function stripInvalidOptimizerBullets(note: string): string {
-  const INVALID =
-    /edge\s*[:—-]\s*[—-]{1,2}|edge\s*—|edge\s*--|Final AI\s*[:—-]|Final AI\s*—|Final AI\s*--|highest Final AI Score among/i;
-  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-  const out: string[] = [];
-  for (const p of parts) {
-    if (INVALID.test(p)) continue;
-    if (/^•\s+.+(?:sim \d+%).+(?:edge\s*—|--)/i.test(p)) continue;
     out.push(p);
   }
   return out.join("\n\n");
@@ -1534,7 +1524,7 @@ export default function CoachScreen() {
             // Drop model optimizer prose immediately — the ticket is built from parsed
             // PICK lines + sim scoring, not streamed narrative. Prevents legacy
             // "Final AI — / edge —" listings from flashing during the scoring pass.
-            if (!isAnalyze && (isParlayBuild || /PICK\s*:/im.test(full))) {
+            if (!isAnalyze) {
               setMessages((prev) => {
                 const copy = [...prev];
                 const last = copy[copy.length - 1];
@@ -2655,12 +2645,17 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
+        legNote = stripInvalidOptimizerBullets(legNote);
         picks = assertProductionCoachTicketIntegrity(picks, undefined);
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
+        const ticketNote = buildCoachTicketDisplayNote(picks, legNote, mergedGameOdds);
         if (gameLineSummary) {
           assertFrozenGameLineSummaryClean(gameLineSummary);
           assertNoPlaceholderGameLineMetrics(gameLineSummary);
           assertSummaryCardSurfaceAlignment(picks, gameLineSummary);
+        }
+        if (ticketNote) {
+          assertNoPlaceholderGameLineMetrics(ticketNote);
         }
         assertMainTicketPicksQualified(picks, {
           realOdds: mergedGameOdds,
@@ -2675,17 +2670,19 @@ export default function CoachScreen() {
         }
         setMessages((prev) => {
           const copy = [...prev];
-          const { legNote: _dropNote, gameLineSummary: _dropSummary, ...prevAssistant } =
+          const { legNote: _dropNote, gameLineSummary: _dropSummary, ticketNote: _dropTicket, ...prevAssistant } =
             copy[copy.length - 1];
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
             content:
-              picks.length > 0 || gameLineSummary
+              picks.length > 0 || ticketNote || gameLineSummary
                 ? ""
                 : stripModelGameLineListings(finalContent),
             picks,
+            ...(legNote ? { legNote } : {}),
             ...(gameLineSummary ? { gameLineSummary } : {}),
+            ...(ticketNote ? { ticketNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),
           };
@@ -2721,9 +2718,17 @@ export default function CoachScreen() {
                 const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
                 assertProductionCoachTicketIntegrity(canonical, undefined);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                const rebuiltTicketNote = buildCoachTicketDisplayNote(
+                  canonical,
+                  legNote,
+                  mergedGameOdds,
+                );
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
                   assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                }
+                if (rebuiltTicketNote) {
+                  assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
                 assertMainTicketPicksQualified(canonical, {
                   realOdds: mergedGameOdds,
@@ -2732,6 +2737,7 @@ export default function CoachScreen() {
                 });
                 patchLastAssistantPicks(setMessages, canonical, {
                   gameLineSummary: rebuiltSummary || undefined,
+                  ticketNote: rebuiltTicketNote || undefined,
                 });
                 setAiPicks(canonical);
               },
@@ -2745,9 +2751,17 @@ export default function CoachScreen() {
                 const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
                 assertProductionCoachTicketIntegrity(canonical, undefined);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                const rebuiltTicketNote = buildCoachTicketDisplayNote(
+                  canonical,
+                  legNote,
+                  mergedGameOdds,
+                );
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
                   assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                }
+                if (rebuiltTicketNote) {
+                  assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
                 assertMainTicketPicksQualified(canonical, {
                   realOdds: mergedGameOdds,
@@ -2756,6 +2770,7 @@ export default function CoachScreen() {
                 });
                 patchLastAssistantPicks(setMessages, canonical, {
                   gameLineSummary: rebuiltSummary || undefined,
+                  ticketNote: rebuiltTicketNote || undefined,
                 });
                 setAiPicks(canonical);
               },
@@ -3069,9 +3084,10 @@ export default function CoachScreen() {
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
+            const hasTicketNote = !!(m.ticketNote?.trim() || m.gameLineSummary?.trim() || m.legNote?.trim());
             const safeContent =
-              hasPicks || ticketPicks.length > 0 || m.gameLineSummary ? "" : m.content;
-            const hidePickReplyProse = hasPicks || ticketPicks.length > 0 || !!m.gameLineSummary;
+              hasPicks || ticketPicks.length > 0 || hasTicketNote ? "" : m.content;
+            const hidePickReplyProse = hasPicks || ticketPicks.length > 0 || hasTicketNote;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -3116,7 +3132,7 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
-            const ticketRendered = hasPicks || ticketPicks.length > 0 || !!m.gameLineSummary;
+            const ticketRendered = hasPicks || ticketPicks.length > 0 || hasTicketNote;
             const bubbleText =
               m.role === "assistant"
                 ? ticketRendered
@@ -3229,7 +3245,17 @@ export default function CoachScreen() {
                     try {
                       if (safeContent && containsLegacyGameLineOptimizerCopy(safeContent)) {
                         throw new FrozenGameLineConsistencyError(
-                          "Legacy optimizer summary blocked — use frozen gameLineSummary only",
+                          "Legacy optimizer summary blocked — use frozen ticketNote only",
+                        );
+                      }
+                      if (m.content && hasPicks && containsLegacyGameLineOptimizerCopy(m.content)) {
+                        throw new FrozenGameLineConsistencyError(
+                          "Streamed model copy with placeholder metrics blocked — use frozen ticketNote only",
+                        );
+                      }
+                      if (m.ticketNote && containsLegacyGameLineOptimizerCopy(m.ticketNote)) {
+                        throw new FrozenGameLineConsistencyError(
+                          "Legacy optimizer copy in ticketNote — render blocked",
                         );
                       }
                       if (m.gameLineSummary && containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
@@ -3237,7 +3263,10 @@ export default function CoachScreen() {
                           "Legacy optimizer copy in gameLineSummary — render blocked",
                         );
                       }
-                      if (m.gameLineSummary && textHasPlaceholderGameLineMetrics(m.gameLineSummary)) {
+                      if (
+                        (m.ticketNote || m.gameLineSummary) &&
+                        textHasPlaceholderGameLineMetrics(m.ticketNote ?? m.gameLineSummary ?? "")
+                      ) {
                         throw new FrozenGameLineConsistencyError(
                           "Game-line summary contains placeholder Final AI or Edge dashes",
                         );
@@ -3246,14 +3275,26 @@ export default function CoachScreen() {
                         ticketPicks,
                         undefined,
                       );
+                      const displayNote = buildCoachTicketDisplayNote(
+                        canonicalPicks,
+                        m.legNote,
+                      );
                       const displaySummary = buildFrozenGameLineSummaryNote(canonicalPicks);
                       const hasGameLineLegs = canonicalPicks.some(
                         (p) => isGameLinePick(p) && !p.isProp,
                       );
                       if (hasGameLineLegs) {
-                        if (!displaySummary) {
+                        if (!displaySummary || !displayNote) {
                           throw new FrozenGameLineConsistencyError(
                             "Game-line ticket missing frozen optimizer summary",
+                          );
+                        }
+                        if (
+                          m.ticketNote?.trim() &&
+                          m.ticketNote.trim() !== displayNote.trim()
+                        ) {
+                          throw new FrozenGameLineConsistencyError(
+                            "Stored ticket note does not match frozen cards — refusing stale optimizer copy",
                           );
                         }
                         if (
@@ -3265,12 +3306,12 @@ export default function CoachScreen() {
                           );
                         }
                         assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);
-                        assertNoPlaceholderGameLineMetrics(displaySummary);
+                        assertNoPlaceholderGameLineMetrics(displayNote);
                       }
                       assertMainTicketPicksQualified(canonicalPicks);
                       return (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {displaySummary ? (
+                    {displayNote ? (
                       <View
                         style={{
                           backgroundColor: colors.card,
@@ -3282,7 +3323,7 @@ export default function CoachScreen() {
                         }}
                       >
                         <ChatMarkdown
-                          text={displaySummary}
+                          text={displayNote}
                           color={colors.foreground}
                           mutedColor={colors.mutedForeground}
                         />
