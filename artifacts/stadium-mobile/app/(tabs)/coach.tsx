@@ -1300,6 +1300,17 @@ export default function CoachScreen() {
           full = replay.full;
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
+          if (!wantsAnalyzeSlip(trimmed)) {
+            setMessages((prev) => {
+              const copy = [...prev];
+              const last = copy[copy.length - 1];
+              if (last?.role === "assistant") {
+                const { legNote: _ln, ...rest } = last;
+                copy[copy.length - 1] = { ...rest, content: "" };
+              }
+              return copy;
+            });
+          }
         } else {
           const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
           const focalSports = focalSportsFromText(focalForPools);
@@ -1476,6 +1487,17 @@ export default function CoachScreen() {
 
           try {
             full = await runStream();
+            if (!wantsAnalyzeSlip(trimmed)) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                const last = copy[copy.length - 1];
+                if (last?.role === "assistant") {
+                  const { legNote: _ln, ...rest } = last;
+                  copy[copy.length - 1] = { ...rest, content: "" };
+                }
+                return copy;
+              });
+            }
           } catch (streamErr: any) {
             const retryable =
               (isParlayBuild || useMlbSlatePath) &&
@@ -1503,6 +1525,17 @@ export default function CoachScreen() {
                     : ultraSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
+            if (!wantsAnalyzeSlip(trimmed)) {
+              setMessages((prev) => {
+                const copy = [...prev];
+                const last = copy[copy.length - 1];
+                if (last?.role === "assistant") {
+                  const { legNote: _ln, ...rest } = last;
+                  copy[copy.length - 1] = { ...rest, content: "" };
+                }
+                return copy;
+              });
+            }
           }
           // Streamed to completion in-app — no background hand-off happened, so
           // drop the pending record and its eligibility flag.
@@ -2493,12 +2526,12 @@ export default function CoachScreen() {
         }
         setMessages((prev) => {
           const copy = [...prev];
+          const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
           copy[copy.length - 1] = {
-            ...copy[copy.length - 1],
+            ...prevAssistant,
             role: "assistant",
-            content: finalContent,
+            content: picks.length > 0 ? "" : finalContent,
             picks,
-            ...(legNote ? { legNote } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
           return copy;
@@ -2866,14 +2899,16 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
+            const ticketActive = hasPicks;
             const bubbleText =
-              m.role === "assistant" ? assistantBubbleText(m.content, hasPicks) : m.content;
-            // Drop the bubble entirely when a pick reply left no lead-in text —
-            // the cards (and their EDGE notes) carry everything. Also hide it while
-            // a parlay is building (the AnalysisProgress card stands in) or while an
-            // analyze request is waiting, so no empty/spinner bubble flashes ahead
-            // of the dedicated progress UI.
+              m.role === "assistant"
+                ? ticketActive
+                  ? ""
+                  : assistantBubbleText(m.content, ticketActive)
+                : m.content;
+            // Parlay tickets are cards-only — no legNote / optimizer prose above Add All.
             const showBubble =
+              !ticketActive &&
               !m.hideBubble &&
               !m.statCard &&
               !m.periodGameLog &&
@@ -2970,18 +3005,6 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.legNote ? (
-                      <Text
-                        style={{
-                          color: colors.mutedForeground,
-                          fontFamily: FONT.medium,
-                          fontSize: 12,
-                          fontStyle: "italic",
-                        }}
-                      >
-                        {m.legNote}
-                      </Text>
-                    ) : null}
                     {m.picks!.length > 1 ? (
                       <AddAllButton
                         picks={m.picks!}
