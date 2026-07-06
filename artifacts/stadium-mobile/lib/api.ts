@@ -725,19 +725,54 @@ export type LiveStealsResponse = {
   meta?: StealScanMeta;
   almostQualified?: NearMissSteal[];
   seasonStats?: StealSeasonStats;
+  /** True when the odds scan could not run — client should keep hunting, not error out. */
+  feedDegraded?: boolean;
+};
+
+const EMPTY_STEAL_RECORD: StealRecord = {
+  wins: 0,
+  losses: 0,
+  pushes: 0,
+  pending: 0,
+  ungraded: 0,
+  graded: 0,
+};
+
+const EMPTY_STEAL_SCAN_META: StealScanMeta = {
+  booksScanned: 0,
+  marketsChecked: 0,
+  longshotsAnalyzed: 0,
+  stealsFound: 0,
+  sportCounts: {},
+  totalOpportunities: 0,
 };
 
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
   // Steals scan fans out across every sport + prop games — allow a longer budget
   // than the default 12s so the first pass can finish instead of timing out forever.
-  const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 45_000);
-  return {
-    ...data,
-    history: data.history ?? [],
-    meta: data.meta,
-    almostQualified: data.almostQualified ?? [],
-    seasonStats: data.seasonStats,
-  };
+  try {
+    const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 45_000);
+    return {
+      steals: data.steals ?? [],
+      record: data.record ?? EMPTY_STEAL_RECORD,
+      history: data.history ?? [],
+      meta: data.meta ?? EMPTY_STEAL_SCAN_META,
+      almostQualified: data.almostQualified ?? [],
+      seasonStats: data.seasonStats ?? { roiPct: null, avgOdds: null },
+      feedDegraded: data.feedDegraded ?? false,
+    };
+  } catch {
+    // Never surface a hard error on this screen — keep the radar hunting and retry.
+    return {
+      steals: [],
+      record: EMPTY_STEAL_RECORD,
+      history: [],
+      meta: EMPTY_STEAL_SCAN_META,
+      almostQualified: [],
+      seasonStats: { roiPct: null, avgOdds: null },
+      feedDegraded: true,
+    };
+  }
 }
 
 export type GetPropsArgs = {

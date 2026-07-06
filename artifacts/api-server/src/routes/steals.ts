@@ -35,6 +35,8 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
     let meta = EMPTY_SCAN_META;
     let almostQualified: Awaited<ReturnType<typeof fetchStealsWithMeta>>["almostQualified"] = [];
 
+    let feedDegraded = false;
+
     try {
       const scan = await fetchStealsWithMeta();
       steals = scan.steals;
@@ -42,6 +44,7 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
       almostQualified = scan.almostQualified;
       await persistSteals(steals);
     } catch (scanErr) {
+      feedDegraded = true;
       req.log.warn({ err: scanErr }, "live-steals scan failed — returning empty pool");
     }
 
@@ -50,10 +53,18 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
       gradePending().catch(() => {});
     }
 
-    res.json({ steals, record, history, meta, almostQualified, seasonStats });
+    res.json({ steals, record, history, meta, almostQualified, seasonStats, feedDegraded });
   } catch (err) {
     req.log.error({ err }, "live-steals route failed");
-    res.status(502).json({ error: "could not load steals" });
+    res.json({
+      steals: [],
+      almostQualified: [],
+      meta: EMPTY_SCAN_META,
+      record: { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 },
+      history: [],
+      seasonStats: { roiPct: null, avgOdds: null },
+      feedDegraded: true,
+    });
   }
 });
 

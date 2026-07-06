@@ -531,7 +531,7 @@ export default function StealsScreen() {
   const hunting = !hasResults;
   const awaitingFirstResponse = query.isLoading && !query.data;
   const showHuntingUi = hunting;
-  const feedUnreachable = query.isError && hunting;
+  const feedUnreachable = Boolean(query.data?.feedDegraded) && hunting;
 
   useFocusEffect(
     useCallback(() => {
