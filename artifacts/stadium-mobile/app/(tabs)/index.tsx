@@ -54,6 +54,14 @@ import {
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
+/** Refetch-in-place only — never bleed another league's rows when the pill changes. */
+function sameSportPlaceholder<T>(
+  sport: string,
+): (previousData: T | undefined, previousQuery: { queryKey: readonly unknown[] }) => T | undefined {
+  return (previousData, previousQuery) =>
+    previousQuery?.queryKey?.[1] === sport ? previousData : undefined;
+}
+
 // Top Value Props rail: a prop is "value" when the best posted price beats the
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
 // this margin. We NEVER recompute or guess EV client-side.
@@ -427,16 +435,14 @@ export default function HomeScreen() {
     queryFn: ({ signal }) => getOdds(sport, signal),
     staleTime: 45_000,
     refetchOnMount: "always",
-    // Global keepPreviousData would show the PREVIOUS league's odds under the new
-    // pill until the fetch lands (UFC selected + Phillies @ Royals visible).
-    placeholderData: undefined,
+    placeholderData: sameSportPlaceholder<OddsGame[]>(sport),
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
     queryFn: ({ signal }) => getGames(sport, signal),
     staleTime: 45_000,
     refetchOnMount: "always",
-    placeholderData: undefined,
+    placeholderData: sameSportPlaceholder<EspnGame[]>(sport),
   });
 
   // Tennis players have no club crest, so the Upcoming cards show each player's
@@ -481,6 +487,7 @@ export default function HomeScreen() {
   }, [liveGames]);
 
   const games: OddsGame[] = useMemo(() => {
+    if (oddsQ.isPlaceholderData) return [];
     const list = (oddsQ.data ?? [])
       .filter((g) => g.sport === sport)
       .filter((g) => isPickable(g.commenceTime))
@@ -489,7 +496,7 @@ export default function HomeScreen() {
           !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
       );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data, liveKeySet, sport]);
+  }, [oddsQ.data, oddsQ.isPlaceholderData, liveKeySet, sport]);
 
   useEffect(() => {
     const leagueGames = games.filter((g) => g.sport === sport);
@@ -499,11 +506,12 @@ export default function HomeScreen() {
     }
   }, [games, sport]);
   const upcomingGames = useMemo(() => {
+    if (oddsQ.isPlaceholderData) return [];
     if (games.length > 0) return games;
     const sticky = stickyUpcoming.games.filter((g) => g.sport === sport);
     if (stickyUpcoming.sport === sport && sticky.length > 0) return sticky;
     return games;
-  }, [games, stickyUpcoming, sport]);
+  }, [games, stickyUpcoming, sport, oddsQ.isPlaceholderData]);
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -1725,7 +1733,8 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
         </View>
-        {!oddsQ.data && oddsQ.isLoading && stickyUpcoming.games.length === 0 ? (
+        {(oddsQ.isPlaceholderData || (!oddsQ.data && oddsQ.isLoading)) &&
+        upcomingGames.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
