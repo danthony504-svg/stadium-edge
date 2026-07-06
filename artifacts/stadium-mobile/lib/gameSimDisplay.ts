@@ -68,16 +68,18 @@ export function formatSimRanAt(ranAt: number | null | undefined): string | null 
 }
 
 export function recommendationSummaryLabel(rec: GameSimRecommendation | null): string {
-  if (!rec) return "PASS — No positive expected value found.";
+  if (!rec) return "No Betting Edge";
   switch (rec.tier) {
     case "strong":
-      return "Strong Bet";
+      return "Strong Edge";
+    case "good_edge":
+      return "Good Edge";
     case "small_edge":
-      return "Small Value";
+      return "Small Edge";
     case "avoid":
       return "Avoid";
     default:
-      return "PASS — No positive expected value found.";
+      return "No Betting Edge";
   }
 }
 

@@ -313,6 +313,8 @@ export async function fetchSimulatorGameOutcome(
     awayTeamId: string;
     homeTeam?: string;
     awayTeam?: string;
+    eventId?: string;
+    startsAt?: string | null;
     simulations?: number;
     weatherImpact?: number | null;
     coverQueries?: Array<{

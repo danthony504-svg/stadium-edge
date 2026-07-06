@@ -5,6 +5,7 @@ import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monte
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
+import { persistSimPrediction, getSimPredictionRecord, gradePendingSimPredictions } from "../lib/simPredictions.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
 
@@ -272,10 +273,29 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     return;
   }
 
+  const homeTeam = String(req.body?.homeTeam ?? "");
+  const awayTeam = String(req.body?.awayTeam ?? "");
+  const eventId = String(req.body?.eventId ?? "").trim();
+  const startsAt = req.body?.startsAt != null ? String(req.body.startsAt) : null;
+  if (eventId && homeTeam && awayTeam) {
+    void persistSimPrediction({
+      sport,
+      eventId,
+      game: `${awayTeam} @ ${homeTeam}`,
+      homeTeam,
+      awayTeam,
+      homeWinProbability: result.homeWinProbability,
+      awayWinProbability: result.awayWinProbability,
+      mostLikelyWinner: result.mostLikelyWinner,
+      simulations,
+      startsAt,
+    }).catch(() => {});
+  }
+
   res.json({
     sport,
-    homeTeam: req.body?.homeTeam ?? null,
-    awayTeam: req.body?.awayTeam ?? null,
+    homeTeam: homeTeam || null,
+    awayTeam: awayTeam || null,
     ...result,
   });
 });
@@ -443,6 +463,28 @@ router.get("/sports/simulate/game", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "simulate/game failed");
     res.status(502).json({ error: err instanceof Error ? err.message : "simulate failed" });
+  }
+});
+
+router.get("/sports/sim-predictions/record", async (_req, res): Promise<void> => {
+  try {
+    await gradePendingSimPredictions();
+    const record = await getSimPredictionRecord();
+    res.json(record);
+  } catch {
+    res.json({
+      total: 0,
+      graded: 0,
+      correct: 0,
+      incorrect: 0,
+      pushes: 0,
+      pending: 0,
+      accuracyPct: null,
+      recommendedGraded: 0,
+      recommendedCorrect: 0,
+      recommendedAccuracyPct: null,
+      byBand: {},
+    });
   }
 });
 

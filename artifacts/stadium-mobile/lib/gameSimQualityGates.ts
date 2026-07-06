@@ -173,106 +173,99 @@ export function filterEvalLinesForProjectedMargin(
   });
 }
 
-export type GameSimRecommendationTier = "strong" | "small_edge" | "pass" | "avoid";
+export type GameSimRecommendationTier =
+  | "strong"
+  | "good_edge"
+  | "small_edge"
+  | "pass"
+  | "avoid";
 
 export type GameSimRecommendation = {
   tier: GameSimRecommendationTier;
   emoji: string;
   label: string;
   detail: string;
+  /** Favored team when a side is recommended; null when no edge. */
+  favoredTeam: string | null;
+  /** Win probability (0–1) for the favored side. */
+  favoredWinProb: number | null;
 };
 
-function bestCompleteLine(recs: GameRecsForRecommendation): EvaluatedLineMetrics | null {
-  const pool = [recs.overall, recs.byTeam.away, recs.byTeam.home].filter(
-    (r): r is EvaluatedLineMetrics => r != null && hasCompleteEvaluatedLine(r),
-  );
-  if (!pool.length) return null;
-  return pool.sort((a, b) => (b.edgePct ?? -999) - (a.edgePct ?? -999))[0]!;
+/** Minimum sim win probability before recommending a side. */
+export const WIN_PROB_MIN_EDGE = 0.55;
+export const WIN_PROB_SMALL_EDGE_MAX = 0.6;
+export const WIN_PROB_GOOD_EDGE_MAX = 0.65;
+
+export type WinProbEdgeBand = "no_edge" | "small_edge" | "good_edge" | "strong_edge";
+
+export function winProbEdgeBand(winProb: number): WinProbEdgeBand {
+  if (!Number.isFinite(winProb) || winProb < WIN_PROB_MIN_EDGE) return "no_edge";
+  if (winProb < WIN_PROB_SMALL_EDGE_MAX) return "small_edge";
+  if (winProb < WIN_PROB_GOOD_EDGE_MAX) return "good_edge";
+  return "strong_edge";
 }
 
-/** Overall simulator recommendation for the game card. */
+function pct1(n: number): number {
+  return Math.round(n * 1000) / 10;
+}
+
+/**
+ * Overall simulator recommendation from 10k-run win probability.
+ * Under 55% → no side; 55–60% Small; 60–65% Good; 65%+ Strong.
+ */
 export function classifyGameSimRecommendation(
-  recs: GameRecsForRecommendation | null,
   sim: CoachGameSimEntry,
+  homeTeam: string,
+  awayTeam: string,
 ): GameSimRecommendation {
-  const margin = projectedScoreMargin(sim);
   const homeWin = sim.homeWinProbability ?? 0.5;
   const awayWin = sim.awayWinProbability ?? 0.5;
-  const coinFlip =
-    margin < TIGHT_MARGIN_RUNS &&
-    Math.abs(homeWin - 0.5) < 0.03 &&
-    Math.abs(awayWin - 0.5) < 0.03;
+  const homeFavored = homeWin >= awayWin;
+  const favoredWin = homeFavored ? homeWin : awayWin;
+  const favoredTeam = homeFavored ? homeTeam : awayTeam;
+  const underdogTeam = homeFavored ? awayTeam : homeTeam;
+  const underdogWin = homeFavored ? awayWin : homeWin;
+  const band = winProbEdgeBand(favoredWin);
 
-  if (!recs) {
+  if (band === "no_edge") {
     return {
       tier: "pass",
       emoji: "⚪",
-      label: "Pass (No Edge)",
-      detail: NO_POSITIVE_EDGE_MESSAGE,
+      label: "No Betting Edge",
+      detail: `Neither side clears 55% win probability (${underdogTeam} ${pct1(underdogWin)}%, ${favoredTeam} ${pct1(favoredWin)}%).`,
+      favoredTeam: null,
+      favoredWinProb: null,
     };
   }
 
-  const best = bestCompleteLine(recs);
-  if (!best) {
-    return {
-      tier: "pass",
-      emoji: "⚪",
-      label: "Pass (No Edge)",
-      detail: NO_POSITIVE_EDGE_MESSAGE,
-    };
-  }
-
-  const edge = best.edgePct ?? 0;
-  const grade = best.finalAiScore.grade;
-  const conf = best.finalAiScore.confidencePct ?? 0;
-  const simHit = best.winProb ?? 0;
-
-  if (coinFlip && edge < 1) {
-    return {
-      tier: "pass",
-      emoji: "⚪",
-      label: "Pass (No Edge)",
-      detail: "No betting edge found — projected margin under 0.5 runs with ~50/50 win rates.",
-    };
-  }
-
-  if (edge < 0) {
-    return {
-      tier: "avoid",
-      emoji: "🔴",
-      label: "Avoid",
-      detail: `Best complete line shows ${edge}% edge against the 10,000-run sim.`,
-    };
-  }
-
-  if (
-    edge >= 2 &&
-    gradeRank(grade) >= gradeRank("B") &&
-    conf >= 58 &&
-    simHit >= 0.54
-  ) {
-    return {
-      tier: "strong",
-      emoji: "🟢",
-      label: "Strong Bet",
-      detail: `+${edge}% edge, Final AI ${grade}, ${conf} confidence, ${Math.round(simHit * 100)}% sim hit.`,
-    };
-  }
-
-  if (edge > 0 && gradeRank(grade) >= gradeRank(COACH_SIM_MIN_GRADE) && conf >= COACH_SIM_MIN_CONFIDENCE) {
+  const favoredPct = pct1(favoredWin);
+  if (band === "small_edge") {
     return {
       tier: "small_edge",
       emoji: "🟡",
       label: "Small Edge",
-      detail: `+${edge}% edge, Final AI ${grade}, ${conf} confidence.`,
+      detail: `${favoredTeam} ${favoredPct}% win probability (55–60% band).`,
+      favoredTeam,
+      favoredWinProb: favoredWin,
     };
   }
-
+  if (band === "good_edge") {
+    return {
+      tier: "good_edge",
+      emoji: "🟢",
+      label: "Good Edge",
+      detail: `${favoredTeam} ${favoredPct}% win probability (60–65% band).`,
+      favoredTeam,
+      favoredWinProb: favoredWin,
+    };
+  }
   return {
-    tier: "pass",
-    emoji: "⚪",
-    label: "Pass (No Edge)",
-    detail: "No line clears Final AI C+ with positive edge and complete sim data.",
+    tier: "strong",
+    emoji: "🟢",
+    label: "Strong Edge",
+    detail: `${favoredTeam} ${favoredPct}% win probability (65%+ band).`,
+    favoredTeam,
+    favoredWinProb: favoredWin,
   };
 }
 

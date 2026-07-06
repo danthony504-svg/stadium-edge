@@ -487,9 +487,9 @@ export default function SimulatorScreen() {
   }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
 
   const gameSimRecommendation = useMemo(() => {
-    if (!gameResult || !gameLineRecs) return null;
-    return classifyGameSimRecommendation(gameLineRecs, gameResult);
-  }, [gameResult, gameLineRecs]);
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam) return null;
+    return classifyGameSimRecommendation(gameResult, game.homeTeam, game.awayTeam);
+  }, [gameResult, game?.homeTeam, game?.awayTeam]);
 
   const displayBestLines = useMemo(() => {
     if (!gameLineRecs) return [];
@@ -799,6 +799,8 @@ export default function SimulatorScreen() {
             awayTeamId: game.awayTeamId,
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
+            eventId: game.id,
+            startsAt: game.startsAt,
             simulations: SIM_COUNT,
             weatherImpact: wx,
             coverQueries,
