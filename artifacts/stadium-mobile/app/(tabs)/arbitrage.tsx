@@ -71,7 +71,12 @@ type ScanResult = { arbs: ArbOpportunity[]; values: ValueBet[] };
 // One sport's worth of edges: guaranteed arbs AND +EV value bets, for game lines
 // (all sports) and player props (only the sports the props endpoint serves).
 async function scanArb(sport: string, signal?: AbortSignal): Promise<ScanResult> {
-  const odds = await getOdds(sport, signal);
+  let odds: Awaited<ReturnType<typeof getOdds>>;
+  try {
+    odds = await getOdds(sport, signal);
+  } catch {
+    return { arbs: [], values: [] };
+  }
   const now = Date.now();
   // Only scan near-term games (the app's standard "pickable" window). Books post
   // some slates months early (e.g. NFL Week 1) and edges days out are stale and

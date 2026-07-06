@@ -333,6 +333,7 @@ export default function SimulatorScreen() {
     staleTime: 30_000,
     refetchOnMount: "always",
     refetchInterval: 60_000,
+    retry: false,
   });
 
   const games = useMemo(
@@ -563,7 +564,9 @@ export default function SimulatorScreen() {
     placeholderData: undefined,
   });
 
-  const gamesBootstrapping = gamesQ.isPending && games.length === 0;
+  const gamesBootstrapping =
+    (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
+    games.length === 0;
   const propsLoading = gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
@@ -1054,7 +1057,14 @@ export default function SimulatorScreen() {
         ) : gamesQ.isError ? (
           <ErrorState onRetry={() => gamesQ.refetch()} />
         ) : !game ? (
-          <EmptyState title="No upcoming games" subtitle={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
+          <EmptyState
+            title="No upcoming games"
+            subtitle={
+              isTennis
+                ? "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
+                : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
+            }
+          />
         ) : (
           <>
             {/* Game picker strip */}
