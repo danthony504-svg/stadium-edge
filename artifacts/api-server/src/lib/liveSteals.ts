@@ -46,16 +46,24 @@ export {
 
 // ── loopback fetch (reuse cached app routes; bypasses external quota) ────────
 function apiBase(): string {
-  const port = process.env["PORT"] || "5000";
+  const port = process.env["PORT"];
+  if (!port) return "http://127.0.0.1:8080/api";
   return `http://127.0.0.1:${port}/api`;
 }
-async function fetchJson<T>(path: string): Promise<T | null> {
+async function fetchJson<T>(path: string, timeoutMs = 25_000): Promise<T | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(`${apiBase()}${path}`, { headers: { "x-internal-call": "1" } });
+    const r = await fetch(`${apiBase()}${path}`, {
+      headers: { "x-internal-call": "1" },
+      signal: ctrl.signal,
+    });
     if (!r.ok) return null;
     return (await r.json()) as T;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -149,15 +157,19 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
     .slice(0, 12);
 
-  const booksScanned = bookSet.size > 0 ? bookSet.size : STEAL_SPORTS.length * 3;
+  const booksScanned = bookSet.size;
   const meta = buildScanMeta(steals, almostQualified, {
     marketsChecked,
     longshotsAnalyzed,
     booksScanned,
   });
 
-  freshCache = { at: Date.now(), steals, meta, almostQualified };
-  return { steals, meta, almostQualified };
+  const payload = { steals, meta, almostQualified };
+  // Don't cache empty scans — a cold odds feed should retry on the next request.
+  if (marketsChecked > 0 || steals.length > 0) {
+    freshCache = { at: Date.now(), ...payload };
+  }
+  return payload;
 }
 
 export async function fetchSteals(): Promise<Steal[]> {

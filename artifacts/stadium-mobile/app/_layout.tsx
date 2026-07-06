@@ -1,3 +1,5 @@
+import "react-native-reanimated";
+
 import {
   BricolageGrotesque_400Regular,
   BricolageGrotesque_600SemiBold,

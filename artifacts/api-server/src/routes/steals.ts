@@ -42,6 +42,7 @@ router.get("/sports/live-steals", async (req, res): Promise<void> => {
       steals = scan.steals;
       meta = scan.meta;
       almostQualified = scan.almostQualified;
+      feedDegraded = meta.marketsChecked <= 0;
       await persistSteals(steals);
     } catch (scanErr) {
       feedDegraded = true;

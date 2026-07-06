@@ -1,10 +1,8 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  Animated,
-  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,6 +10,15 @@ import {
   View,
 } from "react-native";
 import Svg, { Circle } from "react-native-svg";
+import Reanimated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -166,31 +173,49 @@ function ScanProgressPanel({
   meta,
   loading,
   step,
+  feedDegraded,
 }: {
   meta?: StealScanMeta;
   loading: boolean;
   step: number;
+  feedDegraded?: boolean;
 }) {
   const colors = useColors();
-  const books = meta?.booksScanned ?? 24;
+  const books = meta?.booksScanned ?? 0;
   const markets = meta?.marketsChecked ?? 0;
   const longshots = meta?.longshotsAnalyzed ?? 0;
   const found = meta?.stealsFound ?? 0;
+  const hasLiveScan = markets > 0;
 
-  const hasLiveScan = (meta?.marketsChecked ?? 0) > 0;
+  if (feedDegraded && !hasLiveScan) {
+    return (
+      <View style={{ gap: 8, marginBottom: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 13 }}>…</Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 13 }}>
+            Reconnecting to odds feed…
+          </Text>
+        </View>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          {loading ? "Retrying automatically every few seconds…" : "Waiting for the next scan pass…"}
+        </Text>
+      </View>
+    );
+  }
+
   const lines = hasLiveScan
     ? [
-        { label: `Scanning: ${books} sportsbooks...`, done: true },
+        { label: `Scanning: ${books} sportsbooks…`, done: true },
         { label: `${formatScanCount(markets)} markets checked`, done: true },
         { label: `${formatScanCount(longshots)} longshots analyzed`, done: true },
         { label: `${found} value steals found`, done: true },
       ]
     : loading
       ? [
-          { label: `Scanning: ${books} sportsbooks...`, done: step >= 1 },
-          { label: `${formatScanCount(markets || 2184)} markets checked`, done: step >= 2 },
-          { label: `${formatScanCount(longshots || 117)} longshots analyzed`, done: step >= 3 },
-          { label: `${found} value steals found`, done: step >= 4 },
+          { label: "Scanning sportsbooks…", done: step >= 1 },
+          { label: "Checking markets…", done: step >= 2 },
+          { label: "Analyzing longshots…", done: step >= 3 },
+          { label: "Ranking value steals…", done: step >= 4 },
         ]
       : [];
 
@@ -296,47 +321,56 @@ function AlmostQualifiedCard({ near }: { near: NearMissSteal }) {
   );
 }
 
-const AnimatedBlip = Animated.View;
+const AnimatedBlip = Reanimated.View;
 
 function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideFooter?: boolean }) {
   const colors = useColors();
   const size = 170;
   const c = size / 2;
   const arm = size * 0.49;
-  const spin = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
+  const rotation = useSharedValue(0);
+  const pulse = useSharedValue(0.35);
 
-  const startAnimations = useCallback(() => {
-    spin.setValue(0);
-    pulse.setValue(0.35);
-    const spinLoop = Animated.loop(
-      Animated.timing(spin, {
-        toValue: 1,
-        duration: 2800,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
+  const startRadarMotion = useCallback(() => {
+    rotation.value = 0;
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 2800, easing: Easing.linear }),
+      -1,
+      false,
     );
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: true }),
-      ]),
+    pulse.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 900 }),
+        withTiming(0.35, { duration: 900 }),
+      ),
+      -1,
+      false,
     );
-    spinLoop.start();
-    pulseLoop.start();
-    return () => {
-      spinLoop.stop();
-      pulseLoop.stop();
-    };
-  }, [pulse, spin]);
+  }, [pulse, rotation]);
+
+  const stopRadarMotion = useCallback(() => {
+    cancelAnimation(rotation);
+    cancelAnimation(pulse);
+  }, [pulse, rotation]);
+
+  useEffect(() => {
+    startRadarMotion();
+    return stopRadarMotion;
+  }, [startRadarMotion, stopRadarMotion]);
 
   useFocusEffect(
-    useCallback(() => startAnimations(), [startAnimations]),
+    useCallback(() => {
+      startRadarMotion();
+      return stopRadarMotion;
+    }, [startRadarMotion, stopRadarMotion]),
   );
 
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
-  const blipOpacity = pulse.interpolate({ inputRange: [0.35, 1], outputRange: [0.35, 1] });
+  const sweepStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+  const blipStyle = useAnimatedStyle(() => ({
+    opacity: pulse.value,
+  }));
 
   return (
     <View style={{ alignItems: "center", paddingVertical: 32, gap: 14 }}>
@@ -347,16 +381,18 @@ function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideF
           ))}
           <Circle cx={c - 36} cy={c - 10} r="3" fill={colors.foreground} opacity={0.7} />
         </Svg>
-        <Animated.View
+        <Reanimated.View
           pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width: size,
-            height: size,
-            transform: [{ rotate }],
-          }}
+          style={[
+            {
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: size,
+              height: size,
+            },
+            sweepStyle,
+          ]}
         >
           <View
             style={{
@@ -392,32 +428,36 @@ function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideF
               backgroundColor: STEAL_ACCENT,
             }}
           />
-        </Animated.View>
+        </Reanimated.View>
         <AnimatedBlip
           pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: c - 28 - 3,
-            top: c + 40 - 3,
-            width: 6,
-            height: 6,
-            borderRadius: 3,
-            backgroundColor: STEAL_ACCENT,
-            opacity: blipOpacity,
-          }}
+          style={[
+            {
+              position: "absolute",
+              left: c - 28 - 3,
+              top: c + 40 - 3,
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: STEAL_ACCENT,
+            },
+            blipStyle,
+          ]}
         />
         <AnimatedBlip
           pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: c + 52 - 3,
-            top: c + 18 - 3,
-            width: 6,
-            height: 6,
-            borderRadius: 3,
-            backgroundColor: STEAL_ACCENT,
-            opacity: blipOpacity,
-          }}
+          style={[
+            {
+              position: "absolute",
+              left: c + 52 - 3,
+              top: c + 18 - 3,
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: STEAL_ACCENT,
+            },
+            blipStyle,
+          ]}
         />
       </View>
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
@@ -606,7 +646,7 @@ export default function StealsScreen() {
   const hunting = !hasResults;
   const awaitingFirstResponse = query.isLoading && !query.data;
   const showHuntingUi = hunting;
-  const feedUnreachable = Boolean(query.data?.feedDegraded) && hunting;
+  const feedDegraded = Boolean(query.data?.feedDegraded);
 
   useFocusEffect(
     useCallback(() => {
@@ -760,12 +800,13 @@ export default function StealsScreen() {
             meta={meta}
             loading={awaitingFirstResponse || query.isFetching}
             step={scanStep}
+            feedDegraded={feedDegraded}
           />
         ) : null}
 
         {showHuntingUi ? (
           <RadarScan hideFooter>
-            {feedUnreachable ? (
+            {feedDegraded && !(meta && meta.marketsChecked > 0) ? (
               <View style={{ alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
                 <Feather name="wifi-off" size={18} color={STEAL_ACCENT} />
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "center" }}>
