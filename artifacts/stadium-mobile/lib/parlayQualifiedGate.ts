@@ -14,6 +14,14 @@ import {
   gameLineSimEdgeQualifies,
   GameLineFinalizeRejected,
 } from "./gameLineFrozenQual.ts";
+import {
+  compareCoachPicksByFinalScore,
+  computeCoachFinalScore,
+  MIN_COACH_PREMIUM_CONFIDENCE,
+} from "./coachPickRanking.ts";
+
+export { MIN_COACH_PREMIUM_CONFIDENCE } from "./coachPickRanking.ts";
+export { computeCoachFinalScore, compareCoachPicksByFinalScore } from "./coachPickRanking.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
 /** Coach ticket / slip / summary floor — rejects D and below. */
@@ -264,6 +272,7 @@ export type CoachQualifyOpts = PickEdgeResolveOpts & {
   /** Coach UI surfaces — props must be grounded against propPool when provided. */
   coachSurface?: boolean;
   minGrade?: string;
+  minConfidence?: number;
 };
 
 /** True when every metric tile on a Coach pick card can be filled (no dashes). */
@@ -275,9 +284,13 @@ export function pickHasCoachCardMetrics(
   const s = pick.finalAiScore;
   if (!s?.grade || !gradeMeetsMinimum(s.grade, minGrade)) return false;
   if (s.confidencePct == null || !Number.isFinite(s.confidencePct)) return false;
-  const minConf = isGameLinePickForGate(pick)
-    ? GAME_LINE_MIN_CONFIDENCE
-    : MIN_MAIN_PICK_CONFIDENCE;
+  const minConf =
+    opts?.minConfidence ??
+    (opts?.coachSurface
+      ? MIN_COACH_PREMIUM_CONFIDENCE
+      : isGameLinePickForGate(pick)
+        ? GAME_LINE_MIN_CONFIDENCE
+        : MIN_MAIN_PICK_CONFIDENCE);
   if (s.confidencePct < minConf) return false;
   if (s.composite == null || !Number.isFinite(s.composite) || s.composite <= 0) return false;
   if (s.simHit == null || !Number.isFinite(s.simHit)) return false;
@@ -313,10 +326,11 @@ export function isPropMainTicketQualified(
   odds: number | null | undefined,
   edgePct?: number | null,
   minGrade: string = MIN_MAIN_PICK_GRADE,
+  minConfidence: number = MIN_MAIN_PICK_CONFIDENCE,
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (!sharedMainTicketChecks(score, odds, edge, MIN_MAIN_PICK_CONFIDENCE, minGrade)) return false;
+  if (!sharedMainTicketChecks(score, odds, edge, minConfidence, minGrade)) return false;
   if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
     return false;
   }
@@ -336,10 +350,11 @@ export function isGameLineMainTicketQualified(
   evPct?: number | null,
   ctx?: GameLineSimBarCtx,
   minGrade: string = MIN_MAIN_PICK_GRADE,
+  minConfidence: number = GAME_LINE_MIN_CONFIDENCE,
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (!sharedMainTicketChecks(score, odds, edge, GAME_LINE_MIN_CONFIDENCE, minGrade)) return false;
+  if (!sharedMainTicketChecks(score, odds, edge, minConfidence, minGrade)) return false;
   if (evPct == null || evPct <= 0) return false;
   return gameLineMeetsSimBar(score.simHit, edge, { ...ctx, evPct, finalAiScore: score });
 }
@@ -461,6 +476,9 @@ export function isFullyQualifiedPick(
   const score = pick.finalAiScore;
   const odds = pick.odds ?? null;
   const minGrade = opts?.minGrade ?? MIN_MAIN_PICK_GRADE;
+  const minConfidence =
+    opts?.minConfidence ??
+    (isGameLinePickForGate(pick) ? GAME_LINE_MIN_CONFIDENCE : MIN_MAIN_PICK_CONFIDENCE);
   if (isGameLinePickForGate(pick)) {
     if (!gameLineFrozenMetricsComplete(pick)) return false;
     return (
@@ -469,13 +487,13 @@ export function isFullyQualifiedPick(
         finalAiScore: score,
         evPct: ev,
         isBestEvLine: pick.gameLineFinal?.isBestEv,
-      }, minGrade) && gameLineHasCompleteDisplay(pick, opts)
+      }, minGrade, minConfidence) && gameLineHasCompleteDisplay(pick, opts)
     );
   }
   if (opts?.longshotAsk) {
     return isLongshotMainTicketQualified(score, odds, edge);
   }
-  return isPropMainTicketQualified(score, odds, edge, minGrade);
+  return isPropMainTicketQualified(score, odds, edge, minGrade, minConfidence);
 }
 
 /**
@@ -491,6 +509,7 @@ export function passesCoachTicketQualityGate(
       ...opts,
       coachSurface: true,
       minGrade: MIN_COACH_TICKET_GRADE,
+      minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
       longshotAsk: true,
     });
   }
@@ -498,6 +517,7 @@ export function passesCoachTicketQualityGate(
     ...opts,
     coachSurface: true,
     minGrade: MIN_COACH_TICKET_GRADE,
+    minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
     longshotAsk: false,
   });
 }
@@ -607,9 +627,9 @@ export function reasonPickNotQualified(
     if (ev == null || ev <= 0) return `${ev ?? "—"}% expected value — non-positive EV, rejected`;
   }
   if (s.confidencePct == null) return "missing Confidence";
-  const minConf = isGameLinePickForGate(pick)
-    ? GAME_LINE_MIN_CONFIDENCE
-    : MIN_MAIN_PICK_CONFIDENCE;
+  const minConf =
+    opts?.minConfidence ??
+    (isGameLinePickForGate(pick) ? GAME_LINE_MIN_CONFIDENCE : MIN_MAIN_PICK_CONFIDENCE);
   if (s.confidencePct < minConf) {
     return `Confidence ${s.confidencePct}% — needs ≥${minConf}%`;
   }
@@ -663,45 +683,17 @@ export function reasonPickNotQualified(
 }
 
 /**
- * Ranking priority for main-ticket selection.
- * Game lines: EV first, then edge, sim, confidence, grade, payout.
- * Props: edge, sim, confidence, grade, payout.
+ * Ranking priority for main-ticket selection — Coach Final Score first,
+ * then confidence / edge / diversity tie-breaks when scores are within 1–2%.
  */
 export function comparePickStrength(a: ParsedPick, b: ParsedPick): number {
-  const sa = a.finalAiScore;
-  const sb = b.finalAiScore;
-  const fsA = isGameLinePickForGate(a) ? computePickFinalScore(a) : null;
-  const fsB = isGameLinePickForGate(b) ? computePickFinalScore(b) : null;
-  if (fsA != null && fsB != null && fsB !== fsA) return fsB - fsA;
-  if (fsA != null && fsB == null) return -1;
-  if (fsA == null && fsB != null) return 1;
-  const edgeA = resolvePickEdgePct(a) ?? -999;
-  const edgeB = resolvePickEdgePct(b) ?? -999;
-  if (edgeB !== edgeA) return edgeB - edgeA;
-
-  const simA = sa?.simHit ?? 0;
-  const simB = sb?.simHit ?? 0;
-  if (simB !== simA) return simB - simA;
-
-  const confA = sa?.confidencePct ?? 0;
-  const confB = sb?.confidencePct ?? 0;
-  if (confB !== confA) return confB - confA;
-
-  const gradeA = gradeRank(sa?.grade);
-  const gradeB = gradeRank(sb?.grade);
-  if (gradeB !== gradeA) return gradeB - gradeA;
-
-  const oddsA = a.odds ?? -9999;
-  const oddsB = b.odds ?? -9999;
-  return oddsB - oddsA;
+  return compareCoachPicksByFinalScore(a, b);
 }
 
 export function nearScoreFromPick(pick: ParsedPick): number {
+  const coach = computeCoachFinalScore(pick);
+  if (coach != null) return coach * 1000;
   const s = pick.finalAiScore;
-  if (isGameLinePickForGate(pick)) {
-    const fs = computePickFinalScore(pick);
-    if (fs != null) return fs * 10;
-  }
   const edge = Math.max(0, resolvePickEdgePct(pick) ?? 0);
   const sim = s?.simHit ?? 0;
   const conf = s?.confidencePct ?? 0;

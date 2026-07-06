@@ -132,7 +132,13 @@ test("recent leg keys deprioritize repeat unless clearly stronger", () => {
 test("clearly stronger recent pick still wins", () => {
   const game = "Boston Red Sox @ Los Angeles Angels";
   const repeat = prop("Taylor Walls", "Stolen Bases", game, 8.5, "bos");
+  repeat.finalAiScore!.grade = "A";
+  repeat.finalAiScore!.confidencePct = 68;
+  repeat.finalAiScore!.edgePct = 5.5;
   const fresh = prop("Juan Soto", "Home Runs", "New York Mets @ Atlanta Braves", 5.5, "nym");
+  fresh.finalAiScore!.grade = "C";
+  fresh.finalAiScore!.confidencePct = 52;
+  fresh.finalAiScore!.edgePct = 1.5;
   const picks = selectDiverseQualifiedParlay([repeat, fresh], 1, {
     target: 1,
     varietySeed: "strong",
@@ -141,9 +147,6 @@ test("clearly stronger recent pick still wins", () => {
     quotas: defaultMarketQuotas(1),
   });
   assert.equal(picks[0]?.player, "Taylor Walls");
-  assert.ok(
-    (repeat.finalAiScore?.composite ?? 0) > (fresh.finalAiScore?.composite ?? 0) + 2,
-  );
 });
 
 test("defaultMarketQuotas targets balanced 8-leg mix", () => {

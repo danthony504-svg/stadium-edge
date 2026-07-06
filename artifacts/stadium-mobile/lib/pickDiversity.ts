@@ -2,10 +2,14 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { comparePickStrength, nearScoreFromPick } from "./parlayQualifiedGate.ts";
+import { comparePickStrength } from "./parlayQualifiedGate.ts";
+import {
+  coachFinalScoresNear,
+  compareCoachPicksByFinalScore,
+  computeCoachFinalScore,
+} from "./coachPickRanking.ts";
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { varietyRankKey } from "./varietySeed.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -250,8 +254,8 @@ export function quotaNeedScore(
 
 /** Strength score for diversity-aware ranking — composite weighted so clear value wins. */
 export function diversityAdjustedScore(pick: ParsedPick, opts: PickDiversityOpts): number {
-  const composite = pick.finalAiScore?.composite ?? 0;
-  return nearScoreFromPick(pick) + composite * 150 - diversityPenalty(pick, opts);
+  const coach = computeCoachFinalScore(pick) ?? 0;
+  return coach * 1000 - diversityPenalty(pick, opts);
 }
 
 /** Load on game / team / market family — lower is better for tie-breaks. */
@@ -332,31 +336,24 @@ export function comparePicksWithDiversity(
   opts: PickDiversityOpts,
   state: PickDiversityState,
 ): number {
-  const rawA = nearScoreFromPick(a) + (a.finalAiScore?.composite ?? 0) * 150;
-  const rawB = nearScoreFromPick(b) + (b.finalAiScore?.composite ?? 0) * 150;
-  if (Math.abs(rawA - rawB) >= DIVERSITY_SCORE_TIE_BAND * 1000) {
-    return rawB - rawA;
-  }
-
   const scoreA = diversityAdjustedScore(a, opts);
   const scoreB = diversityAdjustedScore(b, opts);
-  if (Math.abs(scoreA - scoreB) > DIVERSITY_SCORE_TIE_BAND * 1000) {
+  const rawA = computeCoachFinalScore(a) ?? 0;
+  const rawB = computeCoachFinalScore(b) ?? 0;
+  if (!coachFinalScoresNear(rawA, rawB) && Math.abs(scoreA - scoreB) > DIVERSITY_SCORE_TIE_BAND * 1000) {
     return scoreB - scoreA;
   }
+
   const penalizedA = diversityPenalty(a, opts);
   const penalizedB = diversityPenalty(b, opts);
   if (penalizedA !== penalizedB) return penalizedA - penalizedB;
   const needA = quotaNeedScore(a, state, opts.quotas);
   const needB = quotaNeedScore(b, state, opts.quotas);
   if (needA !== needB) return needB - needA;
-  const loadA = diversityLoadScore(a, state);
-  const loadB = diversityLoadScore(b, state);
-  if (loadA !== loadB) return loadA - loadB;
-  const seed = opts.varietySeed ?? "variety";
-  const keyA = varietyRankKey(seed, pickLegFingerprint(a));
-  const keyB = varietyRankKey(seed, pickLegFingerprint(b));
-  if (keyA !== keyB) return keyA - keyB;
-  return comparePickStrength(b, a);
+
+  return compareCoachPicksByFinalScore(a, b, {
+    diversityLoad: (p) => diversityLoadScore(p, state),
+  });
 }
 
 /** Pick the best addable candidate — quality first, variety when scores are close. */

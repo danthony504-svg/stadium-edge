@@ -21,6 +21,7 @@ import {
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
   MIN_COACH_TICKET_GRADE,
+  MIN_COACH_PREMIUM_CONFIDENCE,
   GAME_LINE_EXCEPTIONAL_EV_PCT,
   GAME_LINE_SIM_MIN_HIT,
   partitionQualifiedPicks,
@@ -553,22 +554,59 @@ test("passesCoachTicketQualityGate rejects stale positive edge when pool edge is
   );
 });
 
-test("passesCoachTicketQualityGate accepts C grade with positive edge and EV", () => {
+test("passesCoachTicketQualityGate accepts C grade at confidence 50 with positive edge", () => {
   const pick = qualifiedPick({
     isProp: true,
-    player: "Player C",
+    player: "Sonia Citron",
+    market: "Reb+Ast",
+    pick: "Over 6.5 Reb+Ast",
+    odds: -110,
+    gameLineFrozen: undefined,
+    gameLineFinal: undefined,
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C",
+      confidencePct: 50,
+      edgePct: 2.5,
+      simHit: 0.54,
+      simAligned: true,
+    },
+    scores: {
+      ...qualifiedPick().scores!,
+      grade: "C",
+      confidencePct: 50,
+      edgePct: 2.5,
+    },
+  });
+  assert.equal(passesCoachTicketQualityGate(pick), true);
+});
+
+test("comparePickStrength ranks higher Coach Final Score first", () => {
+  const strong = qualifiedPick({
+    isProp: true,
+    player: "A",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "A",
+      confidencePct: 70,
+      edgePct: 4.5,
+    },
+  });
+  const weak = qualifiedPick({
+    isProp: true,
+    player: "B",
     market: "Hits",
     pick: "Over 1.5 Hits",
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
       grade: "C",
-      edgePct: 1.5,
-      confidencePct: 55,
-      simHit: 0.54,
-      simAligned: true,
+      confidencePct: 50,
+      edgePct: 1.1,
     },
   });
-  assert.equal(passesCoachTicketQualityGate(pick), true);
+  assert.ok(comparePickStrength(strong, weak) < 0);
 });
 
 test("assertCoachTicketQuality throws for sub-threshold confidence", () => {
@@ -579,7 +617,7 @@ test("assertCoachTicketQuality throws for sub-threshold confidence", () => {
     pick: "Over 1.5 Hits",
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
-      confidencePct: MIN_MAIN_PICK_CONFIDENCE - 1,
+      confidencePct: MIN_COACH_PREMIUM_CONFIDENCE - 1,
     },
   });
   assert.throws(() => assertCoachTicketQuality([weak]), MainTicketQualificationError);
