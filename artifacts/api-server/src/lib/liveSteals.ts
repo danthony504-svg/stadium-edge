@@ -317,4 +317,10 @@ export async function runLiveStealsJob(): Promise<void> {
   } catch {
     /* never let the steal ledger break the notification cron */
   }
+  try {
+    const { gradePendingSimPredictions } = await import("./simPredictions.js");
+    await gradePendingSimPredictions();
+  } catch {
+    /* sim prediction ledger is best-effort */
+  }
 }

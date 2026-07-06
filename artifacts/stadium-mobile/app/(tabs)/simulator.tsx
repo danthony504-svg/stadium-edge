@@ -68,6 +68,7 @@ import {
 } from "@/lib/gameSimQualityGates";
 import {
   buildSimulationSummary,
+  formatSimRanAt,
   normalizeGameWinDisplay,
   weatherSettingLabel,
   type SimulationSummary,
@@ -96,6 +97,7 @@ import {
   fingerprintWeather,
   getCachedGameSim,
   rememberGameSim,
+  clearGameSimCache,
 } from "@/lib/simulatorResultCache";
 
 const gameEligibleForSim = isSimulatorPregame;
@@ -305,10 +307,6 @@ export default function SimulatorScreen() {
 
   // Re-filter the slate when kickoff passes without waiting for the next refetch.
   const [clockTick, setClockTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setClockTick((t) => t + 1), 60_000);
-    return () => clearInterval(id);
-  }, []);
 
   // Wake cold Render hosts before the first games/props fan-out.
   useEffect(() => {
@@ -334,6 +332,19 @@ export default function SimulatorScreen() {
     () => asGameList(gamesQ.data).filter((g) => gameEligibleForSim(g)),
     [gamesQ.data, clockTick],
   );
+
+  useEffect(() => {
+    const nearKick =
+      games.some((g) => {
+        const t = Date.parse(g.startsAt ?? "");
+        if (!Number.isFinite(t)) return false;
+        const mins = (t - Date.now()) / 60_000;
+        return mins >= -15 && mins <= 120;
+      }) || gamesQ.isFetching;
+    const ms = nearKick ? 15_000 : 60_000;
+    const id = setInterval(() => setClockTick((t) => t + 1), ms);
+    return () => clearInterval(id);
+  }, [games, gamesQ.isFetching]);
 
   // Drop started games as soon as the user returns to this tab.
   useFocusEffect(
@@ -368,6 +379,17 @@ export default function SimulatorScreen() {
   }, [game?.id, sport]);
 
   const gameEligible = !!game && gameEligibleForSim(game);
+
+  // Drop stale pregame sims the moment this matchup goes live.
+  useEffect(() => {
+    if (!game?.id) return;
+    if (!gameEligible) {
+      setGameResult(null);
+      setRanAt(null);
+      clearGameSimCache(sport, game.id);
+      lastAutoRunKeyRef.current = null;
+    }
+  }, [game?.id, gameEligible, sport]);
   const gameLabel =
     game?.awayTeam && game?.homeTeam ? `${game.awayTeam} @ ${game.homeTeam}` : "";
 
@@ -465,9 +487,9 @@ export default function SimulatorScreen() {
   }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
 
   const gameSimRecommendation = useMemo(() => {
-    if (!gameResult || !gameLineRecs) return null;
-    return classifyGameSimRecommendation(gameLineRecs, gameResult);
-  }, [gameResult, gameLineRecs]);
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam) return null;
+    return classifyGameSimRecommendation(gameResult, game.homeTeam, game.awayTeam);
+  }, [gameResult, game?.homeTeam, game?.awayTeam]);
 
   const displayBestLines = useMemo(() => {
     if (!gameLineRecs) return [];
@@ -733,7 +755,7 @@ export default function SimulatorScreen() {
 
       const fp = simInputFingerprint;
       if (!opts?.force && fp) {
-        const cached = getCachedGameSim(sport, game.id, fp);
+        const cached = getCachedGameSim(sport, game.id, fp, { pregameOnly: gameEligible });
         if (cached) {
           setGameResult(cached.gameResult);
           setRanAt(cached.ranAt);
@@ -777,6 +799,8 @@ export default function SimulatorScreen() {
             awayTeamId: game.awayTeamId,
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
+            eventId: game.id,
+            startsAt: game.startsAt,
             simulations: SIM_COUNT,
             weatherImpact: wx,
             coverQueries,
@@ -911,7 +935,8 @@ export default function SimulatorScreen() {
     if (!simInputsReady || !game?.id || !simInputFingerprint) return;
 
     const fpKey = fingerprintKey(simInputFingerprint);
-    const cached = getCachedGameSim(sport, game.id, simInputFingerprint);
+    if (!gameEligible) return;
+    const cached = getCachedGameSim(sport, game.id, simInputFingerprint, { pregameOnly: true });
     if (cached) {
       setGameResult(cached.gameResult);
       setRanAt(cached.ranAt);
@@ -926,7 +951,7 @@ export default function SimulatorScreen() {
     if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
-  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
+  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation, gameEligible]);
 
   const canRun =
     gameEligible &&
@@ -1398,6 +1423,16 @@ export default function SimulatorScreen() {
             {/* Results */}
             {(gameResult || propResults.length > 0) && (
               <View style={{ paddingHorizontal: 16 }}>
+                {gameResult ? (
+                  <Card style={{ marginBottom: 12, backgroundColor: "rgba(59,130,246,0.08)", borderColor: "rgba(59,130,246,0.2)" }}>
+                    <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground, marginBottom: 4 }}>
+                      Pregame projection only
+                    </Text>
+                    <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, lineHeight: 17 }}>
+                      10,000-run Monte Carlo from pregame odds, lineups, and injuries. It does not update once the game starts — live scoreboards can diverge quickly (blowouts, early runs, etc.).
+                    </Text>
+                  </Card>
+                ) : null}
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                   <Text style={{ fontFamily: FONT.semibold, fontSize: 17, color: colors.foreground }}>
                     Simulation Results
@@ -1417,7 +1452,7 @@ export default function SimulatorScreen() {
                     </View>
                     {ranAt ? (
                       <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
-                        Updated just now
+                        {formatSimRanAt(ranAt)}
                       </Text>
                     ) : null}
                   </View>

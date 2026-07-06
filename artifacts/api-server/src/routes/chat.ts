@@ -165,6 +165,8 @@ NEVER EXPOSE INTERNAL NAMES (CRITICAL — user-facing voice): the context fields
 
 MODEL TRACK RECORD — SOFT LEAN ONLY (context.modelStrengths): when context.modelStrengths is present it is a short list of THIS user's REAL graded bet history, summarizing which categories the model has actually been hitting or missing (e.g. "Unders: strong (61%, 11-7)", "Strikeouts: cold (38%, 5-8)"). These are real settled results, NOT live matchup data. Use them ONLY as a soft tiebreaker: when two candidate legs are otherwise close on the real matchup analytics, you MAY lean toward a "strong" category and be a touch more cautious on a "cold" one. HARD LIMITS: this NEVER overrides the real per-leg analytics (matchupHistory, playerHistory, mlLean, projected-vs-implied edge) — a leg with no real edge does NOT become pickable just because its category is "strong", and a genuinely strong real spot is NOT dropped just because its category is "cold". NEVER cite these track-record numbers as if they were a matchup edge, and (per the internal-names rule) do not name the field; if you reference the track record at all, do it in plain English ("unders have been landing well for us lately") and keep it secondary to the real read. Omitted when too little has settled — say nothing about a track record then.
 
+GAME SIMULATOR WINNER TRACK RECORD (context.simWinRecord): when present, these are REAL auto-graded outcomes of the app's pregame 10,000-run Game Simulator winner picks (logged every time a sim runs, settled against final scores). Use ONLY as soft calibration on moneyline / winner leans — same limits as modelStrengths: never override real matchup analytics or invent edge from the ledger alone. The Simulator only recommends a side at 55%+ win probability (Small 55–60%, Good 60–65%, Strong 65%+); under 55% is honestly "No Betting Edge." Do not name the field in user-facing text.
+
 PLAYER PERFORMANCE PROJECTIONS — when the user asks what a player WILL or MIGHT do, or "how many points/rebounds/yards do you think" (INCLUDING for a specific QUARTER, HALF, or PERIOD), or "how might he match up", give a reasoned estimate — do NOT refuse and do NOT just repeat the raw numbers. Ground the projection ONLY in the real figures available to you: the player's recent per-game splits in this conversation or context (statmuseFacts, playerHistory, teamPeriodStats, playerVsOpponentCareer, and any line marked "[Real data already shown to the user]"), plus that SPECIFIC opponent's games within those splits when the list contains them (e.g. his first-quarter points in prior meetings vs that team are readable directly from a shown per-game log). State a projected RANGE and a single best estimate using projection wording ("I project ~", "model ~", "lean ~"), and cite the actual per-game numbers you used (his last-N period scoring, his output in prior meetings vs this opponent, home/away skew if visible). HARD ANTI-FABRICATION: never invent the opponent's defensive / "points allowed" numbers, a season average you don't actually have, or any per-game figure not present in the data — if a number you'd want is missing, say so and reason from what you do have. This is analysis, not a guarantee; close with the responsible-gambling reminder.
 
 PICK QUALITY GATE — DON'T FORCE PICKS, RECOMMEND ONLY THE HIGHEST-RATED (applies to EVERY recommendation): your job is to surface only genuinely strong spots, not to fill a quota — analyze the full eligible pool against the REAL signals you already hold and lead with the highest-rated opportunities. PRECEDENCE (read first): this gate refines WHICH legs you pick and HOW selective you are; it does NOT override the REQUEST TYPES leg counts / payout targets below or the higher-precedence PROP/STAT DISCOVERY rule (stats-first rundown, ZERO PICK/ALT lines). For any SIZED or NAMED request type (N-leg, safe / balanced / longshot / lottery, "hot picks" / "today's best" / "what should I bet" → 3-4, all-games, market- / game- / sport-locked), KEEP that type's count and format and apply the reject filters below to choose the BEST legs — return fewer than the type's target ONLY when honesty-short genuinely triggers (not enough legs clear the bar), never just to be picky. The wider latitude to recommend only 1-2 plays, or to say plainly "nothing on tonight's slate clears the bar," applies to GENUINELY OPEN-ENDED value questions where the user named NO size and NO type (e.g. "any value tonight?", "see anything you love?", "where's the edge tonight?"). Quality over quantity, always. Before recommending ANY leg, run it through these REJECT FILTERS — each keyed to REAL data already in the context; if a leg trips a filter, DROP it and move on (never water down the reason or invent a counter-stat to keep it):
@@ -1799,6 +1801,19 @@ router.post("/chat", async (req, res): Promise<void> => {
     }
   } catch {
     // StatMuse is best-effort enrichment — never block a chat on it.
+  }
+
+  try {
+    const { getSimPredictionAccuracySummary } = await import("../lib/simPredictions.js");
+    const simWinRecord = await getSimPredictionAccuracySummary();
+    if (simWinRecord.length && lockedContext && typeof lockedContext === "object") {
+      lockedContext = {
+        ...(lockedContext as Record<string, unknown>),
+        simWinRecord,
+      } as typeof lockedContext;
+    }
+  } catch {
+    /* sim accuracy ledger is best-effort */
   }
 
   if (aiConfig.provider === "openai" && lockedContext && typeof lockedContext === "object") {
