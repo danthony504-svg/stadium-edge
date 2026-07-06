@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
-import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
   EspnGame,
@@ -83,6 +83,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { SPORTS } from "@/lib/sports";
 import {
+  cachedSimGames,
   pruneSimGamesCache,
   rememberSimGames,
   rememberSimProps,
@@ -325,14 +326,26 @@ export default function SimulatorScreen() {
   const gamesQ = useQuery({
     queryKey: ["sim-games", sport],
     queryFn: async ({ signal }) => {
-      const rows = await fetchSimulatorGames(sport, signal);
-      const list = asGameList(rows).filter((g) => gameEligibleForSim(g));
-      rememberSimGames(sport, list);
-      return list;
+      try {
+        const rows = await fetchSimulatorGames(sport, signal);
+        const list = asGameList(rows).filter((g) => gameEligibleForSim(g));
+        rememberSimGames(sport, list);
+        return list;
+      } catch {
+        return [] as EspnGame[];
+      }
     },
     staleTime: 30_000,
     refetchOnMount: "always",
     refetchInterval: 60_000,
+    retry: false,
+    throwOnError: false,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey?.[1] === sport
+        ? previousData
+        : cachedSimGames(sport).length > 0
+          ? cachedSimGames(sport)
+          : undefined,
   });
 
   const games = useMemo(
@@ -563,7 +576,9 @@ export default function SimulatorScreen() {
     placeholderData: undefined,
   });
 
-  const gamesBootstrapping = gamesQ.isPending && games.length === 0;
+  const gamesBootstrapping =
+    (gamesQ.isPending || (gamesQ.isFetching && gamesQ.fetchStatus === "fetching" && !gamesQ.data)) &&
+    games.length === 0;
   const propsLoading = gameEligible && propsQ.isPending;
 
   const parkQ = useQuery({
@@ -1051,10 +1066,19 @@ export default function SimulatorScreen() {
 
         {gamesBootstrapping ? (
           <Loading label="Loading games…" />
-        ) : gamesQ.isError ? (
-          <ErrorState onRetry={() => gamesQ.refetch()} />
         ) : !game ? (
-          <EmptyState title="No upcoming games" subtitle={`No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`} />
+          <EmptyState
+            title="No upcoming games"
+            subtitle={
+              isTennis
+                ? gamesQ.isError
+                  ? "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
+                  : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
+                : gamesQ.isError
+                  ? `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
+                  : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
+            }
+          />
         ) : (
           <>
             {/* Game picker strip */}

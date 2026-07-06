@@ -63,13 +63,32 @@ async function simPostJson<T>(
 }
 
 export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
+  const parse = (rows: unknown): EspnGame[] =>
+    Array.isArray(rows)
+      ? rows.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
+      : [];
   try {
-    return await simGetJson<EspnGame[]>(
-      `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
-      signal,
+    return parse(
+      await simGetJson<EspnGame[]>(
+        `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
+        signal,
+        18_000,
+      ),
     );
   } catch {
-    return simGetJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
+    try {
+      return parse(
+        await simGetJson<EspnGame[]>(
+          `/sports/games?sport=${encodeURIComponent(sport)}`,
+          signal,
+          18_000,
+        ),
+      );
+    } catch {
+      // Tennis used to 400 before ESPN scoreboard support — never leave the
+      // simulator pill spinning on a failed games fetch.
+      return [];
+    }
   }
 }
 

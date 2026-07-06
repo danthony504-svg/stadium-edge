@@ -8,7 +8,10 @@ import { FONT } from "@/components/ui";
 /** Prompts the user when a prefetched OTA is ready — one tap applies it. */
 export function OtaUpdateBanner() {
   const insets = useSafeAreaInsets();
-  const { isUpdatePending, isDownloading } = Updates.useUpdates();
+  const { isUpdatePending, isDownloading } =
+    typeof Updates.useUpdates === "function"
+      ? Updates.useUpdates()
+      : { isUpdatePending: false, isDownloading: false };
 
   if (__DEV__ || !Updates.isEnabled) return null;
   if (!isUpdatePending && !isDownloading) return null;

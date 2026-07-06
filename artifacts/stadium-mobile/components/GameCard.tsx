@@ -145,9 +145,9 @@ export function GameCard({
   const label = `${game.awayTeam} @ ${game.homeTeam}`;
   const h2h = game.markets?.find((m) => m.key === "h2h");
   const totals = game.markets?.find((m) => m.key === "totals");
-  const away = h2h?.outcomes.find((o) => o.name === game.awayTeam);
-  const home = h2h?.outcomes.find((o) => o.name === game.homeTeam);
-  const over = totals?.outcomes.find((o) => /over/i.test(o.name));
+  const away = h2h?.outcomes?.find((o) => o.name === game.awayTeam);
+  const home = h2h?.outcomes?.find((o) => o.name === game.homeTeam);
+  const over = totals?.outcomes?.find((o) => /over/i.test(o.name));
 
   const add = (market: string, pick: string, odds?: number | null) => {
     if (odds == null) return;

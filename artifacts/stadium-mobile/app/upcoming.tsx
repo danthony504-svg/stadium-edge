@@ -78,7 +78,13 @@ export default function UpcomingScreen() {
   });
   const gamesQ = useQuery({
     queryKey: ["games", sportId],
-    queryFn: ({ signal }) => getGames(sportId, signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getGames(sportId, signal);
+      } catch {
+        return [] as EspnGame[];
+      }
+    },
     staleTime: 60_000,
     enabled: !!sportId,
   });

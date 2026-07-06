@@ -2245,7 +2245,9 @@ export async function getTennisFlags(
   signal?: AbortSignal,
 ): Promise<Record<string, TennisFlag>> {
   try {
-    return await getJson<Record<string, TennisFlag>>("/sports/tennis-flags", signal);
+    const raw = await getJson<Record<string, TennisFlag>>("/sports/tennis-flags", signal);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    return raw;
   } catch {
     return {};
   }
@@ -2260,7 +2262,7 @@ export function resolveTennisFlag(
   flags: Record<string, TennisFlag> | undefined,
   name: string,
 ): string | null {
-  if (!flags || !name) return null;
+  if (!flags || !name || typeof flags !== "object" || Array.isArray(flags)) return null;
   const key = normTennisName(name);
   const direct = flags[key];
   if (direct?.flag) return direct.flag;

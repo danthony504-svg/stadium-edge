@@ -2,7 +2,6 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -40,7 +39,6 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { isOtaReloadBlocked } from "@/lib/otaBlock";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
@@ -52,12 +50,17 @@ import {
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
-/** Refetch-in-place only — never bleed another league's rows when the pill changes. */
-function sameSportPlaceholder<T>(
-  sport: string,
-): (previousData: T | undefined, previousQuery: { queryKey: readonly unknown[] }) => T | undefined {
-  return (previousData, previousQuery) =>
-    previousQuery?.queryKey?.[1] === sport ? previousData : undefined;
+type SportFeedPayload<T> = { gen: number; league: string; rows: T[] };
+
+function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
+  return (
+    !!v &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    typeof (v as SportFeedPayload<T>).gen === "number" &&
+    typeof (v as SportFeedPayload<T>).league === "string" &&
+    Array.isArray((v as SportFeedPayload<T>).rows)
+  );
 }
 
 // Top Value Props rail: a prop is "value" when the best posted price beats the
@@ -377,7 +380,6 @@ export default function HomeScreen() {
     : 168;
   // Five shortcut cards — horizontal scroll when they don't fit on one screen.
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
-  const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
@@ -390,6 +392,8 @@ export default function HomeScreen() {
       sportFetchGenRef.current += 1;
       queryClient.cancelQueries({ queryKey: ["odds"] });
       queryClient.cancelQueries({ queryKey: ["games"] });
+      queryClient.cancelQueries({ queryKey: ["home-featured"] });
+      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
       queryClient.removeQueries({ queryKey: ["odds"] });
       queryClient.removeQueries({ queryKey: ["games"] });
       setSport(id);
@@ -401,32 +405,45 @@ export default function HomeScreen() {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
   }, []);
 
+  // Refetch the active league when the pill changes. Kept separate from
+  // useFocusEffect so a sport tap never retriggers OTA reload side-effects.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
+    void queryClient.invalidateQueries({ queryKey: ["games", sport] });
+    void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
+  }, [queryClient, sport]);
+
   useFocusEffect(
     useCallback(() => {
-      void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
-      void queryClient.invalidateQueries({ queryKey: ["games", sport] });
-      void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
-      // A prefetched OTA applies on reload — auto-restart on Home so users don't
-      // need to hunt for the banner (common miss on TestFlight).
-      if (!__DEV__ && Updates.isEnabled && isUpdatePending && !isOtaReloadBlocked()) {
-        void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      }
-    }, [queryClient, sport, isUpdatePending]),
+      const active = sportRef.current;
+      void queryClient.invalidateQueries({ queryKey: ["odds", active] });
+      void queryClient.invalidateQueries({ queryKey: ["games", active] });
+      void queryClient.invalidateQueries({ queryKey: ["home-featured", active] });
+      // OTA apply is user-driven via OtaUpdateBanner — never reloadAsync here.
+      // Auto-reload on focus (and especially on sport-pill dep churn) was
+      // corrupting mid-session bundles and surfacing errors like
+      // "userFound is not a function" right after tapping Tennis.
+    }, [queryClient]),
   );
 
-  const oddsQ = useQuery({
+  const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
     queryKey: ["odds", sport],
     queryFn: async ({ signal, queryKey }) => {
       const league = String(queryKey[1] ?? "");
       const gen = sportFetchGenRef.current;
-      const rows = await getOdds(league, signal);
-      return { gen, league, rows };
+      try {
+        const rows = await getOdds(league, signal);
+        return { gen, league, rows };
+      } catch {
+        return { gen, league, rows: [] as OddsGame[] };
+      }
     },
     staleTime: 45_000,
     refetchOnMount: "always",
-    placeholderData: sameSportPlaceholder<{ gen: number; league: string; rows: OddsGame[] }>(sport),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey?.[1] === sport ? previousData : undefined,
   });
-  const gamesQ = useQuery({
+  const gamesQ = useQuery<SportFeedPayload<EspnGame>>({
     queryKey: ["games", sport],
     queryFn: async ({ signal, queryKey }) => {
       const league = String(queryKey[1] ?? "");
@@ -442,7 +459,8 @@ export default function HomeScreen() {
     },
     staleTime: 45_000,
     refetchOnMount: "always",
-    placeholderData: sameSportPlaceholder<{ gen: number; league: string; rows: EspnGame[] }>(sport),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey?.[1] === sport ? previousData : undefined,
   });
 
   // Tennis players have no club crest, so the Upcoming cards show each player's
@@ -458,7 +476,7 @@ export default function HomeScreen() {
   const gamesForSport = useMemo(() => {
     const payload = gamesQ.data;
     if (
-      !payload ||
+      !isSportFeedPayload<EspnGame>(payload) ||
       payload.league !== sport ||
       payload.gen !== sportFetchGenRef.current ||
       gamesQ.isPlaceholderData ||
@@ -473,7 +491,7 @@ export default function HomeScreen() {
   const oddsForSport = useMemo(() => {
     const payload = oddsQ.data;
     if (
-      !payload ||
+      !isSportFeedPayload<OddsGame>(payload) ||
       payload.league !== sport ||
       payload.gen !== sportFetchGenRef.current ||
       oddsQ.isPlaceholderData ||
@@ -537,8 +555,10 @@ export default function HomeScreen() {
     gamesQ.isFetching ||
     !oddsQ.isSuccess ||
     !gamesQ.isSuccess ||
-    oddsQ.data?.gen !== sportFetchGenRef.current ||
-    gamesQ.data?.gen !== sportFetchGenRef.current;
+    !isSportFeedPayload(oddsQ.data) ||
+    !isSportFeedPayload(gamesQ.data) ||
+    oddsQ.data.gen !== sportFetchGenRef.current ||
+    gamesQ.data.gen !== sportFetchGenRef.current;
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -583,31 +603,33 @@ export default function HomeScreen() {
   // crests attach on the first pass (headshots optional → avatar falls back to
   // initials).
   const featuredGameQs = useQueries({
-    queries: featGames.map((g) => ({
-      queryKey: ["home-featured", sport, g.id],
-      enabled: featuredEnabled && !sportFeedLoading && games.length > 0,
-      staleTime: 60_000,
-      refetchOnMount: "always",
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const info =
-          teamInfoMap.get(
-            `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
-          ) ?? null;
-        const r = await getProps(
-          {
-            sport,
-            eventId: g.id,
-            home: g.homeTeam,
-            away: g.awayTeam,
-            homeTeamId: info?.homeTeamId,
-            awayTeamId: info?.awayTeamId,
-            startsAt: g.commenceTime,
+    queries: featuredEnabled
+      ? featGames.map((g) => ({
+          queryKey: ["home-featured", sport, g.id],
+          enabled: !sportFeedLoading && games.length > 0,
+          staleTime: 60_000,
+          refetchOnMount: "always",
+          queryFn: async ({ signal }: { signal: AbortSignal }) => {
+            const info =
+              teamInfoMap.get(
+                `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
+              ) ?? null;
+            const r = await getProps(
+              {
+                sport,
+                eventId: g.id,
+                home: g.homeTeam,
+                away: g.awayTeam,
+                homeTeamId: info?.homeTeamId,
+                awayTeamId: info?.awayTeamId,
+                startsAt: g.commenceTime,
+              },
+              signal,
+            );
+            return { info, props: Array.isArray(r.props) ? r.props : [] };
           },
-          signal,
-        );
-        return { info, props: r.props ?? [] };
-      },
-    })),
+        }))
+      : [],
   });
 
   // ---- Home AI sections (all REAL data; each rail hides when nothing qualifies) ----
@@ -623,8 +645,9 @@ export default function HomeScreen() {
       const g = featGames[i];
       if (!data || !g) return;
       const { info, props } = data;
+      const propRows = Array.isArray(props) ? props : [];
       const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
-      for (const p of props) {
+      for (const p of propRows) {
         if (p.alt) continue;
         const isHome =
           !!p.playerTeamId && !!info?.homeTeamId && p.playerTeamId === info.homeTeamId;
@@ -847,6 +870,8 @@ export default function HomeScreen() {
     queryKey: ["home-upsets", sport],
     queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
     staleTime: 2 * 60_000,
+    // Tennis uses tennisAnalysis (rank/form/H2H), not team matchup-history mlLean.
+    enabled: sport !== "tennis",
   });
   const upsets: UpsetSpot[] = upsetsQ.data ?? [];
 
