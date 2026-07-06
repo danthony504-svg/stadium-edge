@@ -6,6 +6,8 @@ import {
   createPickDiversityState,
   addPickDiversityState,
   defaultDiversityCaps,
+  defaultMarketQuotas,
+  pickMarketBucket,
   pickMarketFamily,
   pickPlayerKey,
   reachSelectDiverseQualified,
@@ -84,6 +86,7 @@ test("selectDiverseQualifiedParlay limits legs from same game", () => {
     target: 4,
     varietySeed: "test",
     caps: { ...defaultDiversityCaps(4), maxPerGame: 2 },
+    quotas: defaultMarketQuotas(4),
   });
   const perGame = new Map<string, number>();
   for (const p of picks) {
@@ -106,6 +109,7 @@ test("reachSelectDiverseQualified rotates market families on close scores", () =
     target: 4,
     varietySeed: "rotate-test",
     caps: defaultDiversityCaps(4),
+    quotas: defaultMarketQuotas(4),
   });
   const families = new Set(picks.map(pickMarketFamily));
   assert.ok(families.size >= 3, `expected market rotation, got ${[...families].join(", ")}`);
@@ -120,6 +124,7 @@ test("recent leg keys deprioritize repeat unless clearly stronger", () => {
     varietySeed: "recent",
     avoidLegKeys: new Set(["boston red sox los angeles angels|taylor walls|stolen bases"]),
     caps: defaultDiversityCaps(1),
+    quotas: defaultMarketQuotas(1),
   });
   assert.equal(picks[0]?.player, "Juan Soto");
 });
@@ -133,9 +138,60 @@ test("clearly stronger recent pick still wins", () => {
     varietySeed: "strong",
     avoidLegKeys: new Set(["boston red sox los angeles angels|taylor walls|stolen bases"]),
     caps: defaultDiversityCaps(1),
+    quotas: defaultMarketQuotas(1),
   });
   assert.equal(picks[0]?.player, "Taylor Walls");
   assert.ok(
     (repeat.finalAiScore?.composite ?? 0) > (fresh.finalAiScore?.composite ?? 0) + 2,
   );
+});
+
+test("defaultMarketQuotas targets balanced 8-leg mix", () => {
+  const q = defaultMarketQuotas(8);
+  assert.ok(q.player_prop.min >= 2 && q.player_prop.max <= 4);
+  assert.ok(q.game_line.max <= 4);
+  assert.ok(q.alt_line.min >= 1);
+});
+
+test("reachSelectDiverseQualified caps spread legs on close scores", () => {
+  const gameA = "Boston Red Sox @ Los Angeles Angels";
+  const gameB = "New York Yankees @ Tampa Bay Rays";
+  const gameC = "Houston Astros @ Washington Nationals";
+  const spreads = [
+    gameLine("Angels +1.5", "Spread", gameA, 6.2),
+    gameLine("Rays +1.5", "Spread", gameB, 6.1),
+    gameLine("Astros +1.5", "Spread", gameC, 6.0),
+    gameLine("Red Sox -1.5", "Spread", gameA, 5.9),
+  ];
+  const props = [
+    prop("Player A", "Hits", gameA, 6.0, "bos"),
+    prop("Player B", "Strikeouts", gameB, 5.9, "nyy"),
+    prop("Player C", "Home Runs", gameC, 5.8, "hou"),
+    prop("Player D", "Total Bases", "New York Mets @ Atlanta Braves", 5.7, "nym"),
+    prop("Player E", "RBIs", "Chicago Cubs @ St. Louis Cardinals", 5.6, "chc"),
+  ];
+  const picks = reachSelectDiverseQualified([...spreads, ...props], 6, {
+    target: 6,
+    varietySeed: "spread-cap",
+    caps: defaultDiversityCaps(6),
+    quotas: defaultMarketQuotas(6),
+  });
+  const spreadCount = picks.filter((p) => pickMarketFamily(p) === "game:spread").length;
+  assert.ok(spreadCount <= 3, `expected <=3 spreads (35% cap), got ${spreadCount}`);
+  const propCount = picks.filter((p) => pickMarketBucket(p) === "player_prop").length;
+  assert.ok(propCount >= 2, `expected >=2 props, got ${propCount}`);
+});
+
+test("player appearance counts deprioritize frequent stars on close scores", () => {
+  const star = prop("Aaron Judge", "Home Runs", "New York Yankees @ Tampa Bay Rays", 6.05, "nyy");
+  const fresh = prop("Juan Soto", "Hits", "New York Mets @ Atlanta Braves", 6.0, "nym");
+  const counts = new Map([["aaron judge", 3]]);
+  const picks = selectDiverseQualifiedParlay([star, fresh], 1, {
+    target: 1,
+    varietySeed: "freq",
+    caps: defaultDiversityCaps(1),
+    quotas: defaultMarketQuotas(1),
+    playerAppearanceCounts: counts,
+  });
+  assert.equal(picks[0]?.player, "Juan Soto");
 });

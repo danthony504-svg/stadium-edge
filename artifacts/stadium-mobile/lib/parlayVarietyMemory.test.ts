@@ -6,6 +6,7 @@ import {
   parlayLegKeyFromPool,
   recentParlayLegKeys,
   recentParlayPlayerKeys,
+  recentPlayerAppearanceCounts,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
   deprioritizePropPoolEntries,
@@ -50,6 +51,32 @@ test("rememberParlayBuild feeds recentParlayPlayerKeys", () => {
   const players = recentParlayPlayerKeys();
   assert.ok(players.has("alec burleson"));
   assert.ok(players.has("aaron judge"));
+});
+
+test("rememberParlayBuild feeds recentPlayerAppearanceCounts", () => {
+  clearParlayVarietyMemory();
+  rememberParlayBuild([
+    {
+      game: "Yankees @ Red Sox",
+      market: "Home Runs",
+      pick: "Aaron Judge Over 0.5 Home Runs",
+      player: "Aaron Judge",
+      odds: 350,
+      isProp: true,
+    },
+  ]);
+  rememberParlayBuild([
+    {
+      game: "Yankees @ Red Sox",
+      market: "Hits",
+      pick: "Aaron Judge Over 1.5 Hits",
+      player: "Aaron Judge",
+      odds: 200,
+      isProp: true,
+    },
+  ]);
+  const counts = recentPlayerAppearanceCounts();
+  assert.equal(counts.get("aaron judge"), 2);
 });
 
 test("rotateParlayDisplayOrder changes lead leg per seed", () => {

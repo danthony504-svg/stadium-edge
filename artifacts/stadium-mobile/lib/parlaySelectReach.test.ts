@@ -63,19 +63,67 @@ function qualifiedGameLine(overrides: Partial<ParsedPick> = {}): ParsedPick {
   };
 }
 
-test("reachSelectQualifiedToTarget relaxes per-game caps to fill target", () => {
+function qualifiedProp(
+  player: string,
+  game: string,
+  overrides: Partial<ParsedPick> = {},
+): ParsedPick {
+  return {
+    game,
+    market: "Hits",
+    pick: `${player} Over 1.5 Hits`,
+    odds: -110,
+    isProp: true,
+    player,
+    teamAbbr: "bos",
+    finalAiScore: {
+      grade: "B+",
+      simHit: 0.55,
+      edgePct: 2.1,
+      confidencePct: 62,
+      composite: 7.5,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: {
+        scores: {},
+        composite: 7.5,
+        grade: "B+",
+        confidencePct: 62,
+        edgePct: 2.1,
+      },
+    },
+    scores: {
+      scores: {},
+      composite: 7.5,
+      grade: "B+",
+      confidencePct: 62,
+      edgePct: 2.1,
+    },
+    ...overrides,
+  };
+}
+
+test("reachSelectQualifiedToTarget fills mixed tickets to target", () => {
   const candidates: ParsedPick[] = [];
-  for (let i = 0; i < 15; i++) {
+  for (let i = 0; i < 10; i++) {
     const game = `Team${i} A @ Team${i} B`;
     candidates.push(
       qualifiedGameLine({
         game,
         pick: `Team${i} A +1.5`,
       }),
+      qualifiedProp(`Player ${i}`, game),
+      qualifiedGameLine({
+        game,
+        market: "Total",
+        pick: "Over 8.5",
+      }),
     );
   }
-  const out = reachSelectQualifiedToTarget(candidates, 15, { maxPerGame: 1, maxGameLegs: 15 });
-  assert.equal(out.length, 15);
+  const out = reachSelectQualifiedToTarget(candidates, 12, { maxPerGame: 2, maxGameLegs: 6 });
+  assert.equal(out.length, 12);
 });
 
 test("reachSelectQualifiedToTarget never adds unqualified legs", () => {

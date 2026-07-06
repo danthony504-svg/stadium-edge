@@ -91,6 +91,7 @@ import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, n
 import {
   recentParlayLegKeys,
   recentParlayPlayerKeys,
+  recentPlayerAppearanceCounts,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
@@ -2446,6 +2447,7 @@ export default function CoachScreen() {
             varietySeed,
             avoidLegKeys,
             recentPlayerKeys: isParlayBuild ? recentParlayPlayerKeys() : undefined,
+            playerAppearanceCounts: isParlayBuild ? recentPlayerAppearanceCounts() : undefined,
             signal: abortRef.current?.signal,
             rejectsOut: parlayRejections,
           });

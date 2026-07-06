@@ -8,17 +8,18 @@ import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import {
   evaluateGameLines,
   mergeOddsEntries,
-  finalizeGameLinePickForGame,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
-import { defaultDiversityCaps } from "./pickDiversity.ts";
+import { computeGameLineFinalScoreBreakdown } from "./gameLineFinalScore.ts";
+import { defaultDiversityCaps, pickMarketFamily } from "./pickDiversity.ts";
 import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
 import { deprioritizePropPoolEntries } from "./parlayVarietyMemory.ts";
+import { snapshotFrozenGameLineDisplay } from "./frozenGameLinePick.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection.ts";
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
-import { selectBestGameLineWithReason } from "./altLineEvSelect.ts";
+import { gameLineRowQualifies, isBestEvAmongRows } from "./altLineEvSelect.ts";
 import {
   comparePickStrength,
   isFullyQualifiedPick,
@@ -59,7 +60,41 @@ function evalRowToPick(row: EvaluatedGameLine): ParsedPick {
   };
 }
 
-/** Every qualified game-line rung on the eval ladder, best-first. */
+function finalizedPickFromEvalRow(
+  row: EvaluatedGameLine,
+  allRows: EvaluatedGameLine[],
+  template: ParsedPick,
+  realOdds: RealOddsEntry[],
+): ParsedPick {
+  const breakdown = computeGameLineFinalScoreBreakdown(row);
+  const base: ParsedPick = {
+    ...template,
+    game: row.entry.game,
+    market: row.entry.market,
+    pick: row.entry.pick,
+    odds: row.entry.odds ?? -110,
+    sport: row.entry.sport ?? template.sport,
+    isProp: false,
+    altOptions: undefined,
+    finalAiScore: row.finalAiScore,
+    scores: row.finalAiScore.rubric,
+    highRiskValuePlay: row.finalAiScore.highRiskValuePlay,
+  };
+  const display = snapshotFrozenGameLineDisplay(base, realOdds);
+  return {
+    ...base,
+    gameLineFrozen: true,
+    gameLineFinal: {
+      reason: "board ladder",
+      finalScore: breakdown.finalScore,
+      isBestEv: isBestEvAmongRows(row, allRows),
+      frozenAt: Date.now(),
+      display,
+    },
+  };
+}
+
+/** Qualified game-line rungs — best per market family per game (spread, total, alt, etc.). */
 export function collectQualifiedGameLineCandidates(
   evalLinesByGame: Map<string, RealOddsEntry[]>,
   simByGame: Map<string, CoachGameSimEntry>,
@@ -83,6 +118,7 @@ export function collectQualifiedGameLineCandidates(
   }
 
   const qualified: ParsedPick[] = [];
+  const edgeOpts = { realOdds: opts.realOdds, longshotAsk: opts.longshotAsk };
   for (const [game, lines] of byGame) {
     const sim =
       simByGame.get(game) ??
@@ -103,25 +139,37 @@ export function collectQualifiedGameLineCandidates(
       isProp: false,
       sport: lines[0]?.sport ?? "mlb",
     };
-    const finalPick = finalizeGameLinePickForGame(game, template, simByGame, {
-      realOdds: opts.realOdds,
-      evalLinesByGame,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-      longshotAsk: opts.longshotAsk,
-    });
-    if (!finalPick) {
+    const bestPerFamily = new Map<string, EvaluatedGameLine>();
+    for (const row of ranked) {
+      if (!gameLineRowQualifies(row, ranked)) continue;
+      const fam = pickMarketFamily(evalRowToPick(row));
+      const cur = bestPerFamily.get(fam);
+      if (!cur || row.finalAiScore.composite > cur.finalAiScore.composite) {
+        bestPerFamily.set(fam, row);
+      }
+    }
+    if (!bestPerFamily.size) {
       for (const row of ranked) {
-        const pick = evalRowToPick(row);
         opts.rejectsOut?.push({
           pick: row.pick,
-          reason: reasonPickNotQualified(pick, { longshotAsk: opts.longshotAsk }),
-          nearScore: nearScoreFromPick(pick),
+          reason: reasonPickNotQualified(evalRowToPick(row), edgeOpts),
+          nearScore: nearScoreFromPick(evalRowToPick(row)),
         });
       }
       continue;
     }
-    qualified.push(finalPick);
+    for (const row of bestPerFamily.values()) {
+      const pick = finalizedPickFromEvalRow(row, ranked, template, opts.realOdds);
+      if (isFullyQualifiedPick(pick, edgeOpts)) {
+        qualified.push(pick);
+      } else {
+        opts.rejectsOut?.push({
+          pick,
+          reason: reasonPickNotQualified(pick, edgeOpts),
+          nearScore: nearScoreFromPick(pick),
+        });
+      }
+    }
   }
   return qualified.sort((a, b) => comparePickStrength(b, a));
 }
@@ -222,6 +270,7 @@ export type SelectStrongestParlayOpts = {
   varietySeed?: string;
   avoidLegKeys?: Set<string>;
   recentPlayerKeys?: Set<string>;
+  playerAppearanceCounts?: Map<string, number>;
   signal?: AbortSignal;
   rejectsOut?: ParlayLegReject[];
 };
@@ -267,6 +316,8 @@ export async function selectStrongestQualifiedParlay(
     varietySeed: opts.varietySeed,
     avoidLegKeys: opts.avoidLegKeys,
     recentPlayerKeys: opts.recentPlayerKeys,
+    playerAppearanceCounts: opts.playerAppearanceCounts,
+    longshotAsk: opts.longshotAsk,
   };
   const rejects = opts.rejectsOut ?? [];
   const edgeOpts = {

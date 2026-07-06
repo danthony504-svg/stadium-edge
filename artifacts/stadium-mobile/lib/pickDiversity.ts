@@ -28,13 +28,24 @@ export type PickDiversityCaps = {
   maxPerTeam: number;
   maxPerMarketFamily: number;
   maxGameLegs: number;
+  /** Hard cap on standard spread legs — prevents spread-dominated tickets. */
+  maxSpreadLegs: number;
 };
+
+/** Coarse market buckets for ticket mix quotas. */
+export type MarketBucket = "player_prop" | "game_line" | "alt_line" | "longshot";
+
+export type MarketQuotaRange = { min: number; max: number };
+export type MarketQuotas = Record<MarketBucket, MarketQuotaRange>;
 
 export type PickDiversityOpts = {
   target: number;
   varietySeed?: string;
   avoidLegKeys?: Set<string>;
   recentPlayerKeys?: Set<string>;
+  playerAppearanceCounts?: Map<string, number>;
+  quotas?: MarketQuotas;
+  longshotAsk?: boolean;
   caps: PickDiversityCaps;
 };
 
@@ -45,16 +56,87 @@ export type PickDiversityState = {
   perPlayer: Set<string>;
   perTeam: Map<string, number>;
   perMarketFamily: Map<string, number>;
+  perMarketBucket: Map<MarketBucket, number>;
   gameLegs: number;
 };
 
 export function defaultDiversityCaps(target: number): PickDiversityCaps {
+  const spreadCap = Math.max(1, Math.floor(target * 0.30));
   return {
     maxPerGame: target >= 12 ? 2 : target >= 8 ? 2 : target >= 5 ? 3 : 4,
     maxPerPlayer: 1,
     maxPerTeam: target >= 12 ? 2 : target >= 6 ? 2 : 3,
-    maxPerMarketFamily: target >= 12 ? 3 : target >= 8 ? 4 : 6,
-    maxGameLegs: Math.max(2, Math.min(Math.ceil(target * 0.35), target - 3)),
+    maxPerMarketFamily: Math.max(2, Math.min(target, Math.ceil(target * 0.45))),
+    maxGameLegs: Math.max(2, Math.min(Math.ceil(target * 0.45), target - 2)),
+    maxSpreadLegs: spreadCap,
+  };
+}
+
+function quotaRange(target: number, minPct: number, maxPct: number): MarketQuotaRange {
+  return {
+    min: Math.max(0, Math.ceil(target * minPct - 1e-6)),
+    max: Math.max(1, Math.floor(target * maxPct + 1e-6)),
+  };
+}
+
+/** Target ticket mix — props, game lines, alt lines, and high-value longshots. */
+export function defaultMarketQuotas(target: number, longshotAsk = false): MarketQuotas {
+  if (target <= 3) {
+    return {
+      player_prop: { min: 1, max: target },
+      game_line: { min: 0, max: 2 },
+      alt_line: { min: 0, max: 1 },
+      longshot: { min: 0, max: 1 },
+    };
+  }
+
+  const singleCap = Math.max(2, Math.ceil(target * 0.45));
+  const quotas: MarketQuotas = {
+    player_prop: quotaRange(target, 0.3, 0.4),
+    game_line: quotaRange(target, 0.2, 0.3),
+    alt_line: quotaRange(target, 0.15, 0.25),
+    longshot: quotaRange(target, longshotAsk ? 0.1 : 0.08, 0.2),
+  };
+
+  for (const bucket of Object.keys(quotas) as MarketBucket[]) {
+    quotas[bucket].max = Math.min(quotas[bucket].max, singleCap);
+    if (quotas[bucket].max < quotas[bucket].min) {
+      quotas[bucket].min = quotas[bucket].max;
+    }
+  }
+
+  let sumMin = Object.values(quotas).reduce((s, q) => s + q.min, 0);
+  if (sumMin > target) {
+    const trimOrder: MarketBucket[] = ["longshot", "alt_line", "game_line", "player_prop"];
+    for (const bucket of trimOrder) {
+      while (sumMin > target && quotas[bucket].min > 0) {
+        quotas[bucket].min -= 1;
+        sumMin -= 1;
+      }
+    }
+  }
+
+  return quotas;
+}
+
+export function relaxMarketQuotas(quotas: MarketQuotas, target: number): MarketQuotas {
+  const out = { ...quotas };
+  for (const bucket of Object.keys(out) as MarketBucket[]) {
+    out[bucket] = {
+      min: Math.max(0, out[bucket].min - 1),
+      max: Math.min(target, out[bucket].max + 1),
+    };
+  }
+  return out;
+}
+
+export function openMarketQuotas(target: number): MarketQuotas {
+  const cap = Math.max(2, Math.ceil(target * 0.5));
+  return {
+    player_prop: { min: 0, max: cap },
+    game_line: { min: 0, max: cap },
+    alt_line: { min: 0, max: cap },
+    longshot: { min: 0, max: cap },
   };
 }
 
@@ -66,6 +148,7 @@ export function createPickDiversityState(): PickDiversityState {
     perPlayer: new Set(),
     perTeam: new Map(),
     perMarketFamily: new Map(),
+    perMarketBucket: new Map(),
     gameLegs: 0,
   };
 }
@@ -113,6 +196,24 @@ export function pickMarketFamily(pick: ParsedPick): string {
   return `game:${m}`;
 }
 
+/** High-value plus-money legs (+250 or better, or flagged high-risk value). */
+export function isQuotaLongshot(pick: ParsedPick): boolean {
+  if (pick.finalAiScore?.highRiskValuePlay) return true;
+  const odds = pick.odds ?? -999;
+  return odds >= 250;
+}
+
+/** Coarse bucket for ticket mix quotas. */
+export function pickMarketBucket(pick: ParsedPick): MarketBucket {
+  if (isQuotaLongshot(pick)) return "longshot";
+  if (pick.isProp) return "player_prop";
+  const family = pickMarketFamily(pick);
+  if (family === "game:alt_spread" || family === "game:alt_total" || family === "game:team_total") {
+    return "alt_line";
+  }
+  return "game_line";
+}
+
 export function pickPlayerKey(pick: ParsedPick): string | null {
   if (!pick.isProp || !pick.player?.trim()) return null;
   return norm(pick.player);
@@ -124,8 +225,27 @@ export function diversityPenalty(pick: ParsedPick, opts: PickDiversityOpts): num
   const legKey = parlayLegKey(pick);
   if (opts.avoidLegKeys?.has(legKey)) penalty += RECENT_LEG_PENALTY;
   const playerKey = pickPlayerKey(pick);
-  if (playerKey && opts.recentPlayerKeys?.has(playerKey)) penalty += RECENT_PLAYER_PENALTY;
+  if (playerKey) {
+    if (opts.recentPlayerKeys?.has(playerKey)) penalty += RECENT_PLAYER_PENALTY;
+    const appearances = opts.playerAppearanceCounts?.get(playerKey) ?? 0;
+    if (appearances > 0) penalty += appearances * RECENT_PLAYER_PENALTY * 0.55;
+  }
   return penalty;
+}
+
+/** Higher score = bucket needs more legs to hit quota minimum. */
+export function quotaNeedScore(
+  pick: ParsedPick,
+  state: PickDiversityState,
+  quotas?: MarketQuotas,
+): number {
+  if (!quotas) return 0;
+  const bucket = pickMarketBucket(pick);
+  const count = state.perMarketBucket.get(bucket) ?? 0;
+  const { min, max } = quotas[bucket];
+  if (count >= max) return -1000;
+  if (count < min) return (min - count) * 80;
+  return 0;
 }
 
 /** Strength score for diversity-aware ranking — composite weighted so clear value wins. */
@@ -142,13 +262,16 @@ export function diversityLoadScore(pick: ParsedPick, state: PickDiversityState):
   const teamLoad = teamKey ? (state.perTeam.get(teamKey) ?? 0) : 0;
   const family = pickMarketFamily(pick);
   const marketLoad = state.perMarketFamily.get(family) ?? 0;
-  return gameLoad * 100 + teamLoad * 40 + marketLoad * 15;
+  const bucket = pickMarketBucket(pick);
+  const bucketLoad = state.perMarketBucket.get(bucket) ?? 0;
+  return gameLoad * 100 + teamLoad * 40 + marketLoad * 15 + bucketLoad * 25;
 }
 
 export function canAddPickDiversity(
   pick: ParsedPick,
   state: PickDiversityState,
   caps: PickDiversityCaps,
+  opts?: Pick<PickDiversityOpts, "quotas">,
 ): boolean {
   const fp = pickLegFingerprint(pick);
   if (state.legSeen.has(fp)) return false;
@@ -165,11 +288,19 @@ export function canAddPickDiversity(
 
   const family = pickMarketFamily(pick);
   if ((state.perMarketFamily.get(family) ?? 0) >= caps.maxPerMarketFamily) return false;
+  if (family === "game:spread" && (state.perMarketFamily.get("game:spread") ?? 0) >= caps.maxSpreadLegs) {
+    return false;
+  }
+
+  const marketBucket = pickMarketBucket(pick);
+  const bucketCount = state.perMarketBucket.get(marketBucket) ?? 0;
+  const quota = opts?.quotas?.[marketBucket];
+  if (quota && bucketCount >= quota.max) return false;
 
   if (!pick.isProp && isGameLinePick(pick)) {
     if (state.gameLegs >= caps.maxGameLegs) return false;
-    const bucket = gameLineLegBucket(pick.game, pick.market, pick.pick);
-    if (state.bucketSeen.has(bucket)) return false;
+    const legBucket = gameLineLegBucket(pick.game, pick.market, pick.pick);
+    if (state.bucketSeen.has(legBucket)) return false;
   }
 
   return true;
@@ -186,6 +317,8 @@ export function addPickDiversityState(pick: ParsedPick, state: PickDiversityStat
   if (teamKey) state.perTeam.set(teamKey, (state.perTeam.get(teamKey) ?? 0) + 1);
   const family = pickMarketFamily(pick);
   state.perMarketFamily.set(family, (state.perMarketFamily.get(family) ?? 0) + 1);
+  const marketBucket = pickMarketBucket(pick);
+  state.perMarketBucket.set(marketBucket, (state.perMarketBucket.get(marketBucket) ?? 0) + 1);
   if (!pick.isProp && isGameLinePick(pick)) {
     state.gameLegs += 1;
     state.bucketSeen.add(gameLineLegBucket(pick.game, pick.market, pick.pick));
@@ -213,6 +346,9 @@ export function comparePicksWithDiversity(
   const penalizedA = diversityPenalty(a, opts);
   const penalizedB = diversityPenalty(b, opts);
   if (penalizedA !== penalizedB) return penalizedA - penalizedB;
+  const needA = quotaNeedScore(a, state, opts.quotas);
+  const needB = quotaNeedScore(b, state, opts.quotas);
+  if (needA !== needB) return needB - needA;
   const loadA = diversityLoadScore(a, state);
   const loadB = diversityLoadScore(b, state);
   if (loadA !== loadB) return loadA - loadB;
@@ -229,7 +365,7 @@ export function pickBestDiverseCandidate(
   state: PickDiversityState,
   opts: PickDiversityOpts,
 ): ParsedPick | null {
-  const addable = candidates.filter((p) => canAddPickDiversity(p, state, opts.caps));
+  const addable = candidates.filter((p) => canAddPickDiversity(p, state, opts.caps, opts));
   if (!addable.length) return null;
   addable.sort((a, b) => comparePicksWithDiversity(a, b, opts, state));
   return addable[0] ?? null;
@@ -263,11 +399,16 @@ export function selectDiverseQualifiedParlay(
 export function reachSelectDiverseQualified(
   candidates: ParsedPick[],
   target: number,
-  opts: Omit<PickDiversityOpts, "caps"> & { caps?: Partial<PickDiversityCaps> },
+  opts: Omit<PickDiversityOpts, "caps" | "quotas"> & {
+    caps?: Partial<PickDiversityCaps>;
+    quotas?: MarketQuotas;
+  },
 ): ParsedPick[] {
   if (target <= 0) return [];
   const base = defaultDiversityCaps(target);
-  const passes: PickDiversityCaps[] = [
+  const spreadHardMax = Math.min(target, Math.ceil(target * 0.35));
+  const baseQuotas = opts.quotas ?? defaultMarketQuotas(target, opts.longshotAsk);
+  const capsPasses: PickDiversityCaps[] = [
     { ...base, ...opts.caps },
     {
       ...base,
@@ -278,6 +419,10 @@ export function reachSelectDiverseQualified(
         base.maxPerMarketFamily + 2,
         opts.caps?.maxPerMarketFamily ?? base.maxPerMarketFamily,
       ),
+      maxSpreadLegs: Math.min(
+        spreadHardMax,
+        Math.max(base.maxSpreadLegs + 1, opts.caps?.maxSpreadLegs ?? base.maxSpreadLegs),
+      ),
     },
     {
       maxPerGame: Math.min(target, 6),
@@ -285,6 +430,7 @@ export function reachSelectDiverseQualified(
       maxPerTeam: Math.min(target, 4),
       maxPerMarketFamily: target,
       maxGameLegs: Math.min(target, base.maxGameLegs + 2),
+      maxSpreadLegs: spreadHardMax,
     },
     {
       maxPerGame: target,
@@ -292,18 +438,27 @@ export function reachSelectDiverseQualified(
       maxPerTeam: target,
       maxPerMarketFamily: target,
       maxGameLegs: target,
+      maxSpreadLegs: spreadHardMax,
     },
+  ];
+  const quotaPasses: MarketQuotas[] = [
+    baseQuotas,
+    relaxMarketQuotas(baseQuotas, target),
+    openMarketQuotas(target),
   ];
 
   let best: ParsedPick[] = [];
-  for (const caps of passes) {
-    const attempt = selectDiverseQualifiedParlay(candidates, target, {
-      ...opts,
-      target,
-      caps,
-    });
-    if (attempt.length > best.length) best = attempt;
-    if (attempt.length >= target) return attempt.slice(0, target);
+  for (const caps of capsPasses) {
+    for (const quotas of quotaPasses) {
+      const attempt = selectDiverseQualifiedParlay(candidates, target, {
+        ...opts,
+        target,
+        caps,
+        quotas,
+      });
+      if (attempt.length > best.length) best = attempt;
+      if (attempt.length >= target) return attempt.slice(0, target);
+    }
   }
   return best;
 }
