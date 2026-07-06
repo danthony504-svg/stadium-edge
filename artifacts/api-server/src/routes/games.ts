@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
+import { loadTennisGames } from "../lib/tennis.js";
 
 const router: IRouter = Router();
 
@@ -63,6 +64,25 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     return;
   }
   const sportId = parsed.data.sport.toLowerCase();
+
+  const simulatorOnly =
+    req.query.simulator === "1" ||
+    req.query.simulator === "true" ||
+    req.query.pregameOnly === "1";
+
+  // Tennis uses ESPN's grouped scoreboard (ATP + WTA), not team-sport paths.
+  if (sportId === "tennis") {
+    try {
+      let rows = await loadTennisGames();
+      if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
+      res.json(GetGamesResponse.parse(rows));
+    } catch (err) {
+      req.log.error({ err }, "Failed to fetch tennis games");
+      res.json([]);
+    }
+    return;
+  }
+
   const path = ESPN_SPORT_PATHS[sportId];
   if (!path) {
     res.status(400).json({ error: `Unsupported sport: ${sportId}` });
@@ -133,11 +153,6 @@ router.get("/sports/games", async (req, res): Promise<void> => {
         return { events };
       },
     );
-
-    const simulatorOnly =
-      req.query.simulator === "1" ||
-      req.query.simulator === "true" ||
-      req.query.pregameOnly === "1";
 
     const out = (data.events ?? []).map((e) => {
       const comp = e.competitions?.[0];
