@@ -2022,6 +2022,10 @@ export type ChatContext = {
   // when that fighter is also the betting dog). Combat sports only; omitted when
   // no UFC bout resolved real data.
   fightAnalysis?: Record<string, FightAnalysis>;
+  // Real tennis matchup breakdowns keyed by "Away @ Home" — ATP/WTA ranking,
+  // recent form, H2H, and a deterministic stronger-player lean. Tennis is
+  // moneyline/spread/total only (no props). Omitted when no bout resolved data.
+  tennisAnalysis?: Record<string, TennisAnalysis>;
   // Real ESPN per-player game logs keyed by "Player Name#athleteId" — recent
   // form + vs-opponent + home/away & venue-correct split — so the coach defends
   // a prop with real numbers, not the book price. Omitted when none resolved.
@@ -2131,6 +2135,21 @@ export type TennisMatchup = {
   tournament: string | null;
   round: string | null;
 };
+export type TennisLean = { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } };
+export type TennisAnalysis = TennisMatchup & { lean: TennisLean | null };
+
+export async function getTennisAnalysis(
+  away: string,
+  home: string,
+  signal?: AbortSignal,
+): Promise<TennisAnalysis | null> {
+  const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+  try {
+    return await getJson<TennisAnalysis>(`/sports/tennis-analysis?${qs}`, signal);
+  } catch {
+    return null;
+  }
+}
 
 export type TennisBio = {
   age: number | null;
@@ -3222,6 +3241,42 @@ export async function buildChatContext(
     );
   }
 
+  // TENNIS MATCH ANALYSIS: real ESPN ATP/WTA ranking + recent form + H2H for
+  // each pickable tennis match. Moneyline/spread/total only — no player props.
+  const tennisAnalysis: Record<string, TennisAnalysis> = {};
+  const tennisIdx = sports.indexOf("tennis");
+  if (!lightParlay && tennisIdx >= 0) {
+    const tennisGames = gamesAll[tennisIdx]
+      .filter((g) => g.state !== "post" && isPickable(g.startsAt) && (g.awayTeam || g.awayAbbr) && (g.homeTeam || g.homeAbbr))
+      .slice(0, 12);
+    const tennisOdds = oddsAll[tennisIdx];
+    await Promise.all(
+      tennisGames.map(async (g) => {
+        const away = g.awayTeam || g.awayAbbr || "";
+        const home = g.homeTeam || g.homeAbbr || "";
+        const gameLabel = `${away} @ ${home}`;
+        const data = await getTennisAnalysis(away, home, signal);
+        if (!data || (!data.away?.rank && !data.home?.rank && !data.lean)) return;
+        if (data.lean?.side) {
+          const oddsEntry = tennisOdds.find((o) => o.awayTeam === away && o.homeTeam === home);
+          const h2h = oddsEntry?.markets?.find((m) => m.key === "h2h");
+          const nf = (s: unknown) =>
+            String(s ?? "")
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]+/g, " ")
+              .trim();
+          const out = (h2h?.outcomes || []).find((o) => nf(o.name) === nf(data.lean!.side));
+          if (out && typeof out.price === "number" && out.price >= 100) {
+            data.lean.upset = { dogOdds: out.price };
+          }
+        }
+        tennisAnalysis[gameLabel] = data;
+      }),
+    );
+  }
+
   // Assemble a REAL player-prop pool from the soonest prop-capable games so the
   // AI can build prop legs (and never fabricate them). PROPS_SPORTS only. Soccer
   // IS prop-capable but only for FIFA World Cup games (goalscorer/shots/SoT);
@@ -3683,6 +3738,7 @@ export async function buildChatContext(
       realProps: balancePropsByGame(realProps, depth.props, focalText),
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
+      ...(Object.keys(tennisAnalysis).length ? { tennisAnalysis } : {}),
       ...(Object.keys(playerHistory).length ? { playerHistory } : {}),
       ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
       ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),

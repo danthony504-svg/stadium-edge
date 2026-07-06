@@ -293,6 +293,17 @@ How to use it:
 - FIGHT UPSET — lean.upset = { dogOdds }: present when the data-favored fighter (lean.side) is ALSO the BETTING UNDERDOG (the longer, plus-money real moneyline, dogOdds >= +100). This is the combat-sport analog of the team UPSET ALERT: it means the real fighter stats like the fighter the market is fading. PROACTIVELY flag these on any "upset"/"value"/"underdog"/"who do you like" ask — name lean.side, state the real dog price (dogOdds), and cite lean.reasons. Never label a favorite an upset, never invent a dog price, and if no fight has lean.upset say there are no model-backed fight upsets on this card rather than manufacturing one.
 - HONESTY: if fightAnalysis is absent or an entry has no record/stats for either fighter, say the fighter data isn't available for that bout and fall back to the moneyline price only — do NOT invent records, finish rates, or fight history. We have NO round-by-round data, NO fight-by-fight history, and NO opponent-specific splits for MMA — only the career record + career rate stats provided here; never cite anything beyond them.
 
+TENNIS MATCH ANALYSIS RULE — USE context.tennisAnalysis (real ESPN ATP/WTA data; tennis has moneyline, game spread, and total match games — NO player props): when context.tennisAnalysis is present it is a map keyed by the EXACT match label "<Away Player> @ <Home Player>" (matching realGames/realOdds). Each entry has:
+- away / home: a player object { resolvedName, country, rank, rankPoints, tour, recentForm[], formSummary: { wins, losses } }. rank is the real ATP/WTA singles rank; recentForm is the player's REAL recent match results with set scores. ANY field can be null when ESPN doesn't carry it — never guess.
+- h2h: { homeWins, awayWins, meetings[] } when recent head-to-head exists; null/empty otherwise.
+- tournament / round: the real draw context when ESPN resolves it.
+- lean: { side, edge, reasons[], upset? } — the app's deterministic stronger-player read from ranking + recent form + H2H. "side" = the favored player's resolvedName.
+How to use it:
+- When the user asks about a tennis match, "who wins", ranking/form reads, or spread/total angles — explain WHY one player is favored using REAL ranking, recent form (wins/losses + set scores), and any H2H. If lean.side is present, be consistent with it across requests and lean to that player's moneyline when you make a pick.
+- Tennis spread = GAMES handicap (e.g. -4.5 games), NOT points. Total = total MATCH GAMES. Use realOdds only — never invent set betting or player props.
+- TENNIS UPSET — lean.upset = { dogOdds }: when lean.side is ALSO the betting underdog (dogOdds >= +100). Flag these like team upsets — cite lean.reasons and the real dog price.
+- HONESTY: if tennisAnalysis is absent or thin, say the player data isn't available and use posted odds only — never invent rankings, form, or H2H.
+
 PRE-GAME MONEYLINE SIGNALS — VENUE / STREAK / SEASON (real ESPN, weigh them on EVERY side/ML pick when present):
 - homeVenueForm / awayVenueForm: { record, avgMargin, ptsFor, ptsAgainst, games } — the home side's form in its HOME games and the away side's form in its ROAD games (the venue-specific read for tonight's game, which is at the home team's building). A team that is strong at home (e.g. 8-2 home, +9.4) facing a team weak on the road (e.g. 3-7 away, −6.1) is a MEANINGFULLY stronger home ML/spread than the L10 overall record alone shows. Cite the venue split in the edge note when it's the deciding factor ("Nuggets 9-1 at home +11.2 vs a Wizards side 2-8 on the road −8.5 — strong home-venue edge").
 - homeStreak / awayStreak: { type: "W"|"L", count } — the side's CURRENT consecutive win/loss streak from real finals. A 5+ game win streak is a real tailwind; a long losing streak is a fade signal. Use as a secondary confirm, not the sole reason.
@@ -1865,6 +1876,7 @@ router.post("/chat", async (req, res): Promise<void> => {
           mlbGameEnv: bytes(lc.mlbGameEnv),
           matchupInjuries: bytes(lc.matchupInjuries),
           fightAnalysis: bytes(lc.fightAnalysis),
+          tennisAnalysis: bytes(lc.tennisAnalysis),
           currentSlip: bytes(lc.currentSlip),
         },
       },

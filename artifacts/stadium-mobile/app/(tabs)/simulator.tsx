@@ -100,7 +100,7 @@ import {
 
 const gameEligibleForSim = isSimulatorPregame;
 
-const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer"] as const;
+const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis"] as const;
 const SIM_COUNT = 10_000;
 const MAX_PROPS = 6;
 
@@ -302,6 +302,11 @@ export default function SimulatorScreen() {
   useEffect(() => {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
+
+  const isTennis = sport === "tennis";
+  useEffect(() => {
+    if (isTennis) setMode("game");
+  }, [isTennis]);
 
   // Re-filter the slate when kickoff passes without waiting for the next refetch.
   const [clockTick, setClockTick] = useState(0);
@@ -1039,7 +1044,7 @@ export default function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (id === "tennis") setMode("game"); }} />
             );
           })}
         </ScrollView>
@@ -1123,7 +1128,8 @@ export default function SimulatorScreen() {
               ) : null}
             </Card>
 
-            {/* Mode tabs */}
+            {/* Mode tabs — tennis is game-lines only (no player props). */}
+            {!isTennis ? (
             <View
               style={{
                 flexDirection: "row",
@@ -1162,9 +1168,10 @@ export default function SimulatorScreen() {
                 );
               })}
             </View>
+            ) : null}
 
             {/* Player prop builder */}
-            {(mode === "props" || mode === "full") && (
+            {(mode === "props" || mode === "full") && !isTennis && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
