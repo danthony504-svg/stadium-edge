@@ -17,7 +17,7 @@ export function localPropSimulation(
     line: number;
     side: "Over" | "Under";
   },
-): Pick<PropSimulationResult, "hitProbability" | "sampleGames" | "mostLikelyLine" | "medianProjection"> | null {
+): Pick<PropSimulationResult, "hitProbability" | "sampleGames" | "mostLikelyLine" | "medianProjection" | "confidenceScore"> | null {
   const recent = history?.recent ?? [];
   if (!recent.length) return null;
   const ambiguous = computeAmbiguous(history?.labels);
@@ -26,16 +26,24 @@ export function localPropSimulation(
     .filter((v): v is number => v != null)
     .slice(0, 10);
   if (vals.length < 3) {
-    return { hitProbability: null, sampleGames: vals.length, mostLikelyLine: null, medianProjection: null };
+    return { hitProbability: null, sampleGames: vals.length, mostLikelyLine: null, medianProjection: null, confidenceScore: null };
   }
   const hits = vals.filter((v) => (args.side === "Under" ? v < args.line : v >= args.line)).length;
   const sorted = [...vals].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)] ?? null;
+  const hitProb = hits / vals.length;
+  let confidence = 50;
+  if (vals.length >= 8) confidence += 14;
+  else if (vals.length >= 5) confidence += 8;
+  else confidence -= 6;
+  confidence += Math.abs(hitProb - 0.5) * 40;
+  const confidenceScore = Math.max(5, Math.min(95, Math.round(confidence)));
   return {
-    hitProbability: hits / vals.length,
+    hitProbability: hitProb,
     sampleGames: vals.length,
     mostLikelyLine: median,
     medianProjection: median,
+    confidenceScore,
   };
 }
 
@@ -61,6 +69,7 @@ export function enrichPropSimResults(
       sampleGames: Math.max(r.sampleGames, local.sampleGames),
       mostLikelyLine: r.mostLikelyLine ?? local.mostLikelyLine,
       medianProjection: r.medianProjection ?? local.medianProjection,
+      confidenceScore: r.confidenceScore ?? local.confidenceScore,
       tier: r.tier ?? "quick",
     };
   });

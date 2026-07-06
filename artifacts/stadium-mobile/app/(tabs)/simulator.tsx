@@ -260,6 +260,21 @@ function asParkList(data: unknown): Array<{ homeTeam: string; current: { tempF: 
   return Array.isArray(data) ? data : [];
 }
 
+function formatPropProjectedStat(r: PropSimulationResult): string {
+  const raw = r.medianProjection ?? r.meanProjection ?? r.mostLikelyLine;
+  if (raw == null || !Number.isFinite(raw)) return "—";
+  return Number.isInteger(raw) ? String(raw) : raw.toFixed(1);
+}
+
+function formatPropSimConf(
+  r: PropSimulationResult,
+  rubricConf?: number | null,
+): string {
+  const score = r.confidenceScore ?? rubricConf;
+  if (score == null || !Number.isFinite(score)) return "—";
+  return String(Math.round(score));
+}
+
 export default function SimulatorScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -1574,8 +1589,11 @@ export default function SimulatorScreen() {
                           </View>
                           <View style={{ flexDirection: "row", gap: 16, marginTop: 8 }}>
                             <MiniStat label="Sim Hit %" value={r.hitProbability != null ? `${Math.round(r.hitProbability * 100)}%` : "—"} />
-                            <MiniStat label="Projected Stat" value={r.mostLikelyLine != null ? String(r.mostLikelyLine) : "—"} />
-                            <MiniStat label="Sim Conf" value={r.confidenceScore != null ? String(r.confidenceScore) : "—"} />
+                            <MiniStat label="Projected Stat" value={formatPropProjectedStat(r)} />
+                            <MiniStat
+                              label="Sim Conf"
+                              value={formatPropSimConf(r, finalAi?.confidencePct ?? combined?.confidencePct)}
+                            />
                           </View>
                         </View>
                       );
