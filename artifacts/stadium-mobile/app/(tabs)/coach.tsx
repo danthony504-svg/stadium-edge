@@ -103,15 +103,16 @@ import {
   type ParlayLegReject,
 } from "@/lib/parlayReach";
 import {
-  filterMainTicketPicks,
+  filterCoachTicketPicks,
   filterToQualifiedPicks,
   comparePickStrength,
-  isFullyQualifiedPick,
-  assertMainTicketPicksQualified,
+  passesCoachTicketQualityGate,
+  assertCoachTicketQuality,
   MainTicketQualificationError,
   GameLineFinalizeRejected,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
+  MIN_COACH_TICKET_GRADE,
 } from "@/lib/parlayQualified";
 import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
 import {
@@ -211,6 +212,10 @@ type UIMessage = {
   backupNote?: string;
   /** High-risk / negative-edge legs shown only when user asked for longshots. */
   longshotPicks?: ParsedPick[];
+  /** Odds/prop pool used to qualify this ticket — required for grounded edge at render. */
+  ticketQualOpts?: { realOdds: RealOddsEntry[]; propPool: PropPoolEntry[] };
+  /** True when the user explicitly asked for longshots on this build. */
+  longshotBuild?: boolean;
   statCard?: PlayerStatCardData;
   periodGameLog?: PeriodGameLogCardData;
   teamCard?: TeamStatCardData;
@@ -2494,7 +2499,7 @@ export default function CoachScreen() {
           picks = picksWithSimPending(picks);
         }
         if (isParlayBuild && picks.length > 0) {
-          picks = filterMainTicketPicks(picks, {
+          picks = filterCoachTicketPicks(picks, {
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
             rejectsOut: parlayRejections,
@@ -2549,7 +2554,7 @@ export default function CoachScreen() {
             backupNote ||
             (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
-              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_MAIN_PICK_GRADE} or better, Simulation Hit %, strictly positive Edge % and EV, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_COACH_TICKET_GRADE} or better, strictly positive Edge % and EV, Confidence ≥ ${MIN_MAIN_PICK_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2612,7 +2617,7 @@ export default function CoachScreen() {
           picks = [...picks].sort((a, b) => comparePickStrength(b, a));
         }
         if (isParlayBuild && picks.length > 0) {
-          picks = filterMainTicketPicks(picks, {
+          picks = filterCoachTicketPicks(picks, {
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
             rejectsOut: parlayRejections,
@@ -2643,7 +2648,7 @@ export default function CoachScreen() {
           picks = picks.filter(
             (p) => p.isProp || !isGameLinePick(p) || isGameLineFrozen(p),
           );
-          picks = filterMainTicketPicks(picks, {
+          picks = filterCoachTicketPicks(picks, {
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
             rejectsOut: parlayRejections,
@@ -2671,7 +2676,13 @@ export default function CoachScreen() {
         if (ticketNote) {
           assertNoPlaceholderGameLineMetrics(ticketNote);
         }
-        assertMainTicketPicksQualified(picks, {
+        picks = filterCoachTicketPicks(picks, {
+          realOdds: mergedGameOdds,
+          propPool: mergedPropPool,
+          longshotAsk,
+          rejectsOut: parlayRejections,
+        });
+        assertCoachTicketQuality(picks, {
           realOdds: mergedGameOdds,
           propPool: mergedPropPool,
           longshotAsk,
@@ -2697,6 +2708,15 @@ export default function CoachScreen() {
                 ? ""
                 : stripModelGameLineListings(finalContent),
             picks,
+            ...(picks.length
+              ? {
+                  ticketQualOpts: {
+                    realOdds: mergedGameOdds,
+                    propPool: mergedPropPool,
+                  },
+                  longshotBuild: longshotAsk,
+                }
+              : {}),
             ...(legNote ? { legNote } : {}),
             ...(gameLineSummary ? { gameLineSummary } : {}),
             ...(ticketNote ? { ticketNote } : {}),
@@ -2727,7 +2747,7 @@ export default function CoachScreen() {
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                const filtered = filterMainTicketPicks(scored, {
+                const filtered = filterCoachTicketPicks(scored, {
                   propPool: mergedPropPool,
                   realOdds: mergedGameOdds,
                   longshotAsk,
@@ -2748,7 +2768,7 @@ export default function CoachScreen() {
                 if (rebuiltTicketNote) {
                   assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
-                assertMainTicketPicksQualified(deduped.picks, {
+                assertCoachTicketQuality(deduped.picks, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
@@ -2761,7 +2781,7 @@ export default function CoachScreen() {
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                const filtered = filterMainTicketPicks(scored, {
+                const filtered = filterCoachTicketPicks(scored, {
                   propPool: mergedPropPool,
                   realOdds: mergedGameOdds,
                   longshotAsk,
@@ -2782,7 +2802,7 @@ export default function CoachScreen() {
                 if (rebuiltTicketNote) {
                   assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
-                assertMainTicketPicksQualified(deduped.picks, {
+                assertCoachTicketQuality(deduped.picks, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
@@ -3102,7 +3122,15 @@ export default function CoachScreen() {
             )
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
-            const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
+            const qualOpts = m.ticketQualOpts;
+            const ticketPicks =
+              m.picks?.filter((p) =>
+                passesCoachTicketQualityGate(p, {
+                  realOdds: qualOpts?.realOdds,
+                  propPool: qualOpts?.propPool,
+                  longshotAsk: m.longshotBuild,
+                }),
+              ) ?? [];
             const hasTicketNote = !!(m.ticketNote?.trim() || m.gameLineSummary?.trim() || m.legNote?.trim());
             const safeContent =
               hasPicks || ticketPicks.length > 0 || hasTicketNote ? "" : m.content;
@@ -3314,7 +3342,11 @@ export default function CoachScreen() {
                         }
                         assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);
                       }
-                      assertMainTicketPicksQualified(canonicalPicks);
+                      assertCoachTicketQuality(canonicalPicks, {
+                        realOdds: qualOpts?.realOdds,
+                        propPool: qualOpts?.propPool,
+                        longshotAsk: m.longshotBuild,
+                      });
                       return (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {canonicalPicks.length > 1 ? (

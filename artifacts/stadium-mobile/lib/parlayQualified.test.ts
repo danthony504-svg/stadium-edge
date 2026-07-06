@@ -3,6 +3,9 @@ import { test } from "node:test";
 import {
   comparePickStrength,
   filterMainTicketPicks,
+  filterCoachTicketPicks,
+  passesCoachTicketQualityGate,
+  assertCoachTicketQuality,
   gameLineHasSharpAgreement,
   gameLineMeetsSimBar,
   pickHasCoachCardMetrics,
@@ -17,6 +20,7 @@ import {
   MainTicketQualificationError,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
+  MIN_COACH_TICKET_GRADE,
   GAME_LINE_EXCEPTIONAL_EV_PCT,
   GAME_LINE_SIM_MIN_HIT,
   partitionQualifiedPicks,
@@ -488,4 +492,95 @@ test("assertMainTicketPicksQualified throws for C- grade prop", () => {
     () => assertMainTicketPicksQualified([weak]),
     MainTicketQualificationError,
   );
+});
+
+test("passesCoachTicketQualityGate rejects negative edge and D grade", () => {
+  const bad = qualifiedPick({
+    isProp: true,
+    player: "J.T. Realmuto",
+    market: "Total Bases",
+    pick: "Over 1.5 Total Bases",
+    odds: 130,
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "D",
+      confidencePct: 48,
+      edgePct: -1.4,
+      simHit: 0.48,
+      simAligned: false,
+    },
+    scores: {
+      ...qualifiedPick().scores!,
+      edgePct: -1.4,
+    },
+  });
+  assert.equal(passesCoachTicketQualityGate(bad), false);
+  assert.equal(filterCoachTicketPicks([bad]).length, 0);
+});
+
+test("passesCoachTicketQualityGate rejects stale positive edge when pool edge is negative", () => {
+  const pick = qualifiedPick({
+    isProp: true,
+    player: "Aaron Judge",
+    market: "Home Runs",
+    pick: "Over 0.5 Home Runs",
+    propSide: "Over",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      edgePct: 2.5,
+    },
+  });
+  const propPool = [
+    {
+      game: pick.game,
+      player: "Aaron Judge",
+      side: "Over" as const,
+      line: 0.5,
+      edge: -1.2,
+      marketLabel: "Home Runs",
+      marketKey: "home_runs",
+      odds: 350,
+      sport: "mlb",
+      headshot: null,
+      teamAbbr: "NYY",
+      athleteId: "1",
+      startsAt: null,
+    },
+  ];
+  assert.equal(
+    passesCoachTicketQualityGate(pick, { propPool }),
+    false,
+  );
+});
+
+test("passesCoachTicketQualityGate accepts C grade with positive edge and EV", () => {
+  const pick = qualifiedPick({
+    isProp: true,
+    player: "Player C",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C",
+      edgePct: 1.5,
+      confidencePct: 55,
+      simHit: 0.54,
+      simAligned: true,
+    },
+  });
+  assert.equal(passesCoachTicketQualityGate(pick), true);
+});
+
+test("assertCoachTicketQuality throws for sub-threshold confidence", () => {
+  const weak = qualifiedPick({
+    isProp: true,
+    player: "Low Conf",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      confidencePct: MIN_MAIN_PICK_CONFIDENCE - 1,
+    },
+  });
+  assert.throws(() => assertCoachTicketQuality([weak]), MainTicketQualificationError);
 });

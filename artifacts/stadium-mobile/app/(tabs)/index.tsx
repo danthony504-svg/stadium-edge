@@ -698,7 +698,13 @@ export default function HomeScreen() {
     const seen = new Set<string>();
     const out: ValueProp[] = [];
     const sorted = propEntries
-      .filter((e) => e.prop.ev != null && e.prop.ev >= HOME_MIN_VALUE_EV)
+      .filter(
+        (e) =>
+          e.prop.ev != null &&
+          e.prop.ev > 0 &&
+          e.prop.ev >= HOME_MIN_VALUE_EV &&
+          (e.prop.edge == null || e.prop.edge > 0),
+      )
       .sort((a, b) => (b.prop.ev ?? 0) - (a.prop.ev ?? 0));
     for (const e of sorted) {
       const p = e.prop;
@@ -761,7 +767,8 @@ export default function HomeScreen() {
       { player: string; side: "Over" | "Under"; line: number | null; label: string; ev: number }
     >();
     for (const e of propEntries) {
-      if (e.prop.ev == null) continue;
+      if (e.prop.ev == null || e.prop.ev <= 0) continue;
+      if (e.prop.edge != null && e.prop.edge <= 0) continue;
       const cur = map.get(e.gameLabel);
       if (!cur || e.prop.ev > cur.ev) {
         map.set(e.gameLabel, {

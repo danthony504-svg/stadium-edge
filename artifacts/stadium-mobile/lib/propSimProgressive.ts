@@ -6,7 +6,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
-import { filterMainTicketPicks, isFullyQualifiedPick } from "@/lib/parlayQualifiedGate";
+import { filterCoachTicketPicks, isFullyQualifiedPick } from "@/lib/parlayQualifiedGate";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -42,7 +42,7 @@ function scorePicksWithSim(
     ...opts,
     propSimulations: sims,
   });
-  const filtered = filterMainTicketPicks(scored, { propPool: opts.propPool });
+  const filtered = filterCoachTicketPicks(scored, { propPool: opts.propPool });
   return filtered.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && !isFullyQualifiedPick(p, { propPool: opts.propPool }) } : p,
   );

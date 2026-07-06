@@ -16,6 +16,8 @@ import {
 } from "./gameLineFrozenQual.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
+/** Coach ticket / slip / summary floor — rejects D and below. */
+export const MIN_COACH_TICKET_GRADE = "C";
 /** Prop main-ticket confidence floor. */
 export const MIN_MAIN_PICK_CONFIDENCE = 52;
 /** Game-line main-ticket confidence floor (prefer {@link GAME_LINE_PREFERRED_CONFIDENCE}). */
@@ -117,8 +119,9 @@ function sharedMainTicketChecks(
   odds: number | null | undefined,
   edge: number | null,
   minConfidence: number = MIN_MAIN_PICK_CONFIDENCE,
+  minGrade: string = MIN_MAIN_PICK_GRADE,
 ): boolean {
-  if (!score.grade || !gradeMeetsMinimum(score.grade, MIN_MAIN_PICK_GRADE)) return false;
+  if (!score.grade || !gradeMeetsMinimum(score.grade, minGrade)) return false;
   if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
   if (score.confidencePct == null || score.confidencePct < minConfidence) return false;
   if (score.composite == null || !Number.isFinite(score.composite) || score.composite <= 0) {
@@ -256,13 +259,21 @@ export function pickRubricForDisplay(pick: ParsedPick): import("./pickScore.ts")
   return rubric;
 }
 
+export type CoachQualifyOpts = PickEdgeResolveOpts & {
+  longshotAsk?: boolean;
+  /** Coach UI surfaces — props must be grounded against propPool when provided. */
+  coachSurface?: boolean;
+  minGrade?: string;
+};
+
 /** True when every metric tile on a Coach pick card can be filled (no dashes). */
 export function pickHasCoachCardMetrics(
   pick: ParsedPick,
-  opts?: PickEdgeResolveOpts,
+  opts?: CoachQualifyOpts,
 ): boolean {
+  const minGrade = opts?.minGrade ?? MIN_MAIN_PICK_GRADE;
   const s = pick.finalAiScore;
-  if (!s?.grade || !gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) return false;
+  if (!s?.grade || !gradeMeetsMinimum(s.grade, minGrade)) return false;
   if (s.confidencePct == null || !Number.isFinite(s.confidencePct)) return false;
   const minConf = isGameLinePickForGate(pick)
     ? GAME_LINE_MIN_CONFIDENCE
@@ -301,10 +312,11 @@ export function isPropMainTicketQualified(
   score: FinalAiScore | null | undefined,
   odds: number | null | undefined,
   edgePct?: number | null,
+  minGrade: string = MIN_MAIN_PICK_GRADE,
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (!sharedMainTicketChecks(score, odds, edge)) return false;
+  if (!sharedMainTicketChecks(score, odds, edge, MIN_MAIN_PICK_CONFIDENCE, minGrade)) return false;
   if (score.simHit == null || !Number.isFinite(score.simHit) || score.simHit < GAME_SIM_MIN_HIT) {
     return false;
   }
@@ -323,10 +335,11 @@ export function isGameLineMainTicketQualified(
   edgePct?: number | null,
   evPct?: number | null,
   ctx?: GameLineSimBarCtx,
+  minGrade: string = MIN_MAIN_PICK_GRADE,
 ): boolean {
   if (!score) return false;
   const edge = edgePct !== undefined ? edgePct : score.edgePct;
-  if (!sharedMainTicketChecks(score, odds, edge, GAME_LINE_MIN_CONFIDENCE)) return false;
+  if (!sharedMainTicketChecks(score, odds, edge, GAME_LINE_MIN_CONFIDENCE, minGrade)) return false;
   if (evPct == null || evPct <= 0) return false;
   return gameLineMeetsSimBar(score.simHit, edge, { ...ctx, evPct, finalAiScore: score });
 }
@@ -434,35 +447,65 @@ export function isGameLineQualifiedForFinalize(
 
 export function isFullyQualifiedPick(
   pick: ParsedPick,
-  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
+  opts?: CoachQualifyOpts,
 ): boolean {
+  if (opts?.coachSurface && pick.isProp && !opts?.propPool?.length) {
+    const e = pick.finalAiScore?.edgePct;
+    if (e == null || !Number.isFinite(e) || e <= 0) return false;
+  }
   if (!pickHasCoachCardMetrics(pick, opts)) return false;
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null || edge <= 0) return false;
+  const ev = resolvePickExpectedValue(pick, opts);
+  if (ev == null || ev <= 0) return false;
   const score = pick.finalAiScore;
   const odds = pick.odds ?? null;
+  const minGrade = opts?.minGrade ?? MIN_MAIN_PICK_GRADE;
   if (isGameLinePickForGate(pick)) {
     if (!gameLineFrozenMetricsComplete(pick)) return false;
-    const ev = resolvePickExpectedValue(pick, opts);
     return (
       isGameLineMainTicketQualified(score, odds, edge, ev, {
         bookSpread: backingBookSpread(pick, opts?.realOdds ?? []),
         finalAiScore: score,
         evPct: ev,
         isBestEvLine: pick.gameLineFinal?.isBestEv,
-      }) && gameLineHasCompleteDisplay(pick, opts)
+      }, minGrade) && gameLineHasCompleteDisplay(pick, opts)
     );
   }
   if (opts?.longshotAsk) {
     return isLongshotMainTicketQualified(score, odds, edge);
   }
-  return isPropMainTicketQualified(score, odds, edge);
+  return isPropMainTicketQualified(score, odds, edge, minGrade);
+}
+
+/**
+ * Final Coach quality gate — positive EV only on default tickets.
+ * Rejects negative edge, sub-C grades, and low confidence before any surface render.
+ */
+export function passesCoachTicketQualityGate(
+  pick: ParsedPick,
+  opts?: CoachQualifyOpts,
+): boolean {
+  if (opts?.longshotAsk && pick.isProp) {
+    return isFullyQualifiedPick(pick, {
+      ...opts,
+      coachSurface: true,
+      minGrade: MIN_COACH_TICKET_GRADE,
+      longshotAsk: true,
+    });
+  }
+  return isFullyQualifiedPick(pick, {
+    ...opts,
+    coachSurface: true,
+    minGrade: MIN_COACH_TICKET_GRADE,
+    longshotAsk: false,
+  });
 }
 
 /** Last-chance filter before rendering a main-ticket parlay. Never pads. */
 export function filterMainTicketPicks(
   picks: ParsedPick[],
-  opts?: PickEdgeResolveOpts & { rejectsOut?: ParlayLegReject[]; longshotAsk?: boolean },
+  opts?: CoachQualifyOpts & { rejectsOut?: ParlayLegReject[] },
 ): ParsedPick[] {
   const out: ParsedPick[] = [];
   for (const p of picks) {
@@ -479,6 +522,26 @@ export function filterMainTicketPicks(
   return out;
 }
 
+/** Coach tickets, Add All, optimizer summary — positive EV unless explicit longshot ask. */
+export function filterCoachTicketPicks(
+  picks: ParsedPick[],
+  opts?: CoachQualifyOpts & { rejectsOut?: ParlayLegReject[] },
+): ParsedPick[] {
+  const out: ParsedPick[] = [];
+  for (const p of picks) {
+    if (passesCoachTicketQualityGate(p, opts)) {
+      out.push(p);
+      continue;
+    }
+    opts?.rejectsOut?.push({
+      pick: p,
+      reason: reasonPickNotQualified(p, { ...opts, minGrade: MIN_COACH_TICKET_GRADE }),
+      nearScore: nearScoreFromPick(p),
+    });
+  }
+  return out;
+}
+
 export class MainTicketQualificationError extends Error {
   constructor(message: string) {
     super(message);
@@ -489,17 +552,29 @@ export class MainTicketQualificationError extends Error {
 /** Throw when any leg on a main ticket fails the qualification gate. */
 export function assertMainTicketPicksQualified(
   picks: ParsedPick[],
-  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
+  opts?: CoachQualifyOpts,
 ): void {
   for (const pick of picks) {
-    if (!isFullyQualifiedPick(pick, opts)) {
-      const detail = reasonPickNotQualified(pick, opts);
+    const gate = opts?.coachSurface ? passesCoachTicketQualityGate : isFullyQualifiedPick;
+    if (!gate(pick, opts)) {
+      const detail = reasonPickNotQualified(pick, {
+        ...opts,
+        minGrade: opts?.coachSurface ? MIN_COACH_TICKET_GRADE : opts?.minGrade,
+      });
       const label = pick.isProp ? pick.player ?? pick.pick : pick.pick;
       throw new MainTicketQualificationError(
         `${label} (${pick.game}) — ${detail}`,
       );
     }
   }
+}
+
+/** Throw when any Coach surface pick fails the positive-EV gate. */
+export function assertCoachTicketQuality(
+  picks: ParsedPick[],
+  opts?: CoachQualifyOpts,
+): void {
+  assertMainTicketPicksQualified(picks, { ...opts, coachSurface: true });
 }
 
 /** Negative-edge or sim-opposed legs for the optional longshot section only. */
@@ -515,13 +590,14 @@ export function isLongshotSectionPick(pick: ParsedPick): boolean {
 
 export function reasonPickNotQualified(
   pick: ParsedPick,
-  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
+  opts?: CoachQualifyOpts,
 ): string {
+  const minGrade = opts?.minGrade ?? MIN_MAIN_PICK_GRADE;
   const s = pick.finalAiScore;
   if (!s) return "missing Final AI Score";
   if (!s.grade) return "missing AI Grade";
-  if (!gradeMeetsMinimum(s.grade, MIN_MAIN_PICK_GRADE)) {
-    return `AI Grade ${s.grade} — main picks need ${MIN_MAIN_PICK_GRADE} or better`;
+  if (!gradeMeetsMinimum(s.grade, minGrade)) {
+    return `AI Grade ${s.grade} — main picks need ${minGrade} or better`;
   }
   const edge = resolvePickEdgePct(pick, opts);
   if (edge == null) return "missing Edge %";
