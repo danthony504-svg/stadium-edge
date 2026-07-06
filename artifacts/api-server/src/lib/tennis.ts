@@ -45,6 +45,15 @@ export type TennisMatchup = {
   round: string | null;
 };
 
+export type TennisLean = {
+  side: string;
+  edge: number;
+  reasons: string[];
+  upset?: { dogOdds: number };
+};
+
+export type TennisAnalysis = TennisMatchup & { lean: TennisLean | null };
+
 // Real player bio + career stats from ESPN. Every field is honest-nulled when
 // ESPN doesn't carry it; nothing is estimated.
 export type TennisBio = {
@@ -338,6 +347,81 @@ function computeH2H(home: TennisPlayer, away: TennisPlayer): TennisH2H {
     (b.date || "").localeCompare(a.date || ""),
   );
   return { homeWins, awayWins, meetings };
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// Deterministic stronger-player lean from REAL ranking + recent form + H2H.
+export function computeTennisLean(away: TennisPlayer, home: TennisPlayer, h2h: TennisH2H): TennisLean | null {
+  let signed = 0; // + favors away, - favors home
+  let used = 0;
+  const awayReasons: string[] = [];
+  const homeReasons: string[] = [];
+
+  const factor = (
+    a: number,
+    h: number,
+    weight: number,
+    cap: number,
+    label: (favName: string, fav: number, dog: number) => string,
+  ) => {
+    const contrib = clamp((a - h) * weight, -cap, cap);
+    if (Math.abs(contrib) < 0.12) return;
+    used++;
+    signed += contrib;
+    if (contrib > 0) awayReasons.push(label(away.resolvedName || away.name, a, h));
+    else homeReasons.push(label(home.resolvedName || home.name, h, a));
+  };
+
+  if (away.rank != null && home.rank != null) {
+    factor(
+      1 / away.rank,
+      1 / home.rank,
+      8,
+      2.5,
+      (fav, f, d) => {
+        const favP = fav === (away.resolvedName || away.name) ? away : home;
+        const dogP = fav === (away.resolvedName || away.name) ? home : away;
+        return `${fav} ranked #${favP.rank} vs #${dogP.rank}`;
+      },
+    );
+  }
+
+  const awayForm = away.formSummary;
+  const homeForm = home.formSummary;
+  if (awayForm && homeForm && awayForm.wins + awayForm.losses > 0 && homeForm.wins + homeForm.losses > 0) {
+    const awr = awayForm.wins / (awayForm.wins + awayForm.losses);
+    const hwr = homeForm.wins / (homeForm.wins + homeForm.losses);
+    factor(awr, hwr, 3, 1.5, (fav, f, d) =>
+      `${fav} hotter recent form (${Math.round(f * 100)}% wins in last ${fav === (away.resolvedName || away.name) ? awayForm.wins + awayForm.losses : homeForm.wins + homeForm.losses} vs ${Math.round(d * 100)}%)`,
+    );
+  }
+
+  if (h2h && h2h.meetings.length > 0) {
+    const total = h2h.homeWins + h2h.awayWins;
+    if (total > 0) {
+      const awayH2h = h2h.awayWins / total;
+      const homeH2h = h2h.homeWins / total;
+      factor(awayH2h, homeH2h, 2, 1.2, (fav, f, d) =>
+        `${fav} leads recent H2H (${Math.round(f * total)}-${Math.round(d * total)} in sampled meetings)`,
+      );
+    }
+  }
+
+  if (used === 0) return null;
+  const edge = Math.round(Math.abs(signed) * 10) / 10;
+  if (edge < 0.3) return null;
+  const awayFav = signed > 0;
+  const side = awayFav ? away.resolvedName || away.name : home.resolvedName || home.name;
+  const reasons = awayFav ? awayReasons : homeReasons;
+  return { side, edge, reasons };
+}
+
+export async function buildTennisAnalysis(away: string, home: string): Promise<TennisAnalysis> {
+  const matchup = await buildTennisMatchup(away, home);
+  return { ...matchup, lean: computeTennisLean(matchup.away, matchup.home, matchup.h2h) };
 }
 
 export async function buildTennisMatchup(away: string, home: string): Promise<TennisMatchup> {

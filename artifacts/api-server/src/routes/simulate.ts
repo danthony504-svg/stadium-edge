@@ -4,6 +4,7 @@ import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
+import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
@@ -236,6 +237,34 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
 
   if (!sport || !homeTeamId || !awayTeamId) {
     res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
+    return;
+  }
+
+  const homeTeam = String(req.body?.homeTeam ?? "");
+  const awayTeam = String(req.body?.awayTeam ?? "");
+
+  if (sport === "tennis") {
+    if (!homeTeam || !awayTeam) {
+      res.status(400).json({ error: "homeTeam and awayTeam required for tennis" });
+      return;
+    }
+    const result = await runTennisMonteCarlo({
+      away: awayTeam,
+      home: homeTeam,
+      simulations,
+      coverQueries,
+      retainOutcomes,
+    });
+    if (!result) {
+      res.status(422).json({ error: "insufficient tennis matchup data for simulation" });
+      return;
+    }
+    res.json({
+      sport,
+      homeTeam: homeTeam || null,
+      awayTeam: awayTeam || null,
+      ...result,
+    });
     return;
   }
 

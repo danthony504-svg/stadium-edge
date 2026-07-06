@@ -53,6 +53,7 @@ export type SlimChatContextInput = {
   }>;
   matchupHistory?: Record<string, SlimMatchupEntry>;
   fightAnalysis?: Record<string, unknown>;
+  tennisAnalysis?: Record<string, unknown>;
   playerHistory?: Record<string, unknown>;
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
@@ -125,6 +126,7 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
   );
   const slimProps = slimRealPropsForUpload(context.realProps);
   const hasUfc = context.selectedSports?.includes("ufc");
+  const hasTennis = context.selectedSports?.includes("tennis");
   return {
     ...context,
     realGames: [],
@@ -133,6 +135,7 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
     matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : context.matchupHistory,
     playerHistory: Object.keys(slimHistory).length ? slimHistory : context.playerHistory,
     fightAnalysis: hasUfc ? context.fightAnalysis : undefined,
+    tennisAnalysis: hasTennis ? context.tennisAnalysis : undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
     matchupInjuries: undefined,
@@ -173,6 +176,7 @@ export function ultraSlimChatContextForUpload<T extends SlimChatContextInput>(co
     matchupHistory: Object.keys(slimMatchup).length ? slimMatchup : undefined,
     playerHistory: undefined,
     fightAnalysis: undefined,
+    tennisAnalysis: undefined,
     modelStrengths: slim.modelStrengths,
   };
 }
@@ -188,6 +192,7 @@ export function microSlimChatContextForUpload<T extends SlimChatContextInput>(co
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
+    tennisAnalysis: undefined,
     playerHistory: undefined,
     realGames: [],
   };
@@ -214,6 +219,7 @@ export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
+    tennisAnalysis: undefined,
     playerHistory: undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
@@ -233,6 +239,7 @@ export function largeCompactSlimChatContextForUpload<T extends SlimChatContextIn
     matchupHistory: undefined,
     modelStrengths: undefined,
     fightAnalysis: undefined,
+    tennisAnalysis: undefined,
     playerHistory: undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,

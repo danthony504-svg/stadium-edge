@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
-import { buildTennisMatchup, buildTennisPlayer, loadTennisFlags } from "../lib/tennis.js";
+import { buildTennisMatchup, buildTennisPlayer, buildTennisAnalysis, loadTennisFlags } from "../lib/tennis.js";
 
 const router: IRouter = Router();
 
@@ -38,6 +38,24 @@ router.get("/sports/tennis-matchup", async (req, res) => {
     res.json(matchup);
   } catch {
     res.status(502).json({ error: "tennis matchup unavailable" });
+  }
+});
+
+// Real tennis analysis: matchup data + deterministic stronger-player lean.
+router.use("/sports/tennis-analysis", rateLimit({ windowMs: 60_000, max: 120, name: "tennis-analysis" }));
+
+router.get("/sports/tennis-analysis", async (req, res) => {
+  const away = String(req.query.away || "").trim();
+  const home = String(req.query.home || "").trim();
+  if (!away || !home) {
+    res.status(400).json({ error: "away and home player names are required" });
+    return;
+  }
+  try {
+    const analysis = await buildTennisAnalysis(away, home);
+    res.json(analysis);
+  } catch {
+    res.status(502).json({ error: "tennis analysis unavailable" });
   }
 });
 
