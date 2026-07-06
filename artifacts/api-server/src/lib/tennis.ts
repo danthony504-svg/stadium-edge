@@ -234,6 +234,128 @@ export async function loadTennisFlags(): Promise<Record<string, TennisFlagEntry>
   return out;
 }
 
+/** ESPN scoreboard row normalized to the app's standard game shape. */
+export type TennisGameRow = {
+  id: string;
+  sport: "tennis";
+  name: string;
+  shortName: string;
+  status: string;
+  startsAt: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  homeLogo: string | null;
+  awayLogo: string | null;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+  venue: string | null;
+  clock: string | null;
+  period: number | null;
+  periodLabel: string | null;
+  state: string | null;
+};
+
+function setsWon(comp: { linescores?: Array<{ winner?: boolean }> } | undefined): number | null {
+  const rows = comp?.linescores ?? [];
+  if (!rows.length) return null;
+  const n = rows.filter((s) => s?.winner === true).length;
+  return n > 0 ? n : null;
+}
+
+function competitorName(comp: {
+  athlete?: { displayName?: string; shortName?: string; flag?: { href?: string } };
+  team?: { displayName?: string; abbreviation?: string; logo?: string; logos?: Array<{ href?: string }> };
+}): { name: string | null; abbr: string | null; logo: string | null } {
+  const athlete = comp?.athlete;
+  const team = comp?.team;
+  const name = athlete?.displayName ?? team?.displayName ?? null;
+  const abbr = athlete?.shortName ?? team?.abbreviation ?? null;
+  const logo =
+    athlete?.flag?.href ?? team?.logo ?? team?.logos?.[0]?.href ?? null;
+  return { name, abbr, logo };
+}
+
+// Active ATP/WTA draws flattened into the same game rows team sports use, so
+// Home Live Now, game detail, and the simulator can consume tennis without a
+// separate feed. Parsed only from ESPN — missing fields stay null.
+export async function loadTennisGames(): Promise<TennisGameRow[]> {
+  const fmt = (d: Date) =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const dateRange = `${fmt(yesterday)}-${fmt(weekOut)}`;
+
+  return cachedJson<TennisGameRow[]>(`tennis:games:${dateRange}`, SCORE_TTL, async () => {
+    const out: TennisGameRow[] = [];
+    const seen = new Set<string>();
+    for (const tour of TOURS) {
+      try {
+        const j = await fetchJson(
+          `https://site.api.espn.com/apis/site/v2/sports/tennis/${tour}/scoreboard?dates=${dateRange}&limit=200`,
+        );
+        for (const e of j?.events || []) {
+          for (const g of e?.groupings || []) {
+            for (const c of g?.competitions || []) {
+              const id = c?.id != null ? String(c.id) : "";
+              if (!id || seen.has(id)) continue;
+              const homeC = c?.competitors?.find((x: { homeAway?: string }) => x.homeAway === "home");
+              const awayC = c?.competitors?.find((x: { homeAway?: string }) => x.homeAway === "away");
+              if (!homeC || !awayC) continue;
+              const home = competitorName(homeC);
+              const away = competitorName(awayC);
+              if (!home.name || !away.name) continue;
+              seen.add(id);
+              const statusObj = c?.status ?? e?.status;
+              const state = statusObj?.type?.state ?? null;
+              const homeSets = setsWon(homeC);
+              const awaySets = setsWon(awayC);
+              out.push({
+                id,
+                sport: "tennis",
+                name: `${away.name} vs ${home.name}`,
+                shortName: `${away.abbr || away.name} vs ${home.abbr || home.name}`,
+                status:
+                  statusObj?.type?.description ??
+                  (state === "in"
+                    ? "In Progress"
+                    : state === "post"
+                      ? "Final"
+                      : state === "pre"
+                        ? "Scheduled"
+                        : "Unknown"),
+                startsAt: c?.date || c?.startDate || e?.date || new Date().toISOString(),
+                homeTeam: home.name,
+                awayTeam: away.name,
+                homeScore: homeSets,
+                awayScore: awaySets,
+                homeTeamId: homeC?.id != null ? String(homeC.id) : null,
+                awayTeamId: awayC?.id != null ? String(awayC.id) : null,
+                homeLogo: home.logo,
+                awayLogo: away.logo,
+                homeAbbr: home.abbr,
+                awayAbbr: away.abbr,
+                venue: c?.venue?.fullName ?? null,
+                clock: statusObj?.displayClock ?? null,
+                period: statusObj?.period ?? null,
+                periodLabel: statusObj?.type?.shortDetail ?? statusObj?.type?.description ?? null,
+                state,
+              });
+            }
+          }
+        }
+      } catch {
+        // one tour failing must not kill the other
+      }
+    }
+    return out;
+  });
+}
+
 // Resolve a player's recent (this-season) results from their ESPN eventlog.
 // Each eventlog item points at a competition $ref that carries both players'
 // inline names + winner flag + set linescores. Returns up to 5 most-recent

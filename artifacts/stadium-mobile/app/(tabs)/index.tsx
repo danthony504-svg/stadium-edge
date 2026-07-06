@@ -431,8 +431,14 @@ export default function HomeScreen() {
     queryFn: async ({ signal, queryKey }) => {
       const league = String(queryKey[1] ?? "");
       const gen = sportFetchGenRef.current;
-      const rows = await getGames(league, signal);
-      return { gen, league, rows };
+      try {
+        const rows = await getGames(league, signal);
+        return { gen, league, rows };
+      } catch {
+        // Tennis used to 400 before ESPN scoreboard support; never leave the
+        // pill in a permanent error/loading state when games are unavailable.
+        return { gen, league, rows: [] as EspnGame[] };
+      }
     },
     staleTime: 45_000,
     refetchOnMount: "always",
@@ -1776,9 +1782,9 @@ export default function HomeScreen() {
               );
               const meta =
                 sport === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
-              const h2h = g.markets.find((m) => m.key === "h2h");
-              const awayML = h2h?.outcomes.find((o) => o.name === g.awayTeam)?.price;
-              const homeML = h2h?.outcomes.find((o) => o.name === g.homeTeam)?.price;
+              const h2h = g.markets?.find((m) => m.key === "h2h");
+              const awayML = h2h?.outcomes?.find((o) => o.name === g.awayTeam)?.price;
+              const homeML = h2h?.outcomes?.find((o) => o.name === g.homeTeam)?.price;
               const best = bestPropByGame.get(`${g.awayTeam} @ ${g.homeTeam}`);
               const rows = [
                 { name: g.awayTeam, logo: meta?.awayLogo, ml: awayML },

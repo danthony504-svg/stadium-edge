@@ -143,8 +143,8 @@ export function GameCard({
   const { addLeg, hasLeg } = useBetSlip();
 
   const label = `${game.awayTeam} @ ${game.homeTeam}`;
-  const h2h = game.markets.find((m) => m.key === "h2h");
-  const totals = game.markets.find((m) => m.key === "totals");
+  const h2h = game.markets?.find((m) => m.key === "h2h");
+  const totals = game.markets?.find((m) => m.key === "totals");
   const away = h2h?.outcomes.find((o) => o.name === game.awayTeam);
   const home = h2h?.outcomes.find((o) => o.name === game.homeTeam);
   const over = totals?.outcomes.find((o) => /over/i.test(o.name));
