@@ -2,6 +2,8 @@
 // breakdown, slip, and share. No line re-selection — read display snapshot only.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import type { RealOddsEntry } from "./api.ts";
+import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
 
 function isGameLinePick(pick: { isProp?: boolean; market: string }): boolean {
   if (pick.isProp) return false;
@@ -140,28 +142,109 @@ function isOpposingTeamPick(game: string, pickA: string, pickB: string): boolean
   return aSide != null && bSide != null && aSide !== bSide;
 }
 
-function displayComplete(row: FrozenGameLineRow): boolean {
-  return (
-    row.grade != null &&
-    row.confidencePct != null &&
-    Number.isFinite(row.confidencePct) &&
-    row.edgePct != null &&
-    Number.isFinite(row.edgePct) &&
-    row.edgePct > 0 &&
-    row.evPct != null &&
-    Number.isFinite(row.evPct) &&
-    row.evPct > 0 &&
-    row.simHit != null &&
-    Number.isFinite(row.simHit)
-  );
+export type FrozenGameLineRequiredMetrics = {
+  grade: string;
+  simPct: number;
+  edgePct: number;
+  confidencePct: number;
+};
+
+const PLACEHOLDER = /^[—-]+$/;
+
+function isRealGrade(grade: string | null | undefined): grade is string {
+  return !!grade && grade.trim() !== "" && !PLACEHOLDER.test(grade.trim());
+}
+
+/** Resolve the four metrics every game-line surface must show from frozen display + fallbacks. */
+export function resolveFrozenGameLineMetrics(
+  pick: ParsedPick,
+  realOdds?: RealOddsEntry[],
+): FrozenGameLineRequiredMetrics | null {
+  const d = pick.gameLineFinal?.display;
+  const s = pick.finalAiScore;
+  const rubric = pick.scores ?? s?.rubric ?? null;
+  const grade = d?.grade ?? s?.grade ?? rubric?.grade ?? null;
+  const confidencePct = d?.confidencePct ?? s?.confidencePct ?? rubric?.confidencePct ?? null;
+  let edgePct = d?.edgePct ?? s?.edgePct ?? rubric?.edgePct ?? null;
+  if ((edgePct == null || !Number.isFinite(edgePct)) && realOdds?.length) {
+    edgePct = resolvePickEdgePct(pick, { realOdds });
+  }
+  const simHit = d?.simHit ?? s?.simHit ?? null;
+  const simPct =
+    d?.simPct ??
+    (simHit != null && Number.isFinite(simHit) ? Math.round(simHit * 100) : null);
+
+  if (
+    !isRealGrade(grade) ||
+    simPct == null ||
+    !Number.isFinite(simPct) ||
+    edgePct == null ||
+    !Number.isFinite(edgePct) ||
+    edgePct <= 0 ||
+    confidencePct == null ||
+    !Number.isFinite(confidencePct)
+  ) {
+    return null;
+  }
+  return { grade, simPct, edgePct, confidencePct };
+}
+
+/** Throw when any required game-line metric is missing — never render placeholder dashes. */
+export function assertFrozenGameLineMetricsComplete(
+  pick: ParsedPick,
+  realOdds?: RealOddsEntry[],
+): FrozenGameLineRequiredMetrics {
+  const d = pick.gameLineFinal?.display;
+  const header = frozenGameLineHeader(pick);
+  const missing: string[] = [];
+  const metrics = resolveFrozenGameLineMetrics(pick, realOdds);
+  if (!metrics) {
+    if (!isRealGrade(d?.grade ?? pick.finalAiScore?.grade)) missing.push("Final AI Grade");
+    const simHit = d?.simHit ?? pick.finalAiScore?.simHit;
+    if (simHit == null || !Number.isFinite(simHit)) missing.push("Simulation %");
+    const edge = d?.edgePct ?? pick.finalAiScore?.edgePct;
+    if (edge == null || !Number.isFinite(edge) || edge <= 0) missing.push("Edge %");
+    const conf = d?.confidencePct ?? pick.finalAiScore?.confidencePct;
+    if (conf == null || !Number.isFinite(conf)) missing.push("Confidence");
+    throw new FrozenGameLineConsistencyError(
+      `Game line ${header.pick} (${header.game}) missing ${missing.join(", ")} — refusing incomplete metadata`,
+    );
+  }
+  return metrics;
+}
+
+function assertSummaryHasNoPlaceholderDashes(summary: string): void {
+  if (/Final AI\s*[—-]{1,2}|edge\s*[—-]{1,2}|sim\s*[—-]{1,2}|conf(?:idence)?\s*[—-]{1,2}/i.test(summary)) {
+    throw new FrozenGameLineConsistencyError(
+      "Game-line summary contains placeholder dashes — build refused",
+    );
+  }
+}
+
+export function assertAllFrozenGameLineMetrics(
+  picks: ParsedPick[],
+  realOdds?: RealOddsEntry[],
+): void {
+  for (const pick of picks) {
+    if (!isGameLinePick(pick) || pick.isProp) continue;
+    assertFrozenGameLineMetricsComplete(pick, realOdds);
+  }
 }
 
 /** Format one frozen leg for the Coach summary — never re-runs line selection. */
-export function formatFrozenGameLineSummaryLine(row: FrozenGameLineRow, pick: ParsedPick): string | null {
-  if (!displayComplete(row) || !pick.gameLineFinal) return null;
+export function formatFrozenGameLineSummaryLine(
+  row: FrozenGameLineRow,
+  pick: ParsedPick,
+  realOdds?: RealOddsEntry[],
+): string {
+  if (!pick.gameLineFinal) {
+    throw new FrozenGameLineConsistencyError(
+      `Game line ${row.pick} (${row.game}) is not finalized`,
+    );
+  }
+  const metrics = assertFrozenGameLineMetricsComplete(pick, realOdds);
   const header = `**${row.pick}** (${row.market}) · ${row.game}`;
-  const simPct = row.simPct ?? Math.round((row.simHit ?? 0) * 100);
-  const metrics = `Sim ${simPct}% · Edge +${row.edgePct}% · EV +${row.evPct!.toFixed(1)}% · Conf ${row.confidencePct} · Grade ${row.grade}`;
+  const metricsLine = `Final AI ${metrics.grade} · Sim ${metrics.simPct}% · Edge +${metrics.edgePct.toFixed(1)}% · Conf ${metrics.confidencePct}`;
   const bullets = pick.gameLineFinal.bullets ?? [];
   const why =
     bullets.length > 0
@@ -169,14 +252,17 @@ export function formatFrozenGameLineSummaryLine(row: FrozenGameLineRow, pick: Pa
       : pick.gameLineFinal.reason
         ? `Selected because: ${pick.gameLineFinal.reason}`
         : "";
-  return why ? `${header}\n${metrics}\n${why}` : `${header}\n${metrics}`;
+  return why ? `${header}\n${metricsLine}\n${why}` : `${header}\n${metricsLine}`;
 }
 
 /**
  * Build the game-line portion of legNote from frozen snapshots only.
  * Returns empty string when there are no qualified frozen game lines.
  */
-export function buildFrozenGameLineSummaryNote(picks: ParsedPick[]): string {
+export function buildFrozenGameLineSummaryNote(
+  picks: ParsedPick[],
+  realOdds?: RealOddsEntry[],
+): string {
   const rows = getFrozenGameLineLegs(picks);
   if (!rows.length) return "";
 
@@ -190,18 +276,14 @@ export function buildFrozenGameLineSummaryNote(picks: ParsedPick[]): string {
   for (const row of rows) {
     const pick = pickByGame.get(row.gameKey);
     if (!pick) continue;
-    const line = formatFrozenGameLineSummaryLine(row, pick);
-    if (!line) {
-      throw new FrozenGameLineConsistencyError(
-        `Game-line card on ${row.game} is missing grounded metrics for the summary`,
-      );
-    }
-    lines.push(line);
+    lines.push(formatFrozenGameLineSummaryLine(row, pick, realOdds));
   }
 
   if (!lines.length) return "";
-  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every metric is grounded (Sim, Edge, EV, Confidence, Grade). Each pick below shows why it was selected:_`;
-  return `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
+  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every line shows Final AI Grade, Simulation %, Edge %, and Confidence from the frozen pick:_`;
+  const summary = `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
+  assertSummaryHasNoPlaceholderDashes(summary);
+  return summary;
 }
 
 /** Parse game/pick/market tuples from frozen summary bullets. */
@@ -328,6 +410,7 @@ export function assertFrozenTicketConsistency(
         `Game line on ${pick.game} is not frozen — summary and cards cannot diverge safely`,
       );
     }
+    assertFrozenGameLineMetricsComplete(pick);
     const header = frozenGameLineHeader(pick);
     const display = pick.gameLineFinal!.display!;
     if (
@@ -414,9 +497,11 @@ export function assertFrozenTicketConsistency(
 export function composeFrozenGameLineLegNote(
   picks: ParsedPick[],
   contextNote: string,
+  realOdds?: RealOddsEntry[],
 ): string {
+  assertAllFrozenGameLineMetrics(picks, realOdds);
   let note = stripModelGameLineListings(contextNote);
-  const summary = buildFrozenGameLineSummaryNote(picks);
+  const summary = buildFrozenGameLineSummaryNote(picks, realOdds);
   if (summary) {
     note = note ? `${note}\n\n${summary}` : summary;
   }

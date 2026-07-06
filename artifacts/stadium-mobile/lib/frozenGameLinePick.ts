@@ -17,6 +17,7 @@ import {
   frozenGameLineHeader,
   isGameLineFrozen,
   normGameLabel,
+  assertFrozenGameLineMetricsComplete,
 } from "./frozenGameLineConsistency.ts";
 
 export type { FrozenGameLineDisplay } from "./frozenGameLineConsistency.ts";
@@ -25,6 +26,8 @@ export {
   frozenGameLineHeader,
   buildFrozenGameLineSummaryNote,
   assertFrozenTicketConsistency,
+  assertFrozenGameLineMetricsComplete,
+  assertAllFrozenGameLineMetrics,
   composeFrozenGameLineLegNote,
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,
@@ -42,21 +45,32 @@ export function snapshotFrozenGameLineDisplay(
   pick: ParsedPick,
   realOdds: RealOddsEntry[],
 ): FrozenGameLineDisplay {
-  const edge = resolvePickEdgePct(pick, { realOdds });
-  const ev = resolvePickExpectedValue(pick, { realOdds });
+  const merged = mergeOddsEntries(realOdds, []);
+  const edge = resolvePickEdgePct(pick, { realOdds: merged });
+  const ev = resolvePickExpectedValue(pick, { realOdds: merged });
   const s = pick.finalAiScore;
-  return {
+  const rubric = pick.scores ?? s?.rubric ?? null;
+  const display: FrozenGameLineDisplay = {
     pick: pick.pick,
     market: pick.market,
     odds: pick.odds,
     game: pick.game,
-    grade: s?.grade ?? null,
-    confidencePct: s?.confidencePct ?? null,
-    edgePct: edge,
+    grade: s?.grade ?? rubric?.grade ?? null,
+    confidencePct: s?.confidencePct ?? rubric?.confidencePct ?? null,
+    edgePct: edge ?? s?.edgePct ?? rubric?.edgePct ?? null,
     evPct: ev,
     simHit: s?.simHit ?? null,
     simPct: s?.simHit != null && Number.isFinite(s.simHit) ? Math.round(s.simHit * 100) : null,
   };
+  const probe: ParsedPick = {
+    ...pick,
+    gameLineFinal: {
+      ...pick.gameLineFinal!,
+      display,
+    },
+  };
+  assertFrozenGameLineMetricsComplete(probe, merged);
+  return display;
 }
 
 /** Lock display fields + alt ladder on a finalized game-line pick. */

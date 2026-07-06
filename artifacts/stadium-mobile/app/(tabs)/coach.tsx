@@ -69,6 +69,7 @@ import {
   freezeAllGameLinesInTicket,
   composeFrozenGameLineLegNote,
   mergeTicketPreservingFrozenGameLines,
+  stripModelGameLineListings,
   FrozenGameLineConsistencyError,
 } from "@/lib/frozenGameLinePick";
 import { dropSpreadLadderViolations } from "@/lib/closeGameSpreadSelect";
@@ -2620,14 +2621,14 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
-        composeFrozenGameLineLegNote(picks, legNote);
+        composeFrozenGameLineLegNote(picks, legNote, mergedGameOdds);
         setMessages((prev) => {
           const copy = [...prev];
           const { legNote: _dropNote, ...prevAssistant } = copy[copy.length - 1];
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: picks.length > 0 ? "" : finalContent,
+            content: picks.length > 0 ? "" : stripModelGameLineListings(finalContent),
             picks,
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),

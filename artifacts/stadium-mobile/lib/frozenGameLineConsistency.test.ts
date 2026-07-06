@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assertFrozenGameLineMetricsComplete,
   assertFrozenTicketConsistency,
   buildFrozenGameLineSummaryNote,
   composeFrozenGameLineLegNote,
@@ -102,7 +103,9 @@ test("buildFrozenGameLineSummaryNote matches card header for every frozen leg", 
   const picks = [mockFrozenGameLine(0), mockFrozenGameLine(1), mockProp(0)];
   const summary = buildFrozenGameLineSummaryNote(picks);
   assert.match(summary, /\*\*Fever \+1\.5\*\*/);
-  assert.match(summary, /Indiana Fever @ Las Vegas Aces/);
+  assert.match(summary, /Final AI B\+ · Sim 54% · Edge \+3\.2% · Conf 58/);
+  assert.doesNotMatch(summary, /Final AI\s*[—-]/);
+  assert.doesNotMatch(summary, /edge\s*[—-]/i);
   const parsed = parseFrozenSummaryGamePicks(summary);
   for (const pick of picks) {
     if (pick.isProp) continue;
@@ -192,6 +195,33 @@ test("assertFrozenTicketConsistency throws when game-line card is missing from s
   );
 });
 
+test("assertFrozenGameLineMetricsComplete throws when grade is missing", () => {
+  const broken = mockFrozenGameLine(0, {
+    finalAiScore: undefined,
+    gameLineFinal: {
+      reason: "test",
+      finalScore: 6.8,
+      frozenAt: 1,
+      display: {
+        pick: "Fever +1.5",
+        market: "Alt Spread",
+        odds: 115,
+        game: GAMES[0]!,
+        grade: null,
+        confidencePct: 58,
+        edgePct: 3.2,
+        evPct: 4.1,
+        simHit: 0.54,
+        simPct: 54,
+      },
+    },
+  });
+  assert.throws(
+    () => assertFrozenGameLineMetricsComplete(broken),
+    /missing Final AI Grade/,
+  );
+});
+
 test("composeFrozenGameLineLegNote strips stale lines and rebuilds from cards", () => {
   const picks = [mockFrozenGameLine(1), mockProp(0)];
   const stale = [
@@ -201,6 +231,8 @@ test("composeFrozenGameLineLegNote strips stale lines and rebuilds from cards", 
   const note = composeFrozenGameLineLegNote(picks, stale);
   assert.doesNotMatch(note, /Sox -1\.5/);
   assert.match(note, /\*\*Angels \+1\.5\*\*/);
+  assert.match(note, /Final AI B\+ · Sim 54%/);
+  assert.doesNotMatch(note, /edge\s*[—-]/i);
   const mentions = parseAllGameLineMentionsFromNote(note);
   assert.equal(mentions.size, 1);
   assert.equal(mentions.get(normGameKey(GAMES[1]!))?.pick, "Angels +1.5");
