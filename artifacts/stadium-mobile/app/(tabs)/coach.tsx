@@ -90,7 +90,9 @@ import { enforceConsistentGameSides, conflictingLegDropMessage, stripConflicting
 import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
+  recentParlayPlayerKeys,
   rememberParlayBuild,
+  rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
 import {
   buildParlayShortfallNote,
@@ -2441,6 +2443,9 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             longshotAsk,
+            varietySeed,
+            avoidLegKeys,
+            recentPlayerKeys: isParlayBuild ? recentParlayPlayerKeys() : undefined,
             signal: abortRef.current?.signal,
             rejectsOut: parlayRejections,
           });
@@ -2674,6 +2679,9 @@ export default function CoachScreen() {
           throw new FrozenGameLineConsistencyError(
             "Ticket has game-line legs but no frozen optimizer summary — refusing incomplete display",
           );
+        }
+        if (isParlayBuild && picks.length > 1) {
+          picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
         setMessages((prev) => {
           const copy = [...prev];

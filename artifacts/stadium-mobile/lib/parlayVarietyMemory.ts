@@ -41,6 +41,18 @@ export function recentParlayLegKeys(): Set<string> {
   return out;
 }
 
+/** Player names from recent builds — at most one prop per player per ticket. */
+export function recentParlayPlayerKeys(): Set<string> {
+  const out = new Set<string>();
+  for (const build of recentBuilds) {
+    for (const k of build) {
+      const parts = k.split("|");
+      if (parts.length >= 2 && parts[1]!.trim()) out.add(parts[1]!);
+    }
+  }
+  return out;
+}
+
 /** Call after a successful parlay render — feeds the next build's avoid list. */
 export function rememberParlayBuild(picks: ParsedPick[]): void {
   if (!picks.length) return;

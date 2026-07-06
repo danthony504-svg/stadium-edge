@@ -11,7 +11,9 @@ import {
   finalizeGameLinePickForGame,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
+import { defaultDiversityCaps } from "./pickDiversity.ts";
 import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
+import { deprioritizePropPoolEntries } from "./parlayVarietyMemory.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry, type PropSelectionOpts } from "./propSelection.ts";
 import { pickLegFingerprint, reachParlayMix, type ParlayLegReject } from "./parlayReachCore.ts";
@@ -217,6 +219,9 @@ export type SelectStrongestParlayOpts = {
   matchupInjuries?: Record<string, GameInjuryReport>;
   longshotAsk?: boolean;
   maxPerGame?: number;
+  varietySeed?: string;
+  avoidLegKeys?: Set<string>;
+  recentPlayerKeys?: Set<string>;
   signal?: AbortSignal;
   rejectsOut?: ParlayLegReject[];
 };
@@ -255,6 +260,14 @@ export async function selectStrongestQualifiedParlay(
 ): Promise<StrongestParlayResult> {
   if (target <= 0) return { picks: [], longshotPicks: [] };
   const { maxGameLegs } = reachParlayMix(target);
+  const diversityCaps = defaultDiversityCaps(target);
+  const reachOpts = {
+    maxGameLegs,
+    maxPerGame: opts.maxPerGame ?? diversityCaps.maxPerGame,
+    varietySeed: opts.varietySeed,
+    avoidLegKeys: opts.avoidLegKeys,
+    recentPlayerKeys: opts.recentPlayerKeys,
+  };
   const rejects = opts.rejectsOut ?? [];
   const edgeOpts = {
     realOdds: opts.realOdds,
@@ -274,9 +287,14 @@ export async function selectStrongestQualifiedParlay(
     },
   );
 
+  const propPool =
+    opts.avoidLegKeys?.size && opts.propPool.length
+      ? deprioritizePropPoolEntries(opts.propPool, opts.avoidLegKeys)
+      : opts.propPool;
+
   let propCandidates = await collectQualifiedPropCandidates(
-    opts.propPool,
-    { ...opts.scoreOpts, realOdds: opts.realOdds, propPool: opts.propPool },
+    propPool,
+    { ...opts.scoreOpts, realOdds: opts.realOdds, propPool },
     opts.signal,
     rejects,
     { minQualified: target, maxDeepSim: PROP_SIM_INITIAL_CAP },
@@ -286,28 +304,25 @@ export async function selectStrongestQualifiedParlay(
     .filter((p) => isFullyQualifiedPick(p, edgeOpts))
     .sort((a, b) => comparePickStrength(b, a));
 
-  let picks = reachSelectQualifiedToTarget(merged, target, {
-    maxGameLegs,
-    maxPerGame: opts.maxPerGame ?? (target >= 12 ? 4 : 2),
-  });
+  let picks = reachSelectQualifiedToTarget(merged, target, reachOpts);
 
   // Deep-sim more prop batches when diversity + game lines are not enough.
   let propCap = PROP_SIM_INITIAL_CAP;
   const deepReach = target >= 12;
   while (
     picks.length < target &&
-    (deepReach ? propCap < opts.propPool.length : propCap < PROP_SIM_MAX_CAP) &&
-    propCap < (deepReach ? opts.propPool.length : PROP_SIM_MAX_CAP) &&
+    (deepReach ? propCap < propPool.length : propCap < PROP_SIM_MAX_CAP) &&
+    propCap < (deepReach ? propPool.length : PROP_SIM_MAX_CAP) &&
     !opts.signal?.aborted
   ) {
     propCap = Math.min(
       propCap + PROP_SIM_BATCH_SIZE * 2,
-      deepReach ? opts.propPool.length : PROP_SIM_MAX_CAP,
-      opts.propPool.length,
+      deepReach ? propPool.length : PROP_SIM_MAX_CAP,
+      propPool.length,
     );
     propCandidates = await collectQualifiedPropCandidates(
-      opts.propPool,
-      { ...opts.scoreOpts, realOdds: opts.realOdds, propPool: opts.propPool },
+      propPool,
+      { ...opts.scoreOpts, realOdds: opts.realOdds, propPool },
       opts.signal,
       rejects,
       { minQualified: target, maxDeepSim: propCap },
@@ -315,10 +330,7 @@ export async function selectStrongestQualifiedParlay(
     merged = [...gameCandidates, ...propCandidates]
       .filter((p) => isFullyQualifiedPick(p, edgeOpts))
       .sort((a, b) => comparePickStrength(b, a));
-    const next = reachSelectQualifiedToTarget(merged, target, {
-      maxGameLegs,
-      maxPerGame: opts.maxPerGame ?? (target >= 12 ? 4 : 2),
-    });
+    const next = reachSelectQualifiedToTarget(merged, target, reachOpts);
     if (next.length > picks.length) picks = next;
     if (picks.length >= target) break;
   }

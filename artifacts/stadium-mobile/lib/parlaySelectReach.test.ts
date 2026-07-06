@@ -3,14 +3,37 @@ import test from "node:test";
 import { reachSelectQualifiedToTarget } from "./parlaySelectReach.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
-function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
+function qualifiedGameLine(overrides: Partial<ParsedPick> = {}): ParsedPick {
+  const game = overrides.game ?? "A @ B";
+  const pick = overrides.pick ?? "A +1.5";
+  const market = overrides.market ?? "Spread";
+  const odds = overrides.odds ?? -110;
   return {
-    game: "A @ B",
-    market: "Spread",
-    pick: "A +1.5",
-    odds: -110,
+    game,
+    market,
+    pick,
+    odds,
     isProp: false,
     sport: "mlb",
+    gameLineFrozen: true,
+    gameLineFinal: {
+      reason: "test",
+      finalScore: 6.5,
+      frozenAt: 1,
+      isBestEv: true,
+      display: {
+        pick: String(pick),
+        market: String(market),
+        odds: Number(odds),
+        game: String(game),
+        grade: "B+",
+        confidencePct: 62,
+        edgePct: 2.1,
+        evPct: 3.2,
+        simHit: 0.55,
+        simPct: 55,
+      },
+    },
     finalAiScore: {
       grade: "B+",
       simHit: 0.55,
@@ -29,6 +52,13 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
         edgePct: 2.1,
       },
     },
+    scores: {
+      scores: {},
+      composite: 7.5,
+      grade: "B+",
+      confidencePct: 62,
+      edgePct: 2.1,
+    },
     ...overrides,
   };
 }
@@ -38,24 +68,22 @@ test("reachSelectQualifiedToTarget relaxes per-game caps to fill target", () => 
   for (let i = 0; i < 15; i++) {
     const game = `Team${i} A @ Team${i} B`;
     candidates.push(
-      qualifiedPick({
+      qualifiedGameLine({
         game,
         pick: `Team${i} A +1.5`,
-        isProp: i % 3 === 0,
-        market: i % 3 === 0 ? "Hits" : "Spread",
       }),
     );
   }
-  const out = reachSelectQualifiedToTarget(candidates, 15, { maxPerGame: 1, maxGameLegs: 5 });
+  const out = reachSelectQualifiedToTarget(candidates, 15, { maxPerGame: 1, maxGameLegs: 15 });
   assert.equal(out.length, 15);
 });
 
 test("reachSelectQualifiedToTarget never adds unqualified legs", () => {
-  const good = qualifiedPick();
-  const bad = qualifiedPick({
+  const good = qualifiedGameLine();
+  const bad = qualifiedGameLine({
     game: "C @ D",
     finalAiScore: {
-      ...qualifiedPick().finalAiScore!,
+      ...qualifiedGameLine().finalAiScore!,
       edgePct: -1,
       simAligned: false,
     },
