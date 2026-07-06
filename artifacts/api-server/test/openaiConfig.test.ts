@@ -5,6 +5,8 @@ import {
   resolveOpenAIConfig,
   chatReasoningEffort,
   chatUsesStreaming,
+  chatStreamUserMessage,
+  isNonRetryableUpstreamError,
 } from "../src/lib/openaiConfig.ts";
 
 const ENV_KEYS = [
@@ -164,4 +166,25 @@ test("OPENAI_REASONING_EFFORT is ignored on direct OpenAI (gpt-4.x rejects it)",
       assert.equal(config.reasoningEffort, undefined);
     },
   );
+});
+
+test("isNonRetryableUpstreamError flags quota and auth failures", () => {
+  assert.equal(
+    isNonRetryableUpstreamError({ code: "insufficient_quota", status: 429 }),
+    true,
+  );
+  assert.equal(
+    isNonRetryableUpstreamError({ message: "You exceeded your current quota" }),
+    true,
+  );
+  assert.equal(isNonRetryableUpstreamError({ status: 401 }), true);
+  assert.equal(isNonRetryableUpstreamError({ status: 503 }), false);
+});
+
+test("chatStreamUserMessage explains quota exhaustion", () => {
+  assert.match(
+    chatStreamUserMessage({ code: "insufficient_quota", status: 429 }),
+    /quota/i,
+  );
+  assert.match(chatStreamUserMessage({ status: 503 }), /temporarily unavailable/i);
 });

@@ -11,7 +11,7 @@ import {
 } from "../lib/coachBuild.js";
 import { shouldWatchdogAbort } from "../lib/coachBuildFinish.js";
 import { putChatContextStash, getChatContextStash } from "../lib/chatContextStash.js";
-import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming } from "../lib/openaiConfig.js";
+import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStreaming, chatStreamUserMessage, isNonRetryableUpstreamError } from "../lib/openaiConfig.js";
 import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
@@ -2334,6 +2334,7 @@ The user asked for a ticket WITH player props, not necessarily "props only." Bui
           );
         } catch (e) {
           if (upstreamAbort.signal.aborted) throw e;
+          if (isNonRetryableUpstreamError(e)) throw e;
           const status = (e as { status?: number } | null)?.status;
           const transient =
             status === undefined || status === 429 || status >= 500;
@@ -2437,7 +2438,7 @@ The user asked for a ticket WITH player props, not necessarily "props only." Bui
     );
     res.write(
       `data: ${JSON.stringify({
-        content: "\n\n_AI service is temporarily unavailable. Please try again._",
+        content: chatStreamUserMessage(err),
       })}\n\n`,
     );
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

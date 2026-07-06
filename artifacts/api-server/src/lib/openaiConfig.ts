@@ -161,6 +161,36 @@ function formatUpstreamError(e: unknown): { code?: string; message: string } {
   };
 }
 
+/** Billing/auth failures won't clear on retry — fail fast instead of burning attempts. */
+export function isNonRetryableUpstreamError(e: unknown): boolean {
+  const { code, message } = formatUpstreamError(e);
+  if (code === "insufficient_quota" || code === "invalid_api_key") return true;
+  if (/insufficient_quota|exceeded your current quota|invalid_api_key|incorrect api key/i.test(message)) {
+    return true;
+  }
+  const status = (e as { status?: number } | null)?.status;
+  return status === 401 || status === 403;
+}
+
+/** User-facing Coach copy when the upstream model call fails. */
+export function chatStreamUserMessage(err: unknown): string {
+  const { code, message } = formatUpstreamError(err);
+  if (
+    code === "insufficient_quota" ||
+    /insufficient_quota|exceeded your current quota/i.test(message)
+  ) {
+    return "\n\n_AI Coach is temporarily offline — the server’s OpenAI quota needs to be topped up. Try again after billing is refreshed._";
+  }
+  if (
+    code === "invalid_api_key" ||
+    /invalid_api_key|incorrect api key/i.test(message) ||
+    (e as { status?: number })?.status === 401
+  ) {
+    return "\n\n_AI Coach is temporarily offline — the server API key is invalid. Try again later._";
+  }
+  return "\n\n_AI service is temporarily unavailable. Please try again._";
+}
+
 let probeCache: { at: number; result: OpenAIProbeResult } | null = null;
 const PROBE_TTL_MS = 60_000;
 
