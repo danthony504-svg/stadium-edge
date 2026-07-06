@@ -34,6 +34,35 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   return out;
 }
 
+const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
+  {
+    sport: "mlb",
+    re: /\b(home runs?|hrs?|strikeouts?|k'?s|hits?|total bases?|stolen bases?|pitchers?|bullpens?)\b/i,
+  },
+  {
+    sport: "nfl",
+    re: /\b(anytime td|anytime touchdowns?|touchdowns?|receptions?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?)\b/i,
+  },
+  {
+    sport: "nba",
+    re: /\b(rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|steals?|stl|blocks?|blk)\b/i,
+  },
+  { sport: "nhl", re: /\b(shots on goal|sog|goals?|saves?)\b/i },
+  { sport: "soccer", re: /\b(shots on target|sot|goal scorer|anytime goal|first goal)\b/i },
+];
+
+/** Infer a single sport for a prop-pick ask from named leagues or market words. */
+export function inferPropPickSport(text: string | null | undefined): string {
+  const t = String(text || "");
+  const focal = focalSportsFromText(t);
+  if (focal.size === 1) return [...focal][0]!;
+  for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
+    if (re.test(t)) return sport;
+  }
+  if (/\b(points?|pts)\b/i.test(t)) return "nba";
+  return "mlb";
+}
+
 // Does this game label reference a team the user named? Matches alphabetic tokens
 // of length >= 5 (skips short city words like "san"/"new"/"los") so a named-game
 // ask ("knicks spurs Q1 ticket") floats that exact game's odds to the front.

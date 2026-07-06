@@ -370,3 +370,31 @@ export function effectiveBuildLegCount(text: string): number {
   if (!PARLAY_BUILD_RE.test(text)) return 0;
   return wantsPropsOnly(text) ? 6 : 8;
 }
+
+/**
+ * Superlative / pool prop asks ("best HR for Dodgers tonight", "top strikeout
+ * plays today") that name a market but NOT a parlay leg count. Without a fast
+ * path these fall through to full all-sport buildChatContext and connect-stall
+ * on cellular before the first stream token.
+ */
+export function wantsPropPickRecommendation(text?: string | null): boolean {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const low = t.toLowerCase();
+  if (PARLAY_BUILD_RE.test(t) || parseRequestedLegCount(t) > 0) return false;
+  if (!mentionsPropIntent(t)) return false;
+  // Either-or comparisons want the normal recommendation flow, not this tier.
+  if (
+    /\b or \b/i.test(t) &&
+    /\b(hit|hr|home runs?|homers?|score|get|strikeouts?|touchdowns?|goals?|points?|pts|better|more likely)\b/.test(
+      low,
+    )
+  )
+    return false;
+  if (/\b(?:best|top|strongest|safest|favorite|fav|value)\b/.test(low)) return true;
+  if (/\b(?:picks?|plays?|bets?)\b/.test(low)) return true;
+  if (/\b(?:give me|show me|find me|need|want)\b/.test(low)) return true;
+  if (/\b(?:who|which)\b/.test(low) && /\b(?:hit|hr|home runs?|score|strikeout|touchdown|goal)\b/.test(low))
+    return true;
+  return false;
+}

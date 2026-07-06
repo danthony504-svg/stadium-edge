@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -52,7 +52,6 @@ test("explicitSingleGameIntent: generic tonight parlay is NOT single-game", () =
 });
 
 test("tonightExhaustedNote: blocks silent tomorrow padding when tonight slate is gone", () => {
-  const { tonightExhaustedNote } = await import("./slate.ts");
   assert.match(
     tonightExhaustedNote({
       tonightRequested: true,
@@ -87,6 +86,21 @@ test("wantsMlbPitcherSlateAsk detects pitcher/bullpen slate targeting", () => {
     true,
   );
   assert.equal(wantsMlbPitcherSlateAsk("Build me a 6-leg parlay"), false);
+});
+
+test("wantsPropPickRecommendation: superlative prop asks without parlay phrasing", () => {
+  assert.equal(
+    wantsPropPickRecommendation("Give me the best HR for Dodgers and Padres tonight"),
+    true,
+  );
+  assert.equal(wantsPropPickRecommendation("top strikeout plays today"), true);
+  assert.equal(wantsPropPickRecommendation("best hr picks for tomorrow"), true);
+  assert.equal(wantsPropPickRecommendation("Build me a 6-leg parlay for tonight"), false);
+  assert.equal(wantsPropPickRecommendation("what is a home run prop?"), false);
+  assert.equal(
+    wantsPropPickRecommendation("willy adames or heliot ramos to hit a HR?"),
+    false,
+  );
 });
 
 test("slateDayFromThread: tomorrow beats tonight default", () => {

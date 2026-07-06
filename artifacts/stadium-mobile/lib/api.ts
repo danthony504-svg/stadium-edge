@@ -6,6 +6,7 @@ import {
   contextDepthForLegs,
   focalSportsFromText,
   gameMatchesFocalText,
+  inferPropPickSport,
   prioritizePlayerHistoryTargets,
   propGamesCapForLegs,
 } from "./chatContextPriority";
@@ -2924,6 +2925,19 @@ export async function buildMlbSlateContext(signal?: AbortSignal): Promise<BuiltC
     propsBalanceCap: 60,
     oddsSliceCap: 56,
   });
+}
+
+/**
+ * Superlative prop-pick asks ("best HR for Dodgers tonight") — one sport, light
+ * parlay tier, focal teams prioritized. Avoids the all-sport full context POST
+ * that connect-stalls on cellular.
+ */
+export async function buildPropPickContext(
+  focalText: string,
+  signal?: AbortSignal,
+): Promise<BuiltChatContext> {
+  const sport = inferPropPickSport(focalText);
+  return buildChatContext([sport], [], signal, undefined, false, focalText, null, 4, false);
 }
 
 // Fetch live odds + games across the selected sports and assemble the real-data

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   contextDepthForLegs,
   focalSportsFromText,
+  inferPropPickSport,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority.ts";
 
@@ -230,4 +231,10 @@ test("coachBuildSports widens for 6-leg generic asks", () => {
 
 test("coachBuildSports uses every sport for 11+ leg tickets", () => {
   assert.deepEqual(coachBuildSports("15 leg parlay", 15, ALL_SPORTS), ALL_SPORTS);
+});
+
+test("inferPropPickSport: HR ask defaults to mlb; named teams stay mlb", () => {
+  assert.equal(inferPropPickSport("Give me the best HR for Dodgers and Padres tonight"), "mlb");
+  assert.equal(inferPropPickSport("top anytime TD plays for Chiefs"), "nfl");
+  assert.equal(inferPropPickSport("best NBA rebounds tonight"), "nba");
 });

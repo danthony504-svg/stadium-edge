@@ -109,6 +109,7 @@ import {
   effectiveBuildLegCount,
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
+  wantsPropPickRecommendation,
 } from "@/lib/slate";
 import {
   buildChatContext,
@@ -117,6 +118,7 @@ import {
   buildFocalSportParlayContext,
   buildPropsOnlyParlayContext,
   buildMlbSlateContext,
+  buildPropPickContext,
   gameMatchesFocalText,
   getGames,
   getOdds,
@@ -1368,9 +1370,19 @@ export default function CoachScreen() {
             !wantsAnalyzeSlip(trimmed) &&
             !oddsThreshold &&
             !altSign;
+          const usePropPickPath =
+            !isParlayBuild &&
+            !slipImageVerdictOnly &&
+            wantsPropPickRecommendation(trimmed) &&
+            !wantsAnalyzeSlip(trimmed) &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            !includePeriods &&
+            !altSign;
           const streamWarmBuild =
             isParlayBuild ||
             useMlbSlatePath ||
+            usePropPickPath ||
             genericParlayPath ||
             useFocalSportParlayPath ||
             usePropsOnlyParlayPath;
@@ -1406,6 +1418,8 @@ export default function CoachScreen() {
               ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
+                : usePropPickPath
+                  ? await buildPropPickContext(focalForPools, controller.signal)
                 : await buildChatContext(
                 buildSports,
                 slipForContext,
@@ -1479,6 +1493,8 @@ export default function CoachScreen() {
             uploadContext = largeCompactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
+          } else if (usePropPickPath) {
+            uploadContext = microSlimChatContextForUpload(context);
           } else {
             // Belt-and-braces: every Coach stream slims the upload so a 100KB+
             // context never connect-stalls when /chat/context-stash is unavailable.
@@ -1487,6 +1503,7 @@ export default function CoachScreen() {
           const parlayFirstTokenMs =
             buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
           const visionFirstTokenMs = hasOutgoingImages ? 90_000 : undefined;
+          const propPickFirstTokenMs = usePropPickPath ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
             if (!usePropsOnlyParlayPath && !slipImageVerdictOnly) await warmP;
@@ -1498,7 +1515,7 @@ export default function CoachScreen() {
               signal: controller.signal,
               notifyOnBackground: bg,
               buildId,
-              firstTokenMs: isParlayBuild ? parlayFirstTokenMs : visionFirstTokenMs,
+              firstTokenMs: isParlayBuild ? parlayFirstTokenMs : propPickFirstTokenMs ?? visionFirstTokenMs,
               onProps: (rows: RealPropEntry[]) => {
                 serverPropPool.push(...propPoolFromRealProps(rows));
               },
@@ -1532,7 +1549,7 @@ export default function CoachScreen() {
             }
           } catch (streamErr: any) {
             const retryable =
-              (isParlayBuild || useMlbSlatePath) &&
+              (isParlayBuild || useMlbSlatePath || usePropPickPath) &&
               streamErr?.name !== "AbortError" &&
               !handedOffRef.current;
             if (!retryable) throw streamErr;
@@ -1555,6 +1572,8 @@ export default function CoachScreen() {
                   : buildLegs <= 8
                     ? compactSlimChatContextForUpload(context)
                     : ultraSlimChatContextForUpload(context);
+            } else if (usePropPickPath) {
+              uploadContext = microSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
             if (!wantsAnalyzeSlip(trimmed)) {
