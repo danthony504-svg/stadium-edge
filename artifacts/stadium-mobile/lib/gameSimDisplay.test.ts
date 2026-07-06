@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeGameWinDisplay, weatherSettingLabel } from "./gameSimDisplay.ts";
+import { formatSimRanAt, normalizeGameWinDisplay, weatherSettingLabel } from "./gameSimDisplay.ts";
 
 test("normalizeGameWinDisplay accounts for ties and sums to ~100%", () => {
   const n = normalizeGameWinDisplay({
@@ -30,4 +30,9 @@ test("weatherSettingLabel for domed parks", () => {
     weatherSettingLabel({ venue: "Tropicana Field" })!,
     /Weather impact: None/i,
   );
+});
+
+test("formatSimRanAt labels pregame runs", () => {
+  assert.match(formatSimRanAt(Date.now())!, /Pregame projection/);
+  assert.match(formatSimRanAt(Date.now() - 5 * 60_000)!, /5m ago/);
 });

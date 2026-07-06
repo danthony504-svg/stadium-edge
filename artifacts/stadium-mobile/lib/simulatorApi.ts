@@ -400,7 +400,16 @@ export async function warmSimulatorApi(signal?: AbortSignal): Promise<void> {
 
 /** Pregame-only pool — duplicated here so simulator never depends on slate.ts OTA sync. */
 export function isSimulatorPregame(
-  game: { startsAt?: string | null; state?: string | null; status?: string | null } | null | undefined,
+  game: {
+    startsAt?: string | null;
+    state?: string | null;
+    status?: string | null;
+    homeScore?: number | null;
+    awayScore?: number | null;
+    period?: number | null;
+    clock?: string | null;
+    periodLabel?: string | null;
+  } | null | undefined,
 ): boolean {
   if (!game) return false;
   if (game.state === "post" || game.state === "in") return false;
@@ -413,10 +422,33 @@ export function isSimulatorPregame(
   ) {
     return false;
   }
+  const period = game.period;
+  if (period != null && period > 0) return false;
+  const clock = String(game.clock ?? "").trim();
+  if (clock && clock !== "0:00" && clock !== "0.0") return false;
+  const pl = String(game.periodLabel ?? "").toLowerCase();
+  if (pl) {
+    if (pl.includes("final") || pl.includes("halftime") || pl === "ht") return false;
+    if (
+      /\b(top|bot|mid|end)\b/.test(pl) ||
+      pl.includes("inning") ||
+      /\bq[1-4]\b/.test(pl) ||
+      pl.includes("period") ||
+      pl.includes("half")
+    ) {
+      return false;
+    }
+  }
   const t = Date.parse(game.startsAt ?? "");
   if (!Number.isFinite(t)) return false;
   const now = Date.now();
-  return t > now && t < now + 48 * 3600_000;
+  if (t <= now) {
+    const hs = game.homeScore ?? 0;
+    const as = game.awayScore ?? 0;
+    if (hs > 0 || as > 0) return false;
+    return false;
+  }
+  return t < now + 48 * 3600_000;
 }
 
 const _clampLean = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
