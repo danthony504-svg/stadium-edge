@@ -69,6 +69,7 @@ import {
   freezeAllGameLinesInTicket,
   buildFrozenGameLineSummaryNote,
   buildCoachTicketDisplayNote,
+  dedupeToOneGameLinePerMatchup,
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
   assertSummaryCardSurfaceAlignment,
@@ -2620,6 +2621,9 @@ export default function CoachScreen() {
               "Game-line legs require sim evaluation before render — refusing unfrozen ticket",
             );
           }
+          const matchupDedup = dedupeToOneGameLinePerMatchup(picks);
+          picks = matchupDedup.picks;
+          conflictingLegsDropped += matchupDedup.dropped;
           picks = freezeAllGameLinesInTicket(picks, {
             evalLinesByGame: coachEvalLinesByGame,
             gameSimulations,
@@ -2646,6 +2650,9 @@ export default function CoachScreen() {
         }
         legNote = dedupeLegNoteParagraphs(legNote);
         legNote = stripInvalidOptimizerBullets(legNote);
+        const finalMatchupDedup = dedupeToOneGameLinePerMatchup(picks);
+        picks = finalMatchupDedup.picks;
+        conflictingLegsDropped += finalMatchupDedup.dropped;
         picks = assertProductionCoachTicketIntegrity(picks, undefined);
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
         const ticketNote = buildCoachTicketDisplayNote(picks, legNote, mergedGameOdds);
@@ -2716,30 +2723,31 @@ export default function CoachScreen() {
                   longshotAsk,
                 });
                 const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
-                assertProductionCoachTicketIntegrity(canonical, undefined);
-                const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                const deduped = dedupeToOneGameLinePerMatchup(canonical);
+                assertProductionCoachTicketIntegrity(deduped.picks, undefined);
+                const rebuiltSummary = buildFrozenGameLineSummaryNote(deduped.picks, mergedGameOdds);
                 const rebuiltTicketNote = buildCoachTicketDisplayNote(
-                  canonical,
+                  deduped.picks,
                   legNote,
                   mergedGameOdds,
                 );
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
-                  assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                  assertSummaryCardSurfaceAlignment(deduped.picks, rebuiltSummary);
                 }
                 if (rebuiltTicketNote) {
                   assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
-                assertMainTicketPicksQualified(canonical, {
+                assertMainTicketPicksQualified(deduped.picks, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, canonical, {
+                patchLastAssistantPicks(setMessages, deduped.picks, {
                   gameLineSummary: rebuiltSummary || undefined,
                   ticketNote: rebuiltTicketNote || undefined,
                 });
-                setAiPicks(canonical);
+                setAiPicks(deduped.picks);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
@@ -2749,30 +2757,31 @@ export default function CoachScreen() {
                   longshotAsk,
                 });
                 const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
-                assertProductionCoachTicketIntegrity(canonical, undefined);
-                const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                const deduped = dedupeToOneGameLinePerMatchup(canonical);
+                assertProductionCoachTicketIntegrity(deduped.picks, undefined);
+                const rebuiltSummary = buildFrozenGameLineSummaryNote(deduped.picks, mergedGameOdds);
                 const rebuiltTicketNote = buildCoachTicketDisplayNote(
-                  canonical,
+                  deduped.picks,
                   legNote,
                   mergedGameOdds,
                 );
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
-                  assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                  assertSummaryCardSurfaceAlignment(deduped.picks, rebuiltSummary);
                 }
                 if (rebuiltTicketNote) {
                   assertNoPlaceholderGameLineMetrics(rebuiltTicketNote);
                 }
-                assertMainTicketPicksQualified(canonical, {
+                assertMainTicketPicksQualified(deduped.picks, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, canonical, {
+                patchLastAssistantPicks(setMessages, deduped.picks, {
                   gameLineSummary: rebuiltSummary || undefined,
                   ticketNote: rebuiltTicketNote || undefined,
                 });
-                setAiPicks(canonical);
+                setAiPicks(deduped.picks);
               },
             },
             simController.signal,

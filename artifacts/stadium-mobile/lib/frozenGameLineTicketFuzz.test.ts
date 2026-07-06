@@ -268,6 +268,21 @@ test("validateCoachTicket rejects sub-50% game line without exceptional edge", (
   );
 });
 
+test("validateCoachTicket dedupes opposing game-line legs before integrity checks", () => {
+  const game = "Boston Red Sox @ Los Angeles Angels";
+  const angels = mockFrozenGameLine(1, "Angels +1.5", mulberry32(99), "sim50_edge");
+  angels.gameLineFinal!.finalScore = 6.1;
+  angels.finalAiScore!.composite = 6.1;
+  const sox = mockFrozenGameLine(1, "Sox -2", mulberry32(100), "sim50_strong_ev");
+  sox.game = game;
+  sox.gameLineFinal!.display!.game = game;
+  sox.gameLineFinal!.finalScore = 7.2;
+  sox.finalAiScore!.composite = 7.2;
+  const result = validateCoachTicket([angels, sox, mockProp(2, mulberry32(101))]);
+  assert.equal(result.ok, true);
+  assert.equal(result.canonicalPicks.filter((p) => !p.isProp && p.game === game).length, 1);
+});
+
 test("explainGameLineQualification documents sim-50 best-EV path", () => {
   const pick = mockFrozenGameLine(2, "Rays +1.5", mulberry32(2), "sim50_best_ev");
   const reason = explainGameLineQualification(pick);

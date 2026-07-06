@@ -11,6 +11,7 @@ import {
   assertGameLineProductionMetadataComplete,
   gameLineSimEdgeQualifies,
 } from "./gameLineFrozenQual.ts";
+import { dedupeToOneGameLinePerMatchup } from "./gameLineMatchupDedup.ts";
 
 const MIN_SUMMARY_GRADE = "C+";
 const MIN_GAME_LINE_SUMMARY_CONFIDENCE = 50;
@@ -946,7 +947,8 @@ export function assertProductionCoachTicketIntegrity(
   picks: ParsedPick[],
   gameLineSummary?: string,
 ): ParsedPick[] {
-  const canonical = canonicalizeFrozenTicket(picks);
+  const { picks: deduped } = dedupeToOneGameLinePerMatchup(picks);
+  const canonical = canonicalizeFrozenTicket(deduped);
   const gameLinePicks = canonical.filter((p) => isGameLinePick(p) && !p.isProp);
   if (!gameLinePicks.length) return canonical;
 

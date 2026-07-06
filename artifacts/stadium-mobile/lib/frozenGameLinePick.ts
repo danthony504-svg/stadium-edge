@@ -21,6 +21,7 @@ import {
   canonicalizeFrozenTicket,
 } from "./frozenGameLineConsistency.ts";
 import { assertGameLineFinalizeMetrics } from "./gameLineFrozenQual.ts";
+import { dedupeToOneGameLinePerMatchup, compareGameLineFinalAi } from "./gameLineMatchupDedup.ts";
 
 export type { FrozenGameLineDisplay } from "./frozenGameLineConsistency.ts";
 export {
@@ -52,6 +53,8 @@ export {
   assertFrozenSummaryMetricsLinesComplete,
   assertProductionCoachTicketIntegrity,
   assertProductionCoachTicketIntegritySummary,
+  dedupeToOneGameLinePerMatchup,
+  compareGameLineFinalAi,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 
@@ -157,14 +160,15 @@ export function freezeAllGameLinesInTicket(
   picks: ParsedPick[],
   opts: FreezeAllGameLinesOpts,
 ): ParsedPick[] {
-  const props = picks.filter((p) => p.isProp || !isGameLinePick(p));
+  const { picks: deduped } = dedupeToOneGameLinePerMatchup(picks);
+  const props = deduped.filter((p) => p.isProp || !isGameLinePick(p));
   const templatesByGame = new Map<string, ParsedPick>();
 
-  for (const p of picks) {
+  for (const p of deduped) {
     if (!isGameLinePick(p) || p.isProp) continue;
     const key = normGameLabel(p.game);
     const prev = templatesByGame.get(key);
-    if (!prev || comparePickStrength(p, prev) > 0) {
+    if (!prev || compareGameLineFinalAi(p, prev) > 0) {
       templatesByGame.set(key, p);
     }
   }
