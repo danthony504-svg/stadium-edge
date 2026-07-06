@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  assertProductionCoachTicketIntegrity,
-  buildFrozenGameLineSummaryNote,
-  frozenGameLineHeader,
-  frozenLegSurfaceLabels,
-  parseFrozenSummaryGamePicks,
-  textHasPlaceholderGameLineMetrics,
-} from "./frozenGameLineConsistency.ts";
-import { assertGameLineProductionMetadataComplete } from "./gameLineFrozenQual.ts";
+  assertCoachTicketValidation,
+  validateCoachTicket,
+  type CoachTicketValidationResult,
+} from "./coachTicketValidation.ts";
+import {
+  GAME_LINE_EXCEPTIONAL_EDGE_PCT,
+  GAME_LINE_MIN_SIM_PCT,
+  GAME_LINE_STRONG_EV_PCT,
+  explainGameLineQualification,
+} from "./gameLineFrozenQual.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 const GAMES = [
@@ -38,6 +40,12 @@ const PICKS = [
 ];
 
 type MockPick = ParsedPick;
+type GameLineProfile =
+  | "normal"
+  | "sub50_exceptional"
+  | "sim50_best_ev"
+  | "sim50_strong_ev"
+  | "sim50_edge";
 
 function mulberry32(seed: number) {
   return function () {
@@ -48,23 +56,52 @@ function mulberry32(seed: number) {
   };
 }
 
-function normGameKey(game: string): string {
-  return game
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function mockFrozenGameLine(gameIdx: number, pickLabel: string, rng: () => number): MockPick {
+function mockFrozenGameLine(
+  gameIdx: number,
+  pickLabel: string,
+  rng: () => number,
+  profile?: GameLineProfile,
+): MockPick {
   const game = GAMES[gameIdx % GAMES.length]!;
-  const simHit = 0.5 + rng() * 0.14;
-  const edge = simHit < 0.5 ? 4.5 + rng() * 4 : 3 + rng() * 6;
-  const ev = edge + rng() * 3;
+  const chosen = profile ?? pickGameLineProfile(rng);
+  let simHit: number;
+  let edge: number;
+  let ev: number;
+  let isBestEv = false;
+
+  switch (chosen) {
+    case "sub50_exceptional":
+      simHit = 0.45 + rng() * 0.04;
+      edge = GAME_LINE_EXCEPTIONAL_EDGE_PCT + rng() * 4;
+      ev = edge + rng() * 2;
+      break;
+    case "sim50_best_ev":
+      simHit = 0.5;
+      edge = 1.5 + rng() * 1.5;
+      ev = 2 + rng() * 1.5;
+      isBestEv = true;
+      break;
+    case "sim50_strong_ev":
+      simHit = 0.5;
+      edge = 1.5 + rng();
+      ev = GAME_LINE_STRONG_EV_PCT + rng() * 3;
+      break;
+    case "sim50_edge":
+      simHit = 0.5;
+      edge = GAME_LINE_STRONG_EV_PCT + rng() * 4;
+      ev = edge + rng() * 2;
+      break;
+    default:
+      simHit = 0.51 + rng() * 0.13;
+      edge = 3 + rng() * 6;
+      ev = edge + rng() * 3;
+  }
+
   const confidence = 50 + Math.floor(rng() * 20);
   const oddsRaw = -200 + Math.floor(rng() * 380);
   const odds = oddsRaw === 0 ? -110 : oddsRaw;
   const market = rng() > 0.5 ? "Spread" : "Alt Spread";
+
   return {
     game,
     market,
@@ -91,9 +128,10 @@ function mockFrozenGameLine(gameIdx: number, pickLabel: string, rng: () => numbe
       },
     },
     gameLineFinal: {
-      reason: "fuzz",
+      reason: chosen,
       finalScore: 6,
       frozenAt: 1,
+      isBestEv,
       display: {
         pick: pickLabel,
         market,
@@ -106,9 +144,18 @@ function mockFrozenGameLine(gameIdx: number, pickLabel: string, rng: () => numbe
         simHit,
         simPct: Math.round(simHit * 100),
       },
-      bullets: ["fuzz"],
+      bullets: [chosen],
     },
   };
+}
+
+function pickGameLineProfile(rng: () => number): GameLineProfile {
+  const roll = rng();
+  if (roll < 0.12) return "sub50_exceptional";
+  if (roll < 0.18) return "sim50_best_ev";
+  if (roll < 0.24) return "sim50_strong_ev";
+  if (roll < 0.32) return "sim50_edge";
+  return "normal";
 }
 
 function mockProp(gameIdx: number, rng: () => number): MockPick {
@@ -146,7 +193,7 @@ function randomCoachTicket(legCount: number, rng: () => number): MockPick[] {
   let guard = 0;
   while (picks.length < legCount && guard++ < legCount * 30) {
     const gi = Math.floor(rng() * GAMES.length);
-    const wantGameLine = rng() > 0.4 && gameLineGames.size < GAMES.length;
+    const wantGameLine = rng() > 0.35 && gameLineGames.size < GAMES.length;
     if (wantGameLine && !gameLineGames.has(gi)) {
       gameLineGames.add(gi);
       picks.push(mockFrozenGameLine(gi, PICKS[gi % PICKS.length]!, rng));
@@ -157,52 +204,74 @@ function randomCoachTicket(legCount: number, rng: () => number): MockPick[] {
   return picks;
 }
 
-function assertProductionTicketIntegrity(picks: MockPick[]): void {
-  const canonical = assertProductionCoachTicketIntegrity(picks, undefined);
-  const summary = buildFrozenGameLineSummaryNote(canonical);
-  const hasGameLines = canonical.some((p) => !p.isProp && p.gameLineFinal?.frozenAt != null);
-
-  if (hasGameLines) {
-    assert.ok(summary.trim(), "game-line ticket must have frozen summary");
-    assert.equal(textHasPlaceholderGameLineMetrics(summary), false);
-    assertProductionCoachTicketIntegrity(canonical, summary);
-    assert.equal(summary.trim(), buildFrozenGameLineSummaryNote(canonical).trim());
+function assertValidationResult(result: CoachTicketValidationResult, ticketIdx: number): void {
+  if (!result.ok) {
+    const v = result.violations[0]!;
+    assert.fail(
+      `ticket #${ticketIdx} failed [${v.code}] ${v.message}${v.gameId ? ` gameId=${v.gameId}` : ""}`,
+    );
   }
 
-  const summaryPicks = parseFrozenSummaryGamePicks(summary);
-  const seenGames = new Set<string>();
-
-  for (const pick of canonical) {
-    if (pick.isProp) continue;
-    assertGameLineProductionMetadataComplete(pick);
-
-    const header = frozenGameLineHeader(pick);
-    const surfaces = frozenLegSurfaceLabels(pick);
-    assert.equal(surfaces.card, surfaces.slip, "card must match slip");
-    assert.equal(surfaces.card, surfaces.breakdown, "card must match breakdown");
-    assert.equal(surfaces.card, surfaces.share, "card must match share");
-
-    const gameKey = normGameKey(header.game);
-    assert.ok(!seenGames.has(gameKey), `duplicate game ${header.game}`);
-    seenGames.add(gameKey);
-
-    const summaryPick = summaryPicks.get(gameKey);
-    assert.ok(summaryPick, `summary missing ${header.game}`);
-    assert.equal(
-      summaryPick,
-      header.pick.toLowerCase().replace(/\s+/g, " ").trim(),
-      "summary pick must match card",
+  for (const audit of result.sub50GameLines) {
+    assert.ok(
+      audit.qualification.exceptional_edge,
+      `ticket #${ticketIdx} sub-50% line ${audit.pick} (${audit.game}) must log exceptional_edge`,
     );
-    assert.ok(header.market.trim(), "market required");
-    assert.ok(Number.isFinite(header.odds) && header.odds !== 0, "odds required");
+    assert.equal(audit.qualification.path, "exceptional_edge");
+    assert.ok(
+      audit.edgePct >= GAME_LINE_EXCEPTIONAL_EDGE_PCT,
+      `ticket #${ticketIdx} sub-50% line ${audit.pick} edge ${audit.edgePct}% < ${GAME_LINE_EXCEPTIONAL_EDGE_PCT}%`,
+    );
+    assert.ok(
+      audit.simPct < GAME_LINE_MIN_SIM_PCT,
+      `ticket #${ticketIdx} audit simPct ${audit.simPct} should be < ${GAME_LINE_MIN_SIM_PCT}`,
+    );
   }
 }
 
-test("10,000 AI Coach tickets: summary == cards == slip, no placeholders, complete metadata", () => {
+test("10,000 AI Coach tickets: surfaces aligned, complete metadata, sub-50% audit", () => {
   const rng = mulberry32(0xc0acf00d);
+  let sub50Legs = 0;
+  let ticketsWithSub50 = 0;
+
   for (let n = 0; n < 10_000; n++) {
     const legCount = 1 + Math.floor(rng() * 15);
     const picks = randomCoachTicket(legCount, rng);
-    assertProductionTicketIntegrity(picks);
+    const result = assertCoachTicketValidation(picks);
+    assertValidationResult(result, n);
+
+    if (result.sub50GameLines.length > 0) {
+      ticketsWithSub50 += 1;
+      sub50Legs += result.sub50GameLines.length;
+    }
   }
+
+  assert.ok(
+    ticketsWithSub50 > 100,
+    `expected meaningful sub-50% coverage across 10k tickets, got ${ticketsWithSub50} tickets / ${sub50Legs} legs`,
+  );
+});
+
+test("validateCoachTicket rejects sub-50% game line without exceptional edge", () => {
+  const bad = mockFrozenGameLine(1, "Angels +1.5", mulberry32(1), "normal");
+  bad.gameLineFinal!.display!.simHit = 0.49;
+  bad.gameLineFinal!.display!.simPct = 49;
+  bad.gameLineFinal!.display!.edgePct = 2.1;
+  bad.gameLineFinal!.display!.evPct = 2.5;
+  bad.finalAiScore!.simHit = 0.49;
+  bad.finalAiScore!.edgePct = 2.1;
+
+  const result = validateCoachTicket([bad]);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.violations.some((v) => v.code === "production_integrity" || v.code === "qualification_unexplained"),
+  );
+});
+
+test("explainGameLineQualification documents sim-50 best-EV path", () => {
+  const pick = mockFrozenGameLine(2, "Rays +1.5", mulberry32(2), "sim50_best_ev");
+  const reason = explainGameLineQualification(pick);
+  assert.equal(reason.path, "sim_at_50_best_ev");
+  assert.equal(reason.best_ev_line, true);
+  assert.equal(reason.simPct, 50);
 });

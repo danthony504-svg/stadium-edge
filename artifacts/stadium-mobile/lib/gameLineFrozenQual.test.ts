@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertGameLineFinalizeMetrics,
+  assertSub50GameLineQualificationExplained,
+  explainGameLineQualification,
   gameLineFrozenMetricsComplete,
   gameLineSimEdgeQualifies,
   GameLineFinalizeRejected,
@@ -104,4 +106,28 @@ test("gameLineSimEdgeQualifies enforces exceptional edge under 50% sim", () => {
   assert.equal(gameLineSimEdgeQualifies(0.49, 2), false);
   assert.equal(gameLineSimEdgeQualifies(0.49, GAME_LINE_EXCEPTIONAL_EDGE_PCT), true);
   assert.equal(gameLineSimEdgeQualifies(0.52, 1.2), true);
+});
+
+test("explainGameLineQualification logs exceptional_edge for sub-50% sim", () => {
+  const pick = mockFrozen({ simHit: 0.49, simPct: 49, edgePct: 5.1, evPct: 6 });
+  const reason = explainGameLineQualification(pick);
+  assert.equal(reason.path, "exceptional_edge");
+  assert.equal(reason.exceptional_edge, true);
+  assert.equal(reason.simPct, 49);
+  assert.match(reason.summary, /exceptional edge 5\.1%/);
+});
+
+test("explainGameLineQualification logs sim_at_50_strong_ev", () => {
+  const pick = mockFrozen({ simHit: 0.5, simPct: 50, edgePct: 2.2, evPct: 4.5 });
+  const reason = explainGameLineQualification(pick);
+  assert.equal(reason.path, "sim_at_50_strong_ev");
+  assert.equal(reason.strong_ev, true);
+});
+
+test("assertSub50GameLineQualificationExplained rejects 49% without exceptional edge", () => {
+  const pick = mockFrozen({ simHit: 0.49, simPct: 49, edgePct: 2.1, evPct: 2.5 });
+  assert.throws(
+    () => assertSub50GameLineQualificationExplained(pick),
+    /exceptional_edge|does not meet any qualification path/,
+  );
 });

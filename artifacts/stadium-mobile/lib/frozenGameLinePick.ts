@@ -45,6 +45,8 @@ export {
   spreadLineFromPickLabel,
   frozenGameLineSurface,
   assertGameLineProductionMetadataComplete,
+  explainGameLineQualification,
+  assertSub50GameLineQualificationExplained,
   textHasPlaceholderGameLineMetrics,
   assertNoPlaceholderGameLineMetrics,
   assertFrozenSummaryMetricsLinesComplete,
