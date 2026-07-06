@@ -77,7 +77,7 @@ export function analyzeFullSimulation(input: {
     .slice(0, 10)
     .map(([totalRuns, count]) => ({ totalRuns, pct: roundPct(count / n) }));
 
-  const spreadLines = evalLines.filter((l) => /spread/i.test(l.market));
+  const spreadLines = evalLines.filter((l) => l && /spread/i.test(l.market ?? ""));
   const coverFrequencies: CoverFrequency[] = spreadLines
     .map((line) => {
       const hit = gameSimHitForPick(
@@ -91,7 +91,7 @@ export function analyzeFullSimulation(input: {
     .sort((a, b) => b.hitPct - a.hitPct);
 
   const mainTotal = evalLines.find(
-    (l) => /^total$/i.test(l.market.trim()) && /\bover\b/i.test(l.pick),
+    (l) => l && /^total$/i.test((l.market ?? "").trim()) && /\bover\b/i.test(l.pick ?? ""),
   );
   let totalOverProb: number | null = null;
   let totalLine: number | null = null;
@@ -112,7 +112,7 @@ export function analyzeFullSimulation(input: {
   }
 
   const teamTotalProbs = evalLines
-    .filter((l) => /team total/i.test(l.market))
+    .filter((l) => l && /team total/i.test(l.market ?? ""))
     .map((line) => {
       const hit = gameSimHitForPick(
         { game: gameLabel, market: line.market, pick: line.pick, odds: line.odds, isProp: false },

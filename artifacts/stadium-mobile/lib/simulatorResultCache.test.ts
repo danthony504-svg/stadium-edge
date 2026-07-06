@@ -82,11 +82,11 @@ test("cache misses when TTL expired", () => {
 test("fingerprint helpers are stable", () => {
   const odds = fingerprintOddsLines([
     {
-      entry: { game: "A @ B", market: "Moneyline", pick: "B ML", odds: -120 },
-      pick: {} as never,
-      finalAiScore: {} as never,
-      winProb: null,
-      edgePct: null,
+      sport: "mlb",
+      game: "A @ B",
+      market: "Moneyline",
+      pick: "B ML",
+      odds: -120,
     },
   ]);
   assert.match(odds, /Moneyline\|B ML\|-120/);

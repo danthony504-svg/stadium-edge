@@ -1,5 +1,4 @@
-import type { GameSimulationResult } from "./api";
-import type { EvaluatedGameLine } from "./gameLineOptimizer";
+import type { GameSimulationResult, RealOddsEntry } from "./api";
 import type { GameInjuryReport } from "./injuries";
 
 /** Fresh for 3 minutes — middle of the 2–5 minute window users expect. */
@@ -27,9 +26,10 @@ export function simResultCacheKey(sport: string, gameId: string): string {
   return `${sport}:${gameId}`;
 }
 
-export function fingerprintOddsLines(lines: EvaluatedGameLine[]): string {
+export function fingerprintOddsLines(lines: RealOddsEntry[]): string {
   return lines
-    .map((l) => `${l.entry.market}|${l.entry.pick}|${l.entry.odds}`)
+    .filter((l): l is RealOddsEntry => !!l && typeof l.market === "string")
+    .map((l) => `${l.market}|${l.pick}|${l.odds}`)
     .sort()
     .join(";");
 }
