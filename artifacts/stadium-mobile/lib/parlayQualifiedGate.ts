@@ -436,6 +436,29 @@ export function filterMainTicketPicks(
   return out;
 }
 
+export class MainTicketQualificationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MainTicketQualificationError";
+  }
+}
+
+/** Throw when any leg on a main ticket fails the qualification gate. */
+export function assertMainTicketPicksQualified(
+  picks: ParsedPick[],
+  opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
+): void {
+  for (const pick of picks) {
+    if (!isFullyQualifiedPick(pick, opts)) {
+      const detail = reasonPickNotQualified(pick, opts);
+      const label = pick.isProp ? pick.player ?? pick.pick : pick.pick;
+      throw new MainTicketQualificationError(
+        `${label} (${pick.game}) — ${detail}`,
+      );
+    }
+  }
+}
+
 /** Negative-edge or sim-opposed legs for the optional longshot section only. */
 export function isLongshotSectionPick(pick: ParsedPick): boolean {
   const s = pick.finalAiScore;

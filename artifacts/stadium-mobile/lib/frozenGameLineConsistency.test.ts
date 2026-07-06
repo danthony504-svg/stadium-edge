@@ -15,6 +15,7 @@ import {
   canonicalizeFrozenGameLinePick,
   canonicalizeFrozenTicket,
   validateFrozenTicketForRender,
+  assertFrozenGameLineSummaryClean,
 } from "./frozenGameLineConsistency.ts";
 
 type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
@@ -302,4 +303,22 @@ test("validateFrozenTicketForRender passes when summary matches frozen cards", (
   const out = validateFrozenTicketForRender(picks, summary);
   assert.equal(out.length, 2);
   assert.equal(frozenGameLineHeader(out[0]!).pick, "Angels +1.5");
+});
+
+test("assertFrozenGameLineSummaryClean rejects legacy optimizer listings", () => {
+  const legacy =
+    "Boston Red Sox @ Los Angeles Angels: Sox -1.5 (Spread) — Final AI C+, sim 50%, edge —";
+  assert.throws(
+    () => assertFrozenGameLineSummaryClean(legacy),
+    FrozenGameLineConsistencyError,
+  );
+});
+
+test("assertFrozenGameLineSummaryClean rejects placeholder Final AI and edge dashes", () => {
+  const bad =
+    "• **Royals +2.5** (Alt Spread) · Philadelphia Phillies @ Kansas City Royals\nFinal AI — · Sim 51% · Edge +3.0% · Conf 55";
+  assert.throws(
+    () => assertFrozenGameLineSummaryClean(bad),
+    FrozenGameLineConsistencyError,
+  );
 });

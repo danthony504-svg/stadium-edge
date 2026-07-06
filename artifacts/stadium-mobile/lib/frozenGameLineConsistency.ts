@@ -4,6 +4,10 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { RealOddsEntry } from "./api.ts";
 import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
+import { gradeRank } from "./finalAiScore.ts";
+
+const MIN_SUMMARY_GRADE = "C+";
+const MIN_GAME_LINE_SUMMARY_CONFIDENCE = 50;
 
 function isGameLinePick(pick: { isProp?: boolean; market: string }): boolean {
   if (pick.isProp) return false;
@@ -149,10 +153,21 @@ export type FrozenGameLineRequiredMetrics = {
   confidencePct: number;
 };
 
-const PLACEHOLDER = /^[—-]+$/;
+const PLACEHOLDER = /^[—\-]+$/;
+const PLACEHOLDER_GRADE = /^(?:[—\-]+|--|n\/a|null)$/i;
 
 function isRealGrade(grade: string | null | undefined): grade is string {
-  return !!grade && grade.trim() !== "" && !PLACEHOLDER.test(grade.trim());
+  return (
+    !!grade &&
+    grade.trim() !== "" &&
+    !PLACEHOLDER.test(grade.trim()) &&
+    !PLACEHOLDER_GRADE.test(grade.trim()) &&
+    gradeRank(grade) >= gradeRank(MIN_SUMMARY_GRADE)
+  );
+}
+
+function isRealPositiveMetric(n: number | null | undefined): n is number {
+  return n != null && Number.isFinite(n) && n > 0;
 }
 
 /** Resolve the four metrics every game-line surface must show from frozen display + fallbacks. */
@@ -178,11 +193,10 @@ export function resolveFrozenGameLineMetrics(
     !isRealGrade(grade) ||
     simPct == null ||
     !Number.isFinite(simPct) ||
-    edgePct == null ||
-    !Number.isFinite(edgePct) ||
-    edgePct <= 0 ||
+    !isRealPositiveMetric(edgePct) ||
     confidencePct == null ||
-    !Number.isFinite(confidencePct)
+    !Number.isFinite(confidencePct) ||
+    confidencePct < MIN_GAME_LINE_SUMMARY_CONFIDENCE
   ) {
     return null;
   }
@@ -214,10 +228,27 @@ export function assertFrozenGameLineMetricsComplete(
 }
 
 function assertSummaryHasNoPlaceholderDashes(summary: string): void {
-  if (/Final AI\s*[—-]{1,2}|edge\s*[—-]{1,2}|sim\s*[—-]{1,2}|conf(?:idence)?\s*[—-]{1,2}/i.test(summary)) {
+  const LEGACY =
+    /highest Final AI Score among|posted ML \/ spread|:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*[—-]\s*Final AI|Final AI\s*[:—-]{1,2}(?:\s|,|$)|edge\s*[:—-]{1,2}(?:\s|,|$)|sim\s*[:—-]{1,2}(?:\s|,|$)|conf(?:idence)?\s*[:—-]{1,2}/i;
+  if (LEGACY.test(summary)) {
     throw new FrozenGameLineConsistencyError(
-      "Game-line summary contains placeholder dashes — build refused",
+      "Game-line summary contains placeholder dashes or legacy optimizer copy — build refused",
     );
+  }
+}
+
+/** Hard fail before storing or rendering a frozen game-line summary. */
+export function assertFrozenGameLineSummaryClean(summary: string): void {
+  if (!summary.trim()) return;
+  assertSummaryHasNoPlaceholderDashes(summary);
+  for (const line of summary.split(/\n/)) {
+    const t = line.trim();
+    if (!t || !/@/.test(t)) continue;
+    if (!/\*\*[^*]+\*\*/.test(t)) {
+      throw new FrozenGameLineConsistencyError(
+        "Game-line summary must use frozen pick format — legacy listing refused",
+      );
+    }
   }
 }
 
@@ -282,7 +313,7 @@ export function buildFrozenGameLineSummaryNote(
   if (!lines.length) return "";
   const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every line shows Final AI Grade, Simulation %, Edge %, and Confidence from the frozen pick:_`;
   const summary = `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
-  assertSummaryHasNoPlaceholderDashes(summary);
+  assertFrozenGameLineSummaryClean(summary);
   return summary;
 }
 
@@ -588,6 +619,7 @@ export function validateFrozenTicketForRender(
 
   assertAllFrozenGameLineMetrics(canonical, realOdds);
   const summary = gameLineSummary ?? buildFrozenGameLineSummaryNote(canonical, realOdds);
+  if (summary) assertFrozenGameLineSummaryClean(summary);
   assertFrozenTicketConsistency(canonical, summary);
   return canonical;
 }

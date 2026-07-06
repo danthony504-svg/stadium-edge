@@ -13,6 +13,8 @@ import {
   isLongshotMainTicketQualified,
   isMainTicketQualified,
   isPropMainTicketQualified,
+  assertMainTicketPicksQualified,
+  MainTicketQualificationError,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
   GAME_LINE_EXCEPTIONAL_EV_PCT,
@@ -428,4 +430,24 @@ test("pickHasCoachCardMetrics rejects pick with finalAi but no rubric composite"
 test("pickHasCoachCardMetrics accepts fully scored game line", () => {
   const pick = qualifiedPick();
   assert.equal(pickHasCoachCardMetrics(pick), true);
+});
+
+test("assertMainTicketPicksQualified throws for C- grade prop", () => {
+  const weak = qualifiedPick({
+    isProp: true,
+    player: "Michael Harris II",
+    market: "Player Prop",
+    pick: "Over 1.5 Total Bases",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C-",
+      confidencePct: 49,
+      simHit: 0.49,
+      simAligned: false,
+    },
+  });
+  assert.throws(
+    () => assertMainTicketPicksQualified([weak]),
+    MainTicketQualificationError,
+  );
 });

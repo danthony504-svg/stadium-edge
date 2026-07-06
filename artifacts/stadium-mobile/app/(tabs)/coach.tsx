@@ -69,6 +69,7 @@ import {
   freezeAllGameLinesInTicket,
   buildFrozenGameLineSummaryNote,
   validateFrozenTicketForRender,
+  assertFrozenGameLineSummaryClean,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   FrozenGameLineConsistencyError,
@@ -92,6 +93,8 @@ import {
   filterToQualifiedPicks,
   comparePickStrength,
   isFullyQualifiedPick,
+  assertMainTicketPicksQualified,
+  MainTicketQualificationError,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
 } from "@/lib/parlayQualified";
@@ -2628,6 +2631,12 @@ export default function CoachScreen() {
         }
         legNote = dedupeLegNoteParagraphs(legNote);
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
+        if (gameLineSummary) assertFrozenGameLineSummaryClean(gameLineSummary);
+        assertMainTicketPicksQualified(picks, {
+          realOdds: mergedGameOdds,
+          propPool: mergedPropPool,
+          longshotAsk,
+        });
         picks = validateFrozenTicketForRender(
           picks,
           gameLineSummary || undefined,
@@ -2681,6 +2690,11 @@ export default function CoachScreen() {
                   snapshotSummary || undefined,
                   mergedGameOdds,
                 );
+                assertMainTicketPicksQualified(merged, {
+                  realOdds: mergedGameOdds,
+                  propPool: mergedPropPool,
+                  longshotAsk,
+                });
                 patchLastAssistantPicks(setMessages, merged, {
                   gameLineSummary: snapshotSummary || undefined,
                 });
@@ -2698,6 +2712,11 @@ export default function CoachScreen() {
                   snapshotSummary || undefined,
                   mergedGameOdds,
                 );
+                assertMainTicketPicksQualified(merged, {
+                  realOdds: mergedGameOdds,
+                  propPool: mergedPropPool,
+                  longshotAsk,
+                });
                 patchLastAssistantPicks(setMessages, merged, {
                   gameLineSummary: snapshotSummary || undefined,
                 });
@@ -2733,7 +2752,9 @@ export default function CoachScreen() {
           const failMsg =
             e instanceof FrozenGameLineConsistencyError
               ? "I couldn't show that ticket — the summary and pick cards disagreed on a game line. That's blocked so you never see conflicting sides. Try building again."
-              : chatStreamFailureMessage(e);
+              : e instanceof MainTicketQualificationError
+                ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge). Try building again."
+                : chatStreamFailureMessage(e);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -3154,9 +3175,14 @@ export default function CoachScreen() {
                 {ticketPicks.length > 0 ? (
                   (() => {
                     try {
+                      assertMainTicketPicksQualified(ticketPicks);
+                      if (m.gameLineSummary) assertFrozenGameLineSummaryClean(m.gameLineSummary);
                       validateFrozenTicketForRender(ticketPicks, m.gameLineSummary);
                     } catch (e) {
-                      if (e instanceof FrozenGameLineConsistencyError) {
+                      if (
+                        e instanceof FrozenGameLineConsistencyError ||
+                        e instanceof MainTicketQualificationError
+                      ) {
                         return (
                           <View style={{ marginTop: 10, gap: 8 }}>
                             <Text
@@ -3167,8 +3193,9 @@ export default function CoachScreen() {
                                 lineHeight: 19,
                               }}
                             >
-                              I couldn&apos;t show that ticket — the optimizer summary and a game-line
-                              card disagreed on team, market, or line. Try building again.
+                              {e instanceof MainTicketQualificationError
+                                ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge)."
+                                : "I couldn't show that ticket — the optimizer summary and a game-line card disagreed on team, market, or line."}
                             </Text>
                           </View>
                         );

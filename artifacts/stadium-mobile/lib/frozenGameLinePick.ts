@@ -29,6 +29,7 @@ export {
   assertFrozenTicketConsistency,
   assertFrozenGameLineMetricsComplete,
   assertAllFrozenGameLineMetrics,
+  assertFrozenGameLineSummaryClean,
   composeFrozenGameLineLegNote,
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,

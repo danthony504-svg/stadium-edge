@@ -1010,7 +1010,7 @@ export function PickCard({
           <CoachPickMetrics pick={pick} />
           {!pick.isProp && isGameLinePick(pick) ? <GameLineWhyWon pick={pick} /> : null}
         </View>
-      ) : !pick.isProp && isGameLinePick(pick) ? null : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
+      ) : pick.finalAiScore && !pickHasCoachCardMetrics(pick) ? null : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
         <ScoreBreakdown
           data={(pick.scores ?? pick.finalAiScore?.rubric)!}
           variant="compact"

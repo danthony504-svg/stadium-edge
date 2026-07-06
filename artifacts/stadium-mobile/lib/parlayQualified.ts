@@ -40,6 +40,8 @@ export {
   resolvePickEdgePct,
   resolvePickExpectedValue,
   filterMainTicketPicks,
+  assertMainTicketPicksQualified,
+  MainTicketQualificationError,
 } from "./parlayQualifiedGate.ts";
 
 export { computePickFinalScore, GAME_LINE_FINAL_SCORE_WEIGHTS } from "./gameLineFinalScore.ts";
