@@ -1359,6 +1359,18 @@ export default function CoachScreen() {
         // only — never fabricated.
         const serverPropPool: PropPoolEntry[] = [];
 
+        const clearStreamProse = () => {
+          if (wantsAnalyzeSlip(trimmed)) return;
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === "assistant") {
+              copy[copy.length - 1] = { ...last, content: "" };
+            }
+            return copy;
+          });
+        };
+
         if (replay) {
           // Background-finished build: reuse the saved context + stashed reply.
           context = replay.context;
@@ -1368,6 +1380,8 @@ export default function CoachScreen() {
           full = replay.full;
           serverPropPool.push(...propPoolFromRealProps(replay.props));
           setWaiting(false);
+          // Stashed model prose must never sit in the bubble while picks score.
+          clearStreamProse();
         } else {
           const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
           const focalSports = focalSportsFromText(focalForPools);
@@ -1547,16 +1561,7 @@ export default function CoachScreen() {
             // Drop model optimizer prose immediately — the ticket is built from parsed
             // PICK lines + sim scoring, not streamed narrative. Prevents legacy
             // "Final AI — / edge —" listings from flashing during the scoring pass.
-            if (!isAnalyze) {
-              setMessages((prev) => {
-                const copy = [...prev];
-                const last = copy[copy.length - 1];
-                if (last?.role === "assistant") {
-                  copy[copy.length - 1] = { ...last, content: "" };
-                }
-                return copy;
-              });
-            }
+            clearStreamProse();
           } catch (streamErr: any) {
             const retryable =
               (isParlayBuild || useMlbSlatePath) &&
@@ -1584,6 +1589,7 @@ export default function CoachScreen() {
                     : ultraSlimChatContextForUpload(context);
             }
             full = await runStream(uploadContext);
+            clearStreamProse();
           }
           // Streamed to completion in-app — no background hand-off happened, so
           // drop the pending record and its eligibility flag.
@@ -3154,7 +3160,6 @@ export default function CoachScreen() {
             const hasTicketNote = !!(m.ticketNote?.trim() || m.gameLineSummary?.trim() || m.legNote?.trim());
             const safeContent =
               hasPicks || ticketPicks.length > 0 || hasTicketNote ? "" : m.content;
-            const hidePickReplyProse = hasPicks || ticketPicks.length > 0 || hasTicketNote;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -3210,8 +3215,7 @@ export default function CoachScreen() {
             // the cards carry everything. Also hide it while a parlay is building
             // (the AnalysisProgress card stands in) or while an analyze request is waiting.
             const showBubble =
-              ticketPicks.length === 0 &&
-              !hidePickReplyProse &&
+              !ticketRendered &&
               !isScoringParlay &&
               !m.hideBubble &&
               !m.statCard &&
