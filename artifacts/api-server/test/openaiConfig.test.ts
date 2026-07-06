@@ -139,7 +139,7 @@ test("chatReasoningEffort and chatUsesStreaming gate Replit-only params", () => 
       const config = resolveOpenAIConfig();
       assert.ok(!("error" in config));
       assert.equal(chatReasoningEffort(config), undefined);
-      assert.equal(chatUsesStreaming(config), false);
+      assert.equal(chatUsesStreaming(config), true);
     },
   );
 });

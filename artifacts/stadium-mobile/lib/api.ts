@@ -2937,7 +2937,8 @@ export async function buildPropPickContext(
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
   const sport = inferPropPickSport(focalText);
-  return buildChatContext([sport], [], signal, undefined, false, focalText, null, 4, false);
+  // 3-leg tier = smallest props/odds pool; enough for a 1–2 pick HR answer.
+  return buildChatContext([sport], [], signal, undefined, false, focalText, null, 3, false);
 }
 
 // Fetch live odds + games across the selected sports and assemble the real-data

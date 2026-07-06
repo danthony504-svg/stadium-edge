@@ -1432,7 +1432,7 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            slipImageVerdictOnly
+            slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
               : isParlayBuild &&
             !usePropsOnlyParlayPath &&

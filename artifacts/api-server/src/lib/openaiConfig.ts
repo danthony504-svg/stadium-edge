@@ -150,7 +150,9 @@ export function chatReasoningEffort(
 }
 
 export function chatUsesStreaming(config: ResolvedOpenAIConfig): boolean {
-  return config.provider !== "openai";
+  // Direct OpenAI supports SSE; streaming cuts time-to-first-token so cellular
+  // clients don't exhaust FIRST_TOKEN_MS while the model buffers a full reply.
+  return true;
 }
 
 function formatUpstreamError(e: unknown): { code?: string; message: string } {
