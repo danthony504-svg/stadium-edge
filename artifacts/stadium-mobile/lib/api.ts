@@ -2618,6 +2618,10 @@ type LightParlayOpts = {
   parallelSports?: boolean;
   /** Fetch prop boards for all candidate games concurrently. */
   parallelPropFetch?: boolean;
+  /** Float named teams/games to the front of the prop fetch queue. */
+  focalText?: string | null;
+  /** Restrict to local-calendar today when games qualify. */
+  tonightOnly?: boolean;
 };
 
 async function buildLightParlayContext(
@@ -2685,6 +2689,20 @@ async function buildLightParlayContext(
   if (!allOdds.length) return empty;
 
   allOdds.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
+  if (opts.tonightOnly) {
+    const tonight = allOdds.filter((g) => startsTodayUpcoming(g.commenceTime));
+    if (tonight.length) allOdds.splice(0, allOdds.length, ...tonight);
+  }
+  if (opts.focalText?.trim()) {
+    allOdds.sort((a, b) => {
+      const ga = `${a.awayTeam} @ ${a.homeTeam}`;
+      const gb = `${b.awayTeam} @ ${b.homeTeam}`;
+      const fa = gameMatchesFocalText(ga, opts.focalText) ? 1 : 0;
+      const fb = gameMatchesFocalText(gb, opts.focalText) ? 1 : 0;
+      if (fa !== fb) return fb - fa;
+      return Date.parse(a.commenceTime) - Date.parse(b.commenceTime);
+    });
+  }
   const gameMeta = buildGameMeta([...gamesBySport.values()].flat());
   const teamMetaById = new Map<string, { abbr: string | null; logo: string | null }>();
   for (const games of gamesBySport.values()) {
@@ -2832,7 +2850,7 @@ async function buildLightParlayContext(
       currentSlip: [],
       realGames: realGames.slice(0, 20),
       realOdds: realOdds.slice(0, opts.oddsSliceCap),
-      realProps: balancePropsByGame(realProps, opts.propsBalanceCap, null),
+      realProps: balancePropsByGame(realProps, opts.propsBalanceCap, opts.focalText ?? null),
     },
     propPool,
     gameMeta,
@@ -2928,17 +2946,35 @@ export async function buildMlbSlateContext(signal?: AbortSignal): Promise<BuiltC
 }
 
 /**
- * Superlative prop-pick asks ("best HR for Dodgers tonight") — one sport, light
- * parlay tier, focal teams prioritized. Avoids the all-sport full context POST
- * that connect-stalls on cellular.
+ * Superlative prop-pick asks ("best HR for Dodgers tonight") — one sport, lean
+ * light-parlay context with focal teams first. Avoids buildChatContext's heavier
+ * history/matchup fetches and the all-sport POST that connect-stalls on cellular.
  */
 export async function buildPropPickContext(
   focalText: string,
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
   const sport = inferPropPickSport(focalText);
-  // 3-leg tier = smallest props/odds pool; enough for a 1–2 pick HR answer.
-  return buildChatContext([sport], [], signal, undefined, false, focalText, null, 3, false);
+  const tonightOnly = wantsTodayOnly(focalText) || wantsTonightSlate(focalText);
+  const built = await buildLightParlayContext(signal, {
+    sports: [sport],
+    maxSports: 1,
+    maxPropGames: 4,
+    maxOddsGames: 10,
+    propsBalanceCap: 40,
+    oddsSliceCap: 12,
+    parallelPropFetch: true,
+    focalText,
+    tonightOnly,
+  });
+  const candidateStartTimes = [
+    ...built.context.realGames.map((g) => g.startsAt),
+    ...built.propPool.map((p) => p.startsAt),
+  ];
+  const todayOnly =
+    !wantsTomorrowOnly(focalText) &&
+    resolveTodayOnly(wantsTodayOnly(focalText), candidateStartTimes);
+  return { ...built, todayOnly, tomorrowOnly: false };
 }
 
 // Fetch live odds + games across the selected sports and assemble the real-data
