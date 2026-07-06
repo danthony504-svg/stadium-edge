@@ -177,19 +177,20 @@ function ScanProgressPanel({
   const longshots = meta?.longshotsAnalyzed ?? 0;
   const found = meta?.stealsFound ?? 0;
 
-  const lines = loading
+  const hasLiveScan = (meta?.marketsChecked ?? 0) > 0;
+  const lines = hasLiveScan
     ? [
-        { label: `Scanning: ${books} sportsbooks...`, done: step >= 1 },
-        { label: `${formatScanCount(markets || 2184)} markets checked`, done: step >= 2 },
-        { label: `${formatScanCount(longshots || 117)} longshots analyzed`, done: step >= 3 },
-        { label: `${found || 9} value steals found`, done: step >= 4 },
+        { label: `Scanning: ${books} sportsbooks...`, done: true },
+        { label: `${formatScanCount(markets)} markets checked`, done: true },
+        { label: `${formatScanCount(longshots)} longshots analyzed`, done: true },
+        { label: `${found} value steals found`, done: true },
       ]
-    : meta
+    : loading
       ? [
-          { label: `Scanning: ${books} sportsbooks...`, done: true },
-          { label: `${formatScanCount(markets)} markets checked`, done: true },
-          { label: `${formatScanCount(longshots)} longshots analyzed`, done: true },
-          { label: `${found} value steals found`, done: true },
+          { label: `Scanning: ${books} sportsbooks...`, done: step >= 1 },
+          { label: `${formatScanCount(markets || 2184)} markets checked`, done: step >= 2 },
+          { label: `${formatScanCount(longshots || 117)} longshots analyzed`, done: step >= 3 },
+          { label: `${found} value steals found`, done: step >= 4 },
         ]
       : [];
 
@@ -211,7 +212,7 @@ function ScanProgressPanel({
           </Text>
         </View>
       ))}
-      {!loading && meta ? (
+      {!loading && hasLiveScan ? (
         <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12, marginTop: 4 }}>
           Updating every 3 seconds…
         </Text>
@@ -298,7 +299,7 @@ function AlmostQualifiedCard({ near }: { near: NearMissSteal }) {
 const AnimatedG = Animated.createAnimatedComponent(G);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-function RadarScan({ children }: { children?: React.ReactNode }) {
+function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideFooter?: boolean }) {
   const colors = useColors();
   const size = 170;
   const c = size / 2;
@@ -351,10 +352,12 @@ function RadarScan({ children }: { children?: React.ReactNode }) {
         Hunting for steals...
       </Text>
       {children}
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
-        Scanning 20+ sportsbooks for longshots with real edge.{"\n"}
-        This may take a few seconds.
-      </Text>
+      {hideFooter ? null : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+          Scanning 20+ sportsbooks for longshots with real edge.{"\n"}
+          This may take a few seconds.
+        </Text>
+      )}
     </View>
   );
 }
@@ -680,15 +683,17 @@ export default function StealsScreen() {
           ))}
         </View>
 
-        {!awaitingFirstResponse && meta && showHuntingUi ? (
-          <ScanProgressPanel meta={meta} loading step={scanStep} />
+        {showHuntingUi ? (
+          <ScanProgressPanel
+            meta={meta}
+            loading={awaitingFirstResponse || query.isFetching}
+            step={scanStep}
+          />
         ) : null}
 
         {showHuntingUi ? (
-          <RadarScan>
-            {awaitingFirstResponse && !feedUnreachable ? (
-              <ScanProgressPanel meta={meta} loading step={scanStep} />
-            ) : feedUnreachable ? (
+          <RadarScan hideFooter>
+            {feedUnreachable ? (
               <View style={{ alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
                 <Feather name="wifi-off" size={18} color={STEAL_ACCENT} />
                 <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "center" }}>
@@ -701,7 +706,7 @@ export default function StealsScreen() {
                   <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12 }}>Retry now</Text>
                 </Pressable>
               </View>
-            ) : meta ? (
+            ) : meta && meta.marketsChecked > 0 ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
                 {formatScanCount(meta.marketsChecked)} markets checked · {meta.longshotsAnalyzed} longshots · rescanning every 3s
               </Text>
