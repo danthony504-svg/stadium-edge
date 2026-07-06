@@ -1,18 +1,40 @@
 import * as Updates from "expo-updates";
+import { addUpdatesStateChangeListener, latestContext } from "expo-updates";
 import { Feather } from "@expo/vector-icons";
+import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 
-/** Prompts the user when a prefetched OTA is ready — one tap applies it. */
+type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
+
+function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
+  return {
+    isUpdatePending: !!ctx?.isUpdatePending,
+    isDownloading: !!ctx?.isDownloading,
+  };
+}
+
+/**
+ * Prompts the user when a prefetched OTA is ready — one tap applies it.
+ * Uses the updates event listener instead of Updates.useUpdates() so a corrupt
+ * mid-session bundle cannot brick the app via a broken hook export.
+ */
 export function OtaUpdateBanner() {
   const insets = useSafeAreaInsets();
-  // Always call useUpdates unconditionally — conditional hook calls corrupt bundles.
-  const { isUpdatePending, isDownloading } = Updates.useUpdates();
+  const [ota, setOta] = useState<OtaUiState>(() => otaUiFromContext(latestContext));
+
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    const sub = addUpdatesStateChangeListener((event) => {
+      setOta(otaUiFromContext(event.context));
+    });
+    return () => sub.remove();
+  }, []);
 
   if (__DEV__ || !Updates.isEnabled) return null;
-  if (!isUpdatePending && !isDownloading) return null;
+  if (!ota.isUpdatePending && !ota.isDownloading) return null;
 
   const apply = () => {
     void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
@@ -32,7 +54,7 @@ export function OtaUpdateBanner() {
       }}
     >
       <Pressable
-        onPress={isUpdatePending ? apply : undefined}
+        onPress={ota.isUpdatePending ? apply : undefined}
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
@@ -43,21 +65,21 @@ export function OtaUpdateBanner() {
           paddingHorizontal: 14,
           maxWidth: 420,
           width: "100%",
-          opacity: pressed && isUpdatePending ? 0.9 : 1,
+          opacity: pressed && ota.isUpdatePending ? 0.9 : 1,
         })}
       >
-        <Feather name={isUpdatePending ? "download" : "refresh-cw"} size={16} color="#fff" />
+        <Feather name={ota.isUpdatePending ? "download" : "refresh-cw"} size={16} color="#fff" />
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
-            {isUpdatePending ? "App update ready" : "Downloading update…"}
+            {ota.isUpdatePending ? "App update ready" : "Downloading update…"}
           </Text>
           <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 11 }}>
-            {isUpdatePending
+            {ota.isUpdatePending
               ? "Tap to restart and load the latest Discover + Coach fixes."
               : "Keep the app open for a moment."}
           </Text>
         </View>
-        {isUpdatePending ? (
+        {ota.isUpdatePending ? (
           <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>Restart</Text>
         ) : null}
       </Pressable>

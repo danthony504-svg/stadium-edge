@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -27,6 +28,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const handleRestart = async () => {
     try {
+      await clearDiscoverCache();
       if (Updates.isEnabled) {
         await Updates.reloadAsync();
       } else {
