@@ -64,6 +64,7 @@ export {
   isPickable,
   isPregameBettable,
   isSimulatorEligible,
+  gameScoreboardLooksLive,
   startsTodayUpcoming,
   wantsTodayOnly,
   wantsTonightSlate,

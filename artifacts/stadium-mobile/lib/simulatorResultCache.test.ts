@@ -121,3 +121,19 @@ test("fingerprint helpers are stable", () => {
   assert.ok(isSimCacheFresh(Date.now()));
   assert.ok(!isSimCacheFresh(Date.now() - SIM_RESULT_TTL_MS - 5));
 });
+
+test("cache misses when pregameOnly is false", () => {
+  const fp = buildSimInputFingerprint({
+    odds: "ml|-150",
+    injuries: "",
+    weather: "",
+    lineups: "",
+  });
+  rememberGameSim("mlb", "live1", {
+    gameResult: sampleResult as GameSimulationResult,
+    ranAt: Date.now(),
+    fingerprint: fp,
+  });
+  assert.equal(getCachedGameSim("mlb", "live1", fp, { pregameOnly: false }), null);
+  assert.ok(getCachedGameSim("mlb", "live1", fp, { pregameOnly: true }));
+});

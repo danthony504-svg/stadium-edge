@@ -58,6 +58,15 @@ export function weatherSettingLabel(input: {
   return null;
 }
 
+/** Human label for when a pregame sim was run — never imply it updates live. */
+export function formatSimRanAt(ranAt: number | null | undefined): string | null {
+  if (ranAt == null || !Number.isFinite(ranAt)) return null;
+  const mins = Math.round((Date.now() - ranAt) / 60_000);
+  if (mins <= 1) return "Pregame projection · ran just now";
+  if (mins < 60) return `Pregame projection · ran ${mins}m ago`;
+  return `Pregame projection · ran ${new Date(ranAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
 export function recommendationSummaryLabel(rec: GameSimRecommendation | null): string {
   if (!rec) return "PASS — No positive expected value found.";
   switch (rec.tier) {

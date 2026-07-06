@@ -32,13 +32,56 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
+type ScoreboardGame = {
+  startsAt?: string | null;
+  state?: string | null;
+  status?: string | null;
+  homeScore?: number | null;
+  awayScore?: number | null;
+  period?: number | null;
+  clock?: string | null;
+  periodLabel?: string | null;
+};
+
+/**
+ * ESPN sometimes keeps `state: pre` briefly after first pitch while scores and
+ * inning/quarter clocks update. Treat those as live so we never show a stale
+ * pregame Monte Carlo as if it still applies mid-game.
+ */
+export function gameScoreboardLooksLive(
+  game: ScoreboardGame | null | undefined,
+): boolean {
+  if (!game) return false;
+  const period = game.period;
+  if (period != null && period > 0) return true;
+  const clock = String(game.clock ?? "").trim();
+  if (clock && clock !== "0:00" && clock !== "0.0") return true;
+  const pl = String(game.periodLabel ?? "").toLowerCase();
+  if (pl) {
+    if (pl.includes("final")) return true;
+    if (pl.includes("halftime") || pl === "ht") return true;
+    if (
+      /\b(top|bot|mid|end)\b/.test(pl) ||
+      pl.includes("inning") ||
+      /\bq[1-4]\b/.test(pl) ||
+      pl.includes("period") ||
+      pl.includes("half")
+    ) {
+      return true;
+    }
+  }
+  const t = Date.parse(game.startsAt ?? "");
+  if (Number.isFinite(t) && Date.now() >= t) {
+    const hs = game.homeScore ?? 0;
+    const as = game.awayScore ?? 0;
+    if (hs > 0 || as > 0) return true;
+  }
+  return false;
+}
+
 /** Game Simulator pool: pregame only — no in-progress or final games. */
 export function isSimulatorEligible(
-  game: {
-    startsAt?: string | null;
-    state?: string | null;
-    status?: string | null;
-  } | null | undefined,
+  game: ScoreboardGame | null | undefined,
 ): boolean {
   if (!game) return false;
   if (game.state === "post" || game.state === "in") return false;
@@ -51,6 +94,7 @@ export function isSimulatorEligible(
   ) {
     return false;
   }
+  if (gameScoreboardLooksLive(game)) return false;
   // ESPN often lags `state: pre` after first pitch — the clock is authoritative.
   if (!isPregameBettable(game.startsAt)) return false;
   return true;

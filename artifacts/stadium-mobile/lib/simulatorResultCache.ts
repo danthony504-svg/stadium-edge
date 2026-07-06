@@ -104,8 +104,10 @@ export function getCachedGameSim(
   sport: string,
   gameId: string,
   fingerprint: SimInputFingerprint,
-  ttlMs = SIM_RESULT_TTL_MS,
+  opts?: { ttlMs?: number; pregameOnly?: boolean },
 ): CachedGameSimResult | null {
+  if (opts?.pregameOnly === false) return null;
+  const ttlMs = opts?.ttlMs ?? SIM_RESULT_TTL_MS;
   const hit = cache.get(simResultCacheKey(sport, gameId));
   if (!hit) return null;
   if (!isSimCacheFresh(hit.ranAt, ttlMs)) return null;

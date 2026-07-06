@@ -98,3 +98,28 @@ test("isSimulatorEligible: pregame only — drops started, live, and final games
   assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "post" }), false);
   assert.equal(isSimulatorEligible({ startsAt: at(-3), state: "pre", status: "Final" }), false);
 });
+
+test("isSimulatorEligible: drops live scoreboard even when ESPN lags state pre", () => {
+  const started = at(-1);
+  assert.equal(
+    isSimulatorEligible({
+      startsAt: started,
+      state: "pre",
+      homeScore: 8,
+      awayScore: 1,
+      periodLabel: "Top 4th",
+    }),
+    false,
+  );
+  assert.equal(
+    isSimulatorEligible({
+      startsAt: started,
+      state: "pre",
+      homeScore: 0,
+      awayScore: 0,
+      period: 1,
+      clock: "12:00",
+    }),
+    false,
+  );
+});
