@@ -3284,26 +3284,14 @@ export default function CoachScreen() {
                         ticketPicks,
                         undefined,
                       );
-                      const displayNote = buildCoachTicketDisplayNote(
-                        canonicalPicks,
-                        m.legNote,
-                      );
                       const displaySummary = buildFrozenGameLineSummaryNote(canonicalPicks);
                       const hasGameLineLegs = canonicalPicks.some(
                         (p) => isGameLinePick(p) && !p.isProp,
                       );
                       if (hasGameLineLegs) {
-                        if (!displaySummary || !displayNote) {
+                        if (!displaySummary) {
                           throw new FrozenGameLineConsistencyError(
                             "Game-line ticket missing frozen optimizer summary",
-                          );
-                        }
-                        if (
-                          m.ticketNote?.trim() &&
-                          m.ticketNote.trim() !== displayNote.trim()
-                        ) {
-                          throw new FrozenGameLineConsistencyError(
-                            "Stored ticket note does not match frozen cards — refusing stale optimizer copy",
                           );
                         }
                         if (
@@ -3315,29 +3303,10 @@ export default function CoachScreen() {
                           );
                         }
                         assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);
-                        assertNoPlaceholderGameLineMetrics(displayNote);
                       }
                       assertMainTicketPicksQualified(canonicalPicks);
                       return (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {displayNote ? (
-                      <View
-                        style={{
-                          backgroundColor: colors.card,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          borderRadius: 12,
-                          paddingHorizontal: 12,
-                          paddingVertical: 10,
-                        }}
-                      >
-                        <ChatMarkdown
-                          text={displayNote}
-                          color={colors.foreground}
-                          mutedColor={colors.mutedForeground}
-                        />
-                      </View>
-                    ) : null}
                     {canonicalPicks.length > 1 ? (
                       <AddAllButton
                         picks={canonicalPicks}
