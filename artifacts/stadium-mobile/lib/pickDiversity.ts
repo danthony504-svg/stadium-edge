@@ -2,11 +2,11 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { comparePickStrength } from "./parlayQualifiedGate.ts";
 import {
   coachFinalScoresNear,
   compareCoachPicksByFinalScore,
   computeCoachFinalScore,
+  COACH_FINAL_SCORE_TIE_PCT,
 } from "./coachPickRanking.ts";
 import { parlayLegKey } from "./parlayVarietyMemory.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -18,13 +18,20 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Within this near-score band, prefer the pick that adds more variety. */
-export const DIVERSITY_SCORE_TIE_BAND = 0.35;
+/** Default exposure cap — max legs from one game unless reach relaxes. */
+export const DEFAULT_MAX_PER_GAME = 2;
+/** Default player cap — at most two props on the same athlete. */
+export const DEFAULT_MAX_PER_PLAYER = 2;
+
+/** Penalty scale for recent-leg / correlation deprioritization (quality can override). */
+const DIVERSITY_PENALTY_UNIT = COACH_FINAL_SCORE_TIE_PCT * 1000 * 15;
 
 /** Deprioritize a recently used leg unless quality clearly beats this gap. */
-const RECENT_LEG_PENALTY = DIVERSITY_SCORE_TIE_BAND * 1000 * 0.7;
+const RECENT_LEG_PENALTY = DIVERSITY_PENALTY_UNIT * 0.7;
 /** Deprioritize a recently used player prop unless quality clearly beats this gap. */
-const RECENT_PLAYER_PENALTY = DIVERSITY_SCORE_TIE_BAND * 1000 * 0.4;
+const RECENT_PLAYER_PENALTY = DIVERSITY_PENALTY_UNIT * 0.4;
+/** Penalize stacking highly correlated same-game props unless EV clearly justifies it. */
+const CORRELATION_STACK_PENALTY = DIVERSITY_PENALTY_UNIT * 0.85;
 
 export type PickDiversityCaps = {
   maxPerGame: number;
@@ -34,6 +41,8 @@ export type PickDiversityCaps = {
   maxGameLegs: number;
   /** Hard cap on standard spread legs — prevents spread-dominated tickets. */
   maxSpreadLegs: number;
+  /** Max legs from one sport when the board spans multiple leagues. */
+  maxPerSport: number;
 };
 
 /** Coarse market buckets for ticket mix quotas. */
@@ -57,8 +66,10 @@ export type PickDiversityState = {
   legSeen: Set<string>;
   bucketSeen: Set<string>;
   perGame: Map<string, number>;
-  perPlayer: Set<string>;
+  picksByGame: Map<string, ParsedPick[]>;
+  perPlayer: Map<string, number>;
   perTeam: Map<string, number>;
+  perSport: Map<string, number>;
   perMarketFamily: Map<string, number>;
   perMarketBucket: Map<MarketBucket, number>;
   gameLegs: number;
@@ -67,12 +78,13 @@ export type PickDiversityState = {
 export function defaultDiversityCaps(target: number): PickDiversityCaps {
   const spreadCap = Math.max(1, Math.floor(target * 0.30));
   return {
-    maxPerGame: target >= 12 ? 2 : target >= 8 ? 2 : target >= 5 ? 3 : 4,
-    maxPerPlayer: 1,
-    maxPerTeam: target >= 12 ? 2 : target >= 6 ? 2 : 3,
+    maxPerGame: DEFAULT_MAX_PER_GAME,
+    maxPerPlayer: DEFAULT_MAX_PER_PLAYER,
+    maxPerTeam: DEFAULT_MAX_PER_GAME,
     maxPerMarketFamily: Math.max(2, Math.min(target, Math.ceil(target * 0.45))),
     maxGameLegs: Math.max(2, Math.min(Math.ceil(target * 0.45), target - 2)),
     maxSpreadLegs: spreadCap,
+    maxPerSport: Math.max(2, Math.ceil(target * 0.65)),
   };
 }
 
@@ -149,8 +161,10 @@ export function createPickDiversityState(): PickDiversityState {
     legSeen: new Set(),
     bucketSeen: new Set(),
     perGame: new Map(),
-    perPlayer: new Set(),
+    picksByGame: new Map(),
+    perPlayer: new Map(),
     perTeam: new Map(),
+    perSport: new Map(),
     perMarketFamily: new Map(),
     perMarketBucket: new Map(),
     gameLegs: 0,
@@ -223,6 +237,100 @@ export function pickPlayerKey(pick: ParsedPick): string | null {
   return norm(pick.player);
 }
 
+function pickSportKey(pick: ParsedPick): string | null {
+  const s = pick.sport?.trim();
+  return s ? norm(s) : null;
+}
+
+type PropDirection = "over" | "under" | "yes" | "no" | "neutral";
+
+function propDirection(pick: ParsedPick): PropDirection {
+  const side = pick.propSide?.toLowerCase() ?? "";
+  if (side === "over" || side === "under" || side === "yes" || side === "no") {
+    return side;
+  }
+  const p = norm(pick.pick ?? "");
+  if (/\bover\b/.test(p)) return "over";
+  if (/\bunder\b/.test(p)) return "under";
+  if (/\byes\b/.test(p)) return "yes";
+  if (/\bno\b/.test(p)) return "no";
+  return "neutral";
+}
+
+function isComboStatMarket(market: string): boolean {
+  const m = norm(market);
+  return /\+|&|combo|pts.*reb|pts.*ast|reb.*ast|\bpra\b|\bpr\b|\bpa\b|\bra\b|double|triple/.test(m);
+}
+
+function isDirectionalStatProp(pick: ParsedPick): boolean {
+  if (!pick.isProp) return false;
+  const m = norm(pick.market);
+  return /point|rebound|assist|hit|home run|total base|pass|rush|rec|yard|goal|three|steal|block|save|shot/.test(
+    m,
+  );
+}
+
+/** True when two legs move together on the same game (same player, team, or lean). */
+export function picksHighlyCorrelated(a: ParsedPick, b: ParsedPick): boolean {
+  if (norm(a.game) !== norm(b.game)) return false;
+
+  const pa = pickPlayerKey(a);
+  const pb = pickPlayerKey(b);
+  if (pa && pb && pa === pb) return true;
+
+  const ta = pickTeamKey(a);
+  const tb = pickTeamKey(b);
+  const da = propDirection(a);
+  const db = propDirection(b);
+
+  if (a.isProp && b.isProp && ta && tb && ta === tb && da === db && da !== "neutral") {
+    if (isComboStatMarket(a.market) || isComboStatMarket(b.market)) return true;
+    if (isDirectionalStatProp(a) && isDirectionalStatProp(b)) return true;
+  }
+
+  if (!a.isProp && b.isProp && ta && tb && ta === tb) {
+    const fam = pickMarketFamily(a);
+    if (fam === "game:spread" || fam === "game:moneyline" || fam === "game:alt_spread") {
+      return true;
+    }
+  }
+  if (a.isProp && !b.isProp) return picksHighlyCorrelated(b, a);
+
+  return false;
+}
+
+/** Correlated stack is allowed when the new leg materially improves edge + Final Score. */
+export function correlationIncreasesExpectedValue(
+  pick: ParsedPick,
+  existing: ParsedPick,
+): boolean {
+  const edgePick = pick.finalAiScore?.edgePct ?? 0;
+  const edgeEx = existing.finalAiScore?.edgePct ?? 0;
+  const scorePick = computeCoachFinalScore(pick) ?? 0;
+  const scoreEx = computeCoachFinalScore(existing) ?? 0;
+  return (
+    edgePick >= edgeEx + 1.5 &&
+    scorePick > scoreEx &&
+    !coachFinalScoresNear(scorePick, scoreEx)
+  );
+}
+
+/** Penalty for stacking correlated same-game props unless EV clearly justifies it. */
+export function correlationStackPenalty(
+  pick: ParsedPick,
+  state: PickDiversityState,
+): number {
+  const gameKey = norm(pick.game);
+  const existing = state.picksByGame.get(gameKey) ?? [];
+  let penalty = 0;
+  for (const ex of existing) {
+    if (!picksHighlyCorrelated(pick, ex)) continue;
+    if (correlationIncreasesExpectedValue(pick, ex)) continue;
+    penalty += CORRELATION_STACK_PENALTY;
+  }
+  return penalty;
+}
+
 /** Penalty for repeating recent legs/players — quality can still override. */
 export function diversityPenalty(pick: ParsedPick, opts: PickDiversityOpts): number {
   let penalty = 0;
@@ -258,17 +366,29 @@ export function diversityAdjustedScore(pick: ParsedPick, opts: PickDiversityOpts
   return coach * 1000 - diversityPenalty(pick, opts);
 }
 
-/** Load on game / team / market family — lower is better for tie-breaks. */
+/** Load on game / team / sport / market family — lower is better for tie-breaks. */
 export function diversityLoadScore(pick: ParsedPick, state: PickDiversityState): number {
   const gameKey = norm(pick.game);
   const gameLoad = state.perGame.get(gameKey) ?? 0;
   const teamKey = pickTeamKey(pick);
   const teamLoad = teamKey ? (state.perTeam.get(teamKey) ?? 0) : 0;
+  const sportKey = pickSportKey(pick);
+  const sportLoad = sportKey ? (state.perSport.get(sportKey) ?? 0) : 0;
   const family = pickMarketFamily(pick);
   const marketLoad = state.perMarketFamily.get(family) ?? 0;
   const bucket = pickMarketBucket(pick);
   const bucketLoad = state.perMarketBucket.get(bucket) ?? 0;
-  return gameLoad * 100 + teamLoad * 40 + marketLoad * 15 + bucketLoad * 25;
+  const corrLoad = (state.picksByGame.get(gameKey) ?? []).filter((ex) =>
+    picksHighlyCorrelated(pick, ex),
+  ).length;
+  return (
+    gameLoad * 150 +
+    sportLoad * 60 +
+    teamLoad * 40 +
+    corrLoad * 35 +
+    marketLoad * 15 +
+    bucketLoad * 25
+  );
 }
 
 export function canAddPickDiversity(
@@ -283,9 +403,12 @@ export function canAddPickDiversity(
   const gameKey = norm(pick.game);
   if ((state.perGame.get(gameKey) ?? 0) >= caps.maxPerGame) return false;
 
+  const sportKey = pickSportKey(pick);
+  if (sportKey && (state.perSport.get(sportKey) ?? 0) >= caps.maxPerSport) return false;
+
   if (pick.isProp) {
     const playerKey = pickPlayerKey(pick);
-    if (playerKey && state.perPlayer.has(playerKey)) return false;
+    if (playerKey && (state.perPlayer.get(playerKey) ?? 0) >= caps.maxPerPlayer) return false;
     const teamKey = pickTeamKey(pick);
     if (teamKey && (state.perTeam.get(teamKey) ?? 0) >= caps.maxPerTeam) return false;
   }
@@ -315,10 +438,17 @@ export function addPickDiversityState(pick: ParsedPick, state: PickDiversityStat
   state.legSeen.add(fp);
   const gameKey = norm(pick.game);
   state.perGame.set(gameKey, (state.perGame.get(gameKey) ?? 0) + 1);
+  const gamePicks = state.picksByGame.get(gameKey) ?? [];
+  gamePicks.push(pick);
+  state.picksByGame.set(gameKey, gamePicks);
   const playerKey = pickPlayerKey(pick);
-  if (playerKey) state.perPlayer.add(playerKey);
+  if (playerKey) {
+    state.perPlayer.set(playerKey, (state.perPlayer.get(playerKey) ?? 0) + 1);
+  }
   const teamKey = pickTeamKey(pick);
   if (teamKey) state.perTeam.set(teamKey, (state.perTeam.get(teamKey) ?? 0) + 1);
+  const sportKey = pickSportKey(pick);
+  if (sportKey) state.perSport.set(sportKey, (state.perSport.get(sportKey) ?? 0) + 1);
   const family = pickMarketFamily(pick);
   state.perMarketFamily.set(family, (state.perMarketFamily.get(family) ?? 0) + 1);
   const marketBucket = pickMarketBucket(pick);
@@ -329,24 +459,33 @@ export function addPickDiversityState(pick: ParsedPick, state: PickDiversityStat
   }
 }
 
-/** Compare picks for ticket fill — strength first, variety on close scores. */
+/** Compare picks for ticket fill — strength first, variety on close Final Scores. */
 export function comparePicksWithDiversity(
   a: ParsedPick,
   b: ParsedPick,
   opts: PickDiversityOpts,
   state: PickDiversityState,
 ): number {
-  const scoreA = diversityAdjustedScore(a, opts);
-  const scoreB = diversityAdjustedScore(b, opts);
   const rawA = computeCoachFinalScore(a) ?? 0;
   const rawB = computeCoachFinalScore(b) ?? 0;
-  if (!coachFinalScoresNear(rawA, rawB) && Math.abs(scoreA - scoreB) > DIVERSITY_SCORE_TIE_BAND * 1000) {
-    return scoreB - scoreA;
+
+  // Quality first — diversity only when Coach Final Scores are within 1–2%.
+  if (!coachFinalScoresNear(rawA, rawB)) {
+    return compareCoachPicksByFinalScore(a, b);
   }
 
-  const penalizedA = diversityPenalty(a, opts);
-  const penalizedB = diversityPenalty(b, opts);
+  const gameA = state.perGame.get(norm(a.game)) ?? 0;
+  const gameB = state.perGame.get(norm(b.game)) ?? 0;
+  if (gameA !== gameB) return gameA - gameB;
+
+  const sportA = a.sport ? (state.perSport.get(norm(a.sport)) ?? 0) : 0;
+  const sportB = b.sport ? (state.perSport.get(norm(b.sport)) ?? 0) : 0;
+  if (sportA !== sportB) return sportA - sportB;
+
+  const penalizedA = diversityPenalty(a, opts) + correlationStackPenalty(a, state);
+  const penalizedB = diversityPenalty(b, opts) + correlationStackPenalty(b, state);
   if (penalizedA !== penalizedB) return penalizedA - penalizedB;
+
   const needA = quotaNeedScore(a, state, opts.quotas);
   const needB = quotaNeedScore(b, state, opts.quotas);
   if (needA !== needB) return needB - needA;
@@ -410,8 +549,9 @@ export function reachSelectDiverseQualified(
     {
       ...base,
       ...opts.caps,
-      maxPerGame: Math.max(base.maxPerGame + 1, opts.caps?.maxPerGame ?? base.maxPerGame),
+      maxPerGame: Math.min(target, Math.max(3, (opts.caps?.maxPerGame ?? base.maxPerGame) + 1)),
       maxPerTeam: Math.max(base.maxPerTeam + 1, opts.caps?.maxPerTeam ?? base.maxPerTeam),
+      maxPerSport: Math.min(target, base.maxPerSport + 1),
       maxPerMarketFamily: Math.max(
         base.maxPerMarketFamily + 2,
         opts.caps?.maxPerMarketFamily ?? base.maxPerMarketFamily,
@@ -422,17 +562,19 @@ export function reachSelectDiverseQualified(
       ),
     },
     {
-      maxPerGame: Math.min(target, 6),
-      maxPerPlayer: 1,
-      maxPerTeam: Math.min(target, 4),
+      maxPerGame: Math.min(target, 4),
+      maxPerPlayer: DEFAULT_MAX_PER_PLAYER,
+      maxPerTeam: Math.min(target, 3),
+      maxPerSport: Math.min(target, Math.ceil(target * 0.75)),
       maxPerMarketFamily: target,
       maxGameLegs: Math.min(target, base.maxGameLegs + 2),
       maxSpreadLegs: spreadHardMax,
     },
     {
       maxPerGame: target,
-      maxPerPlayer: target >= 12 ? 2 : 1,
+      maxPerPlayer: target >= 12 ? 3 : DEFAULT_MAX_PER_PLAYER,
       maxPerTeam: target,
+      maxPerSport: target,
       maxPerMarketFamily: target,
       maxGameLegs: target,
       maxSpreadLegs: spreadHardMax,

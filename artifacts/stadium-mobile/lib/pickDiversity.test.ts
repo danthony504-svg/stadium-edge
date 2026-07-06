@@ -6,10 +6,12 @@ import {
   createPickDiversityState,
   addPickDiversityState,
   defaultDiversityCaps,
+  DEFAULT_MAX_PER_GAME,
   defaultMarketQuotas,
   pickMarketBucket,
   pickMarketFamily,
   pickPlayerKey,
+  picksHighlyCorrelated,
   reachSelectDiverseQualified,
   selectDiverseQualifiedParlay,
 } from "./pickDiversity.ts";
@@ -62,11 +64,32 @@ function gameLine(pick: string, market: string, game: string, score: number): Pa
   };
 }
 
-test("canAddPickDiversity allows only one prop per player", () => {
+test("defaultDiversityCaps limits each game to two legs", () => {
+  const caps = defaultDiversityCaps(8);
+  assert.equal(caps.maxPerGame, DEFAULT_MAX_PER_GAME);
+  assert.equal(caps.maxPerPlayer, 2);
+});
+
+test("canAddPickDiversity allows up to two props per player", () => {
   const state = createPickDiversityState();
   const caps = defaultDiversityCaps(8);
-  const a = prop("Taylor Walls", "Stolen Bases", "Boston Red Sox @ Los Angeles Angels", 6.5);
-  const b = prop("Taylor Walls", "Hits", "Boston Red Sox @ Los Angeles Angels", 6.4);
+  const game = "Boston Red Sox @ Los Angeles Angels";
+  const a = prop("Taylor Walls", "Stolen Bases", game, 6.5);
+  const b = prop("Taylor Walls", "Hits", game, 6.4);
+  assert.equal(canAddPickDiversity(a, state, caps), true);
+  addPickDiversityState(a, state);
+  assert.equal(canAddPickDiversity(b, state, caps), true);
+  addPickDiversityState(b, state);
+  const c = prop("Taylor Walls", "Home Runs", game, 6.3);
+  assert.equal(canAddPickDiversity(c, state, caps), false);
+});
+
+test("canAddPickDiversity blocks a third prop on one player when capped at one", () => {
+  const state = createPickDiversityState();
+  const caps = { ...defaultDiversityCaps(8), maxPerPlayer: 1 };
+  const game = "Boston Red Sox @ Los Angeles Angels";
+  const a = prop("Taylor Walls", "Stolen Bases", game, 6.5);
+  const b = prop("Taylor Walls", "Hits", game, 6.4);
   assert.equal(canAddPickDiversity(a, state, caps), true);
   addPickDiversityState(a, state);
   assert.equal(canAddPickDiversity(b, state, caps), false);
@@ -85,14 +108,14 @@ test("selectDiverseQualifiedParlay limits legs from same game", () => {
   const picks = selectDiverseQualifiedParlay(candidates, 4, {
     target: 4,
     varietySeed: "test",
-    caps: { ...defaultDiversityCaps(4), maxPerGame: 2 },
+    caps: defaultDiversityCaps(4),
     quotas: defaultMarketQuotas(4),
   });
   const perGame = new Map<string, number>();
   for (const p of picks) {
     perGame.set(p.game, (perGame.get(p.game) ?? 0) + 1);
   }
-  assert.ok([...perGame.values()].every((n) => n <= 2));
+  assert.ok([...perGame.values()].every((n) => n <= DEFAULT_MAX_PER_GAME));
 });
 
 test("reachSelectDiverseQualified rotates market families on close scores", () => {
@@ -197,4 +220,39 @@ test("player appearance counts deprioritize frequent stars on close scores", () 
     playerAppearanceCounts: counts,
   });
   assert.equal(picks[0]?.player, "Juan Soto");
+});
+
+test("picksHighlyCorrelated flags same-team same-direction props", () => {
+  const game = "Golden State Valkyries @ Washington Mystics";
+  const a = prop("Kayla Thornton", "Pts+Reb", game, 6.1, "gsw");
+  const b = prop("Sonia Citron", "Points", game, 6.0, "gsw");
+  assert.equal(picksHighlyCorrelated(a, b), true);
+});
+
+test("selectDiverseQualifiedParlay prefers different game on near Final Score", () => {
+  const game = "Golden State Valkyries @ Washington Mystics";
+  const sameGameA = prop("Kayla Thornton", "Pts+Reb", game, 6.05, "gsw");
+  sameGameA.sport = "wnba";
+  sameGameA.finalAiScore!.edgePct = 3.1;
+  sameGameA.finalAiScore!.confidencePct = 56;
+  const sameGameB = prop("Sonia Citron", "Pts+Ast", game, 6.04, "gsw");
+  sameGameB.sport = "wnba";
+  sameGameB.finalAiScore!.edgePct = 3.05;
+  sameGameB.finalAiScore!.confidencePct = 55;
+  const otherGame = prop("A'ja Wilson", "Points", "Indiana Fever @ Las Vegas Aces", 6.03, "lv");
+  otherGame.sport = "wnba";
+  otherGame.finalAiScore!.edgePct = 3.0;
+  otherGame.finalAiScore!.confidencePct = 54;
+  const picks = selectDiverseQualifiedParlay([sameGameA, sameGameB, otherGame], 2, {
+    target: 2,
+    varietySeed: "spread-games",
+    caps: defaultDiversityCaps(2),
+    quotas: defaultMarketQuotas(2),
+  });
+  const perGame = new Map<string, number>();
+  for (const p of picks) {
+    perGame.set(p.game, (perGame.get(p.game) ?? 0) + 1);
+  }
+  assert.equal(perGame.get(game) ?? 0, 1);
+  assert.equal(picks.length, 2);
 });

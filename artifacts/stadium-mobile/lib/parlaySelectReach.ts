@@ -42,6 +42,7 @@ export function reachSelectQualifiedToTarget(
       maxPerMarketFamily: base.maxPerMarketFamily,
       maxGameLegs: opts?.maxGameLegs ?? mix.maxGameLegs,
       maxSpreadLegs: base.maxSpreadLegs,
+      maxPerSport: base.maxPerSport,
     },
   });
 }

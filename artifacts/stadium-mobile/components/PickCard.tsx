@@ -2139,7 +2139,7 @@ export function backfillProps(
     (target >= 12 ? 3 : target >= 8 ? 4 : target >= 5 ? 5 : 99);
   const maxPerGame =
     opts.maxPerGame ??
-    (target >= 12 ? 2 : target >= 8 ? 3 : target >= 5 ? 4 : 99);
+    (target >= 12 ? 2 : target >= 8 ? 2 : target >= 5 ? 2 : 99);
   const maxPerSport =
     opts.maxPerSport ??
     (target >= 12 ? Math.max(4, Math.ceil(target / 3)) : target >= 8 ? 6 : 99);

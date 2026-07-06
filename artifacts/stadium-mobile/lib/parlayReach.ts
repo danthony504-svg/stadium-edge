@@ -24,6 +24,7 @@ import {
   reachParlayMix,
   type ParlayLegReject,
 } from "./parlayReachCore.ts";
+import { DEFAULT_MAX_PER_GAME } from "./pickDiversity.ts";
 
 export type { ParlayLegReject } from "./parlayReachCore.ts";
 export {
@@ -143,7 +144,7 @@ export function replenishParlayToTarget(
     varietySeed: opts.varietySeed,
     avoidLegKeys: opts.avoidLegKeys,
     selectionOpts: opts.selectionOpts,
-    maxPerGame: target >= 12 ? 4 : undefined,
+    maxPerGame: target >= 12 ? DEFAULT_MAX_PER_GAME + 1 : DEFAULT_MAX_PER_GAME,
     maxPerMarket: target >= 12 ? 4 : undefined,
   };
 
