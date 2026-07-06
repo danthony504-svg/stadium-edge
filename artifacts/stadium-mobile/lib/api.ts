@@ -751,7 +751,7 @@ export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsRes
   // Steals scan fans out across every sport + prop games — allow a longer budget
   // than the default 12s so the first pass can finish instead of timing out forever.
   try {
-    const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 45_000);
+    const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 90_000);
     return {
       steals: data.steals ?? [],
       record: data.record ?? EMPTY_STEAL_RECORD,

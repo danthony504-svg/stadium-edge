@@ -618,6 +618,7 @@ export default function StealsScreen() {
     staleTime: 3_000,
     refetchInterval: (q) => {
       const d = q.state.data;
+      if (d?.feedDegraded) return 8_000;
       const found =
         (d?.steals?.length ?? 0) > 0 || (d?.almostQualified?.length ?? 0) > 0;
       if (found) return 3_000;

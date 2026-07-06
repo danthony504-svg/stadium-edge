@@ -45,26 +45,61 @@ export {
 } from "./liveStealsCore";
 
 // ── loopback fetch (reuse cached app routes; bypasses external quota) ────────
+const SPORT_FETCH_CONCURRENCY = 2;
+const PROPS_FETCH_CONCURRENCY = 3;
+const LOOPBACK_TIMEOUT_MS = 55_000;
+const EMPTY_SCAN_BACKOFF_MS = 20_000;
+
 function apiBase(): string {
   const port = process.env["PORT"];
   if (!port) return "http://127.0.0.1:8080/api";
   return `http://127.0.0.1:${port}/api`;
 }
-async function fetchJson<T>(path: string, timeoutMs = 25_000): Promise<T | null> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch(`${apiBase()}${path}`, {
-      headers: { "x-internal-call": "1" },
-      signal: ctrl.signal,
-    });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function loopbackGet<T>(path: string, attempts = 3): Promise<T | null> {
+  for (let i = 0; i < attempts; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), LOOPBACK_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${apiBase()}${path}`, {
+        headers: { "x-internal-call": "1" },
+        signal: ctrl.signal,
+      });
+      if (r.ok) return (await r.json()) as T;
+      const retryable = r.status === 429 || r.status >= 500;
+      if (!retryable || i === attempts - 1) {
+        await r.text().catch(() => {});
+        return null;
+      }
+      await r.text().catch(() => {});
+    } catch {
+      if (i === attempts - 1) return null;
+    } finally {
+      clearTimeout(timer);
+    }
+    await sleep(300 * 2 ** i + Math.floor(Math.random() * 150));
   }
+  return null;
+}
+
+async function pooledMap<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      out[idx] = await fn(items[idx]!);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 // Scan the slate for steals (cached FRESH_TTL_MS). Game-line steals are cheap
@@ -76,6 +111,7 @@ let freshCache: {
   meta: StealScanMeta;
   almostQualified: NearMissSteal[];
 } | null = null;
+let emptyScanUntil = 0;
 
 export type LiveStealsPayload = {
   steals: Steal[];
@@ -91,15 +127,23 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
       almostQualified: freshCache.almostQualified,
     };
   }
+  if (emptyScanUntil > Date.now() && freshCache) {
+    return {
+      steals: freshCache.steals,
+      meta: freshCache.meta,
+      almostQualified: freshCache.almostQualified,
+    };
+  }
   const now = Date.now();
 
+  const oddsPairs = await pooledMap(STEAL_SPORTS, SPORT_FETCH_CONCURRENCY, async (sport) => {
+    const rows = await loopbackGet<OddsRow[]>(`/sports/odds?sport=${sport}`);
+    return { sport, rows: Array.isArray(rows) ? rows.filter((g) => nearTerm(g.commenceTime, now)) : [] };
+  });
   const oddsBySport = new Map<string, OddsRow[]>();
-  await Promise.all(
-    STEAL_SPORTS.map(async (sport) => {
-      const rows = await fetchJson<OddsRow[]>(`/sports/odds?sport=${sport}`);
-      if (Array.isArray(rows)) oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
-    }),
-  );
+  for (const { sport, rows } of oddsPairs) {
+    if (rows.length > 0) oddsBySport.set(sport, rows);
+  }
 
   const bookSet = new Set<string>();
   let marketsChecked = 0;
@@ -124,13 +168,17 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     for (const g of oddsBySport.get(sport) ?? []) cands.push({ sport, g });
   }
   cands.sort((a, b) => Date.parse(a.g.commenceTime) - Date.parse(b.g.commenceTime));
-  const propGames = await Promise.all(
-    cands.slice(0, MAX_PROP_GAMES).map(async ({ sport, g }): Promise<PropGame> => {
-      const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
-      const r = await fetchJson<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
-      return { eventId: g.id, game: `${g.awayTeam} @ ${g.homeTeam}`, sport, startsAt: g.commenceTime, props: r?.props ?? [] };
-    }),
-  );
+  const propGames = await pooledMap(cands.slice(0, MAX_PROP_GAMES), PROPS_FETCH_CONCURRENCY, async ({ sport, g }) => {
+    const q = new URLSearchParams({ sport, eventId: g.id, home: g.homeTeam, away: g.awayTeam });
+    const r = await loopbackGet<{ props?: FeedProp[] }>(`/sports/props?${q.toString()}`);
+    return {
+      eventId: g.id,
+      game: `${g.awayTeam} @ ${g.homeTeam}`,
+      sport,
+      startsAt: g.commenceTime,
+      props: r?.props ?? [],
+    } satisfies PropGame;
+  });
   const propTally = tallyPropScan(propGames);
   marketsChecked += propTally.marketsChecked;
   longshotsAnalyzed += propTally.longshotsAnalyzed;
@@ -165,9 +213,11 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
   });
 
   const payload = { steals, meta, almostQualified };
-  // Don't cache empty scans — a cold odds feed should retry on the next request.
+  freshCache = { at: Date.now(), ...payload };
   if (marketsChecked > 0 || steals.length > 0) {
-    freshCache = { at: Date.now(), ...payload };
+    emptyScanUntil = 0;
+  } else {
+    emptyScanUntil = Date.now() + EMPTY_SCAN_BACKOFF_MS;
   }
   return payload;
 }
