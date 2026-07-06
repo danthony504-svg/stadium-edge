@@ -1,8 +1,8 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -211,7 +211,11 @@ function ScanProgressPanel({
       ))}
       {!loading && meta ? (
         <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12, marginTop: 4 }}>
-          Updating every 3 seconds...
+          Updating every 3 seconds…
+        </Text>
+      ) : loading ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 4 }}>
+          Scanning until a steal is found…
         </Text>
       ) : null}
     </View>
@@ -459,13 +463,23 @@ export default function StealsScreen() {
     queryKey: ["live-steals"],
     queryFn: ({ signal }) => getLiveSteals(signal),
     staleTime: 3_000,
-    refetchInterval: 3_000,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      const found =
+        (d?.steals?.length ?? 0) > 0 || (d?.almostQualified?.length ?? 0) > 0;
+      if (found) return 3_000;
+      if (q.state.error) return 5_000;
+      return 3_000;
+    },
+    retry: 3,
+    retryDelay: (attempt) => Math.min(4_000, 1_000 * 2 ** attempt),
   });
 
   const steals = query.data?.steals ?? [];
   const meta = query.data?.meta;
   const almostQualified = query.data?.almostQualified ?? [];
   const seasonStats = query.data?.seasonStats;
+  const hasResults = steals.length > 0 || almostQualified.length > 0;
   const filteredSteals = React.useMemo(
     () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
     [steals, sportFilter],
@@ -473,19 +487,28 @@ export default function StealsScreen() {
   const record: StealRecord =
     query.data?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
 
-  const scanning = query.isLoading && !query.data;
+  // Keep hunting until at least one qualified steal or near-miss surfaces.
+  const hunting = !hasResults;
+  const awaitingFirstResponse = query.isLoading && !query.data;
+  const showHuntingUi = hunting && !query.isError;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasResults) void query.refetch();
+    }, [hasResults, query.refetch]),
+  );
 
   useEffect(() => {
-    if (!scanning) {
+    if (!showHuntingUi) {
       setScanStep(4);
       return;
     }
     setScanStep(0);
     const id = setInterval(() => {
-      setScanStep((s) => (s >= 4 ? 4 : s + 1));
+      setScanStep((s) => (s >= 4 ? 0 : s + 1));
     }, 450);
     return () => clearInterval(id);
-  }, [scanning]);
+  }, [showHuntingUi, meta?.marketsChecked, meta?.longshotsAnalyzed]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -532,8 +555,8 @@ export default function StealsScreen() {
       >
         <SeasonRecordCard record={record} seasonStats={seasonStats} />
 
-        {!scanning && meta ? <ScanProgressPanel meta={meta} loading={false} step={4} /> : null}
-        {!scanning && meta ? <StealsFoundToday meta={meta} /> : null}
+      {!showHuntingUi && meta ? <ScanProgressPanel meta={meta} loading={false} step={4} /> : null}
+        {!showHuntingUi && meta ? <StealsFoundToday meta={meta} /> : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           <Pressable
@@ -616,9 +639,23 @@ export default function StealsScreen() {
           ))}
         </View>
 
-        {scanning ? (
+        {!awaitingFirstResponse && meta && showHuntingUi ? (
+          <ScanProgressPanel meta={meta} loading step={scanStep} />
+        ) : null}
+
+        {showHuntingUi ? (
           <RadarScan>
-            <ScanProgressPanel meta={meta} loading step={scanStep} />
+            {awaitingFirstResponse ? (
+              <ScanProgressPanel meta={meta} loading step={scanStep} />
+            ) : meta ? (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
+                {formatScanCount(meta.marketsChecked)} markets checked · {meta.longshotsAnalyzed} longshots · rescanning every 3s
+              </Text>
+            ) : (
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
+                Rescanning every 3s until a longshot with real edge surfaces…
+              </Text>
+            )}
           </RadarScan>
         ) : query.isError ? (
           <View style={{ paddingVertical: 50, alignItems: "center", gap: 12 }}>
@@ -647,17 +684,7 @@ export default function StealsScreen() {
                   LIVE STEALS · {steals.length}
                 </Text>
               </View>
-            ) : (
-              <View style={{ paddingVertical: 24, alignItems: "center", gap: 8 }}>
-                <Feather name="search" size={24} color={colors.mutedForeground} />
-                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-                  No qualified steals right now
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, textAlign: "center", lineHeight: 18 }}>
-                  The scan is live — longshots need a real cross-book edge to surface. Check back as lines move.
-                </Text>
-              </View>
-            )}
+            ) : null}
             {filteredSteals.map((s) => (
               <StealCard key={s.id} steal={s} />
             ))}

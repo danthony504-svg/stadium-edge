@@ -728,7 +728,9 @@ export type LiveStealsResponse = {
 };
 
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
-  const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal);
+  // Steals scan fans out across every sport + prop games — allow a longer budget
+  // than the default 12s so the first pass can finish instead of timing out forever.
+  const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 45_000);
   return {
     ...data,
     history: data.history ?? [],
