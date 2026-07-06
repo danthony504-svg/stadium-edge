@@ -5,7 +5,9 @@ import {
   findGameSteals,
   findPropSteals,
   inStealBand,
+  isNearMissSteal,
   nearTerm,
+  seasonStatsFromGraded,
   stealKey,
   NEAR_TERM_MS,
 } from "../src/lib/liveStealsCore.ts";
@@ -69,6 +71,23 @@ test("stealKey direct: eventId is part of identity", () => {
   const k1 = stealKey("mlb", "evt_game2", "Moneyline", "Minnesota Twins ML");
   const k2 = stealKey("mlb", "evt_game3", "Moneyline", "Minnesota Twins ML");
   assert.notEqual(k1, k2);
+});
+
+test("isNearMissSteal flags edge/EV just under thresholds", () => {
+  assert.equal(isNearMissSteal(0.8, 3), true);
+  assert.equal(isNearMissSteal(2, 1.8), true);
+  assert.equal(isNearMissSteal(2, 2.5), false);
+  assert.equal(isNearMissSteal(0.5, 1), false);
+});
+
+test("seasonStatsFromGraded computes ROI and average odds", () => {
+  const stats = seasonStatsFromGraded([
+    { price: 650, status: "win" },
+    { price: 600, status: "loss" },
+    { price: 700, status: "win" },
+  ]);
+  assert.ok(stats.avgOdds != null && stats.avgOdds > 600);
+  assert.ok(stats.roiPct != null);
 });
 
 test("nearTerm is PREGAME-only: started/in-progress/over games drop out of the live pool", () => {

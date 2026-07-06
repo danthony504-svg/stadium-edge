@@ -133,6 +133,115 @@ function passesGuards(edge: number | null, ev: number | null): boolean {
   return edge >= MIN_EDGE_PTS && edge <= MAX_EDGE_PTS && ev >= MIN_EV && ev <= MAX_EV;
 }
 
+/** Longshot in-band with positive edge that narrowly misses the steal guards. */
+export function isNearMissSteal(edge: number | null, ev: number | null): boolean {
+  if (edge == null || ev == null || edge <= 0) return false;
+  if (passesGuards(edge, ev)) return false;
+  const edgeClose = edge >= MIN_EDGE_PTS - 0.5 && edge < MIN_EDGE_PTS;
+  const evClose = ev >= MIN_EV - 0.5 && ev < MIN_EV;
+  const edgeOk = edge >= MIN_EDGE_PTS;
+  return (edgeClose && ev >= MIN_EV - 0.5) || (edgeOk && evClose);
+}
+
+export type StealScanMeta = {
+  booksScanned: number;
+  marketsChecked: number;
+  longshotsAnalyzed: number;
+  stealsFound: number;
+  sportCounts: Record<string, number>;
+  totalOpportunities: number;
+};
+
+export type NearMissSteal = Steal & {
+  neededEdgePct: number;
+  neededEvPct: number;
+};
+
+export function sportCountsForSteals(steals: Steal[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of steals) out[s.sport] = (out[s.sport] ?? 0) + 1;
+  return out;
+}
+
+export function tallyGameScan(rows: OddsRow[]): {
+  marketsChecked: number;
+  longshotsAnalyzed: number;
+  books: Set<string>;
+} {
+  const books = new Set<string>();
+  let marketsChecked = 0;
+  let longshotsAnalyzed = 0;
+  for (const g of rows) {
+    for (const m of g.markets) {
+      for (const o of m.outcomes) {
+        marketsChecked += 1;
+        if (inStealBand(o.price)) longshotsAnalyzed += 1;
+        for (const b of o.books ?? []) {
+          if (b.book) books.add(b.book);
+        }
+      }
+    }
+  }
+  return { marketsChecked, longshotsAnalyzed, books };
+}
+
+export function tallyPropScan(games: PropGame[]): { marketsChecked: number; longshotsAnalyzed: number } {
+  let marketsChecked = 0;
+  let longshotsAnalyzed = 0;
+  for (const pg of games) {
+    for (const p of pg.props) {
+      if (p.line == null) continue;
+      marketsChecked += 2;
+      if (inStealBand(p.overPrice)) longshotsAnalyzed += 1;
+      if (inStealBand(p.underPrice)) longshotsAnalyzed += 1;
+    }
+  }
+  return { marketsChecked, longshotsAnalyzed };
+}
+
+export function buildScanMeta(
+  steals: Steal[],
+  almostQualified: NearMissSteal[],
+  stats: { marketsChecked: number; longshotsAnalyzed: number; booksScanned: number },
+): StealScanMeta {
+  return {
+    booksScanned: stats.booksScanned,
+    marketsChecked: stats.marketsChecked,
+    longshotsAnalyzed: stats.longshotsAnalyzed,
+    stealsFound: steals.length,
+    sportCounts: sportCountsForSteals(steals),
+    totalOpportunities: steals.length + almostQualified.length,
+  };
+}
+
+export type GradedStealLike = {
+  price: number;
+  status: "win" | "loss" | "push";
+};
+
+export function seasonStatsFromGraded(history: GradedStealLike[]): {
+  roiPct: number | null;
+  avgOdds: number | null;
+} {
+  if (!history.length) return { roiPct: null, avgOdds: null };
+  let profit = 0;
+  let risk = 0;
+  let oddsSum = 0;
+  for (const h of history) {
+    risk += 100;
+    oddsSum += h.price;
+    if (h.status === "win") {
+      profit += h.price > 0 ? h.price : (100 / Math.abs(h.price)) * 100;
+    } else if (h.status === "loss") {
+      profit -= 100;
+    }
+  }
+  return {
+    roiPct: risk > 0 ? Math.round((profit / risk) * 1000) / 10 : null,
+    avgOdds: Math.round(oddsSum / history.length),
+  };
+}
+
 // ── odds / props feed shapes (subset we read) ───────────────────────────────
 export type OddsOutcome = {
   name: string;
@@ -140,6 +249,7 @@ export type OddsOutcome = {
   point: number | null;
   noVigFair?: number | null;
   edge?: number | null;
+  books?: Array<{ book: string; price: number; point?: number | null }>;
 };
 export type OddsRow = {
   id: string;
@@ -204,6 +314,42 @@ export function findGameSteals(rows: OddsRow[]): Steal[] {
   return out;
 }
 
+export function findNearMissGameSteals(rows: OddsRow[]): NearMissSteal[] {
+  const out: NearMissSteal[] = [];
+  for (const g of rows) {
+    const game = `${g.awayTeam} @ ${g.homeTeam}`;
+    for (const m of g.markets) {
+      const label = GAME_MARKET_LABEL[m.key];
+      if (!label) continue;
+      for (const o of m.outcomes) {
+        if (!inStealBand(o.price)) continue;
+        const ev = evPct(o.noVigFair, o.price);
+        if (!isNearMissSteal(o.edge ?? null, ev)) continue;
+        let pick: string;
+        if (m.key === "h2h") pick = `${o.name} ML`;
+        else if (m.key === "spreads") pick = o.point != null ? `${o.name} ${fmtSignedPoint(o.point)}` : `${o.name}`;
+        else pick = o.point != null ? `${o.name} ${o.point}` : `${o.name}`;
+        out.push({
+          id: stealKey(g.sport, g.id, label, pick),
+          sport: g.sport,
+          game,
+          market: label,
+          pick,
+          player: null,
+          price: o.price,
+          edge: o.edge ?? null,
+          ev,
+          fairProb: o.noVigFair ?? null,
+          startsAt: g.commenceTime,
+          neededEdgePct: MIN_EDGE_PTS,
+          neededEvPct: MIN_EV,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // Build steals from props: the longshot side is whichever side carries the EV
 // AND prices in-band. props.ts only computes ev/edge for MAIN lines (≤ +600).
 export function findPropSteals(games: PropGame[]): Steal[] {
@@ -229,6 +375,37 @@ export function findPropSteals(games: PropGame[]): Steal[] {
         ev,
         fairProb: p.fairProb ?? null,
         startsAt: pg.startsAt,
+      });
+    }
+  }
+  return out;
+}
+
+export function findNearMissPropSteals(games: PropGame[]): NearMissSteal[] {
+  const out: NearMissSteal[] = [];
+  for (const pg of games) {
+    for (const p of pg.props) {
+      if (p.line == null || !p.evSide) continue;
+      const sidePrice = p.evSide === "Over" ? p.overPrice : p.underPrice;
+      if (!inStealBand(sidePrice)) continue;
+      const ev = p.ev ?? evPct(p.fairProb ?? null, sidePrice);
+      if (!isNearMissSteal(p.edge ?? null, ev)) continue;
+      const label = propMarketLabel(p.market);
+      const pick = `${p.player} ${p.evSide} ${p.line} ${label}`;
+      out.push({
+        id: stealKey(pg.sport, pg.eventId, label, pick),
+        sport: pg.sport,
+        game: pg.game,
+        market: label,
+        pick,
+        player: p.player,
+        price: sidePrice as number,
+        edge: p.edge ?? null,
+        ev,
+        fairProb: p.fairProb ?? null,
+        startsAt: pg.startsAt,
+        neededEdgePct: MIN_EDGE_PTS,
+        neededEvPct: MIN_EV,
       });
     }
   }

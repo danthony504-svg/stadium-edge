@@ -687,6 +687,25 @@ export type StealRecord = {
   graded: number;
 };
 
+export type StealScanMeta = {
+  booksScanned: number;
+  marketsChecked: number;
+  longshotsAnalyzed: number;
+  stealsFound: number;
+  sportCounts: Record<string, number>;
+  totalOpportunities: number;
+};
+
+export type NearMissSteal = LiveSteal & {
+  neededEdgePct: number;
+  neededEvPct: number;
+};
+
+export type StealSeasonStats = {
+  roiPct: number | null;
+  avgOdds: number | null;
+};
+
 export type GradedSteal = {
   id: string;
   sport: string;
@@ -703,11 +722,20 @@ export type LiveStealsResponse = {
   steals: LiveSteal[];
   record: StealRecord;
   history: GradedSteal[];
+  meta?: StealScanMeta;
+  almostQualified?: NearMissSteal[];
+  seasonStats?: StealSeasonStats;
 };
 
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
   const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal);
-  return { ...data, history: data.history ?? [] };
+  return {
+    ...data,
+    history: data.history ?? [],
+    meta: data.meta,
+    almostQualified: data.almostQualified ?? [],
+    seasonStats: data.seasonStats,
+  };
 }
 
 export type GetPropsArgs = {

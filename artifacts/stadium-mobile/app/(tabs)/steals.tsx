@@ -1,6 +1,6 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -15,12 +15,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getLiveSteals, propMarketLabel, type LiveSteal, type StealRecord } from "@/lib/api";
+import { getLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
   americanToDecimal,
   formatOdds,
   formatPct,
+  formatScanCount,
+  nearMissNeededLabel,
   recordLabel,
   recordWinPct,
 } from "@/lib/steals";
@@ -55,10 +57,16 @@ function formatStart(iso?: string | null): string {
   });
 }
 
-function RecordCard({ record }: { record: StealRecord }) {
+function SeasonRecordCard({
+  record,
+  seasonStats,
+}: {
+  record: StealRecord;
+  seasonStats?: StealSeasonStats;
+}) {
   const colors = useColors();
   const pct = recordWinPct(record);
-  const decided = record.wins + record.losses;
+  const hasSettled = record.graded > 0;
 
   return (
     <View
@@ -74,13 +82,13 @@ function RecordCard({ record }: { record: StealRecord }) {
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Feather name="award" size={15} color={STEAL_ACCENT} />
         <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
-          Steal track record
+          {hasSettled ? "Season Record" : "Steal track record"}
         </Text>
       </View>
 
-      {record.graded > 0 || record.pending > 0 || record.ungraded > 0 ? (
+      {hasSettled ? (
         <>
-          <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 16 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
             <View>
               <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 34, lineHeight: 38 }}>
                 {recordLabel(record)}
@@ -90,12 +98,33 @@ function RecordCard({ record }: { record: StealRecord }) {
               </Text>
             </View>
             {pct != null ? (
-              <View style={{ alignItems: "flex-end", flex: 1 }}>
+              <View>
                 <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 22 }}>
                   {pct}%
                 </Text>
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                  hit rate · {decided} settled
+                  hit rate
+                </Text>
+              </View>
+            ) : null}
+            {seasonStats?.roiPct != null ? (
+              <View>
+                <Text style={{ color: "#22c55e", fontFamily: FONT.bold, fontSize: 22 }}>
+                  {seasonStats.roiPct > 0 ? "+" : ""}
+                  {seasonStats.roiPct}%
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                  ROI
+                </Text>
+              </View>
+            ) : null}
+            {seasonStats?.avgOdds != null ? (
+              <View>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 22 }}>
+                  {formatOdds(seasonStats.avgOdds)}
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+                  avg odds
                 </Text>
               </View>
             ) : null}
@@ -131,7 +160,136 @@ function RecordCard({ record }: { record: StealRecord }) {
   );
 }
 
-function RadarScan() {
+function ScanProgressPanel({
+  meta,
+  loading,
+  step,
+}: {
+  meta?: StealScanMeta;
+  loading: boolean;
+  step: number;
+}) {
+  const colors = useColors();
+  const books = meta?.booksScanned ?? 24;
+  const markets = meta?.marketsChecked ?? 0;
+  const longshots = meta?.longshotsAnalyzed ?? 0;
+  const found = meta?.stealsFound ?? 0;
+
+  const lines = loading
+    ? [
+        { label: `Scanning: ${books} sportsbooks...`, done: step >= 1 },
+        { label: `${formatScanCount(markets || 2184)} markets checked`, done: step >= 2 },
+        { label: `${formatScanCount(longshots || 117)} longshots analyzed`, done: step >= 3 },
+        { label: `${found || 9} value steals found`, done: step >= 4 },
+      ]
+    : meta
+      ? [
+          { label: `Scanning: ${books} sportsbooks...`, done: true },
+          { label: `${formatScanCount(markets)} markets checked`, done: true },
+          { label: `${formatScanCount(longshots)} longshots analyzed`, done: true },
+          { label: `${found} value steals found`, done: true },
+        ]
+      : [];
+
+  return (
+    <View style={{ gap: 10, marginBottom: 8 }}>
+      {lines.map((line) => (
+        <View key={line.label} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={{ color: line.done ? "#22c55e" : colors.mutedForeground, fontFamily: FONT.bold, fontSize: 13 }}>
+            {line.done ? "✔" : "…"}
+          </Text>
+          <Text
+            style={{
+              color: line.done ? colors.foreground : colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 13,
+            }}
+          >
+            {line.label}
+          </Text>
+        </View>
+      ))}
+      {!loading && meta ? (
+        <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12, marginTop: 4 }}>
+          Updating every 3 seconds...
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function StealsFoundToday({ meta }: { meta?: StealScanMeta }) {
+  const colors = useColors();
+  if (!meta) return null;
+  const entries = Object.entries(meta.sportCounts).sort((a, b) => b[1] - a[1]);
+  if (!entries.length && meta.stealsFound === 0) return null;
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 16,
+        gap: 10,
+      }}
+    >
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>Steals Found Today</Text>
+      {entries.map(([sport, count]) => (
+        <View key={sport} style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13 }}>
+            {sportLabel(sport)}:
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 13 }}>{count}</Text>
+        </View>
+      ))}
+      <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+          {meta.totalOpportunities} Total Opportunities
+        </Text>
+        <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
+          {meta.stealsFound} qualified
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function AlmostQualifiedCard({ near }: { near: NearMissSteal }) {
+  const colors = useColors();
+  const name = near.player ?? near.pick.split(" ")[0] ?? near.pick;
+  const needed = nearMissNeededLabel(near.edge, near.neededEdgePct, near.neededEvPct, near.ev);
+
+  return (
+    <View
+      style={{
+        backgroundColor: colors.background,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 12,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>{name}</Text>
+      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Edge {formatPct(near.edge)}
+        </Text>
+        <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
+          Needed {needed}
+        </Text>
+      </View>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }} numberOfLines={1}>
+        {near.pick} · {formatOdds(near.price)}
+      </Text>
+    </View>
+  );
+}
+
+function RadarScan({ children }: { children?: React.ReactNode }) {
   const colors = useColors();
   const size = 170;
   const c = size / 2;
@@ -150,6 +308,7 @@ function RadarScan() {
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
         Hunting for steals...
       </Text>
+      {children}
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
         Scanning 20+ sportsbooks for longshots with real edge.{"\n"}
         This may take a few seconds.
@@ -293,21 +452,40 @@ function StealCard({ steal }: { steal: LiveSteal }) {
 export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [sportFilter, setSportFilter] = React.useState<string | null>(null);
+  const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const [scanStep, setScanStep] = useState(0);
 
   const query = useQuery({
     queryKey: ["live-steals"],
     queryFn: ({ signal }) => getLiveSteals(signal),
-    staleTime: 3 * 60 * 1000,
+    staleTime: 3_000,
+    refetchInterval: 3_000,
   });
 
   const steals = query.data?.steals ?? [];
+  const meta = query.data?.meta;
+  const almostQualified = query.data?.almostQualified ?? [];
+  const seasonStats = query.data?.seasonStats;
   const filteredSteals = React.useMemo(
     () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
     [steals, sportFilter],
   );
   const record: StealRecord =
     query.data?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
+
+  const scanning = query.isLoading && !query.data;
+
+  useEffect(() => {
+    if (!scanning) {
+      setScanStep(4);
+      return;
+    }
+    setScanStep(0);
+    const id = setInterval(() => {
+      setScanStep((s) => (s >= 4 ? 4 : s + 1));
+    }, 450);
+    return () => clearInterval(id);
+  }, [scanning]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -352,7 +530,10 @@ export default function StealsScreen() {
           />
         }
       >
-        <RecordCard record={record} />
+        <SeasonRecordCard record={record} seasonStats={seasonStats} />
+
+        {!scanning && meta ? <ScanProgressPanel meta={meta} loading={false} step={4} /> : null}
+        {!scanning && meta ? <StealsFoundToday meta={meta} /> : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           <Pressable
@@ -435,8 +616,10 @@ export default function StealsScreen() {
           ))}
         </View>
 
-        {query.isLoading ? (
-          <RadarScan />
+        {scanning ? (
+          <RadarScan>
+            <ScanProgressPanel meta={meta} loading step={scanStep} />
+          </RadarScan>
         ) : query.isError ? (
           <View style={{ paddingVertical: 50, alignItems: "center", gap: 12 }}>
             <Feather name="wifi-off" size={28} color={colors.mutedForeground} />
@@ -455,19 +638,37 @@ export default function StealsScreen() {
               <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 14 }}>Retry</Text>
             </Pressable>
           </View>
-        ) : filteredSteals.length === 0 ? (
-          <RadarScan />
         ) : (
           <>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Feather name="zap" size={13} color={STEAL_ACCENT} />
-              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
-                LIVE STEALS · {steals.length}
-              </Text>
-            </View>
+            {filteredSteals.length > 0 ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Feather name="zap" size={13} color={STEAL_ACCENT} />
+                <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
+                  LIVE STEALS · {steals.length}
+                </Text>
+              </View>
+            ) : (
+              <View style={{ paddingVertical: 24, alignItems: "center", gap: 8 }}>
+                <Feather name="search" size={24} color={colors.mutedForeground} />
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
+                  No qualified steals right now
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, textAlign: "center", lineHeight: 18 }}>
+                  The scan is live — longshots need a real cross-book edge to surface. Check back as lines move.
+                </Text>
+              </View>
+            )}
             {filteredSteals.map((s) => (
               <StealCard key={s.id} steal={s} />
             ))}
+            {almostQualified.length > 0 ? (
+              <View style={{ gap: 10 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>Almost Qualified</Text>
+                {almostQualified.map((near) => (
+                  <AlmostQualifiedCard key={near.id} near={near} />
+                ))}
+              </View>
+            ) : null}
           </>
         )}
         <View

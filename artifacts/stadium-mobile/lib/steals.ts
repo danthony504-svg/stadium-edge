@@ -53,3 +53,15 @@ export function recordLabel(rec: StealRecord): string {
 export function americanToDecimal(american: number): number {
   return american > 0 ? american / 100 + 1 : 100 / -american + 1;
 }
+
+export function formatScanCount(n: number): string {
+  return n.toLocaleString();
+}
+
+/** Which guard the near-miss is short of — edge or EV threshold. */
+export function nearMissNeededLabel(edge: number | null, neededEdge: number, neededEv: number, ev: number | null): string {
+  const e = edge ?? 0;
+  const v = ev ?? 0;
+  if (e < neededEdge) return `+${neededEdge}%`;
+  return `+${neededEv}%`;
+}

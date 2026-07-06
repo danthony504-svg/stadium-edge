@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports";
-import { fetchSteals, persistSteals, gradePending, getRecord, getGradedHistory } from "../lib/liveSteals";
+import { fetchStealsWithMeta, persistSteals, gradePending, getRecord, getGradedHistory } from "../lib/liveSteals";
+import { seasonStatsFromGraded } from "../lib/liveStealsCore";
 
 // GET /api/sports/live-steals — the mobile "+500 Steals" feed: live/upcoming
 // longshot bets (American odds +500..+30000) carrying a REAL cross-book no-vig
@@ -18,7 +19,7 @@ const GRADE_THROTTLE_MS = 5 * 60 * 1000;
 
 router.get("/sports/live-steals", async (_req, res): Promise<void> => {
   try {
-    const steals = await fetchSteals();
+    const { steals, meta, almostQualified } = await fetchStealsWithMeta();
     // Capture freshly-seen steals (once) so they enter the graded ledger.
     await persistSteals(steals);
     // Best-effort, throttled grading backstop.
@@ -27,7 +28,8 @@ router.get("/sports/live-steals", async (_req, res): Promise<void> => {
       gradePending().catch(() => {});
     }
     const [record, history] = await Promise.all([getRecord(), getGradedHistory()]);
-    res.json({ steals, record, history });
+    const seasonStats = seasonStatsFromGraded(history);
+    res.json({ steals, record, history, meta, almostQualified, seasonStats });
   } catch {
     res.status(502).json({ error: "could not load steals" });
   }

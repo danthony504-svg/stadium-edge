@@ -4,6 +4,8 @@ import { gradeLegs, type GradeLeg } from "../routes/grade";
 import {
   findGameSteals,
   findPropSteals,
+  findNearMissGameSteals,
+  findNearMissPropSteals,
   nearTerm,
   FRESH_TTL_MS,
   GIVE_UP_MS,
@@ -11,10 +13,16 @@ import {
   MAX_STEALS,
   PROP_STEAL_SPORTS,
   STEAL_SPORTS,
+  tallyGameScan,
+  tallyPropScan,
+  buildScanMeta,
+  seasonStatsFromGraded,
   type FeedProp,
   type OddsRow,
   type PropGame,
   type Steal,
+  type StealScanMeta,
+  type NearMissSteal,
 } from "./liveStealsCore";
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -32,6 +40,8 @@ export {
   findGameSteals,
   findPropSteals,
   type Steal,
+  type StealScanMeta,
+  type NearMissSteal,
 } from "./liveStealsCore";
 
 // ── loopback fetch (reuse cached app routes; bypasses external quota) ────────
@@ -52,10 +62,27 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 // Scan the slate for steals (cached FRESH_TTL_MS). Game-line steals are cheap
 // (one cached odds call per sport); prop steals fan out per-event and are
 // bounded to the soonest MAX_PROP_GAMES games across all prop sports.
-let freshCache: { at: number; steals: Steal[] } | null = null;
+let freshCache: {
+  at: number;
+  steals: Steal[];
+  meta: StealScanMeta;
+  almostQualified: NearMissSteal[];
+} | null = null;
 
-export async function fetchSteals(): Promise<Steal[]> {
-  if (freshCache && Date.now() - freshCache.at < FRESH_TTL_MS) return freshCache.steals;
+export type LiveStealsPayload = {
+  steals: Steal[];
+  meta: StealScanMeta;
+  almostQualified: NearMissSteal[];
+};
+
+export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
+  if (freshCache && Date.now() - freshCache.at < FRESH_TTL_MS) {
+    return {
+      steals: freshCache.steals,
+      meta: freshCache.meta,
+      almostQualified: freshCache.almostQualified,
+    };
+  }
   const now = Date.now();
 
   const oddsBySport = new Map<string, OddsRow[]>();
@@ -66,10 +93,23 @@ export async function fetchSteals(): Promise<Steal[]> {
     }),
   );
 
-  const gameSteals: Steal[] = [];
-  for (const rows of oddsBySport.values()) gameSteals.push(...findGameSteals(rows));
+  const bookSet = new Set<string>();
+  let marketsChecked = 0;
+  let longshotsAnalyzed = 0;
+  for (const rows of oddsBySport.values()) {
+    const tally = tallyGameScan(rows);
+    marketsChecked += tally.marketsChecked;
+    longshotsAnalyzed += tally.longshotsAnalyzed;
+    for (const b of tally.books) bookSet.add(b);
+  }
 
-  // Pick the soonest prop-capable games across sports, capped, then fan out.
+  const gameSteals: Steal[] = [];
+  const nearGame: NearMissSteal[] = [];
+  for (const rows of oddsBySport.values()) {
+    gameSteals.push(...findGameSteals(rows));
+    nearGame.push(...findNearMissGameSteals(rows));
+  }
+
   type Cand = { sport: string; g: OddsRow };
   const cands: Cand[] = [];
   for (const sport of PROP_STEAL_SPORTS) {
@@ -83,9 +123,13 @@ export async function fetchSteals(): Promise<Steal[]> {
       return { eventId: g.id, game: `${g.awayTeam} @ ${g.homeTeam}`, sport, startsAt: g.commenceTime, props: r?.props ?? [] };
     }),
   );
-  const propSteals = findPropSteals(propGames);
+  const propTally = tallyPropScan(propGames);
+  marketsChecked += propTally.marketsChecked;
+  longshotsAnalyzed += propTally.longshotsAnalyzed;
 
-  // Merge, de-dupe by id (keep the higher EV), best EV first, cap.
+  const propSteals = findPropSteals(propGames);
+  const nearProp = findNearMissPropSteals(propGames);
+
   const byId = new Map<string, Steal>();
   for (const s of [...gameSteals, ...propSteals]) {
     const prev = byId.get(s.id);
@@ -95,7 +139,29 @@ export async function fetchSteals(): Promise<Steal[]> {
     .sort((a, b) => (b.ev ?? 0) - (a.ev ?? 0))
     .slice(0, MAX_STEALS);
 
-  freshCache = { at: Date.now(), steals };
+  const nearById = new Map<string, NearMissSteal>();
+  for (const s of [...nearGame, ...nearProp]) {
+    if (byId.has(s.id)) continue;
+    const prev = nearById.get(s.id);
+    if (!prev || (s.ev ?? 0) > (prev.ev ?? 0)) nearById.set(s.id, s);
+  }
+  const almostQualified = Array.from(nearById.values())
+    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
+    .slice(0, 12);
+
+  const booksScanned = bookSet.size > 0 ? bookSet.size : STEAL_SPORTS.length * 3;
+  const meta = buildScanMeta(steals, almostQualified, {
+    marketsChecked,
+    longshotsAnalyzed,
+    booksScanned,
+  });
+
+  freshCache = { at: Date.now(), steals, meta, almostQualified };
+  return { steals, meta, almostQualified };
+}
+
+export async function fetchSteals(): Promise<Steal[]> {
+  const { steals } = await fetchStealsWithMeta();
   return steals;
 }
 
