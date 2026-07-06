@@ -15,6 +15,10 @@ import {
 } from "./gameSimScoring.ts";
 import { simFavoredTeamSide } from "./gameSideConsistency.ts";
 import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
+import {
+  filterEvalLinesForProjectedMargin,
+  hasCompleteEvaluatedLine,
+} from "./gameSimQualityGates.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -242,14 +246,16 @@ function simForGame(
 /** Prefer sim-aligned lines with non-negative edge; high-risk value if sim-opposed. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
-  const eligible = ranked.filter((r) => {
+  const complete = ranked.filter(hasCompleteEvaluatedLine);
+  if (!complete.length) return null;
+  const eligible = complete.filter((r) => {
     if (r.finalAiScore.highRiskValuePlay) return true;
     if (!r.finalAiScore.simAligned) return false;
     const edge = r.edgePct;
     return edge == null || edge >= 0;
   });
   if (eligible.length) return bestGameLine(eligible);
-  const highRisk = ranked.filter((r) => r.finalAiScore.highRiskValuePlay);
+  const highRisk = complete.filter((r) => r.finalAiScore.highRiskValuePlay);
   if (highRisk.length) return bestGameLine(highRisk);
   return null;
 }
@@ -358,8 +364,9 @@ export function recommendBestLinesForGame(input: {
   matchupInjuries?: Record<string, GameInjuryReport>;
 }): GameLineRecommendations {
   const odds = mergeOddsEntries(input.realOdds ?? [], input.evalLines);
+  const evalLines = filterEvalLinesForProjectedMargin(input.evalLines, input.gameSim);
   const ranked = evaluateGameLines({
-    lines: input.evalLines,
+    lines: evalLines,
     gameSim: input.gameSim,
     realOdds: odds,
     matchupHistory: input.matchupHistory,
@@ -412,9 +419,13 @@ export function optimizeGameLinePicksToBestFinalAi(
   for (const pick of picks) {
     const bucket = bucketKeyForPick(pick);
     if (!bucket || bestByBucket.has(bucket)) continue;
-    const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
-    if (!evalLines.length) continue;
+    const evalLinesRaw = evalLinesForGame(pick.game, opts.evalLinesByGame);
+    if (!evalLinesRaw.length) continue;
     const sim = simForGame(pick.game, simByGame);
+    const evalLines = sim
+      ? filterEvalLinesForProjectedMargin(evalLinesRaw, sim)
+      : evalLinesRaw;
+    if (!evalLines.length) continue;
     const best = rankBestForBucket(pick, evalLines, sim, opts);
     if (best) bestByBucket.set(bucket, best);
   }
@@ -696,11 +707,12 @@ export function backfillGameLinesFromEvalScores(
   }
   for (const [game, lines] of byGame) {
     const sim = simForGame(game, simByGame);
+    const evalLines = sim ? filterEvalLinesForProjectedMargin(lines, sim) : lines;
     ranked.push(
       ...evaluateGameLines({
-        lines,
+        lines: evalLines,
         gameSim: sim,
-        realOdds: mergeOddsEntries(opts.realOdds, lines),
+        realOdds: mergeOddsEntries(opts.realOdds, evalLines),
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
       }),

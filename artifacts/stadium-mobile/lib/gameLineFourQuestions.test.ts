@@ -4,6 +4,7 @@ import {
   buildTeamFourQuestions,
   buildGameFourQuestions,
   fourQuestionsNoteForPick,
+  realOddsToGameLines,
 } from "./gameLineFourQuestions.ts";
 
 const sim = {
@@ -38,8 +39,8 @@ test("buildTeamFourQuestions answers all four questions", () => {
   });
   assert.equal(fq.questions.length, 4);
   assert.equal(fq.questions[0]!.question, "Does the team win?");
-  assert.equal(fq.questions[0]!.answer, "Yes");
-  assert.equal(fq.questions[1]!.answer, "Yes");
+  assert.equal(fq.questions[0]!.answer, "58%");
+  assert.match(fq.questions[1]!.answer, /Cover -1\.5: 54%/);
   assert.equal(fq.questions[2]!.answer, "54%");
   assert.equal(fq.questions[3]!.answer, "Yes");
 });
@@ -59,6 +60,55 @@ test("buildGameFourQuestions returns home and away", () => {
   });
   assert.equal(rows.length, 2);
   assert.equal(rows[1]!.team, "Home");
+});
+
+test("buildTeamFourQuestions resolves alt spread cover from sim", () => {
+  const fq = buildTeamFourQuestions({
+    gameLabel: "Philadelphia Phillies @ Kansas City Royals",
+    team: "Philadelphia Phillies",
+    teamSide: "away",
+    sim: {
+      sport: "mlb",
+      simulations: 10_000,
+      homeWinProbability: 0.499,
+      awayWinProbability: 0.501,
+      homeProjectedScore: 4.49,
+      awayProjectedScore: 4.5,
+      tieProbability: 0,
+      mostLikelyWinner: "away" as const,
+      mostLikelyWinnerPct: 0.501,
+      confidenceScore: 50,
+      coverHitRates: {
+        "philadelphia phillies @ kansas city royals|spread|philadelphia phillies +1.5": 0.61,
+      },
+    },
+    oddsLines: [
+      { market: "Spread", pick: "Philadelphia Phillies +1.5", odds: -145, edge: 2.4, noVigFair: 0.613 },
+      { market: "Alt Spread", pick: "Philadelphia Phillies +2.5", odds: -700, edge: null },
+    ],
+  });
+  assert.match(fq.questions[1]!.answer, /Cover \+1\.5: 61%/);
+  assert.match(fq.questions[3]!.detail ?? "", /Fair odds/);
+  assert.match(fq.questions[3]!.detail ?? "", /Sportsbook: -145/);
+  assert.match(fq.questions[3]!.detail ?? "", /Edge: \+2\.4%/);
+});
+
+test("realOddsToGameLines matches odds labels when ESPN and API names differ", () => {
+  const lines = realOddsToGameLines(
+    [
+      {
+        sport: "mlb",
+        game: "Philadelphia Phillies @ Kansas City Royals",
+        market: "Spread",
+        pick: "Philadelphia Phillies +1.5",
+        odds: -145,
+        edge: 2.4,
+      },
+    ],
+    "Phillies @ Royals",
+  );
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.pick, "Philadelphia Phillies +1.5");
 });
 
 test("fourQuestionsNoteForPick formats coach note", () => {

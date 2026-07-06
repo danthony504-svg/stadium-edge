@@ -8,15 +8,19 @@ import type { RealOddsEntry } from "./api.ts";
 import {
   GAME_SIM_MIN_HIT,
   buildGameCoverQuery,
-  gamePickCoverQueryId,
+  gameLabelsMatch,
+  gameSimHitForPick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { fairOddsFromProb } from "./gameSimQualityGates.ts";
+import { formatAmerican } from "./format.ts";
 
 export type GameOddsLine = {
   market: string;
   pick: string;
   odds: number;
   edge?: number | null;
+  noVigFair?: number | null;
 };
 
 export type FourQuestionAnswer = {
@@ -42,87 +46,134 @@ const PRICE_Q = "Is the price worth it?";
 
 function pct(n: number | null | undefined): string | null {
   if (n == null || !Number.isFinite(n)) return null;
-  return `${Math.round(n * 100)}%`;
+  return `${(n * 100).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
-function hitFromRates(
-  gameLabel: string,
-  market: string,
-  pick: string,
-  rates?: Record<string, number>,
-): number | null {
-  const id = gamePickCoverQueryId({
-    game: gameLabel,
-    market,
-    pick,
-    odds: 0,
-    isProp: false,
-  });
-  if (!id || !rates) return null;
-  const hit = rates[id];
-  return hit != null && Number.isFinite(hit) ? hit : null;
+const normTeam = (s: string) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+function teamMatchesPick(team: string, pick: string): boolean {
+  const t = normTeam(team);
+  const p = normTeam(pick);
+  if (!t || !p) return false;
+  if (p.startsWith(t) || t.startsWith(p)) return true;
+  const nick = (s: string) => {
+    const parts = normTeam(s).split(" ").filter(Boolean);
+    return parts[parts.length - 1] ?? "";
+  };
+  const tn = nick(team);
+  const pn = nick(pick);
+  if (tn.length > 2 && (p.includes(tn) || pn === tn)) return true;
+  const tokens = t.split(" ").filter((w) => w.length > 2);
+  return tokens.some((w) => p.includes(w));
+}
+
+function spreadPoints(pick: string): number | null {
+  const m = String(pick).match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function spreadLinesForTeam(lines: GameOddsLine[], team: string): GameOddsLine[] {
+  return lines.filter(
+    (l) => /spread/i.test(l.market) && teamMatchesPick(team, l.pick),
+  );
+}
+
+/** Prefer main spread at ±1.5; fall back to closest standard rung. */
+function bestSpreadLineForTeam(lines: GameOddsLine[], team: string): GameOddsLine | null {
+  const candidates = spreadLinesForTeam(lines, team);
+  if (!candidates.length) return null;
+  const main = candidates.filter((l) => /^spread$/i.test(l.market.trim()));
+  const pool = main.length ? main : candidates;
+  return pool.sort((a, b) => {
+    const da = Math.abs(Math.abs(spreadPoints(a.pick) ?? 99) - 1.5);
+    const db = Math.abs(Math.abs(spreadPoints(b.pick) ?? 99) - 1.5);
+    if (da !== db) return da - db;
+    return /^spread$/i.test(a.market) ? -1 : 1;
+  })[0]!;
 }
 
 function oddsLineForTeam(
   lines: GameOddsLine[],
-  gameLabel: string,
   team: string,
   market: string,
 ): GameOddsLine | null {
   const fam = market.toLowerCase();
+  if (fam.includes("spread")) return bestSpreadLineForTeam(lines, team);
   return (
     lines.find(
       (l) =>
-        l.market.toLowerCase().includes(fam) &&
-        l.pick.toLowerCase().startsWith(team.toLowerCase()),
+        l.market.toLowerCase().includes(fam) && teamMatchesPick(team, l.pick),
     ) ?? null
   );
 }
 
-function priceWorthItAnswer(edge: number | null | undefined, odds: number | null): FourQuestionAnswer {
-  if (edge == null || !Number.isFinite(edge)) {
-    return { question: PRICE_Q, answer: "Unknown", detail: "No posted line to score" };
-  }
-  const oddsStr = odds != null ? ` at ${odds > 0 ? `+${odds}` : odds}` : "";
-  if (edge >= 1) {
-    return {
-      question: PRICE_Q,
-      answer: "Yes",
-      detail: `+${edge}% no-vig edge${oddsStr}`,
-    };
-  }
-  if (edge > 0) {
-    return {
-      question: PRICE_Q,
-      answer: "Slight edge",
-      detail: `+${edge}% edge${oddsStr}`,
-    };
-  }
-  if (edge > -1) {
-    return { question: PRICE_Q, answer: "Fair", detail: `~market price${oddsStr}` };
-  }
-  return {
-    question: PRICE_Q,
-    answer: "No",
-    detail: `${edge}% edge — price looks rich${oddsStr}`,
-  };
+function simHitForLine(
+  gameLabel: string,
+  line: GameOddsLine | null,
+  sim?: CoachGameSimEntry | null,
+): number | null {
+  if (!line || !sim) return null;
+  return gameSimHitForPick(
+    {
+      game: gameLabel,
+      market: line.market,
+      pick: line.pick,
+      odds: line.odds,
+      isProp: false,
+    },
+    sim,
+  );
 }
 
-function winAnswer(hit: number | null): FourQuestionAnswer {
+function priceWorthItAnswer(
+  edge: number | null | undefined,
+  odds: number | null,
+  fairProb: number | null | undefined,
+): FourQuestionAnswer {
+  if (odds == null && edge == null) {
+    return { question: PRICE_Q, answer: "Unknown", detail: "No posted line to score" };
+  }
+  const fair = fairOddsFromProb(fairProb);
+  const parts: string[] = [];
+  if (fair != null) parts.push(`Fair odds: ${formatAmerican(fair)}`);
+  if (odds != null) parts.push(`Sportsbook: ${formatAmerican(odds)}`);
+  if (edge != null && Number.isFinite(edge)) {
+    parts.push(`Edge: ${edge > 0 ? "+" : ""}${edge}%`);
+  }
+  const detail = parts.length ? parts.join(" · ") : "No posted line to score";
+  if (edge == null || !Number.isFinite(edge)) {
+    return { question: PRICE_Q, answer: "Unknown", detail };
+  }
+  if (edge >= 1) return { question: PRICE_Q, answer: "Yes", detail };
+  if (edge > 0) return { question: PRICE_Q, answer: "Slight edge", detail };
+  if (edge > -1) return { question: PRICE_Q, answer: "Fair", detail };
+  return { question: PRICE_Q, answer: "No", detail };
+}
+
+function winAnswer(hit: number | null, simCount: number): FourQuestionAnswer {
   if (hit == null) {
     return { question: WIN_Q, answer: "Unknown", detail: "No sim data" };
   }
   const p = pct(hit)!;
+  const clears = Math.round(hit * simCount);
+  const freq = `${clears.toLocaleString()}/${simCount.toLocaleString()} sims`;
   if (hit >= GAME_SIM_MIN_HIT) {
-    return { question: WIN_Q, answer: "Yes", detail: `Wins in ${p} of 10,000 sims` };
+    return { question: WIN_Q, answer: p, detail: `Wins in ${freq}` };
   }
   if (hit <= 1 - GAME_SIM_MIN_HIT) {
-    return { question: WIN_Q, answer: "No", detail: `Wins in only ${p} of 10,000 sims` };
+    return { question: WIN_Q, answer: p, detail: `Wins in only ${freq}` };
   }
-  return { question: WIN_Q, answer: "Toss-up", detail: `Wins in ${p} of 10,000 sims` };
+  return { question: WIN_Q, answer: p, detail: `Toss-up — wins in ${freq}` };
 }
 
-function coverAnswer(hit: number | null, spreadPick: string | null): FourQuestionAnswer {
+function coverAnswer(hit: number | null, spreadPick: string | null, simCount: number): FourQuestionAnswer {
   if (spreadPick == null) {
     return { question: COVER_Q, answer: "—", detail: "No spread line posted" };
   }
@@ -130,20 +181,34 @@ function coverAnswer(hit: number | null, spreadPick: string | null): FourQuestio
     return { question: COVER_Q, answer: "Unknown", detail: spreadPick };
   }
   const p = pct(hit)!;
+  const clears = Math.round(hit * simCount);
   if (hit >= GAME_SIM_MIN_HIT) {
-    return { question: COVER_Q, answer: "Yes", detail: `${spreadPick} clears in ${p} of sims` };
+    return {
+      question: COVER_Q,
+      answer: `Cover ${spreadPick.replace(/^.*\s([+-]?\d+(?:\.\d+)?)\s*$/, "$1")}: ${p}`,
+      detail: `Clears in ${clears.toLocaleString()}/${simCount.toLocaleString()} sims`,
+    };
   }
-  return { question: COVER_Q, answer: "No", detail: `${spreadPick} clears in only ${p} of sims` };
+  return {
+    question: COVER_Q,
+    answer: `Cover ${spreadPick.replace(/^.*\s([+-]?\d+(?:\.\d+)?)\s*$/, "$1")}: ${p}`,
+    detail: `Clears in only ${clears.toLocaleString()}/${simCount.toLocaleString()} sims`,
+  };
 }
 
-function coverRateAnswer(hit: number | null, spreadPick: string | null): FourQuestionAnswer {
+function coverRateAnswer(hit: number | null, spreadPick: string | null, simCount: number): FourQuestionAnswer {
   if (spreadPick == null) {
     return { question: RATE_Q, answer: "—", detail: "No spread line posted" };
   }
   if (hit == null) {
     return { question: RATE_Q, answer: "Unknown", detail: spreadPick };
   }
-  return { question: RATE_Q, answer: pct(hit)!, detail: `${spreadPick} across 10,000 sims` };
+  const clears = Math.round(hit * simCount);
+  return {
+    question: RATE_Q,
+    answer: pct(hit)!,
+    detail: `${clears.toLocaleString()}/${simCount.toLocaleString()} sims on ${spreadPick}`,
+  };
 }
 
 /** Build the four-question breakdown for one team from shared sim + real odds. */
@@ -154,24 +219,24 @@ export function buildTeamFourQuestions(input: {
   sim?: CoachGameSimEntry | null;
   oddsLines?: GameOddsLine[];
 }): TeamFourQuestions {
-  const rates = input.sim?.coverHitRates;
-  const mlLine = oddsLineForTeam(input.oddsLines ?? [], input.gameLabel, input.team, "moneyline");
-  const spreadLine = oddsLineForTeam(input.oddsLines ?? [], input.gameLabel, input.team, "spread");
+  const simCount = input.sim?.simulations ?? 10_000;
+  const mlLine = oddsLineForTeam(input.oddsLines ?? [], input.team, "moneyline");
+  const spreadLine = oddsLineForTeam(input.oddsLines ?? [], input.team, "spread");
 
   const mlPick = mlLine?.pick ?? `${input.team} ML`;
   const mlHit =
-    hitFromRates(input.gameLabel, "Moneyline", mlPick, rates) ??
+    simHitForLine(input.gameLabel, mlLine, input.sim) ??
     (input.teamSide === "home"
       ? input.sim?.homeWinProbability ?? null
       : input.sim?.awayWinProbability ?? null);
 
   const spreadPick = spreadLine?.pick ?? null;
-  const spreadHit = spreadPick
-    ? hitFromRates(input.gameLabel, "Spread", spreadPick, rates)
-    : null;
+  const spreadHit = simHitForLine(input.gameLabel, spreadLine, input.sim);
 
-  const edgePct = spreadLine?.edge ?? mlLine?.edge ?? null;
-  const priceOdds = spreadLine?.odds ?? mlLine?.odds ?? null;
+  const priceLine = spreadLine ?? mlLine;
+  const edgePct = priceLine?.edge ?? spreadLine?.edge ?? mlLine?.edge ?? null;
+  const priceOdds = priceLine?.odds ?? null;
+  const fairProb = priceLine?.noVigFair ?? null;
 
   return {
     team: input.team,
@@ -181,10 +246,10 @@ export function buildTeamFourQuestions(input: {
     spreadPick,
     edgePct: edgePct ?? null,
     questions: [
-      winAnswer(mlHit),
-      coverAnswer(spreadHit, spreadPick),
-      coverRateAnswer(spreadHit, spreadPick),
-      priceWorthItAnswer(edgePct, priceOdds),
+      winAnswer(mlHit, simCount),
+      coverAnswer(spreadHit, spreadPick, simCount),
+      coverRateAnswer(spreadHit, spreadPick, simCount),
+      priceWorthItAnswer(edgePct, priceOdds, fairProb),
     ],
   };
 }
@@ -240,12 +305,13 @@ export function coverQueriesFromOddsLines(
 
 export function realOddsToGameLines(entries: RealOddsEntry[], gameLabel: string): GameOddsLine[] {
   return entries
-    .filter((e) => e.game === gameLabel)
+    .filter((e) => e.game === gameLabel || gameLabelsMatch(e.game, gameLabel))
     .map((e) => ({
       market: e.market,
       pick: e.pick,
       odds: e.odds,
       edge: e.edge ?? null,
+      noVigFair: e.noVigFair ?? null,
     }));
 }
 
