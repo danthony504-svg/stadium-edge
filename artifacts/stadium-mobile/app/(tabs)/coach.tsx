@@ -138,6 +138,7 @@ import {
   propsOnlySlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
+  ChatStreamError,
   type AltSign,
   type ChatContext,
   type ChatMessage,
@@ -976,9 +977,9 @@ export default function CoachScreen() {
       const processed: { uri: string; dataUrl: string }[] = [];
       for (const asset of picked) {
         if (!asset.uri) continue;
-        const actions = asset.width && asset.width > 1280 ? [{ resize: { width: 1280 } }] : [];
+        const actions = asset.width && asset.width > 1024 ? [{ resize: { width: 1024 } }] : [];
         const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
-          compress: 0.6,
+          compress: 0.55,
           format: ImageManipulator.SaveFormat.JPEG,
           base64: true,
         });
@@ -1314,6 +1315,16 @@ export default function CoachScreen() {
         } else {
           const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
           const focalSports = focalSportsFromText(focalForPools);
+          // Slip-photo verdict ("read this ticket") goes straight to the vision
+          // model — skip the 30s+ odds/props/matchup fan-out that was connect-
+          // stalling before /chat even opened on cellular.
+          const slipImageVerdictOnly =
+            hasOutgoingImages &&
+            !isParlayBuild &&
+            !wantsImproveSlip(trimmed) &&
+            !oddsThreshold &&
+            !confidenceThreshold &&
+            !includePeriods;
           const fastParlay = isParlayBuild && buildLegs > 0 && buildLegs <= MAX_LEGS;
           const genericParlayPath =
             fastParlay &&
@@ -1363,13 +1374,29 @@ export default function CoachScreen() {
             genericParlayPath ||
             useFocalSportParlayPath ||
             usePropsOnlyParlayPath;
-          const warmP = streamWarmBuild ? warmApiForCoachBuild(controller.signal) : Promise.resolve();
+          const warmP =
+            streamWarmBuild && !slipImageVerdictOnly
+              ? warmApiForCoachBuild(controller.signal)
+              : Promise.resolve();
           if (usePropsOnlyParlayPath) {
             // Props-only: wake cold autoscale BEFORE prop fan-out so /api/chat isn't
             // the first heavy hit after a 20s parallel props fetch.
             await warmP;
           }
-          const rawBuilt = useTinyParlayPath
+          const rawBuilt = slipImageVerdictOnly
+            ? {
+                context: {
+                  selectedSports: [],
+                  currentSlip: slipForContext,
+                  realGames: [],
+                  realOdds: [],
+                  realProps: [],
+                } satisfies ChatContext,
+                propPool: [] as PropPoolEntry[],
+                gameMeta: [] as GameMeta[],
+                todayOnly: false,
+              }
+            : useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
             : usePropsOnlyParlayPath
               ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
@@ -1391,7 +1418,9 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            isParlayBuild &&
+            slipImageVerdictOnly
+              ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
+              : isParlayBuild &&
             !usePropsOnlyParlayPath &&
             rawBuilt.propPool.length > 0 &&
             rawBuilt.context.realProps?.length
@@ -1438,7 +1467,9 @@ export default function CoachScreen() {
 
           let first = true;
           let uploadContext: ChatContext = context;
-          if (usePropsOnlyParlayPath) {
+          if (slipImageVerdictOnly) {
+            uploadContext = context;
+          } else if (usePropsOnlyParlayPath) {
             uploadContext = propsOnlySlimChatContextForUpload(context);
           } else if (isParlayBuild && buildLegs <= 3) {
             uploadContext = microSlimChatContextForUpload(context);
@@ -1455,10 +1486,11 @@ export default function CoachScreen() {
           }
           const parlayFirstTokenMs =
             buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
+          const visionFirstTokenMs = hasOutgoingImages ? 90_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
             first = true;
-            if (!usePropsOnlyParlayPath) await warmP;
-            else await warmApiForCoachBuild(controller.signal);
+            if (!usePropsOnlyParlayPath && !slipImageVerdictOnly) await warmP;
+            else if (slipImageVerdictOnly) await warmApiForCoachBuild(controller.signal);
             return streamChat({
               messages: apiMessages,
               context: streamContext,
@@ -1466,7 +1498,7 @@ export default function CoachScreen() {
               signal: controller.signal,
               notifyOnBackground: bg,
               buildId,
-              firstTokenMs: isParlayBuild ? parlayFirstTokenMs : undefined,
+              firstTokenMs: isParlayBuild ? parlayFirstTokenMs : visionFirstTokenMs,
               onProps: (rows: RealPropEntry[]) => {
                 serverPropPool.push(...propPoolFromRealProps(rows));
               },
@@ -2593,7 +2625,10 @@ export default function CoachScreen() {
             return copy;
           });
         } else if (e?.name !== "AbortError") {
-          const failMsg = chatStreamFailureMessage(e);
+          const failMsg =
+            hasOutgoingImages && !(e instanceof ChatStreamError)
+              ? "Sorry — I couldn't finish reading your slip photo. Check your connection and try again."
+              : chatStreamFailureMessage(e);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {

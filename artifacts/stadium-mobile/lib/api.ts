@@ -3923,6 +3923,8 @@ export async function streamChat({
       buildId || undefined,
     );
   }
+  const hasVisionImages =
+    Boolean(imageDataUrl) || (Array.isArray(imageDataUrls) && imageDataUrls.length > 0);
   const bodyStr = JSON.stringify({
     messages,
     ...(contextStashId ? { contextStashId } : { context }),
@@ -3934,7 +3936,7 @@ export async function streamChat({
   const bodyKB = bodyStr.length / 1024;
   const FIRST_TOKEN_MS =
     firstTokenMsOverride ??
-    (bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000);
+    (hasVisionImages ? 90_000 : bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000);
   // Max wait for response HEADERS. This must cover the time to UPLOAD the POST
   // body AND the server's time-to-first-byte. The body is NOT small for a build:
   // production logs show a multi-leg "tonight" context serializes to ~130KB and a
