@@ -19,7 +19,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
-import { Card, EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
+import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
   EspnGame,
