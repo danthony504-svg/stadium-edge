@@ -39,6 +39,9 @@ export {
   canonicalizeFrozenGameLinePick,
   canonicalizeFrozenTicket,
   validateFrozenTicketForRender,
+  assertSummaryCardSurfaceAlignment,
+  spreadLineFromPickLabel,
+  frozenGameLineSurface,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 

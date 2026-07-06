@@ -3,6 +3,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { RealOddsEntry } from "./api.ts";
+import { formatAmerican } from "./format.ts";
 import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import {
@@ -58,6 +59,71 @@ const normPickLabel = (s: string) =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+const normMarketLabel = (s: string) =>
+  String(s ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Spread / alt-spread line token from a pick label (e.g. "Yankees -1.5" → "-1.5"). */
+export function spreadLineFromPickLabel(label: string): string | null {
+  const m = String(label ?? "").trim().match(/([+-]\d+(?:\.\d+)?)\s*$/);
+  return m ? m[1]! : null;
+}
+
+export type FrozenGameLineSurface = {
+  gameId: string;
+  game: string;
+  market: string;
+  pick: string;
+  odds: number;
+  line: string | null;
+};
+
+/** Single frozen game-line object every surface must read. */
+export function frozenGameLineSurface(pick: ParsedPick): FrozenGameLineSurface {
+  const header = frozenGameLineHeader(pick);
+  return {
+    gameId: normGameLabel(header.game),
+    game: header.game,
+    market: header.market,
+    pick: header.pick,
+    odds: header.odds,
+    line: spreadLineFromPickLabel(header.pick),
+  };
+}
+
+function surfacesMatch(a: FrozenGameLineSurface, b: FrozenGameLineSurface): boolean {
+  return (
+    a.gameId === b.gameId &&
+    normPickLabel(a.pick) === normPickLabel(b.pick) &&
+    normMarketLabel(a.market) === normMarketLabel(b.market) &&
+    a.odds === b.odds &&
+    (a.line ?? "") === (b.line ?? "")
+  );
+}
+
+function logSurfaceMismatch(
+  gameId: string,
+  summary: FrozenGameLineSurface | GameLineMention,
+  card: FrozenGameLineSurface,
+): void {
+  console.error(`[game-line surface mismatch] gameId=${gameId}`, {
+    summary: {
+      market: "market" in summary ? summary.market : undefined,
+      pick: summary.pick,
+      odds: "odds" in summary ? summary.odds : undefined,
+      line: "line" in summary ? summary.line : spreadLineFromPickLabel(summary.pick),
+    },
+    card: {
+      market: card.market,
+      pick: card.pick,
+      odds: card.odds,
+      line: card.line,
+    },
+  });
+}
 
 export function isGameLineFrozen(pick: ParsedPick): boolean {
   return (
@@ -296,7 +362,7 @@ export function formatFrozenGameLineSummaryLine(
     );
   }
   const metrics = assertFrozenGameLineMetricsComplete(pick, realOdds);
-  const header = `**${row.pick}** (${row.market}) · ${row.game}`;
+  const header = `**${row.pick}** (${row.market}) · ${formatAmerican(row.odds)} · ${row.game}`;
   const metricsLine = `Final AI ${metrics.grade} · Sim ${metrics.simPct}% · Edge +${metrics.edgePct.toFixed(1)}% · Conf ${metrics.confidencePct}`;
   const bullets = pick.gameLineFinal.bullets ?? [];
   const why =
@@ -368,6 +434,8 @@ export type GameLineMention = {
   game: string;
   pick: string;
   market: string;
+  odds?: number;
+  line?: string | null;
 };
 
 /** Parse every game-line mention in legNote — frozen bullets and legacy optimizer lines. */
@@ -379,15 +447,35 @@ export function parseAllGameLineMentionsFromNote(note: string): Map<string, Game
     const trimmed = rawLine.trim().replace(/^[•*-]\s+/, "");
     if (!trimmed || !/@/.test(trimmed)) continue;
 
+    const frozenWithOdds = trimmed.match(
+      /\*\*([^*]+)\*\*\s*\(([^)]+)\)\s*·\s*([+-]?\d+)\s*·\s*(.+)$/,
+    );
+    if (frozenWithOdds) {
+      const game = frozenWithOdds[4]!.trim();
+      const gameKey = normGameLabel(game);
+      const pick = frozenWithOdds[1]!.trim();
+      out.set(gameKey, {
+        gameKey,
+        game,
+        pick,
+        market: frozenWithOdds[2]!.trim(),
+        odds: Number(frozenWithOdds[3]),
+        line: spreadLineFromPickLabel(pick),
+      });
+      continue;
+    }
+
     const frozen = trimmed.match(/\*\*([^*]+)\*\*\s*\(([^)]+)\)\s*·\s*(.+)$/);
     if (frozen) {
       const game = frozen[3]!.trim();
       const gameKey = normGameLabel(game);
+      const pick = frozen[1]!.trim();
       out.set(gameKey, {
         gameKey,
         game,
-        pick: frozen[1]!.trim(),
+        pick,
         market: frozen[2]!.trim(),
+        line: spreadLineFromPickLabel(pick),
       });
       continue;
     }
@@ -411,7 +499,7 @@ function looksLikeGameLineListing(text: string): boolean {
   const t = text.trim();
   if (!t || !/@/.test(t)) return false;
   if (/highest Final AI Score among/i.test(t)) return true;
-  if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*.+@/.test(t)) return true;
+    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*(?:[+-]?\d+\s*·\s*)?.+@/.test(t)) return true;
   if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
   if (/:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
   if (/Final AI\s*[:—-]/i.test(t) && /@/.test(t)) return true;
@@ -428,7 +516,7 @@ export function containsLegacyGameLineOptimizerCopy(text: string): boolean {
     const t = line.trim();
     if (!t) return false;
     // Frozen summary lines are always allowed.
-    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*.+@/.test(t)) return false;
+    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*(?:[+-]?\d+\s*·\s*)?.+@/.test(t)) return false;
     return looksLikeGameLineListing(t);
   });
 }
@@ -546,17 +634,36 @@ export function assertFrozenTicketConsistency(
         `Summary lists ${mention.pick} for ${mention.game} but no matching game-line card is on the ticket`,
       );
     }
+    const surface = frozenGameLineSurface(card);
+    const summarySurface: FrozenGameLineSurface = {
+      gameId: gameKey,
+      game: mention.game,
+      market: mention.market,
+      pick: mention.pick,
+      odds: mention.odds ?? surface.odds,
+      line: mention.line ?? spreadLineFromPickLabel(mention.pick),
+    };
+    if (!surfacesMatch(summarySurface, surface)) {
+      logSurfaceMismatch(gameKey, mention, surface);
+      const parts: string[] = [];
+      if (normPickLabel(mention.pick) !== normPickLabel(surface.pick)) {
+        parts.push(`pick summary="${mention.pick}" card="${surface.pick}"`);
+      }
+      if (normMarketLabel(mention.market) !== normMarketLabel(surface.market)) {
+        parts.push(`market summary="${mention.market}" card="${surface.market}"`);
+      }
+      if (mention.odds != null && mention.odds !== surface.odds) {
+        parts.push(`odds summary=${mention.odds} card=${surface.odds}`);
+      }
+      const mentionLine = mention.line ?? spreadLineFromPickLabel(mention.pick);
+      if ((mentionLine ?? "") !== (surface.line ?? "")) {
+        parts.push(`line summary="${mentionLine ?? ""}" card="${surface.line ?? ""}"`);
+      }
+      throw new FrozenGameLineConsistencyError(
+        `Summary vs card mismatch on gameId=${gameKey}: ${parts.join("; ")}`,
+      );
+    }
     const header = frozenGameLineHeader(card);
-    if (normPickLabel(mention.pick) !== normPickLabel(header.pick)) {
-      throw new FrozenGameLineConsistencyError(
-        `Summary vs card mismatch on ${header.game}: summary="${mention.pick}" card="${header.pick}"`,
-      );
-    }
-    if (normPickLabel(mention.market) !== normPickLabel(header.market)) {
-      throw new FrozenGameLineConsistencyError(
-        `Summary vs card market mismatch on ${header.game}: summary="${mention.market}" card="${header.market}"`,
-      );
-    }
     if (isOpposingTeamPick(header.game, mention.pick, header.pick)) {
       throw new FrozenGameLineConsistencyError(
         `Summary backs opposing side on ${header.game}: summary="${mention.pick}" card="${header.pick}"`,
@@ -658,6 +765,57 @@ export function canonicalizeFrozenTicket(picks: ParsedPick[]): ParsedPick[] {
 }
 
 /**
+ * Hard fail before render when summary bullets disagree with frozen card surfaces
+ * on market, pick, odds, or spread line. Logs gameId on mismatch.
+ */
+export function assertSummaryCardSurfaceAlignment(
+  picks: ParsedPick[],
+  gameLineSummary: string,
+): void {
+  if (!gameLineSummary.trim()) {
+    throw new FrozenGameLineConsistencyError(
+      "Game-line ticket missing optimizer summary — refusing render without frozen summary",
+    );
+  }
+  assertFrozenGameLineSummaryClean(gameLineSummary);
+  if (containsLegacyGameLineOptimizerCopy(gameLineSummary)) {
+    throw new FrozenGameLineConsistencyError(
+      "Legacy optimizer summary blocked — summary must match frozen gameLineFinal cards",
+    );
+  }
+
+  const cards = ticketGameLineCards(picks);
+  const mentioned = parseAllGameLineMentionsFromNote(gameLineSummary);
+  const rebuilt = buildFrozenGameLineSummaryNote(picks);
+  if (rebuilt.trim() !== gameLineSummary.trim()) {
+    for (const [gameKey, card] of cards) {
+      const mention = mentioned.get(gameKey);
+      const surface = frozenGameLineSurface(card);
+      if (!mention) {
+        console.error(`[game-line surface mismatch] gameId=${gameKey} missing from stored summary`);
+        continue;
+      }
+      const summarySurface: FrozenGameLineSurface = {
+        gameId: gameKey,
+        game: mention.game,
+        market: mention.market,
+        pick: mention.pick,
+        odds: mention.odds ?? surface.odds,
+        line: mention.line ?? spreadLineFromPickLabel(mention.pick),
+      };
+      if (!surfacesMatch(summarySurface, surface)) {
+        logSurfaceMismatch(gameKey, mention, surface);
+      }
+    }
+    throw new FrozenGameLineConsistencyError(
+      "Stored game-line summary does not match frozen cards — refusing stale optimizer copy",
+    );
+  }
+
+  assertFrozenTicketConsistency(picks, gameLineSummary);
+}
+
+/**
  * Canonicalize, build summary from frozen snapshots, and hard-fail when any
  * game-line card would disagree with the optimizer summary on team/market/line.
  */
@@ -672,7 +830,6 @@ export function validateFrozenTicketForRender(
 
   assertAllFrozenGameLineMetrics(canonical, realOdds);
   const summary = gameLineSummary ?? buildFrozenGameLineSummaryNote(canonical, realOdds);
-  if (summary) assertFrozenGameLineSummaryClean(summary);
-  assertFrozenTicketConsistency(canonical, summary);
+  assertSummaryCardSurfaceAlignment(canonical, summary);
   return canonical;
 }

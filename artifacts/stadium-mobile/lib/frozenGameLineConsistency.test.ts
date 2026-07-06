@@ -17,6 +17,9 @@ import {
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
   containsLegacyGameLineOptimizerCopy,
+  assertSummaryCardSurfaceAlignment,
+  spreadLineFromPickLabel,
+  frozenGameLineSurface,
 } from "./frozenGameLineConsistency.ts";
 
 type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
@@ -108,6 +111,7 @@ test("buildFrozenGameLineSummaryNote matches card header for every frozen leg", 
   const picks = [mockFrozenGameLine(0), mockFrozenGameLine(1), mockProp(0)];
   const summary = buildFrozenGameLineSummaryNote(picks);
   assert.match(summary, /\*\*Fever \+1\.5\*\*/);
+  assert.match(summary, /· \+115 ·/);
   assert.match(summary, /Final AI B\+ · Sim 54% · Edge \+3\.2% · Conf 58/);
   assert.doesNotMatch(summary, /Final AI\s*[—-]/);
   assert.doesNotMatch(summary, /edge\s*[—-]/i);
@@ -330,8 +334,35 @@ test("containsLegacyGameLineOptimizerCopy detects streamed model optimizer bulle
   assert.equal(containsLegacyGameLineOptimizerCopy(legacy), true);
   assert.equal(
     containsLegacyGameLineOptimizerCopy(
-      "• **Yankees -1.5** (Spread) · New York Yankees @ Tampa Bay Rays\nFinal AI B+ · Sim 52% · Edge +3.1% · Conf 55",
+      "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI B+ · Sim 52% · Edge +3.1% · Conf 55",
     ),
     false,
   );
+});
+
+test("assertSummaryCardSurfaceAlignment rejects Yankees summary vs Rays card", () => {
+  const cardPick = mockFrozenGameLine(2, { displayPick: "Rays +1", pick: "Rays +1" });
+  cardPick.gameLineFinal!.display!.market = "Alt Spread";
+  cardPick.gameLineFinal!.display!.odds = -166;
+  cardPick.market = "Alt Spread";
+  cardPick.odds = -166;
+  const staleSummary =
+    "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI C+ · Sim 49% · Edge +4.6% · Conf 55";
+  assert.throws(
+    () => assertSummaryCardSurfaceAlignment([cardPick], staleSummary),
+    /does not match frozen cards|mismatch on gameId/i,
+  );
+});
+
+test("assertSummaryCardSurfaceAlignment passes when summary matches frozen card surfaces", () => {
+  const pick = mockFrozenGameLine(2, { displayPick: "Rays +1", pick: "Rays +1" });
+  pick.gameLineFinal!.display!.market = "Alt Spread";
+  pick.gameLineFinal!.display!.odds = -166;
+  pick.market = "Alt Spread";
+  pick.odds = -166;
+  const summary = buildFrozenGameLineSummaryNote([pick]);
+  assert.doesNotThrow(() => assertSummaryCardSurfaceAlignment([pick], summary));
+  const surface = frozenGameLineSurface(pick);
+  assert.equal(surface.line, "+1");
+  assert.equal(spreadLineFromPickLabel("Yankees -1.5"), "-1.5");
 });

@@ -70,6 +70,7 @@ import {
   buildFrozenGameLineSummaryNote,
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
+  assertSummaryCardSurfaceAlignment,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   containsLegacyGameLineOptimizerCopy,
@@ -2650,18 +2651,17 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
+        picks = validateFrozenTicketForRender(picks, undefined, mergedGameOdds);
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
-        if (gameLineSummary) assertFrozenGameLineSummaryClean(gameLineSummary);
+        if (gameLineSummary) {
+          assertFrozenGameLineSummaryClean(gameLineSummary);
+          assertSummaryCardSurfaceAlignment(picks, gameLineSummary);
+        }
         assertMainTicketPicksQualified(picks, {
           realOdds: mergedGameOdds,
           propPool: mergedPropPool,
           longshotAsk,
         });
-        picks = validateFrozenTicketForRender(
-          picks,
-          gameLineSummary || undefined,
-          mergedGameOdds,
-        );
         const gameLineLegCount = picks.filter((p) => isGameLinePick(p) && !p.isProp).length;
         if (gameLineLegCount > 0 && !gameLineSummary) {
           throw new FrozenGameLineConsistencyError(
@@ -2699,7 +2699,6 @@ export default function CoachScreen() {
             perfByFamily: marketPerf,
           };
           const snapshot = picks;
-          const snapshotSummary = gameLineSummary;
           void loadPropSimulationsProgressive(
             snapshot,
             simOpts,
@@ -2711,20 +2710,21 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                const merged = validateFrozenTicketForRender(
-                  mergeTicketPreservingFrozenGameLines(snapshot, filtered),
-                  snapshotSummary || undefined,
-                  mergedGameOdds,
-                );
-                assertMainTicketPicksQualified(merged, {
+                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
+                const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
+                const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                if (rebuiltSummary) {
+                  assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                }
+                assertMainTicketPicksQualified(canonical, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, merged, {
-                  gameLineSummary: snapshotSummary || undefined,
+                patchLastAssistantPicks(setMessages, canonical, {
+                  gameLineSummary: rebuiltSummary || undefined,
                 });
-                setAiPicks(merged);
+                setAiPicks(canonical);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
@@ -2733,20 +2733,21 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                const merged = validateFrozenTicketForRender(
-                  mergeTicketPreservingFrozenGameLines(snapshot, filtered),
-                  snapshotSummary || undefined,
-                  mergedGameOdds,
-                );
-                assertMainTicketPicksQualified(merged, {
+                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
+                const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
+                const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
+                if (rebuiltSummary) {
+                  assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
+                }
+                assertMainTicketPicksQualified(canonical, {
                   realOdds: mergedGameOdds,
                   propPool: mergedPropPool,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(setMessages, merged, {
-                  gameLineSummary: snapshotSummary || undefined,
+                patchLastAssistantPicks(setMessages, canonical, {
+                  gameLineSummary: rebuiltSummary || undefined,
                 });
-                setAiPicks(merged);
+                setAiPicks(canonical);
               },
             },
             simController.signal,
@@ -3218,54 +3219,36 @@ export default function CoachScreen() {
                           "Legacy optimizer summary blocked — use frozen gameLineSummary only",
                         );
                       }
-                      const hasGameLineLegs = ticketPicks.some((p) => isGameLinePick(p) && !p.isProp);
-                      if (hasGameLineLegs && !m.gameLineSummary) {
+                      if (m.gameLineSummary && containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
                         throw new FrozenGameLineConsistencyError(
-                          "Game-line ticket missing frozen optimizer summary",
+                          "Legacy optimizer copy in gameLineSummary — render blocked",
                         );
                       }
-                      assertMainTicketPicksQualified(ticketPicks);
-                      if (m.gameLineSummary) {
-                        assertFrozenGameLineSummaryClean(m.gameLineSummary);
-                        if (containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
+                      const canonicalPicks = validateFrozenTicketForRender(ticketPicks, undefined);
+                      const displaySummary = buildFrozenGameLineSummaryNote(canonicalPicks);
+                      const hasGameLineLegs = canonicalPicks.some(
+                        (p) => isGameLinePick(p) && !p.isProp,
+                      );
+                      if (hasGameLineLegs) {
+                        if (!displaySummary) {
                           throw new FrozenGameLineConsistencyError(
-                            "Legacy optimizer copy in gameLineSummary — render blocked",
+                            "Game-line ticket missing frozen optimizer summary",
                           );
                         }
+                        if (
+                          m.gameLineSummary?.trim() &&
+                          m.gameLineSummary.trim() !== displaySummary.trim()
+                        ) {
+                          throw new FrozenGameLineConsistencyError(
+                            "Stored game-line summary does not match frozen cards — refusing stale optimizer copy",
+                          );
+                        }
+                        assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);
                       }
-                      validateFrozenTicketForRender(ticketPicks, m.gameLineSummary);
-                    } catch (e) {
-                      if (
-                        e instanceof FrozenGameLineConsistencyError ||
-                        e instanceof MainTicketQualificationError ||
-                        e instanceof GameLineFinalizeRejected
-                      ) {
-                        return (
-                          <View style={{ marginTop: 10, gap: 8 }}>
-                            <Text
-                              style={{
-                                color: colors.destructive,
-                                fontFamily: FONT.medium,
-                                fontSize: 13,
-                                lineHeight: 19,
-                              }}
-                            >
-                              {e instanceof MainTicketQualificationError
-                                ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge)."
-                                : e instanceof GameLineFinalizeRejected
-                                  ? "I couldn't finalize a game line — every selected line needs Final AI Grade, Confidence, Sim %, and Edge. Sub-50% sim lines require edge ≥ 4.5%."
-                                  : m.content && containsLegacyGameLineOptimizerCopy(m.content)
-                                    ? "I couldn't show that ticket — stale optimizer copy with missing edge values was blocked. Try building again."
-                                    : "I couldn't show that ticket — the optimizer summary and a game-line card disagreed on team, market, or line."}
-                            </Text>
-                          </View>
-                        );
-                      }
-                      throw e;
-                    }
-                    return (
+                      assertMainTicketPicksQualified(canonicalPicks);
+                      return (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.gameLineSummary ? (
+                    {displaySummary ? (
                       <View
                         style={{
                           backgroundColor: colors.card,
@@ -3277,22 +3260,22 @@ export default function CoachScreen() {
                         }}
                       >
                         <ChatMarkdown
-                          text={m.gameLineSummary}
+                          text={displaySummary}
                           color={colors.foreground}
                           mutedColor={colors.mutedForeground}
                         />
                       </View>
                     ) : null}
-                    {ticketPicks.length > 1 ? (
+                    {canonicalPicks.length > 1 ? (
                       <AddAllButton
-                        picks={ticketPicks}
+                        picks={canonicalPicks}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
                     ) : null}
-                    {ticketPicks.map((p, j) => (
+                    {canonicalPicks.map((p, j) => (
                       <PickCard
                         key={`${i}-${j}`}
                         pick={p}
@@ -3380,7 +3363,36 @@ export default function CoachScreen() {
                       </View>
                     ) : null}
                   </View>
-                    );
+                      );
+                    } catch (e) {
+                      if (
+                        e instanceof FrozenGameLineConsistencyError ||
+                        e instanceof MainTicketQualificationError ||
+                        e instanceof GameLineFinalizeRejected
+                      ) {
+                        return (
+                          <View style={{ marginTop: 10, gap: 8 }}>
+                            <Text
+                              style={{
+                                color: colors.destructive,
+                                fontFamily: FONT.medium,
+                                fontSize: 13,
+                                lineHeight: 19,
+                              }}
+                            >
+                              {e instanceof MainTicketQualificationError
+                                ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge)."
+                                : e instanceof GameLineFinalizeRejected
+                                  ? "I couldn't finalize a game line — every selected line needs Final AI Grade, Confidence, Sim %, and Edge. Sub-50% sim lines require edge ≥ 4.5%."
+                                  : m.content && containsLegacyGameLineOptimizerCopy(m.content)
+                                    ? "I couldn't show that ticket — stale optimizer copy with missing edge values was blocked. Try building again."
+                                    : "I couldn't show that ticket — the optimizer summary and a game-line card disagreed on team, market, or line."}
+                            </Text>
+                          </View>
+                        );
+                      }
+                      throw e;
+                    }
                   })()
                 ) : null}
 
