@@ -1,4 +1,5 @@
 import { useSSO } from "@clerk/expo";
+import { useSignInWithApple } from "@clerk/expo/apple";
 import { Feather } from "@expo/vector-icons";
 import * as AuthSession from "expo-auth-session";
 import { Image } from "expo-image";
@@ -321,33 +322,46 @@ export function AppleAuthButton() {
   useWarmUpBrowser();
   const router = useRouter();
   const { startSSOFlow } = useSSO();
+  const { startAppleAuthenticationFlow } = useSignInWithApple();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const finishSession = useCallback(
+    async (createdSessionId: string | null | undefined, setActive: ((...args: any[]) => Promise<void>) | undefined) => {
+      if (createdSessionId && setActive) {
+        await setActive({
+          session: createdSessionId,
+          navigate: async ({ session, decorateUrl }: { session?: { currentTask?: unknown }; decorateUrl: (path: string) => string }) => {
+            if (session?.currentTask) return;
+            router.replace(decorateUrl("/") as Href);
+          },
+        });
+      }
+    },
+    [router],
+  );
 
   const onPress = useCallback(async () => {
     if (busy) return;
     setError(null);
     setBusy(true);
     try {
-      const { createdSessionId, setActive } = await startSSOFlow({
-        strategy: "oauth_apple",
-        redirectUrl: AuthSession.makeRedirectUri(),
-      });
-      if (createdSessionId && setActive) {
-        await setActive({
-          session: createdSessionId,
-          navigate: async ({ session, decorateUrl }) => {
-            if (session?.currentTask) return;
-            router.replace(decorateUrl("/") as Href);
-          },
-        });
+      if (Platform.OS === "ios") {
+        // Native Sign in with Apple — browser oauth_apple is rejected on iOS
+        // (form_param_value_invalid) and does not meet App Store 4.8 expectations.
+        const { createdSessionId, setActive } = await startAppleAuthenticationFlow();
+        await finishSession(createdSessionId, setActive);
       } else {
-        // No session and no thrown error means the user dismissed the
-        // Apple sheet before completing. Stay silent — not an error.
+        const { createdSessionId, setActive } = await startSSOFlow({
+          strategy: "oauth_apple",
+          redirectUrl: AuthSession.makeRedirectUri(),
+        });
+        await finishSession(createdSessionId, setActive);
       }
     } catch (err) {
-      // Keep everything in this block non-throwing — if it throws, the button
-      // goes silent/unresponsive again, which is the exact bug we're fixing.
+      const e = err as { code?: string; message?: string };
+      if (e.code === "ERR_REQUEST_CANCELED" || e.code === "ERR_CANCELED") return;
+      if (typeof e.message === "string" && e.message.includes("ERR_REQUEST_CANCELED")) return;
       const detail = describeSsoError(err);
       let raw = "";
       try {
@@ -360,7 +374,7 @@ export function AppleAuthButton() {
     } finally {
       setBusy(false);
     }
-  }, [busy, router, startSSOFlow]);
+  }, [busy, finishSession, startAppleAuthenticationFlow, startSSOFlow]);
 
   return (
     <View style={{ gap: 8 }}>
