@@ -6,7 +6,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
-import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
+import { filterCoachTicketPicks, isFullyQualifiedPick } from "@/lib/parlayQualifiedGate";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -42,9 +42,9 @@ function scorePicksWithSim(
     ...opts,
     propSimulations: sims,
   });
-  const filtered = filterCoachPicksWithPropSim(scored, sims);
-  return filtered.picks.map((p) =>
-    p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
+  const filtered = filterCoachTicketPicks(scored, { propPool: opts.propPool });
+  return filtered.map((p) =>
+    p.isProp ? { ...p, simulationPending: simulationPending && !isFullyQualifiedPick(p, { propPool: opts.propPool }) } : p,
   );
 }
 
@@ -98,7 +98,16 @@ export async function loadPropSimulationsProgressive(
 }
 
 /** Update the most recent assistant message that carries picks. */
-export function patchLastAssistantPicks<T extends { role: string; picks?: ParsedPick[] }>(
+export function patchLastAssistantPicks<
+  T extends {
+    role: string;
+    picks?: ParsedPick[];
+    content?: string;
+    legNote?: string;
+    gameLineSummary?: string;
+    ticketNote?: string;
+  },
+>(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
 ): void {
@@ -106,7 +115,15 @@ export function patchLastAssistantPicks<T extends { role: string; picks?: Parsed
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
       if (copy[i].role === "assistant" && copy[i].picks?.length) {
-        copy[i] = { ...copy[i], picks };
+        const rest = copy[i];
+        copy[i] = {
+          ...rest,
+          picks,
+          content: picks.length > 0 ? "" : rest.content,
+          legNote: undefined,
+          gameLineSummary: undefined,
+          ticketNote: undefined,
+        };
         return copy;
       }
     }

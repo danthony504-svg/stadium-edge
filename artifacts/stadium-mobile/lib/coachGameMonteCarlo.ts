@@ -19,7 +19,8 @@ import {
   simHitForPick,
 } from "./finalAiScore.ts";
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
-import type { RealOddsEntry } from "./api.ts";
+import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
+import { resolvePickEdgePct, resolvePickExpectedValue, gameLineMeetsSimBar } from "./parlayQualifiedGate.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -241,39 +242,26 @@ export function coachGameSimForPick(
   return undefined;
 }
 
-/** Drop game-line legs with negative no-vig edge unless High-Risk Value Play. */
+/** Drop legs with non-positive edge (props and game lines) after optimization. */
 export function filterNegativeEdgeGameLines(
   picks: ParsedPick[],
   oddsForEdge: RealOddsEntry[] = [],
   rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[],
+  propPool: PropPoolEntry[] = [],
 ): GameSimFilterResult {
   const kept: ParsedPick[] = [];
   const warnings: string[] = [];
   let removed = 0;
-
-  const edgeForPick = (p: ParsedPick): number | null => {
-    if (p.scores?.edgePct != null) return p.scores.edgePct;
-    const ro = oddsForEdge.find(
-      (r) =>
-        gameLabelsMatch(r.game, p.game) &&
-        r.market === p.market &&
-        r.pick === p.pick,
-    );
-    return ro?.edge ?? null;
-  };
+  const edgeOpts = { realOdds: oddsForEdge, propPool };
 
   for (const p of picks) {
-    if (!isGameLinePick(p) || p.isProp) {
-      kept.push(p);
-      continue;
-    }
-    const edge = edgeForPick(p);
-    const hit = null;
+    const edge = resolvePickEdgePct(p, edgeOpts);
+    const hit = p.finalAiScore?.simHit ?? null;
     const { highRiskValuePlay } = classifySimAlignment(hit, edge);
-    if (edge != null && edge < 0 && !highRiskValuePlay) {
+    if (edge != null && edge <= 0 && !highRiskValuePlay) {
       removed += 1;
       warnings.push(
-        `Dropped **${p.pick}** (${p.game}): ${edge}% edge — keeping only non-negative or High-Risk Value (≥+${HIGH_RISK_EDGE_MIN}%) lines after the 10k sim ranking.`,
+        `Dropped **${p.pick}** (${p.game}): ${edge}% edge — keeping only strictly +EV lines after the 10k sim ranking.`,
       );
       rejectsOut?.push({
         pick: p,
@@ -287,7 +275,7 @@ export function filterNegativeEdgeGameLines(
 
   const note =
     removed > 0
-      ? `_Removed ${removed} game line${removed === 1 ? "" : "s"} with negative edge after Final AI Score optimization._`
+      ? `_Removed ${removed} leg${removed === 1 ? "" : "s"} with non-positive edge after Final AI Score optimization._`
       : "";
 
   return { picks: kept, removed, warnings, note };
@@ -296,6 +284,7 @@ export function filterNegativeEdgeGameLines(
 export type GameSimFilterResult = {
   picks: ParsedPick[];
   removed: number;
+  conflictingDropped: number;
   warnings: string[];
   note: string;
   rejects?: import("./parlayReachCore.ts").ParlayLegReject[];
@@ -338,9 +327,37 @@ export function filterCoachPicksWithGameSim(
       continue;
     }
     const sim = coachGameSimForPick(p, simByGame);
-    const hit = simHitForPick(p, sim, null);
+    const hit = p.finalAiScore?.simHit ?? simHitForPick(p, sim, null);
     const edge = edgeForPick(p);
     const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+
+    if (p.gameLineFinal) {
+      const ev = resolvePickExpectedValue(p, { realOdds: opts.oddsForEdge });
+      if (
+        !gameLineMeetsSimBar(hit, edge, {
+          evPct: ev,
+          isBestEvLine: p.gameLineFinal.isBestEv,
+          finalAiScore: p.finalAiScore,
+        })
+      ) {
+        coverRemoved += 1;
+        const pct = hit != null ? Math.round(hit * 100) : 0;
+        warnings.push(
+          `Dropped **${p.pick}** (${p.game}): 10k sim ${pct}% — game line failed sim bar after alt-line search.`,
+        );
+        opts.rejectsOut?.push({
+          pick: p,
+          reason: `10k sim ${pct}% — needs sim >50% or exactly 50% with strong +EV / best EV`,
+          nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
+        });
+        continue;
+      }
+      kept.push({
+        ...p,
+        highRiskValuePlay: highRiskValuePlay || undefined,
+      });
+      continue;
+    }
 
     if (!sim) {
       const disagree = gameSimDisagreement(p, sim);
@@ -376,7 +393,6 @@ export function filterCoachPicksWithGameSim(
 
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
-  if (sideAligned.note) noteParts.push(sideAligned.note);
   if (coverRemoved > 0) {
     noteParts.push(
       `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that failed the four-question sim check (win, cover, cover rate, or price vs the 10,000-run draw)._`,
@@ -392,6 +408,7 @@ export function filterCoachPicksWithGameSim(
   return {
     picks: kept,
     removed: sideAligned.dropped + coverRemoved,
+    conflictingDropped: sideAligned.dropped,
     warnings,
     note,
   };
@@ -450,5 +467,5 @@ export function filterCoachPicksWithPropSim(
     );
   }
 
-  return { picks: kept, removed, warnings, note: noteParts.join("\n\n") };
+  return { picks: kept, removed, conflictingDropped: 0, warnings, note: noteParts.join("\n\n") };
 }

@@ -498,6 +498,9 @@ export function attachPickScores(
     injuryTeams: opts.injuryTeams,
   };
   return picks.map((p) => {
+    if (p.gameLineFrozen && p.gameLineFinal?.frozenAt) {
+      return p;
+    }
     const gameSim = lookupGameSim(p.game, gameSims);
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
@@ -509,7 +512,15 @@ export function attachPickScores(
           gameSim,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    if (!scores) return { ...p, scores: null };
+    if (!scores) {
+      return {
+        ...p,
+        scores: null,
+        finalAiScore: null,
+        gameLineFinal: undefined,
+        highRiskValuePlay: undefined,
+      };
+    }
 
     const propKey =
       p.isProp && p.player && p.propLine != null && p.propSide

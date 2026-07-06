@@ -41,6 +41,33 @@ export function recentParlayLegKeys(): Set<string> {
   return out;
 }
 
+/** Player names from recent builds — at most one prop per player per ticket. */
+export function recentParlayPlayerKeys(): Set<string> {
+  const out = new Set<string>();
+  for (const build of recentBuilds) {
+    for (const k of build) {
+      const parts = k.split("|");
+      if (parts.length >= 2 && parts[1]!.trim()) out.add(parts[1]!);
+    }
+  }
+  return out;
+}
+
+/** Player appearance counts across recent builds — higher = shown more often. */
+export function recentPlayerAppearanceCounts(): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const build of recentBuilds) {
+    for (const k of build) {
+      const parts = k.split("|");
+      if (parts.length >= 2 && parts[1]!.trim()) {
+        const playerKey = parts[1]!;
+        counts.set(playerKey, (counts.get(playerKey) ?? 0) + 1);
+      }
+    }
+  }
+  return counts;
+}
+
 /** Call after a successful parlay render — feeds the next build's avoid list. */
 export function rememberParlayBuild(picks: ParsedPick[]): void {
   if (!picks.length) return;
@@ -69,8 +96,11 @@ export function deprioritizePropPoolEntries(
   });
 }
 
-/** Rotate ticket leg order so the lead card changes even when the set is similar. */
-export function rotateParlayDisplayOrder<T>(picks: T[], seed: string): T[] {
+/** Rotate ticket leg order — vary the lead card and avoid always opening on spreads. */
+export function rotateParlayDisplayOrder<T extends { isProp?: boolean; market?: string; odds?: number }>(
+  picks: T[],
+  seed: string,
+): T[] {
   if (picks.length <= 1) return picks;
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) {
@@ -78,5 +108,24 @@ export function rotateParlayDisplayOrder<T>(picks: T[], seed: string): T[] {
     h = Math.imul(h, 16777619);
   }
   const rot = h % picks.length;
-  return [...picks.slice(rot), ...picks.slice(0, rot)];
+  let out = [...picks.slice(rot), ...picks.slice(0, rot)];
+
+  const isSpreadLead = (arr: T[]) => {
+    const p = arr[0];
+    if (!p || p.isProp) return false;
+    return /spread|run line|puck/i.test(String(p.market ?? ""));
+  };
+
+  if (isSpreadLead(out)) {
+    const altIdx = out.findIndex(
+      (p) =>
+        p.isProp ||
+        /total|alt|team total|moneyline|ml/i.test(String(p.market ?? "")) ||
+        (p.odds ?? -999) >= 250,
+    );
+    if (altIdx > 0) {
+      out = [...out.slice(altIdx), ...out.slice(0, altIdx)];
+    }
+  }
+  return out;
 }

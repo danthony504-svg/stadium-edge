@@ -167,3 +167,41 @@ export function enforceConsistentGameSides(
 
   return { picks: kept, dropped, note };
 }
+
+/** Legacy per-pass note pattern — merged into one user-facing message in Coach. */
+export const CONFLICTING_LEG_DROP_NOTE_RE =
+  /^_Dropped (\d+) legs? that backed the opposing team on the same game/i;
+
+export function conflictingLegDropMessage(total: number): string {
+  if (total <= 0) return "";
+  return `_Dropped ${total} conflicting leg${total === 1 ? "" : "s"}. Replaced with higher-rated picks._`;
+}
+
+/** Remove legacy per-pass opposing-side drop paragraphs (Coach emits one combined note). */
+export function stripConflictingLegDropNotes(note: string): string {
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of parts) {
+    if (CONFLICTING_LEG_DROP_NOTE_RE.test(p)) continue;
+    out.push(p);
+  }
+  return out.join("\n\n");
+}
+
+/** Collapse multiple opposing-side drop notes into one combined message. */
+export function mergeConflictingLegDropNotes(note: string): string {
+  const parts = note.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  let total = 0;
+  const out: string[] = [];
+  for (const p of parts) {
+    const m = p.match(CONFLICTING_LEG_DROP_NOTE_RE);
+    if (m) {
+      total += parseInt(m[1]!, 10);
+      continue;
+    }
+    out.push(p);
+  }
+  const merged = conflictingLegDropMessage(total);
+  if (merged) out.push(merged);
+  return out.join("\n\n");
+}

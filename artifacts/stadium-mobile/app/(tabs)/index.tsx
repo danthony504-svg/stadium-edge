@@ -21,7 +21,7 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import { consumeCoachLaunch, queueCoachAutoSend } from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -259,7 +259,7 @@ function BaseballMiniPanel() {
   );
 }
 
-/** Compact Discover hero — routes to Coach for a new AI parlay build. */
+/** Compact Discover hero — opens Coach so the user can request a parlay when ready. */
 function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   const colors = useColors();
   return (
@@ -698,7 +698,13 @@ export default function HomeScreen() {
     const seen = new Set<string>();
     const out: ValueProp[] = [];
     const sorted = propEntries
-      .filter((e) => e.prop.ev != null && e.prop.ev >= HOME_MIN_VALUE_EV)
+      .filter(
+        (e) =>
+          e.prop.ev != null &&
+          e.prop.ev > 0 &&
+          e.prop.ev >= HOME_MIN_VALUE_EV &&
+          (e.prop.edge == null || e.prop.edge > 0),
+      )
       .sort((a, b) => (b.prop.ev ?? 0) - (a.prop.ev ?? 0));
     for (const e of sorted) {
       const p = e.prop;
@@ -761,7 +767,8 @@ export default function HomeScreen() {
       { player: string; side: "Over" | "Under"; line: number | null; label: string; ev: number }
     >();
     for (const e of propEntries) {
-      if (e.prop.ev == null) continue;
+      if (e.prop.ev == null || e.prop.ev <= 0) continue;
+      if (e.prop.edge != null && e.prop.edge <= 0) continue;
       const cur = map.get(e.gameLabel);
       if (!cur || e.prop.ev > cur.ev) {
         map.set(e.gameLabel, {
@@ -795,7 +802,7 @@ export default function HomeScreen() {
     upsetsQ.isFetching;
 
   const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
+    queueCoachAutoSend(msg, { hideBubble: silent, freshThread: silent });
     router.push({
       pathname: "/coach",
       params: {
@@ -807,14 +814,17 @@ export default function HomeScreen() {
   };
 
   // Open Coach without auto-sending — user can edit the prompt and tap send.
-  const goCoach = (prefill?: string) =>
+  const goCoach = (prefill?: string) => {
+    consumeCoachLaunch();
     router.push({
       pathname: "/coach",
       params: {
         ...(prefill ? { prefill } : {}),
+        send: "0",
         ts: String(Date.now()),
       },
     });
+  };
 
   const quickActions: {
     label: string;
@@ -828,7 +838,7 @@ export default function HomeScreen() {
       subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
-      onPress: () => askCoach("Build me the best parlay", true),
+      onPress: () => goCoach("Build me the best parlay"),
     },
     {
       label: "Easy Money",
@@ -857,7 +867,7 @@ export default function HomeScreen() {
       subtitle: "Smart combos",
       icon: "robot",
       color: "#22d3ee",
-      onPress: () => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } }),
+      onPress: () => goCoach(),
     },
   ];
 
@@ -977,8 +987,8 @@ export default function HomeScreen() {
         }
       >
 
-        {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        {/* Static hero — opens Coach with a prefilled prompt; user taps send when ready. */}
+        <BuildBestParlayHero onPress={() => goCoach("Build me the best parlay")} />
 
         {/* Quick actions — labeled shortcut cards routing to the real Coach /
             Props / Steals surfaces. */}
@@ -1503,7 +1513,9 @@ export default function HomeScreen() {
 
                   <Pressable
                     onPress={() =>
-                      goCoach(`Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`)
+                      goCoach(
+                        `Give me your best bets for ${g.awayTeam} @ ${g.homeTeam}`,
+                      )
                     }
                     style={({ pressed }) => ({
                       backgroundColor: "rgba(59,130,246,0.14)",

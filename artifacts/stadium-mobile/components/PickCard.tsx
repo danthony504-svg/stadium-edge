@@ -13,13 +13,16 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import { resolvePickEdgePct, resolvePickExpectedValue, MIN_MAIN_PICK_CONFIDENCE, MIN_MAIN_PICK_GRADE, GAME_LINE_MIN_CONFIDENCE, pickHasCoachCardMetrics } from "@/lib/parlayQualifiedGate";
+import { frozenGameLineHeader, isGameLineFrozen } from "@/lib/frozenGameLinePick";
+import { gradeRank } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
-import { gameLineLegBucket } from "@/lib/gameSimScoring";
+import { gameLineLegBucket, isGameLinePick } from "@/lib/gameSimScoring";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -79,6 +82,33 @@ export type ParsedPick = {
   finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
   /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
   highRiskValuePlay?: boolean;
+  /**
+   * Set once when the 10k sim finalizes a game line — single source of truth for
+   * cards, optimizer note, slip, and breakdown. Never re-derived elsewhere.
+   */
+  gameLineFinal?: {
+    reason: string;
+    finalScore: number;
+    bullets?: string[];
+    /** Highest +EV among every posted rung for this game. */
+    isBestEv?: boolean;
+    /** Set when the pick is frozen for render — summary/card/slip must read display. */
+    frozenAt?: number;
+    display?: {
+      pick: string;
+      market: string;
+      odds: number;
+      game: string;
+      grade: string | null;
+      confidencePct: number | null;
+      edgePct: number | null;
+      evPct: number | null;
+      simHit: number | null;
+      simPct: number | null;
+    };
+  };
+  /** True after freezeAllGameLinesInTicket — blocks post-freeze mutation. */
+  gameLineFrozen?: boolean;
 };
 
 if (
@@ -271,6 +301,7 @@ function LineTierChip({
 // exclusive.
 function LineLadder({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
+  const header = frozenGameLineHeader(pick);
   const cushion = pick.altOptions?.cushion;
   const value = pick.altOptions?.value;
   const hasAlts = !!(cushion || value);
@@ -292,8 +323,8 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
           <LineTierChip
             tone="safe"
             label="Safe"
-            game={pick.game}
-            market={cushion.market ?? pick.market}
+            game={header.game}
+            market={cushion.market ?? header.market}
             pick={cushion.pick}
             odds={cushion.odds}
             sport={pick.sport}
@@ -304,20 +335,20 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
         <LineTierChip
           tone="best"
           label="Best"
-          game={pick.game}
-          market={pick.market}
-          pick={pick.pick}
-          odds={pick.odds}
+          game={header.game}
+          market={header.market}
+          pick={header.pick}
+          odds={header.odds}
           sport={pick.sport}
-          lineLabel={compactLine(pick.pick)}
+          lineLabel={compactLine(header.pick)}
           parent={pick}
         />
         {value ? (
           <LineTierChip
             tone="value"
             label="Value"
-            game={pick.game}
-            market={value.market ?? pick.market}
+            game={header.game}
+            market={value.market ?? header.market}
             pick={value.pick}
             odds={value.odds}
             sport={pick.sport}
@@ -563,6 +594,209 @@ export function EdgeReadout({
   );
 }
 
+function coachMetricColor(score: number | null, colors: ReturnType<typeof useColors>): string {
+  if (score == null) return colors.mutedForeground;
+  if (score >= 7) return colors.success;
+  if (score >= 5.5) return colors.primary;
+  return colors.mutedForeground;
+}
+
+/** Coach cards: AI Grade, Confidence, Edge, EV, Sim % — only when every value is real. */
+function CoachPickMetrics({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const frozen = isGameLineFrozen(pick) ? pick.gameLineFinal?.display : null;
+  const finalAi = pick.finalAiScore;
+  const rubric = pick.scores ?? finalAi?.rubric ?? null;
+  const edge = frozen?.edgePct ?? resolvePickEdgePct(pick);
+  const ev = frozen?.evPct ?? resolvePickExpectedValue(pick);
+  const grade = frozen?.grade ?? finalAi?.grade ?? null;
+  const confidencePct = frozen?.confidencePct ?? finalAi?.confidencePct ?? null;
+  const simHit = frozen?.simHit ?? finalAi?.simHit ?? null;
+  const isGameLine = !pick.isProp && isGameLinePick(pick);
+  const minConf = isGameLine ? GAME_LINE_MIN_CONFIDENCE : MIN_MAIN_PICK_CONFIDENCE;
+  if (
+    !grade ||
+    gradeRank(grade) < gradeRank(MIN_MAIN_PICK_GRADE) ||
+    confidencePct == null ||
+    confidencePct < minConf ||
+    simHit == null ||
+    (finalAi?.composite == null && !frozen) ||
+    (finalAi?.composite != null && finalAi.composite <= 0 && !frozen) ||
+    edge == null ||
+    edge <= 0 ||
+    ev == null ||
+    ev <= 0 ||
+    rubric?.composite == null
+  ) {
+    return null;
+  }
+
+  const gradeColor = coachMetricColor(rubric.composite, colors);
+  const edgeColor = edge >= 0 ? colors.success : colors.destructive;
+  const evColor = ev > 0 ? colors.success : colors.destructive;
+  const simPct = frozen?.simPct ?? Math.round(simHit * 100);
+
+  const cell = (
+    icon: keyof typeof Feather.glyphMap,
+    label: string,
+    value: string,
+    valueColor: string,
+    caption: string,
+    suffix?: string,
+  ) => (
+    <View
+      key={label}
+      style={{
+        flex: 1,
+        minWidth: 72,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        borderRadius: 14,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Feather name={icon} size={11} color={valueColor} />
+        <Text
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          style={{
+            flexShrink: 1,
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 8.5,
+            letterSpacing: 0.3,
+            textTransform: "uppercase",
+          }}
+        >
+          {label}
+        </Text>
+      </View>
+      <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 22, marginTop: 6 }}>
+        {value}
+        {suffix ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 12 }}>
+            {suffix}
+          </Text>
+        ) : null}
+      </Text>
+      <Text
+        style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5, marginTop: 3 }}
+        numberOfLines={2}
+      >
+        {caption}
+      </Text>
+    </View>
+  );
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {cell("award", "AI Grade", grade, gradeColor, confidenceTierLabel(finalAi))}
+        {cell(
+          "target",
+          "Confidence",
+          String(confidencePct),
+          colors.primary,
+          "Conviction score",
+          "%",
+        )}
+        {cell(
+          "trending-up",
+          "Edge",
+          `${edge > 0 ? "+" : ""}${edge.toFixed(1)}`,
+          edgeColor,
+          edge > 0 ? "Positive edge" : "Negative edge",
+          "%",
+        )}
+        {cell(
+          "activity",
+          "EV",
+          `+${ev.toFixed(1)}`,
+          evColor,
+          "Expected value",
+          "%",
+        )}
+        {cell("cpu", "Sim", String(simPct), colors.accent, "10k-run hit rate", "%")}
+      </View>
+      {pick.simulationPending ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 11,
+            fontStyle: "italic",
+          }}
+        >
+          Simulation updating…
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** Why the 10k sim optimizer chose this rung over every other posted line. */
+function GameLineWhyWon({ pick }: { pick: ParsedPick }) {
+  const colors = useColors();
+  const meta = pick.gameLineFinal;
+  if (!meta?.reason && !meta?.bullets?.length) return null;
+  const bullets = meta.bullets?.length
+    ? meta.bullets
+    : meta.reason
+      ? [meta.reason]
+      : [];
+  if (!bullets.length) return null;
+
+  return (
+    <View
+      style={{
+        gap: 6,
+        padding: 10,
+        borderRadius: 12,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.semibold,
+          fontSize: 10,
+          letterSpacing: 0.4,
+          textTransform: "uppercase",
+        }}
+      >
+        Why this line won
+      </Text>
+      {bullets.map((b) => (
+        <View key={b} style={{ flexDirection: "row", gap: 6, alignItems: "flex-start" }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 11 }}>•</Text>
+          <Text
+            style={{
+              flex: 1,
+              color: colors.foreground,
+              fontFamily: FONT.medium,
+              fontSize: 12,
+              lineHeight: 17,
+            }}
+          >
+            {b}
+          </Text>
+        </View>
+      ))}
+      {meta.finalScore != null && Number.isFinite(meta.finalScore) ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10 }}>
+          Final Score {meta.finalScore.toFixed(1)}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function PickCard({
   pick,
   onPress,
@@ -585,7 +819,9 @@ export function PickCard({
 }) {
   const colors = useColors();
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
-  const added = hasLeg(pick.game, pick.market, pick.pick);
+  const header = frozenGameLineHeader(pick);
+  const slipPick = isGameLineFrozen(pick) ? { ...pick, ...header } : pick;
+  const added = hasLeg(header.game, header.market, header.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
@@ -615,14 +851,12 @@ export function PickCard({
   // legKey(game, market, pick) so removeLeg targets the right entry.
   const onToggle = () => {
     if (added) {
-      const id = `${pick.game}|${pick.market}|${pick.pick}`.toLowerCase();
+      const id = `${header.game}|${header.market}|${header.pick}`.toLowerCase();
       removeLeg(id);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } else {
-      // Selecting the main line clears any alternate rung (cushion/value) for the
-      // same bet so a card only ever contributes ONE leg.
-      for (const k of siblingLegKeys(pick, pick.pick)) removeLeg(k);
-      const ok = addLeg(pick);
+      for (const k of siblingLegKeys(slipPick, header.pick)) removeLeg(k);
+      const ok = addLeg(slipPick);
       Haptics.impactAsync(
         ok ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
       );
@@ -712,17 +946,17 @@ export function PickCard({
                 textTransform: "uppercase",
               }}
             >
-              {marketDisplayLabel(pick.market, pick.sport)}
+              {marketDisplayLabel(header.market, pick.sport)}
             </Text>
           </View>
           <Text style={{ color: colors.accent, fontFamily: FONT.bold, fontSize: 22 }}>
-            {formatAmerican(pick.odds)}
+            {formatAmerican(header.odds)}
           </Text>
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 18, lineHeight: 23 }}>
-            {pick.pick}
+            {header.pick}
           </Text>
           {homeAwayTag ? (
             <View
@@ -747,7 +981,7 @@ export function PickCard({
             </View>
           ) : null}
         </View>
-        <MatchupLine game={pick.game} />
+        <MatchupLine game={header.game} />
         {formatGameTime(pick.startsAt) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: -3 }}>
             <Feather name="clock" size={11} color={colors.mutedForeground} />
@@ -769,15 +1003,24 @@ export function PickCard({
 
       <View style={{ height: 1, backgroundColor: colors.border, marginTop: 1 }} />
 
-      <LineLadder pick={pick} />
+      <LineLadder pick={slipPick} />
 
-      {hideReadout ? null : pick.scores ? (
-        <ScoreBreakdown data={pick.scores} variant="compact" simulationPending={pick.simulationPending} />
+      {hideReadout ? null : pickHasCoachCardMetrics(pick) ? (
+        <View style={{ gap: 8 }}>
+          <CoachPickMetrics pick={pick} />
+          {!pick.isProp && isGameLinePick(pick) ? <GameLineWhyWon pick={pick} /> : null}
+        </View>
+      ) : pick.finalAiScore && !pickHasCoachCardMetrics(pick) ? null : (pick.scores ?? pick.finalAiScore?.rubric)?.composite != null ? (
+        <ScoreBreakdown
+          data={(pick.scores ?? pick.finalAiScore?.rubric)!}
+          variant="compact"
+          simulationPending={pick.simulationPending}
+        />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}
 
-      {pick.edge ? (
+      {pick.edge && !pick.finalAiScore?.grade ? (
         <View>
           <Pressable
             onPress={toggleEdge}
@@ -1725,6 +1968,7 @@ export const GENERIC_BACKFILL_ORDER: RegExp[] = [
 export const FULL_REACH_GAME_ORDER: RegExp[] = [
   /^Alt Spread$/,
   /^Alt Total$/,
+  /^Alt Team Total$/i,
   /^Team Total$/i,
   /^Spread$/,
   /^Total$/,
@@ -1895,7 +2139,7 @@ export function backfillProps(
     (target >= 12 ? 3 : target >= 8 ? 4 : target >= 5 ? 5 : 99);
   const maxPerGame =
     opts.maxPerGame ??
-    (target >= 12 ? 2 : target >= 8 ? 3 : target >= 5 ? 4 : 99);
+    (target >= 12 ? 2 : target >= 8 ? 2 : target >= 5 ? 2 : 99);
   const maxPerSport =
     opts.maxPerSport ??
     (target >= 12 ? Math.max(4, Math.ceil(target / 3)) : target >= 8 ? 6 : 99);

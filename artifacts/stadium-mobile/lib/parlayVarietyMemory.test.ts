@@ -5,6 +5,8 @@ import {
   parlayLegKey,
   parlayLegKeyFromPool,
   recentParlayLegKeys,
+  recentParlayPlayerKeys,
+  recentPlayerAppearanceCounts,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
   deprioritizePropPoolEntries,
@@ -24,6 +26,57 @@ test("rememberParlayBuild feeds recentParlayLegKeys", () => {
   ]);
   const keys = recentParlayLegKeys();
   assert.ok(keys.has(parlayLegKey({ game: "Cardinals @ Cubs", market: "Hits", player: "Alec Burleson" })));
+});
+
+test("rememberParlayBuild feeds recentParlayPlayerKeys", () => {
+  clearParlayVarietyMemory();
+  rememberParlayBuild([
+    {
+      game: "Cardinals @ Cubs",
+      market: "Hits",
+      pick: "Alec Burleson Over 1.5 Hits",
+      player: "Alec Burleson",
+      odds: 220,
+      isProp: true,
+    },
+    {
+      game: "Yankees @ Red Sox",
+      market: "Home Runs",
+      pick: "Aaron Judge Over 0.5 Home Runs",
+      player: "Aaron Judge",
+      odds: 350,
+      isProp: true,
+    },
+  ]);
+  const players = recentParlayPlayerKeys();
+  assert.ok(players.has("alec burleson"));
+  assert.ok(players.has("aaron judge"));
+});
+
+test("rememberParlayBuild feeds recentPlayerAppearanceCounts", () => {
+  clearParlayVarietyMemory();
+  rememberParlayBuild([
+    {
+      game: "Yankees @ Red Sox",
+      market: "Home Runs",
+      pick: "Aaron Judge Over 0.5 Home Runs",
+      player: "Aaron Judge",
+      odds: 350,
+      isProp: true,
+    },
+  ]);
+  rememberParlayBuild([
+    {
+      game: "Yankees @ Red Sox",
+      market: "Hits",
+      pick: "Aaron Judge Over 1.5 Hits",
+      player: "Aaron Judge",
+      odds: 200,
+      isProp: true,
+    },
+  ]);
+  const counts = recentPlayerAppearanceCounts();
+  assert.equal(counts.get("aaron judge"), 2);
 });
 
 test("rotateParlayDisplayOrder changes lead leg per seed", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { simPrefersPlusPoints, enforceSimAlignedSpreadPicks } from "./spreadSimAlignment.ts";
+import { simPrefersPlusPoints, enforceSimAlignedSpreadPicks, isCloseGameForTeamSpread } from "./spreadSimAlignment.ts";
 
 const tightSim = {
   sport: "mlb",
@@ -21,6 +21,16 @@ test("simPrefersPlusPoints when home lays -1.5 but projects -0.02 margin", () =>
 
 test("simPrefersPlusPoints false when already on +1.5", () => {
   assert.equal(simPrefersPlusPoints(tightSim, "home", 1.5), false);
+});
+
+test("isCloseGameForTeamSpread true on tight projected margin", () => {
+  const game = "New York Mets @ Atlanta Braves";
+  assert.equal(
+    isCloseGameForTeamSpread(tightSim, "home", [
+      { sport: "mlb", game, market: "Spread", pick: "Braves -1.5", odds: 168 },
+    ], "Braves"),
+    true,
+  );
 });
 
 test("enforceSimAlignedSpreadPicks swaps Braves -1.5 to +1.5", () => {

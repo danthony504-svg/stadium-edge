@@ -72,6 +72,36 @@ test("gameLabelsMatch accepts nickname vs full team names", () => {
   assert.equal(gameLabelsMatch("Yankees @ Red Sox", "Mets @ Braves"), false);
 });
 
+test("buildGameLineOptimizerNote omits sub-52% game lines from transparency note", () => {
+  const picks = [
+    {
+      game: "New York Mets @ Atlanta Braves",
+      market: "Spread",
+      pick: "Atlanta Braves -1.5",
+      odds: -110,
+      isProp: false,
+      sport: "mlb",
+      finalAiScore: {
+        grade: "C+",
+        simHit: 0.49,
+        edgePct: 0.5,
+        composite: 6.5,
+        confidencePct: 52,
+        simAligned: false,
+        highRiskValuePlay: false,
+        recommends: false,
+        factors: [],
+        rubric: { scores: {}, composite: 6.5, grade: "C+", confidencePct: 52, edgePct: 0.5 },
+      },
+    },
+  ];
+  const note = buildGameLineOptimizerNote(picks, new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [],
+  });
+  assert.equal(note, "");
+});
+
 test("buildGameLineOptimizerNote lists only final ticket legs with scores", () => {
   const picks = [
     {
@@ -93,16 +123,34 @@ test("buildGameLineOptimizerNote lists only final ticket legs with scores", () =
         factors: [],
         rubric: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
       },
+      scores: { scores: {}, composite: 8, grade: "B+", confidencePct: 60, edgePct: 2.1 },
+      gameLineFinal: {
+        reason: "Highest EV among all posted lines",
+        finalScore: 72,
+        bullets: ["Highest EV among all posted lines", "+2.1% edge", "10,000-run simulation approved (58%)"],
+      },
     },
   ];
   const note = buildGameLineOptimizerNote(picks, new Map(), {
     evalLinesByGame: new Map(),
-    realOdds: [],
+    realOdds: [
+      {
+        sport: "mlb",
+        game: "New York Mets @ Atlanta Braves",
+        market: "Spread",
+        pick: "New York Mets +1.5",
+        odds: 110,
+        edge: 2.1,
+      },
+    ],
   });
-  assert.match(note, /Final AI B\+/);
-  assert.match(note, /sim 58%/);
-  assert.match(note, /edge \+2\.1%/);
+  assert.match(note, /New York Mets \+1\.5/);
+  assert.match(note, /Sim 58%/);
+  assert.match(note, /Edge \+2\.1%/);
+  assert.match(note, /EV \+/);
+  assert.match(note, /Selected because:/);
   assert.doesNotMatch(note, /\[box/i);
+  assert.doesNotMatch(note, /edge —/);
 });
 
 test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", () => {
@@ -115,6 +163,24 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
       odds: -110,
       isProp: false,
       sport: "mlb",
+      finalAiScore: {
+        grade: "B+",
+        simHit: 0.54,
+        edgePct: 1.8,
+        composite: 7.5,
+        confidencePct: 55,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { scores: {}, composite: 7.5, grade: "B+", confidencePct: 55, edgePct: 1.8 },
+      },
+      scores: { scores: {}, composite: 7.5, grade: "B+", confidencePct: 55, edgePct: 1.8 },
+      gameLineFinal: {
+        reason: "Highest EV among all posted lines",
+        finalScore: 65,
+        bullets: ["+1.8% edge"],
+      },
     },
   ];
   const simByGame = new Map([
@@ -155,8 +221,8 @@ test("buildGameLineOptimizerNote fuzzy-matches nickname spread sim and edge", ()
     ]),
     realOdds: [],
   });
-  assert.match(note, /sim 54%/);
-  assert.match(note, /edge \+1\.8%/);
+  assert.match(note, /Sim 54%/);
+  assert.match(note, /Edge \+1\.8%/);
   assert.doesNotMatch(note, /sim —/);
   assert.doesNotMatch(note, /edge —/);
 });
@@ -176,12 +242,18 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
         simHit: 0.56,
         edgePct: 1.5,
         composite: 7.2,
-        confidencePct: 54,
+        confidencePct: 55,
         simAligned: true,
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 55, edgePct: 1.5 },
+      },
+      scores: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 55, edgePct: 1.5 },
+      gameLineFinal: {
+        reason: "Highest EV among all posted lines",
+        finalScore: 64,
+        bullets: ["+1.5% edge"],
       },
     },
   ];
@@ -221,10 +293,19 @@ test("buildGameLineOptimizerNote resolves Cubs nickname spread from alt ladder",
         ],
       ],
     ]),
-    realOdds: [],
+    realOdds: [
+      {
+        sport: "mlb",
+        game: GAME,
+        market: "Alt Spread",
+        pick: "Chicago Cubs -1.5",
+        odds: -110,
+        edge: 1.5,
+      },
+    ],
   });
-  assert.match(note, /sim 56%/);
-  assert.match(note, /edge \+1\.5%/);
+  assert.match(note, /Sim 56%/);
+  assert.match(note, /Edge \+1\.5%/);
   assert.doesNotMatch(note, /sim —/);
 });
 
@@ -243,19 +324,79 @@ test("buildGameLineOptimizerNote uses attachPickScores simHit on final ticket pi
         simHit: 0.56,
         edgePct: 1.5,
         composite: 7.2,
-        confidencePct: 54,
+        confidencePct: 55,
         simAligned: true,
         highRiskValuePlay: false,
         recommends: true,
         factors: [],
-        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 54, edgePct: 1.5 },
+        rubric: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 55, edgePct: 1.5 },
+      },
+      scores: { scores: {}, composite: 7.2, grade: "C+", confidencePct: 55, edgePct: 1.5 },
+      gameLineFinal: {
+        reason: "Highest EV among all posted lines",
+        finalScore: 64,
+        bullets: ["+1.5% edge"],
       },
     },
   ];
   const note = buildGameLineOptimizerNote(picks, new Map(), {
     evalLinesByGame: new Map(),
-    realOdds: [],
+    realOdds: [
+      {
+        sport: "mlb",
+        game: GAME,
+        market: "Spread",
+        pick: "Cubs -1.5",
+        odds: -110,
+        edge: 1.5,
+      },
+    ],
   });
-  assert.match(note, /sim 56%/);
-  assert.match(note, /edge \+1\.5%/);
+  assert.match(note, /Cubs -1\.5/);
+  assert.match(note, /Sim 56%/);
+  assert.match(note, /Edge \+1\.5%/);
+});
+
+test("buildGameLineOptimizerNote never disagrees with finalized pick on card", () => {
+  const pick = {
+    game: "Boston Red Sox @ Los Angeles Angels",
+    market: "Alt Spread",
+    pick: "Los Angeles Angels +2",
+    odds: -172,
+    isProp: false,
+    sport: "mlb",
+    finalAiScore: {
+      grade: "C+",
+      simHit: 0.58,
+      edgePct: 1.4,
+      composite: 6.8,
+      confidencePct: 55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: { scores: {}, composite: 6.8, grade: "C+", confidencePct: 55, edgePct: 1.4 },
+    },
+    scores: { scores: {}, composite: 6.8, grade: "C+", confidencePct: 55, edgePct: 1.4 },
+    gameLineFinal: {
+      reason: "Alt +2 selected — highest Final Score among safer +EV lines.",
+      finalScore: 66,
+      bullets: ["Beat Spread", "+1.4% edge"],
+    },
+  };
+  const note = buildGameLineOptimizerNote([pick], new Map(), {
+    evalLinesByGame: new Map(),
+    realOdds: [
+      {
+        sport: "mlb",
+        game: "Boston Red Sox @ Los Angeles Angels",
+        market: "Alt Spread",
+        pick: "Los Angeles Angels +2",
+        odds: -172,
+        edge: 1.4,
+      },
+    ],
+  });
+  assert.match(note, /Angels \+2/);
+  assert.doesNotMatch(note, /Red Sox -1\.5/);
 });
