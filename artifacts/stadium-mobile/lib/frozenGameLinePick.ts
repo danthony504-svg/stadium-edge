@@ -18,6 +18,7 @@ import {
   isGameLineFrozen,
   normGameLabel,
   assertFrozenGameLineMetricsComplete,
+  canonicalizeFrozenTicket,
 } from "./frozenGameLineConsistency.ts";
 
 export type { FrozenGameLineDisplay } from "./frozenGameLineConsistency.ts";
@@ -32,6 +33,9 @@ export {
   stripModelGameLineListings,
   mergeTicketPreservingFrozenGameLines,
   parseAllGameLineMentionsFromNote,
+  canonicalizeFrozenGameLinePick,
+  canonicalizeFrozenTicket,
+  validateFrozenTicketForRender,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 
@@ -165,5 +169,5 @@ export function freezeAllGameLinesInTicket(
   }
 
   frozen.sort((a, b) => comparePickStrength(b, a));
-  return [...props, ...frozen];
+  return canonicalizeFrozenTicket([...props, ...frozen]);
 }

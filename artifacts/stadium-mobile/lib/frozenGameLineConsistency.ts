@@ -548,3 +548,46 @@ export function frozenLegSurfaceLabels(pick: ParsedPick): {
   const label = `${h.pick} (${h.market}) · ${h.game}`;
   return { card: label, slip: label, breakdown: label, share: label };
 }
+
+/** Force top-level pick fields to match the frozen display snapshot. */
+export function canonicalizeFrozenGameLinePick(pick: ParsedPick): ParsedPick {
+  if (!isGameLineFrozen(pick) || !pick.gameLineFinal?.display) return pick;
+  const header = frozenGameLineHeader(pick);
+  return {
+    ...pick,
+    game: header.game,
+    market: header.market,
+    pick: header.pick,
+    odds: header.odds,
+    gameLineFinal: {
+      ...pick.gameLineFinal,
+      display: pick.gameLineFinal.display,
+    },
+  };
+}
+
+/** Canonicalize every frozen game-line leg on a ticket before render or storage. */
+export function canonicalizeFrozenTicket(picks: ParsedPick[]): ParsedPick[] {
+  return picks.map((p) =>
+    isGameLinePick(p) && !p.isProp ? canonicalizeFrozenGameLinePick(p) : p,
+  );
+}
+
+/**
+ * Canonicalize, build summary from frozen snapshots, and hard-fail when any
+ * game-line card would disagree with the optimizer summary on team/market/line.
+ */
+export function validateFrozenTicketForRender(
+  picks: ParsedPick[],
+  gameLineSummary?: string,
+  realOdds?: RealOddsEntry[],
+): ParsedPick[] {
+  const canonical = canonicalizeFrozenTicket(picks);
+  const hasGameLines = canonical.some((p) => isGameLinePick(p) && !p.isProp);
+  if (!hasGameLines) return canonical;
+
+  assertAllFrozenGameLineMetrics(canonical, realOdds);
+  const summary = gameLineSummary ?? buildFrozenGameLineSummaryNote(canonical, realOdds);
+  assertFrozenTicketConsistency(canonical, summary);
+  return canonical;
+}

@@ -301,6 +301,7 @@ function LineTierChip({
 // exclusive.
 function LineLadder({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
+  const header = frozenGameLineHeader(pick);
   const cushion = pick.altOptions?.cushion;
   const value = pick.altOptions?.value;
   const hasAlts = !!(cushion || value);
@@ -322,8 +323,8 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
           <LineTierChip
             tone="safe"
             label="Safe"
-            game={pick.game}
-            market={cushion.market ?? pick.market}
+            game={header.game}
+            market={cushion.market ?? header.market}
             pick={cushion.pick}
             odds={cushion.odds}
             sport={pick.sport}
@@ -334,20 +335,20 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
         <LineTierChip
           tone="best"
           label="Best"
-          game={pick.game}
-          market={pick.market}
-          pick={pick.pick}
-          odds={pick.odds}
+          game={header.game}
+          market={header.market}
+          pick={header.pick}
+          odds={header.odds}
           sport={pick.sport}
-          lineLabel={compactLine(pick.pick)}
+          lineLabel={compactLine(header.pick)}
           parent={pick}
         />
         {value ? (
           <LineTierChip
             tone="value"
             label="Value"
-            game={pick.game}
-            market={value.market ?? pick.market}
+            game={header.game}
+            market={value.market ?? header.market}
             pick={value.pick}
             odds={value.odds}
             sport={pick.sport}

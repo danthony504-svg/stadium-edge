@@ -99,10 +99,17 @@ export async function loadPropSimulationsProgressive(
 
 /** Update the most recent assistant message that carries picks. */
 export function patchLastAssistantPicks<
-  T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
+  T extends {
+    role: string;
+    picks?: ParsedPick[];
+    content?: string;
+    legNote?: string;
+    gameLineSummary?: string;
+  },
 >(
   setMessages: (fn: (prev: T[]) => T[]) => void,
   picks: ParsedPick[],
+  opts?: { gameLineSummary?: string },
 ): void {
   setMessages((prev) => {
     const copy = [...prev];
@@ -113,6 +120,11 @@ export function patchLastAssistantPicks<
           ...rest,
           picks,
           content: picks.length > 0 ? "" : rest.content,
+          ...(opts?.gameLineSummary
+            ? { gameLineSummary: opts.gameLineSummary }
+            : rest.gameLineSummary
+              ? { gameLineSummary: rest.gameLineSummary }
+              : {}),
         };
         return copy;
       }

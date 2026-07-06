@@ -67,7 +67,8 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import {
   freezeAllGameLinesInTicket,
-  composeFrozenGameLineLegNote,
+  buildFrozenGameLineSummaryNote,
+  validateFrozenTicketForRender,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   FrozenGameLineConsistencyError,
@@ -183,6 +184,8 @@ type UIMessage = {
   // fewer legs than the user asked for — either capped at the 15-leg slip max
   // or short because the real board was too thin to ground that many.
   legNote?: string;
+  /** Frozen game-line optimizer summary — single source of truth for summary UI. */
+  gameLineSummary?: string;
   /** Near-miss legs that almost cleared quality filters when ticket is short of requested count. */
   backupPicks?: ParsedPick[];
   backupNote?: string;
@@ -2592,13 +2595,16 @@ export default function CoachScreen() {
             longshotAsk,
           });
         }
-        if (
-          coachEvalLinesByGame &&
-          gameSimulations.size > 0 &&
-          picks.some(isGameLinePick) &&
+        const hasGameLinesOnTicket =
           isParlayBuild &&
-          !isAnalyze
-        ) {
+          !isAnalyze &&
+          picks.some((p) => isGameLinePick(p) && !p.isProp);
+        if (hasGameLinesOnTicket) {
+          if (!coachEvalLinesByGame || gameSimulations.size === 0) {
+            throw new FrozenGameLineConsistencyError(
+              "Game-line legs require sim evaluation before render — refusing unfrozen ticket",
+            );
+          }
           picks = freezeAllGameLinesInTicket(picks, {
             evalLinesByGame: coachEvalLinesByGame,
             gameSimulations,
@@ -2621,15 +2627,22 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
-        composeFrozenGameLineLegNote(picks, legNote, mergedGameOdds);
+        const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
+        picks = validateFrozenTicketForRender(
+          picks,
+          gameLineSummary || undefined,
+          mergedGameOdds,
+        );
         setMessages((prev) => {
           const copy = [...prev];
-          const { legNote: _dropNote, ...prevAssistant } = copy[copy.length - 1];
+          const { legNote: _dropNote, gameLineSummary: _dropSummary, ...prevAssistant } =
+            copy[copy.length - 1];
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
             content: picks.length > 0 ? "" : stripModelGameLineListings(finalContent),
             picks,
+            ...(gameLineSummary ? { gameLineSummary } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
             ...(longshotPicks.length ? { longshotPicks } : {}),
           };
@@ -2651,6 +2664,7 @@ export default function CoachScreen() {
             perfByFamily: marketPerf,
           };
           const snapshot = picks;
+          const snapshotSummary = gameLineSummary;
           void loadPropSimulationsProgressive(
             snapshot,
             simOpts,
@@ -2662,11 +2676,15 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                patchLastAssistantPicks(
-                  setMessages,
+                const merged = validateFrozenTicketForRender(
                   mergeTicketPreservingFrozenGameLines(snapshot, filtered),
+                  snapshotSummary || undefined,
+                  mergedGameOdds,
                 );
-                setAiPicks(mergeTicketPreservingFrozenGameLines(snapshot, filtered));
+                patchLastAssistantPicks(setMessages, merged, {
+                  gameLineSummary: snapshotSummary || undefined,
+                });
+                setAiPicks(merged);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
@@ -2675,8 +2693,14 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
-                patchLastAssistantPicks(setMessages, merged);
+                const merged = validateFrozenTicketForRender(
+                  mergeTicketPreservingFrozenGameLines(snapshot, filtered),
+                  snapshotSummary || undefined,
+                  mergedGameOdds,
+                );
+                patchLastAssistantPicks(setMessages, merged, {
+                  gameLineSummary: snapshotSummary || undefined,
+                });
                 setAiPicks(merged);
               },
             },
@@ -2985,7 +3009,7 @@ export default function CoachScreen() {
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
-            const hidePickReplyProse = hasPicks || ticketPicks.length > 0;
+            const hidePickReplyProse = hasPicks || ticketPicks.length > 0 || !!m.gameLineSummary;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -3128,7 +3152,49 @@ export default function CoachScreen() {
                 ) : null}
 
                 {ticketPicks.length > 0 ? (
+                  (() => {
+                    try {
+                      validateFrozenTicketForRender(ticketPicks, m.gameLineSummary);
+                    } catch (e) {
+                      if (e instanceof FrozenGameLineConsistencyError) {
+                        return (
+                          <View style={{ marginTop: 10, gap: 8 }}>
+                            <Text
+                              style={{
+                                color: colors.destructive,
+                                fontFamily: FONT.medium,
+                                fontSize: 13,
+                                lineHeight: 19,
+                              }}
+                            >
+                              I couldn&apos;t show that ticket — the optimizer summary and a game-line
+                              card disagreed on team, market, or line. Try building again.
+                            </Text>
+                          </View>
+                        );
+                      }
+                      throw e;
+                    }
+                    return (
                   <View style={{ gap: 8, marginTop: 10 }}>
+                    {m.gameLineSummary ? (
+                      <View
+                        style={{
+                          backgroundColor: colors.card,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: 12,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <ChatMarkdown
+                          text={m.gameLineSummary}
+                          color={colors.foreground}
+                          mutedColor={colors.mutedForeground}
+                        />
+                      </View>
+                    ) : null}
                     {ticketPicks.length > 1 ? (
                       <AddAllButton
                         picks={ticketPicks}
@@ -3226,6 +3292,8 @@ export default function CoachScreen() {
                       </View>
                     ) : null}
                   </View>
+                    );
+                  })()
                 ) : null}
 
                 {m.retry ? (

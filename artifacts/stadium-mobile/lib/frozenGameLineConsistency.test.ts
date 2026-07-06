@@ -12,6 +12,9 @@ import {
   parseAllGameLineMentionsFromNote,
   parseFrozenSummaryGamePicks,
   stripModelGameLineListings,
+  canonicalizeFrozenGameLinePick,
+  canonicalizeFrozenTicket,
+  validateFrozenTicketForRender,
 } from "./frozenGameLineConsistency.ts";
 
 type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
@@ -273,4 +276,30 @@ test("frozenLegSurfaceLabels are identical across card, slip, breakdown, share",
   assert.equal(surfaces.card, surfaces.breakdown);
   assert.equal(surfaces.card, surfaces.share);
   assert.match(surfaces.card, /Rays \+1\.5/);
+});
+
+test("canonicalizeFrozenGameLinePick forces top-level fields to frozen display", () => {
+  const pick = mockFrozenGameLine(1, { displayPick: "Angels +1.5", pick: "Sox -2" });
+  const canonical = canonicalizeFrozenGameLinePick(pick);
+  assert.equal(canonical.pick, "Angels +1.5");
+  assert.equal(frozenGameLineHeader(canonical).pick, "Angels +1.5");
+});
+
+test("validateFrozenTicketForRender throws when summary and card disagree", () => {
+  const picks = [mockFrozenGameLine(1, { displayPick: "Angels +1.5" })];
+  const badSummary = buildFrozenGameLineSummaryNote([
+    mockFrozenGameLine(1, { displayPick: "Sox -2", pick: "Sox -2" }),
+  ]);
+  assert.throws(
+    () => validateFrozenTicketForRender(picks, badSummary),
+    FrozenGameLineConsistencyError,
+  );
+});
+
+test("validateFrozenTicketForRender passes when summary matches frozen cards", () => {
+  const picks = [mockFrozenGameLine(1), mockProp(0)];
+  const summary = buildFrozenGameLineSummaryNote(picks);
+  const out = validateFrozenTicketForRender(picks, summary);
+  assert.equal(out.length, 2);
+  assert.equal(frozenGameLineHeader(out[0]!).pick, "Angels +1.5");
 });
