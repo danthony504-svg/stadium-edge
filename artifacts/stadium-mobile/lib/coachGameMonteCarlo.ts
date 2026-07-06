@@ -6,7 +6,6 @@ import { fetchGameOutcomeSimulation } from "./api.ts";
 import {
   buildGameCoverQuery,
   gamePickCoverQueryId,
-  gameSimDisagreement,
   gameSimHitForPick,
   isGameLinePick,
   type CoachGameSimEntry,
@@ -20,6 +19,7 @@ import {
 } from "./finalAiScore.ts";
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import type { RealOddsEntry } from "./api.ts";
+import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -343,26 +343,33 @@ export function filterCoachPicksWithGameSim(
     const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
 
     if (!sim) {
-      const disagree = gameSimDisagreement(p, sim);
-      if (disagree) {
-        coverRemoved += 1;
-        warnings.push(`Dropped **${p.pick}** (${p.game}): ${disagree.reason}`);
-        opts.rejectsOut?.push({
-          pick: p,
-          reason: disagree.reason,
-          nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
-        });
-        continue;
-      }
-    } else if (!simAligned && !highRiskValuePlay) {
+      coverRemoved += 1;
+      warnings.push(`Dropped **${p.pick}** (${p.game}): no 10k game simulation data.`);
+      opts.rejectsOut?.push({
+        pick: p,
+        reason: "No 10k game simulation data",
+        nearScore: Math.max(0, edge ?? 0) * 2,
+      });
+      continue;
+    }
+    if (
+      !passesCoachSimQualityGate(p, sim, {
+        edge,
+        finalAi: p.finalAiScore,
+        odds: p.odds,
+      })
+    ) {
       coverRemoved += 1;
       const pct = hit != null ? Math.round(hit * 100) : 0;
+      const grade = p.finalAiScore?.grade ?? "—";
+      const conf = p.finalAiScore?.confidencePct ?? "—";
+      const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
       warnings.push(
-        `Dropped **${p.pick}** (${p.game}): simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
+        `Dropped **${p.pick}** (${p.game}): simulator gate failed — ${pct}% hit, ${edgeStr} edge, Final AI ${grade}, conf ${conf} (needs edge > 0, grade ≥ C+, conf ≥ 52, sim above implied).`,
       );
       opts.rejectsOut?.push({
         pick: p,
-        reason: `10k sim ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge`,
+        reason: `Simulator quality gate — ${pct}% hit, ${edgeStr} edge, grade ${grade}`,
         nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
       });
       continue;

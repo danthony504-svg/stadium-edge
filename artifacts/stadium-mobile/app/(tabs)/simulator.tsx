@@ -59,6 +59,10 @@ import {
 import { buildDefaultGameCoverQueries, mergeCoverQueries } from "@/lib/gameSimScoring";
 import { finalAiScoreLabel } from "@/lib/finalAiScore";
 import {
+  classifyGameSimRecommendation,
+  hasCompleteEvaluatedLine,
+} from "@/lib/gameSimQualityGates";
+import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
   gradeSimulatorProps,
@@ -392,6 +396,18 @@ export default function SimulatorScreen() {
       matchupInjuries,
     });
   }, [gameResult, game?.homeTeam, game?.awayTeam, gameOddsLines, gameLabel, matchupQ.data, matchupInjuries]);
+
+  const gameSimRecommendation = useMemo(() => {
+    if (!gameResult || !gameLineRecs) return null;
+    return classifyGameSimRecommendation(gameLineRecs, gameResult);
+  }, [gameResult, gameLineRecs]);
+
+  const displayBestLines = useMemo(() => {
+    if (!gameLineRecs) return [];
+    return [gameLineRecs.byTeam.away, gameLineRecs.byTeam.home].filter(
+      (row): row is EvaluatedGameLine => row != null && hasCompleteEvaluatedLine(row),
+    );
+  }, [gameLineRecs]);
 
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
@@ -1160,19 +1176,30 @@ export default function SimulatorScreen() {
                         />
                       </ResultCol>
                     </View>
-                    {gameLineRecs ? (
+                    {gameSimRecommendation ? (
+                      <Card style={{ marginBottom: 12 }}>
+                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 6 }}>
+                          Recommendation
+                        </Text>
+                        <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+                          {gameSimRecommendation.emoji} {gameSimRecommendation.label}
+                        </Text>
+                        <Text style={{ fontFamily: FONT.body, fontSize: 12, color: colors.mutedForeground, marginTop: 4, lineHeight: 17 }}>
+                          {gameSimRecommendation.detail}
+                        </Text>
+                      </Card>
+                    ) : null}
+                    {displayBestLines.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
                           Best Lines (Final AI Score)
                         </Text>
                         <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
-                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — highest composite wins, not the main line by default.
+                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — highest composite wins. Lines without full sim data are hidden.
                         </Text>
-                        {[gameLineRecs.byTeam.away, gameLineRecs.byTeam.home]
-                          .filter((row): row is EvaluatedGameLine => row != null)
-                          .map((row) => (
-                            <RecommendedLineRow key={row.entry.pick} row={row} />
-                          ))}
+                        {displayBestLines.map((row) => (
+                          <RecommendedLineRow key={row.entry.pick} row={row} />
+                        ))}
                       </Card>
                     ) : null}
                     {gameFourQuestions.length > 0 ? (
@@ -1432,6 +1459,8 @@ function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
           value={row.edgePct != null ? `${row.edgePct > 0 ? "+" : ""}${row.edgePct}%` : "—"}
           valueColor={edgeColor}
         />
+        <MiniStat label="Final AI" value={row.finalAiScore.grade ?? "—"} />
+        <MiniStat label="Confidence" value={row.finalAiScore.confidencePct != null ? `${row.finalAiScore.confidencePct}` : "—"} />
         <MiniStat
           label="Odds"
           value={row.entry.odds != null ? formatAmerican(row.entry.odds) : "—"}
