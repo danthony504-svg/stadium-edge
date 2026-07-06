@@ -60,7 +60,9 @@ import { buildDefaultGameCoverQueries, mergeCoverQueries } from "@/lib/gameSimSc
 import { finalAiScoreLabel } from "@/lib/finalAiScore";
 import {
   classifyGameSimRecommendation,
-  hasCompleteEvaluatedLine,
+  deriveGameSimLineMetrics,
+  NO_POSITIVE_EDGE_MESSAGE,
+  qualifiesForBestLines,
 } from "@/lib/gameSimQualityGates";
 import {
   buildSimulatorPpPropPool,
@@ -404,9 +406,7 @@ export default function SimulatorScreen() {
 
   const displayBestLines = useMemo(() => {
     if (!gameLineRecs) return [];
-    return [gameLineRecs.byTeam.away, gameLineRecs.byTeam.home].filter(
-      (row): row is EvaluatedGameLine => row != null && hasCompleteEvaluatedLine(row),
-    );
+    return gameLineRecs.ranked.filter(qualifiesForBestLines);
   }, [gameLineRecs]);
 
   const propsQ = useQuery({
@@ -1195,13 +1195,22 @@ export default function SimulatorScreen() {
                           Best Lines (Final AI Score)
                         </Text>
                         <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
-                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — highest composite wins. Lines without full sim data are hidden.
+                          Every ML, spread, alt spread, total, alt total, and team total rung scored against the same 10,000-run draw — only lines with full sim hit, fair odds, EV, edge, grade, and confidence are shown.
                         </Text>
                         {displayBestLines.map((row) => (
-                          <RecommendedLineRow key={row.entry.pick} row={row} />
+                          <RecommendedLineRow key={`${row.entry.market}|${row.entry.pick}`} row={row} />
                         ))}
                       </Card>
-                    ) : null}
+                    ) : (
+                      <Card style={{ marginBottom: 12 }}>
+                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+                          Best Lines (Final AI Score)
+                        </Text>
+                        <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, marginTop: 8, lineHeight: 18 }}>
+                          {NO_POSITIVE_EDGE_MESSAGE}
+                        </Text>
+                      </Card>
+                    )}
                     {gameFourQuestions.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
@@ -1406,13 +1415,11 @@ function SettingRow({
 
 function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
   const colors = useColors();
+  const metrics = deriveGameSimLineMetrics(row);
+  if (!metrics) return null;
   const badge = finalAiScoreLabel(row.finalAiScore);
-  const edgeColor =
-    row.edgePct == null
-      ? colors.mutedForeground
-      : row.edgePct >= 0
-        ? colors.success
-        : colors.destructive;
+  const edgeColor = metrics.edgePct >= 0 ? colors.success : colors.destructive;
+  const evColor = metrics.evPct >= 0 ? colors.success : colors.destructive;
   return (
     <View
       style={{
@@ -1453,18 +1460,24 @@ function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
         </View>
       ) : null}
       <View style={{ flexDirection: "row", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-        <MiniStat label="Sim Hit %" value={row.winProb != null ? `${Math.round(row.winProb * 100)}%` : "—"} />
+        <MiniStat label="Sim Hit %" value={`${Math.round(metrics.simHit * 100)}%`} />
+        <MiniStat
+          label="Fair Odds"
+          value={formatAmerican(metrics.fairOdds)}
+        />
+        <MiniStat label="Book Odds" value={formatAmerican(metrics.bookOdds)} />
+        <MiniStat
+          label="EV"
+          value={`${metrics.evPct > 0 ? "+" : ""}${metrics.evPct}%`}
+          valueColor={evColor}
+        />
         <MiniStat
           label="Edge"
-          value={row.edgePct != null ? `${row.edgePct > 0 ? "+" : ""}${row.edgePct}%` : "—"}
+          value={`${metrics.edgePct > 0 ? "+" : ""}${metrics.edgePct}%`}
           valueColor={edgeColor}
         />
-        <MiniStat label="Final AI" value={row.finalAiScore.grade ?? "—"} />
-        <MiniStat label="Confidence" value={row.finalAiScore.confidencePct != null ? `${row.finalAiScore.confidencePct}` : "—"} />
-        <MiniStat
-          label="Odds"
-          value={row.entry.odds != null ? formatAmerican(row.entry.odds) : "—"}
-        />
+        <MiniStat label="Final AI" value={metrics.grade} />
+        <MiniStat label="Confidence" value={`${metrics.confidencePct}`} />
       </View>
     </View>
   );

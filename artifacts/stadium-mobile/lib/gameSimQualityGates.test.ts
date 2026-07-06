@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyGameSimRecommendation,
+  deriveGameSimLineMetrics,
   filterEvalLinesForProjectedMargin,
   hasCompleteEvaluatedLine,
   isAggressiveAltSpread,
   passesCoachSimQualityGate,
   projectedScoreMargin,
+  qualifiesForBestLines,
+  simEdgeFromHit,
+  simEvPct,
 } from "./gameSimQualityGates.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 
@@ -62,6 +66,24 @@ test("hasCompleteEvaluatedLine rejects missing metrics", () => {
     hasCompleteEvaluatedLine(mockRow({ winProb: null, finalAiScore: { ...mockRow({}).finalAiScore, simHit: null } })),
     false,
   );
+  assert.equal(
+    hasCompleteEvaluatedLine(mockRow({ edge: -1, finalAiScore: { ...mockRow({ edge: -1 }).finalAiScore, edgePct: -1 } })),
+    true,
+  );
+});
+
+test("deriveGameSimLineMetrics requires sim hit, fair odds, EV, edge, grade, confidence", () => {
+  const full = deriveGameSimLineMetrics(mockRow({ hit: 0.58, edge: 3.2 }));
+  assert.ok(full);
+  assert.ok(Number.isFinite(full!.fairOdds) && full!.fairOdds !== 0);
+  assert.ok(full!.evPct != null);
+  assert.equal(qualifiesForBestLines(mockRow({ hit: 0.58, edge: 3.2 })), true);
+  assert.equal(qualifiesForBestLines(mockRow({ hit: 0.58, edge: -0.5 })), false);
+});
+
+test("simEvPct and simEdgeFromHit", () => {
+  assert.equal(simEvPct(0.55, -110), 5);
+  assert.ok(simEdgeFromHit(0.55, -110)! > 0);
 });
 
 test("filterEvalLinesForProjectedMargin drops aggressive alts on coin flip", () => {

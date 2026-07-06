@@ -2,8 +2,9 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { RealOddsEntry } from "./api.ts";
-import { decimalToAmerican, impliedProb } from "./format.ts";
+import { americanToDecimal, decimalToAmerican, impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
+import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 import {
   gameSimHasValidRun,
   gameSimHitForPick,
@@ -40,8 +41,70 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
-/** Best Lines rows must have sim hit, edge, grade, and confidence — never show "—". */
-export function hasCompleteEvaluatedLine(row: EvaluatedLineMetrics): boolean {
+export type GameSimLineMetrics = {
+  simHit: number;
+  fairOdds: number;
+  bookOdds: number;
+  evPct: number;
+  edgePct: number;
+  grade: string;
+  confidencePct: number;
+};
+
+/** EV% from sim hit probability vs posted American odds. */
+export function simEvPct(simHit: number, americanOdds: number): number | null {
+  if (!Number.isFinite(simHit) || !Number.isFinite(americanOdds)) return null;
+  const ev = simHit * americanToDecimal(americanOdds) - 1;
+  if (!Number.isFinite(ev)) return null;
+  return Math.round(ev * 1000) / 10;
+}
+
+/** Edge in pct points: sim hit minus book implied probability. */
+export function simEdgeFromHit(simHit: number, americanOdds: number): number | null {
+  const implied = impliedProb(americanOdds);
+  if (!Number.isFinite(simHit) || !Number.isFinite(implied)) return null;
+  return Math.round((simHit - implied) * 1000) / 10;
+}
+
+/**
+ * Derive every Best Lines metric from the 10k sim + posted book price.
+ * Returns null when any required value cannot be grounded.
+ */
+export function deriveGameSimLineMetrics(row: EvaluatedGameLine): GameSimLineMetrics | null {
+  const simHit = row.winProb ?? row.finalAiScore.simHit;
+  const bookOdds = row.entry.odds;
+  const grade = row.finalAiScore.grade;
+  const confidencePct = row.finalAiScore.confidencePct;
+
+  if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) return null;
+  if (bookOdds == null || !Number.isFinite(bookOdds) || bookOdds === 0) return null;
+  if (!grade) return null;
+  if (confidencePct == null || !Number.isFinite(confidencePct)) return null;
+
+  const fairOdds = fairOddsFromProb(simHit);
+  const evPct = simEvPct(simHit, bookOdds);
+  const edgePct =
+    row.edgePct ?? row.finalAiScore.edgePct ?? simEdgeFromHit(simHit, bookOdds);
+
+  if (
+    fairOdds == null ||
+    !Number.isFinite(fairOdds) ||
+    fairOdds === 0 ||
+    evPct == null ||
+    edgePct == null ||
+    !Number.isFinite(edgePct)
+  ) {
+    return null;
+  }
+
+  return { simHit, fairOdds, bookOdds, evPct, edgePct, grade, confidencePct };
+}
+
+/** Every Best Lines metric is present — never show "—" placeholders. */
+export function hasCompleteEvaluatedLine(row: EvaluatedLineMetrics | EvaluatedGameLine): boolean {
+  if ("entry" in row) {
+    return deriveGameSimLineMetrics(row) != null;
+  }
   const hit = row.winProb ?? row.finalAiScore.simHit;
   const edge = row.edgePct ?? row.finalAiScore.edgePct;
   return (
@@ -54,6 +117,14 @@ export function hasCompleteEvaluatedLine(row: EvaluatedLineMetrics): boolean {
     Number.isFinite(row.finalAiScore.confidencePct)
   );
 }
+
+/** Best Lines surface only complete lines with sim-confirmed positive edge. */
+export function qualifiesForBestLines(row: EvaluatedGameLine): boolean {
+  const m = deriveGameSimLineMetrics(row);
+  return m != null && m.edgePct > 0;
+}
+
+export const NO_POSITIVE_EDGE_MESSAGE = "No positive betting edge found";
 
 export function projectedScoreMargin(sim: CoachGameSimEntry): number {
   const home = sim.homeProjectedScore;
@@ -137,7 +208,7 @@ export function classifyGameSimRecommendation(
       tier: "pass",
       emoji: "⚪",
       label: "Pass (No Edge)",
-      detail: "No betting edge found.",
+      detail: NO_POSITIVE_EDGE_MESSAGE,
     };
   }
 
@@ -147,7 +218,7 @@ export function classifyGameSimRecommendation(
       tier: "pass",
       emoji: "⚪",
       label: "Pass (No Edge)",
-      detail: "No posted line has complete simulation data.",
+      detail: NO_POSITIVE_EDGE_MESSAGE,
     };
   }
 
