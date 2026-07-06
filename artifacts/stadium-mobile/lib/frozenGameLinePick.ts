@@ -42,6 +42,8 @@ export {
   assertSummaryCardSurfaceAlignment,
   spreadLineFromPickLabel,
   frozenGameLineSurface,
+  textHasPlaceholderGameLineMetrics,
+  assertNoPlaceholderGameLineMetrics,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 

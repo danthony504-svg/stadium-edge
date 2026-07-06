@@ -71,6 +71,8 @@ import {
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
   assertSummaryCardSurfaceAlignment,
+  assertNoPlaceholderGameLineMetrics,
+  textHasPlaceholderGameLineMetrics,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   containsLegacyGameLineOptimizerCopy,
@@ -1529,7 +1531,7 @@ export default function CoachScreen() {
             // Drop model optimizer prose immediately — the ticket is built from parsed
             // PICK lines + sim scoring, not streamed narrative. Prevents legacy
             // "Final AI — / edge —" listings from flashing during the scoring pass.
-            if (isParlayBuild && !isAnalyze) {
+            if (!isAnalyze && (isParlayBuild || /PICK\s*:/im.test(full))) {
               setMessages((prev) => {
                 const copy = [...prev];
                 const last = copy[copy.length - 1];
@@ -2617,7 +2619,6 @@ export default function CoachScreen() {
           });
         }
         const hasGameLinesOnTicket =
-          isParlayBuild &&
           !isAnalyze &&
           picks.some((p) => isGameLinePick(p) && !p.isProp);
         if (hasGameLinesOnTicket) {
@@ -2655,6 +2656,7 @@ export default function CoachScreen() {
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
         if (gameLineSummary) {
           assertFrozenGameLineSummaryClean(gameLineSummary);
+          assertNoPlaceholderGameLineMetrics(gameLineSummary);
           assertSummaryCardSurfaceAlignment(picks, gameLineSummary);
         }
         assertMainTicketPicksQualified(picks, {
@@ -2675,7 +2677,10 @@ export default function CoachScreen() {
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: picks.length > 0 ? "" : stripModelGameLineListings(finalContent),
+            content:
+              picks.length > 0 || gameLineSummary
+                ? ""
+                : stripModelGameLineListings(finalContent),
             picks,
             ...(gameLineSummary ? { gameLineSummary } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
@@ -2714,6 +2719,7 @@ export default function CoachScreen() {
                 const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
                 if (rebuiltSummary) {
+                  assertNoPlaceholderGameLineMetrics(rebuiltSummary);
                   assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
                 }
                 assertMainTicketPicksQualified(canonical, {
@@ -2737,6 +2743,7 @@ export default function CoachScreen() {
                 const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
                 if (rebuiltSummary) {
+                  assertNoPlaceholderGameLineMetrics(rebuiltSummary);
                   assertSummaryCardSurfaceAlignment(canonical, rebuiltSummary);
                 }
                 assertMainTicketPicksQualified(canonical, {
@@ -3059,6 +3066,8 @@ export default function CoachScreen() {
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const ticketPicks = m.picks?.filter((p) => isFullyQualifiedPick(p)) ?? [];
+            const safeContent =
+              hasPicks || ticketPicks.length > 0 || m.gameLineSummary ? "" : m.content;
             const hidePickReplyProse = hasPicks || ticketPicks.length > 0 || !!m.gameLineSummary;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
@@ -3109,12 +3118,13 @@ export default function CoachScreen() {
               m.role === "assistant"
                 ? ticketRendered
                   ? ""
-                  : assistantBubbleText(m.content, false)
-                : m.content;
+                  : assistantBubbleText(safeContent, false)
+                : safeContent;
             // Drop the bubble entirely when a pick reply left no lead-in text —
             // the cards carry everything. Also hide it while a parlay is building
             // (the AnalysisProgress card stands in) or while an analyze request is waiting.
             const showBubble =
+              ticketPicks.length === 0 &&
               !hidePickReplyProse &&
               !isScoringParlay &&
               !m.hideBubble &&
@@ -3214,7 +3224,7 @@ export default function CoachScreen() {
                 {ticketPicks.length > 0 ? (
                   (() => {
                     try {
-                      if (m.content && containsLegacyGameLineOptimizerCopy(m.content)) {
+                      if (safeContent && containsLegacyGameLineOptimizerCopy(safeContent)) {
                         throw new FrozenGameLineConsistencyError(
                           "Legacy optimizer summary blocked — use frozen gameLineSummary only",
                         );
@@ -3222,6 +3232,11 @@ export default function CoachScreen() {
                       if (m.gameLineSummary && containsLegacyGameLineOptimizerCopy(m.gameLineSummary)) {
                         throw new FrozenGameLineConsistencyError(
                           "Legacy optimizer copy in gameLineSummary — render blocked",
+                        );
+                      }
+                      if (m.gameLineSummary && textHasPlaceholderGameLineMetrics(m.gameLineSummary)) {
+                        throw new FrozenGameLineConsistencyError(
+                          "Game-line summary contains placeholder Final AI or Edge dashes",
                         );
                       }
                       const canonicalPicks = validateFrozenTicketForRender(ticketPicks, undefined);
@@ -3244,6 +3259,7 @@ export default function CoachScreen() {
                           );
                         }
                         assertSummaryCardSurfaceAlignment(canonicalPicks, displaySummary);
+                        assertNoPlaceholderGameLineMetrics(displaySummary);
                       }
                       assertMainTicketPicksQualified(canonicalPicks);
                       return (

@@ -20,6 +20,8 @@ import {
   assertSummaryCardSurfaceAlignment,
   spreadLineFromPickLabel,
   frozenGameLineSurface,
+  textHasPlaceholderGameLineMetrics,
+  assertNoPlaceholderGameLineMetrics,
 } from "./frozenGameLineConsistency.ts";
 
 type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
@@ -112,7 +114,7 @@ test("buildFrozenGameLineSummaryNote matches card header for every frozen leg", 
   const summary = buildFrozenGameLineSummaryNote(picks);
   assert.match(summary, /\*\*Fever \+1\.5\*\*/);
   assert.match(summary, /· \+115 ·/);
-  assert.match(summary, /Final AI B\+ · Sim 54% · Edge \+3\.2% · Conf 58/);
+  assert.match(summary, /Final AI: B\+ · Confidence: 58 · Edge: \+3\.2% · Sim: 54%/);
   assert.doesNotMatch(summary, /Final AI\s*[—-]/);
   assert.doesNotMatch(summary, /edge\s*[—-]/i);
   const parsed = parseFrozenSummaryGamePicks(summary);
@@ -240,7 +242,7 @@ test("composeFrozenGameLineLegNote strips stale lines and rebuilds from cards", 
   const note = composeFrozenGameLineLegNote(picks, stale);
   assert.doesNotMatch(note, /Sox -1\.5/);
   assert.match(note, /\*\*Angels \+1\.5\*\*/);
-  assert.match(note, /Final AI B\+ · Sim 54%/);
+  assert.match(note, /Final AI: B\+ · Confidence:/);
   assert.doesNotMatch(note, /edge\s*[—-]/i);
   const mentions = parseAllGameLineMentionsFromNote(note);
   assert.equal(mentions.size, 1);
@@ -334,7 +336,7 @@ test("containsLegacyGameLineOptimizerCopy detects streamed model optimizer bulle
   assert.equal(containsLegacyGameLineOptimizerCopy(legacy), true);
   assert.equal(
     containsLegacyGameLineOptimizerCopy(
-      "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI B+ · Sim 52% · Edge +3.1% · Conf 55",
+      "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI: B+ · Confidence: 55 · Edge: +3.1% · Sim: 52%",
     ),
     false,
   );
@@ -347,11 +349,24 @@ test("assertSummaryCardSurfaceAlignment rejects Yankees summary vs Rays card", (
   cardPick.market = "Alt Spread";
   cardPick.odds = -166;
   const staleSummary =
-    "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI C+ · Sim 49% · Edge +4.6% · Conf 55";
+    "• **Yankees -1.5** (Spread) · -110 · New York Yankees @ Tampa Bay Rays\nFinal AI: C+ · Confidence: 55 · Edge: +4.6% · Sim: 49%";
   assert.throws(
     () => assertSummaryCardSurfaceAlignment([cardPick], staleSummary),
     /does not match frozen cards|mismatch on gameId/i,
   );
+});
+
+test("textHasPlaceholderGameLineMetrics detects Royals legacy optimizer line", () => {
+  const legacy =
+    "Philadelphia Phillies @ Kansas City Royals: Royals +1 (Alt Spread) — Final AI —, sim 50%, edge —";
+  assert.equal(textHasPlaceholderGameLineMetrics(legacy), true);
+  assert.throws(() => assertNoPlaceholderGameLineMetrics(legacy), FrozenGameLineConsistencyError);
+});
+
+test("textHasPlaceholderGameLineMetrics allows complete frozen summary metrics", () => {
+  const good =
+    "• **Royals +1** (Alt Spread) · -166 · Philadelphia Phillies @ Kansas City Royals\nFinal AI: B+ · Confidence: 52 · Edge: +3.1% · Sim: 50%";
+  assert.equal(textHasPlaceholderGameLineMetrics(good), false);
 });
 
 test("assertSummaryCardSurfaceAlignment passes when summary matches frozen card surfaces", () => {

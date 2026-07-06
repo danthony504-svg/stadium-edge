@@ -316,8 +316,13 @@ export function assertFrozenGameLineMetricsComplete(
 }
 
 function assertSummaryHasNoPlaceholderDashes(summary: string): void {
+  if (textHasPlaceholderGameLineMetrics(summary)) {
+    throw new FrozenGameLineConsistencyError(
+      "Game-line summary contains placeholder Final AI or Edge dashes — build refused",
+    );
+  }
   const LEGACY =
-    /highest Final AI Score among|posted ML \/ spread|:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*[—-]\s*Final AI|Final AI\s*[:—-]{1,2}(?:\s|,|$)|edge\s*[:—-]{1,2}(?:\s|,|$)|sim\s*[:—-]{1,2}(?:\s|,|$)|conf(?:idence)?\s*[:—-]{1,2}/i;
+    /highest Final AI Score among|posted ML \/ spread|:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*[—-]\s*Final AI|Final AI\s*(?:—|--)(?:\s|,|$)|Final AI:\s*(?:—|--)\b|edge\s*(?:—|--)(?:\s|,|$)|edge:\s*(?:—|--)\b|sim\s*(?:—|--)(?:\s|,|$)|conf(?:idence)?\s*(?:—|--)(?:\s|,|$)/i;
   if (LEGACY.test(summary)) {
     throw new FrozenGameLineConsistencyError(
       "Game-line summary contains placeholder dashes or legacy optimizer copy — build refused",
@@ -363,7 +368,7 @@ export function formatFrozenGameLineSummaryLine(
   }
   const metrics = assertFrozenGameLineMetricsComplete(pick, realOdds);
   const header = `**${row.pick}** (${row.market}) · ${formatAmerican(row.odds)} · ${row.game}`;
-  const metricsLine = `Final AI ${metrics.grade} · Sim ${metrics.simPct}% · Edge +${metrics.edgePct.toFixed(1)}% · Conf ${metrics.confidencePct}`;
+  const metricsLine = `Final AI: ${metrics.grade} · Confidence: ${metrics.confidencePct} · Edge: +${metrics.edgePct.toFixed(1)}% · Sim: ${metrics.simPct}%`;
   const bullets = pick.gameLineFinal.bullets ?? [];
   const why =
     bullets.length > 0
@@ -414,10 +419,31 @@ export function buildFrozenGameLineSummaryNote(
     );
   }
 
-  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every line shows Final AI Grade, Simulation %, Edge %, and Confidence from the frozen pick:_`;
+  const intro = `_After the 10k sim, ${lines.length} qualified game line${lines.length === 1 ? "" : "s"} — every line shows Final AI, Confidence, Edge, and Sim from the frozen pick:_`;
   const summary = `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
   assertFrozenGameLineSummaryClean(summary);
+  assertNoPlaceholderGameLineMetrics(summary);
   return summary;
+}
+
+/** True when text contains em-dash placeholder metrics on a game-line listing. */
+export function textHasPlaceholderGameLineMetrics(text: string): boolean {
+  if (!text.trim()) return false;
+  const PLACEHOLDER_METRIC = /Final AI\s*—|Final AI\s*--|edge\s*—|edge\s*--/i;
+  const GAME_LINE_CTX =
+    /\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)|\*\*[^*]+\*\*\s*\([^)]+\)\s*·|@[^@\n]+:/i;
+  if (!GAME_LINE_CTX.test(text)) return false;
+  return PLACEHOLDER_METRIC.test(text);
+}
+
+/** Hard fail on any game-line summary or optimizer copy with placeholder dashes. */
+export function assertNoPlaceholderGameLineMetrics(text: string): void {
+  if (!text.trim()) return;
+  if (textHasPlaceholderGameLineMetrics(text)) {
+    throw new FrozenGameLineConsistencyError(
+      "Game-line copy contains placeholder Final AI or Edge dashes — render refused",
+    );
+  }
 }
 
 /** Parse game/pick/market tuples from frozen summary bullets. */
@@ -497,13 +523,17 @@ export function parseAllGameLineMentionsFromNote(note: string): Map<string, Game
 
 function looksLikeGameLineListing(text: string): boolean {
   const t = text.trim();
-  if (!t || !/@/.test(t)) return false;
+  if (!t) return false;
   if (/highest Final AI Score among/i.test(t)) return true;
-    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*(?:[+-]?\d+\s*·\s*)?.+@/.test(t)) return true;
+  if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·/.test(t)) return false;
+  if (textHasPlaceholderGameLineMetrics(t)) return true;
+  if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*[—-]\s*Final AI/i.test(t)) return true;
+  if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t) && /:\s*.+\s*\(/.test(t)) return true;
+  if (!/@/.test(t)) return false;
   if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
   if (/:\s*.+\s*\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t)) return true;
-  if (/Final AI\s*[:—-]/i.test(t) && /@/.test(t)) return true;
-  if (/edge\s*[:—-]/i.test(t) && /@/.test(t)) return true;
+  if (/Final AI\s*[:—-]/i.test(t)) return true;
+  if (/edge\s*[:—-]/i.test(t)) return true;
   if (/sim\s*\d+%.*edge\s*[—\-]{1,2}/i.test(t)) return true;
   return false;
 }
@@ -511,12 +541,12 @@ function looksLikeGameLineListing(text: string): boolean {
 /** True when text contains legacy optimizer game-line copy that must never render. */
 export function containsLegacyGameLineOptimizerCopy(text: string): boolean {
   if (!text.trim()) return false;
+  if (textHasPlaceholderGameLineMetrics(text)) return true;
   if (/highest Final AI Score among/i.test(text)) return true;
   return text.split(/\n/).some((line) => {
     const t = line.trim();
     if (!t) return false;
-    // Frozen summary lines are always allowed.
-    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·\s*(?:[+-]?\d+\s*·\s*)?.+@/.test(t)) return false;
+    if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·/.test(t)) return false;
     return looksLikeGameLineListing(t);
   });
 }
@@ -783,6 +813,7 @@ export function assertSummaryCardSurfaceAlignment(
       "Legacy optimizer summary blocked — summary must match frozen gameLineFinal cards",
     );
   }
+  assertNoPlaceholderGameLineMetrics(gameLineSummary);
 
   const cards = ticketGameLineCards(picks);
   const mentioned = parseAllGameLineMentionsFromNote(gameLineSummary);
