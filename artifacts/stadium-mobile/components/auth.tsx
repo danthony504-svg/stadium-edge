@@ -1,6 +1,7 @@
 import { useSSO } from "@clerk/expo";
 import { useSignInWithApple } from "@clerk/expo/apple";
 import { Feather } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -349,6 +350,13 @@ export function AppleAuthButton() {
       if (Platform.OS === "ios") {
         // Native Sign in with Apple — browser oauth_apple is rejected on iOS
         // (form_param_value_invalid) and does not meet App Store 4.8 expectations.
+        const nativeAvailable = await AppleAuthentication.isAvailableAsync();
+        if (!nativeAvailable) {
+          setError(
+            "Sign in with Apple needs the latest Stadium Edge build. Update from TestFlight or the App Store, then try again.",
+          );
+          return;
+        }
         const { createdSessionId, setActive } = await startAppleAuthenticationFlow();
         await finishSession(createdSessionId, setActive);
       } else {
@@ -363,6 +371,15 @@ export function AppleAuthButton() {
       if (e.code === "ERR_REQUEST_CANCELED" || e.code === "ERR_CANCELED") return;
       if (typeof e.message === "string" && e.message.includes("ERR_REQUEST_CANCELED")) return;
       const detail = describeSsoError(err);
+      if (
+        Platform.OS === "ios" &&
+        /oauth_apple|form_param_value_invalid/i.test(detail)
+      ) {
+        setError(
+          "This app build is out of date for Sign in with Apple. Install the latest TestFlight or App Store version, then try again.",
+        );
+        return;
+      }
       let raw = "";
       try {
         raw = JSON.stringify(err, null, 2);
