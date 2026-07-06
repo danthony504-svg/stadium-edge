@@ -184,7 +184,7 @@ export function chatStreamUserMessage(err: unknown): string {
   if (
     code === "invalid_api_key" ||
     /invalid_api_key|incorrect api key/i.test(message) ||
-    (e as { status?: number })?.status === 401
+    (err as { status?: number })?.status === 401
   ) {
     return "\n\n_AI Coach is temporarily offline — the server API key is invalid. Try again later._";
   }
