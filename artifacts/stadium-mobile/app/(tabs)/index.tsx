@@ -389,14 +389,24 @@ export default function HomeScreen() {
   const sportRef = useRef(sport);
   sportRef.current = sport;
 
-  const selectSport = useCallback((id: string) => {
-    setSport(id);
-    setStickyLiveGames(cachedLiveGames(id));
-    setStickyUpcoming({
-      sport: id,
-      games: cachedUpcomingGames(id).filter((g) => g.sport === id),
-    });
-  }, []);
+  const selectSport = useCallback(
+    (id: string) => {
+      if (id === sportRef.current) return;
+      sportRef.current = id;
+      queryClient.cancelQueries({ queryKey: ["odds"] });
+      queryClient.cancelQueries({ queryKey: ["games"] });
+      // Evict any cross-league placeholder rows before the new fetch lands.
+      queryClient.setQueryData<OddsGame[]>(["odds", id], undefined);
+      queryClient.setQueryData<EspnGame[]>(["games", id], undefined);
+      setSport(id);
+      setStickyLiveGames(cachedLiveGames(id).filter((g) => g.sport === id));
+      setStickyUpcoming({
+        sport: id,
+        games: cachedUpcomingGames(id).filter((g) => g.sport === id),
+      });
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
@@ -512,6 +522,11 @@ export default function HomeScreen() {
     if (stickyUpcoming.sport === sport && sticky.length > 0) return sticky;
     return games;
   }, [games, stickyUpcoming, sport, oddsQ.isPlaceholderData]);
+  // Final belt-and-braces: never paint a row unless it matches the active pill.
+  const displayUpcoming = useMemo(
+    () => upcomingGames.filter((g) => g.sport === sport),
+    [upcomingGames, sport],
+  );
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -1691,7 +1706,7 @@ export default function HomeScreen() {
             >
               Upcoming Games
             </Text>
-            {upcomingGames.length > 0 ? (
+            {displayUpcoming.length > 0 ? (
               <View
                 style={{
                   minWidth: 24,
@@ -1710,12 +1725,12 @@ export default function HomeScreen() {
                     fontSize: 13,
                   }}
                 >
-                  {upcomingGames.length}
+                  {displayUpcoming.length}
                 </Text>
               </View>
             ) : null}
           </View>
-          {upcomingGames.length > 0 ? (
+          {displayUpcoming.length > 0 ? (
             <Pressable
               hitSlop={8}
               onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
@@ -1734,7 +1749,7 @@ export default function HomeScreen() {
           ) : null}
         </View>
         {(oddsQ.isPlaceholderData || (!oddsQ.data && oddsQ.isLoading)) &&
-        upcomingGames.length === 0 ? (
+        displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
@@ -1742,7 +1757,7 @@ export default function HomeScreen() {
           <View style={{ paddingHorizontal: 16 }}>
             <ErrorState onRetry={() => oddsQ.refetch()} />
           </View>
-        ) : upcomingGames.length === 0 ? (
+        ) : displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <EmptyState
               icon="calendar"
@@ -1752,7 +1767,7 @@ export default function HomeScreen() {
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {upcomingGames.slice(0, 8).map((g) => {
+            {displayUpcoming.slice(0, 8).map((g) => {
               const baseMeta = metaMap.get(
                 `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
               );
