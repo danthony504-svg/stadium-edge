@@ -3,7 +3,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Updates from "expo-updates";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -376,19 +376,28 @@ export default function HomeScreen() {
   const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
   const [stickyUpcoming, setStickyUpcoming] = useState<{ sport: string; games: OddsGame[] }>(() => ({
     sport,
-    games: cachedUpcomingGames(sport),
+    games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
   }));
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
 
   const selectSport = useCallback((id: string) => {
     setSport(id);
     setStickyLiveGames(cachedLiveGames(id));
-    setStickyUpcoming({ sport: id, games: cachedUpcomingGames(id) });
+    setStickyUpcoming({
+      sport: id,
+      games: cachedUpcomingGames(id).filter((g) => g.sport === id),
+    });
   }, []);
 
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
-      setStickyLiveGames(cachedLiveGames(sport));
-      setStickyUpcoming({ sport, games: cachedUpcomingGames(sport) });
+      const s = sportRef.current;
+      setStickyLiveGames(cachedLiveGames(s));
+      setStickyUpcoming({
+        sport: s,
+        games: cachedUpcomingGames(s).filter((g) => g.sport === s),
+      });
     });
   }, []);
 
@@ -407,7 +416,10 @@ export default function HomeScreen() {
 
   useEffect(() => {
     setStickyLiveGames(cachedLiveGames(sport));
-    setStickyUpcoming({ sport, games: cachedUpcomingGames(sport) });
+    setStickyUpcoming({
+      sport,
+      games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
+    });
   }, [sport]);
 
   const oddsQ = useQuery({
@@ -415,12 +427,16 @@ export default function HomeScreen() {
     queryFn: ({ signal }) => getOdds(sport, signal),
     staleTime: 45_000,
     refetchOnMount: "always",
+    // Global keepPreviousData would show the PREVIOUS league's odds under the new
+    // pill until the fetch lands (UFC selected + Phillies @ Royals visible).
+    placeholderData: undefined,
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
     queryFn: ({ signal }) => getGames(sport, signal),
     staleTime: 45_000,
     refetchOnMount: "always",
+    placeholderData: undefined,
   });
 
   // Tennis players have no club crest, so the Upcoming cards show each player's
@@ -466,25 +482,26 @@ export default function HomeScreen() {
 
   const games: OddsGame[] = useMemo(() => {
     const list = (oddsQ.data ?? [])
+      .filter((g) => g.sport === sport)
       .filter((g) => isPickable(g.commenceTime))
       .filter(
         (g) =>
           !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
       );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data, liveKeySet]);
+  }, [oddsQ.data, liveKeySet, sport]);
 
   useEffect(() => {
-    if (games.length > 0) {
-      setStickyUpcoming({ sport, games });
-      rememberUpcomingGames(sport, games);
+    const leagueGames = games.filter((g) => g.sport === sport);
+    if (leagueGames.length > 0) {
+      setStickyUpcoming({ sport, games: leagueGames });
+      rememberUpcomingGames(sport, leagueGames);
     }
   }, [games, sport]);
   const upcomingGames = useMemo(() => {
     if (games.length > 0) return games;
-    if (stickyUpcoming.sport === sport && stickyUpcoming.games.length > 0) {
-      return stickyUpcoming.games;
-    }
+    const sticky = stickyUpcoming.games.filter((g) => g.sport === sport);
+    if (stickyUpcoming.sport === sport && sticky.length > 0) return sticky;
     return games;
   }, [games, stickyUpcoming, sport]);
 
