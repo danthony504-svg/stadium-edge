@@ -16,6 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Line, Polyline } from "react-native-svg";
 
 import { AppHeader } from "@/components/AppHeader";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -98,15 +100,72 @@ function withTennisFlags(
   flags: Record<string, TennisFlag> | undefined,
   g: OddsGame,
 ): GameMeta | undefined {
-  if (!flags) return base;
-  const awayFlag = resolveTennisFlag(flags, g.awayTeam);
-  const homeFlag = resolveTennisFlag(flags, g.homeTeam);
-  if (!awayFlag && !homeFlag) return base;
-  return {
-    ...(base ?? {}),
-    awayLogo: awayFlag ?? base?.awayLogo ?? null,
-    homeLogo: homeFlag ?? base?.homeLogo ?? null,
-  };
+  try {
+    if (!flags) return base;
+    const awayFlag = resolveTennisFlag(flags, g.awayTeam);
+    const homeFlag = resolveTennisFlag(flags, g.homeTeam);
+    if (!awayFlag && !homeFlag) return base;
+    return {
+      ...(base ?? {}),
+      awayLogo: awayFlag ?? base?.awayLogo ?? null,
+      homeLogo: homeFlag ?? base?.homeLogo ?? null,
+    };
+  } catch {
+    return base;
+  }
+}
+
+/** Keeps sport pills usable if a single league feed throws during render. */
+function HomeFeedErrorFallback({ error, resetError }: ErrorFallbackProps) {
+  const colors = useColors();
+  return (
+    <View style={{ paddingHorizontal: 16, paddingVertical: 32, gap: 12 }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+        Couldn't load this league
+      </Text>
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.medium,
+          fontSize: 13,
+          textAlign: "center",
+          lineHeight: 19,
+        }}
+      >
+        Try another sport pill above, or tap retry. If this keeps happening, force-quit the app and
+        reopen so the latest update can finish installing.
+      </Text>
+      {error.message ? (
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.medium,
+            fontSize: 11,
+            textAlign: "center",
+            opacity: 0.75,
+          }}
+          numberOfLines={2}
+        >
+          {error.message}
+        </Text>
+      ) : null}
+      <Pressable
+        onPress={resetError}
+        style={({ pressed }) => ({
+          alignSelf: "center",
+          backgroundColor: colors.primary,
+          borderRadius: 10,
+          paddingVertical: 12,
+          paddingHorizontal: 28,
+          opacity: pressed ? 0.9 : 1,
+        })}
+      >
+        <Text style={{ color: colors.primaryForeground, fontFamily: FONT.semibold, fontSize: 14 }}>
+          Retry
+        </Text>
+      </Pressable>
+    </View>
+  );
 }
 
 // A featured player built ONLY from a real bookmaker prop line — never an
@@ -394,8 +453,13 @@ export default function HomeScreen() {
       queryClient.cancelQueries({ queryKey: ["games"] });
       queryClient.cancelQueries({ queryKey: ["home-featured"] });
       queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
+      queryClient.cancelQueries({ queryKey: ["home-upsets"] });
+      queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
       queryClient.removeQueries({ queryKey: ["odds"] });
       queryClient.removeQueries({ queryKey: ["games"] });
+      queryClient.removeQueries({ queryKey: ["home-featured"] });
+      queryClient.removeQueries({ queryKey: ["home-upsets"] });
+      queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
       setSport(id);
     },
     [queryClient],
@@ -471,6 +535,7 @@ export default function HomeScreen() {
     queryFn: ({ signal }) => getTennisFlags(signal),
     staleTime: 5 * 60_000,
     enabled: sport === "tennis",
+    retry: false,
   });
 
   const gamesForSport = useMemo(() => {
@@ -873,14 +938,14 @@ export default function HomeScreen() {
     // Tennis uses tennisAnalysis (rank/form/H2H), not team matchup-history mlLean.
     enabled: sport !== "tennis",
   });
-  const upsets: UpsetSpot[] = upsetsQ.data ?? [];
+  const upsets: UpsetSpot[] = sport === "tennis" ? [] : (upsetsQ.data ?? []);
 
   const refreshing =
     oddsQ.isFetching ||
     gamesQ.isFetching ||
     featuredGameQs.some((q) => q.isFetching) ||
     stealsQ.isFetching ||
-    upsetsQ.isFetching;
+    (sport !== "tennis" && upsetsQ.isFetching);
 
   const askCoach = (msg: string, silent = false) => {
     if (silent) markCoachHomeLaunch();
@@ -1042,6 +1107,7 @@ export default function HomeScreen() {
         </ScrollView>
       </AppHeader>
 
+      <ErrorBoundary key={sport} FallbackComponent={HomeFeedErrorFallback}>
       <ScrollView
         contentContainerStyle={{
           paddingBottom: insets.bottom + 24 + slipClearance,
@@ -1945,7 +2011,7 @@ export default function HomeScreen() {
             betting underdog. Styled like the other home rails; hidden when there
             are no real upsets. Tap a spot to ask the coach about it. Every number
             is real (dog ML price + edge). Placed last on the home feed. */}
-        {upsetsQ.isLoading || upsets.length > 0 ? (
+        {sport !== "tennis" && (upsetsQ.isLoading || upsets.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -2056,6 +2122,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </ErrorBoundary>
     </View>
   );
 }
