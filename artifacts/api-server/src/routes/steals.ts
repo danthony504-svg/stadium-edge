@@ -17,20 +17,42 @@ router.use("/sports/live-steals", rateLimit({ windowMs: 60_000, max: 60, name: "
 let lastGradeAt = 0;
 const GRADE_THROTTLE_MS = 5 * 60 * 1000;
 
-router.get("/sports/live-steals", async (_req, res): Promise<void> => {
+const EMPTY_SCAN_META = {
+  booksScanned: 0,
+  marketsChecked: 0,
+  longshotsAnalyzed: 0,
+  stealsFound: 0,
+  sportCounts: {} as Record<string, number>,
+  totalOpportunities: 0,
+};
+
+router.get("/sports/live-steals", async (req, res): Promise<void> => {
   try {
-    const { steals, meta, almostQualified } = await fetchStealsWithMeta();
-    // Capture freshly-seen steals (once) so they enter the graded ledger.
-    await persistSteals(steals);
-    // Best-effort, throttled grading backstop.
+    const [record, history] = await Promise.all([getRecord(), getGradedHistory()]);
+    const seasonStats = seasonStatsFromGraded(history);
+
+    let steals: Awaited<ReturnType<typeof fetchStealsWithMeta>>["steals"] = [];
+    let meta = EMPTY_SCAN_META;
+    let almostQualified: Awaited<ReturnType<typeof fetchStealsWithMeta>>["almostQualified"] = [];
+
+    try {
+      const scan = await fetchStealsWithMeta();
+      steals = scan.steals;
+      meta = scan.meta;
+      almostQualified = scan.almostQualified;
+      await persistSteals(steals);
+    } catch (scanErr) {
+      req.log.warn({ err: scanErr }, "live-steals scan failed — returning empty pool");
+    }
+
     if (Date.now() - lastGradeAt > GRADE_THROTTLE_MS) {
       lastGradeAt = Date.now();
       gradePending().catch(() => {});
     }
-    const [record, history] = await Promise.all([getRecord(), getGradedHistory()]);
-    const seasonStats = seasonStatsFromGraded(history);
+
     res.json({ steals, record, history, meta, almostQualified, seasonStats });
-  } catch {
+  } catch (err) {
+    req.log.error({ err }, "live-steals route failed");
     res.status(502).json({ error: "could not load steals" });
   }
 });

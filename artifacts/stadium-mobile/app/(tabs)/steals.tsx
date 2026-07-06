@@ -509,8 +509,10 @@ export default function StealsScreen() {
       if (q.state.error) return 5_000;
       return 3_000;
     },
-    retry: 3,
-    retryDelay: (attempt) => Math.min(4_000, 1_000 * 2 ** attempt),
+    retry: (failureCount) => failureCount < 12,
+    retryDelay: (attempt) => Math.min(8_000, 1_500 * 2 ** attempt),
+    placeholderData: (prev) => prev,
+    refetchIntervalInBackground: true,
   });
 
   const steals = query.data?.steals ?? [];
@@ -528,7 +530,8 @@ export default function StealsScreen() {
   // Keep hunting until at least one qualified steal or near-miss surfaces.
   const hunting = !hasResults;
   const awaitingFirstResponse = query.isLoading && !query.data;
-  const showHuntingUi = hunting && !query.isError;
+  const showHuntingUi = hunting;
+  const feedUnreachable = query.isError && hunting;
 
   useFocusEffect(
     useCallback(() => {
@@ -683,8 +686,21 @@ export default function StealsScreen() {
 
         {showHuntingUi ? (
           <RadarScan>
-            {awaitingFirstResponse ? (
+            {awaitingFirstResponse && !feedUnreachable ? (
               <ScanProgressPanel meta={meta} loading step={scanStep} />
+            ) : feedUnreachable ? (
+              <View style={{ alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
+                <Feather name="wifi-off" size={18} color={STEAL_ACCENT} />
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "center" }}>
+                  Couldn&apos;t reach the odds feed
+                </Text>
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
+                  Retrying automatically every few seconds…
+                </Text>
+                <Pressable onPress={() => query.refetch()}>
+                  <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12 }}>Retry now</Text>
+                </Pressable>
+              </View>
             ) : meta ? (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
                 {formatScanCount(meta.marketsChecked)} markets checked · {meta.longshotsAnalyzed} longshots · rescanning every 3s
@@ -695,24 +711,6 @@ export default function StealsScreen() {
               </Text>
             )}
           </RadarScan>
-        ) : query.isError ? (
-          <View style={{ paddingVertical: 50, alignItems: "center", gap: 12 }}>
-            <Feather name="wifi-off" size={28} color={colors.mutedForeground} />
-            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-              Couldn't reach the odds feed
-            </Text>
-            <Pressable
-              onPress={() => query.refetch()}
-              style={{
-                paddingHorizontal: 18,
-                paddingVertical: 10,
-                borderRadius: 10,
-                backgroundColor: colors.primary,
-              }}
-            >
-              <Text style={{ color: "#020617", fontFamily: FONT.bold, fontSize: 14 }}>Retry</Text>
-            </Pressable>
-          </View>
         ) : (
           <>
             {filteredSteals.length > 0 ? (
