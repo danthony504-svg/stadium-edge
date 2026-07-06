@@ -42,8 +42,12 @@ export {
   assertSummaryCardSurfaceAlignment,
   spreadLineFromPickLabel,
   frozenGameLineSurface,
+  assertGameLineProductionMetadataComplete,
   textHasPlaceholderGameLineMetrics,
   assertNoPlaceholderGameLineMetrics,
+  assertFrozenSummaryMetricsLinesComplete,
+  assertProductionCoachTicketIntegrity,
+  assertProductionCoachTicketIntegritySummary,
   FrozenGameLineConsistencyError,
 } from "./frozenGameLineConsistency.ts";
 
@@ -88,6 +92,7 @@ export function snapshotFrozenGameLineDisplay(
     edgePct: display.edgePct,
     evPct: display.evPct,
     market: display.market,
+    odds: display.odds,
     isBestEvLine: pick.gameLineFinal?.isBestEv,
   });
   assertFrozenGameLineMetricsComplete(probe, merged);

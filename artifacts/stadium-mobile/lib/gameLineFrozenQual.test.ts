@@ -63,6 +63,7 @@ test("assertGameLineFinalizeMetrics rejects sim 49% with missing edge", () => {
         simHit: 0.49,
         edgePct: null,
         market: "Spread",
+        odds: -110,
       }),
     GameLineFinalizeRejected,
   );
@@ -78,6 +79,7 @@ test("assertGameLineFinalizeMetrics rejects sim 49% with edge below 4.5%", () =>
         simHit: 0.49,
         edgePct: 2.1,
         market: "Spread",
+        odds: -110,
       }),
     GameLineFinalizeRejected,
   );
@@ -93,6 +95,7 @@ test("assertGameLineFinalizeMetrics accepts sim 49% with exceptional edge", () =
       edgePct: 5.1,
       evPct: 6,
       market: "Spread",
+      odds: -110,
     }),
   );
 });

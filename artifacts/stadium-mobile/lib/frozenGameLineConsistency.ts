@@ -8,6 +8,7 @@ import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
 import { gradeRank } from "./finalAiScore.ts";
 import {
   assertGameLineFinalizeMetrics,
+  assertGameLineProductionMetadataComplete,
   gameLineSimEdgeQualifies,
 } from "./gameLineFrozenQual.ts";
 
@@ -310,6 +311,7 @@ export function assertFrozenGameLineMetricsComplete(
     edgePct: metrics.edgePct,
     evPct: d?.evPct ?? pick.finalAiScore?.edgePct,
     market: header.market,
+    odds: header.odds,
     isBestEvLine: pick.gameLineFinal?.isBestEv,
   });
   return metrics;
@@ -423,17 +425,44 @@ export function buildFrozenGameLineSummaryNote(
   const summary = `${intro}\n\n${lines.map((n) => `• ${n}`).join("\n\n")}`;
   assertFrozenGameLineSummaryClean(summary);
   assertNoPlaceholderGameLineMetrics(summary);
+  assertFrozenSummaryMetricsLinesComplete(summary);
   return summary;
 }
 
-/** True when text contains em-dash placeholder metrics on a game-line listing. */
+/** True when text contains em-dash or ASCII placeholder metrics on a game-line listing. */
 export function textHasPlaceholderGameLineMetrics(text: string): boolean {
   if (!text.trim()) return false;
-  const PLACEHOLDER_METRIC = /Final AI\s*—|Final AI\s*--|edge\s*—|edge\s*--/i;
+  const PLACEHOLDER_METRIC =
+    /Final AI\s*(?:[:—-]+\s*|:\s*)(?:—|--)(?:\s|,|;|$)|Final AI:\s*(?:—|--)\b|edge\s*(?:—|--)(?:\s|,|;|$)|edge:\s*(?:—|--)\b|Confidence:\s*(?:—|--)\b|Sim:\s*(?:—|--)\b|\)\s*--\s*Final AI/i;
   const GAME_LINE_CTX =
-    /\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)|\*\*[^*]+\*\*\s*\([^)]+\)\s*·|@[^@\n]+:/i;
+    /\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)|\)\s*--\s*Final AI|\*\*[^*]+\*\*\s*\([^)]+\)\s*·|@[^@\n]+:/i;
   if (!GAME_LINE_CTX.test(text)) return false;
   return PLACEHOLDER_METRIC.test(text);
+}
+
+const FROZEN_SUMMARY_METRICS_LINE =
+  /Final AI:\s*[^\s—-]+ · Confidence:\s*\d+ · Edge:\s*\+[\d.]+% · Sim:\s*\d+%/;
+
+/** Every frozen summary bullet must include a complete metrics line — no placeholders. */
+export function assertFrozenSummaryMetricsLinesComplete(summary: string): void {
+  if (!summary.trim()) return;
+  assertNoPlaceholderGameLineMetrics(summary);
+  const blocks = summary.split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
+  let gameLineBlocks = 0;
+  for (const block of blocks) {
+    if (!/\*\*[^*]+\*\*\s*\([^)]+\)\s*·/.test(block)) continue;
+    gameLineBlocks += 1;
+    if (!FROZEN_SUMMARY_METRICS_LINE.test(block)) {
+      throw new FrozenGameLineConsistencyError(
+        "Frozen game-line summary block missing complete Final AI, Confidence, Edge, or Sim metrics",
+      );
+    }
+  }
+  if (gameLineBlocks === 0 && /\*\*[^*]+\*\*/.test(summary)) {
+    throw new FrozenGameLineConsistencyError(
+      "Frozen game-line summary is missing complete metrics on every leg",
+    );
+  }
 }
 
 /** Hard fail on any game-line summary or optimizer copy with placeholder dashes. */
@@ -527,6 +556,8 @@ function looksLikeGameLineListing(text: string): boolean {
   if (/highest Final AI Score among/i.test(t)) return true;
   if (/\*\*[^*]+\*\*\s*\([^)]+\)\s*·/.test(t)) return false;
   if (textHasPlaceholderGameLineMetrics(t)) return true;
+  if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*--/i.test(t)) return true;
+  if (/\)\s*--\s*Final AI/i.test(t)) return true;
   if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)\s*[—-]\s*Final AI/i.test(t)) return true;
   if (/\((?:Alt )?(?:Spread|Moneyline|ML|Total)\)/i.test(t) && /:\s*.+\s*\(/.test(t)) return true;
   if (!/@/.test(t)) return false;
@@ -863,4 +894,53 @@ export function validateFrozenTicketForRender(
   const summary = gameLineSummary ?? buildFrozenGameLineSummaryNote(canonical, realOdds);
   assertSummaryCardSurfaceAlignment(canonical, summary);
   return canonical;
+}
+
+/**
+ * Production gate for AI Coach tickets — summary, cards, slip, and breakdown must
+ * match; no duplicate games, opposing sides, or placeholder metric dashes.
+ */
+export function assertProductionCoachTicketIntegrity(
+  picks: ParsedPick[],
+  gameLineSummary?: string,
+): ParsedPick[] {
+  const canonical = canonicalizeFrozenTicket(picks);
+  const gameLinePicks = canonical.filter((p) => isGameLinePick(p) && !p.isProp);
+  if (!gameLinePicks.length) return canonical;
+
+  ticketGameLineCards(canonical);
+
+  for (const pick of gameLinePicks) {
+    if (!isGameLineFrozen(pick)) {
+      throw new FrozenGameLineConsistencyError(
+        `Game line ${pick.pick} (${pick.game}) is not frozen — production render refused`,
+      );
+    }
+    assertGameLineProductionMetadataComplete(pick);
+    const surfaces = frozenLegSurfaceLabels(pick);
+    const label = surfaces.card;
+    if (surfaces.slip !== label || surfaces.breakdown !== label || surfaces.share !== label) {
+      throw new FrozenGameLineConsistencyError(
+        `Game line ${pick.pick} (${pick.game}) card/slip/breakdown/share disagree`,
+      );
+    }
+  }
+
+  const summary = gameLineSummary ?? buildFrozenGameLineSummaryNote(canonical);
+  if (!summary.trim()) {
+    throw new FrozenGameLineConsistencyError(
+      "Production ticket has game-line legs but no frozen summary",
+    );
+  }
+  assertProductionCoachTicketIntegritySummary(canonical, summary);
+  return canonical;
+}
+
+/** Assert frozen summary matches cards with complete metadata and no placeholders. */
+export function assertProductionCoachTicketIntegritySummary(
+  picks: ParsedPick[],
+  summary: string,
+): void {
+  assertFrozenSummaryMetricsLinesComplete(summary);
+  assertSummaryCardSurfaceAlignment(picks, summary);
 }

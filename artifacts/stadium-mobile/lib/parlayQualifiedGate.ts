@@ -423,6 +423,7 @@ export function isGameLineQualifiedForFinalize(
       edgePct: edge,
       evPct: ev,
       market: pick.market,
+      odds: pick.odds,
       isBestEvLine: pick.gameLineFinal?.isBestEv,
     });
     return true;

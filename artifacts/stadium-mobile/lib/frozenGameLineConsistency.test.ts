@@ -369,6 +369,15 @@ test("textHasPlaceholderGameLineMetrics allows complete frozen summary metrics",
   assert.equal(textHasPlaceholderGameLineMetrics(good), false);
 });
 
+test("textHasPlaceholderGameLineMetrics detects streamed optimizer with edge --", () => {
+  const legacy =
+    "New York Yankees @ Tampa Bay Rays: Rays +1.5 (Spread) -- Final AI B, sim 50%, edge --";
+  assert.equal(textHasPlaceholderGameLineMetrics(legacy), true);
+  const angels =
+    "Boston Red Sox @ Los Angeles Angels: Angels +2 (Alt Spread) -- Final AI --, sim 50%, edge --";
+  assert.equal(textHasPlaceholderGameLineMetrics(angels), true);
+});
+
 test("assertSummaryCardSurfaceAlignment passes when summary matches frozen card surfaces", () => {
   const pick = mockFrozenGameLine(2, { displayPick: "Rays +1", pick: "Rays +1" });
   pick.gameLineFinal!.display!.market = "Alt Spread";

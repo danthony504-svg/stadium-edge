@@ -71,8 +71,11 @@ import {
   validateFrozenTicketForRender,
   assertFrozenGameLineSummaryClean,
   assertSummaryCardSurfaceAlignment,
-  assertNoPlaceholderGameLineMetrics,
+  assertGameLineProductionMetadataComplete,
+  assertProductionCoachTicketIntegrity,
+  assertFrozenSummaryMetricsLinesComplete,
   textHasPlaceholderGameLineMetrics,
+  assertNoPlaceholderGameLineMetrics,
   mergeTicketPreservingFrozenGameLines,
   stripModelGameLineListings,
   containsLegacyGameLineOptimizerCopy,
@@ -2652,7 +2655,7 @@ export default function CoachScreen() {
           legNote = appendUniqueNote(legNote, conflictingLegDropMessage(conflictingLegsDropped));
         }
         legNote = dedupeLegNoteParagraphs(legNote);
-        picks = validateFrozenTicketForRender(picks, undefined, mergedGameOdds);
+        picks = assertProductionCoachTicketIntegrity(picks, undefined);
         const gameLineSummary = buildFrozenGameLineSummaryNote(picks, mergedGameOdds);
         if (gameLineSummary) {
           assertFrozenGameLineSummaryClean(gameLineSummary);
@@ -2715,8 +2718,8 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
-                const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
+                const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
+                assertProductionCoachTicketIntegrity(canonical, undefined);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
@@ -2739,8 +2742,8 @@ export default function CoachScreen() {
                   realOdds: mergedGameOdds,
                   longshotAsk,
                 });
-                const merged = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
-                const canonical = validateFrozenTicketForRender(merged, undefined, mergedGameOdds);
+                const canonical = mergeTicketPreservingFrozenGameLines(snapshot, filtered);
+                assertProductionCoachTicketIntegrity(canonical, undefined);
                 const rebuiltSummary = buildFrozenGameLineSummaryNote(canonical, mergedGameOdds);
                 if (rebuiltSummary) {
                   assertNoPlaceholderGameLineMetrics(rebuiltSummary);
@@ -3239,7 +3242,10 @@ export default function CoachScreen() {
                           "Game-line summary contains placeholder Final AI or Edge dashes",
                         );
                       }
-                      const canonicalPicks = validateFrozenTicketForRender(ticketPicks, undefined);
+                      const canonicalPicks = assertProductionCoachTicketIntegrity(
+                        ticketPicks,
+                        undefined,
+                      );
                       const displaySummary = buildFrozenGameLineSummaryNote(canonicalPicks);
                       const hasGameLineLegs = canonicalPicks.some(
                         (p) => isGameLinePick(p) && !p.isProp,

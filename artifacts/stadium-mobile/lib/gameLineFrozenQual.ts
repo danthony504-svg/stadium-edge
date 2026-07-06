@@ -64,8 +64,19 @@ export type GameLineFinalizeMetrics = {
   edgePct: number | null | undefined;
   evPct?: number | null;
   market?: string | null;
+  odds?: number | null;
   isBestEvLine?: boolean;
 };
+
+/** Required production fields on every finalized game-line leg. */
+export const GAME_LINE_PRODUCTION_FIELDS = [
+  "Final AI Grade",
+  "Confidence",
+  "Edge",
+  "Simulation",
+  "Market",
+  "Odds",
+] as const;
 
 /**
  * Hard fail before freeze/finalize when any required metric is missing or the
@@ -95,6 +106,9 @@ export function assertGameLineFinalizeMetrics(
   }
   if (!metrics.market?.trim()) {
     throw new GameLineFinalizeRejected(`${label}: missing final selected market`);
+  }
+  if (metrics.odds == null || !Number.isFinite(metrics.odds) || metrics.odds === 0) {
+    throw new GameLineFinalizeRejected(`${label}: missing Odds`);
   }
 
   const simPct = simPctFromHit(metrics.simHit);
@@ -128,10 +142,36 @@ export function gameLineFrozenMetricsComplete(pick: ParsedPick): boolean {
       edgePct: d.edgePct,
       evPct: d.evPct,
       market: d.market,
+      odds: d.odds,
       isBestEvLine: pick.gameLineFinal.isBestEv,
     });
     return true;
   } catch {
     return false;
   }
+}
+
+/** Throw when any production metadata field is missing on a frozen game-line leg. */
+export function assertGameLineProductionMetadataComplete(pick: ParsedPick): void {
+  if (!pick.gameLineFrozen || pick.gameLineFinal?.frozenAt == null) {
+    throw new GameLineFinalizeRejected(
+      `${pick.pick ?? "?"} (${pick.game ?? "?"}): game line is not frozen`,
+    );
+  }
+  const d = pick.gameLineFinal.display;
+  if (!d) {
+    throw new GameLineFinalizeRejected(
+      `${pick.pick ?? "?"} (${pick.game ?? "?"}): missing frozen display snapshot`,
+    );
+  }
+  assertGameLineFinalizeMetrics(pick, {
+    grade: d.grade,
+    confidencePct: d.confidencePct,
+    simHit: d.simHit,
+    edgePct: d.edgePct,
+    evPct: d.evPct,
+    market: d.market,
+    odds: d.odds,
+    isBestEvLine: pick.gameLineFinal.isBestEv,
+  });
 }
