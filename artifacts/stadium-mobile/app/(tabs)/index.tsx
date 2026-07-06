@@ -381,7 +381,10 @@ export default function HomeScreen() {
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [stickyLiveGames, setStickyLiveGames] = useState<EspnGame[]>(() => cachedLiveGames(sport));
+  const [stickyLive, setStickyLive] = useState<{ sport: string; games: EspnGame[] }>(() => ({
+    sport,
+    games: cachedLiveGames(sport).filter((g) => g.sport === sport),
+  }));
   const [stickyUpcoming, setStickyUpcoming] = useState<{ sport: string; games: OddsGame[] }>(() => ({
     sport,
     games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
@@ -399,7 +402,10 @@ export default function HomeScreen() {
       queryClient.setQueryData<OddsGame[]>(["odds", id], undefined);
       queryClient.setQueryData<EspnGame[]>(["games", id], undefined);
       setSport(id);
-      setStickyLiveGames(cachedLiveGames(id).filter((g) => g.sport === id));
+      setStickyLive({
+        sport: id,
+        games: cachedLiveGames(id).filter((g) => g.sport === id),
+      });
       setStickyUpcoming({
         sport: id,
         games: cachedUpcomingGames(id).filter((g) => g.sport === id),
@@ -411,7 +417,10 @@ export default function HomeScreen() {
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
       const s = sportRef.current;
-      setStickyLiveGames(cachedLiveGames(s));
+      setStickyLive({
+        sport: s,
+        games: cachedLiveGames(s).filter((g) => g.sport === s),
+      });
       setStickyUpcoming({
         sport: s,
         games: cachedUpcomingGames(s).filter((g) => g.sport === s),
@@ -433,7 +442,10 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    setStickyLiveGames(cachedLiveGames(sport));
+    setStickyLive({
+      sport,
+      games: cachedLiveGames(sport).filter((g) => g.sport === sport),
+    });
     setStickyUpcoming({
       sport,
       games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
@@ -465,36 +477,46 @@ export default function HomeScreen() {
     enabled: sport === "tennis",
   });
 
-  const metaMap = useMemo(() => buildMetaMap(gamesQ.data ?? []), [gamesQ.data]);
-
-  const freshLiveGames = useMemo(
-    () => (gamesQ.data ?? []).filter((g) => g.state === "in"),
-    [gamesQ.data],
+  const metaMap = useMemo(
+    () =>
+      buildMetaMap(
+        gamesQ.isPlaceholderData
+          ? []
+          : (gamesQ.data ?? []).filter((g) => g.sport === sport),
+      ),
+    [gamesQ.data, gamesQ.isPlaceholderData, sport],
   );
+
+  const freshLiveGames = useMemo(() => {
+    if (gamesQ.isPlaceholderData) return [];
+    return (gamesQ.data ?? []).filter((g) => g.sport === sport && g.state === "in");
+  }, [gamesQ.data, gamesQ.isPlaceholderData, sport]);
   useEffect(() => {
-    if (freshLiveGames.length > 0) {
-      setStickyLiveGames(freshLiveGames);
-      rememberLiveGames(sport, freshLiveGames);
+    const leagueLive = freshLiveGames.filter((g) => g.sport === sport);
+    if (leagueLive.length > 0) {
+      setStickyLive({ sport, games: leagueLive });
+      rememberLiveGames(sport, leagueLive);
     }
   }, [freshLiveGames, sport]);
-  const liveGames = useMemo(() => {
+  const displayLiveGames = useMemo(() => {
     if (freshLiveGames.length > 0) return freshLiveGames;
-    if (stickyLiveGames.length > 0) return stickyLiveGames;
-    return freshLiveGames;
-  }, [freshLiveGames, stickyLiveGames]);
+    const sticky = stickyLive.games.filter((g) => g.sport === sport);
+    if (stickyLive.sport === sport && sticky.length > 0) return sticky;
+    return [];
+  }, [freshLiveGames, stickyLive, sport]);
 
   // Nickname keys (away|home) of games currently in progress, so we can drop them
   // from Upcoming — a live game already has its own card in the "Live Now" rail.
   const liveKeySet = useMemo(() => {
     const s = new Set<string>();
-    for (const g of liveGames) {
+    for (const g of displayLiveGames) {
       const home = g.homeTeam || g.homeAbbr || "";
       const away = g.awayTeam || g.awayAbbr || "";
       if (!home || !away) continue;
       s.add(`${nickname(away)}|${nickname(home)}`.toLowerCase());
     }
     return s;
-  }, [liveGames]);
+  }, [displayLiveGames]);
 
   const games: OddsGame[] = useMemo(() => {
     if (oddsQ.isPlaceholderData) return [];
@@ -1013,8 +1035,8 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
-              setStickyLiveGames([]);
-              setStickyUpcoming([]);
+              setStickyLive({ sport, games: [] });
+              setStickyUpcoming({ sport, games: [] });
               oddsQ.refetch();
               gamesQ.refetch();
               // Manual refetch() fires even on disabled queries, so only kick
@@ -1447,7 +1469,7 @@ export default function HomeScreen() {
         ) : null}
 
         {/* Live now */}
-        {liveGames.length > 0 ? (
+        {displayLiveGames.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
               style={{
@@ -1472,7 +1494,7 @@ export default function HomeScreen() {
                   textTransform: "uppercase",
                 }}
               >
-                {liveGames.length} {liveGames.length === 1 ? "Game" : "Games"} · Live
+                {displayLiveGames.length} {displayLiveGames.length === 1 ? "Game" : "Games"} · Live
               </Text>
             </View>
             <ScrollView
@@ -1480,11 +1502,11 @@ export default function HomeScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
             >
-              {liveGames.map((g) => (
+              {displayLiveGames.map((g) => (
                 <View
                   key={g.id}
                   style={{
-                    width: liveGames.length === 1 ? width - 32 : 300,
+                    width: displayLiveGames.length === 1 ? width - 32 : 300,
                     backgroundColor: colors.card,
                     borderWidth: 1,
                     borderColor: colors.border,

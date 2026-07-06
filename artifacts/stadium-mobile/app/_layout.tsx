@@ -12,7 +12,7 @@ import {
 } from "@expo-google-fonts/inter";
 import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
-import { QueryClient, QueryClientProvider, keepPreviousData } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -87,9 +87,9 @@ SystemUI.setBackgroundColorAsync("#0f172a");
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Keep the last good screen while a refetch is in flight — prevents Discover
-      // hero / Live Now / upcoming from flashing empty between query cycles.
-      placeholderData: keepPreviousData,
+      // Do NOT use keepPreviousData globally — it bleeds the previous league's
+      // odds/games under a new Home sport pill until the fetch lands. Screens
+      // that want refetch-in-place set their own placeholderData per query.
     },
   },
 });
