@@ -24,12 +24,16 @@ import {
 } from "./coachUniversalRules.ts";
 import { lineMarketSignalReason, pickHasLineMarketSignal } from "./coachLineSignal.ts";
 
-/** Premium Coach confidence floor — universal rule: ≥ 60. */
+/** Premium Coach confidence floor — universal rule: ≥ 52. */
 export const MIN_COACH_PREMIUM_CONFIDENCE = UNIVERSAL_MIN_CONFIDENCE;
 
 export { computeCoachFinalScore, compareCoachPicksByFinalScore } from "./coachPickRanking.ts";
 export { UNIVERSAL_AI_RULES, UNIVERSAL_MIN_GRADE, UNIVERSAL_MIN_CONFIDENCE } from "./coachUniversalRules.ts";
 export { pickHasLineMarketSignal, lineMarketSignalReason } from "./coachLineSignal.ts";
+
+/** Absolute floor — never render below these. */
+export const COACH_ABSOLUTE_MIN_GRADE = "C";
+export const COACH_ABSOLUTE_MIN_CONFIDENCE = 50;
 
 export const MIN_MAIN_PICK_GRADE = "C+";
 /** Coach ticket / slip / summary floor — universal rule: C+ or better. */
@@ -473,8 +477,7 @@ export function isFullyQualifiedPick(
   opts?: CoachQualifyOpts,
 ): boolean {
   if (opts?.coachSurface && pick.isProp && !opts?.propPool?.length) {
-    const e = pick.finalAiScore?.edgePct;
-    if (e == null || !Number.isFinite(e) || e <= 0) return false;
+    return false;
   }
   if (!pickHasCoachCardMetrics(pick, opts)) return false;
   const edge = resolvePickEdgePct(pick, opts);
@@ -504,16 +507,133 @@ export function isFullyQualifiedPick(
   return isPropMainTicketQualified(score, odds, edge, minGrade, minConfidence);
 }
 
+/** Direct metric read for the hard render gate. */
+export function coachDisplayMetrics(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): {
+  grade: string | null;
+  confidencePct: number | null;
+  edgePct: number | null;
+  evPct: number | null;
+} {
+  const frozen =
+    !pick.isProp && isGameLinePick(pick) && pick.gameLineFinal?.display
+      ? pick.gameLineFinal.display
+      : null;
+  return {
+    grade: frozen?.grade ?? pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+    confidencePct:
+      frozen?.confidencePct ??
+      pick.finalAiScore?.confidencePct ??
+      pick.scores?.confidencePct ??
+      null,
+    edgePct: resolvePickEdgePct(pick, opts),
+    evPct: frozen?.evPct ?? resolvePickExpectedValue(pick, opts),
+  };
+}
+
+/**
+ * Hard final Coach render gate — Edge > 0, Grade C+, Confidence ≥ 52, +EV.
+ * Props require propPool so edge is grounded against the live board.
+ */
+export function passesCoachHardRenderGate(
+  pick: ParsedPick,
+  opts?: CoachQualifyOpts,
+): boolean {
+  if (pick.isProp && opts?.coachSurface !== false && !opts?.propPool?.length) {
+    return false;
+  }
+
+  const m = coachDisplayMetrics(pick, opts);
+  if (m.edgePct == null || !Number.isFinite(m.edgePct) || m.edgePct <= 0) return false;
+  if (m.evPct == null || !Number.isFinite(m.evPct) || m.evPct <= 0) return false;
+  if (!gradeMeetsMinimum(m.grade, opts?.minGrade ?? MIN_COACH_TICKET_GRADE)) return false;
+
+  const minConf = opts?.minConfidence ?? MIN_COACH_PREMIUM_CONFIDENCE;
+  if (m.confidencePct == null || !Number.isFinite(m.confidencePct) || m.confidencePct < minConf) {
+    return false;
+  }
+
+  return true;
+}
+
+export function reasonCoachHardRenderRejected(
+  pick: ParsedPick,
+  opts?: CoachQualifyOpts,
+): string {
+  const m = coachDisplayMetrics(pick, opts);
+  if (m.edgePct == null || m.edgePct <= 0) {
+    return `${m.edgePct ?? "—"}% edge — non-positive, rejected from Coach ticket`;
+  }
+  if (m.evPct == null || m.evPct <= 0) {
+    return `${m.evPct ?? "—"}% EV — non-positive, rejected from Coach ticket`;
+  }
+  const minGrade = opts?.minGrade ?? MIN_COACH_TICKET_GRADE;
+  if (!gradeMeetsMinimum(m.grade, minGrade)) {
+    return `AI Grade ${m.grade ?? "—"} — needs ${minGrade} or better`;
+  }
+  const minConf = opts?.minConfidence ?? MIN_COACH_PREMIUM_CONFIDENCE;
+  if (m.confidencePct == null || m.confidencePct < minConf) {
+    return `Confidence ${m.confidencePct ?? "—"}% — needs ≥${minConf}%`;
+  }
+  if (pick.isProp && !opts?.propPool?.length) {
+    return "prop edge not grounded against live board — rejected";
+  }
+  return "failed Coach hard render gate";
+}
+
+export function filterCoachHardRenderPicks(
+  picks: ParsedPick[],
+  opts?: CoachQualifyOpts & { rejectsOut?: ParlayLegReject[] },
+): ParsedPick[] {
+  const gateOpts: CoachQualifyOpts = { ...opts, coachSurface: true };
+  const out: ParsedPick[] = [];
+  for (const p of picks) {
+    if (passesCoachHardRenderGate(p, gateOpts)) {
+      out.push(p);
+      continue;
+    }
+    opts?.rejectsOut?.push({
+      pick: p,
+      reason: reasonCoachHardRenderRejected(p, gateOpts),
+      nearScore: nearScoreFromPick(p),
+    });
+  }
+  return out;
+}
+
+export function assertCoachHardRenderGate(
+  picks: ParsedPick[],
+  opts?: CoachQualifyOpts,
+): void {
+  const gateOpts: CoachQualifyOpts = { ...opts, coachSurface: true };
+  for (const pick of picks) {
+    if (!passesCoachHardRenderGate(pick, gateOpts)) {
+      const label = pick.isProp ? pick.player ?? pick.pick : pick.pick;
+      throw new MainTicketQualificationError(
+        `${label} (${pick.game}) — ${reasonCoachHardRenderRejected(pick, gateOpts)}`,
+      );
+    }
+  }
+}
+
 export function passesCoachTicketQualityGate(
   pick: ParsedPick,
   opts?: CoachQualifyOpts,
 ): boolean {
+  const gateOpts: CoachQualifyOpts = {
+    ...opts,
+    coachSurface: true,
+    minGrade: MIN_COACH_TICKET_GRADE,
+    minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
+  };
+
+  if (!passesCoachHardRenderGate(pick, gateOpts)) return false;
+
   const qual = (longshot: boolean) =>
     isFullyQualifiedPick(pick, {
-      ...opts,
-      coachSurface: true,
-      minGrade: MIN_COACH_TICKET_GRADE,
-      minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
+      ...gateOpts,
       longshotAsk: longshot,
     });
 
@@ -597,7 +717,9 @@ export function assertCoachTicketQuality(
   picks: ParsedPick[],
   opts?: CoachQualifyOpts,
 ): void {
-  assertMainTicketPicksQualified(picks, { ...opts, coachSurface: true });
+  const gateOpts: CoachQualifyOpts = { ...opts, coachSurface: true };
+  assertCoachHardRenderGate(picks, gateOpts);
+  assertMainTicketPicksQualified(picks, gateOpts);
 }
 
 /** Negative-edge or sim-opposed legs for the optional longshot section only. */

@@ -107,6 +107,7 @@ import {
   filterToQualifiedPicks,
   comparePickStrength,
   passesCoachTicketQualityGate,
+  passesCoachHardRenderGate,
   assertCoachTicketQuality,
   MainTicketQualificationError,
   GameLineFinalizeRejected,
@@ -672,20 +673,33 @@ function serializeStatCardForAI(card: StatCardResult): string {
 // slip can't fit them all it reports how many actually landed and surfaces the cap.
 function AddAllButton({
   picks,
+  qualOpts,
   slipCount,
   addLeg,
   removeLeg,
   hasLeg,
 }: {
   picks: ParsedPick[];
+  qualOpts?: {
+    realOdds?: RealOddsEntry[];
+    propPool?: PropPoolEntry[];
+    longshotAsk?: boolean;
+  };
   slipCount: number;
   addLeg: (leg: ParsedPick) => boolean;
   removeLeg: (id: string) => void;
   hasLeg: (game: string, market: string, pick: string) => boolean;
 }) {
   const colors = useColors();
-  const inSlip = picks.filter((p) => hasLeg(p.game, p.market, p.pick)).length;
-  const remaining = picks.length - inSlip;
+  const gateOpts = {
+    realOdds: qualOpts?.realOdds,
+    propPool: qualOpts?.propPool,
+    longshotAsk: qualOpts?.longshotAsk,
+    coachSurface: true as const,
+  };
+  const safePicks = picks.filter((p) => passesCoachHardRenderGate(p, gateOpts));
+  const inSlip = safePicks.filter((p) => hasLeg(p.game, p.market, p.pick)).length;
+  const remaining = safePicks.length - inSlip;
   const allIn = remaining === 0;
   const slotsLeft = Math.max(0, MAX_LEGS - slipCount);
   // How many of the not-yet-added legs the slip can actually take right now.
@@ -697,7 +711,7 @@ function AddAllButton({
       // Remove every leg of this parlay from the slip in one tap. The id matches
       // BetSlipContext's legKey(game, market, pick) so removeLeg targets the
       // right entry.
-      for (const p of picks) {
+      for (const p of safePicks) {
         removeLeg(`${p.game}|${p.market}|${p.pick}`.toLowerCase());
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -709,8 +723,9 @@ function AddAllButton({
       return;
     }
     let added = 0;
-    for (const p of picks) {
+    for (const p of safePicks) {
       if (hasLeg(p.game, p.market, p.pick)) continue;
+      if (!passesCoachHardRenderGate(p, gateOpts)) continue;
       if (addLeg(p)) added++;
     }
     Haptics.impactAsync(
@@ -729,14 +744,14 @@ function AddAllButton({
   };
 
   const label = allIn
-    ? `Remove all ${picks.length} from slip`
+    ? `Remove all ${safePicks.length} from slip`
     : slipFull
       ? `Slip full · ${MAX_LEGS} max`
       : willFit < remaining
         ? `Add ${willFit} (slip max ${MAX_LEGS})`
         : inSlip > 0
           ? `Add ${remaining} more to slip`
-          : `Add all ${picks.length} to slip`;
+          : `Add all ${safePicks.length} to slip`;
 
   return (
     <Pressable
@@ -3124,6 +3139,12 @@ export default function CoachScreen() {
             const qualOpts = m.ticketQualOpts;
             const ticketPicks =
               m.picks?.filter((p) =>
+                passesCoachHardRenderGate(p, {
+                  realOdds: qualOpts?.realOdds,
+                  propPool: qualOpts?.propPool,
+                  longshotAsk: m.longshotBuild,
+                  coachSurface: true,
+                }) &&
                 passesCoachTicketQualityGate(p, {
                   realOdds: qualOpts?.realOdds,
                   propPool: qualOpts?.propPool,
@@ -3351,6 +3372,11 @@ export default function CoachScreen() {
                     {canonicalPicks.length > 1 ? (
                       <AddAllButton
                         picks={canonicalPicks}
+                        qualOpts={{
+                          realOdds: qualOpts?.realOdds,
+                          propPool: qualOpts?.propPool,
+                          longshotAsk: m.longshotBuild,
+                        }}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}

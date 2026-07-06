@@ -3,8 +3,8 @@
 /** Never recommend AI Grade below C+ on Coach surfaces. */
 export const UNIVERSAL_MIN_GRADE = "C+";
 
-/** Require Confidence ≥ 60 on every Coach recommendation. */
-export const UNIVERSAL_MIN_CONFIDENCE = 60;
+/** Require Confidence ≥ 52 on every Coach recommendation. */
+export const UNIVERSAL_MIN_CONFIDENCE = 52;
 
 /** Cross-book / line-shopping score (1–10) that validates market agreement. */
 export const LINE_SIGNAL_MIN_SHOPPING_SCORE = 5.5;

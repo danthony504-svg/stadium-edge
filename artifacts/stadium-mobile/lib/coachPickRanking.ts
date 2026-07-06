@@ -5,8 +5,8 @@ import { gradeRank } from "./finalAiScore.ts";
 import type { PickSubScores } from "./pickScore.ts";
 import { resolvePickEdgePct, type PickEdgeResolveOpts } from "./parlayQualifiedGate.ts";
 
-/** Premium Coach floor — grade C+, confidence 60+, strictly positive edge. */
-export const MIN_COACH_PREMIUM_CONFIDENCE = 60;
+/** Premium Coach floor — grade C+, confidence 52+, strictly positive edge. */
+export const MIN_COACH_PREMIUM_CONFIDENCE = 52;
 
 /** Near-tie band for Final Score (1–2% relative). */
 export const COACH_FINAL_SCORE_TIE_PCT = 0.02;

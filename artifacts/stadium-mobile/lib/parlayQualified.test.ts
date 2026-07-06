@@ -5,6 +5,7 @@ import {
   filterMainTicketPicks,
   filterCoachTicketPicks,
   passesCoachTicketQualityGate,
+  passesCoachHardRenderGate,
   assertCoachTicketQuality,
   gameLineHasSharpAgreement,
   gameLineMeetsSimBar,
@@ -88,7 +89,12 @@ function qualifiedPick(overrides: Partial<ParsedPick> = {}): ParsedPick {
       edgePct: 2.1,
     },
   };
-  return { ...base, ...overrides, gameLineFinal: overrides.gameLineFinal ?? base.gameLineFinal };
+  return {
+    ...base,
+    ...overrides,
+    gameLineFinal:
+      "gameLineFinal" in overrides ? overrides.gameLineFinal : base.gameLineFinal,
+  };
 }
 
 test("main ticket rejects grade below C+", () => {
@@ -554,7 +560,69 @@ test("passesCoachTicketQualityGate rejects stale positive edge when pool edge is
   );
 });
 
-test("passesCoachTicketQualityGate accepts C+ grade at confidence 60 with positive edge", () => {
+test("passesCoachHardRenderGate rejects Kayla Thornton negative-edge prop", () => {
+  const pick = qualifiedPick({
+    isProp: true,
+    player: "Kayla Thornton",
+    market: "3-Pointers",
+    pick: "Over 1.5 3-Pointers",
+    odds: 105,
+    gameLineFrozen: undefined,
+    gameLineFinal: undefined,
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C-",
+      confidencePct: 49,
+      edgePct: 2.1,
+      simHit: 0.48,
+      simAligned: false,
+    },
+    scores: {
+      ...qualifiedPick().scores!,
+      grade: "C-",
+      confidencePct: 49,
+      edgePct: -1.6,
+    },
+  });
+  const propPool = [
+    {
+      game: pick.game,
+      player: "Kayla Thornton",
+      side: "Over" as const,
+      line: 1.5,
+      edge: -1.6,
+      marketLabel: "3-Pointers",
+      marketKey: "threes",
+      odds: 105,
+      sport: "wnba",
+      headshot: null,
+      teamAbbr: "GSW",
+      athleteId: "1",
+      startsAt: null,
+    },
+  ];
+  assert.equal(passesCoachHardRenderGate(pick, { propPool, coachSurface: true }), false);
+  assert.equal(passesCoachTicketQualityGate(pick, { propPool }), false);
+  assert.equal(filterCoachTicketPicks([pick], { propPool }).length, 0);
+});
+
+test("passesCoachHardRenderGate rejects props without propPool grounding", () => {
+  const pick = qualifiedPick({
+    isProp: true,
+    player: "Test Player",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "B",
+      confidencePct: 62,
+      edgePct: 3.1,
+    },
+  });
+  assert.equal(passesCoachHardRenderGate(pick, { coachSurface: true }), false);
+});
+
+test("passesCoachTicketQualityGate accepts C+ grade at confidence 52 with positive edge", () => {
   const pick = qualifiedPick({
     isProp: true,
     player: "Sonia Citron",
@@ -566,7 +634,7 @@ test("passesCoachTicketQualityGate accepts C+ grade at confidence 60 with positi
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
       grade: "C+",
-      confidencePct: 60,
+      confidencePct: 52,
       edgePct: 2.5,
       simHit: 0.54,
       simAligned: true,
@@ -574,42 +642,87 @@ test("passesCoachTicketQualityGate accepts C+ grade at confidence 60 with positi
     scores: {
       ...qualifiedPick().scores!,
       grade: "C+",
-      confidencePct: 60,
+      confidencePct: 52,
       edgePct: 2.5,
     },
   });
-  assert.equal(passesCoachTicketQualityGate(pick), true);
+  const propPool = [
+    {
+      game: pick.game,
+      player: "Sonia Citron",
+      side: "Over" as const,
+      line: 6.5,
+      edge: 2.5,
+      marketLabel: "Reb+Ast",
+      marketKey: "reb_ast",
+      odds: -110,
+      sport: "wnba",
+      headshot: null,
+      teamAbbr: "GSW",
+      athleteId: "2",
+      startsAt: null,
+    },
+  ];
+  assert.equal(passesCoachHardRenderGate(pick, { propPool, coachSurface: true }), true);
+  assert.equal(passesCoachTicketQualityGate(pick, { propPool }), true);
 });
 
-test("passesCoachTicketQualityGate rejects C grade and sub-60 confidence", () => {
+test("passesCoachTicketQualityGate rejects C grade and sub-52 confidence", () => {
   const weakGrade = qualifiedPick({
     isProp: true,
     player: "Low Grade",
     market: "Hits",
     pick: "Over 1.5 Hits",
+    gameLineFrozen: undefined,
+    gameLineFinal: undefined,
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
       grade: "C",
-      confidencePct: 62,
+      confidencePct: 55,
       edgePct: 2.5,
     },
-    scores: { ...qualifiedPick().scores!, grade: "C", confidencePct: 62, edgePct: 2.5 },
+    scores: { ...qualifiedPick().scores!, grade: "C", confidencePct: 55, edgePct: 2.5 },
   });
   const weakConf = qualifiedPick({
     isProp: true,
     player: "Low Conf",
     market: "Hits",
     pick: "Over 1.5 Hits",
+    gameLineFrozen: undefined,
+    gameLineFinal: undefined,
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
       grade: "C+",
-      confidencePct: 59,
+      confidencePct: 51,
       edgePct: 2.5,
     },
-    scores: { ...qualifiedPick().scores!, grade: "C+", confidencePct: 59, edgePct: 2.5 },
+    scores: { ...qualifiedPick().scores!, grade: "C+", confidencePct: 51, edgePct: 2.5 },
   });
-  assert.equal(passesCoachTicketQualityGate(weakGrade), false);
-  assert.equal(passesCoachTicketQualityGate(weakConf), false);
+  const pool = [
+    {
+      game: weakGrade.game,
+      player: "Low Grade",
+      side: "Over" as const,
+      line: 1.5,
+      edge: 2.5,
+      marketLabel: "Hits",
+      marketKey: "hits",
+      odds: -110,
+      sport: "mlb",
+      headshot: null,
+      teamAbbr: "NYY",
+      athleteId: "1",
+      startsAt: null,
+    },
+  ];
+  const confPool = [
+    {
+      ...pool[0]!,
+      player: "Low Conf",
+    },
+  ];
+  assert.equal(passesCoachHardRenderGate(weakGrade, { propPool: pool, coachSurface: true }), false);
+  assert.equal(passesCoachHardRenderGate(weakConf, { propPool: confPool, coachSurface: true }), false);
 });
 
 test("comparePickStrength ranks higher Coach Final Score first", () => {

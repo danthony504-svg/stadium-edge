@@ -5,9 +5,9 @@ import { evalCatalogForSport, headlineEvalFactors } from "./sportEvaluationFacto
 import { pickHasLineMarketSignal } from "./coachLineSignal.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
-test("universal rules require C+ and confidence 60", () => {
+test("universal rules require C+ and confidence 52", () => {
   assert.equal(UNIVERSAL_MIN_GRADE, "C+");
-  assert.equal(UNIVERSAL_MIN_CONFIDENCE, 60);
+  assert.equal(UNIVERSAL_MIN_CONFIDENCE, 52);
   assert.ok(UNIVERSAL_AI_RULES.some((r) => r.includes("positive EV")));
   assert.ok(UNIVERSAL_AI_RULES.some((r) => r.includes("C+")));
 });
