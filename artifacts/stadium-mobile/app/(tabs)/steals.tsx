@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-import Svg, { Circle, G, Line } from "react-native-svg";
+import Svg, { Circle } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -296,40 +296,47 @@ function AlmostQualifiedCard({ near }: { near: NearMissSteal }) {
   );
 }
 
-const AnimatedG = Animated.createAnimatedComponent(G);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const AnimatedBlip = Animated.View;
 
 function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideFooter?: boolean }) {
   const colors = useColors();
   const size = 170;
   const c = size / 2;
-  const sweep = useRef(new Animated.Value(0)).current;
+  const arm = size * 0.49;
+  const spin = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    const spin = Animated.loop(
-      Animated.timing(sweep, {
-        toValue: 360,
+  const startAnimations = useCallback(() => {
+    spin.setValue(0);
+    pulse.setValue(0.35);
+    const spinLoop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
         duration: 2800,
         easing: Easing.linear,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
     );
-    const blink = Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: false }),
-        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: true }),
       ]),
     );
-    spin.start();
-    blink.start();
+    spinLoop.start();
+    pulseLoop.start();
     return () => {
-      spin.stop();
-      blink.stop();
+      spinLoop.stop();
+      pulseLoop.stop();
     };
-  }, [pulse, sweep]);
+  }, [pulse, spin]);
 
-  const blipOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+  useFocusEffect(
+    useCallback(() => startAnimations(), [startAnimations]),
+  );
+
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const blipOpacity = pulse.interpolate({ inputRange: [0.35, 1], outputRange: [0.35, 1] });
 
   return (
     <View style={{ alignItems: "center", paddingVertical: 32, gap: 14 }}>
@@ -338,15 +345,80 @@ function RadarScan({ children, hideFooter }: { children?: React.ReactNode; hideF
           {[24, 44, 66, 84].map((r) => (
             <Circle key={r} cx={c} cy={c} r={r} fill="none" stroke="rgba(168,85,247,0.35)" strokeWidth="1" />
           ))}
-          <AnimatedG rotation={sweep} origin={`${c}, ${c}`}>
-            <Line x1={c} y1={c} x2={c} y2={c - 84} stroke="rgba(168,85,247,0.25)" strokeWidth="18" />
-            <Line x1={c} y1={c} x2={c} y2={c - 84} stroke={STEAL_ACCENT} strokeWidth="2.5" />
-            <Circle cx={c} cy={c - 84} r="4" fill={STEAL_ACCENT} />
-          </AnimatedG>
-          <AnimatedCircle cx={c - 28} cy={c + 40} r="3" fill={STEAL_ACCENT} opacity={blipOpacity} />
-          <AnimatedCircle cx={c + 52} cy={c + 18} r="3" fill={STEAL_ACCENT} opacity={blipOpacity} />
           <Circle cx={c - 36} cy={c - 10} r="3" fill={colors.foreground} opacity={0.7} />
         </Svg>
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: size,
+            height: size,
+            transform: [{ rotate }],
+          }}
+        >
+          <View
+            style={{
+              position: "absolute",
+              left: c - 10,
+              top: c - arm,
+              width: 20,
+              height: arm,
+              backgroundColor: "rgba(168,85,247,0.22)",
+              borderTopLeftRadius: 10,
+              borderTopRightRadius: 10,
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              left: c - 1.5,
+              top: c - arm,
+              width: 3,
+              height: arm,
+              backgroundColor: STEAL_ACCENT,
+              borderRadius: 2,
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              left: c - 4,
+              top: c - arm - 4,
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: STEAL_ACCENT,
+            }}
+          />
+        </Animated.View>
+        <AnimatedBlip
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: c - 28 - 3,
+            top: c + 40 - 3,
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: STEAL_ACCENT,
+            opacity: blipOpacity,
+          }}
+        />
+        <AnimatedBlip
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: c + 52 - 3,
+            top: c + 18 - 3,
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: STEAL_ACCENT,
+            opacity: blipOpacity,
+          }}
+        />
       </View>
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
         Hunting for steals...
