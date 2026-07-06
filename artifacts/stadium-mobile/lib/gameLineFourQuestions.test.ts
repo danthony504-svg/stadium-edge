@@ -4,6 +4,7 @@ import {
   buildTeamFourQuestions,
   buildGameFourQuestions,
   fourQuestionsNoteForPick,
+  realOddsToGameLines,
 } from "./gameLineFourQuestions.ts";
 
 const sim = {
@@ -90,6 +91,24 @@ test("buildTeamFourQuestions resolves alt spread cover from sim", () => {
   assert.match(fq.questions[3]!.detail ?? "", /Fair odds/);
   assert.match(fq.questions[3]!.detail ?? "", /Sportsbook: -145/);
   assert.match(fq.questions[3]!.detail ?? "", /Edge: \+2\.4%/);
+});
+
+test("realOddsToGameLines matches odds labels when ESPN and API names differ", () => {
+  const lines = realOddsToGameLines(
+    [
+      {
+        sport: "mlb",
+        game: "Philadelphia Phillies @ Kansas City Royals",
+        market: "Spread",
+        pick: "Philadelphia Phillies +1.5",
+        odds: -145,
+        edge: 2.4,
+      },
+    ],
+    "Phillies @ Royals",
+  );
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.pick, "Philadelphia Phillies +1.5");
 });
 
 test("fourQuestionsNoteForPick formats coach note", () => {

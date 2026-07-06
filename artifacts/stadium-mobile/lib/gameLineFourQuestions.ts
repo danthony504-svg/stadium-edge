@@ -8,6 +8,7 @@ import type { RealOddsEntry } from "./api.ts";
 import {
   GAME_SIM_MIN_HIT,
   buildGameCoverQuery,
+  gameLabelsMatch,
   gameSimHitForPick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
@@ -304,7 +305,7 @@ export function coverQueriesFromOddsLines(
 
 export function realOddsToGameLines(entries: RealOddsEntry[], gameLabel: string): GameOddsLine[] {
   return entries
-    .filter((e) => e.game === gameLabel)
+    .filter((e) => e.game === gameLabel || gameLabelsMatch(e.game, gameLabel))
     .map((e) => ({
       market: e.market,
       pick: e.pick,
