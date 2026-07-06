@@ -2,7 +2,6 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Updates from "expo-updates";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -40,7 +39,6 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { isOtaReloadBlocked } from "@/lib/otaBlock";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
@@ -382,10 +380,6 @@ export default function HomeScreen() {
     : 168;
   // Five shortcut cards — horizontal scroll when they don't fit on one screen.
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
-  const { isUpdatePending } =
-    typeof Updates.useUpdates === "function"
-      ? Updates.useUpdates()
-      : { isUpdatePending: false };
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
@@ -398,6 +392,8 @@ export default function HomeScreen() {
       sportFetchGenRef.current += 1;
       queryClient.cancelQueries({ queryKey: ["odds"] });
       queryClient.cancelQueries({ queryKey: ["games"] });
+      queryClient.cancelQueries({ queryKey: ["home-featured"] });
+      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
       queryClient.removeQueries({ queryKey: ["odds"] });
       queryClient.removeQueries({ queryKey: ["games"] });
       setSport(id);
@@ -409,17 +405,25 @@ export default function HomeScreen() {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
   }, []);
 
+  // Refetch the active league when the pill changes. Kept separate from
+  // useFocusEffect so a sport tap never retriggers OTA reload side-effects.
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
+    void queryClient.invalidateQueries({ queryKey: ["games", sport] });
+    void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
+  }, [queryClient, sport]);
+
   useFocusEffect(
     useCallback(() => {
-      void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
-      void queryClient.invalidateQueries({ queryKey: ["games", sport] });
-      void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
-      // A prefetched OTA applies on reload — auto-restart on Home so users don't
-      // need to hunt for the banner (common miss on TestFlight).
-      if (!__DEV__ && Updates.isEnabled && isUpdatePending && !isOtaReloadBlocked()) {
-        void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      }
-    }, [queryClient, sport, isUpdatePending]),
+      const active = sportRef.current;
+      void queryClient.invalidateQueries({ queryKey: ["odds", active] });
+      void queryClient.invalidateQueries({ queryKey: ["games", active] });
+      void queryClient.invalidateQueries({ queryKey: ["home-featured", active] });
+      // OTA apply is user-driven via OtaUpdateBanner — never reloadAsync here.
+      // Auto-reload on focus (and especially on sport-pill dep churn) was
+      // corrupting mid-session bundles and surfacing errors like
+      // "userFound is not a function" right after tapping Tennis.
+    }, [queryClient]),
   );
 
   const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
@@ -599,31 +603,33 @@ export default function HomeScreen() {
   // crests attach on the first pass (headshots optional → avatar falls back to
   // initials).
   const featuredGameQs = useQueries({
-    queries: featGames.map((g) => ({
-      queryKey: ["home-featured", sport, g.id],
-      enabled: featuredEnabled && !sportFeedLoading && games.length > 0,
-      staleTime: 60_000,
-      refetchOnMount: "always",
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const info =
-          teamInfoMap.get(
-            `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
-          ) ?? null;
-        const r = await getProps(
-          {
-            sport,
-            eventId: g.id,
-            home: g.homeTeam,
-            away: g.awayTeam,
-            homeTeamId: info?.homeTeamId,
-            awayTeamId: info?.awayTeamId,
-            startsAt: g.commenceTime,
+    queries: featuredEnabled
+      ? featGames.map((g) => ({
+          queryKey: ["home-featured", sport, g.id],
+          enabled: !sportFeedLoading && games.length > 0,
+          staleTime: 60_000,
+          refetchOnMount: "always",
+          queryFn: async ({ signal }: { signal: AbortSignal }) => {
+            const info =
+              teamInfoMap.get(
+                `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
+              ) ?? null;
+            const r = await getProps(
+              {
+                sport,
+                eventId: g.id,
+                home: g.homeTeam,
+                away: g.awayTeam,
+                homeTeamId: info?.homeTeamId,
+                awayTeamId: info?.awayTeamId,
+                startsAt: g.commenceTime,
+              },
+              signal,
+            );
+            return { info, props: Array.isArray(r.props) ? r.props : [] };
           },
-          signal,
-        );
-        return { info, props: r.props ?? [] };
-      },
-    })),
+        }))
+      : [],
   });
 
   // ---- Home AI sections (all REAL data; each rail hides when nothing qualifies) ----
@@ -639,8 +645,9 @@ export default function HomeScreen() {
       const g = featGames[i];
       if (!data || !g) return;
       const { info, props } = data;
+      const propRows = Array.isArray(props) ? props : [];
       const gameLabel = `${g.awayTeam} @ ${g.homeTeam}`;
-      for (const p of props) {
+      for (const p of propRows) {
         if (p.alt) continue;
         const isHome =
           !!p.playerTeamId && !!info?.homeTeamId && p.playerTeamId === info.homeTeamId;
