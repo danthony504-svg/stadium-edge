@@ -910,7 +910,7 @@ export default function PropDetailScreen() {
               />
               <MetricTile
                 icon="activity"
-                label="LIKELY LINE"
+                label="PROJECTED STAT"
                 value={
                   simData?.mostLikelyLine != null
                     ? String(simData.mostLikelyLine)
