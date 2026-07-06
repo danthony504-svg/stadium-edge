@@ -1,15 +1,17 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
   Text,
   View,
 } from "react-native";
-import Svg, { Circle, Line } from "react-native-svg";
+import Svg, { Circle, G, Line } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -293,22 +295,58 @@ function AlmostQualifiedCard({ near }: { near: NearMissSteal }) {
   );
 }
 
+const AnimatedG = Animated.createAnimatedComponent(G);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
 function RadarScan({ children }: { children?: React.ReactNode }) {
   const colors = useColors();
   const size = 170;
   const c = size / 2;
+  const sweep = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const spin = Animated.loop(
+      Animated.timing(sweep, {
+        toValue: 360,
+        duration: 2800,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }),
+    );
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: false }),
+        Animated.timing(pulse, { toValue: 0.35, duration: 900, useNativeDriver: false }),
+      ]),
+    );
+    spin.start();
+    blink.start();
+    return () => {
+      spin.stop();
+      blink.stop();
+    };
+  }, [pulse, sweep]);
+
+  const blipOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1] });
+
   return (
     <View style={{ alignItems: "center", paddingVertical: 32, gap: 14 }}>
-      <Svg width={size} height={size}>
-        {[24, 44, 66, 84].map((r) => (
-          <Circle key={r} cx={c} cy={c} r={r} fill="none" stroke="rgba(168,85,247,0.35)" strokeWidth="1" />
-        ))}
-        <Line x1={c} y1={c} x2={c + 62} y2={c - 43} stroke={STEAL_ACCENT} strokeWidth="3" />
-        <Circle cx={c + 62} cy={c - 43} r="4" fill={STEAL_ACCENT} />
-        <Circle cx={c - 28} cy={c + 40} r="3" fill={STEAL_ACCENT} />
-        <Circle cx={c + 52} cy={c + 18} r="3" fill={STEAL_ACCENT} />
-        <Circle cx={c - 36} cy={c - 10} r="3" fill={colors.foreground} />
-      </Svg>
+      <View style={{ width: size, height: size }}>
+        <Svg width={size} height={size}>
+          {[24, 44, 66, 84].map((r) => (
+            <Circle key={r} cx={c} cy={c} r={r} fill="none" stroke="rgba(168,85,247,0.35)" strokeWidth="1" />
+          ))}
+          <AnimatedG rotation={sweep} origin={`${c}, ${c}`}>
+            <Line x1={c} y1={c} x2={c} y2={c - 84} stroke="rgba(168,85,247,0.25)" strokeWidth="18" />
+            <Line x1={c} y1={c} x2={c} y2={c - 84} stroke={STEAL_ACCENT} strokeWidth="2.5" />
+            <Circle cx={c} cy={c - 84} r="4" fill={STEAL_ACCENT} />
+          </AnimatedG>
+          <AnimatedCircle cx={c - 28} cy={c + 40} r="3" fill={STEAL_ACCENT} opacity={blipOpacity} />
+          <AnimatedCircle cx={c + 52} cy={c + 18} r="3" fill={STEAL_ACCENT} opacity={blipOpacity} />
+          <Circle cx={c - 36} cy={c - 10} r="3" fill={colors.foreground} opacity={0.7} />
+        </Svg>
+      </View>
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 19 }}>
         Hunting for steals...
       </Text>
