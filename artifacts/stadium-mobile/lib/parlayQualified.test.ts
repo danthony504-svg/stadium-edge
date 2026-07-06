@@ -554,7 +554,7 @@ test("passesCoachTicketQualityGate rejects stale positive edge when pool edge is
   );
 });
 
-test("passesCoachTicketQualityGate accepts C grade at confidence 50 with positive edge", () => {
+test("passesCoachTicketQualityGate accepts C+ grade at confidence 60 with positive edge", () => {
   const pick = qualifiedPick({
     isProp: true,
     player: "Sonia Citron",
@@ -565,20 +565,51 @@ test("passesCoachTicketQualityGate accepts C grade at confidence 50 with positiv
     gameLineFinal: undefined,
     finalAiScore: {
       ...qualifiedPick().finalAiScore!,
-      grade: "C",
-      confidencePct: 50,
+      grade: "C+",
+      confidencePct: 60,
       edgePct: 2.5,
       simHit: 0.54,
       simAligned: true,
     },
     scores: {
       ...qualifiedPick().scores!,
-      grade: "C",
-      confidencePct: 50,
+      grade: "C+",
+      confidencePct: 60,
       edgePct: 2.5,
     },
   });
   assert.equal(passesCoachTicketQualityGate(pick), true);
+});
+
+test("passesCoachTicketQualityGate rejects C grade and sub-60 confidence", () => {
+  const weakGrade = qualifiedPick({
+    isProp: true,
+    player: "Low Grade",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C",
+      confidencePct: 62,
+      edgePct: 2.5,
+    },
+    scores: { ...qualifiedPick().scores!, grade: "C", confidencePct: 62, edgePct: 2.5 },
+  });
+  const weakConf = qualifiedPick({
+    isProp: true,
+    player: "Low Conf",
+    market: "Hits",
+    pick: "Over 1.5 Hits",
+    finalAiScore: {
+      ...qualifiedPick().finalAiScore!,
+      grade: "C+",
+      confidencePct: 59,
+      edgePct: 2.5,
+    },
+    scores: { ...qualifiedPick().scores!, grade: "C+", confidencePct: 59, edgePct: 2.5 },
+  });
+  assert.equal(passesCoachTicketQualityGate(weakGrade), false);
+  assert.equal(passesCoachTicketQualityGate(weakConf), false);
 });
 
 test("comparePickStrength ranks higher Coach Final Score first", () => {

@@ -17,15 +17,23 @@ import {
 import {
   compareCoachPicksByFinalScore,
   computeCoachFinalScore,
-  MIN_COACH_PREMIUM_CONFIDENCE,
 } from "./coachPickRanking.ts";
+import {
+  UNIVERSAL_MIN_CONFIDENCE,
+  UNIVERSAL_MIN_GRADE,
+} from "./coachUniversalRules.ts";
+import { lineMarketSignalReason, pickHasLineMarketSignal } from "./coachLineSignal.ts";
 
-export { MIN_COACH_PREMIUM_CONFIDENCE } from "./coachPickRanking.ts";
+/** Premium Coach confidence floor — universal rule: ≥ 60. */
+export const MIN_COACH_PREMIUM_CONFIDENCE = UNIVERSAL_MIN_CONFIDENCE;
+
 export { computeCoachFinalScore, compareCoachPicksByFinalScore } from "./coachPickRanking.ts";
+export { UNIVERSAL_AI_RULES, UNIVERSAL_MIN_GRADE, UNIVERSAL_MIN_CONFIDENCE } from "./coachUniversalRules.ts";
+export { pickHasLineMarketSignal, lineMarketSignalReason } from "./coachLineSignal.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
-/** Coach ticket / slip / summary floor — rejects D and below. */
-export const MIN_COACH_TICKET_GRADE = "C";
+/** Coach ticket / slip / summary floor — universal rule: C+ or better. */
+export const MIN_COACH_TICKET_GRADE = UNIVERSAL_MIN_GRADE;
 /** Prop main-ticket confidence floor. */
 export const MIN_MAIN_PICK_CONFIDENCE = 52;
 /** Game-line main-ticket confidence floor (prefer {@link GAME_LINE_PREFERRED_CONFIDENCE}). */
@@ -496,30 +504,25 @@ export function isFullyQualifiedPick(
   return isPropMainTicketQualified(score, odds, edge, minGrade, minConfidence);
 }
 
-/**
- * Final Coach quality gate — positive EV only on default tickets.
- * Rejects negative edge, sub-C grades, and low confidence before any surface render.
- */
 export function passesCoachTicketQualityGate(
   pick: ParsedPick,
   opts?: CoachQualifyOpts,
 ): boolean {
-  if (opts?.longshotAsk && pick.isProp) {
-    return isFullyQualifiedPick(pick, {
+  const qual = (longshot: boolean) =>
+    isFullyQualifiedPick(pick, {
       ...opts,
       coachSurface: true,
       minGrade: MIN_COACH_TICKET_GRADE,
       minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
-      longshotAsk: true,
+      longshotAsk: longshot,
     });
+
+  if (opts?.longshotAsk && pick.isProp) {
+    if (!qual(true)) return false;
+  } else if (!qual(false)) {
+    return false;
   }
-  return isFullyQualifiedPick(pick, {
-    ...opts,
-    coachSurface: true,
-    minGrade: MIN_COACH_TICKET_GRADE,
-    minConfidence: MIN_COACH_PREMIUM_CONFIDENCE,
-    longshotAsk: false,
-  });
+  return pickHasLineMarketSignal(pick, opts);
 }
 
 /** Last-chance filter before rendering a main-ticket parlay. Never pads. */
@@ -679,6 +682,9 @@ export function reasonPickNotQualified(
   }
   if (s.composite == null || s.composite <= 0) return "non-positive Final AI Score / EV";
   if (pick.odds == null || !Number.isFinite(pick.odds)) return "no real sportsbook odds";
+  if (opts?.coachSurface && !pickHasLineMarketSignal(pick, opts)) {
+    return lineMarketSignalReason();
+  }
   return "quality bar not met";
 }
 

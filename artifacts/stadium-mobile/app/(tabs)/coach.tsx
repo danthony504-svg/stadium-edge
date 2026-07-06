@@ -111,6 +111,7 @@ import {
   MainTicketQualificationError,
   GameLineFinalizeRejected,
   MIN_COACH_PREMIUM_CONFIDENCE,
+  MIN_COACH_TICKET_GRADE,
 } from "@/lib/parlayQualified";
 import { selectStrongestQualifiedParlay } from "@/lib/parlayBoardSelect";
 import {
@@ -2552,7 +2553,7 @@ export default function CoachScreen() {
             backupNote ||
             (legTarget > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${legTarget}-leg request.`
-              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_COACH_TICKET_GRADE} or better, strictly positive Edge % and EV, Confidence ≥ ${MIN_COACH_PREMIUM_CONFIDENCE}, and Final AI Score backed by the 10k sim.`);
+              : `You asked for ${legTarget} legs, but only ${picks.length} cleared every quality check on ${oddsPhrase} — each leg needs AI Grade ${MIN_COACH_TICKET_GRADE} or better, strictly positive Edge % and EV, Confidence ≥ ${MIN_COACH_PREMIUM_CONFIDENCE}, cross-book line validation, and Final AI Score backed by the 10k sim.`);
         }
         if (mlLeanNote) {
           legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;

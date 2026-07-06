@@ -598,6 +598,18 @@ function bballPoints(ctx: BCtx, homeAway: PropFactor, recent: PropFactor, oppCar
       title: "Pace & Total",
       body: "A high total and fast pace mean more possessions and scoring chances. Check the game total.",
     },
+    {
+      tier: "important",
+      emoji: "🛌",
+      title: "Back-to-Back & Rest",
+      body: "Second night of a back-to-back or short rest often trims minutes and efficiency.",
+    },
+    {
+      tier: "useful",
+      emoji: "💥",
+      title: "Blowout Risk",
+      body: "A heavy favorite can sit starters in the fourth — check the spread before laying a big scoring number.",
+    },
     homeAway,
     recent,
   ];
@@ -788,26 +800,87 @@ function soccer(homeAway: PropFactor, recent: PropFactor, oppCard: PropFactor | 
     {
       tier: "critical",
       emoji: "📋",
-      title: "Confirmed to Start & Minutes",
-      body: "Rotation is heavy in soccer. A bench start or early sub kills shot and goal props. Check the confirmed XI before kickoff.",
+      title: "Confirmed XI & Minutes",
+      body: "Rotation is heavy in soccer — especially World Cup knockouts. A bench start or early sub kills shot and goal props. Wait for the confirmed lineup.",
     },
     {
       tier: "critical",
       emoji: "🎯",
-      title: "Role & Set Pieces",
-      body: "Penalty and set-piece duty drives goal odds. Confirm he's the designated taker.",
+      title: "Penalty & Set-Piece Role",
+      body: "Penalty taker and set-piece duty drive goal odds. Confirm who is on dead balls before kickoff.",
+    },
+    {
+      tier: "important",
+      emoji: "📊",
+      title: "xG & Shot Quality",
+      body: "Expected goals (xG), shots on target, and big chances created/allowed frame whether the team is generating real chances or riding variance.",
+    },
+    {
+      tier: "important",
+      emoji: "⚔️",
+      title: "Form, ELO & Motivation",
+      body: "Team ELO, home vs away form, and stakes (must-win, group stage, knockout) shift how aggressively a side attacks.",
     },
     oppCard ?? {
       tier: "important",
       emoji: "🛡",
       title: "Opponent & Game State",
-      body: "A defensive opponent, or a team chasing the game, changes how many shots he gets.",
+      body: "A defensive opponent, pressing intensity (PPDA), and possession share change how many shots he gets.",
     },
     {
       tier: "important",
-      emoji: "✈️",
-      title: "Fixture Congestion",
-      body: "Midweek games and travel can mean rotation or reduced minutes.",
+      emoji: "🩹",
+      title: "Injuries, Suspensions & Travel",
+      body: "Missing starters, yellow-card bans, rest days, and travel distance all move rotation and minutes.",
+    },
+    {
+      tier: "useful",
+      emoji: "🌦",
+      title: "Weather & Market Movement",
+      body: "Rain and wind suppress passing volume; live line movement can flag sharp agreement before you bet.",
+    },
+    homeAway,
+    recent,
+  ];
+}
+
+function tennis(homeAway: PropFactor, recent: PropFactor): PropFactor[] {
+  return [
+    {
+      tier: "critical",
+      emoji: "🎾",
+      title: "Surface Fit",
+      body: "Grass, clay, and hard courts favor different styles. Confirm the surface and how each player performs on it.",
+    },
+    {
+      tier: "critical",
+      emoji: "🩹",
+      title: "Injury & Fatigue",
+      body: "Recent injury history, hours played this tournament, and days of rest matter — especially deep in a draw.",
+    },
+    {
+      tier: "important",
+      emoji: "🔄",
+      title: "Head-to-Head & Form",
+      body: "Surface-specific H2H and recent form often outweigh season-long ratings.",
+    },
+    {
+      tier: "important",
+      emoji: "🎯",
+      title: "Serve & Return Profile",
+      body: "Hold %, break %, first-serve points won, and return points won frame whether the match stays on serve.",
+    },
+    {
+      tier: "important",
+      emoji: "📈",
+      title: "Elo & Line Movement",
+      body: "Elo ratings and live line movement help spot when the market agrees with your lean.",
+    },
+    {
+      tier: "useful",
+      emoji: "↔️",
+      title: "Lefty vs Righty & Conditions",
+      body: "Handedness matchups and indoor vs outdoor conditions can tilt break opportunities.",
     },
     homeAway,
     recent,
@@ -871,7 +944,8 @@ export function factorsForProp(opts: FactorContext | null | undefined): PropFact
   }
   if (sport === "nfl" || sport === "ncaaf") return football(homeAway, recent, oppCard);
   if (sport === "nhl") return hockey(homeAway, recent, oppCard);
-  if (sport === "soccer") return soccer(homeAway, recent, oppCard);
+  if (sport === "soccer" || sport === "fifa") return soccer(homeAway, recent, oppCard);
+  if (sport === "tennis" || sport === "atp" || sport === "wta") return tennis(homeAway, recent);
   return genericFactors(homeAway, recent, oppCard);
 }
 

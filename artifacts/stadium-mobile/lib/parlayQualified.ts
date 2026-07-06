@@ -51,6 +51,10 @@ export {
   assertMainTicketPicksQualified,
   MainTicketQualificationError,
   GameLineFinalizeRejected,
+  UNIVERSAL_AI_RULES,
+  UNIVERSAL_MIN_GRADE,
+  UNIVERSAL_MIN_CONFIDENCE,
+  pickHasLineMarketSignal,
 } from "./parlayQualifiedGate.ts";
 
 export { computePickFinalScore, GAME_LINE_FINAL_SCORE_WEIGHTS } from "./gameLineFinalScore.ts";
