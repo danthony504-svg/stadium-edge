@@ -43,7 +43,6 @@ import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { isOtaReloadBlocked } from "@/lib/otaBlock";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
-  cachedLiveGames,
   cachedUpcomingGames,
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -381,10 +380,6 @@ export default function HomeScreen() {
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [stickyLive, setStickyLive] = useState<{ sport: string; games: EspnGame[] }>(() => ({
-    sport,
-    games: cachedLiveGames(sport).filter((g) => g.sport === sport),
-  }));
   const [stickyUpcoming, setStickyUpcoming] = useState<{ sport: string; games: OddsGame[] }>(() => ({
     sport,
     games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
@@ -402,30 +397,15 @@ export default function HomeScreen() {
       queryClient.setQueryData<OddsGame[]>(["odds", id], undefined);
       queryClient.setQueryData<EspnGame[]>(["games", id], undefined);
       setSport(id);
-      setStickyLive({
-        sport: id,
-        games: cachedLiveGames(id).filter((g) => g.sport === id),
-      });
-      setStickyUpcoming({
-        sport: id,
-        games: cachedUpcomingGames(id).filter((g) => g.sport === id),
-      });
+      // Never hydrate Live/Upcoming from cache on pill tap — wait for a fresh fetch
+      // for this league so a prior pill's rows cannot flash on screen.
+      setStickyUpcoming({ sport: id, games: [] });
     },
     [queryClient],
   );
 
   useEffect(() => {
-    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS).then(() => {
-      const s = sportRef.current;
-      setStickyLive({
-        sport: s,
-        games: cachedLiveGames(s).filter((g) => g.sport === s),
-      });
-      setStickyUpcoming({
-        sport: s,
-        games: cachedUpcomingGames(s).filter((g) => g.sport === s),
-      });
-    });
+    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
   }, []);
 
   useFocusEffect(
@@ -440,17 +420,6 @@ export default function HomeScreen() {
       }
     }, [queryClient, sport, isUpdatePending]),
   );
-
-  useEffect(() => {
-    setStickyLive({
-      sport,
-      games: cachedLiveGames(sport).filter((g) => g.sport === sport),
-    });
-    setStickyUpcoming({
-      sport,
-      games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
-    });
-  }, [sport]);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -477,33 +446,32 @@ export default function HomeScreen() {
     enabled: sport === "tennis",
   });
 
-  const metaMap = useMemo(
-    () =>
-      buildMetaMap(
-        gamesQ.isPlaceholderData
-          ? []
-          : (gamesQ.data ?? []).filter((g) => g.sport === sport),
-      ),
-    [gamesQ.data, gamesQ.isPlaceholderData, sport],
-  );
+  const gamesForSport = useMemo(() => {
+    if (gamesQ.isPlaceholderData || gamesQ.isFetching || !gamesQ.isSuccess) return [];
+    return (gamesQ.data ?? []).filter((g) => g.sport === sport);
+  }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isFetching, gamesQ.isSuccess, sport]);
 
-  const freshLiveGames = useMemo(() => {
-    if (gamesQ.isPlaceholderData) return [];
-    return (gamesQ.data ?? []).filter((g) => g.sport === sport && g.state === "in");
-  }, [gamesQ.data, gamesQ.isPlaceholderData, sport]);
+  const oddsForSport = useMemo(() => {
+    if (oddsQ.isPlaceholderData || oddsQ.isFetching || !oddsQ.isSuccess) return [];
+    return (oddsQ.data ?? []).filter((g) => g.sport === sport);
+  }, [oddsQ.data, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess, sport]);
+
+  const metaMap = useMemo(() => buildMetaMap(gamesForSport), [gamesForSport]);
+
+  const freshLiveGames = useMemo(
+    () => gamesForSport.filter((g) => g.state === "in"),
+    [gamesForSport],
+  );
   useEffect(() => {
-    const leagueLive = freshLiveGames.filter((g) => g.sport === sport);
-    if (leagueLive.length > 0) {
-      setStickyLive({ sport, games: leagueLive });
-      rememberLiveGames(sport, leagueLive);
+    if (freshLiveGames.length > 0) {
+      rememberLiveGames(sport, freshLiveGames);
     }
   }, [freshLiveGames, sport]);
-  const displayLiveGames = useMemo(() => {
-    if (freshLiveGames.length > 0) return freshLiveGames;
-    const sticky = stickyLive.games.filter((g) => g.sport === sport);
-    if (stickyLive.sport === sport && sticky.length > 0) return sticky;
-    return [];
-  }, [freshLiveGames, stickyLive, sport]);
+  // Live Now: only rows from the active pill's successful games fetch.
+  const displayLiveGames = useMemo(
+    () => freshLiveGames.filter((g) => g.sport === sport),
+    [freshLiveGames, sport],
+  );
 
   // Nickname keys (away|home) of games currently in progress, so we can drop them
   // from Upcoming — a live game already has its own card in the "Live Now" rail.
@@ -519,16 +487,14 @@ export default function HomeScreen() {
   }, [displayLiveGames]);
 
   const games: OddsGame[] = useMemo(() => {
-    if (oddsQ.isPlaceholderData) return [];
-    const list = (oddsQ.data ?? [])
-      .filter((g) => g.sport === sport)
+    const list = oddsForSport
       .filter((g) => isPickable(g.commenceTime))
       .filter(
         (g) =>
           !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
       );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data, oddsQ.isPlaceholderData, liveKeySet, sport]);
+  }, [oddsForSport, liveKeySet]);
 
   useEffect(() => {
     const leagueGames = games.filter((g) => g.sport === sport);
@@ -538,12 +504,12 @@ export default function HomeScreen() {
     }
   }, [games, sport]);
   const upcomingGames = useMemo(() => {
-    if (oddsQ.isPlaceholderData) return [];
     if (games.length > 0) return games;
+    if (oddsQ.isPlaceholderData || oddsQ.isFetching || !oddsQ.isSuccess) return [];
     const sticky = stickyUpcoming.games.filter((g) => g.sport === sport);
     if (stickyUpcoming.sport === sport && sticky.length > 0) return sticky;
     return games;
-  }, [games, stickyUpcoming, sport, oddsQ.isPlaceholderData]);
+  }, [games, stickyUpcoming, sport, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess]);
   // Final belt-and-braces: never paint a row unless it matches the active pill.
   const displayUpcoming = useMemo(
     () => upcomingGames.filter((g) => g.sport === sport),
@@ -570,7 +536,7 @@ export default function HomeScreen() {
         awayLogo: string | null;
       }
     >();
-    for (const g of gamesQ.data ?? []) {
+    for (const g of gamesForSport) {
       const home = g.homeTeam || g.homeAbbr || "";
       const away = g.awayTeam || g.awayAbbr || "";
       if (!home || !away) continue;
@@ -584,7 +550,7 @@ export default function HomeScreen() {
       });
     }
     return map;
-  }, [gamesQ.data]);
+  }, [gamesForSport]);
 
   // One query PER featured game (not a single allSettled over all 4), so the
   // rail renders PROGRESSIVELY — players from whichever game responds first
@@ -1035,7 +1001,6 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
-              setStickyLive({ sport, games: [] });
               setStickyUpcoming({ sport, games: [] });
               oddsQ.refetch();
               gamesQ.refetch();

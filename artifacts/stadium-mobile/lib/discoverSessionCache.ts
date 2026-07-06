@@ -153,8 +153,18 @@ export function hydrateDiscoverCache(sports: string[]): Promise<boolean> {
             heroBySport.set(sport, hero.legs);
             heroAtBySport.set(sport, hero.at);
           }
-          if (live && live.length > 0) liveBySport.set(sport, live);
-          if (upcoming && upcoming.length > 0) upcomingBySport.set(sport, upcoming);
+          if (live && live.length > 0) {
+            liveBySport.set(
+              sport,
+              live.filter((g) => !g.sport || g.sport === sport).map((g) => ({ ...g, sport })),
+            );
+          }
+          if (upcoming && upcoming.length > 0) {
+            upcomingBySport.set(
+              sport,
+              upcoming.filter((g) => !g.sport || g.sport === sport).map((g) => ({ ...g, sport })),
+            );
+          }
         }),
       );
       return genOk;
@@ -190,21 +200,27 @@ export function rememberHeroLegs(sport: string, legs: CachedPropEntry[]): void {
 }
 
 export function cachedLiveGames(sport: string): EspnGame[] {
-  return liveBySport.get(sport) ?? [];
+  return (liveBySport.get(sport) ?? []).filter((g) => g.sport === sport);
 }
 
 export function rememberLiveGames(sport: string, games: EspnGame[]): void {
-  if (games.length === 0) return;
-  liveBySport.set(sport, games);
-  void writeStored(liveKey(sport), games);
+  const tagged = games
+    .filter((g) => !g.sport || g.sport === sport)
+    .map((g) => ({ ...g, sport }));
+  if (tagged.length === 0) return;
+  liveBySport.set(sport, tagged);
+  void writeStored(liveKey(sport), tagged);
 }
 
 export function cachedUpcomingGames(sport: string): OddsGame[] {
-  return upcomingBySport.get(sport) ?? [];
+  return (upcomingBySport.get(sport) ?? []).filter((g) => g.sport === sport);
 }
 
 export function rememberUpcomingGames(sport: string, games: OddsGame[]): void {
-  if (games.length === 0) return;
-  upcomingBySport.set(sport, games);
-  void writeStored(upcomingKey(sport), games);
+  const tagged = games
+    .filter((g) => !g.sport || g.sport === sport)
+    .map((g) => ({ ...g, sport }));
+  if (tagged.length === 0) return;
+  upcomingBySport.set(sport, tagged);
+  void writeStored(upcomingKey(sport), tagged);
 }
