@@ -24,6 +24,7 @@ import { useColors } from "@/hooks/useColors";
 import type {
   EspnGame,
   GameSimulationResult,
+  OddsGame,
   PlayerProp,
   PropSimulationResult,
 } from "@/lib/api";
@@ -64,6 +65,13 @@ import {
   NO_POSITIVE_EDGE_MESSAGE,
   qualifiesForBestLines,
 } from "@/lib/gameSimQualityGates";
+import {
+  buildSimulationSummary,
+  normalizeGameWinDisplay,
+  weatherSettingLabel,
+  type SimulationSummary,
+} from "@/lib/gameSimDisplay";
+import { analyzeFullSimulation, type FullSimulationAnalytics } from "@/lib/fullSimulationAnalytics";
 import {
   buildSimulatorPpPropPool,
   buildSimulatorPropPool,
@@ -258,6 +266,8 @@ export default function SimulatorScreen() {
   const [playerHistory, setPlayerHistory] = useState<Record<string, SimulatorPlayerHistorySlice>>({});
   const [ranAt, setRanAt] = useState<number | null>(null);
   const [howOpen, setHowOpen] = useState(false);
+  const [linesScanStep, setLinesScanStep] = useState(0);
+  const [linesRevealReady, setLinesRevealReady] = useState(false);
 
   const sportFilters = propFiltersForSport(sport);
   const warmedRef = useRef(false);
@@ -341,6 +351,30 @@ export default function SimulatorScreen() {
     return buildAllEvalGameLines(match);
   }, [oddsQ.data, gameLabel, game?.homeTeam, game?.awayTeam]);
 
+  const matchedOddsGame = useMemo((): OddsGame | null => {
+    if (!game?.homeTeam || !game?.awayTeam) return null;
+    const rows = Array.isArray(oddsQ.data) ? oddsQ.data : [];
+    const norm = (s: string) => s.toLowerCase().trim();
+    return (
+      rows.find(
+        (g) => norm(g.homeTeam) === norm(game.homeTeam!) && norm(g.awayTeam) === norm(game.awayTeam!),
+      ) ?? null
+    );
+  }, [oddsQ.data, game?.homeTeam, game?.awayTeam]);
+
+  const sportsbooksScanned = useMemo(() => {
+    if (!matchedOddsGame?.markets?.length) return 20;
+    const books = new Set<string>();
+    for (const m of matchedOddsGame.markets) {
+      for (const o of m.outcomes ?? []) {
+        for (const b of o.books ?? []) {
+          if (b.book) books.add(b.book);
+        }
+      }
+    }
+    return books.size > 0 ? books.size : 20;
+  }, [matchedOddsGame]);
+
   const gameFourQuestions = useMemo((): TeamFourQuestions[] => {
     if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return [];
     const oddsLines = realOddsToGameLines(gameOddsLines, gameLabel);
@@ -409,6 +443,58 @@ export default function SimulatorScreen() {
     return gameLineRecs.ranked.filter(qualifiesForBestLines);
   }, [gameLineRecs]);
 
+  const normalizedWin = useMemo(
+    () => (gameResult ? normalizeGameWinDisplay(gameResult) : null),
+    [gameResult],
+  );
+
+  const simulationSummary = useMemo(
+    () => buildSimulationSummary(displayBestLines[0], gameSimRecommendation),
+    [displayBestLines, gameSimRecommendation],
+  );
+
+  const fullSimAnalytics = useMemo(() => {
+    if (!gameResult || !game?.homeTeam || !game?.awayTeam || !gameLabel) return null;
+    return analyzeFullSimulation({
+      result: gameResult,
+      evalLines: gameOddsLines,
+      gameLabel,
+      awayTeam: game.awayTeam,
+      homeTeam: game.homeTeam,
+    });
+  }, [gameResult, gameOddsLines, gameLabel, game?.homeTeam, game?.awayTeam]);
+
+  const bestLinesAnalyzing =
+    running ||
+    (Boolean(gameResult) && (mode === "game" || mode === "full") && !linesRevealReady);
+
+  useEffect(() => {
+    if (running) {
+      setLinesRevealReady(false);
+      setLinesScanStep(0);
+      return;
+    }
+    if (!gameResult || mode === "props") {
+      setLinesRevealReady(false);
+      return;
+    }
+    setLinesRevealReady(false);
+    const reveal = setTimeout(() => setLinesRevealReady(true), 1400);
+    return () => clearTimeout(reveal);
+  }, [gameResult, running, mode]);
+
+  useEffect(() => {
+    if (!bestLinesAnalyzing) {
+      setLinesScanStep(0);
+      return;
+    }
+    setLinesScanStep(0);
+    const id = setInterval(() => {
+      setLinesScanStep((s) => (s >= 2 ? 0 : s + 1));
+    }, 550);
+    return () => clearInterval(id);
+  }, [bestLinesAnalyzing]);
+
   const propsQ = useQuery({
     queryKey: ["sim-props", sport, game?.id],
     enabled: !!game?.id && gameEligible,
@@ -465,10 +551,16 @@ export default function SimulatorScreen() {
     );
   }, [game, parkQ.data]);
 
-  const weatherImpact = weatherImpactFromRating(weatherForGame?.impact?.rating);
-  const weatherLabel = weatherForGame
-    ? `${weatherForGame.current.tempF}°F • ${weatherForGame.current.condition}`
-    : "—";
+  const weatherImpact = weatherForGame?.climateControlled
+    ? null
+    : weatherImpactFromRating(weatherForGame?.impact?.rating);
+  const weatherLabel = weatherSettingLabel({
+    climateControlled: weatherForGame?.climateControlled,
+    venue: game?.venue,
+    tempF: weatherForGame?.current?.tempF ?? null,
+    condition: weatherForGame?.current?.condition ?? null,
+  });
+  const showWeatherRow = weatherLabel != null;
 
   const mains = useMemo(() => {
     if (propsLoading) return [];
@@ -1096,7 +1188,9 @@ export default function SimulatorScreen() {
                 Simulation Settings
               </Text>
               <SettingRow label="Simulation Count" value={`${SIM_COUNT.toLocaleString()}`} />
-              <SettingRow label="Weather" value={weatherLabel} icon="cloud" />
+              {showWeatherRow ? (
+                <SettingRow label="Weather" value={weatherLabel!} icon="cloud" />
+              ) : null}
               <SettingRow label="Home Field" value={game.venue ?? game.homeTeam ?? "—"} icon="map-pin" />
             </Card>
 
@@ -1127,6 +1221,16 @@ export default function SimulatorScreen() {
                 </Text>
               </LinearGradient>
             </Pressable>
+
+            {(running || gameResult) && mode !== "props" ? (
+              <SimulationSummaryCard
+                analyzing={bestLinesAnalyzing}
+                linesScanStep={linesScanStep}
+                postedLines={gameOddsLines.length}
+                sportsbooks={sportsbooksScanned}
+                summary={simulationSummary}
+              />
+            ) : null}
 
             {/* Results */}
             {(gameResult || propResults.length > 0) && (
@@ -1168,12 +1272,15 @@ export default function SimulatorScreen() {
                         />
                       </ResultCol>
                       <ResultCol title="Win Probability">
-                        <WinBar
-                          awayPct={gameResult.awayWinProbability}
-                          homePct={gameResult.homeWinProbability}
-                          awayLabel={game.awayAbbr ?? game.awayTeam}
-                          homeLabel={game.homeAbbr ?? game.homeTeam}
-                        />
+                        {normalizedWin ? (
+                          <WinBar
+                            awayPct={normalizedWin.awayPct}
+                            homePct={normalizedWin.homePct}
+                            tiePct={normalizedWin.tiePct}
+                            awayLabel={game.awayAbbr ?? game.awayTeam}
+                            homeLabel={game.homeAbbr ?? game.homeTeam}
+                          />
+                        ) : null}
                       </ResultCol>
                     </View>
                     {gameSimRecommendation ? (
@@ -1189,7 +1296,13 @@ export default function SimulatorScreen() {
                         </Text>
                       </Card>
                     ) : null}
-                    {displayBestLines.length > 0 ? (
+                    {bestLinesAnalyzing ? (
+                      <BestLinesLoadingCard
+                        step={linesScanStep}
+                        postedLines={gameOddsLines.length}
+                        sportsbooks={sportsbooksScanned}
+                      />
+                    ) : displayBestLines.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
                           Best Lines (Final AI Score)
@@ -1211,6 +1324,9 @@ export default function SimulatorScreen() {
                         </Text>
                       </Card>
                     )}
+                    {mode === "full" && fullSimAnalytics ? (
+                      <FullSimulationPanel analytics={fullSimAnalytics} />
+                    ) : null}
                     {gameFourQuestions.length > 0 ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
@@ -1413,6 +1529,229 @@ function SettingRow({
   );
 }
 
+function SimulationSummaryCard({
+  analyzing,
+  linesScanStep,
+  postedLines,
+  sportsbooks,
+  summary,
+}: {
+  analyzing: boolean;
+  linesScanStep: number;
+  postedLines: number;
+  sportsbooks: number;
+  summary: SimulationSummary;
+}) {
+  const colors = useColors();
+  const hasBet = summary.bestBet != null && summary.grade != null;
+
+  return (
+    <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginBottom: 10 }}>
+        Simulation Summary
+      </Text>
+      {analyzing ? (
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground }}>
+            Calculating best betting lines…
+          </Text>
+          {[
+            `Evaluating ${postedLines || 84} posted lines`,
+            `Comparing ${sportsbooks} sportsbooks`,
+            "Computing EV and Fair Odds",
+          ].map((line, i) => (
+            <Text
+              key={line}
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 12,
+                color: linesScanStep >= i ? colors.foreground : colors.mutedForeground,
+              }}
+            >
+              {linesScanStep >= i ? "✔" : "…"} {line}
+            </Text>
+          ))}
+        </View>
+      ) : hasBet ? (
+        <View style={{ gap: 6 }}>
+          <SummaryLine label="Best Bet" value={summary.bestBet!} />
+          <SummaryLine label="AI Grade" value={summary.grade!} />
+          {summary.confidence != null ? (
+            <SummaryLine label="Confidence" value={String(summary.confidence)} />
+          ) : null}
+          {summary.edgePct != null ? (
+            <SummaryLine label="Edge" value={`+${summary.edgePct}%`} />
+          ) : null}
+          {summary.fairOdds != null ? (
+            <SummaryLine label="Fair Odds" value={formatAmerican(summary.fairOdds)} />
+          ) : null}
+          {summary.bookOdds != null ? (
+            <SummaryLine label="Sportsbook" value={formatAmerican(summary.bookOdds)} />
+          ) : null}
+          <SummaryLine label="Recommendation" value={summary.recommendation} accent />
+        </View>
+      ) : (
+        <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
+          Recommendation: {summary.recommendation}
+        </Text>
+      )}
+    </Card>
+  );
+}
+
+function SummaryLine({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  const colors = useColors();
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+      <Text style={{ fontFamily: FONT.medium, fontSize: 12, color: colors.mutedForeground }}>{label}</Text>
+      <Text
+        style={{
+          fontFamily: FONT.semibold,
+          fontSize: 12,
+          color: accent ? colors.primary : colors.foreground,
+          flexShrink: 1,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function BestLinesLoadingCard({
+  step,
+  postedLines,
+  sportsbooks,
+}: {
+  step: number;
+  postedLines: number;
+  sportsbooks: number;
+}) {
+  const colors = useColors();
+  const lines = [
+    `Evaluating ${postedLines || 84} posted lines`,
+    `Comparing ${sportsbooks} sportsbooks`,
+    "Computing EV and Fair Odds",
+  ];
+  return (
+    <Card style={{ marginBottom: 12 }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+        Best Lines (Final AI Score)
+      </Text>
+      <Text style={{ fontFamily: FONT.medium, fontSize: 13, color: colors.foreground, marginTop: 8 }}>
+        Calculating best betting lines…
+      </Text>
+      <View style={{ gap: 8, marginTop: 12 }}>
+        {lines.map((line, i) => (
+          <Text
+            key={line}
+            style={{
+              fontFamily: FONT.body,
+              fontSize: 12,
+              color: step >= i ? colors.foreground : colors.mutedForeground,
+            }}
+          >
+            {step >= i ? "✔" : "…"} {line}
+          </Text>
+        ))}
+      </View>
+    </Card>
+  );
+}
+
+function FullSimulationPanel({ analytics }: { analytics: FullSimulationAnalytics }) {
+  const colors = useColors();
+  return (
+    <Card style={{ marginBottom: 12 }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 4 }}>
+        Full Simulation
+      </Text>
+      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+        Deep read on the same 10,000-run draw — score shapes, cover rates, and leverage spots you cannot get from a single projected score.
+      </Text>
+
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginBottom: 6 }}>
+        Most Common Final Scores
+      </Text>
+      {analytics.topScores.map((s) => (
+        <Text key={s.label} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+          {s.away}–{s.home} ({s.pct}%)
+        </Text>
+      ))}
+
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
+        Total Run Distribution
+      </Text>
+      {analytics.runDistribution.map((r) => (
+        <Text key={r.totalRuns} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+          {r.totalRuns} runs — {r.pct}%
+        </Text>
+      ))}
+
+      {analytics.totalLine != null && analytics.totalOverProb != null ? (
+        <>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
+            Total Over {analytics.totalLine}
+          </Text>
+          <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+            Hits in {analytics.totalOverProb}% of sims
+          </Text>
+        </>
+      ) : null}
+
+      {analytics.coverFrequencies.length > 0 ? (
+        <>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
+            Cover Frequency by Spread
+          </Text>
+          {analytics.coverFrequencies.slice(0, 10).map((c) => (
+            <Text key={`${c.market}|${c.pick}`} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+              {c.pick} — {c.hitPct}%
+            </Text>
+          ))}
+        </>
+      ) : null}
+
+      {analytics.teamTotalProbs.length > 0 ? (
+        <>
+          <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
+            Team Total Probabilities
+          </Text>
+          {analytics.teamTotalProbs.map((t) => (
+            <Text key={t.pick} style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+              {t.pick} — {t.hitPct}%
+            </Text>
+          ))}
+        </>
+      ) : null}
+
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 12, color: colors.foreground, marginTop: 12, marginBottom: 6 }}>
+        Game Script
+      </Text>
+      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+        Tie / push rate — {analytics.tieProb}%
+      </Text>
+      <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground, marginBottom: 4 }}>
+        One-run games — {analytics.oneRunGameProb}%
+      </Text>
+      {analytics.underdogWinProb != null ? (
+        <Text style={{ fontFamily: FONT.body, fontSize: 11, color: colors.mutedForeground }}>
+          Underdog wins outright — {analytics.underdogWinProb}%
+        </Text>
+      ) : null}
+    </Card>
+  );
+}
+
 function RecommendedLineRow({ row }: { row: EvaluatedGameLine }) {
   const colors = useColors();
   const metrics = deriveGameSimLineMetrics(row);
@@ -1529,27 +1868,41 @@ function ResultCol({ title, children }: { title: string; children: ReactNode }) 
 function WinBar({
   awayPct,
   homePct,
+  tiePct,
   awayLabel,
   homeLabel,
 }: {
   awayPct: number;
   homePct: number;
+  tiePct?: number;
   awayLabel: string;
   homeLabel: string;
 }) {
   const colors = useColors();
+  const tie = tiePct ?? 0;
+  const showTie = tie >= 0.003;
+  const awayDisplay = awayPct * (1 - tie) * 100;
+  const homeDisplay = homePct * (1 - tie) * 100;
   return (
     <View style={{ gap: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <View style={{ flex: awayPct, height: 8, borderRadius: 4, backgroundColor: "#ef4444" }} />
+        {showTie ? (
+          <View style={{ width: Math.max(6, tie * 80), height: 8, borderRadius: 4, backgroundColor: colors.mutedForeground }} />
+        ) : null}
         <View style={{ flex: homePct, height: 8, borderRadius: 4, backgroundColor: "#eab308" }} />
       </View>
       <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: FONT.body }}>
-        {awayLabel} {(awayPct * 100).toFixed(1)}%
+        {awayLabel} {awayDisplay.toFixed(1)}%
       </Text>
       <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: FONT.body }}>
-        {homeLabel} {(homePct * 100).toFixed(1)}%
+        {homeLabel} {homeDisplay.toFixed(1)}%
       </Text>
+      {showTie ? (
+        <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: FONT.body }}>
+          Tie / push {(tie * 100).toFixed(1)}%
+        </Text>
+      ) : null}
     </View>
   );
 }
