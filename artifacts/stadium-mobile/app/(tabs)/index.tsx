@@ -2,7 +2,7 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Pressable,
@@ -426,48 +426,32 @@ function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   );
 }
 
-export default function HomeScreen() {
-  const colors = useColors();
-  const insets = useSafeAreaInsets();
-  const slipClearance = useSlipClearance();
-  const router = useRouter();
+type HomeSportFeedProps = {
+  sport: string;
+  sportFetchGenRef: React.MutableRefObject<number>;
+  colors: ReturnType<typeof useColors>;
+  insets: ReturnType<typeof useSafeAreaInsets>;
+  slipClearance: number;
+  router: ReturnType<typeof useRouter>;
+  width: number;
+  isWideLayout: boolean;
+  hotCardWidth: number;
+  quickCardWidth: number;
+};
+
+function HomeSportFeed({
+  sport,
+  sportFetchGenRef,
+  colors,
+  insets,
+  slipClearance,
+  router,
+  width,
+  isWideLayout,
+  hotCardWidth,
+  quickCardWidth,
+}: HomeSportFeedProps) {
   const queryClient = useQueryClient();
-  const { width } = useWindowDimensions();
-  const isWideLayout = width >= 680;
-  const hotCardWidth = isWideLayout
-    ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
-    : 168;
-  // Five shortcut cards — horizontal scroll when they don't fit on one screen.
-  const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
-  const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const sportFetchGenRef = useRef(0);
-  const sportRef = useRef(sport);
-  sportRef.current = sport;
-
-  const selectSport = useCallback(
-    (id: string) => {
-      if (id === sportRef.current) return;
-      sportRef.current = id;
-      sportFetchGenRef.current += 1;
-      queryClient.cancelQueries({ queryKey: ["odds"] });
-      queryClient.cancelQueries({ queryKey: ["games"] });
-      queryClient.cancelQueries({ queryKey: ["home-featured"] });
-      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
-      queryClient.cancelQueries({ queryKey: ["home-upsets"] });
-      queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
-      queryClient.removeQueries({ queryKey: ["odds"] });
-      queryClient.removeQueries({ queryKey: ["games"] });
-      queryClient.removeQueries({ queryKey: ["home-featured"] });
-      queryClient.removeQueries({ queryKey: ["home-upsets"] });
-      queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
-      setSport(id);
-    },
-    [queryClient],
-  );
-
-  useEffect(() => {
-    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
-  }, []);
 
   // Refetch the active league when the pill changes. Kept separate from
   // useFocusEffect so a sport tap never retriggers OTA reload side-effects.
@@ -479,15 +463,15 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      const active = sportRef.current;
-      void queryClient.invalidateQueries({ queryKey: ["odds", active] });
-      void queryClient.invalidateQueries({ queryKey: ["games", active] });
-      void queryClient.invalidateQueries({ queryKey: ["home-featured", active] });
+      /* sport from props */
+      void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
+      void queryClient.invalidateQueries({ queryKey: ["games", sport] });
+      void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
       // OTA apply is user-driven via OtaUpdateBanner — never reloadAsync here.
       // Auto-reload on focus (and especially on sport-pill dep churn) was
       // corrupting mid-session bundles and surfacing errors like
       // "userFound is not a function" right after tapping Tennis.
-    }, [queryClient]),
+    }, [queryClient, sport]),
   );
 
   const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
@@ -1015,99 +999,7 @@ export default function HomeScreen() {
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {/* Fixed header — logo, search, and sport pills are pinned to the top of
-          the screen and NEVER move, even while data loads in below. Rendered as
-          a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
-          reflows in the scrolling content can't shift it down. */}
-      <AppHeader bottomGap={0}>
-
-        {/* Search bar → Home-wide game/team/player search */}
-        <Pressable
-          onPress={() =>
-            router.push({
-              pathname: "/props",
-              params: featuredEnabled ? { sp: sport } : {},
-            })
-          }
-          style={({ pressed }) => ({
-            marginHorizontal: 16,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 999,
-            paddingHorizontal: 16,
-            paddingVertical: 13,
-            opacity: pressed ? 0.85 : 1,
-          })}
-        >
-          <Feather name="search" size={17} color={colors.mutedForeground} />
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-            Search games, teams, or player props…
-          </Text>
-        </Pressable>
-
-        {/* Sport selector — icon pills, active = solid blue. Pinned with the logo
-            and search above the scrolling rails. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
-        >
-          {HOME_SPORTS.map((s) => {
-            const active = sport === s.id;
-            return (
-              <Pressable
-                key={s.id}
-                onPress={() => selectSport(s.id)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 7,
-                  backgroundColor: active ? colors.primary : colors.card,
-                  borderWidth: 1,
-                  borderColor: active ? colors.primary : colors.border,
-                  borderRadius: 999,
-                  paddingVertical: 6,
-                  paddingLeft: 6,
-                  paddingRight: 14,
-                }}
-              >
-                <View
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    backgroundColor: active ? "rgba(255,255,255,0.22)" : colors.surface,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <MaterialCommunityIcons
-                    name={s.icon}
-                    size={15}
-                    color={active ? "#fff" : colors.mutedForeground}
-                  />
-                </View>
-                <Text
-                  style={{
-                    color: active ? "#fff" : colors.foreground,
-                    fontFamily: FONT.semibold,
-                    fontSize: 13,
-                  }}
-                >
-                  {s.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </AppHeader>
-
-      <ErrorBoundary key={sport} FallbackComponent={HomeFeedErrorFallback}>
+    <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
       <ScrollView
         contentContainerStyle={{
           paddingBottom: insets.bottom + 24 + slipClearance,
@@ -2122,7 +2014,161 @@ export default function HomeScreen() {
           </View>
         ) : null}
       </ScrollView>
-      </ErrorBoundary>
+    </ErrorBoundary>
+  );
+}
+
+export default function HomeScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const slipClearance = useSlipClearance();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= 680;
+  const hotCardWidth = isWideLayout
+    ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
+    : 168;
+  // Five shortcut cards — horizontal scroll when they don't fit on one screen.
+  const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
+  const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
+  const sportFetchGenRef = useRef(0);
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
+
+  const selectSport = useCallback(
+    (id: string) => {
+      if (id === sportRef.current) return;
+      sportRef.current = id;
+      sportFetchGenRef.current += 1;
+      queryClient.cancelQueries({ queryKey: ["odds"] });
+      queryClient.cancelQueries({ queryKey: ["games"] });
+      queryClient.cancelQueries({ queryKey: ["home-featured"] });
+      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
+      queryClient.cancelQueries({ queryKey: ["home-upsets"] });
+      queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
+      queryClient.removeQueries({ queryKey: ["odds"] });
+      queryClient.removeQueries({ queryKey: ["games"] });
+      queryClient.removeQueries({ queryKey: ["home-featured"] });
+      queryClient.removeQueries({ queryKey: ["home-upsets"] });
+      queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
+      setSport(id);
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
+  }, []);
+
+  const featuredEnabled = PROPS_SPORTS.includes(sport);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {/* Fixed header — logo, search, and sport pills are pinned to the top of
+          the screen and NEVER move, even while data loads in below. Rendered as
+          a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
+          reflows in the scrolling content can't shift it down. */}
+      <AppHeader bottomGap={0}>
+
+        {/* Search bar → Home-wide game/team/player search */}
+        <Pressable
+          onPress={() =>
+            router.push({
+              pathname: "/props",
+              params: featuredEnabled ? { sp: sport } : {},
+            })
+          }
+          style={({ pressed }) => ({
+            marginHorizontal: 16,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 999,
+            paddingHorizontal: 16,
+            paddingVertical: 13,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Feather name="search" size={17} color={colors.mutedForeground} />
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
+            Search games, teams, or player props…
+          </Text>
+        </Pressable>
+
+        {/* Sport selector — icon pills, active = solid blue. Pinned with the logo
+            and search above the scrolling rails. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
+        >
+          {HOME_SPORTS.map((s) => {
+            const active = sport === s.id;
+            return (
+              <Pressable
+                key={s.id}
+                onPress={() => selectSport(s.id)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 7,
+                  backgroundColor: active ? colors.primary : colors.card,
+                  borderWidth: 1,
+                  borderColor: active ? colors.primary : colors.border,
+                  borderRadius: 999,
+                  paddingVertical: 6,
+                  paddingLeft: 6,
+                  paddingRight: 14,
+                }}
+              >
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: active ? "rgba(255,255,255,0.22)" : colors.surface,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name={s.icon}
+                    size={15}
+                    color={active ? "#fff" : colors.mutedForeground}
+                  />
+                </View>
+                <Text
+                  style={{
+                    color: active ? "#fff" : colors.foreground,
+                    fontFamily: FONT.semibold,
+                    fontSize: 13,
+                  }}
+                >
+                  {s.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </AppHeader>
+
+      <HomeSportFeed
+        key={sport}
+        sport={sport}
+        sportFetchGenRef={sportFetchGenRef}
+        colors={colors}
+        insets={insets}
+        slipClearance={slipClearance}
+        router={router}
+        width={width}
+        isWideLayout={isWideLayout}
+        hotCardWidth={hotCardWidth}
+        quickCardWidth={quickCardWidth}
+      />
     </View>
   );
 }
