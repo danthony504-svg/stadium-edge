@@ -43,7 +43,6 @@ import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { isOtaReloadBlocked } from "@/lib/otaBlock";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
-  cachedUpcomingGames,
   hydrateDiscoverCache,
   rememberLiveGames,
   rememberUpcomingGames,
@@ -380,10 +379,7 @@ export default function HomeScreen() {
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const { isUpdatePending } = Updates.useUpdates();
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [stickyUpcoming, setStickyUpcoming] = useState<{ sport: string; games: OddsGame[] }>(() => ({
-    sport,
-    games: cachedUpcomingGames(sport).filter((g) => g.sport === sport),
-  }));
+  const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
   sportRef.current = sport;
 
@@ -391,15 +387,12 @@ export default function HomeScreen() {
     (id: string) => {
       if (id === sportRef.current) return;
       sportRef.current = id;
+      sportFetchGenRef.current += 1;
       queryClient.cancelQueries({ queryKey: ["odds"] });
       queryClient.cancelQueries({ queryKey: ["games"] });
-      // Evict any cross-league placeholder rows before the new fetch lands.
-      queryClient.setQueryData<OddsGame[]>(["odds", id], undefined);
-      queryClient.setQueryData<EspnGame[]>(["games", id], undefined);
+      queryClient.removeQueries({ queryKey: ["odds"] });
+      queryClient.removeQueries({ queryKey: ["games"] });
       setSport(id);
-      // Never hydrate Live/Upcoming from cache on pill tap — wait for a fresh fetch
-      // for this league so a prior pill's rows cannot flash on screen.
-      setStickyUpcoming({ sport: id, games: [] });
     },
     [queryClient],
   );
@@ -423,17 +416,27 @@ export default function HomeScreen() {
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
-    queryFn: ({ signal }) => getOdds(sport, signal),
+    queryFn: async ({ signal, queryKey }) => {
+      const league = String(queryKey[1] ?? "");
+      const gen = sportFetchGenRef.current;
+      const rows = await getOdds(league, signal);
+      return { gen, league, rows };
+    },
     staleTime: 45_000,
     refetchOnMount: "always",
-    placeholderData: sameSportPlaceholder<OddsGame[]>(sport),
+    placeholderData: sameSportPlaceholder<{ gen: number; league: string; rows: OddsGame[] }>(sport),
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
-    queryFn: ({ signal }) => getGames(sport, signal),
+    queryFn: async ({ signal, queryKey }) => {
+      const league = String(queryKey[1] ?? "");
+      const gen = sportFetchGenRef.current;
+      const rows = await getGames(league, signal);
+      return { gen, league, rows };
+    },
     staleTime: 45_000,
     refetchOnMount: "always",
-    placeholderData: sameSportPlaceholder<EspnGame[]>(sport),
+    placeholderData: sameSportPlaceholder<{ gen: number; league: string; rows: EspnGame[] }>(sport),
   });
 
   // Tennis players have no club crest, so the Upcoming cards show each player's
@@ -447,13 +450,33 @@ export default function HomeScreen() {
   });
 
   const gamesForSport = useMemo(() => {
-    if (gamesQ.isPlaceholderData || gamesQ.isFetching || !gamesQ.isSuccess) return [];
-    return (gamesQ.data ?? []).filter((g) => g.sport === sport);
+    const payload = gamesQ.data;
+    if (
+      !payload ||
+      payload.league !== sport ||
+      payload.gen !== sportFetchGenRef.current ||
+      gamesQ.isPlaceholderData ||
+      gamesQ.isFetching ||
+      !gamesQ.isSuccess
+    ) {
+      return [];
+    }
+    return payload.rows.filter((g) => g.sport === sport);
   }, [gamesQ.data, gamesQ.isPlaceholderData, gamesQ.isFetching, gamesQ.isSuccess, sport]);
 
   const oddsForSport = useMemo(() => {
-    if (oddsQ.isPlaceholderData || oddsQ.isFetching || !oddsQ.isSuccess) return [];
-    return (oddsQ.data ?? []).filter((g) => g.sport === sport);
+    const payload = oddsQ.data;
+    if (
+      !payload ||
+      payload.league !== sport ||
+      payload.gen !== sportFetchGenRef.current ||
+      oddsQ.isPlaceholderData ||
+      oddsQ.isFetching ||
+      !oddsQ.isSuccess
+    ) {
+      return [];
+    }
+    return payload.rows.filter((g) => g.sport === sport);
   }, [oddsQ.data, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess, sport]);
 
   const metaMap = useMemo(() => buildMetaMap(gamesForSport), [gamesForSport]);
@@ -497,24 +520,19 @@ export default function HomeScreen() {
   }, [oddsForSport, liveKeySet]);
 
   useEffect(() => {
-    const leagueGames = games.filter((g) => g.sport === sport);
-    if (leagueGames.length > 0) {
-      setStickyUpcoming({ sport, games: leagueGames });
-      rememberUpcomingGames(sport, leagueGames);
+    if (games.length > 0) {
+      rememberUpcomingGames(sport, games);
     }
   }, [games, sport]);
-  const upcomingGames = useMemo(() => {
-    if (games.length > 0) return games;
-    if (oddsQ.isPlaceholderData || oddsQ.isFetching || !oddsQ.isSuccess) return [];
-    const sticky = stickyUpcoming.games.filter((g) => g.sport === sport);
-    if (stickyUpcoming.sport === sport && sticky.length > 0) return sticky;
-    return games;
-  }, [games, stickyUpcoming, sport, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess]);
-  // Final belt-and-braces: never paint a row unless it matches the active pill.
-  const displayUpcoming = useMemo(
-    () => upcomingGames.filter((g) => g.sport === sport),
-    [upcomingGames, sport],
-  );
+  const displayUpcoming = useMemo(() => games, [games]);
+
+  const sportFeedLoading =
+    oddsQ.isFetching ||
+    gamesQ.isFetching ||
+    !oddsQ.isSuccess ||
+    !gamesQ.isSuccess ||
+    oddsQ.data?.gen !== sportFetchGenRef.current ||
+    gamesQ.data?.gen !== sportFetchGenRef.current;
 
   // Featured players: only for sports the props feed serves. IMPORTANT: draw the
   // game list from the SAME source + ordering the Props tab uses (Odds API odds,
@@ -561,7 +579,7 @@ export default function HomeScreen() {
   const featuredGameQs = useQueries({
     queries: featGames.map((g) => ({
       queryKey: ["home-featured", sport, g.id],
-      enabled: featuredEnabled && gamesQ.isSuccess,
+      enabled: featuredEnabled && !sportFeedLoading && games.length > 0,
       staleTime: 60_000,
       refetchOnMount: "always",
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
@@ -1001,7 +1019,6 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
-              setStickyUpcoming({ sport, games: [] });
               oddsQ.refetch();
               gamesQ.refetch();
               // Manual refetch() fires even on disabled queries, so only kick
@@ -1735,8 +1752,7 @@ export default function HomeScreen() {
             </Pressable>
           ) : null}
         </View>
-        {(oddsQ.isPlaceholderData || (!oddsQ.data && oddsQ.isLoading)) &&
-        displayUpcoming.length === 0 ? (
+        {sportFeedLoading && displayUpcoming.length === 0 ? (
           <View style={{ paddingHorizontal: 16 }}>
             <Loading label="Loading live odds…" />
           </View>
