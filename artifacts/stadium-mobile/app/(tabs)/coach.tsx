@@ -97,6 +97,7 @@ import {
   isFullyQualifiedPick,
   assertMainTicketPicksQualified,
   MainTicketQualificationError,
+  GameLineFinalizeRejected,
   MIN_MAIN_PICK_CONFIDENCE,
   MIN_MAIN_PICK_GRADE,
 } from "@/lib/parlayQualified";
@@ -2661,6 +2662,12 @@ export default function CoachScreen() {
           gameLineSummary || undefined,
           mergedGameOdds,
         );
+        const gameLineLegCount = picks.filter((p) => isGameLinePick(p) && !p.isProp).length;
+        if (gameLineLegCount > 0 && !gameLineSummary) {
+          throw new FrozenGameLineConsistencyError(
+            "Ticket has game-line legs but no frozen optimizer summary — refusing incomplete display",
+          );
+        }
         setMessages((prev) => {
           const copy = [...prev];
           const { legNote: _dropNote, gameLineSummary: _dropSummary, ...prevAssistant } =
@@ -2773,7 +2780,9 @@ export default function CoachScreen() {
               ? "I couldn't show that ticket — the summary and pick cards disagreed on a game line. That's blocked so you never see conflicting sides. Try building again."
               : e instanceof MainTicketQualificationError
                 ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge). Try building again."
-                : chatStreamFailureMessage(e);
+                : e instanceof GameLineFinalizeRejected
+                  ? "I couldn't finalize a game line — every selected line needs Final AI Grade, Confidence, Sim %, and Edge. Sub-50% sim lines require edge ≥ 4.5%. Try building again."
+                  : chatStreamFailureMessage(e);
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
@@ -3204,6 +3213,17 @@ export default function CoachScreen() {
                 {ticketPicks.length > 0 ? (
                   (() => {
                     try {
+                      if (m.content && containsLegacyGameLineOptimizerCopy(m.content)) {
+                        throw new FrozenGameLineConsistencyError(
+                          "Legacy optimizer summary blocked — use frozen gameLineSummary only",
+                        );
+                      }
+                      const hasGameLineLegs = ticketPicks.some((p) => isGameLinePick(p) && !p.isProp);
+                      if (hasGameLineLegs && !m.gameLineSummary) {
+                        throw new FrozenGameLineConsistencyError(
+                          "Game-line ticket missing frozen optimizer summary",
+                        );
+                      }
                       assertMainTicketPicksQualified(ticketPicks);
                       if (m.gameLineSummary) {
                         assertFrozenGameLineSummaryClean(m.gameLineSummary);
@@ -3217,7 +3237,8 @@ export default function CoachScreen() {
                     } catch (e) {
                       if (
                         e instanceof FrozenGameLineConsistencyError ||
-                        e instanceof MainTicketQualificationError
+                        e instanceof MainTicketQualificationError ||
+                        e instanceof GameLineFinalizeRejected
                       ) {
                         return (
                           <View style={{ marginTop: 10, gap: 8 }}>
@@ -3231,7 +3252,11 @@ export default function CoachScreen() {
                             >
                               {e instanceof MainTicketQualificationError
                                 ? "I couldn't show that ticket — one or more legs didn't clear the quality bar (AI Grade C+ or better, Confidence, Sim %, and positive Edge)."
-                                : "I couldn't show that ticket — the optimizer summary and a game-line card disagreed on team, market, or line."}
+                                : e instanceof GameLineFinalizeRejected
+                                  ? "I couldn't finalize a game line — every selected line needs Final AI Grade, Confidence, Sim %, and Edge. Sub-50% sim lines require edge ≥ 4.5%."
+                                  : m.content && containsLegacyGameLineOptimizerCopy(m.content)
+                                    ? "I couldn't show that ticket — stale optimizer copy with missing edge values was blocked. Try building again."
+                                    : "I couldn't show that ticket — the optimizer summary and a game-line card disagreed on team, market, or line."}
                             </Text>
                           </View>
                         );

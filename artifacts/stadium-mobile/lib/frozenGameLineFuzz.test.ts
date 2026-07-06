@@ -36,8 +36,8 @@ type MockPick = Parameters<typeof buildFrozenGameLineSummaryNote>[0][number];
 
 function mockFrozenGameLine(gameIdx: number, pickLabel: string, rng: () => number): MockPick {
   const game = GAMES[gameIdx % GAMES.length]!;
-  const simHit = 0.5 + rng() * 0.15;
-  const edge = 1 + rng() * 8;
+  const simHit = 0.52 + rng() * 0.12;
+  const edge = 3 + rng() * 6;
   const ev = edge + rng() * 3;
   const confidence = 50 + Math.floor(rng() * 20);
   return {

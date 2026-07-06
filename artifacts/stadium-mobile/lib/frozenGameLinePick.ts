@@ -20,6 +20,7 @@ import {
   assertFrozenGameLineMetricsComplete,
   canonicalizeFrozenTicket,
 } from "./frozenGameLineConsistency.ts";
+import { assertGameLineFinalizeMetrics } from "./gameLineFrozenQual.ts";
 
 export type { FrozenGameLineDisplay } from "./frozenGameLineConsistency.ts";
 export {
@@ -75,6 +76,15 @@ export function snapshotFrozenGameLineDisplay(
       display,
     },
   };
+  assertGameLineFinalizeMetrics(probe, {
+    grade: display.grade,
+    confidencePct: display.confidencePct,
+    simHit: display.simHit,
+    edgePct: display.edgePct,
+    evPct: display.evPct,
+    market: display.market,
+    isBestEvLine: pick.gameLineFinal?.isBestEv,
+  });
   assertFrozenGameLineMetricsComplete(probe, merged);
   return display;
 }

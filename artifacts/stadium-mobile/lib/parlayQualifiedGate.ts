@@ -8,7 +8,12 @@ import { gradeRank } from "./finalAiScore.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import { GAME_SIM_MIN_HIT, isGameLinePick } from "./gameSimScoring.ts";
 import type { ParlayLegReject } from "./parlayReachCore.ts";
-import { gameLineFrozenMetricsComplete } from "./gameLineFrozenQual.ts";
+import {
+  assertGameLineFinalizeMetrics,
+  gameLineFrozenMetricsComplete,
+  gameLineSimEdgeQualifies,
+  GameLineFinalizeRejected,
+} from "./gameLineFrozenQual.ts";
 
 export const MIN_MAIN_PICK_GRADE = "C+";
 /** Prop main-ticket confidence floor. */
@@ -226,27 +231,22 @@ export function gameLineMeetsExceptionalCoinFlip(
 }
 
 /**
- * Game-line sim bar — default ≥50% (rounded). Exactly 50% only when strong +EV
- * or best EV on the board. Below 50% never qualifies (caller searches alts first).
+ * Game-line sim bar — sim > 50% passes; exactly 50% needs strong +EV / best EV /
+ * edge ≥ 3%; below 50% needs edge ≥ 4.5%.
  */
 export function gameLineMeetsSimBar(
   simHit: number | null | undefined,
   edge: number | null | undefined,
   ctx?: GameLineSimBarCtx & { pick?: ParsedPick; opts?: PickEdgeResolveOpts },
 ): boolean {
-  void edge;
   void ctx?.pick;
   void ctx?.opts;
   if (simHit == null || !Number.isFinite(simHit)) return false;
-  const pct = simHitPctRounded(simHit)!;
-  if (pct > 50) return true;
-  if (pct === 50) {
-    const ev = ctx?.evPct;
-    if (ctx?.isBestEvLine) return true;
-    if (ev != null && Number.isFinite(ev) && ev >= GAME_LINE_STRONG_EV_PCT) return true;
-    return false;
-  }
-  return false;
+  if (edge == null || !Number.isFinite(edge) || edge <= 0) return false;
+  return gameLineSimEdgeQualifies(simHit, edge, {
+    evPct: ctx?.evPct,
+    isBestEvLine: ctx?.isBestEvLine,
+  });
 }
 
 /** Rubric attached for card rendering — scores field or Final AI rubric fallback. */
@@ -391,6 +391,46 @@ function isGameLinePickForGate(pick: ParsedPick): boolean {
   return !pick.isProp && isGameLinePick(pick);
 }
 
+/**
+ * Optimizer gate before freeze — same qualification bar as the main ticket but
+ * reads live Final AI scores instead of requiring a frozen display snapshot.
+ */
+export function isGameLineQualifiedForFinalize(
+  pick: ParsedPick,
+  opts?: PickEdgeResolveOpts,
+): boolean {
+  if (!pickHasCoachCardMetrics(pick, opts)) return false;
+  const edge = resolvePickEdgePct(pick, opts);
+  if (edge == null || edge <= 0) return false;
+  const score = pick.finalAiScore;
+  const odds = pick.odds ?? null;
+  const ev = resolvePickExpectedValue(pick, opts);
+  if (
+    !isGameLineMainTicketQualified(score, odds, edge, ev, {
+      bookSpread: backingBookSpread(pick, opts?.realOdds ?? []),
+      finalAiScore: score,
+      evPct: ev,
+      isBestEvLine: pick.gameLineFinal?.isBestEv,
+    })
+  ) {
+    return false;
+  }
+  try {
+    assertGameLineFinalizeMetrics(pick, {
+      grade: score?.grade,
+      confidencePct: score?.confidencePct,
+      simHit: score?.simHit,
+      edgePct: edge,
+      evPct: ev,
+      market: pick.market,
+      isBestEvLine: pick.gameLineFinal?.isBestEv,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isFullyQualifiedPick(
   pick: ParsedPick,
   opts?: PickEdgeResolveOpts & { longshotAsk?: boolean },
@@ -520,6 +560,9 @@ export function reasonPickNotQualified(
       if (pct === 50) {
         return `10k sim 50% — needs strong +EV (≥${GAME_LINE_STRONG_EV_PCT}%) or best EV among all posted lines`;
       }
+      if (pct < 50) {
+        return `10k sim ${pct}% — needs edge ≥ ${GAME_LINE_EXCEPTIONAL_EV_PCT}% to qualify`;
+      }
       return `10k sim ${pct}% — game line needs sim >50%, or exactly 50% with strong +EV / best EV after alt-line search`;
     }
   } else if (opts?.longshotAsk) {
@@ -605,3 +648,5 @@ export function partitionQualifiedPicks(
   }
   return { qualified, unqualified };
 }
+
+export { GameLineFinalizeRejected } from "./gameLineFrozenQual.ts";

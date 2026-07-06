@@ -24,7 +24,11 @@ import {
   type CloseGameSpreadOpts,
 } from "./closeGameSpreadSelect.ts";
 import { buildFrozenGameLineSummaryNote } from "./frozenGameLineConsistency.ts";
-import { isFullyQualifiedPick, resolvePickEdgePct, resolvePickExpectedValue } from "./parlayQualifiedGate.ts";
+import {
+  isGameLineQualifiedForFinalize,
+  resolvePickEdgePct,
+  resolvePickExpectedValue,
+} from "./parlayQualifiedGate.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -523,7 +527,8 @@ export function finalizeGameLinePickForGame(
       isBestEv: isBestEvAmongRows(row, allRows),
     },
   };
-  if (!isFullyQualifiedPick(finalPick, { realOdds: mergeOddsEntries(opts.realOdds, pool) })) {
+  const mergedOdds = mergeOddsEntries(opts.realOdds, pool);
+  if (!isGameLineQualifiedForFinalize(finalPick, { realOdds: mergedOdds })) {
     return null;
   }
   return finalPick;

@@ -5,6 +5,10 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { RealOddsEntry } from "./api.ts";
 import { resolvePickEdgePct } from "./parlayQualifiedGate.ts";
 import { gradeRank } from "./finalAiScore.ts";
+import {
+  assertGameLineFinalizeMetrics,
+  gameLineSimEdgeQualifies,
+} from "./gameLineFrozenQual.ts";
 
 const MIN_SUMMARY_GRADE = "C+";
 const MIN_GAME_LINE_SUMMARY_CONFIDENCE = 50;
@@ -196,7 +200,11 @@ export function resolveFrozenGameLineMetrics(
     !isRealPositiveMetric(edgePct) ||
     confidencePct == null ||
     !Number.isFinite(confidencePct) ||
-    confidencePct < MIN_GAME_LINE_SUMMARY_CONFIDENCE
+    confidencePct < MIN_GAME_LINE_SUMMARY_CONFIDENCE ||
+    !gameLineSimEdgeQualifies(simHit ?? 0, edgePct, {
+      evPct: d?.evPct ?? pick.finalAiScore?.edgePct,
+      isBestEvLine: pick.gameLineFinal?.isBestEv,
+    })
   ) {
     return null;
   }
@@ -220,10 +228,24 @@ export function assertFrozenGameLineMetricsComplete(
     if (edge == null || !Number.isFinite(edge) || edge <= 0) missing.push("Edge %");
     const conf = d?.confidencePct ?? pick.finalAiScore?.confidencePct;
     if (conf == null || !Number.isFinite(conf)) missing.push("Confidence");
+    if (missing.length) {
+      throw new FrozenGameLineConsistencyError(
+        `Game line ${header.pick} (${header.game}) missing ${missing.join(", ")} — refusing incomplete metadata`,
+      );
+    }
     throw new FrozenGameLineConsistencyError(
-      `Game line ${header.pick} (${header.game}) missing ${missing.join(", ")} — refusing incomplete metadata`,
+      `Game line ${header.pick} (${header.game}) fails sim/edge qualification — refusing incomplete metadata`,
     );
   }
+  assertGameLineFinalizeMetrics(pick, {
+    grade: metrics.grade,
+    confidencePct: metrics.confidencePct,
+    simHit: (d?.simHit ?? pick.finalAiScore?.simHit)!,
+    edgePct: metrics.edgePct,
+    evPct: d?.evPct ?? pick.finalAiScore?.edgePct,
+    market: header.market,
+    isBestEvLine: pick.gameLineFinal?.isBestEv,
+  });
   return metrics;
 }
 

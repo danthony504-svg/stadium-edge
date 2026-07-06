@@ -31,6 +31,7 @@ export {
   isFullyQualifiedGameLineFinalAi,
   isFullyQualifiedFinalAi,
   isFullyQualifiedPick,
+  isGameLineQualifiedForFinalize,
   isLongshotSectionPick,
   pickHasCoachCardMetrics,
   pickRubricForDisplay,
@@ -42,6 +43,7 @@ export {
   filterMainTicketPicks,
   assertMainTicketPicksQualified,
   MainTicketQualificationError,
+  GameLineFinalizeRejected,
 } from "./parlayQualifiedGate.ts";
 
 export { computePickFinalScore, GAME_LINE_FINAL_SCORE_WEIGHTS } from "./gameLineFinalScore.ts";

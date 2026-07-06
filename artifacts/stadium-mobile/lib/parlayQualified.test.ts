@@ -248,7 +248,7 @@ test("game line accepts 50% sim only with strong +EV or best EV", () => {
   assert.equal(gameLineMeetsSimBar(0.5, 1.2, { evPct: weakEv, isBestEvLine: true }), true);
 });
 
-test("game line rejects 49% sim even with exceptional edge", () => {
+test("game line accepts 49% sim only with exceptional edge", () => {
   const score = {
     composite: 7,
     grade: "C+",
@@ -269,8 +269,8 @@ test("game line rejects 49% sim even with exceptional edge", () => {
   };
   const ev = expectedValuePct(0.49, 250, null, GAME_LINE_EXCEPTIONAL_EV_PCT);
   assert.ok(ev != null && ev > 0);
-  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT, ev), false);
-  assert.equal(gameLineMeetsSimBar(0.49, GAME_LINE_EXCEPTIONAL_EV_PCT, { evPct: ev }), false);
+  assert.equal(isGameLineMainTicketQualified(score, 250, GAME_LINE_EXCEPTIONAL_EV_PCT, ev), true);
+  assert.equal(gameLineMeetsSimBar(0.49, GAME_LINE_EXCEPTIONAL_EV_PCT, { evPct: ev }), true);
 });
 
 test("longshot main ticket accepts 50% sim prop with positive edge", () => {
