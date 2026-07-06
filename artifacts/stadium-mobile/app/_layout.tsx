@@ -25,6 +25,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
@@ -277,7 +278,9 @@ export default function RootLayout() {
                 <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
                   <KeyboardProvider>
                     <StatusBar style="light" />
-                    <RootLayoutNav />
+                    <OtaRequiredGate>
+                      <RootLayoutNav />
+                    </OtaRequiredGate>
                     <OtaUpdateBanner />
                   </KeyboardProvider>
                 </GestureHandlerRootView>

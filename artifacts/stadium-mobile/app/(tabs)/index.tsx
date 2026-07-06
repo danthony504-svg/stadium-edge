@@ -18,6 +18,7 @@ import Svg, { Circle, Line, Polyline } from "react-native-svg";
 import { AppHeader } from "@/components/AppHeader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
+import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -47,6 +48,7 @@ import {
   rememberLiveGames,
   rememberUpcomingGames,
   DISCOVER_CACHE_SPORTS,
+  clearDiscoverCache,
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
 
@@ -2052,6 +2054,9 @@ export default function HomeScreen() {
       queryClient.removeQueries({ queryKey: ["home-featured"] });
       queryClient.removeQueries({ queryKey: ["home-upsets"] });
       queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
+      if (id === "tennis") {
+        void clearDiscoverCache();
+      }
       setSport(id);
     },
     [queryClient],
@@ -2156,19 +2161,41 @@ export default function HomeScreen() {
         </ScrollView>
       </AppHeader>
 
-      <HomeSportFeed
-        key={sport}
-        sport={sport}
-        sportFetchGenRef={sportFetchGenRef}
-        colors={colors}
-        insets={insets}
-        slipClearance={slipClearance}
-        router={router}
-        width={width}
-        isWideLayout={isWideLayout}
-        hotCardWidth={hotCardWidth}
-        quickCardWidth={quickCardWidth}
-      />
+      {sport === "tennis" ? (
+        <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
+          <TennisHomeFeed
+            router={router}
+            width={width}
+            slipClearance={slipClearance}
+            bottomInset={insets.bottom}
+            onBuildParlay={() => {
+              markCoachHomeLaunch();
+              router.push({
+                pathname: "/coach",
+                params: {
+                  autoMsg: "Build me the best parlay",
+                  send: "1",
+                  ts: String(Date.now()),
+                },
+              });
+            }}
+          />
+        </ErrorBoundary>
+      ) : (
+        <HomeSportFeed
+          key={sport}
+          sport={sport}
+          sportFetchGenRef={sportFetchGenRef}
+          colors={colors}
+          insets={insets}
+          slipClearance={slipClearance}
+          router={router}
+          width={width}
+          isWideLayout={isWideLayout}
+          hotCardWidth={hotCardWidth}
+          quickCardWidth={quickCardWidth}
+        />
+      )}
     </View>
   );
 }
