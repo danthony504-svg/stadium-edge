@@ -40,6 +40,10 @@ const DIRECT_OMIT_UNLESS: Array<{ prefix: string; re: RegExp }> = [
     prefix: "NBA SUMMER LEAGUE FUTURES",
     re: /\b(summer\s*league|vegas\s*summer|sl\s*championship|championship\s*winner|futures?|outright)/i,
   },
+  {
+    prefix: "UNIVERSAL SPORT ANALYSIS FRAMEWORK",
+    re: /\b(?:who (?:wins?|should I (?:pick|bet|take))|best (?:play|pick|bet|side)|break(?:ing)? down|full analysis|game analysis|match analysis|fight analysis|what(?:'s| is) (?:your|the) (?:read|pick|lean)|give me (?:your )?(?:read|analysis|breakdown))\b/i,
+  },
 ];
 
 const SECTION_RE =

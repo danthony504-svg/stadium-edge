@@ -40,6 +40,28 @@ test("direct OpenAI keeps Summer League futures section when asked", () => {
   assert.match(sl, /NBA SUMMER LEAGUE FUTURES/);
 });
 
+test("direct OpenAI keeps Universal Sport Analysis section when asked", () => {
+  const big =
+    FAKE +
+    "\nUNIVERSAL SPORT ANALYSIS FRAMEWORK — keep for full game analysis asks\n" +
+    "z".repeat(60_000);
+  const analysis = coachSystemPromptForProvider(
+    "openai",
+    big,
+    "who wins Lakers vs Celtics — give me your full analysis",
+  );
+  assert.match(analysis, /UNIVERSAL SPORT ANALYSIS FRAMEWORK/);
+});
+
+test("direct OpenAI drops Universal Sport Analysis section when not asked", () => {
+  const big =
+    FAKE +
+    "\nUNIVERSAL SPORT ANALYSIS FRAMEWORK — drop when not analysis ask\n" +
+    "z".repeat(60_000);
+  const plain = coachSystemPromptForProvider("openai", big, "build me a 5 leg parlay");
+  assert.doesNotMatch(plain, /UNIVERSAL SPORT ANALYSIS FRAMEWORK/);
+});
+
 test("trimLockedContextForDirectOpenAI enforces byte budget", () => {
   const hist: Record<string, unknown> = {};
   for (let i = 0; i < 40; i++) {
