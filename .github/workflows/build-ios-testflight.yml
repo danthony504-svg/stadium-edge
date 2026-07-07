@@ -1,0 +1,52 @@
+name: Build iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Build message (EAS build profile)
+        required: false
+        default: "Embed latest JS — corrupt OTA recovery"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Build and submit to TestFlight
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EAS_NO_VCS: "1"
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "Add EXPO_TOKEN to repo secrets"
+            exit 1
+          fi
+          MSG="${{ github.event.inputs.message }}"
+          pnpm exec eas build \
+            --platform ios \
+            --profile production \
+            --auto-submit \
+            --non-interactive \
+            --no-wait \
+            --message "$MSG"
