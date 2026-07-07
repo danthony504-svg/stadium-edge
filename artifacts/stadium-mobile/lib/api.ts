@@ -2920,16 +2920,22 @@ export async function buildFocalSportParlayContext(
   sport: string,
   requestedLegs: number,
   signal?: AbortSignal,
+  opts?: { tonightOnly?: boolean; focalText?: string | null },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(15, requestedLegs || 8));
+  const soccer = sport === "soccer";
   return buildLightParlayContext(signal, {
     sports: [sport],
     maxSports: 1,
     maxPropGames: Math.min(14, n + 4),
     maxOddsGames: Math.min(22, n + 8),
     propsBalanceCap: Math.min(88, n * 7),
-    oddsSliceCap: Math.min(64, n * 5),
+    // Soccer 3-way ML + spread/total rows consume more realOdds slots; keep the
+    // full named-league slate (e.g. World Cup match-winners) in context.
+    oddsSliceCap: soccer ? Math.min(120, Math.max(64, n * 12)) : Math.min(64, n * 5),
     parallelPropFetch: n >= 8,
+    tonightOnly: opts?.tonightOnly,
+    focalText: opts?.focalText ?? null,
   });
 }
 

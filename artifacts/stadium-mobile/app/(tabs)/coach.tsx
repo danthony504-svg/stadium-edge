@@ -110,6 +110,7 @@ import {
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
   wantsPropPickRecommendation,
+  wantsTonightSlate,
 } from "@/lib/slate";
 import {
   buildChatContext,
@@ -1413,7 +1414,10 @@ export default function CoachScreen() {
             : usePropsOnlyParlayPath
               ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
             : useFocalSportParlayPath && focalSportId
-              ? await buildFocalSportParlayContext(focalSportId, buildLegs, controller.signal)
+              ? await buildFocalSportParlayContext(focalSportId, buildLegs, controller.signal, {
+                  tonightOnly: slateDay === "tonight" || wantsTonightSlate(trimmed),
+                  focalText: trimmed,
+                })
             : useCompactParlayPath
               ? await buildCompactParlayContext(buildLegs, controller.signal)
               : useMlbSlatePath
@@ -2161,6 +2165,7 @@ export default function CoachScreen() {
             evalLinesByGame,
           );
           if (
+            !salvageBuilt &&
             deepMultiLegParlay &&
             !longshotAsk &&
             picks.length < Math.min(legTarget, MAX_LEGS) &&
@@ -2179,46 +2184,95 @@ export default function CoachScreen() {
               },
             );
           }
-          const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
-            evalLinesByGame,
-            realOdds: context.realOdds,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-            excludeMoneyline: composeFromBoard,
-          });
-          picks = optimized.picks;
-          {
-            const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
-            picks = dedupedAfterOpt.picks;
-          }
-          const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
-            matchupHistory: context.matchupHistory,
-            oddsForEdge: mergedGameOdds,
-            rejectsOut: reachFull ? parlayRejections : undefined,
-          });
-          picks = filtered.picks;
-          const edgeFiltered = filterNegativeEdgeGameLines(
-            picks,
-            mergedGameOdds,
-            reachFull ? parlayRejections : undefined,
-          );
-          picks = edgeFiltered.picks;
-          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
-          gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
-          if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
-            gameSimSupplementNote = filtered.warnings.join("\n");
-          }
-          if (
-            deepMultiLegParlay &&
-            propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
-            picks.length < Math.min(legTarget, MAX_LEGS)
-          ) {
-            let pool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-props2`);
-            if (slateDay) pool = filterOddsForSlateDay(pool, slateDay);
-            picks = backfillProps(picks, mergedPropPool, pool, gameMeta, {
-              target: Math.min(legTarget, MAX_LEGS),
-              ...propBackfillOpts,
+          // Salvage tickets are honest posted lines from the live board — skip the
+          // optimizer/sim gates that run before attachPickScores and would drop every
+          // leg (no grade/edge yet) or swap them off the named slate (common on WC).
+          if (!salvageBuilt) {
+            const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
+              evalLinesByGame,
+              realOdds: context.realOdds,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              excludeMoneyline: composeFromBoard,
             });
+            picks = optimized.picks;
+            {
+              const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
+              picks = dedupedAfterOpt.picks;
+            }
+            const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
+              matchupHistory: context.matchupHistory,
+              oddsForEdge: mergedGameOdds,
+              rejectsOut: reachFull ? parlayRejections : undefined,
+            });
+            picks = filtered.picks;
+            const edgeFiltered = filterNegativeEdgeGameLines(
+              picks,
+              mergedGameOdds,
+              reachFull ? parlayRejections : undefined,
+            );
+            picks = edgeFiltered.picks;
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
+            if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
+              gameSimSupplementNote = filtered.warnings.join("\n");
+            }
+            if (
+              deepMultiLegParlay &&
+              propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
+              picks.length < Math.min(legTarget, MAX_LEGS)
+            ) {
+              let pool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-props2`);
+              if (slateDay) pool = filterOddsForSlateDay(pool, slateDay);
+              picks = backfillProps(picks, mergedPropPool, pool, gameMeta, {
+                target: Math.min(legTarget, MAX_LEGS),
+                ...propBackfillOpts,
+              });
+            }
+          }
+        }
+        // POST-SIM SALVAGE — model legs grounded then got zeroed by the optimizer /
+        // sim gates above, but the live board still has real prices for this slate.
+        if (
+          !isAnalyze &&
+          picks.length === 0 &&
+          legTarget > 0 &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          !altSign
+        ) {
+          const tgt = Math.min(legTarget, MAX_LEGS);
+          const dayOdds = slateDay
+            ? filterOddsForSlateDay(context.realOdds, slateDay)
+            : context.realOdds;
+          const postSalvageSports = focalSportsFromText(trimmed);
+          const postSalvagePool =
+            postSalvageSports.size > 0
+              ? dayOdds.filter((e) => postSalvageSports.has(e.sport))
+              : dayOdds;
+          if (postSalvagePool.length > 0) {
+            if (mentionsPropIntent(trimmed)) {
+              picks = backfillProps([], mergedPropPool, postSalvagePool, gameMeta, {
+                target: tgt,
+                ...propBackfillOpts,
+              });
+              if (!propsOnlyTicket && picks.length < tgt) {
+                picks = backfillPicks(picks, postSalvagePool, gameMeta, {
+                  target: tgt,
+                  order: GENERIC_BACKFILL_ORDER,
+                });
+              }
+            } else {
+              picks = backfillPicks([], postSalvagePool, gameMeta, {
+                target: tgt,
+                order: GENERIC_BACKFILL_ORDER,
+              });
+              picks = backfillProps(picks, mergedPropPool, postSalvagePool, gameMeta, {
+                target: tgt,
+                ...propBackfillOpts,
+              });
+            }
+            if (picks.length > 0) salvageBuilt = true;
           }
         }
         if (forceBoardBuild) {
@@ -2544,26 +2598,22 @@ export default function CoachScreen() {
           finalContent = boardBuilt
             ? `Here's your ${reachTarget}-leg ticket from today's live board — player props and alt rungs, scored with the 10k sim and Final AI.`
             : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
-        } else if (picks.length === 0 && emittedPickLines > 0) {
-          const lead = assistantBubbleText(full, false);
-          const note =
-            thresholdNote ||
-            confidenceNote ||
-            signNote ||
-            todayNote ||
-            "\n\n_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._";
-          finalContent = `${lead}${note}`.trim();
-        } else if (picks.length === 0 && requestedLegs > 0) {
-          // Model wrote parlay marketing prose but emitted no grounded legs (no
-          // PICK: scaffold, or every line failed resolve + salvage/reach-N empty).
-          // Hide that prose so we never show a "9-leg ticket" narrative with zero cards.
+        } else if (
+          picks.length === 0 &&
+          (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
+        ) {
+          // Model wrote parlay marketing prose but zero cards survived resolve /
+          // salvage / sim gates. Never pair "Here's your N-leg ticket…" with an
+          // empty slip — show only the honest note.
           const note =
             todayNote ||
             thresholdNote ||
             confidenceNote ||
             signNote ||
             legNote ||
-            "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._";
+            (emittedPickLines > 0
+              ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
+              : "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._");
           finalContent = note.trim();
         }
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a

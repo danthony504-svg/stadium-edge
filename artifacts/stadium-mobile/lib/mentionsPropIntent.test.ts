@@ -109,6 +109,12 @@ test("slateDayFromThread: tomorrow beats tonight default", () => {
   assert.equal(slateOddsLabel("tomorrow"), "tomorrow's");
 });
 
+test("World Cup parlay for today's matches uses tonight slate", () => {
+  const ask = "Build me a 2 leg World Cup parlay for today's matches";
+  assert.equal(slateDayFromThread(ask, []), "tonight");
+  assert.ok(wantsTonightSlate(ask));
+});
+
 test("filterTomorrowSlatePicks keeps only tomorrow kickoffs", () => {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
