@@ -34,6 +34,17 @@ export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
   // Table tennis has no Odds API coverage — empty keys force the Bovada
   // fallback (lib/games.ts BOVADA_PATHS), which serves the match moneyline.
   tabletennis: [],
+  // Cricket fans out to active tournament keys (see resolveOddsKeys).
+  cricket: [
+    "cricket_ipl",
+    "cricket_international_t20",
+    "cricket_odi",
+    "cricket_test_match",
+    "cricket_big_bash",
+    "cricket_psl",
+    "cricket_t20_world_cup",
+    "cricket_the_hundred",
+  ],
 };
 
 // Resolve the Odds API sport key(s) to fetch for an app sport.
@@ -51,9 +62,10 @@ export const ODDS_SPORT_KEYS: Record<string, string | string[]> = {
 export async function resolveOddsKeys(sportId: string): Promise<string[]> {
   const raw = ODDS_SPORT_KEYS[sportId];
   const staticKeys = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
-  if (sportId !== "tennis") return staticKeys;
+  if (sportId !== "tennis" && sportId !== "cricket") return staticKeys;
   const apiKey = process.env["ODDS_API_KEY"];
   if (!apiKey) return staticKeys;
+  const prefix = sportId === "tennis" ? "tennis_" : "cricket_";
   try {
     const list = await cachedJson<Array<{ key?: string; active?: boolean }>>(
       "odds:sportslist:v1",
@@ -69,7 +81,7 @@ export async function resolveOddsKeys(sportId: string): Promise<string[]> {
         (s) =>
           s.active === true &&
           typeof s.key === "string" &&
-          (s.key.startsWith("tennis_atp_") || s.key.startsWith("tennis_wta_")),
+          s.key.startsWith(prefix),
       )
       .map((s) => s.key as string);
     return active.length ? active : staticKeys;

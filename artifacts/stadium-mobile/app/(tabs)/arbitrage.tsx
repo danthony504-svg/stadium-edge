@@ -585,7 +585,7 @@ export default function ArbitrageScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {SPORTS.filter((s) => ["mlb", "wnba", "nba", "nhl", "soccer", "tennis", "nfl"].includes(s.id)).map((s) => {
+          {SPORTS.filter((s) => ["mlb", "wnba", "nba", "nhl", "soccer", "tennis", "tabletennis", "cricket", "nfl"].includes(s.id)).map((s) => {
             const active = sportFilter === s.id;
             return (
               <Pressable

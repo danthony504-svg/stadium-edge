@@ -26,7 +26,7 @@ import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { computeAnalytics } from "@/lib/modelReport";
-import { formatAmerican } from "@/lib/format";
+import { sportLabel } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -617,6 +617,37 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   );
 }
 
+// Table tennis / cricket — honest empty analytics (moneyline-first; no StatMuse/ESPN layer).
+function OddsOnlySportNote({ sport }: { sport: string }) {
+  const colors = useColors();
+  const label = sportLabel(sport);
+  const detail =
+    sport === "tabletennis"
+      ? "Table tennis is moneyline-only here — no player stats, form, or matchup analytics feed."
+      : sport === "cricket"
+        ? "Cricket carries real match odds (moneyline / draw / totals when posted) but no player props or deep matchup analytics in this app yet."
+        : `${label} has limited analytics in this app — use posted odds only.`;
+  return (
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+        {label} coverage
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
+        {detail}
+      </Text>
+    </View>
+  );
+}
+
 // Real tennis matchup — both players' ESPN ATP/WTA ranking + country + season
 // recent form (set scores) + any recent head-to-head. Every value comes from
 // ESPN; missing values are honest-nulled (—), never fabricated. Renders nothing
@@ -1071,13 +1102,16 @@ export default function GameDetailScreen() {
 
           {/* Real ESPN injury report for both sides + how it tilts the game.
               Team-sport only — individual sports (tennis/UFC) have no team feed. */}
-          {!["tennis", "ufc", "mma"].includes(game.sport) ? (
+          {!["tennis", "tabletennis", "cricket", "ufc", "mma"].includes(game.sport) ? (
             <InjuryReport sport={game.sport} teams={[game.awayTeam, game.homeTeam]} />
           ) : null}
 
           {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
 
           {game.sport === "tennis" ? <TennisMatchupCard game={game} /> : null}
+          {game.sport === "tabletennis" || game.sport === "cricket" ? (
+            <OddsOnlySportNote sport={game.sport} />
+          ) : null}
 
 
           {(() => {

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { loadTennisGames } from "../lib/tennis.js";
+import { loadOddsSlateGames, ODDS_SLATE_SPORT_IDS } from "../lib/oddsSlateGames.js";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,19 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       res.json(GetGamesResponse.parse(rows));
     } catch (err) {
       req.log.error({ err }, "Failed to fetch tennis games");
+      res.json([]);
+    }
+    return;
+  }
+
+  // Table tennis / cricket have no ESPN scoreboard — mirror the odds feed.
+  if (ODDS_SLATE_SPORT_IDS.has(sportId)) {
+    try {
+      let rows = await loadOddsSlateGames(sportId);
+      if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
+      res.json(GetGamesResponse.parse(rows));
+    } catch (err) {
+      req.log.error({ err }, `Failed to fetch ${sportId} odds-slate games`);
       res.json([]);
     }
     return;
@@ -481,6 +495,7 @@ const BOVADA_PATHS: Record<string, string> = {
   ncaab: "basketball/college-basketball",
   soccer: "soccer",
   tabletennis: "table-tennis",
+  cricket: "cricket",
 };
 // Cached server-side; cap is an abuse guard only. Match odds-espn so a
 // full-slate fallback fan-out across both fetch effects can't false-429 and

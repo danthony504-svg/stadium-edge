@@ -81,7 +81,7 @@ import {
   type SimulatorPropGrade,
 } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
-import { SPORTS } from "@/lib/sports";
+import { SPORTS, isOddsBrowseSport, sportLabel } from "@/lib/sports";
 import {
   cachedSimGames,
   pruneSimGamesCache,
@@ -101,7 +101,7 @@ import {
 
 const gameEligibleForSim = isSimulatorPregame;
 
-const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis"] as const;
+const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "tabletennis", "cricket"] as const;
 const SIM_COUNT = 10_000;
 const MAX_PROPS = 6;
 
@@ -304,10 +304,11 @@ export default function SimulatorScreen() {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
-  const isTennis = sport === "tennis";
+  const isGameLinesOnly = isOddsBrowseSport(sport);
+  const canRunGameSim = sport === "tennis" || !isOddsBrowseSport(sport);
   useEffect(() => {
-    if (isTennis) setMode("game");
-  }, [isTennis]);
+    if (isGameLinesOnly) setMode("game");
+  }, [isGameLinesOnly]);
 
   // Re-filter the slate when kickoff passes without waiting for the next refetch.
   const [clockTick, setClockTick] = useState(0);
@@ -785,6 +786,9 @@ export default function SimulatorScreen() {
       try {
         const wx = weatherImpact;
         if (runGame) {
+          if (!canRunGameSim) {
+            setGameResult(null);
+          } else {
           const label = `${game.awayTeam} @ ${game.homeTeam}`;
           const evalMap = new Map([[label, gameOddsLines]]);
           const coverQueries = mergeCoverQueries(
@@ -812,6 +816,7 @@ export default function SimulatorScreen() {
             }
           } else if (opts?.auto) {
             lastAutoRunKeyRef.current = null;
+          }
           }
         }
         if (runProps) {
@@ -923,12 +928,13 @@ export default function SimulatorScreen() {
       selected,
       gameOddsLines,
       weatherImpact,
+      canRunGameSim,
     ],
   );
 
   // Auto-run game outcome sim when a game opens; reuse cache when inputs are unchanged.
   useEffect(() => {
-    if (!simInputsReady || !game?.id || !simInputFingerprint) return;
+    if (!canRunGameSim || !simInputsReady || !game?.id || !simInputFingerprint) return;
 
     const fpKey = fingerprintKey(simInputFingerprint);
     const cached = getCachedGameSim(sport, game.id, simInputFingerprint);
@@ -946,7 +952,7 @@ export default function SimulatorScreen() {
     if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
-  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
+  }, [canRunGameSim, simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
 
   const canRun =
     gameEligible &&
@@ -1059,7 +1065,7 @@ export default function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (id === "tennis") setMode("game"); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (isOddsBrowseSport(id)) setMode("game"); }} />
             );
           })}
         </ScrollView>
@@ -1070,10 +1076,10 @@ export default function SimulatorScreen() {
           <EmptyState
             title="No upcoming games"
             subtitle={
-              isTennis
+              isGameLinesOnly
                 ? gamesQ.isError
-                  ? "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
-                  : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
+                  ? `Couldn't reach the ${sportLabel(sport)} slate right now. Pull down to refresh — or check back when pregame matches are in the next 48 hours.`
+                  : `No pregame ${sportLabel(sport)} matchups in the next 48 hours right now. Live and completed matches are hidden.`
                 : gamesQ.isError
                   ? `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
                   : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
@@ -1153,7 +1159,7 @@ export default function SimulatorScreen() {
             </Card>
 
             {/* Mode tabs — tennis is game-lines only (no player props). */}
-            {!isTennis ? (
+            {!isGameLinesOnly ? (
             <View
               style={{
                 flexDirection: "row",
@@ -1195,7 +1201,7 @@ export default function SimulatorScreen() {
             ) : null}
 
             {/* Player prop builder */}
-            {(mode === "props" || mode === "full") && !isTennis && (
+            {(mode === "props" || mode === "full") && !isGameLinesOnly && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>

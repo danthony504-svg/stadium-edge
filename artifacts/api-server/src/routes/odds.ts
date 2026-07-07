@@ -48,7 +48,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
   // and serves mains only. We never request set betting / set winners: the Odds
   // API doesn't carry them (INVALID_MARKET), so they'd have to be fabricated.
   const moneylineOnly = sportId === "tabletennis";
-  const skipAltPeriod = moneylineOnly || sportId === "tennis";
+  const skipAltPeriod = moneylineOnly || sportId === "tennis" || sportId === "cricket";
   const bulkMarkets = moneylineOnly ? "h2h" : "h2h,spreads,totals";
   const apiKey = process.env["ODDS_API_KEY"];
   if (!apiKey) {

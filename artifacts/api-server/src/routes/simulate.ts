@@ -235,19 +235,33 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   const coverQueries = parseCoverQueries(req.body?.coverQueries);
   const retainOutcomes = req.body?.retainOutcomes !== false;
 
-  if (!sport || !homeTeamId || !awayTeamId) {
-    res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
+  if (!sport) {
+    res.status(400).json({ error: "sport required" });
     return;
   }
 
   const homeTeam = String(req.body?.homeTeam ?? "");
   const awayTeam = String(req.body?.awayTeam ?? "");
+  const nameOnlySports = sport === "tennis" || sport === "tabletennis" || sport === "cricket";
+
+  if (!nameOnlySports && (!homeTeamId || !awayTeamId)) {
+    res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
+    return;
+  }
+
+  if (nameOnlySports && (!homeTeam || !awayTeam)) {
+    res.status(400).json({ error: "homeTeam and awayTeam required" });
+    return;
+  }
+
+  if (sport === "tabletennis" || sport === "cricket") {
+    res.status(422).json({
+      error: `insufficient ${sport} matchup data for simulation — browse posted lines only`,
+    });
+    return;
+  }
 
   if (sport === "tennis") {
-    if (!homeTeam || !awayTeam) {
-      res.status(400).json({ error: "homeTeam and awayTeam required for tennis" });
-      return;
-    }
     const result = await runTennisMonteCarlo({
       away: awayTeam,
       home: homeTeam,
