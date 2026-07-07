@@ -22,6 +22,7 @@ if [[ "$ROLLBACK_EMBEDDED" == "1" ]]; then
   pnpm exec eas update:roll-back-to-embedded \
     --branch production \
     --platform ios \
+    --runtime-version "1.0.0" \
     --message "Rollback corrupt OTA before: $MESSAGE" \
     --non-interactive
 fi
