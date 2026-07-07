@@ -6,11 +6,22 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { BuiltChatContext, PropPoolEntry, RealPropEntry } from "@/lib/api";
 import { fetchPropSimulations } from "@/lib/api";
 import {
+  collapsePropPoolByFinalAiSide,
+  finalAiCompositeForEntry,
+  pickBestSideEntry,
+} from "@/lib/propSideByFinalAi";
+import {
   attachPickScores,
   type PlayerHistorySlice,
   type PropSimAttachOpts,
 } from "@/lib/pickScoreContext";
 import { varietyRankKey } from "@/lib/varietySeed";
+
+export {
+  collapsePropPoolByFinalAiSide,
+  finalAiCompositeForEntry,
+  pickBestSideEntry,
+} from "@/lib/propSideByFinalAi";
 
 const SIM_SELECTION_TIMEOUT_MS = 2800;
 
@@ -66,11 +77,7 @@ export function selectionScoreForEntry(
   propPool: PropPoolEntry[],
   opts: PropSelectionOpts,
 ): number | null {
-  const scored = attachPickScores([parsedPickFromPoolEntry(entry)], {
-    ...opts,
-    propPool,
-  })[0];
-  return scored?.scores?.composite ?? null;
+  return finalAiCompositeForEntry(entry, propPool, opts);
 }
 
 /** Rank prop pool rows best-first by multi-factor composite (sim is one input). */
@@ -106,14 +113,31 @@ export function rankPropPoolEntries(
     .map((x) => x.e);
 }
 
-/** Preferred side for a realProps row: +EV side when flagged, else Over if priced. */
-export function preferredPropSide(rp: RealPropEntry): "Over" | "Under" | null {
+/**
+ * Preferred side for a realProps row: highest Final AI Score on the posted line
+ * when the pool is available; otherwise +EV side, then whichever side is posted.
+ */
+export function preferredPropSide(
+  rp: RealPropEntry,
+  propPool?: PropPoolEntry[],
+  opts?: PropSelectionOpts,
+): "Over" | "Under" | null {
+  if (propPool?.length && opts && rp.line != null) {
+    const sameLine = propPool.filter(
+      (e) =>
+        e.game === rp.game &&
+        e.player === rp.player &&
+        e.marketKey === rp.market &&
+        e.line === rp.line,
+    );
+    if (sameLine.length > 0) {
+      return pickBestSideEntry(sameLine, { ...opts, propPool }) as "Over" | "Under";
+    }
+  }
   if (rp.evSide === "Over" || rp.evSide === "Under") return rp.evSide;
   if (rp.over != null && rp.under == null) return "Over";
   if (rp.under != null && rp.over == null) return "Under";
-  if (rp.over != null && rp.under != null) {
-    return (rp.over ?? 0) >= (rp.under ?? 0) ? "Over" : "Under";
-  }
+  if (rp.over != null && rp.under != null) return "Over";
   return null;
 }
 
@@ -125,7 +149,7 @@ export function enrichAndSortRealProps(
 ): RealPropEntry[] {
   const sims = opts.propSimulations;
   const enriched = realProps.map((rp) => {
-    const side = preferredPropSide(rp);
+    const side = preferredPropSide(rp, propPool, opts);
     const key = side ? propSimKey(rp.player, rp.market, rp.line, side) : null;
     const hit = key && sims ? sims.get(key)?.hitProbability : null;
     const poolEntry =
