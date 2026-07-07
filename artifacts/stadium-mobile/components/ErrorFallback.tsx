@@ -31,21 +31,23 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const corruptCrash =
     isStaleBundleCrashError(error.message ?? "") || isKnownCorruptCrashMessage(error.message ?? "");
+  const oddsSelectorCrash = (error.message ?? "").toLowerCase().includes("getoddsselector");
+  const needsOtaRecovery = corruptCrash || oddsSelectorCrash;
 
   // Auto-recover from stale bundles without requiring the user to read the error.
   useEffect(() => {
-    if (!corruptCrash || !Updates.isEnabled) return;
+    if (!needsOtaRecovery || !Updates.isEnabled) return;
     void recordBootCrash(error.message ?? "");
     void recoverFromCorruptOta().catch(() => {
       // User can still tap Try Again.
     });
-  }, [corruptCrash, error.message]);
+  }, [needsOtaRecovery, error.message]);
 
   const handleRestart = async () => {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
-        if (corruptCrash) {
+        if (needsOtaRecovery) {
           const reloading = await recoverFromCorruptOta();
           if (reloading) return;
         }
@@ -100,8 +102,8 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Text>
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
-          {corruptCrash
-            ? error.message?.toLowerCase().includes("getoddsselector")
+          {needsOtaRecovery
+            ? oddsSelectorCrash
               ? "A bad update is stuck on this install. Tap Try Again once. If it keeps failing, delete Stadium Edge and reinstall from TestFlight."
               : "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
             : "Please reload the app to continue."}

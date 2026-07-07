@@ -10,7 +10,8 @@
     "newArchEnabled": true,
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c"
+      "url": "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c",
+      "fallbackToCacheTimeout": 30000
     },
     "splash": {
       "image": "./assets/images/icon.png",
@@ -94,7 +95,7 @@
       "eas": {
         "projectId": "9af36ab9-f953-4879-9dd2-82807ef7430c"
       },
-      "jsBundleMark": "tabletennis-v12"
+      "jsBundleMark": "tabletennis-v13"
     },
     "owner": "danthony504"
   }
