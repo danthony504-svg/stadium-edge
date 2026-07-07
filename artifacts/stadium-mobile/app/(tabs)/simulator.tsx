@@ -83,7 +83,9 @@ import {
   type SimulatorPropGrade,
 } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
-import { SPORTS, isOddsBrowseSport, sportIcon, sportLabel } from "@/lib/sports";
+import { SPORTS, browseSportsUiEnabled, isOddsBrowseSport, sportIcon, sportLabel } from "@/lib/sports";
+import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
+import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 import {
   cachedSimGames,
   pruneSimGamesCache,
@@ -1073,10 +1075,27 @@ function SimulatorScreenBody() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
         >
-          {SIM_SPORTS.map((id) => {
+          {SIM_SPORTS.filter(
+            (id) => (id !== "tabletennis" && id !== "cricket") || browseSportsUiEnabled(),
+          ).map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (isOddsBrowseSport(id)) setMode("game"); }} />
+              <Pill
+                key={id}
+                label={label}
+                active={sport === id}
+                onPress={() => {
+                  const select = () => {
+                    setSport(id);
+                    setGameIdx(0);
+                    setSelected([]);
+                    setFilter("popular");
+                    if (isOddsBrowseSport(id)) setMode("game");
+                  };
+                  if (isOddsBrowseSport(id)) void runWhenBrowseSportBundleReady(select);
+                  else select();
+                }}
+              />
             );
           })}
         </ScrollView>

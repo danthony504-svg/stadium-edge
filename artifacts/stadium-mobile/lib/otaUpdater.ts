@@ -5,6 +5,10 @@ import { AppState } from "react-native";
 
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { browseSportsBundleReady } from "@/lib/browseSportsGuard";
+import {
+  markBundleAppliedIfReady,
+  needsBrowseSportsBundleReload,
+} from "@/lib/bundleMark";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
@@ -47,18 +51,30 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
     await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
   };
 
-  if (latestContext?.isUpdatePending) {
+  const mustReload = await needsBrowseSportsBundleReload();
+
+  if (latestContext?.isUpdatePending || mustReload) {
+    try {
+      const check = await Updates.checkForUpdateAsync();
+      if (check.isAvailable) await Updates.fetchUpdateAsync();
+    } catch {
+      // Offline — still try reload to apply a previously downloaded bundle.
+    }
     await reload();
     return true;
   }
 
   try {
     const check = await Updates.checkForUpdateAsync();
-    if (!check.isAvailable) return false;
+    if (!check.isAvailable) {
+      await markBundleAppliedIfReady();
+      return false;
+    }
     await Updates.fetchUpdateAsync();
     await reload();
     return true;
   } catch {
+    await markBundleAppliedIfReady();
     return false;
   }
 }

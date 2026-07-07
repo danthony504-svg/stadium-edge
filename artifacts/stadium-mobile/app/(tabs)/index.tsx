@@ -42,7 +42,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { browseCoachMessage, browseSportsBundleReady, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
+import { browseCoachMessage, browseSportsUiEnabled, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
 import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 import {
   hydrateDiscoverCache,
@@ -2050,7 +2050,7 @@ function HomeScreenBody() {
   const homeSportsVisible = useMemo(
     () =>
       HOME_SPORTS.filter(
-        (s) => (s.id !== "tabletennis" && s.id !== "cricket") || browseSportsBundleReady(),
+        (s) => (s.id !== "tabletennis" && s.id !== "cricket") || browseSportsUiEnabled(),
       ),
     [],
   );

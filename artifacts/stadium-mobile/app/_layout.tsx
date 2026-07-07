@@ -19,7 +19,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, ErrorUtils, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -27,11 +27,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
-import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
+import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS, clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
-import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
+import { applyOtaUpdateIfAvailable, ensureBrowseSportOtaReady, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -222,6 +222,31 @@ function DiscoverHydrateBridge() {
   return null;
 }
 
+/** Auto-reload when Hermes throws the stale table-tennis bundle ReferenceError. */
+function TableTennisCrashBridge() {
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+    const prev = ErrorUtils.getGlobalHandler?.();
+    ErrorUtils.setGlobalHandler((error, isFatal) => {
+      const msg = String(error?.message ?? "");
+      if (msg.includes("tabletennis")) {
+        void (async () => {
+          try {
+            await clearDiscoverCache();
+            const reloaded = await ensureBrowseSportOtaReady();
+            if (!reloaded) await Updates.reloadAsync();
+          } catch {
+            await Updates.reloadAsync().catch(() => {});
+          }
+        })();
+        return;
+      }
+      prev?.(error, isFatal);
+    });
+  }, []);
+  return null;
+}
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
@@ -271,6 +296,7 @@ export default function RootLayout() {
           <ClerkLoaded>
             <OtaBridge />
             <DiscoverHydrateBridge />
+            <TableTennisCrashBridge />
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />

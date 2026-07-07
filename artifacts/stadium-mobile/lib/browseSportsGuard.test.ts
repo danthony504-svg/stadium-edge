@@ -8,6 +8,7 @@ test("browseCoachMessage returns table tennis prompt", () => {
   assert.ok(msg.toLowerCase().includes("table tennis"));
 });
 
-test("browseSportsBundleReady is true in current bundle", () => {
+test("browseSportsBundleReady detects if/else guard implementation", () => {
   assert.equal(browseSportsBundleReady(), true);
+  assert.ok(browseCoachMessage.toString().includes('sportId === "tabletennis"'));
 });

@@ -58,3 +58,4 @@ export function isKnownSport(id: string): boolean {
 }
 
 export { browseCoachMessage, browseSportsBundleReady } from "./browseSportsGuard";
+export { browseSportsUiEnabled } from "./bundleMark";

@@ -16,6 +16,9 @@ export function browseCoachMessage(sportId: string): string {
 /** True when this JS bundle includes table-tennis browse helpers (guards stale OTAs). */
 export function browseSportsBundleReady(): boolean {
   try {
+    // Fixed bundles use if/else — stale OTAs used BROWSE_COACH_MSG object maps or inline literals.
+    const src = browseCoachMessage.toString();
+    if (!src.includes('sportId === "tabletennis"')) return false;
     return browseCoachMessage("tabletennis").toLowerCase().includes("table tennis");
   } catch {
     return false;
