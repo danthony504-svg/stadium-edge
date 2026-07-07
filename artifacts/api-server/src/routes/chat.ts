@@ -175,7 +175,7 @@ PICK QUALITY GATE — DON'T FORCE PICKS, RECOMMEND ONLY THE HIGHEST-RATED (appli
 - LOW CONFIDENCE / NO REAL EDGE: a leg with no real projected-vs-implied edge — just the market price, no analytics behind it — is low-confidence; leave it out. Every recommended pick must rest on at least one concrete REAL signal (recent form, matchup / H2H, pace, platoon / park, line value, venue / streak). "The price is fine" is NOT an edge.
 CONFIDENCE BAR: prefer HIGH-confidence plays. On open-ended "best / what should I bet" asks, surface only legs you'd rate clearly above a coin-flip on the real analytics, ideally with multiple signals agreeing; if the strongest thing on the board is still marginal, say so rather than dressing it up.
 HOW THIS INTERACTS WITH SIZED REQUESTS: when the user asks for a SPECIFIC size (N-leg, safe / balanced / longshot, market-locked, game-locked), still apply every reject filter above to choose the BEST legs, but the existing honesty-short rule governs the count — if filtering leaves fewer strong legs than requested, return the SHORTER, higher-quality ticket and say why rather than padding with a filter-tripping leg. Do NOT drop below a requested count merely to be picky when defensible legs DO exist, and do NOT reintroduce a letter/grade floor that trims requested counts — this gate removes only genuinely weak legs.
-DATA HONESTY FOR FACTORS WITHOUT A FEED (restated for this gate): assess these filters ONLY from signals actually in the context. Several popular angles have NO feed in this app and must NEVER be invented to justify OR to reject a pick — opening-line-vs-current / line movement / steam / reverse line movement, public bet% or money%, usage rate, NFL snap / route / target / red-zone share, NHL ice time / power-play usage / goalie-specific matchup, soccer xG / xA / set-piece / possession, and opponent rank-vs-position. If you don't have it, reason from what you DO have and stay silent on the rest.
+DATA HONESTY FOR FACTORS WITHOUT A FEED (restated for this gate): assess these filters ONLY from signals actually in the context. Several popular angles have NO feed in this app and must NEVER be invented to justify OR to reject a pick — opening-line-vs-current / line movement / steam / reverse line movement, public bet% or money%, closing line value (except prop ev/fairProb when present), cross-book odds comparison (except prop ev/fairProb), usage rate, NFL snap / route / target / red-zone share, NHL ice time / power-play usage / goalie-specific matchup / line combinations, soccer xG / xA / set-piece / possession / shots on target, golf course/strokes-gained stats, NASCAR/F1 qualifying/pit/tire data, UFC reach/weight-cut specifics, tennis serve%/return%/break-point feeds, MLB umpire tendencies, and opponent rank-vs-position. For UNIVERSAL SPORT ANALYSIS asks, you MAY label these "Not available in today's feed" instead of staying silent. If you don't have it, reason from what you DO have and never invent it.
 
 When the user asks you to BUILD A PARLAY or RECOMMEND PICKS, you MUST include each pick on its own line in this exact format so the app can render it as a card:
 PICK: <Game> | <Market> | <Selection> | <American Odds>
@@ -304,6 +304,50 @@ How to use it:
 - TENNIS UPSET — lean.upset = { dogOdds }: when lean.side is ALSO the betting underdog (dogOdds >= +100). Flag these like team upsets — cite lean.reasons and the real dog price.
 - HONESTY: if tennisAnalysis is absent or thin, say the player data isn't available and use posted odds only — never invent rankings, form, or H2H.
 
+UNIVERSAL SPORT ANALYSIS FRAMEWORK — APPLIES WHEN THE USER ASKS FOR A FULL GAME / MATCH / FIGHT ANALYSIS OR "WHO WINS" / "BEST PLAY" / "BREAK DOWN" (NOT a parlay build, NOT stats-first prop discovery, NOT read-only slip analyze, NOT a 2-sentence image verdict): give STRUCTURED, in-depth analysis — this OVERRIDES the default "3-6 short paragraphs" cap for that reply. Use bold section headers and "* " bullets. Work through the universal checklist below PLUS the sport-specific addendum for the sport in question; for EACH factor either cite REAL data from context OR write one honest line "Not available in today's feed" — NEVER invent a stat, price, injury, or trend to fill a bullet. Do NOT emit PICK: lines unless the user explicitly asked to build/add a bet.
+
+UNIVERSAL FACTORS (every sport — map each to real context when present):
+- **Recent form** — playerHistory.recent / windows, team L10 margin in matchupHistory, tennisAnalysis.recentForm, fightAnalysis record/stats, statmuseFacts.
+- **Head-to-head history** — matchupHistory.h2h, tennisAnalysis.h2h, lastMeeting box score.
+- **Injuries** — matchupInjuries (name only who is actually listed OUT/DOUBTFUL/QUESTIONABLE).
+- **Rest days** — matchupHistory.homeRest / awayRest (restDays, backToBack); cite the real number or skip.
+- **Travel** — only when schedule/rest data implies it (back-to-back road trip); never invent miles/time zones.
+- **Home vs. away performance** — homeVenueForm / awayVenueForm, tonightSplit, player home/away splits in playerHistory.
+- **Matchup advantages** — opponentDefense, platoon/BvP (MLB), defensive vs offensive team profiles, tennis ranking/form edge, UFC striking/grappling compare.
+- **Line movement (sharp money)** — NO FEED unless opening vs current price is visible in an attached image; otherwise "Not available in today's feed".
+- **Public betting %** — NO FEED; write "Not available in today's feed" or omit silently.
+- **Closing line value** — NO FEED for game lines; for props ONLY when ev/fairProb is present on that realProps entry.
+- **Odds across sportsbooks** — ONLY when ev/fairProb shows cross-book fair value on a specific prop; otherwise cite the single posted price from realOdds/realProps.
+- **Edge and EV** — projected/hit % vs implied % when honestly defensible (mlLean.edge, prop hit counts, fairProb/ev on props); projection wording only.
+- **Weather (when applicable)** — mlbGameEnv.weather for outdoor MLB; NFL outdoor when weather is in context; dome/neutral when climateControlled; N/A indoors (NBA/WNBA/NHL).
+- **Pace/tempo** — homePace/awayPace/combinedPace (NBA/WNBA), team scoring pace in matchupHistory, soccer/NHL scoring trends from real team stats only.
+- **Motivation (playoffs, elimination, standings)** — homeSeason/awaySeason winPct and streak as standings proxy; never invent "must-win" narrative without data.
+- **Coaching trends** — qualitative only from recent team form / period tendencies (teamPeriodStats); no play-calling feed — don't invent tendencies.
+- **Historical trends** — h2h meetings, lastMeeting, venue splits, season record — real numbers only.
+- **Live momentum** — ONLY when liveOdds shows awayScore/homeScore/periodLabel/clock; describe the scoreboard state; skip for pregame.
+- **AI simulation** — simHitPct on realProps when present ("model sim ~X% on 10k draws"); mlLean for game-winner lean; never invent a sim %.
+- **Confidence score** — your honest X.X/10 read when you can defend it from multiple agreeing signals; omit if too thin.
+- **AI grade** — letter grade A–F for the recommended play's construction quality (line value + signal agreement), NOT outcome certainty.
+
+SPORT-SPECIFIC ADDENDA (append the matching block after the universal factors):
+- **MLB** — starting pitcher matchup (probable SP + tendency in mlbGameEnv/mlbPlatoon), bullpen (only if in injuries/context), handedness/platoon (mlbPlatoon), weather + ballpark (mlbGameEnv park hrIndex/altitude), lineup (injuries only), umpire — NO FEED (skip).
+- **NBA / WNBA** — pace (homePace/awayPace), minutes trend (minutesTrend on props), injuries, defensive matchup (opponentDefense), back-to-back (homeRest/awayRest). Usage rate — NO FEED.
+- **NFL / NCAAF** — QB health (matchupInjuries), offensive line — NO dedicated feed (infer only from team offensive stats if present), pass rush (opponentDefense sacks), weather outdoors, coaching — qualitative from teamPeriodStats/form only. Snap/route/target share — NO FEED.
+- **NHL** — starting goalie (injuries G/SP), save % / GAA (opponentDefense), special teams (powerPlayPct in opponentDefense offensive profile), rest, line combinations — NO FEED for lines.
+- **Soccer / World Cup** — xG/possession/shots on target — NO FEED; use real goals/scoring form, injuries, travel via rest, lineup via injuries, motivation via standings/streak.
+- **Tennis** — surface (tournament context when present), serve/return/break points — NO per-stat feed; use ranking, recentForm set scores, h2h, fatigue from recent match volume.
+- **UFC / MMA** — reach — NO FEED; use fightAnalysis striking (strikeAccuracy, strikeLPM), wrestling (takedownAvg, takedownAccuracy), takedown defense — NO per-fight feed (career rates only), cardio/finish/decision rates, weight cut — NO FEED, recent fights via record only.
+- **Golf** — NOT SUPPORTED in this app; if asked, say golf isn't covered and do not invent course/strokes-gained data.
+- **Racing (NASCAR/F1)** — NOT SUPPORTED in this app; if asked, say racing isn't covered and do not invent qualifying/pit data.
+
+WORKFLOW: (1) Identify the sport and the specific game/match/fight from the user message or context. (2) Walk universal factors + sport addendum with bullets (skip or mark unavailable honestly). (3) Compare sides/markets on the real posted lines. (4) END with this mandatory summary block:
+**Best Pick:** <Selection + market + American odds from realOdds/realProps, or "Pass — no edge" if nothing clears the bar>
+**Confidence:** <X.X>/10 (omit line if not honestly defensible)
+**Edge:** <+/-Y.Y%> (projected/hit or win % minus implied %; omit if not computable)
+**AI Grade:** <A–F> (construction quality of the recommended play)
+**Reason:** <one tight sentence tying the top 2–3 real signals + price>
+HONESTY: Confidence, Edge, and AI Grade must be REAL estimates you can defend — never fabricate them to complete the template. Close with the responsible-gambling reminder when recommending an actual bet.
+
 NBA SUMMER LEAGUE FUTURES ANALYSIS RULE — APPLIES TO VEGAS SUMMER LEAGUE CHAMPIONSHIP / OUTRIGHT WINNER MARKETS (with or without a photo of the futures board): when the user asks about NBA Summer League futures, "Vegas Summer League Championship Winner", "who wins Summer League", "which SL team", or uploads a sportsbook screen listing Summer League outright prices and asks who to pick — give a STRUCTURED, in-depth analysis (NOT a 2-sentence hot take). Summer League is a short tournament with volatile rosters — rosters change game-to-game, so flag uncertainty honestly when lineups are unconfirmed.
 FACTORS TO ANALYZE (use bullets under bold headers; skip any factor you truly cannot assess and say "not confirmed" — never invent a player name, injury, or stat):
 - **Roster strength** — NBA rotation players vs. two-way / undrafted rookies; who actually moves the needle.
@@ -325,6 +369,7 @@ WORKFLOW: (1) Read every legible team + price from the image or user message. (2
 **Best Pick:** <Team Name> (<American odds from the board>)
 **Confidence:** <X.X>/10
 **Edge:** <+/-Y.Y%> (omit Edge line if you cannot honestly compute it from a defended projection)
+**AI Grade:** <A–F>
 **Reason:** <one tight sentence tying roster edge + path + price value>
 HONESTY: Confidence and Edge must be REAL estimates you can defend — never fabricate them to fill the template. If the board is blurry or a team isn't legible, say so. Do NOT emit PICK: lines for a pure "who would you pick?" futures ask unless the user explicitly asks to build/add a bet. Close with the responsible-gambling reminder.
 
@@ -1988,7 +2033,7 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
     : improveFromSlipImage
       ? `\n\nIMPROVE THIS SLIP FROM THE PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo of their bet slip" : `${imageDataUrls.length} photos of their bet slip`} and wants a BETTER version of THAT SAME slip. First READ the slip and note to yourself the EXACT games on it and the EXACT number of legs. Then build an improved ticket under these HARD constraints: (1) KEEP THE SAME GAMES — every leg must be on a game that appears on the uploaded slip; do NOT add a game that isn't on the slip and do NOT drop games. (2) KEEP THE SAME NUMBER OF LEGS / props as the slip, UNLESS the user explicitly asked for a different count this turn. (3) IMPROVE THE PICKS within those games: swap weak, over-juiced, or over-correlated legs for stronger, less-correlated markets ON THE SAME GAMES (e.g. replace a duplicate second leg on one player with a different player or a different stat family in that same game, or move off a bad number to a better real line), while still obeying every HARD BAN (at most one leg per family×period×game, no anti-correlated or directionally-contradictory legs, no duplicate same-player exposure). (4) Every leg MUST be a REAL entry from realOdds / realProps — never invent a game, market, or price; if a game legible on the slip has no posted odds in the pool, keep the closest real market for it and note that one honestly. Open with ONE short line naming what you upgraded vs the uploaded slip, then the PICK lines. If a key detail on the slip is cut off or blurry, say so in a few words rather than guessing.`
       : futuresOutrightImageAsk
-        ? `\n\nFUTURES / OUTRIGHT BOARD FROM PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo" : "photos"} of a futures/outright market (e.g. Summer League championship winner, tournament winner, season-long award) and wants a FULL pick analysis — NOT a 2-sentence verdict. Read every legible team/outcome and American price from the image. If this is NBA Summer League, apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full: walk the listed factors with bullets, compare the top contenders, and END with the mandatory Best Pick / Confidence / Edge / Reason block. For other outright markets, use the same structured depth with sport-appropriate factors. Do NOT emit PICK: lines unless the user explicitly asked to add a bet to their slip. NEVER fabricate a price or team that isn't legible in the image.`
+        ? `\n\nFUTURES / OUTRIGHT BOARD FROM PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo" : "photos"} of a futures/outright market (e.g. Summer League championship winner, tournament winner, season-long award) and wants a FULL pick analysis — NOT a 2-sentence verdict. Read every legible team/outcome and American price from the image. If this is NBA Summer League, apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full: walk the listed factors with bullets, compare the top contenders, and END with the mandatory Best Pick / Confidence / Edge / Reason block. For other outright markets, apply the UNIVERSAL SPORT ANALYSIS FRAMEWORK with sport-appropriate factors and the same mandatory closing block (include AI Grade). Do NOT emit PICK: lines unless the user explicitly asked to add a bet to their slip. NEVER fabricate a price or team that isn't legible in the image.`
         : `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`;
 
   const improveDiversifyLine = improveFromSlipImage
@@ -2019,6 +2064,24 @@ Open with ONE short line naming what you changed vs the original (e.g. "Spread a
     (/\b(?:analy[sz]e|break\s*down|grade|rate|review|assess|evaluate|critique|check)\b[^\n]{0,24}\b(?:this|that|it|my|the|ticket|slip|parlay|card|bet|bets|legs?)\b/i.test(latestUser) ||
       /\b(?:thoughts on|how (?:good|bad|strong|risky))\b[^\n]{0,24}\b(?:ticket|slip|parlay|card|bet|bets|legs?)\b/i.test(latestUser));
   const analyzeIntent = analyzeWording && !improveIntent && improveCurrentSlipLen > 0;
+  const fullSportAnalysisIntent =
+    !improveIntent &&
+    !analyzeIntent &&
+    !summerLeagueFuturesIntent &&
+    !futuresOutrightImageAsk &&
+    !/\b(?:parlay|ticket|slip|build\s+me|put\s+together|\d{1,2}[-\s]?leg)\b/i.test(latestUser) &&
+    (/\b(?:who (?:wins?|should I (?:pick|bet|take))|which (?:team|side|fighter|player)(?: wins?| should I)|best (?:play|pick|bet|side)|top play)\b/i.test(
+      latestUser,
+    ) ||
+      /\b(?:break(?:ing)? down|full analysis|deep dive|game analysis|match analysis|fight analysis)\b/i.test(
+        latestUser,
+      ) ||
+      /\b(?:what(?:'s| is) (?:your|the) (?:read|pick|lean|take)|give me (?:your )?(?:read|analysis|breakdown|take))\b/i.test(
+        latestUser,
+      ) ||
+      (/\b(?:analy[sz]e|break\s*down)\b/i.test(latestUser) &&
+        /\b(?:game|match|fight|bout|fixture|matchup)\b/i.test(latestUser) &&
+        !/\b(?:ticket|slip|parlay)\b/i.test(latestUser)));
   const analyzeSystemAddendum = analyzeIntent
     ? `\n\n*** ANALYZE-THE-TICKET REQUEST FOR THIS TURN (READ-ONLY) ***
 The user wants an HONEST breakdown of the ticket they ALREADY built — the slip in context.currentSlip. This turn is ANALYSIS ONLY:
@@ -2035,6 +2098,11 @@ The user wants an HONEST breakdown of the ticket they ALREADY built — the slip
       ? `\n\n*** NBA SUMMER LEAGUE / FUTURES OUTRIGHT REQUEST FOR THIS TURN ***
 Apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full for this reply. This overrides the default "3-6 short paragraphs" cap — use structured sections with bullets. Compare the top contenders on the listed factors and END with the mandatory Best Pick / Confidence / Edge / Reason block. Do NOT emit PICK: lines unless the user explicitly asked to add a bet to their slip.`
       : "";
+
+  const fullSportAnalysisSystemAddendum = fullSportAnalysisIntent
+    ? `\n\n*** FULL SPORT ANALYSIS REQUEST FOR THIS TURN ***
+Apply the UNIVERSAL SPORT ANALYSIS FRAMEWORK in full for this reply. This overrides the default "3-6 short paragraphs" cap — use structured sections with bullets for every universal factor plus the sport-specific addendum. Cite only REAL context data; mark missing feeds as "Not available in today's feed". END with the mandatory Best Pick / Confidence / Edge / AI Grade / Reason block. Do NOT emit PICK: lines unless the user explicitly asked to build/add a bet.`
+    : "";
 
   // LIVE-BETS LOCK — the client sets context.liveOnly when the user explicitly
   // asks for live / in-play bets, and pre-filters realGames/realOdds/realProps to
@@ -2177,7 +2245,7 @@ The user asked for a ticket WITH player props, not necessarily "props only." Bui
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + fullSportAnalysisSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
