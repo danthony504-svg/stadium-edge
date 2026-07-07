@@ -97,6 +97,21 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
     return reloaded;
   }
 
+  // Rollback-to-embedded leaves users on old TestFlight JS — pull latest OTA once.
+  if (Updates.isEmbeddedLaunch) {
+    let fetched = false;
+    try {
+      fetched = await fetchLatestOtaIfAvailable();
+    } catch {
+      // offline
+    }
+    if (fetched) {
+      const reloaded = await guardedColdStartReload();
+      if (!reloaded) await markSuccessfulOtaBoot();
+      return reloaded;
+    }
+  }
+
   const lastCrash = await readLastBootCrash();
   const hadCorruptCrash = !!lastCrash && isKnownCorruptCrashMessage(lastCrash);
   const browseStale = await needsBrowseSportsBundleReload();
@@ -146,6 +161,7 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
 /** Mark a successful boot after OTA gate releases the UI. */
 export async function markSuccessfulOtaBoot(): Promise<void> {
   if (!browseSportsBundleReady()) return;
+  if (Updates.isEmbeddedLaunch) return;
   await markBundleAppliedIfReady();
   await markOtaEpochApplied();
   await clearLastBootCrash();

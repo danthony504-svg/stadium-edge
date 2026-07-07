@@ -52,7 +52,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
-          ROLLBACK_EMBEDDED: ${{ github.event.inputs.rollback_embedded || '1' }}
+          ROLLBACK_EMBEDDED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_embedded || '0' }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"

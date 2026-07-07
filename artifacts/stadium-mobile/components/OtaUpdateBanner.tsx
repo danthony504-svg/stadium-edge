@@ -6,6 +6,7 @@ import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { applyOtaUpdateIfAvailable } from "@/lib/otaUpdater";
 
 type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
 
@@ -24,6 +25,9 @@ function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
 export function OtaUpdateBanner() {
   const insets = useSafeAreaInsets();
   const [ota, setOta] = useState<OtaUiState>(() => otaUiFromContext(latestContext));
+  const [embeddedRestore, setEmbeddedRestore] = useState(
+    () => !__DEV__ && Updates.isEnabled && Updates.isEmbeddedLaunch,
+  );
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
@@ -33,7 +37,63 @@ export function OtaUpdateBanner() {
     return () => sub.remove();
   }, []);
 
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled || !embeddedRestore) return;
+    void applyOtaUpdateIfAvailable().then((reloaded) => {
+      if (reloaded) setEmbeddedRestore(false);
+    });
+  }, [embeddedRestore]);
+
   if (__DEV__ || !Updates.isEnabled) return null;
+
+  if (embeddedRestore) {
+    return (
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: insets.top + 4,
+          zIndex: 10000,
+          alignItems: "center",
+          paddingHorizontal: 12,
+        }}
+      >
+        <Pressable
+          onPress={() => {
+            void applyOtaUpdateIfAvailable().finally(() => {
+              void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+            });
+          }}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            backgroundColor: "#1d4ed8",
+            borderRadius: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            maxWidth: 420,
+            width: "100%",
+            opacity: pressed ? 0.9 : 1,
+          })}
+        >
+          <Feather name="download" size={16} color="#fff" />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
+              Restore new Discover UI
+            </Text>
+            <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 11 }}>
+              Tap to download the latest Stadium Edge layout (Table Tennis, Coach, Home).
+            </Text>
+          </View>
+          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>Update</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (!ota.isUpdatePending && !ota.isDownloading) return null;
 
   const apply = () => {
