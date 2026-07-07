@@ -15,7 +15,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
-import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
+import { rankPropPoolEntries, collapsePropPoolByFinalAiSide, type PropSelectionOpts } from "@/lib/propSelection";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
@@ -1830,9 +1830,9 @@ export function backfillPicks(
 // Today-gating + each leg's real kickoff come from `realToday` (the salvage's
 // already-`startsTodayUpcoming`-filtered realOdds for the named sport): only props
 // whose game appears there are eligible, so a tomorrow/started game's prop can
-// never slip in. Each leg's odds are the rung closest to even money among that
-// prop's real posted rungs (the most "main" line), skipping no-equity juice
-// (<= -1000). The edge note is honest — added to reach the size, not a model read.
+// never slip in. Each leg uses the Over/Under side with the highest Final AI
+// Score on its posted line (never whichever price drifted closest to even money),
+// skipping no-equity juice (<= -1000). The edge note is honest — added to reach
 // When `diversify` is true (default), legs are round-robined across stat markets
 // so a deep fill doesn't stack one thin market (e.g. 12 stolen-base overs on one
 // game) when hits / HR / K props are also posted.
@@ -1943,24 +1943,29 @@ export function backfillProps(
     out.map((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase()),
   );
   const ip = (o: number) => (o < 0 ? -o / (-o + 100) : 100 / (o + 100));
-  // One entry per (game, player, market): the rung closest to even money among
-  // the real posted rungs — never a deep longshot or a no-equity favorite.
-  const byKey = new Map<string, PropPoolEntry>();
+  // One entry per (game, player, market, line): the Over/Under side with the
+  // highest Final AI Score — never whichever price drifted closest to even money.
+  const eligible: PropPoolEntry[] = [];
   for (const e of propPool) {
     const canon = canonicalGameKey(e.game);
-    if (!canon) continue; // no matching game on today's board
+    if (!canon) continue;
     if (typeof e.odds !== "number" || e.odds <= -1000) continue;
     const propDay = dayOf(e.startsAt);
     const allowedDays = daysByGame.get(canon);
     if (propDay && allowedDays && allowedDays.size > 0 && !allowedDays.has(propDay)) {
       continue;
     }
-    const key = `${canon}|${norm(e.player)}|${norm(e.marketLabel)}`;
-    const cur = byKey.get(key);
-    if (!cur || Math.abs(ip(e.odds) - 0.5) < Math.abs(ip(cur.odds) - 0.5)) {
-      byKey.set(key, e);
-    }
+    eligible.push(e);
   }
+  const selectionPoolOpts: PropSelectionOpts = opts.selectionOpts
+    ? {
+        ...opts.selectionOpts,
+        propPool: opts.selectionOpts.propPool.length
+          ? opts.selectionOpts.propPool
+          : propPool,
+      }
+    : { propPool };
+  const byKey = collapsePropPoolByFinalAiSide(eligible, selectionPoolOpts);
   const marketCounts = new Map<string, number>();
   const gameCounts = new Map<string, number>();
   const sportCounts = new Map<string, number>();
@@ -2018,11 +2023,11 @@ export function backfillProps(
     return true;
   };
   let candidates = opts.selectionOpts
-    ? rankPropPoolEntries([...byKey.values()], {
+    ? rankPropPoolEntries(byKey, {
         ...opts.selectionOpts,
         propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
       })
-    : [...byKey.values()];
+    : byKey;
   if (avoidLegKeys?.size) {
     candidates = deprioritizePropPoolEntries(candidates, avoidLegKeys);
   }

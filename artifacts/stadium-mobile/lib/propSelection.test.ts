@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PropPoolEntry } from "./api.ts";
 import { enrichAndSortRealProps, preferredPropSide, propSimBatchLimitForLegs, rankPropPoolEntries } from "./propSelection.ts";
+import { pickBestSideEntry } from "./propSideByFinalAi.ts";
 
 const pool: PropPoolEntry[] = [
   {
@@ -28,8 +29,76 @@ const pool: PropPoolEntry[] = [
   },
 ];
 
-test("preferredPropSide uses evSide when present", () => {
+test("preferredPropSide uses evSide when pool context is absent", () => {
   assert.equal(preferredPropSide({ evSide: "Under", over: -110, under: -110 } as any), "Under");
+});
+
+test("preferredPropSide uses Final AI when prop pool is available", () => {
+  const skenesStrikeouts: PropPoolEntry[] = [
+    {
+      game: "Braves @ Pirates",
+      marketLabel: "Strikeouts",
+      player: "Paul Skenes",
+      line: 6.5,
+      side: "Over",
+      odds: -101,
+      marketKey: "pitcher_strikeouts",
+      sport: "mlb",
+    },
+    {
+      game: "Braves @ Pirates",
+      marketLabel: "Strikeouts",
+      player: "Paul Skenes",
+      line: 6.5,
+      side: "Under",
+      odds: -119,
+      edge: 2.5,
+      marketKey: "pitcher_strikeouts",
+      sport: "mlb",
+    },
+  ];
+  const rp = {
+    sport: "mlb",
+    game: "Braves @ Pirates",
+    startsAt: "",
+    player: "Paul Skenes",
+    market: "pitcher_strikeouts",
+    line: 6.5,
+    over: -101,
+    under: -119,
+    alt: false,
+    evSide: "Over" as const,
+    edge: null,
+  };
+  assert.equal(preferredPropSide(rp, skenesStrikeouts, { propPool: skenesStrikeouts }), "Under");
+});
+
+test("pickBestSideEntry prefers Final AI over closer-to-even odds", () => {
+  const skenesStrikeouts: PropPoolEntry[] = [
+    {
+      game: "Braves @ Pirates",
+      marketLabel: "Strikeouts",
+      player: "Paul Skenes",
+      line: 6.5,
+      side: "Over",
+      odds: -101,
+      marketKey: "pitcher_strikeouts",
+      sport: "mlb",
+    },
+    {
+      game: "Braves @ Pirates",
+      marketLabel: "Strikeouts",
+      player: "Paul Skenes",
+      line: 6.5,
+      side: "Under",
+      odds: -119,
+      edge: 2.5,
+      marketKey: "pitcher_strikeouts",
+      sport: "mlb",
+    },
+  ];
+  const best = pickBestSideEntry(skenesStrikeouts, { propPool: skenesStrikeouts });
+  assert.equal(best.side, "Under");
 });
 
 test("rankPropPoolEntries prefers higher edge when composite ties", () => {

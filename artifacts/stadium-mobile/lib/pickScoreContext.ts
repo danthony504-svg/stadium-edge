@@ -6,17 +6,17 @@
 // renderer shows "no data" — never a fabricated number. Kept in its own module
 // (not PickCard) so it can import lib/api types without a circular dependency.
 
-import type { ParsedPick } from "@/components/PickCard";
+import type { ParsedPick } from "../components/PickCard.tsx";
 import type {
   InjuryTeam,
   MatchupHistoryEntry,
   PlayerProp,
   PropPoolEntry,
   RealOddsEntry,
-} from "@/lib/api";
-import { propMarketLabel } from "@/lib/propMarketLabel";
-import type { GameInjuryReport } from "@/lib/injuries";
-import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
+} from "./api.ts";
+import { propMarketLabel } from "./propMarketLabel.ts";
+import type { GameInjuryReport } from "./injuries.ts";
+import { summarizeTeamInjuries, teamNameMatches } from "./injuries.ts";
 import {
   combinePickScore,
   injuryFavorGame,
@@ -32,16 +32,16 @@ import {
   teamTrendMomentum,
   type CombinedPickScore,
   type PickSubScores,
-} from "@/lib/pickScore";
-import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
-import { gameValueForMarket } from "@/lib/propStats";
+} from "./pickScore.ts";
+import { applyMarketWeighting, type MarketPerf } from "./marketWeighting.ts";
+import { gameValueForMarket } from "./propStats.ts";
 import {
   gameSimHitForPick,
   gameLabelsMatch,
   lookupGameSim,
   type CoachGameSimEntry,
-} from "@/lib/gameSimScoring";
-import { buildFinalAiScore } from "@/lib/finalAiScore";
+} from "./gameSimScoring.ts";
+import { buildFinalAiScore } from "./finalAiScore.ts";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
