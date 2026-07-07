@@ -305,6 +305,7 @@ export default function SimulatorScreen() {
   }, [sport, sportFilters, filter]);
 
   const isGameLinesOnly = isOddsBrowseSport(sport);
+  const isBrowseNoSim = sport === "tabletennis" || sport === "cricket";
   const canRunGameSim = sport === "tennis" || !isOddsBrowseSport(sport);
   useEffect(() => {
     if (isGameLinesOnly) setMode("game");
@@ -1383,6 +1384,7 @@ export default function SimulatorScreen() {
             )}
 
             {/* Settings */}
+            {!isBrowseNoSim ? (
             <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
               <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginBottom: 12 }}>
                 Simulation Settings
@@ -1393,8 +1395,17 @@ export default function SimulatorScreen() {
               ) : null}
               <SettingRow label="Home Field" value={game.venue ?? game.homeTeam ?? "—"} icon="map-pin" />
             </Card>
+            ) : null}
 
-            {/* Run */}
+            {/* Run — table tennis / cricket are browse-only (no Monte Carlo yet). */}
+            {isBrowseNoSim ? (
+              <BrowseOddsOnlyPanel
+                sport={sport}
+                game={game}
+                matchedOdds={matchedOddsGame}
+                loading={oddsQ.isFetching && !matchedOddsGame}
+              />
+            ) : (
             <Pressable
               onPress={() => runSimulation({ force: true })}
               disabled={!canRun}
@@ -1421,6 +1432,7 @@ export default function SimulatorScreen() {
                 </Text>
               </LinearGradient>
             </Pressable>
+            )}
 
             {(running || gameResult) && mode !== "props" ? (
               <SimulationSummaryCard
@@ -1729,6 +1741,72 @@ function SettingRow({
         <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>{value}</Text>
       </View>
     </View>
+  );
+}
+
+/** Table tennis / cricket — honest browse-only panel (no Monte Carlo on the API). */
+function BrowseOddsOnlyPanel({
+  sport,
+  game,
+  matchedOdds,
+  loading,
+}: {
+  sport: string;
+  game: EspnGame;
+  matchedOdds: OddsGame | null;
+  loading: boolean;
+}) {
+  const colors = useColors();
+  const label = sportLabel(sport);
+  const h2h = matchedOdds?.markets?.find((m) => m.key === "h2h");
+  const awayMl = h2h?.outcomes?.find((o) => o.name === game.awayTeam);
+  const homeMl = h2h?.outcomes?.find((o) => o.name === game.homeTeam);
+
+  return (
+    <Card style={{ marginHorizontal: 16, marginBottom: 20, gap: 10 }}>
+      <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+        Posted moneylines
+      </Text>
+      <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+        {label} is moneyline-only in Stadium Edge — Monte Carlo simulation isn&apos;t available yet. Use the
+        posted sportsbook prices below (same feed as Home).
+      </Text>
+      {loading ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 }}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground }}>
+            Loading posted lines…
+          </Text>
+        </View>
+      ) : awayMl?.price != null || homeMl?.price != null ? (
+        <View style={{ gap: 8, marginTop: 4 }}>
+          {awayMl?.price != null ? (
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontFamily: FONT.medium, fontSize: 14, color: colors.foreground, flex: 1 }} numberOfLines={1}>
+                {game.awayTeam}
+              </Text>
+              <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+                {formatAmerican(awayMl.price)}
+              </Text>
+            </View>
+          ) : null}
+          {homeMl?.price != null ? (
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ fontFamily: FONT.medium, fontSize: 14, color: colors.foreground, flex: 1 }} numberOfLines={1}>
+                {game.homeTeam}
+              </Text>
+              <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
+                {formatAmerican(homeMl.price)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
+          No moneylines posted for this match yet — pull down to refresh or check back closer to start time.
+        </Text>
+      )}
+    </Card>
   );
 }
 
