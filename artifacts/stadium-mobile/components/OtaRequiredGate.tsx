@@ -5,20 +5,37 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { isKnownCorruptCrashMessage, readLastBootCrash } from "@/lib/crashRecovery";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { applyOtaOnColdStart } from "@/lib/otaUpdater";
+import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
+
+type GatePhase = "recovering" | "ready";
 
 /**
- * Blocks only when a downloaded OTA is waiting to apply.
- * Cold-start fetch/reload runs in the background so users are not stuck on a spinner loop.
+ * Blocks only when recovering from a corrupt bundle crash or when a downloaded
+ * OTA is waiting to apply.
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
+  const [phase, setPhase] = useState<GatePhase>("ready");
   const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
-    void applyOtaOnColdStart().catch(() => {});
+
+    void (async () => {
+      const lastCrash = await readLastBootCrash();
+      if (lastCrash && isKnownCorruptCrashMessage(lastCrash)) {
+        setPhase("recovering");
+        try {
+          await recoverFromCorruptOta();
+        } catch {
+          // fall through — applyOtaOnColdStart may still fetch
+        }
+        setPhase("ready");
+      }
+      await applyOtaOnColdStart().catch(() => {});
+    })();
   }, []);
 
   useEffect(() => {
@@ -28,6 +45,35 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, []);
+
+  if (phase === "recovering") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#0f172a",
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 28,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        }}
+      >
+        <ActivityIndicator size="large" color="#38bdf8" />
+        <Text
+          style={{
+            color: "#94a3b8",
+            fontFamily: FONT.medium,
+            fontSize: 15,
+            textAlign: "center",
+            marginTop: 16,
+          }}
+        >
+          Downloading fix…
+        </Text>
+      </View>
+    );
+  }
 
   if (__DEV__ || !Updates.isEnabled || !pending) {
     return <>{children}</>;
@@ -79,8 +125,7 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 10,
           }}
         >
-          Stadium Edge downloaded a fix. Tap Restart once to load it — opening the app before
-          restarting can cause crashes.
+          Stadium Edge downloaded a fix. Tap Restart once to load it.
         </Text>
         <Pressable
           onPress={restart}

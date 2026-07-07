@@ -110,11 +110,10 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
     }
     if (fetched) {
       const reloaded = await guardedColdStartReload();
-      if (!reloaded) await markSuccessfulOtaBoot();
+      if (!reloaded && browseSportsBundleReady()) await markSuccessfulOtaBoot();
       return reloaded;
     }
-    // Cannot download a fix — stop reloading and let the UI surface / recover.
-    await markSuccessfulOtaBoot();
+    // Stay on corrupt bundle offline — do not stamp epoch; crash UI will retry.
     return false;
   }
 
@@ -146,9 +145,8 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
 
 /** Mark a successful boot after OTA gate releases the UI. */
 export async function markSuccessfulOtaBoot(): Promise<void> {
-  if (browseSportsBundleReady()) {
-    await markBundleAppliedIfReady();
-  }
+  if (!browseSportsBundleReady()) return;
+  await markBundleAppliedIfReady();
   await markOtaEpochApplied();
   await clearLastBootCrash();
   await clearColdStartReloadAttempts();

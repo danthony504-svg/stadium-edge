@@ -12,6 +12,10 @@ on:
         description: OTA update message
         required: false
         default: "Restore Home and login after App Review"
+      rollback_embedded:
+        description: Roll back to embedded bundle before publishing (clears corrupt OTA)
+        required: false
+        default: "1"
 
 jobs:
   publish:
@@ -48,6 +52,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          ROLLBACK_EMBEDDED: ${{ github.event.inputs.rollback_embedded || '1' }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"

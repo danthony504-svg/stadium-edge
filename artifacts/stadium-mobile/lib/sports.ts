@@ -59,3 +59,4 @@ export function isKnownSport(id: string): boolean {
 
 export { browseCoachMessage, browseSportsBundleReady, isStaleBundleCrashError } from "./browseSportsGuard";
 export { browseSportsUiEnabled } from "./bundleMark";
+export { getOddsSelector, oddsQuerySelectors } from "./oddsQuerySelectors";

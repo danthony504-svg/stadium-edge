@@ -4,10 +4,10 @@ import Constants from "expo-constants";
 import { browseSportsBundleReady } from "./browseSportsGuard";
 
 /** Bump when Table Tennis / browse-sport crash fixes ship — tracked in AsyncStorage only. */
-export const JS_BUNDLE_MARK = "tabletennis-v8";
+export const JS_BUNDLE_MARK = "tabletennis-v9";
 
 /** Bump to force one fetch+apply OTA cycle for installs stuck on corrupt bundles. */
-export const REQUIRED_OTA_EPOCH = 8;
+export const REQUIRED_OTA_EPOCH = 9;
 
 const STORAGE_KEY = "stadium-js-bundle-mark";
 const OTA_EPOCH_KEY = "stadium-ota-epoch";
