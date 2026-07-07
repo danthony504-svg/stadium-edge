@@ -32,7 +32,7 @@ import { warmApiForCoachBuild } from "@/lib/api";
 import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
-import { applyOtaUpdateIfAvailable, ensureBrowseSportOtaReady, useOtaUpdater } from "@/lib/otaUpdater";
+import { applyOtaUpdateIfAvailable, recoverFromCorruptOta, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -231,15 +231,9 @@ function TableTennisCrashBridge() {
     ErrorUtils.setGlobalHandler((error, isFatal) => {
       const msg = String(error?.message ?? "");
       if (isStaleBundleCrashError(msg)) {
-        void (async () => {
-          try {
-            await clearDiscoverCache();
-            const reloaded = await ensureBrowseSportOtaReady();
-            if (!reloaded) await Updates.reloadAsync();
-          } catch {
-            await Updates.reloadAsync().catch(() => {});
-          }
-        })();
+        void recoverFromCorruptOta().catch(() => {
+          void Updates.reloadAsync().catch(() => {});
+        });
         return;
       }
       prev?.(error, isFatal);
@@ -296,7 +290,6 @@ export default function RootLayout() {
           </ClerkLoading>
           <ClerkLoaded>
             <OtaBridge />
-            <DiscoverHydrateBridge />
             <TableTennisCrashBridge />
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
@@ -306,6 +299,7 @@ export default function RootLayout() {
                   <KeyboardProvider>
                     <StatusBar style="light" />
                     <OtaRequiredGate>
+                      <DiscoverHydrateBridge />
                       <RootLayoutNav />
                     </OtaRequiredGate>
                     <OtaUpdateBanner />

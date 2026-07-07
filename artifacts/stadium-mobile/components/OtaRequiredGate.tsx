@@ -11,6 +11,9 @@ import { applyOtaOnColdStart } from "@/lib/otaUpdater";
 
 type BootPhase = "checking" | "ready";
 
+/** Max time to block boot while applying a downloaded OTA. Escape hatch for reload loops. */
+const BOOT_CHECK_MS = 6_000;
+
 /**
  * Blocks interaction when a downloaded OTA is waiting to apply. Prevents users
  * from running stale in-memory JS (e.g. old Home reloadAsync on sport pills)
@@ -26,22 +29,30 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
 
-    const safety = setTimeout(() => setBootPhase("ready"), 15_000);
+    let released = false;
+    const releaseBoot = async () => {
+      if (released) return;
+      released = true;
+      await markBundleAppliedIfReady();
+      setBootPhase("ready");
+    };
+
+    const safety = setTimeout(() => {
+      void releaseBoot();
+    }, BOOT_CHECK_MS);
 
     void applyOtaOnColdStart()
       .then(async (reloaded) => {
         if (!reloaded) {
-          await markBundleAppliedIfReady();
-          setBootPhase("ready");
+          await releaseBoot();
         }
       })
-      .catch(async () => {
-        await markBundleAppliedIfReady();
-        setBootPhase("ready");
-      })
+      .catch(() => releaseBoot())
       .finally(() => clearTimeout(safety));
 
-    return () => clearTimeout(safety);
+    return () => {
+      clearTimeout(safety);
+    };
   }, []);
 
   useEffect(() => {

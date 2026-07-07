@@ -6,6 +6,7 @@ import { AppState } from "react-native";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { browseSportsBundleReady } from "@/lib/browseSportsGuard";
 import {
+  clearAppliedBundleMark,
   markBundleAppliedIfReady,
   needsBrowseSportsBundleReload,
 } from "@/lib/bundleMark";
@@ -14,6 +15,22 @@ const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
 const LAUNCH_DELAY_MS = 2500;
 
+async function reloadWithFreshCache(): Promise<void> {
+  await clearDiscoverCache();
+  await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+}
+
+/** Download an OTA bundle without reloading — applies on the next cold start. */
+async function prefetchOtaUpdate(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  const result = await Updates.checkForUpdateAsync();
+  if (!result.isAvailable) return false;
+
+  await Updates.fetchUpdateAsync();
+  return true;
+}
+
 /**
  * Apply any downloaded or fetchable OTA before entering table tennis / cricket /
  * tennis browse flows. Returns true when reloadAsync was invoked (caller should abort).
@@ -21,13 +38,8 @@ const LAUNCH_DELAY_MS = 2500;
 export async function ensureBrowseSportOtaReady(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
 
-  const reload = async () => {
-    await clearDiscoverCache();
-    await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-  };
-
   if (latestContext?.isUpdatePending) {
-    await reload();
+    await reloadWithFreshCache();
     return true;
   }
 
@@ -35,53 +47,75 @@ export async function ensureBrowseSportOtaReady(): Promise<boolean> {
     const result = await Updates.checkForUpdateAsync();
     if (!result.isAvailable) return false;
     await Updates.fetchUpdateAsync();
-    await reload();
+    await reloadWithFreshCache();
     return true;
   } catch {
     return false;
   }
 }
 
-/** On cold start, fetch and apply any OTA before the UI becomes interactive. */
+/**
+ * On cold start: apply a downloaded OTA, or prefetch a newer one.
+ * Never force-reload just because the server has a newer bundle — that was
+ * bricking users in a reload loop with corrupt in-memory JS.
+ */
 export async function applyOtaOnColdStart(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
 
-  const reload = async () => {
-    await clearDiscoverCache();
-    await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-  };
+  if (latestContext?.isUpdatePending) {
+    await reloadWithFreshCache();
+    return true;
+  }
 
-  const mustReload = await needsBrowseSportsBundleReload();
-
-  if (latestContext?.isUpdatePending || mustReload) {
+  if (await needsBrowseSportsBundleReload()) {
     try {
       const check = await Updates.checkForUpdateAsync();
       if (check.isAvailable) await Updates.fetchUpdateAsync();
     } catch {
       // Offline — still try reload to apply a previously downloaded bundle.
     }
-    await reload();
+    await reloadWithFreshCache();
     return true;
   }
 
   try {
-    const check = await Updates.checkForUpdateAsync();
-    if (!check.isAvailable) {
-      await markBundleAppliedIfReady();
-      return false;
-    }
-    await Updates.fetchUpdateAsync();
-    await reload();
-    return true;
+    await prefetchOtaUpdate();
   } catch {
-    await markBundleAppliedIfReady();
-    return false;
+    // Offline — boot with the current bundle.
   }
+
+  await markBundleAppliedIfReady();
+  return false;
 }
 
 /** On cold start, reload immediately when a downloaded OTA is waiting to apply. */
 export async function applyPendingOtaOnLaunch(): Promise<boolean> {
   return applyOtaOnColdStart();
+}
+
+/**
+ * Fetch the latest OTA and reload after stale-bundle Hermes crashes.
+ * Clears bundle-mark + discover cache so the next boot does not re-enter a reload loop.
+ */
+export async function recoverFromCorruptOta(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  await clearDiscoverCache();
+  await clearAppliedBundleMark();
+
+  try {
+    const check = await Updates.checkForUpdateAsync();
+    if (check.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await reloadWithFreshCache();
+      return true;
+    }
+  } catch {
+    // Fall through to a plain reload.
+  }
+
+  await reloadWithFreshCache();
+  return true;
 }
 
 /**
@@ -91,8 +125,7 @@ export async function applyPendingOtaOnLaunch(): Promise<boolean> {
 export async function runWhenBrowseSportBundleReady(action: () => void): Promise<void> {
   if (!browseSportsBundleReady()) {
     if (Updates.isEnabled) {
-      await clearDiscoverCache();
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      await reloadWithFreshCache();
     }
     return;
   }
@@ -109,17 +142,6 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
 
   await Updates.fetchUpdateAsync();
   await Updates.reloadAsync();
-  return true;
-}
-
-/** Download an OTA bundle without reloading — applies on the next cold start. */
-async function prefetchOtaUpdate(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled) return false;
-
-  const result = await Updates.checkForUpdateAsync();
-  if (!result.isAvailable) return false;
-
-  await Updates.fetchUpdateAsync();
   return true;
 }
 

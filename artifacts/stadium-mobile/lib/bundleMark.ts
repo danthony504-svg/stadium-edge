@@ -4,7 +4,7 @@ import Constants from "expo-constants";
 import { browseSportsBundleReady } from "./browseSportsGuard";
 
 /** Bump when Table Tennis / browse-sport crash fixes ship — tracked in AsyncStorage only. */
-export const JS_BUNDLE_MARK = "tabletennis-v5";
+export const JS_BUNDLE_MARK = "tabletennis-v6";
 
 const STORAGE_KEY = "stadium-js-bundle-mark";
 
@@ -25,6 +25,14 @@ export async function readAppliedBundleMark(): Promise<string | null> {
 export async function writeAppliedBundleMark(mark: string): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, mark);
+  } catch {
+    // Best-effort
+  }
+}
+
+export async function clearAppliedBundleMark(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
   } catch {
     // Best-effort
   }

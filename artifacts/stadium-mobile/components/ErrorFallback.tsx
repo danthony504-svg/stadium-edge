@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
-import { applyOtaOnColdStart, ensureBrowseSportOtaReady } from "@/lib/otaUpdater";
+import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -31,15 +31,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   // Auto-recover from stale bundles without requiring the user to read the error.
   useEffect(() => {
     if (!isStaleBundleCrashError(error.message ?? "") || !Updates.isEnabled) return;
-    void (async () => {
-      try {
-        await clearDiscoverCache();
-        const reloading = await ensureBrowseSportOtaReady();
-        if (!reloading) await Updates.reloadAsync();
-      } catch {
-        // User can still tap Try Again.
-      }
-    })();
+    void recoverFromCorruptOta().catch(() => {
+      // User can still tap Try Again.
+    });
   }, [error.message]);
 
   const handleRestart = async () => {
@@ -47,7 +41,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
         if (isStaleBundleCrashError(error.message ?? "")) {
-          const reloading = await ensureBrowseSportOtaReady();
+          const reloading = await recoverFromCorruptOta();
           if (reloading) return;
         }
         const applied = await applyOtaOnColdStart();
