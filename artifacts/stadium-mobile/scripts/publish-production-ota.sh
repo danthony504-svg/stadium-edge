@@ -27,8 +27,13 @@ if [[ "$ROLLBACK_EMBEDDED" == "1" ]]; then
     --non-interactive
 fi
 
+echo "Linking production channel → production branch…"
+pnpm exec eas channel:edit production --branch production --non-interactive
+
 pnpm exec eas update \
-  --branch production \
+  --channel production \
+  --platform ios \
+  --runtime-version "1.0.0" \
   --message "$MESSAGE" \
   --non-interactive
 

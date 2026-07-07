@@ -2,7 +2,7 @@
   "expo": {
     "name": "Stadium Edge",
     "slug": "stadium-edge",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "stadium-mobile",
@@ -11,6 +11,7 @@
     "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c",
+      "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 30000
     },
     "splash": {
@@ -86,6 +87,13 @@
             ]
           }
         }
+      ],
+      [
+        "expo-updates",
+        {
+          "checkOnLaunch": "ALWAYS",
+          "fallbackToCacheTimeout": 30
+        }
       ]
     ],
     "experiments": {
@@ -95,7 +103,7 @@
       "eas": {
         "projectId": "9af36ab9-f953-4879-9dd2-82807ef7430c"
       },
-      "jsBundleMark": "tabletennis-v14"
+      "jsBundleMark": "tabletennis-v15"
     },
     "owner": "danthony504"
   }

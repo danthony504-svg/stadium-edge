@@ -1,12 +1,16 @@
 name: Build iOS TestFlight
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/native-release.marker"
   workflow_dispatch:
     inputs:
       message:
         description: Build message (EAS build profile)
         required: false
-        default: "Embed latest JS — corrupt OTA recovery"
+        default: "Embed latest JS — Discover Home + Table Tennis"
 
 jobs:
   build:
@@ -43,6 +47,9 @@ jobs:
             exit 1
           fi
           MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="Discover Home embedded $(git rev-parse --short HEAD)"
+          fi
           pnpm exec eas build \
             --platform ios \
             --profile production \
