@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { applyPendingOtaOnLaunch } from "@/lib/otaUpdater";
+import { applyOtaOnColdStart } from "@/lib/otaUpdater";
 
 type BootPhase = "checking" | "ready";
 
@@ -25,7 +25,7 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
 
-    void applyPendingOtaOnLaunch().then((reloaded) => {
+    void applyOtaOnColdStart().then((reloaded) => {
       if (!reloaded) setBootPhase("ready");
     });
   }, []);

@@ -42,7 +42,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { browseCoachMessage, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
+import { browseCoachMessage, browseSportsBundleReady, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
 import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 import {
   hydrateDiscoverCache,
@@ -74,6 +74,10 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 const HOME_MIN_VALUE_EV = 1.5;
 const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "tabletennis", "cricket", "nfl"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
+/** Hide browse sports until this bundle has table-tennis helpers (stale OTA guard). */
+const HOME_SPORTS_VISIBLE = HOME_SPORTS.filter(
+  (s) => (s.id !== "tabletennis" && s.id !== "cricket") || browseSportsBundleReady(),
+);
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -2133,7 +2137,7 @@ function HomeScreenBody() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
         >
-          {HOME_SPORTS.map((s) => {
+          {HOME_SPORTS_VISIBLE.map((s) => {
             const active = sport === s.id;
             return (
               <Pressable

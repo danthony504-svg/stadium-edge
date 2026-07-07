@@ -38,12 +38,34 @@ export async function ensureBrowseSportOtaReady(): Promise<boolean> {
   }
 }
 
+/** On cold start, fetch and apply any OTA before the UI becomes interactive. */
+export async function applyOtaOnColdStart(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  const reload = async () => {
+    await clearDiscoverCache();
+    await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+  };
+
+  if (latestContext?.isUpdatePending) {
+    await reload();
+    return true;
+  }
+
+  try {
+    const check = await Updates.checkForUpdateAsync();
+    if (!check.isAvailable) return false;
+    await Updates.fetchUpdateAsync();
+    await reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** On cold start, reload immediately when a downloaded OTA is waiting to apply. */
 export async function applyPendingOtaOnLaunch(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled || !latestContext?.isUpdatePending) return false;
-  await clearDiscoverCache();
-  await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-  return true;
+  return applyOtaOnColdStart();
 }
 
 /**

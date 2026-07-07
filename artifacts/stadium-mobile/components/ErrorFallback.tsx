@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { applyOtaOnColdStart, ensureBrowseSportOtaReady } from "@/lib/otaUpdater";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -30,6 +31,12 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
+        if (error.message?.includes("tabletennis")) {
+          const reloading = await ensureBrowseSportOtaReady();
+          if (reloading) return;
+        }
+        const applied = await applyOtaOnColdStart();
+        if (applied) return;
         await Updates.reloadAsync();
       } else {
         resetError();
