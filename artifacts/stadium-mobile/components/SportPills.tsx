@@ -8,7 +8,7 @@ import { SPORTS } from "@/lib/sports";
 // Leagues shown as browse-only pills (no prop feed — moneyline matches list).
 // Kept here so the pill row is a single source of truth for both the Props tab
 // and the Golf board (which reuses this row for switching between surfaces).
-export const BROWSE_ONLY_SPORTS = ["tennis", "tabletennis", "cricket"];
+export const BROWSE_ONLY_SPORTS = ["tennis"];
 
 export const PILL_SPORT_IDS = [...PROPS_SPORTS, ...BROWSE_ONLY_SPORTS];
 

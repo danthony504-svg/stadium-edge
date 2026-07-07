@@ -9,23 +9,11 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
   exit 1
 fi
 
-MESSAGE="${1:-Restore new UI $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main)}"
+MESSAGE="${1:-Stable pre-table-tennis OTA $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main)}"
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
-
-ROLLBACK_EMBEDDED="${ROLLBACK_EMBEDDED:-0}"
-
-if [[ "$ROLLBACK_EMBEDDED" == "1" ]]; then
-  echo "Rolling back production iOS channel to embedded bundle before publishing fix…"
-  pnpm exec eas update:roll-back-to-embedded \
-    --branch production \
-    --platform ios \
-    --runtime-version "1.0.0" \
-    --message "Rollback corrupt OTA before: $MESSAGE" \
-    --non-interactive
-fi
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive
@@ -36,4 +24,4 @@ pnpm exec eas update \
   --message "$MESSAGE" \
   --non-interactive
 
-echo "OTA published. Users on TestFlight will pick it up within ~12s of next app open."
+echo "OTA published. App Store + TestFlight users on runtime 1.0.0 pick it up on next open."

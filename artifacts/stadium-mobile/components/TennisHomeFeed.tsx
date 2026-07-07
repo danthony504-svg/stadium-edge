@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
-import { EmptyState, FONT, Loading } from "@/components/ui";
+import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -19,8 +19,6 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { browseCoachMessage, isOddsBrowseSport, sportLabel } from "@/lib/sports";
-import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -45,7 +43,6 @@ function withTennisFlags(
 }
 
 type TennisHomeFeedProps = {
-  sport: string;
   router: Router;
   width: number;
   slipClearance: number;
@@ -53,9 +50,8 @@ type TennisHomeFeedProps = {
   onBuildParlay: () => void;
 };
 
-/** Minimal Home feed for odds-browse sports — no featured props or upsets fan-out. */
+/** Minimal Home feed for Tennis — no featured props, upsets, or useQueries fan-out. */
 export function TennisHomeFeed({
-  sport,
   router,
   width,
   slipClearance,
@@ -63,31 +59,17 @@ export function TennisHomeFeed({
   onBuildParlay,
 }: TennisHomeFeedProps) {
   const colors = useColors();
-  const label = sportLabel(sport);
-  const browseSport = isOddsBrowseSport(sport);
-  const useFlags = sport === "tennis";
+  const sport = "tennis";
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
-    queryFn: async ({ signal }) => {
-      try {
-        return await getOdds(sport, signal);
-      } catch {
-        return [] as OddsGame[];
-      }
-    },
+    queryFn: ({ signal }) => getOdds(sport, signal),
     staleTime: 45_000,
     retry: false,
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
-    queryFn: async ({ signal }) => {
-      try {
-        return await getGames(sport, signal);
-      } catch {
-        return [] as EspnGame[];
-      }
-    },
+    queryFn: ({ signal }) => getGames(sport, signal),
     staleTime: 45_000,
     retry: false,
   });
@@ -96,7 +78,6 @@ export function TennisHomeFeed({
     queryFn: ({ signal }) => getTennisFlags(signal),
     staleTime: 5 * 60_000,
     retry: false,
-    enabled: useFlags,
   });
 
   const gamesForSport = useMemo(() => {
@@ -147,26 +128,18 @@ export function TennisHomeFeed({
           !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
       )
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data, liveKeySet, sport]);
+  }, [oddsQ.data, liveKeySet]);
 
-  const loading = (oddsQ.isFetching || gamesQ.isFetching) && upcoming.length === 0;
-  const refreshing = oddsQ.isFetching || gamesQ.isFetching || (useFlags && flagsQ.isFetching);
+  const loading = oddsQ.isFetching || gamesQ.isFetching;
+  const refreshing = oddsQ.isFetching || gamesQ.isFetching || flagsQ.isFetching;
 
-  const launchBrowseCoach = (msg: string, silent = false) => {
-    void runWhenBrowseSportBundleReady(() => {
-      if (silent) markCoachHomeLaunch();
-      router.push({
-        pathname: "/coach",
-        params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
-      });
+  const askCoach = (msg: string, silent = false) => {
+    if (silent) markCoachHomeLaunch();
+    router.push({
+      pathname: "/coach",
+      params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
     });
   };
-
-  const launchBuildParlay = () => {
-    void runWhenBrowseSportBundleReady(onBuildParlay);
-  };
-
-  if (!browseSport) return null;
 
   return (
     <ScrollView
@@ -177,14 +150,14 @@ export function TennisHomeFeed({
           onRefresh={() => {
             void oddsQ.refetch();
             void gamesQ.refetch();
-            if (useFlags) void flagsQ.refetch();
+            void flagsQ.refetch();
           }}
           tintColor={colors.mutedForeground}
         />
       }
     >
       <Pressable
-        onPress={launchBuildParlay}
+        onPress={onBuildParlay}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 18,
@@ -201,7 +174,7 @@ export function TennisHomeFeed({
           Build best parlay
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, marginTop: 4 }}>
-          AI picks from live {label} moneylines when matches are on the board.
+          AI picks from live tennis moneylines when matches are on the board.
         </Text>
       </Pressable>
 
@@ -271,16 +244,20 @@ export function TennisHomeFeed({
         ) : null}
       </View>
 
-      {loading ? (
+      {loading && upcoming.length === 0 ? (
         <View style={{ paddingHorizontal: 16 }}>
-          <Loading label={`Loading ${label} odds…`} />
+          <Loading label="Loading tennis odds…" />
+        </View>
+      ) : oddsQ.isError && !oddsQ.data ? (
+        <View style={{ paddingHorizontal: 16 }}>
+          <ErrorState onRetry={() => oddsQ.refetch()} />
         </View>
       ) : upcoming.length === 0 ? (
         <View style={{ paddingHorizontal: 16 }}>
           <EmptyState
             icon="calendar"
             title="No matches in the window"
-            subtitle={`No pregame ${label} matchups in the next 48 hours right now. Live and completed matches are hidden.`}
+            subtitle="No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
           />
         </View>
       ) : (
@@ -289,7 +266,7 @@ export function TennisHomeFeed({
             const baseMeta = metaMap.get(
               `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
             );
-            const meta = useFlags ? withTennisFlags(baseMeta, flagsQ.data, g) : baseMeta;
+            const meta = withTennisFlags(baseMeta, flagsQ.data, g);
             const h2h = g.markets?.find((m) => m.key === "h2h");
             const awayML = h2h?.outcomes?.find((o) => o.name === g.awayTeam)?.price;
             const homeML = h2h?.outcomes?.find((o) => o.name === g.homeTeam)?.price;
@@ -340,7 +317,7 @@ export function TennisHomeFeed({
       )}
 
       <Pressable
-        onPress={() => launchBrowseCoach(browseCoachMessage(sport))}
+        onPress={() => askCoach("Build me the best tennis parlay for today's board")}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 20,
@@ -358,7 +335,7 @@ export function TennisHomeFeed({
       >
         <Feather name="message-circle" size={16} color={colors.primary} />
         <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 13 }}>
-          Ask Coach about {label.toLowerCase()}
+          Ask Coach about tennis
         </Text>
       </Pressable>
     </ScrollView>

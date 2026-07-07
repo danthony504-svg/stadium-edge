@@ -1,27 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  coachBuildSports,
   contextDepthForLegs,
   focalSportsFromText,
   inferPropPickSport,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority.ts";
-
-const ALL_SPORTS = [
-  "mlb",
-  "wnba",
-  "nba",
-  "nhl",
-  "soccer",
-  "ufc",
-  "tennis",
-  "tabletennis",
-  "cricket",
-  "nfl",
-  "ncaaf",
-  "ncaab",
-];
 
 type Target = { sport: string; game: string; player: string };
 
@@ -80,23 +64,6 @@ test("focal game's players survive the 40-player cap on a busy slate", () => {
     firstMlbIdx === -1 || lastNbaIdx < firstMlbIdx,
     "all named-sport (NBA) players rank ahead of any MLB player",
   );
-});
-
-test("focalSportsFromText: table tennis does not spuriously focus ATP/WTA tennis", () => {
-  const asks = [
-    "build me a table tennis parlay",
-    "3-leg table-tennis ticket",
-    "ping pong parlay tonight",
-    "tabletennis moneyline picks",
-  ];
-  for (const ask of asks) {
-    const focal = focalSportsFromText(ask);
-    assert.ok(focal.has("tabletennis"), `"${ask}" must focus tabletennis`);
-    assert.ok(!focal.has("tennis"), `"${ask}" must NOT also focus tennis`);
-  }
-  assert.ok(focalSportsFromText("ATP tennis parlay tonight").has("tennis"));
-  assert.ok(!focalSportsFromText("ATP tennis parlay tonight").has("tabletennis"));
-  assert.ok(focalSportsFromText("cricket IPL parlay").has("cricket"));
 });
 
 test("focalSportsFromText recognizes World Cup / FIFA as soccer", () => {
@@ -191,11 +158,7 @@ test("stable within a tier: original order preserved among equal-rank targets", 
 const FULL_PROPS = 400;
 
 test("small tickets (2-5 legs) get the focused, leanest pool", () => {
-  for (const n of [2, 3]) {
-    const d = contextDepthForLegs(n, FULL_PROPS);
-    assert.deepEqual(d, { props: 45, odds: 28, history: 6, matchup: 2 });
-  }
-  for (const n of [4, 5]) {
+  for (const n of [2, 3, 4, 5]) {
     const d = contextDepthForLegs(n, FULL_PROPS);
     assert.deepEqual(d, { props: 80, odds: 45, history: 10, matchup: 3 });
   }

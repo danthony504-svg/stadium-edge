@@ -20,8 +20,6 @@ export const SPORTS: Sport[] = [
   { id: "soccer", label: "Soccer", short: "SOC", icon: "soccer" },
   { id: "ufc", label: "UFC", short: "UFC", icon: "mixed-martial-arts" },
   { id: "tennis", label: "Tennis", short: "TEN", icon: "tennis" },
-  { id: "tabletennis", label: "Table Tennis", short: "TT", icon: "table-tennis" },
-  { id: "cricket", label: "Cricket", short: "CRI", icon: "cricket" },
   { id: "nfl", label: "NFL", short: "NFL", icon: "football" },
   { id: "ncaaf", label: "CFB", short: "CFB", icon: "football" },
   { id: "ncaab", label: "CBB", short: "CBB", icon: "basketball" },
@@ -36,27 +34,6 @@ export const SPORTS: Sport[] = [
 // come back empty through the same window filter — we never fabricate fixtures.
 export const DEFAULT_SPORTS = SPORTS.map((s) => s.id);
 
-/** Moneyline-first sports with no player props — Home/Props browse odds boards. */
-export const ODDS_BROWSE_SPORTS = ["tennis", "tabletennis", "cricket"] as const;
-
-export function isOddsBrowseSport(id: string): boolean {
-  return (ODDS_BROWSE_SPORTS as readonly string[]).includes(id);
-}
-
 export function sportLabel(id: string): string {
   return SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
 }
-
-/** Safe MaterialCommunityIcons name — unknown ids fall back instead of crashing Hermes. */
-export function sportIcon(id: string): MCIName {
-  const icon = SPORTS.find((s) => s.id === id)?.icon;
-  return icon ?? "help-circle";
-}
-
-export function isKnownSport(id: string): boolean {
-  return SPORTS.some((s) => s.id === id);
-}
-
-export { browseCoachMessage, browseSportsBundleReady, isStaleBundleCrashError } from "./browseSportsGuard";
-export { browseSportsUiEnabled } from "./bundleMark";
-export { getOddsSelector, oddsQuerySelectors } from "./oddsQuerySelectors";

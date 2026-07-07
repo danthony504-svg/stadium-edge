@@ -1,210 +1,12 @@
 import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
-import {
-  clearLastBootCrash,
-  isKnownCorruptCrashMessage,
-  readLastBootCrash,
-} from "@/lib/crashRecovery";
-import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { browseSportsBundleReady } from "@/lib/browseSportsGuard";
-import {
-  clearAppliedBundleMark,
-  markBundleAppliedIfReady,
-  markOtaEpochApplied,
-  needsBrowseSportsBundleReload,
-  needsOtaEpochUpgrade,
-} from "@/lib/bundleMark";
-import {
-  bumpColdStartReloadAttempts,
-  clearColdStartReloadAttempts,
-  readColdStartReloadAttempts,
-} from "@/lib/otaReloadGuard";
-
 const FOREGROUND_DEBOUNCE_MS = 45_000;
+/** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
 const LAUNCH_DELAY_MS = 2500;
-/** Stop infinite reload loops when OTA cannot advance (offline / already latest). */
-const MAX_COLD_START_RELOADS = 2;
 
-async function reloadWithFreshCache(): Promise<void> {
-  await clearDiscoverCache();
-  await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-}
-
-/**
- * Reload at most MAX_COLD_START_RELOADS times per successful boot.
- * Returns false when the cap is hit — caller should continue boot instead of looping.
- */
-async function guardedColdStartReload(): Promise<boolean> {
-  const attempts = await readColdStartReloadAttempts();
-  if (attempts >= MAX_COLD_START_RELOADS) {
-    return false;
-  }
-  await bumpColdStartReloadAttempts();
-  await reloadWithFreshCache();
-  return true;
-}
-
-/** Fetch the latest production OTA when the server has one. Returns true when fetched. */
-async function fetchLatestOtaIfAvailable(): Promise<boolean> {
-  const check = await Updates.checkForUpdateAsync();
-  if (!check.isAvailable) return false;
-  await Updates.fetchUpdateAsync();
-  return true;
-}
-
-async function prefetchOtaUpdate(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled) return false;
-  try {
-    return await fetchLatestOtaIfAvailable();
-  } catch {
-    return false;
-  }
-}
-
-export async function ensureBrowseSportOtaReady(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled) return false;
-
-  if (latestContext?.isUpdatePending) {
-    await reloadWithFreshCache();
-    return true;
-  }
-
-  try {
-    if (await fetchLatestOtaIfAvailable()) {
-      await reloadWithFreshCache();
-      return true;
-    }
-  } catch {
-    return false;
-  }
-
-  return false;
-}
-
-/**
- * On cold start: apply a pending OTA or fetch once when corrupt.
- * Never reload blindly — that was trapping users on a white/navy spinner loop.
- */
-export async function applyOtaOnColdStart(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled) return false;
-
-  if (latestContext?.isUpdatePending) {
-    const reloaded = await guardedColdStartReload();
-    if (!reloaded) await markSuccessfulOtaBoot();
-    return reloaded;
-  }
-
-  // Embedded TestFlight JS is old — prefetch only; reload on next launch when pending.
-  if (Updates.isEmbeddedLaunch) {
-    try {
-      await fetchLatestOtaIfAvailable();
-    } catch {
-      // offline
-    }
-    if (latestContext?.isUpdatePending) {
-      const reloaded = await guardedColdStartReload();
-      if (!reloaded) await markSuccessfulOtaBoot();
-      return reloaded;
-    }
-    return false;
-  }
-
-  const lastCrash = await readLastBootCrash();
-  const hadCorruptCrash = !!lastCrash && isKnownCorruptCrashMessage(lastCrash);
-  const browseStale = await needsBrowseSportsBundleReload();
-
-  if (hadCorruptCrash || browseStale) {
-    let fetched = false;
-    try {
-      fetched = await fetchLatestOtaIfAvailable();
-    } catch {
-      // offline
-    }
-    if (fetched) {
-      const reloaded = await guardedColdStartReload();
-      if (!reloaded && browseSportsBundleReady()) await markSuccessfulOtaBoot();
-      return reloaded;
-    }
-    // Stay on corrupt bundle offline — do not stamp epoch; crash UI will retry.
-    return false;
-  }
-
-  if (await needsOtaEpochUpgrade()) {
-    let fetched = false;
-    try {
-      fetched = await fetchLatestOtaIfAvailable();
-    } catch {
-      // offline
-    }
-    if (fetched) {
-      const reloaded = await guardedColdStartReload();
-      if (!reloaded) await markSuccessfulOtaBoot();
-      return reloaded;
-    }
-    // Already on the newest bundle — stamp epoch without reloading.
-    await markOtaEpochApplied();
-  }
-
-  try {
-    await prefetchOtaUpdate();
-  } catch {
-    // offline
-  }
-
-  await markSuccessfulOtaBoot();
-  return false;
-}
-
-/** Mark a successful boot after OTA gate releases the UI. */
-export async function markSuccessfulOtaBoot(): Promise<void> {
-  if (!browseSportsBundleReady()) return;
-  if (Updates.isEmbeddedLaunch) return;
-  await markBundleAppliedIfReady();
-  await markOtaEpochApplied();
-  await clearLastBootCrash();
-  await clearColdStartReloadAttempts();
-}
-
-export async function applyPendingOtaOnLaunch(): Promise<boolean> {
-  return applyOtaOnColdStart();
-}
-
-export async function recoverFromCorruptOta(): Promise<boolean> {
-  if (__DEV__ || !Updates.isEnabled) return false;
-
-  await clearDiscoverCache();
-  await clearAppliedBundleMark();
-  await clearColdStartReloadAttempts();
-
-  try {
-    if (await fetchLatestOtaIfAvailable()) {
-      return await guardedColdStartReload();
-    }
-  } catch {
-    // fall through
-  }
-
-  if (latestContext?.isUpdatePending) {
-    return await guardedColdStartReload();
-  }
-
-  return false;
-}
-
-export async function runWhenBrowseSportBundleReady(action: () => void): Promise<void> {
-  if (!browseSportsBundleReady()) {
-    if (Updates.isEnabled) {
-      await reloadWithFreshCache();
-    }
-    return;
-  }
-  const reloading = await ensureBrowseSportOtaReady();
-  if (!reloading) action();
-}
-
+/** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
 
@@ -216,6 +18,22 @@ export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
   return true;
 }
 
+/** Download an OTA bundle without reloading — applies on the next cold start. */
+async function prefetchOtaUpdate(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  const result = await Updates.checkForUpdateAsync();
+  if (!result.isAvailable) return false;
+
+  await Updates.fetchUpdateAsync();
+  return true;
+}
+
+/**
+ * Prefetch OTA updates after launch and on foreground resume (debounced).
+ * Never calls reloadAsync automatically — mid-session reload was wiping query
+ * cache (Discover flash) and aborting Coach parlay streams.
+ */
 export function useOtaUpdater(enabled: boolean) {
   const inFlight = useRef(false);
   const lastCheckAt = useRef(0);

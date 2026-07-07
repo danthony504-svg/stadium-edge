@@ -19,7 +19,7 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, ErrorUtils, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -27,13 +27,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
-import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS, clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
-import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
-import { isKnownCorruptCrashMessage, recordBootCrash } from "@/lib/crashRecovery";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
-import { applyOtaUpdateIfAvailable, recoverFromCorruptOta, useOtaUpdater } from "@/lib/otaUpdater";
+import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -224,26 +222,6 @@ function DiscoverHydrateBridge() {
   return null;
 }
 
-/** Auto-reload when Hermes throws stale-bundle ReferenceErrors after a partial OTA. */
-function TableTennisCrashBridge() {
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled) return;
-    const prev = ErrorUtils.getGlobalHandler?.();
-    ErrorUtils.setGlobalHandler((error, isFatal) => {
-      const msg = String(error?.message ?? "");
-      if (isStaleBundleCrashError(msg) || isKnownCorruptCrashMessage(msg)) {
-        void recordBootCrash(msg);
-        void recoverFromCorruptOta().catch(() => {
-          void Updates.reloadAsync().catch(() => {});
-        });
-        return;
-      }
-      prev?.(error, isFatal);
-    });
-  }, []);
-  return null;
-}
-
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
@@ -292,7 +270,7 @@ export default function RootLayout() {
           </ClerkLoading>
           <ClerkLoaded>
             <OtaBridge />
-            <TableTennisCrashBridge />
+            <DiscoverHydrateBridge />
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />
@@ -301,7 +279,6 @@ export default function RootLayout() {
                   <KeyboardProvider>
                     <StatusBar style="light" />
                     <OtaRequiredGate>
-                      <DiscoverHydrateBridge />
                       <RootLayoutNav />
                     </OtaRequiredGate>
                     <OtaUpdateBanner />

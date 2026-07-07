@@ -14,8 +14,6 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl", "world cup", "fifa"],
   ufc: ["ufc", "mma"],
   tennis: ["tennis", "atp", "wta"],
-  "tabletennis": ["table tennis", "tabletennis", "table-tennis", "ping pong", "ping-pong"],
-  cricket: ["cricket", "ipl", "t20", "odi", "test match", "the hundred", "big bash"],
   nfl: ["nfl"],
   ncaaf: ["ncaaf", "cfb", "college football"],
   ncaab: ["ncaab", "cbb", "college basketball"],
@@ -25,17 +23,9 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   const out = new Set<string>();
   const t = String(text || "");
   if (!t) return out;
-  const matchesWord = (w: string) => new RegExp(`\\b${w}\\b`, "i").test(t);
   for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
     for (const w of words) {
-      // "tennis" is a substring of "table tennis" — don't treat a table-tennis ask
-      // as ATP/WTA tennis unless the user also names tennis explicitly (ATP/WTA
-      // or bare "tennis" not preceded by "table").
-      if (id === "tennis" && w === "tennis") {
-        if (/(?<!table[\s-])\btennis\b/i.test(t)) out.add(id);
-        continue;
-      }
-      if (matchesWord(w)) {
+      if (new RegExp(`\\b${w}\\b`, "i").test(t)) {
         out.add(id);
         break;
       }
@@ -188,9 +178,8 @@ export function coachBuildSports(
   if (named.size > 0) return [...named];
   const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
   if (n >= 11) return [...allSports];
-  if (n >= 6)
-    return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "tabletennis", "cricket"].filter(
-      (id) => allSports.includes(id),
-    );
+  if (n >= 6) return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
+    allSports.includes(id),
+  );
   return ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
 }

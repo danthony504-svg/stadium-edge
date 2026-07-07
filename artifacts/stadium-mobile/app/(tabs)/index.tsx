@@ -42,8 +42,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { browseCoachMessage, browseSportsUiEnabled, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
-import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
+import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -72,7 +71,7 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 // de-vigged cross-book consensus fair value (server-computed ev) by at least
 // this margin. We NEVER recompute or guess EV client-side.
 const HOME_MIN_VALUE_EV = 1.5;
-const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "tabletennis", "cricket", "nfl"];
+const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
@@ -2022,14 +2021,6 @@ function HomeSportFeed({
 }
 
 export default function HomeScreen() {
-  return (
-    <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
-      <HomeScreenBody />
-    </ErrorBoundary>
-  );
-}
-
-function HomeScreenBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
@@ -2047,47 +2038,26 @@ function HomeScreenBody() {
   const sportRef = useRef(sport);
   sportRef.current = sport;
 
-  const homeSportsVisible = useMemo(
-    () =>
-      HOME_SPORTS.filter(
-        (s) => (s.id !== "tabletennis" && s.id !== "cricket") || browseSportsUiEnabled(),
-      ),
-    [],
-  );
-
   const selectSport = useCallback(
     (id: string) => {
-      if (!HOME_SPORT_IDS.includes(id) || !isKnownSport(id)) return;
       if (id === sportRef.current) return;
-
-      const applySportChange = () => {
-        sportRef.current = id;
-        sportFetchGenRef.current += 1;
-        queryClient.cancelQueries({ queryKey: ["odds"] });
-        queryClient.cancelQueries({ queryKey: ["games"] });
-        queryClient.cancelQueries({ queryKey: ["home-featured"] });
-        queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
-        queryClient.cancelQueries({ queryKey: ["home-upsets"] });
-        queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
-        queryClient.removeQueries({ queryKey: ["odds"] });
-        queryClient.removeQueries({ queryKey: ["games"] });
-        queryClient.removeQueries({ queryKey: ["home-featured"] });
-        queryClient.removeQueries({ queryKey: ["home-upsets"] });
-        queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
-        if (isOddsBrowseSport(id)) {
-          void clearDiscoverCache();
-        }
-        setSport(id);
-      };
-
-      // Stale in-memory JS can throw "Property 'tabletennis' doesn't exist" on browse
-      // sports — fetch/apply OTA first, and reload if this bundle lacks TT helpers.
-      if (isOddsBrowseSport(id)) {
-        void runWhenBrowseSportBundleReady(applySportChange);
-        return;
+      sportRef.current = id;
+      sportFetchGenRef.current += 1;
+      queryClient.cancelQueries({ queryKey: ["odds"] });
+      queryClient.cancelQueries({ queryKey: ["games"] });
+      queryClient.cancelQueries({ queryKey: ["home-featured"] });
+      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
+      queryClient.cancelQueries({ queryKey: ["home-upsets"] });
+      queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
+      queryClient.removeQueries({ queryKey: ["odds"] });
+      queryClient.removeQueries({ queryKey: ["games"] });
+      queryClient.removeQueries({ queryKey: ["home-featured"] });
+      queryClient.removeQueries({ queryKey: ["home-upsets"] });
+      queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
+      if (id === "tennis") {
+        void clearDiscoverCache();
       }
-
-      applySportChange();
+      setSport(id);
     },
     [queryClient],
   );
@@ -2141,7 +2111,7 @@ function HomeScreenBody() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 14, paddingBottom: 4 }}
         >
-          {homeSportsVisible.map((s) => {
+          {HOME_SPORTS.map((s) => {
             const active = sport === s.id;
             return (
               <Pressable
@@ -2171,7 +2141,7 @@ function HomeScreenBody() {
                   }}
                 >
                   <MaterialCommunityIcons
-                    name={sportIcon(s.id)}
+                    name={s.icon}
                     size={15}
                     color={active ? "#fff" : colors.mutedForeground}
                   />
@@ -2191,11 +2161,9 @@ function HomeScreenBody() {
         </ScrollView>
       </AppHeader>
 
-      {isOddsBrowseSport(sport) ? (
+      {sport === "tennis" ? (
         <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
           <TennisHomeFeed
-            key={sport}
-            sport={sport}
             router={router}
             width={width}
             slipClearance={slipClearance}
@@ -2205,7 +2173,7 @@ function HomeScreenBody() {
               router.push({
                 pathname: "/coach",
                 params: {
-                  autoMsg: browseCoachMessage(sport),
+                  autoMsg: "Build me the best parlay",
                   send: "1",
                   ts: String(Date.now()),
                 },

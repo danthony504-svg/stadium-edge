@@ -7,8 +7,6 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { ErrorFallback } from "@/components/ErrorFallback";
 import { GamePropsSection } from "@/components/GamePropsSection";
 import { InjuryReport } from "@/components/InjuryReport";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
@@ -28,7 +26,7 @@ import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { computeAnalytics } from "@/lib/modelReport";
-import { sportLabel } from "@/lib/sports";
+import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -619,37 +617,6 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   );
 }
 
-// Table tennis / cricket — honest empty analytics (moneyline-first; no StatMuse/ESPN layer).
-function OddsOnlySportNote({ sport }: { sport: string }) {
-  const colors = useColors();
-  const label = sportLabel(sport);
-  const detail =
-    sport === "tabletennis"
-      ? "Table tennis is moneyline-only here — no player stats, form, or matchup analytics feed."
-      : sport === "cricket"
-        ? "Cricket carries real match odds (moneyline / draw / totals when posted) but no player props or deep matchup analytics in this app yet."
-        : `${label} has limited analytics in this app — use posted odds only.`;
-  return (
-    <View
-      style={{
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: colors.radius,
-        padding: 14,
-        gap: 6,
-      }}
-    >
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-        {label} coverage
-      </Text>
-      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 18 }}>
-        {detail}
-      </Text>
-    </View>
-  );
-}
-
 // Real tennis matchup — both players' ESPN ATP/WTA ranking + country + season
 // recent form (set scores) + any recent head-to-head. Every value comes from
 // ESPN; missing values are honest-nulled (—), never fabricated. Renders nothing
@@ -941,14 +908,6 @@ function LiveScoreBanner({ espn }: { espn: EspnGame }) {
 }
 
 export default function GameDetailScreen() {
-  return (
-    <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <GameDetailBody />
-    </ErrorBoundary>
-  );
-}
-
-function GameDetailBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
@@ -958,30 +917,16 @@ function GameDetailBody() {
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
-    queryFn: async ({ signal }) => {
-      try {
-        return await getOdds(String(sport), signal);
-      } catch {
-        return [] as OddsGame[];
-      }
-    },
+    queryFn: ({ signal }) => getOdds(String(sport), signal),
     staleTime: 60_000,
     enabled: !!sport,
-    retry: false,
   });
 
   const gamesQ = useQuery({
     queryKey: ["games", sport],
-    queryFn: async ({ signal }) => {
-      try {
-        return await getGames(String(sport), signal);
-      } catch {
-        return [] as EspnGame[];
-      }
-    },
+    queryFn: ({ signal }) => getGames(String(sport), signal),
     staleTime: 30_000,
     enabled: !!sport,
-    retry: false,
   });
 
   const espnGame = useMemo(
@@ -1126,16 +1071,13 @@ function GameDetailBody() {
 
           {/* Real ESPN injury report for both sides + how it tilts the game.
               Team-sport only — individual sports (tennis/UFC) have no team feed. */}
-          {!["tennis", "tabletennis", "cricket", "ufc", "mma"].includes(game.sport) ? (
+          {!["tennis", "ufc", "mma"].includes(game.sport) ? (
             <InjuryReport sport={game.sport} teams={[game.awayTeam, game.homeTeam]} />
           ) : null}
 
           {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
 
           {game.sport === "tennis" ? <TennisMatchupCard game={game} /> : null}
-          {game.sport === "tabletennis" || game.sport === "cricket" ? (
-            <OddsOnlySportNote sport={game.sport} />
-          ) : null}
 
 
           {(() => {

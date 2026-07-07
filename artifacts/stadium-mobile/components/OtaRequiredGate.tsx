@@ -5,46 +5,16 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
-import { isKnownCorruptCrashMessage, readLastBootCrash } from "@/lib/crashRecovery";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
-
-type GatePhase = "recovering" | "downloading" | "ready";
 
 /**
- * Blocks when recovering from a corrupt bundle, downloading Discover UI on embedded,
- * or when a downloaded OTA is waiting to apply.
+ * Blocks interaction when a downloaded OTA is waiting to apply. Prevents users
+ * from running stale in-memory JS (e.g. old Home reloadAsync on sport pills)
+ * after a new bundle has already been fetched.
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
-  const [phase, setPhase] = useState<GatePhase>(() =>
-    !__DEV__ && Updates.isEnabled && Updates.isEmbeddedLaunch ? "downloading" : "ready",
-  );
   const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
-
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled) return;
-
-    void (async () => {
-      const lastCrash = await readLastBootCrash();
-      if (lastCrash && isKnownCorruptCrashMessage(lastCrash)) {
-        setPhase("recovering");
-        try {
-          await recoverFromCorruptOta();
-        } catch {
-          // fall through — applyOtaOnColdStart may still fetch
-        }
-      } else if (Updates.isEmbeddedLaunch) {
-        setPhase("downloading");
-      }
-
-      const reloaded = await applyOtaOnColdStart().catch(() => false);
-      if (reloaded) return;
-
-      setPending(!!latestContext?.isUpdatePending);
-      setPhase("ready");
-    })();
-  }, []);
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
@@ -53,37 +23,6 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, []);
-
-  if (phase === "recovering" || phase === "downloading") {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#0f172a",
-          alignItems: "center",
-          justifyContent: "center",
-          paddingHorizontal: 28,
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-        }}
-      >
-        <ActivityIndicator size="large" color="#38bdf8" />
-        <Text
-          style={{
-            color: "#94a3b8",
-            fontFamily: FONT.medium,
-            fontSize: 15,
-            textAlign: "center",
-            marginTop: 16,
-          }}
-        >
-          {phase === "downloading"
-            ? "Downloading Discover Home…"
-            : "Downloading fix…"}
-        </Text>
-      </View>
-    );
-  }
 
   if (__DEV__ || !Updates.isEnabled || !pending) {
     return <>{children}</>;
@@ -135,9 +74,8 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 10,
           }}
         >
-          {Updates.isEmbeddedLaunch
-            ? "Tap Restart once to load Discover Home (Table Tennis, Coach, and more)."
-            : "Stadium Edge downloaded a fix. Tap Restart once to load it."}
+          Stadium Edge downloaded a fix for Home and Tennis. Restart once to load it — using the
+          app before restarting can cause crashes like &quot;userFound is not a function&quot;.
         </Text>
         <Pressable
           onPress={restart}

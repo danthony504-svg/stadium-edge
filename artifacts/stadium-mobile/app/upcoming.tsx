@@ -72,13 +72,7 @@ export default function UpcomingScreen() {
 
   const oddsQ = useQuery({
     queryKey: ["odds", sportId],
-    queryFn: async ({ signal }) => {
-      try {
-        return await getOdds(sportId, signal);
-      } catch {
-        return [] as OddsGame[];
-      }
-    },
+    queryFn: ({ signal }) => getOdds(sportId, signal),
     staleTime: 60_000,
     enabled: !!sportId,
   });

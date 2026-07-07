@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Modal,
   Platform,
@@ -14,9 +14,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
-import { isKnownCorruptCrashMessage, recordBootCrash } from "@/lib/crashRecovery";
-import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -29,30 +26,10 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  const corruptCrash =
-    isStaleBundleCrashError(error.message ?? "") || isKnownCorruptCrashMessage(error.message ?? "");
-  const oddsSelectorCrash = (error.message ?? "").toLowerCase().includes("getoddsselector");
-  const needsOtaRecovery = corruptCrash || oddsSelectorCrash;
-
-  // Auto-recover from stale bundles without requiring the user to read the error.
-  useEffect(() => {
-    if (!needsOtaRecovery || !Updates.isEnabled) return;
-    void recordBootCrash(error.message ?? "");
-    void recoverFromCorruptOta().catch(() => {
-      // User can still tap Try Again.
-    });
-  }, [needsOtaRecovery, error.message]);
-
   const handleRestart = async () => {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
-        if (needsOtaRecovery) {
-          const reloading = await recoverFromCorruptOta();
-          if (reloading) return;
-        }
-        const applied = await applyOtaOnColdStart();
-        if (applied) return;
         await Updates.reloadAsync();
       } else {
         resetError();
@@ -102,11 +79,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Text>
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
-          {needsOtaRecovery
-            ? oddsSelectorCrash
-              ? "A bad update is stuck on this install. Tap Try Again once. If it keeps failing, delete Stadium Edge and reinstall from TestFlight."
-              : "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
-            : "Please reload the app to continue."}
+          Please reload the app to continue.
         </Text>
 
         {error.message ? (

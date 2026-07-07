@@ -19,8 +19,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { ErrorFallback } from "@/components/ErrorFallback";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
@@ -83,8 +81,7 @@ import {
   type SimulatorPropGrade,
 } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
-import { SPORTS, browseSportsUiEnabled, isOddsBrowseSport, sportIcon, sportLabel } from "@/lib/sports";
-import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
+import { SPORTS } from "@/lib/sports";
 import {
   cachedSimGames,
   pruneSimGamesCache,
@@ -104,7 +101,7 @@ import {
 
 const gameEligibleForSim = isSimulatorPregame;
 
-const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "tabletennis", "cricket"] as const;
+const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis"] as const;
 const SIM_COUNT = 10_000;
 const MAX_PROPS = 6;
 
@@ -280,14 +277,6 @@ function formatPropSimConf(
 }
 
 export default function SimulatorScreen() {
-  return (
-    <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <SimulatorScreenBody />
-    </ErrorBoundary>
-  );
-}
-
-function SimulatorScreenBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -315,12 +304,10 @@ function SimulatorScreenBody() {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
-  const isGameLinesOnly = isOddsBrowseSport(sport);
-  const isBrowseNoSim = sport === "tabletennis" || sport === "cricket";
-  const canRunGameSim = sport === "tennis" || !isOddsBrowseSport(sport);
+  const isTennis = sport === "tennis";
   useEffect(() => {
-    if (isGameLinesOnly) setMode("game");
-  }, [isGameLinesOnly]);
+    if (isTennis) setMode("game");
+  }, [isTennis]);
 
   // Re-filter the slate when kickoff passes without waiting for the next refetch.
   const [clockTick, setClockTick] = useState(0);
@@ -798,9 +785,6 @@ function SimulatorScreenBody() {
       try {
         const wx = weatherImpact;
         if (runGame) {
-          if (!canRunGameSim) {
-            setGameResult(null);
-          } else {
           const label = `${game.awayTeam} @ ${game.homeTeam}`;
           const evalMap = new Map([[label, gameOddsLines]]);
           const coverQueries = mergeCoverQueries(
@@ -828,7 +812,6 @@ function SimulatorScreenBody() {
             }
           } else if (opts?.auto) {
             lastAutoRunKeyRef.current = null;
-          }
           }
         }
         if (runProps) {
@@ -940,13 +923,12 @@ function SimulatorScreenBody() {
       selected,
       gameOddsLines,
       weatherImpact,
-      canRunGameSim,
     ],
   );
 
   // Auto-run game outcome sim when a game opens; reuse cache when inputs are unchanged.
   useEffect(() => {
-    if (!canRunGameSim || !simInputsReady || !game?.id || !simInputFingerprint) return;
+    if (!simInputsReady || !game?.id || !simInputFingerprint) return;
 
     const fpKey = fingerprintKey(simInputFingerprint);
     const cached = getCachedGameSim(sport, game.id, simInputFingerprint);
@@ -964,7 +946,7 @@ function SimulatorScreenBody() {
     if (lastAutoRunKeyRef.current === fpKey || runInFlightRef.current) return;
     lastAutoRunKeyRef.current = fpKey;
     void runSimulation({ auto: true });
-  }, [canRunGameSim, simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
+  }, [simInputsReady, game?.id, sport, simInputFingerprint, runSimulation]);
 
   const canRun =
     gameEligible &&
@@ -1074,27 +1056,10 @@ function SimulatorScreenBody() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 16 }}
         >
-          {SIM_SPORTS.filter(
-            (id) => (id !== "tabletennis" && id !== "cricket") || browseSportsUiEnabled(),
-          ).map((id) => {
+          {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill
-                key={id}
-                label={label}
-                active={sport === id}
-                onPress={() => {
-                  const select = () => {
-                    setSport(id);
-                    setGameIdx(0);
-                    setSelected([]);
-                    setFilter("popular");
-                    if (isOddsBrowseSport(id)) setMode("game");
-                  };
-                  if (isOddsBrowseSport(id)) void runWhenBrowseSportBundleReady(select);
-                  else select();
-                }}
-              />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (id === "tennis") setMode("game"); }} />
             );
           })}
         </ScrollView>
@@ -1105,10 +1070,10 @@ function SimulatorScreenBody() {
           <EmptyState
             title="No upcoming games"
             subtitle={
-              isGameLinesOnly
+              isTennis
                 ? gamesQ.isError
-                  ? `Couldn't reach the ${sportLabel(sport)} slate right now. Pull down to refresh — or check back when pregame matches are in the next 48 hours.`
-                  : `No pregame ${sportLabel(sport)} matchups in the next 48 hours right now. Live and completed matches are hidden.`
+                  ? "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
+                  : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
                 : gamesQ.isError
                   ? `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
                   : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
@@ -1188,7 +1153,7 @@ function SimulatorScreenBody() {
             </Card>
 
             {/* Mode tabs — tennis is game-lines only (no player props). */}
-            {!isGameLinesOnly ? (
+            {!isTennis ? (
             <View
               style={{
                 flexDirection: "row",
@@ -1230,7 +1195,7 @@ function SimulatorScreenBody() {
             ) : null}
 
             {/* Player prop builder */}
-            {(mode === "props" || mode === "full") && !isGameLinesOnly && (
+            {(mode === "props" || mode === "full") && !isTennis && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
@@ -1412,7 +1377,6 @@ function SimulatorScreenBody() {
             )}
 
             {/* Settings */}
-            {!isBrowseNoSim ? (
             <Card style={{ marginHorizontal: 16, marginBottom: 16 }}>
               <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground, marginBottom: 12 }}>
                 Simulation Settings
@@ -1423,17 +1387,8 @@ function SimulatorScreenBody() {
               ) : null}
               <SettingRow label="Home Field" value={game.venue ?? game.homeTeam ?? "—"} icon="map-pin" />
             </Card>
-            ) : null}
 
-            {/* Run — table tennis / cricket are browse-only (no Monte Carlo yet). */}
-            {isBrowseNoSim ? (
-              <BrowseOddsOnlyPanel
-                sport={sport}
-                game={game}
-                matchedOdds={matchedOddsGame}
-                loading={oddsQ.isFetching && !matchedOddsGame}
-              />
-            ) : (
+            {/* Run */}
             <Pressable
               onPress={() => runSimulation({ force: true })}
               disabled={!canRun}
@@ -1460,7 +1415,6 @@ function SimulatorScreenBody() {
                 </Text>
               </LinearGradient>
             </Pressable>
-            )}
 
             {(running || gameResult) && mode !== "props" ? (
               <SimulationSummaryCard
@@ -1769,72 +1723,6 @@ function SettingRow({
         <Text style={{ fontFamily: FONT.semibold, fontSize: 13, color: colors.foreground }}>{value}</Text>
       </View>
     </View>
-  );
-}
-
-/** Table tennis / cricket — honest browse-only panel (no Monte Carlo on the API). */
-function BrowseOddsOnlyPanel({
-  sport,
-  game,
-  matchedOdds,
-  loading,
-}: {
-  sport: string;
-  game: EspnGame;
-  matchedOdds: OddsGame | null;
-  loading: boolean;
-}) {
-  const colors = useColors();
-  const label = sportLabel(sport);
-  const h2h = matchedOdds?.markets?.find((m) => m.key === "h2h");
-  const awayMl = h2h?.outcomes?.find((o) => o.name === game.awayTeam);
-  const homeMl = h2h?.outcomes?.find((o) => o.name === game.homeTeam);
-
-  return (
-    <Card style={{ marginHorizontal: 16, marginBottom: 20, gap: 10 }}>
-      <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
-        Posted moneylines
-      </Text>
-      <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
-        {label} is moneyline-only in Stadium Edge — Monte Carlo simulation isn&apos;t available yet. Use the
-        posted sportsbook prices below (same feed as Home).
-      </Text>
-      {loading ? (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 }}>
-          <ActivityIndicator color={colors.primary} size="small" />
-          <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground }}>
-            Loading posted lines…
-          </Text>
-        </View>
-      ) : awayMl?.price != null || homeMl?.price != null ? (
-        <View style={{ gap: 8, marginTop: 4 }}>
-          {awayMl?.price != null ? (
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontFamily: FONT.medium, fontSize: 14, color: colors.foreground, flex: 1 }} numberOfLines={1}>
-                {game.awayTeam}
-              </Text>
-              <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
-                {formatAmerican(awayMl.price)}
-              </Text>
-            </View>
-          ) : null}
-          {homeMl?.price != null ? (
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ fontFamily: FONT.medium, fontSize: 14, color: colors.foreground, flex: 1 }} numberOfLines={1}>
-                {game.homeTeam}
-              </Text>
-              <Text style={{ fontFamily: FONT.bold, fontSize: 15, color: colors.foreground }}>
-                {formatAmerican(homeMl.price)}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      ) : (
-        <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 18 }}>
-          No moneylines posted for this match yet — pull down to refresh or check back closer to start time.
-        </Text>
-      )}
-    </Card>
   );
 }
 

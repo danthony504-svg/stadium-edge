@@ -19,7 +19,7 @@ export const HERO_STICKY_MAX_MS = 12 * 60_000;
 const MAX_AGE_MS = 30 * 60_000;
 
 /** Sports surfaced on Discover that we persist hero/live/upcoming for. */
-export const DISCOVER_CACHE_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "tabletennis", "cricket", "nfl"];
+export const DISCOVER_CACHE_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
 
 const heroBySport = new Map<string, CachedPropEntry[]>();
 const heroAtBySport = new Map<string, number>();

@@ -46,7 +46,7 @@ import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { selectionScoreForEntry } from "@/lib/propSelection";
 import { loadAllPropsSnapshots, savePropsSnapshot } from "@/lib/propsCache";
-import { SPORTS, sportIcon } from "@/lib/sports";
+import { SPORTS } from "@/lib/sports";
 // Sport pill row shared with the Golf board. BROWSE_ONLY_SPORTS (e.g. tennis)
 // are listed but have NO player-prop feed — they get a real matches list here
 // instead, the prop rails stay empty (honest), and tapping a match opens odds.
@@ -580,13 +580,7 @@ export default function PropsScreen() {
     queryKey: ["browse-odds", sport],
     enabled: isBrowseSport,
     staleTime: 5 * 60_000,
-    queryFn: async ({ signal }) => {
-      try {
-        return await getOdds(sport, signal);
-      } catch {
-        return [] as OddsGame[];
-      }
-    },
+    queryFn: ({ signal }) => getOdds(sport, signal),
   });
   const browseGames = useMemo<OddsGame[]>(() => {
     if (!isBrowseSport) return [];
@@ -1176,7 +1170,7 @@ export default function PropsScreen() {
                       backgroundColor: active ? colors.primary : colors.card,
                     }}
                   >
-                    <MaterialCommunityIcons name={sportIcon(s.id)} size={15} color={active ? "#fff" : colors.foreground} />
+                    <MaterialCommunityIcons name={s.icon} size={15} color={active ? "#fff" : colors.foreground} />
                     <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
                       {s.label}
                     </Text>
@@ -1507,6 +1501,8 @@ export default function PropsScreen() {
           {!searching && isBrowseSport ? (
             browseOddsQ.isLoading ? (
               <Loading label="Loading matches…" />
+            ) : browseOddsQ.isError ? (
+              <ErrorState onRetry={() => browseOddsQ.refetch()} />
             ) : browseGames.length === 0 ? (
               <EmptyState
                 icon="calendar"
