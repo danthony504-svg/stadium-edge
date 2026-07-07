@@ -85,7 +85,6 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { SPORTS, browseSportsUiEnabled, isOddsBrowseSport, sportIcon, sportLabel } from "@/lib/sports";
 import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
-import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 import {
   cachedSimGames,
   pruneSimGamesCache,
