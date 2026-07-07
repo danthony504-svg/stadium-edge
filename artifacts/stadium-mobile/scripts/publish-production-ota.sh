@@ -33,7 +33,6 @@ pnpm exec eas channel:edit production --branch production --non-interactive
 pnpm exec eas update \
   --channel production \
   --platform ios \
-  --runtime-version "1.0.0" \
   --message "$MESSAGE" \
   --non-interactive
 
