@@ -153,7 +153,7 @@ import {
   type RealPropEntry,
 } from "@/lib/api";
 import { DEFAULT_SPORTS } from "@/lib/sports";
-import { NAME_FALLBACK_SKIP, parseStatLookup, isCoachRecommendationQuestion } from "@/lib/statLookup";
+import { NAME_FALLBACK_SKIP, parseStatLookup, isCoachRecommendationQuestion, isPitcherInningsWorkloadAsk } from "@/lib/statLookup";
 import {
   decideBackgroundRestore,
   deserializePendingBuild,
@@ -379,7 +379,7 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
       history,
       requestedStatCols: lookup.statCols,
       opponentRequested: lookup.opponent,
-      periodRequested: lookup.period,
+      periodRequested: lookup.period && !isPitcherInningsWorkloadAsk(text),
     },
   };
 }
@@ -1121,7 +1121,8 @@ export default function CoachScreen() {
             ? null
             : await tryStatCard(trimmed, controller.signal);
         if (card) {
-          const wantsProjection = isProjectionQuestion(trimmed);
+          const wantsProjection =
+            isProjectionQuestion(trimmed) || isPitcherInningsWorkloadAsk(trimmed);
           setMessages((prev) => {
             const copy = [...prev];
             const payload = { ...card };

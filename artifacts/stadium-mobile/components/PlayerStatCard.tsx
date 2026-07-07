@@ -56,6 +56,8 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
   const sportLabel = String(sport || "").toUpperCase();
   const opponentRequested = data.opponentRequested || null;
   const periodRequested = !!data.periodRequested;
+  const workloadInningsAsk = (data.requestedStatCols || []).includes("IP");
+  const showPeriodNote = periodRequested && !workloadInningsAsk;
 
   const initials = String(name || "?")
     .split(" ")
@@ -259,7 +261,7 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
       ) : null}
 
       {/* Period intent: ESPN game logs are full-game only — honest note. */}
-      {periodRequested ? (
+      {showPeriodNote ? (
         <View
           style={{
             paddingHorizontal: 14,
