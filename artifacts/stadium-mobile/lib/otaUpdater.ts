@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { browseSportsBundleReady } from "@/lib/sports";
+import { browseSportsBundleReady } from "@/lib/browseSportsGuard";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */

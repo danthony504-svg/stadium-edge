@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Modal,
   Platform,
@@ -26,6 +26,20 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const insets = useSafeAreaInsets();
 
   const [isModalVisible, setIsModalVisible] = useState(false);
+
+  // Auto-recover from stale table-tennis bundles without requiring the user to read the error.
+  useEffect(() => {
+    if (!error.message?.includes("tabletennis") || !Updates.isEnabled) return;
+    void (async () => {
+      try {
+        await clearDiscoverCache();
+        const reloading = await ensureBrowseSportOtaReady();
+        if (!reloading) await Updates.reloadAsync();
+      } catch {
+        // User can still tap Try Again.
+      }
+    })();
+  }, [error.message]);
 
   const handleRestart = async () => {
     try {

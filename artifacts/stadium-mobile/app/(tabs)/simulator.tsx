@@ -19,6 +19,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorFallback } from "@/components/ErrorFallback";
 import { Card, EmptyState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type {
@@ -277,6 +279,14 @@ function formatPropSimConf(
 }
 
 export default function SimulatorScreen() {
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <SimulatorScreenBody />
+    </ErrorBoundary>
+  );
+}
+
+function SimulatorScreenBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
