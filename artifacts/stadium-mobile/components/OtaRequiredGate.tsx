@@ -6,52 +6,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { applyOtaOnColdStart, markSuccessfulOtaBoot } from "@/lib/otaUpdater";
-
-type BootPhase = "checking" | "ready";
-
-/** Max time to block boot while applying a downloaded OTA. Escape hatch for reload loops. */
-const BOOT_CHECK_MS = 6_000;
+import { applyOtaOnColdStart } from "@/lib/otaUpdater";
 
 /**
- * Blocks interaction when a downloaded OTA is waiting to apply. Prevents users
- * from running stale in-memory JS (e.g. old Home reloadAsync on sport pills)
- * after a new bundle has already been fetched.
+ * Blocks only when a downloaded OTA is waiting to apply.
+ * Cold-start fetch/reload runs in the background so users are not stuck on a spinner loop.
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
-  const [bootPhase, setBootPhase] = useState<BootPhase>(() =>
-    __DEV__ || !Updates.isEnabled ? "ready" : "checking",
-  );
   const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
-
-    let released = false;
-    const releaseBoot = async () => {
-      if (released) return;
-      released = true;
-      await markSuccessfulOtaBoot();
-      setBootPhase("ready");
-    };
-
-    const safety = setTimeout(() => {
-      void releaseBoot();
-    }, BOOT_CHECK_MS);
-
-    void applyOtaOnColdStart()
-      .then(async (reloaded) => {
-        if (!reloaded) {
-          await releaseBoot();
-        }
-      })
-      .catch(() => releaseBoot())
-      .finally(() => clearTimeout(safety));
-
-    return () => {
-      clearTimeout(safety);
-    };
+    void applyOtaOnColdStart().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -61,35 +28,6 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, []);
-
-  if (bootPhase === "checking") {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: "#0f172a",
-          alignItems: "center",
-          justifyContent: "center",
-          paddingHorizontal: 28,
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom,
-        }}
-      >
-        <ActivityIndicator size="large" color="#38bdf8" />
-        <Text
-          style={{
-            color: "#94a3b8",
-            fontFamily: FONT.medium,
-            fontSize: 15,
-            textAlign: "center",
-            marginTop: 16,
-          }}
-        >
-          Checking for updates…
-        </Text>
-      </View>
-    );
-  }
 
   if (__DEV__ || !Updates.isEnabled || !pending) {
     return <>{children}</>;
@@ -141,9 +79,8 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 10,
           }}
         >
-          Stadium Edge downloaded a fix for Home, Tennis, and Table Tennis. Restart once to load it — using the
-          app before restarting can cause crashes like &quot;Property &apos;tabletennis&apos; doesn&apos;t exist&quot;,
-          &quot;getOddsSelector of undefined&quot;, or &quot;userFound is not a function&quot;.
+          Stadium Edge downloaded a fix. Tap Restart once to load it — opening the app before
+          restarting can cause crashes.
         </Text>
         <Pressable
           onPress={restart}
