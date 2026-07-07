@@ -20,6 +20,8 @@ export type PlayerStatCardData = {
   requestedStatCols?: string[] | null;
   opponentRequested?: string | null;
   periodRequested?: boolean;
+  /** Coach will stream a grounded projection below this card. */
+  expectProjection?: boolean;
 };
 
 const fmtDate = (iso: string | null) => {
@@ -321,7 +323,9 @@ export function PlayerStatCard({ data }: { data: PlayerStatCardData }) {
           </Text>
         )}
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9, marginTop: 8, letterSpacing: 0.5 }}>
-          REAL ESPN GAME LOG · NO PROJECTIONS
+          {data.expectProjection
+            ? "REAL ESPN GAME LOG · PROJECTION FOLLOWS"
+            : "REAL ESPN GAME LOG · NO PROJECTIONS"}
         </Text>
       </View>
     </View>

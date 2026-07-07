@@ -1121,9 +1121,14 @@ export default function CoachScreen() {
             ? null
             : await tryStatCard(trimmed, controller.signal);
         if (card) {
+          const wantsProjection = isProjectionQuestion(trimmed);
           setMessages((prev) => {
             const copy = [...prev];
-            copy[copy.length - 1] = { role: "assistant", content: "", ...card };
+            const payload = { ...card };
+            if (wantsProjection && payload.statCard) {
+              payload.statCard = { ...payload.statCard, expectProjection: true };
+            }
+            copy[copy.length - 1] = { role: "assistant", content: "", ...payload };
             return copy;
           });
           scrollToEnd();
@@ -1131,10 +1136,8 @@ export default function CoachScreen() {
           // A pure lookup ("Wembanyama points last 10 games") is fully answered
           // by the card above. But an opinion/projection question ("how many
           // points do you think he'll score tonight?") wants the coach's actual
-          // take — so we keep the card AND stream a grounded answer that uses
-          // ONLY the card's real numbers (never fabricated).
-          if (isProjectionQuestion(trimmed)) {
-            setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+          // take — stream a grounded answer on the SAME message, below the card.
+          if (wantsProjection) {
             setWaiting(true);
             scrollToEnd();
             try {
@@ -1167,7 +1170,8 @@ export default function CoachScreen() {
                   }
                   setMessages((prev) => {
                     const copy = [...prev];
-                    copy[copy.length - 1] = { role: "assistant", content: sofar };
+                    const last = copy[copy.length - 1];
+                    copy[copy.length - 1] = { ...last, role: "assistant", content: sofar };
                     return copy;
                   });
                   scrollToEnd(false);
@@ -1175,22 +1179,27 @@ export default function CoachScreen() {
               });
               setMessages((prev) => {
                 const copy = [...prev];
-                copy[copy.length - 1] = { role: "assistant", content: full };
+                const last = copy[copy.length - 1];
+                copy[copy.length - 1] = { ...last, role: "assistant", content: full };
                 return copy;
               });
             } catch (e: any) {
               if (e?.name === "AbortError") {
-                // Drop the empty grounded-answer placeholder on cancel.
                 setMessages((prev) => {
                   const copy = [...prev];
                   const last = copy[copy.length - 1];
-                  if (last && last.role === "assistant" && !last.content) copy.pop();
+                  if (last?.role === "assistant" && !last.content?.trim()) {
+                    const { content: _c, ...rest } = last;
+                    copy[copy.length - 1] = rest;
+                  }
                   return copy;
                 });
               } else {
                 setMessages((prev) => {
                   const copy = [...prev];
+                  const last = copy[copy.length - 1];
                   copy[copy.length - 1] = {
+                    ...last,
                     role: "assistant",
                     content:
                       "Those are the real numbers above — I couldn't add my projection just now. Try asking again.",
@@ -3029,7 +3038,29 @@ export default function CoachScreen() {
                   </View>
                 ) : null}
                 {m.statCard ? (
-                  <PlayerStatCard data={m.statCard} />
+                  <View style={{ gap: 10, marginBottom: m.content?.trim() ? 4 : 0 }}>
+                    <PlayerStatCard data={m.statCard} />
+                    {m.content?.trim() ? (
+                      <View
+                        style={{
+                          alignSelf: "flex-start",
+                          maxWidth: "88%",
+                          backgroundColor: colors.card,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: 16,
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <ChatMarkdown
+                          text={assistantBubbleText(m.content, false)}
+                          color={colors.foreground}
+                          mutedColor={colors.mutedForeground}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
                 ) : m.periodGameLog ? (
                   <PeriodGameLogCard data={m.periodGameLog} />
                 ) : m.teamCard ? (
