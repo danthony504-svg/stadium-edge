@@ -37,13 +37,6 @@ export function OtaUpdateBanner() {
     return () => sub.remove();
   }, []);
 
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled || !embeddedRestore) return;
-    void applyOtaUpdateIfAvailable().then((reloaded) => {
-      if (reloaded) setEmbeddedRestore(false);
-    });
-  }, [embeddedRestore]);
-
   if (__DEV__ || !Updates.isEnabled) return null;
 
   if (embeddedRestore) {

@@ -1,9 +1,8 @@
 /**
  * Compat shim for stale OTA bundles that call oddsQuerySelectors.getOddsSelector().
- * Current Home uses inline useQuery + getOdds(); this module exists so mixed bundles
- * never see undefined.getOddsSelector during boot.
+ * Lazy-loads api so boot-entry can register globals before the heavy module graph.
  */
-import { getOdds, type OddsGame } from "@/lib/api";
+import type { OddsGame } from "@/lib/api";
 
 export type OddsQuerySelector = {
   queryKey: readonly ["odds", string];
@@ -14,14 +13,27 @@ export function getOddsSelector(sport: string): OddsQuerySelector {
   const league = String(sport ?? "");
   return {
     queryKey: ["odds", league] as const,
-    queryFn: ({ signal }) => getOdds(league, signal).catch(() => [] as OddsGame[]),
+    queryFn: async ({ signal }) => {
+      const { getOdds } = await import("@/lib/api");
+      return getOdds(league, signal).catch(() => [] as OddsGame[]);
+    },
   };
 }
 
-/** Shape expected by some stale table-tennis browse bundles. */
 export const oddsQuerySelectors = {
   getOddsSelector,
 };
 
-// Stale mixed OTAs sometimes default-import this object.
 export default oddsQuerySelectors;
+
+/** Install on global for stale eval() / mixed Hermes bundles. */
+export function installOddsSelectorCompat(): void {
+  const g = globalThis as typeof globalThis & {
+    oddsQuerySelectors?: typeof oddsQuerySelectors;
+    getOddsSelector?: typeof getOddsSelector;
+  };
+  g.oddsQuerySelectors = oddsQuerySelectors;
+  g.getOddsSelector = getOddsSelector;
+}
+
+installOddsSelectorCompat();

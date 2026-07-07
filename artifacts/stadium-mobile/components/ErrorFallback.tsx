@@ -101,7 +101,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
           {corruptCrash
-            ? "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
+            ? error.message?.toLowerCase().includes("getoddsselector")
+              ? "A bad update is stuck on this install. Tap Try Again once. If it keeps failing, delete Stadium Edge and reinstall from TestFlight."
+              : "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
             : "Please reload the app to continue."}
         </Text>
 

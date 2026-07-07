@@ -97,19 +97,19 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
     return reloaded;
   }
 
-  // Rollback-to-embedded leaves users on old TestFlight JS — pull latest OTA once.
+  // Embedded TestFlight JS is old — prefetch only; reload on next launch when pending.
   if (Updates.isEmbeddedLaunch) {
-    let fetched = false;
     try {
-      fetched = await fetchLatestOtaIfAvailable();
+      await fetchLatestOtaIfAvailable();
     } catch {
       // offline
     }
-    if (fetched) {
+    if (latestContext?.isUpdatePending) {
       const reloaded = await guardedColdStartReload();
       if (!reloaded) await markSuccessfulOtaBoot();
       return reloaded;
     }
+    return false;
   }
 
   const lastCrash = await readLastBootCrash();
@@ -177,6 +177,7 @@ export async function recoverFromCorruptOta(): Promise<boolean> {
 
   await clearDiscoverCache();
   await clearAppliedBundleMark();
+  await clearColdStartReloadAttempts();
 
   try {
     if (await fetchLatestOtaIfAvailable()) {
@@ -186,7 +187,11 @@ export async function recoverFromCorruptOta(): Promise<boolean> {
     // fall through
   }
 
-  return await guardedColdStartReload();
+  if (latestContext?.isUpdatePending) {
+    return await guardedColdStartReload();
+  }
+
+  return false;
 }
 
 export async function runWhenBrowseSportBundleReady(action: () => void): Promise<void> {
