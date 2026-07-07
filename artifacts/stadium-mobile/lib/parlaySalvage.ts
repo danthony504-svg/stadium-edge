@@ -14,6 +14,7 @@ import {
   type PropPoolEntry,
   type RealOddsEntry,
 } from "./api.ts";
+import { focalSportsFromText, parlayPoolHint } from "./chatContextPriority.ts";
 import {
   filterSalvageOddsPool,
   isPregameBettable,
@@ -21,7 +22,6 @@ import {
   type SlateDay,
 } from "./slate.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
-import { focalSportsFromText } from "./chatContextPriority.ts";
 
 /** Pull named-sport pregame lines from the live feed when context.realOdds is thin. */
 export async function fetchFreshSalvageOdds(
@@ -90,25 +90,25 @@ export type ParlaySalvageOpts = {
     diversify: boolean;
     maxPerMarket?: number;
     varietySeed: string;
-    avoidLegKeys?: string[];
+    avoidLegKeys?: Set<string>;
     selectionOpts?: PropSelectionOpts;
   };
   signal?: AbortSignal;
 };
 
-/** Build the best honest ticket from real posted prices when the model failed. */
-export async function buildParlaySalvagePicks(opts: ParlaySalvageOpts): Promise<ParsedPick[]> {
-  const salvagePool = await resolveSalvageOddsPool(
-    opts.trimmed,
-    opts.slateDay,
-    opts.contextOdds,
-    { minEntries: Math.min(2, opts.target), signal: opts.signal },
-  );
-  if (salvagePool.length === 0) return [];
-
+function fillParlayFromPool(
+  existing: ParsedPick[],
+  salvagePool: RealOddsEntry[],
+  opts: ParlaySalvageOpts,
+): ParsedPick[] {
   const tgt = opts.target;
-  if (mentionsPropIntent(opts.trimmed)) {
-    let picks = backfillProps([], opts.mergedPropPool, salvagePool, opts.gameMeta, {
+  const propsFirst =
+    mentionsPropIntent(opts.trimmed) ||
+    existing.every((p) => p.isProp) ||
+    existing.some((p) => p.isProp);
+
+  if (propsFirst) {
+    let picks = backfillProps(existing, opts.mergedPropPool, salvagePool, opts.gameMeta, {
       target: tgt,
       ...opts.propBackfillOpts,
     });
@@ -121,7 +121,7 @@ export async function buildParlaySalvagePicks(opts: ParlaySalvageOpts): Promise<
     return picks;
   }
 
-  let picks = backfillPicks([], salvagePool, opts.gameMeta, {
+  let picks = backfillPicks(existing, salvagePool, opts.gameMeta, {
     target: tgt,
     order: GENERIC_BACKFILL_ORDER,
   });
@@ -130,4 +130,31 @@ export async function buildParlaySalvagePicks(opts: ParlaySalvageOpts): Promise<
     ...opts.propBackfillOpts,
   });
   return picks;
+}
+
+/** Build the best honest ticket from real posted prices when the model failed. */
+export async function buildParlaySalvagePicks(opts: ParlaySalvageOpts): Promise<ParsedPick[]> {
+  const salvagePool = await resolveSalvageOddsPool(
+    opts.trimmed,
+    opts.slateDay,
+    opts.contextOdds,
+    { minEntries: Math.min(2, opts.target), signal: opts.signal },
+  );
+  if (salvagePool.length === 0) return [];
+  return fillParlayFromPool([], salvagePool, opts);
+}
+
+/** Reach-N top-up when the model (or sim gates) left the ticket short of the ask. */
+export async function topUpParlayPicks(
+  existing: ParsedPick[],
+  opts: ParlaySalvageOpts,
+): Promise<ParsedPick[]> {
+  if (existing.length >= opts.target) return existing;
+  const hint = parlayPoolHint(opts.trimmed, existing);
+  const salvagePool = await resolveSalvageOddsPool(hint, opts.slateDay, opts.contextOdds, {
+    minEntries: opts.target,
+    signal: opts.signal,
+  });
+  if (salvagePool.length === 0) return existing;
+  return fillParlayFromPool(existing, salvagePool, { ...opts, trimmed: hint });
 }

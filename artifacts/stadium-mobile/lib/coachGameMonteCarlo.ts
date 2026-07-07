@@ -410,8 +410,11 @@ export { gamePickCoverQueryId, isGameLinePick };
 export function filterCoachPicksWithPropSim(
   picks: ParsedPick[],
   propSims: Map<string, { hitProbability: number | null }>,
+  opts: { minLegs?: number } = {},
 ): GameSimFilterResult {
+  const minLegs = opts.minLegs ?? 0;
   const kept: ParsedPick[] = [];
+  const dropped: ParsedPick[] = [];
   const warnings: string[] = [];
   let removed = 0;
 
@@ -435,6 +438,7 @@ export function filterCoachPicksWithPropSim(
       warnings.push(
         `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
       );
+      dropped.push(p);
       continue;
     }
 
@@ -442,6 +446,17 @@ export function filterCoachPicksWithPropSim(
       ...p,
       highRiskValuePlay: highRiskValuePlay || p.highRiskValuePlay,
     });
+  }
+
+  if (minLegs > 0 && kept.length < minLegs) {
+    for (const p of dropped) {
+      if (kept.length >= minLegs) break;
+      kept.push({ ...p, highRiskValuePlay: true });
+      warnings.push(
+        `Kept **${p.pick}** despite a sub-threshold sim read — your ticket asked for ${minLegs} legs and every card is still a real posted line.`,
+      );
+      removed = Math.max(0, removed - 1);
+    }
   }
 
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
@@ -453,7 +468,7 @@ export function filterCoachPicksWithPropSim(
   }
   if (highRiskCount > 0) {
     noteParts.push(
-      `_⚠️ ${highRiskCount} prop leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — simulator disagrees but line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%)._`,
+      `_⚠️ ${highRiskCount} leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — simulator disagrees but line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%) or needed to honor your leg count._`,
     );
   }
 

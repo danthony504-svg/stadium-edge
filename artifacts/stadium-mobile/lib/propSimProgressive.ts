@@ -18,6 +18,8 @@ export type PropSimAttachOpts = {
   playerHistory?: Record<string, PlayerHistorySlice>;
   injuryTeams?: InjuryTeam[];
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
+  /** Never drop below this many cards after sim scoring (restores as high-risk). */
+  minLegs?: number;
 };
 
 function simMapFromResults(
@@ -42,7 +44,9 @@ function scorePicksWithSim(
     ...opts,
     propSimulations: sims,
   });
-  const filtered = filterCoachPicksWithPropSim(scored, sims);
+  const filtered = filterCoachPicksWithPropSim(scored, sims, {
+    minLegs: opts.minLegs,
+  });
   return filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );

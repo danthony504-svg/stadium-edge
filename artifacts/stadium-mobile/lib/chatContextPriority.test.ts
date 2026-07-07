@@ -4,6 +4,7 @@ import {
   contextDepthForLegs,
   focalSportsFromText,
   inferPropPickSport,
+  parlayPoolHint,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority.ts";
 
@@ -80,6 +81,17 @@ test("focalSportsFromText recognizes World Cup / FIFA as soccer", () => {
   assert.ok(focalSportsFromText("champions league value bets").has("soccer"));
   // Unrelated asks must NOT spuriously focus soccer.
   assert.ok(!focalSportsFromText("give me an NBA parlay").has("soccer"));
+});
+
+test("parlayPoolHint focuses top-up on the sport already on the ticket", () => {
+  assert.equal(
+    parlayPoolHint("4 leg parlay", [{ sport: "wnba" }, { sport: "wnba" }]),
+    "4 leg parlay wnba",
+  );
+  assert.equal(
+    parlayPoolHint("5 leg wnba parlay", [{ sport: "wnba" }]),
+    "5 leg wnba parlay",
+  );
 });
 
 test("focalSportsFromText recognizes WNBA typos (emba, wmba)", () => {

@@ -97,7 +97,7 @@ import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { buildParlaySalvagePicks } from "@/lib/parlaySalvage";
+import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import {
   filterOddsForSlateDay,
   filterPicksForSlateDay,
@@ -2462,6 +2462,32 @@ export default function CoachScreen() {
         } else if (gameSimSupplementNote) {
           gameSimNote = gameSimSupplementNote;
         }
+        if (
+          !isAnalyze &&
+          isParlayBuild &&
+          picks.length > 0 &&
+          picks.length < legTarget &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          !altSign
+        ) {
+          const beforeTopUp = picks.length;
+          picks = await topUpParlayPicks(picks, {
+            ...salvageBuildOpts,
+            target: Math.min(legTarget, MAX_LEGS),
+          });
+          if (picks.length > beforeTopUp) {
+            picks = attachPickScores(picks, {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            });
+          }
+        }
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -2598,6 +2624,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
+            minLegs: requestedLegs > 0 ? requestedLegs : undefined,
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(

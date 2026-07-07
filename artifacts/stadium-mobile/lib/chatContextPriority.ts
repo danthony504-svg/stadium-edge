@@ -183,3 +183,12 @@ export function coachBuildSports(
   );
   return ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
 }
+
+/** When resolved legs share one sport, focus salvage/top-up pools on that league. */
+export function parlayPoolHint(trimmed: string, picks: { sport?: string | null }[]): string {
+  const sports = new Set(picks.map((p) => p.sport).filter((s): s is string => !!s));
+  if (sports.size !== 1) return trimmed;
+  const sport = [...sports][0]!;
+  if (focalSportsFromText(trimmed).has(sport)) return trimmed;
+  return `${trimmed} ${sport}`;
+}
