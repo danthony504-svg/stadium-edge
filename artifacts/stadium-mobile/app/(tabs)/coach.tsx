@@ -2537,22 +2537,24 @@ export default function CoachScreen() {
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
               : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`);
         }
-        if (mlLeanNote) {
-          legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
-        }
-        if (diversityNote) {
-          legNote = legNote ? `${legNote}\n\n${diversityNote}` : diversityNote;
-        }
-        if (propsOnlyNote) {
-          legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
-        }
-        if (tonightNote) {
-          legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
-        }
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
-        legNote = dedupeLegNoteParagraphs(legNote);
+        const transparencyNote = [
+          mlLeanNote,
+          diversityNote,
+          propsOnlyNote,
+          tonightNote,
+          gameSimNote,
+        ]
+          .filter((n) => n.trim())
+          .join("\n\n");
+        // Pick cards carry Final AI / sim on each leg — only show a shortfall line
+        // above the slip when the ticket is shorter than requested. Optimizer and
+        // diversity prose stays text-only when zero cards survive.
+        legNote =
+          picks.length > 0
+            ? dedupeLegNoteParagraphs(legNote)
+            : dedupeLegNoteParagraphs(
+                [legNote, transparencyNote].filter((n) => n.trim()).join("\n\n"),
+              );
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
@@ -2565,11 +2567,8 @@ export default function CoachScreen() {
           full + thresholdNote + confidenceNote + signNote + todayNote;
         if ((salvageBuilt || boardBuilt) && picks.length > 0) {
           // Board-built / salvage tickets replace model prose (often chalk scaffold
-          // or placeholder optimizer copy) with a clean lead-in. legNote carries
-          // the honest diversity + sim transparency notes below the cards.
-          finalContent = boardBuilt
-            ? `Here's your ${reachTarget}-leg ticket from today's live board — player props and alt rungs, scored with the 10k sim and Final AI.`
-            : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
+          // or placeholder optimizer copy). Cards-only UI — no lead-in bubble.
+          finalContent = "";
         } else if (
           picks.length === 0 &&
           (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
@@ -2583,6 +2582,7 @@ export default function CoachScreen() {
             confidenceNote ||
             signNote ||
             legNote ||
+            transparencyNote ||
             (emittedPickLines > 0
               ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
               : "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._");
