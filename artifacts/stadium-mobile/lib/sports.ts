@@ -56,3 +56,14 @@ export function sportIcon(id: string): MCIName {
 export function isKnownSport(id: string): boolean {
   return SPORTS.some((s) => s.id === id);
 }
+
+const BROWSE_COACH_MSG: Record<string, string> = {
+  tennis: "Build me the best tennis parlay for today's board",
+  tabletennis: "Build me the best table tennis parlay for today's board",
+  cricket: "Build me the best cricket parlay for today's board",
+};
+
+/** Coach auto-send prompt when launching from a moneyline-browse sport pill. */
+export function browseCoachMessage(sportId: string): string {
+  return BROWSE_COACH_MSG[sportId] ?? `Build me the best ${sportLabel(sportId)} parlay for today's board`;
+}

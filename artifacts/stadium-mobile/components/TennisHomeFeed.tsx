@@ -19,15 +19,9 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { isOddsBrowseSport, sportLabel } from "@/lib/sports";
+import { browseCoachMessage, isOddsBrowseSport, sportLabel } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
-
-const COACH_PARLAY_MSG: Record<string, string> = {
-  tennis: "Build me the best tennis parlay for today's board",
-  tabletennis: "Build me the best table tennis parlay for today's board",
-  cricket: "Build me the best cricket parlay for today's board",
-};
 
 function withTennisFlags(
   base: GameMeta | undefined,
@@ -339,7 +333,7 @@ export function TennisHomeFeed({
       )}
 
       <Pressable
-        onPress={() => askCoach(COACH_PARLAY_MSG[sport] ?? `Build me the best ${label} parlay for today's board`)}
+        onPress={() => askCoach(browseCoachMessage(sport))}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 20,

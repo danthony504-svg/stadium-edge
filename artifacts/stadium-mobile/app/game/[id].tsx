@@ -7,6 +7,8 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AiPickCard } from "@/components/AiPickCard";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorFallback } from "@/components/ErrorFallback";
 import { GamePropsSection } from "@/components/GamePropsSection";
 import { InjuryReport } from "@/components/InjuryReport";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
@@ -939,6 +941,14 @@ function LiveScoreBanner({ espn }: { espn: EspnGame }) {
 }
 
 export default function GameDetailScreen() {
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <GameDetailBody />
+    </ErrorBoundary>
+  );
+}
+
+function GameDetailBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
@@ -948,16 +958,30 @@ export default function GameDetailScreen() {
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
-    queryFn: ({ signal }) => getOdds(String(sport), signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getOdds(String(sport), signal);
+      } catch {
+        return [] as OddsGame[];
+      }
+    },
     staleTime: 60_000,
     enabled: !!sport,
+    retry: false,
   });
 
   const gamesQ = useQuery({
     queryKey: ["games", sport],
-    queryFn: ({ signal }) => getGames(String(sport), signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getGames(String(sport), signal);
+      } catch {
+        return [] as EspnGame[];
+      }
+    },
     staleTime: 30_000,
     enabled: !!sport,
+    retry: false,
   });
 
   const espnGame = useMemo(

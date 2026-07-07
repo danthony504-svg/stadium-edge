@@ -2,6 +2,8 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
+import * as Updates from "expo-updates";
+import { latestContext } from "expo-updates";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -42,7 +44,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
+import { browseCoachMessage, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -2050,6 +2052,18 @@ function HomeScreenBody() {
     (id: string) => {
       if (!HOME_SPORT_IDS.includes(id) || !isKnownSport(id)) return;
       if (id === sportRef.current) return;
+      // A downloaded OTA must load before browse sports (table tennis / cricket)
+      // — otherwise Hermes can throw "Property 'tabletennis' doesn't exist".
+      if (
+        isOddsBrowseSport(id) &&
+        Updates.isEnabled &&
+        latestContext?.isUpdatePending
+      ) {
+        void clearDiscoverCache().finally(() => {
+          void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+        });
+        return;
+      }
       sportRef.current = id;
       sportFetchGenRef.current += 1;
       queryClient.cancelQueries({ queryKey: ["odds"] });
@@ -2181,15 +2195,10 @@ function HomeScreenBody() {
             bottomInset={insets.bottom}
             onBuildParlay={() => {
               markCoachHomeLaunch();
-              const browseMsg: Record<string, string> = {
-                tennis: "Build me the best tennis parlay for today's board",
-                tabletennis: "Build me the best table tennis parlay for today's board",
-                cricket: "Build me the best cricket parlay for today's board",
-              };
               router.push({
                 pathname: "/coach",
                 params: {
-                  autoMsg: browseMsg[sport] ?? "Build me the best parlay",
+                  autoMsg: browseCoachMessage(sport),
                   send: "1",
                   ts: String(Date.now()),
                 },
