@@ -97,6 +97,7 @@ import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import { blockOtaReload } from "@/lib/otaBlock";
+import { buildParlaySalvagePicks } from "@/lib/parlaySalvage";
 import {
   filterOddsForSlateDay,
   filterPicksForSlateDay,
@@ -1824,45 +1825,20 @@ export default function CoachScreen() {
           !oddsThreshold &&
           !confidenceThreshold &&
           !altSign;
-        const salvageSports = salvageEligible ? focalSportsFromText(trimmed) : new Set<string>();
+        const salvageBuildOpts = {
+          trimmed,
+          slateDay,
+          contextOdds: context.realOdds,
+          mergedPropPool,
+          gameMeta,
+          propsOnlyTicket,
+          propBackfillOpts,
+          signal: controller.signal,
+        };
         if (salvageEligible) {
           const tgt = Math.min(legTarget, MAX_LEGS);
-          const dayOdds = slateDay
-            ? filterOddsForSlateDay(context.realOdds, slateDay)
-            : context.realOdds;
-          if (mentionsPropIntent(trimmed)) {
-            const salvagePool =
-              salvageSports.size > 0
-                ? dayOdds.filter((e) => salvageSports.has(e.sport))
-                : dayOdds;
-            picks = backfillProps([], mergedPropPool, salvagePool, gameMeta, {
-              target: tgt,
-              ...propBackfillOpts,
-            });
-            if (!propsOnlyTicket && picks.length < tgt) {
-              picks = backfillPicks(picks, salvagePool, gameMeta, {
-                target: tgt,
-                order: GENERIC_BACKFILL_ORDER,
-              });
-            }
-            if (picks.length > 0) salvageBuilt = true;
-          } else {
-            const salvagePool =
-              salvageSports.size > 0
-                ? dayOdds.filter((e) => salvageSports.has(e.sport))
-                : dayOdds;
-            if (salvagePool.length > 0) {
-              picks = backfillPicks([], salvagePool, gameMeta, {
-                target: tgt,
-                order: GENERIC_BACKFILL_ORDER,
-              });
-              picks = backfillProps(picks, mergedPropPool, salvagePool, gameMeta, {
-                target: tgt,
-                ...propBackfillOpts,
-              });
-              if (picks.length > 0) salvageBuilt = true;
-            }
-          }
+          picks = await buildParlaySalvagePicks({ ...salvageBuildOpts, target: tgt });
+          if (picks.length > 0) salvageBuilt = true;
         }
         if (slateDay && picks.length === 0) {
           todayNote = todayBuildNote({
@@ -2242,38 +2218,8 @@ export default function CoachScreen() {
           !altSign
         ) {
           const tgt = Math.min(legTarget, MAX_LEGS);
-          const dayOdds = slateDay
-            ? filterOddsForSlateDay(context.realOdds, slateDay)
-            : context.realOdds;
-          const postSalvageSports = focalSportsFromText(trimmed);
-          const postSalvagePool =
-            postSalvageSports.size > 0
-              ? dayOdds.filter((e) => postSalvageSports.has(e.sport))
-              : dayOdds;
-          if (postSalvagePool.length > 0) {
-            if (mentionsPropIntent(trimmed)) {
-              picks = backfillProps([], mergedPropPool, postSalvagePool, gameMeta, {
-                target: tgt,
-                ...propBackfillOpts,
-              });
-              if (!propsOnlyTicket && picks.length < tgt) {
-                picks = backfillPicks(picks, postSalvagePool, gameMeta, {
-                  target: tgt,
-                  order: GENERIC_BACKFILL_ORDER,
-                });
-              }
-            } else {
-              picks = backfillPicks([], postSalvagePool, gameMeta, {
-                target: tgt,
-                order: GENERIC_BACKFILL_ORDER,
-              });
-              picks = backfillProps(picks, mergedPropPool, postSalvagePool, gameMeta, {
-                target: tgt,
-                ...propBackfillOpts,
-              });
-            }
-            if (picks.length > 0) salvageBuilt = true;
-          }
+          picks = await buildParlaySalvagePicks({ ...salvageBuildOpts, target: tgt });
+          if (picks.length > 0) salvageBuilt = true;
         }
         if (forceBoardBuild) {
           let finalPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-final`);

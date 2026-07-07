@@ -2,6 +2,8 @@
 // they can be unit-tested under `node --test` and shared widely. api.ts
 // re-exports these so existing `from "./api"` imports keep working.
 
+import { focalSportsFromText } from "./chatContextPriority.ts";
+
 // ---------- Pickability window ----------
 
 // In progress (started up to 4h ago) OR tips off within the next 48h. Used by
@@ -199,6 +201,17 @@ export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
     return entries.filter((e) => startsTomorrowUpcoming(e.startsAt));
   }
   return entries;
+}
+
+/** Sport-focused odds pool for parlay salvage (World Cup → soccer only, etc.). */
+export function filterSalvageOddsPool<T extends { sport?: string; startsAt?: string | null }>(
+  odds: T[],
+  trimmed: string,
+  slateDay: SlateDay,
+): T[] {
+  const salvageSports = focalSportsFromText(trimmed);
+  const day = slateDay ? filterOddsForSlateDay(odds, slateDay) : odds;
+  return salvageSports.size > 0 ? day.filter((e) => salvageSports.has(e.sport!)) : day;
 }
 
 export function resolveTomorrowOnly(
