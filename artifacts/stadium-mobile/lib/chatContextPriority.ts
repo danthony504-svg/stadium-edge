@@ -8,7 +8,7 @@
 // NFL/CFB (and soccer in much of the world), so it can't resolve to one league.
 export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   mlb: ["mlb", "baseball", "pitcher", "pitchers", "bullpen", "bullpens", "pitching"],
-  wnba: ["wnba"],
+  wnba: ["wnba", "wmba", "emba", "women's basketball"],
   nba: ["nba"],
   nhl: ["nhl", "hockey"],
   soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl", "world cup", "fifa"],

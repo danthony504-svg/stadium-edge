@@ -2579,6 +2579,7 @@ export default function CoachScreen() {
             role: "assistant",
             content: picks.length > 0 ? "" : finalContent,
             picks,
+            ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
           return copy;
@@ -2956,7 +2957,7 @@ export default function CoachScreen() {
                   ? ""
                   : assistantBubbleText(m.content, ticketActive)
                 : m.content;
-            // Parlay tickets are cards-only — no legNote / optimizer prose above Add All.
+            // Parlay tickets lead with pick cards; legNote explains honest shortfalls.
             const showBubble =
               !ticketActive &&
               !m.hideBubble &&
@@ -3055,6 +3056,13 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
+                    {m.legNote?.trim() ? (
+                      <ChatMarkdown
+                        text={m.legNote.trim()}
+                        color={colors.foreground}
+                        mutedColor={colors.mutedForeground}
+                      />
+                    ) : null}
                     {m.picks!.length > 1 ? (
                       <AddAllButton
                         picks={m.picks!}

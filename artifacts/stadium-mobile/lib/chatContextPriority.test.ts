@@ -82,6 +82,11 @@ test("focalSportsFromText recognizes World Cup / FIFA as soccer", () => {
   assert.ok(!focalSportsFromText("give me an NBA parlay").has("soccer"));
 });
 
+test("focalSportsFromText recognizes WNBA typos (emba, wmba)", () => {
+  assert.ok(focalSportsFromText("5 leg emba").has("wnba"));
+  assert.ok(focalSportsFromText("wmba props tonight").has("wnba"));
+});
+
 test("with no focal game, MLB players keep priority (platoon coverage preserved)", () => {
   // No focal text at all: a generic "give me a 40-leg parlay" style ask.
   const targets: Target[] = [];

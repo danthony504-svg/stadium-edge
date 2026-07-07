@@ -105,11 +105,10 @@ export function patchLastAssistantPicks<
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
       if (copy[i].role === "assistant" && copy[i].picks?.length) {
-        const { legNote: _ln, ...rest } = copy[i];
         copy[i] = {
-          ...rest,
+          ...copy[i],
           picks,
-          content: picks.length > 0 ? "" : rest.content,
+          content: picks.length > 0 ? "" : copy[i].content,
         };
         return copy;
       }
