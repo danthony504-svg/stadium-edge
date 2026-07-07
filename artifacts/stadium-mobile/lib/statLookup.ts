@@ -34,7 +34,23 @@ export const MLB_PITCHER_SUMMARY: [string, "avg" | "total"][] = [
 ];
 
 const STAT_NOUNS =
-  "points?|pts|yards?|yds|rebounds?|reb|assists?|ast|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|goals?|saves?|touchdowns?|tds?|receptions?|catches|blocks?|steals?";
+  "points?|pts|yards?|yds|rebounds?|reb|assists?|ast|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|goals?|saves?|touchdowns?|tds?|receptions?|catches|blocks?|steals?|innings?|minutes?|mins?";
+
+/** Pitcher workload IP asks — NOT a per-inning period split (1st inning / F5). */
+export function isPitcherInningsWorkloadAsk(raw: string): boolean {
+  const low = String(raw || "").toLowerCase();
+  if (/\b(?:1st|2nd|3rd|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)\s+inning\b/.test(low))
+    return false;
+  if (/\b(?:f5|first\s+(?:5|five)\s+innings?)\b/.test(low)) return false;
+  return (
+    /\bhow many innings\b/.test(low) ||
+    /\binnings?\s+(?:will|would|is|are|was|were|did|does|do|can|could|should)\b/.test(low) ||
+    /\b(?:will|would|can|could|should)\s+[a-z][\w.'-]*(?:\s+[a-z][\w.'-]*){0,2}\s+(?:pitch|play|start|throw)\b/.test(
+      low,
+    ) ||
+    /\binnings?\s+pitch(?:ed)?\b/.test(low)
+  );
+}
 
 export const BARE_NAME_STOP = new Set([
   "hi","hey","hello","yo","sup","thanks","thank","thx","ty","ok","okay","k","yes","yeah","yep","yup",
@@ -260,6 +276,8 @@ export function parseStatLookup(raw: string): StatLookup | null {
     " ",
   );
   name = name.replace(/\b\d+\b/g, " ");
+  // "will <player> pitch/play today" — auxiliary, not part of the name.
+  name = name.replace(/^\s*will\s+/i, " ");
   if (opponent) {
     for (const tok of opponent.split(" ").filter((w) => w.length >= 3)) {
       name = name.replace(new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), " ");
@@ -273,18 +291,24 @@ export function parseStatLookup(raw: string): StatLookup | null {
   // boolean is broad (any quarter/half/period/inning reference) so a period ask
   // always surfaces an honest "full-game only" note on the ESPN card even when
   // we can't build a precise StatMuse phrase; periodPhrase is best-effort.
-  const periodPhrase = extractPeriodPhrase(low);
-  const period =
-    !!periodPhrase ||
-    /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(low) ||
-    /\b(first|second|third|fourth)\s+(quarter|half|period|inning)\b/i.test(low);
+  // Pitcher workload asks ("how many innings will Skenes pitch") use full-game IP
+  // from the log — not a single-inning split — so they are NOT period intent.
+  const workloadInnings = isPitcherInningsWorkloadAsk(t);
+  const periodPhrase = workloadInnings ? null : extractPeriodPhrase(low);
+  const period = workloadInnings
+    ? false
+    : !!periodPhrase ||
+      /\b(quarter|quarters|qtr|q[1-4]|[1-4]q|halftime|h[12]|[12]h|inning|innings|period|periods)\b/i.test(
+        low,
+      ) ||
+      /\b(first|second|third|fourth)\s+(quarter|half|period|inning)\b/i.test(low);
 
   // The stat the user asked about → ESPN label codes (FLOAT that column) +
   // a friendly word for the StatMuse query.
   let statCols: string[] | null = null;
   let statWord: string | null = null;
   const sm = low.match(
-    /\b(points?|pts|rebounds?|reb|assists?|ast|blocks?|steals?|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|walks?|saves?|goals?|touchdowns?|tds?|receptions?|catches|yards?|yds)\b/,
+    /\b(points?|pts|rebounds?|reb|assists?|ast|blocks?|steals?|hits?|runs?|rbis?|home runs?|homers?|hr|strikeouts?|ks|walks?|saves?|goals?|touchdowns?|tds?|receptions?|catches|yards?|yds|innings?|minutes?|mins?)\b/,
   );
   if (sm) {
     const w = sm[1];
@@ -304,6 +328,11 @@ export function parseStatLookup(raw: string): StatLookup | null {
     else if (/^(touchdowns?|tds?)$/.test(w)) { statCols = ["TD"]; statWord = "touchdowns"; }
     else if (/^(receptions?|catches)$/.test(w)) { statCols = ["REC"]; statWord = "receptions"; }
     else if (/^(yards?|yds)$/.test(w)) { statCols = ["YDS"]; statWord = "yards"; }
+    else if (/^innings?$/.test(w)) { statCols = ["IP"]; statWord = "innings pitched"; }
+    else if (/^(minutes?|mins?)$/.test(w)) { statCols = ["MIN"]; statWord = "minutes"; }
+  } else if (workloadInnings) {
+    statCols = ["IP"];
+    statWord = "innings pitched";
   }
   return { name, season, period, periodPhrase, opponent, statCols, statWord };
 }

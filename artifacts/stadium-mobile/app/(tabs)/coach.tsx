@@ -518,10 +518,28 @@ const PROJECTION_RE =
 // ("can you get me his stats") stays card-only, while a player-subject projection
 // ("would he get a hit", "can Ben Rice hit 2 today") triggers the grounded reply.
 const PROJECTION_WILL_RE =
-  /\b(?:will|would|can|could)\s+(?!you\b)[a-z.'’\- ]{2,30}?\s(?:score|get|have|put up|go for|drop|record|tally|hit|reach|exceed)\b/i;
+  /\b(?:will|would|can|could)\s+(?!you\b)[a-z.'’\- ]{2,30}?\s(?:score|get|have|put up|go for|drop|record|tally|hit|reach|exceed|pitch|play|start|throw)\b/i;
+const PROJECTION_HOW_MANY_RE =
+  /\bhow many\b/i;
 
 function isProjectionQuestion(text: string): boolean {
-  return PROJECTION_RE.test(text) || PROJECTION_WILL_RE.test(text);
+  const low = text.toLowerCase();
+  if (PROJECTION_RE.test(text) || PROJECTION_WILL_RE.test(text)) return true;
+  if (
+    PROJECTION_HOW_MANY_RE.test(text) &&
+    /\b(innings?|points?|pts|goals?|minutes?|mins?|yards?|rebounds?|assists?|strikeouts?|hits?|touchdowns?|receptions?)\b/.test(
+      low,
+    )
+  )
+    return true;
+  if (
+    /\b(?:will|would|can|could|should)\s+(?!you\b)[a-z][\w.'-]*(?:\s+[a-z][\w.'-]*){0,2}\s+(?:pitch|play|start|throw)\b/i.test(
+      text,
+    ) &&
+    /\b(?:today|tonight|this game|tonight'?s|this start)\b/i.test(low)
+  )
+    return true;
+  return false;
 }
 
 // Build a compact REAL-DATA grounding block from a resolved stat card so the AI
@@ -586,6 +604,13 @@ function serializeStatCardForAI(card: StatCardResult): string {
       .map(([k, v]) => `${k} ${v}`)
       .join(", ");
     const recent = (history.recent || []).slice(0, 10);
+    const ipVals = recent
+      .map((entry) => parseFloat(String(entry.stats?.IP ?? "")))
+      .filter((n) => Number.isFinite(n));
+    const ipAvg =
+      ipVals.length > 0
+        ? (ipVals.reduce((a, b) => a + b, 0) / ipVals.length).toFixed(1)
+        : null;
     const games = recent
       .map((entry) => {
         const loc = entry.isHome == null ? "" : entry.isHome ? "vs" : "@";
@@ -612,6 +637,7 @@ function serializeStatCardForAI(card: StatCardResult): string {
       `${resolved.name} — ${resolved.team} (${String(resolved.sport).toUpperCase()})`,
       `Season ${history.season ?? ""}: ${s.games} GP.`,
       avgs ? `Per-game averages: ${avgs}.` : "",
+      ipAvg ? `Recent starts IP average (last ${ipVals.length}): ${ipAvg}.` : "",
       vsOpp,
       games ? `Last ${recent.length} games: ${games}.` : "",
     ]
