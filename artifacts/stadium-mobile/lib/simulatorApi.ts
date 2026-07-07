@@ -62,36 +62,6 @@ async function simPostJson<T>(
   }
 }
 
-export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
-  const parse = (rows: unknown): EspnGame[] =>
-    Array.isArray(rows)
-      ? rows.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
-      : [];
-  try {
-    return parse(
-      await simGetJson<EspnGame[]>(
-        `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
-        signal,
-        18_000,
-      ),
-    );
-  } catch {
-    try {
-      return parse(
-        await simGetJson<EspnGame[]>(
-          `/sports/games?sport=${encodeURIComponent(sport)}`,
-          signal,
-          18_000,
-        ),
-      );
-    } catch {
-      // Tennis used to 400 before ESPN scoreboard support — never leave the
-      // simulator pill spinning on a failed games fetch.
-      return [];
-    }
-  }
-}
-
 export async function fetchSimulatorOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
   try {
     return await simGetJson<OddsGame[]>(
@@ -100,6 +70,93 @@ export async function fetchSimulatorOdds(sport: string, signal?: AbortSignal): P
     );
   } catch {
     return [];
+  }
+}
+
+/** Pregame-only pool — duplicated here so simulator never depends on slate.ts OTA sync. */
+export function isSimulatorPregame(
+  game: { startsAt?: string | null; state?: string | null; status?: string | null } | null | undefined,
+): boolean {
+  if (!game) return false;
+  if (game.state === "post" || game.state === "in") return false;
+  const status = String(game.status ?? "").toLowerCase();
+  if (
+    status.includes("final") ||
+    status.includes("in progress") ||
+    status.includes("halftime") ||
+    status.includes("end of")
+  ) {
+    return false;
+  }
+  const t = Date.parse(game.startsAt ?? "");
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now && t < now + 48 * 3600_000;
+}
+
+/** When /sports/games?sport=tennis is stale, build the simulator slate from live odds. */
+async function tennisSimulatorGamesFromOdds(signal?: AbortSignal): Promise<EspnGame[]> {
+  const rows = await fetchSimulatorOdds("tennis", signal);
+  return rows
+    .map(
+      (o): EspnGame => ({
+        id: o.id,
+        sport: "tennis",
+        name: `${o.awayTeam} vs ${o.homeTeam}`,
+        shortName: `${o.awayTeam} vs ${o.homeTeam}`,
+        status: "Scheduled",
+        startsAt: o.commenceTime,
+        homeTeam: o.homeTeam,
+        awayTeam: o.awayTeam,
+        state: "pre",
+      }),
+    )
+    .filter((g) => isSimulatorPregame(g));
+}
+
+export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
+  const parse = (rows: unknown): EspnGame[] =>
+    Array.isArray(rows)
+      ? rows.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
+      : [];
+  const withTennisOddsFallback = async (list: EspnGame[]) => {
+    if (sport === "tennis" && list.length === 0) {
+      const fallback = await tennisSimulatorGamesFromOdds(signal);
+      if (fallback.length > 0) return fallback;
+    }
+    return list;
+  };
+  try {
+    return await withTennisOddsFallback(
+      parse(
+        await simGetJson<EspnGame[]>(
+          `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
+          signal,
+          18_000,
+        ),
+      ),
+    );
+  } catch {
+    try {
+      return await withTennisOddsFallback(
+        parse(
+          await simGetJson<EspnGame[]>(
+            `/sports/games?sport=${encodeURIComponent(sport)}`,
+            signal,
+            18_000,
+          ),
+        ),
+      );
+    } catch {
+      if (sport === "tennis") {
+        try {
+          return await tennisSimulatorGamesFromOdds(signal);
+        } catch {
+          // Fall through — empty slate.
+        }
+      }
+      return [];
+    }
   }
 }
 
@@ -415,27 +472,6 @@ export async function warmSimulatorApi(signal?: AbortSignal): Promise<void> {
   } catch {
     // Never block the simulator on a warm-up miss.
   }
-}
-
-/** Pregame-only pool — duplicated here so simulator never depends on slate.ts OTA sync. */
-export function isSimulatorPregame(
-  game: { startsAt?: string | null; state?: string | null; status?: string | null } | null | undefined,
-): boolean {
-  if (!game) return false;
-  if (game.state === "post" || game.state === "in") return false;
-  const status = String(game.status ?? "").toLowerCase();
-  if (
-    status.includes("final") ||
-    status.includes("in progress") ||
-    status.includes("halftime") ||
-    status.includes("end of")
-  ) {
-    return false;
-  }
-  const t = Date.parse(game.startsAt ?? "");
-  if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  return t > now && t < now + 48 * 3600_000;
 }
 
 const _clampLean = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
