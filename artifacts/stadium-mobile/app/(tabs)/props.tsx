@@ -580,7 +580,13 @@ export default function PropsScreen() {
     queryKey: ["browse-odds", sport],
     enabled: isBrowseSport,
     staleTime: 5 * 60_000,
-    queryFn: ({ signal }) => getOdds(sport, signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getOdds(sport, signal);
+      } catch {
+        return [] as OddsGame[];
+      }
+    },
   });
   const browseGames = useMemo<OddsGame[]>(() => {
     if (!isBrowseSport) return [];
@@ -1501,8 +1507,6 @@ export default function PropsScreen() {
           {!searching && isBrowseSport ? (
             browseOddsQ.isLoading ? (
               <Loading label="Loading matches…" />
-            ) : browseOddsQ.isError ? (
-              <ErrorState onRetry={() => browseOddsQ.refetch()} />
             ) : browseGames.length === 0 ? (
               <EmptyState
                 icon="calendar"

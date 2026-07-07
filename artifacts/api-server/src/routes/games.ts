@@ -84,7 +84,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     return;
   }
 
-  // Table tennis / cricket have no ESPN scoreboard — mirror the odds feed.
+  // Table tennis / cricket have no ESPN scoreboard — mirror the live odds feed
+  // (see lib/oddsSlateGames.ts). Mobile browse pills depend on this route.
   if (ODDS_SLATE_SPORT_IDS.has(sportId)) {
     try {
       let rows = await loadOddsSlateGames(sportId);

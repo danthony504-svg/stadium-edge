@@ -2164,6 +2164,7 @@ export default function HomeScreen() {
       {isOddsBrowseSport(sport) ? (
         <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
           <TennisHomeFeed
+            key={sport}
             sport={sport}
             router={router}
             width={width}
@@ -2171,10 +2172,15 @@ export default function HomeScreen() {
             bottomInset={insets.bottom}
             onBuildParlay={() => {
               markCoachHomeLaunch();
+              const browseMsg: Record<string, string> = {
+                tennis: "Build me the best tennis parlay for today's board",
+                tabletennis: "Build me the best table tennis parlay for today's board",
+                cricket: "Build me the best cricket parlay for today's board",
+              };
               router.push({
                 pathname: "/coach",
                 params: {
-                  autoMsg: "Build me the best parlay",
+                  autoMsg: browseMsg[sport] ?? "Build me the best parlay",
                   send: "1",
                   ts: String(Date.now()),
                 },

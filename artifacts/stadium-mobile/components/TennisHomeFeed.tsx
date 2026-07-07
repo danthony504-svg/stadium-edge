@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
-import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
+import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
 import {
@@ -73,13 +73,25 @@ export function TennisHomeFeed({
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
-    queryFn: ({ signal }) => getOdds(sport, signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getOdds(sport, signal);
+      } catch {
+        return [] as OddsGame[];
+      }
+    },
     staleTime: 45_000,
     retry: false,
   });
   const gamesQ = useQuery({
     queryKey: ["games", sport],
-    queryFn: ({ signal }) => getGames(sport, signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await getGames(sport, signal);
+      } catch {
+        return [] as EspnGame[];
+      }
+    },
     staleTime: 45_000,
     retry: false,
   });
@@ -141,7 +153,7 @@ export function TennisHomeFeed({
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [oddsQ.data, liveKeySet]);
 
-  const loading = oddsQ.isFetching || gamesQ.isFetching;
+  const loading = (oddsQ.isFetching || gamesQ.isFetching) && upcoming.length === 0;
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || (useFlags && flagsQ.isFetching);
 
   const askCoach = (msg: string, silent = false) => {
@@ -255,13 +267,9 @@ export function TennisHomeFeed({
         ) : null}
       </View>
 
-      {loading && upcoming.length === 0 ? (
+      {loading ? (
         <View style={{ paddingHorizontal: 16 }}>
           <Loading label={`Loading ${label} odds…`} />
-        </View>
-      ) : oddsQ.isError && !oddsQ.data ? (
-        <View style={{ paddingHorizontal: 16 }}>
-          <ErrorState onRetry={() => oddsQ.refetch()} />
         </View>
       ) : upcoming.length === 0 ? (
         <View style={{ paddingHorizontal: 16 }}>
