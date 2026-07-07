@@ -25,9 +25,17 @@ export function focalSportsFromText(text: string | null | undefined): Set<string
   const out = new Set<string>();
   const t = String(text || "");
   if (!t) return out;
+  const matchesWord = (w: string) => new RegExp(`\\b${w}\\b`, "i").test(t);
   for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
     for (const w of words) {
-      if (new RegExp(`\\b${w}\\b`, "i").test(t)) {
+      // "tennis" is a substring of "table tennis" — don't treat a table-tennis ask
+      // as ATP/WTA tennis unless the user also names tennis explicitly (ATP/WTA
+      // or bare "tennis" not preceded by "table").
+      if (id === "tennis" && w === "tennis") {
+        if (/(?<!table[\s-])\btennis\b/i.test(t)) out.add(id);
+        continue;
+      }
+      if (matchesWord(w)) {
         out.add(id);
         break;
       }
