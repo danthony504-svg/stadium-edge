@@ -27,6 +27,19 @@ test("direct OpenAI drops HR section when not asked", () => {
   assert.doesNotMatch(plain, /HOME-RUN EVALUATION/);
 });
 
+test("direct OpenAI keeps Summer League futures section when asked", () => {
+  const big =
+    FAKE +
+    "\nNBA SUMMER LEAGUE FUTURES ANALYSIS RULE — keep for summer league championship asks\n" +
+    "z".repeat(60_000);
+  const sl = coachSystemPromptForProvider(
+    "openai",
+    big,
+    "who wins Vegas Summer League championship",
+  );
+  assert.match(sl, /NBA SUMMER LEAGUE FUTURES/);
+});
+
 test("trimLockedContextForDirectOpenAI enforces byte budget", () => {
   const hist: Record<string, unknown> = {};
   for (let i = 0; i < 40; i++) {

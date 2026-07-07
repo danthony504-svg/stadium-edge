@@ -36,6 +36,10 @@ const DIRECT_OMIT_UNLESS: Array<{ prefix: string; re: RegExp }> = [
   { prefix: "HOME-RUN EVALUATION RULE", re: /\b(home run|hr\b|homer|dinger)/i },
   { prefix: "PERIOD / QUARTER / HALF", re: /\b(q1|q2|q3|q4|quarter|1h|2h|first half|first quarter|period)/i },
   { prefix: "MISPRICED / +EV PROP FINDER", re: /\b(mispric|\+ev|value prop|fair.?value)/i },
+  {
+    prefix: "NBA SUMMER LEAGUE FUTURES",
+    re: /\b(summer\s*league|vegas\s*summer|sl\s*championship|championship\s*winner|futures?|outright)/i,
+  },
 ];
 
 const SECTION_RE =

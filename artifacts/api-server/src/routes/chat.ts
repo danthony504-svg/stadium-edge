@@ -304,6 +304,30 @@ How to use it:
 - TENNIS UPSET — lean.upset = { dogOdds }: when lean.side is ALSO the betting underdog (dogOdds >= +100). Flag these like team upsets — cite lean.reasons and the real dog price.
 - HONESTY: if tennisAnalysis is absent or thin, say the player data isn't available and use posted odds only — never invent rankings, form, or H2H.
 
+NBA SUMMER LEAGUE FUTURES ANALYSIS RULE — APPLIES TO VEGAS SUMMER LEAGUE CHAMPIONSHIP / OUTRIGHT WINNER MARKETS (with or without a photo of the futures board): when the user asks about NBA Summer League futures, "Vegas Summer League Championship Winner", "who wins Summer League", "which SL team", or uploads a sportsbook screen listing Summer League outright prices and asks who to pick — give a STRUCTURED, in-depth analysis (NOT a 2-sentence hot take). Summer League is a short tournament with volatile rosters — rosters change game-to-game, so flag uncertainty honestly when lineups are unconfirmed.
+FACTORS TO ANALYZE (use bullets under bold headers; skip any factor you truly cannot assess and say "not confirmed" — never invent a player name, injury, or stat):
+- **Roster strength** — NBA rotation players vs. two-way / undrafted rookies; who actually moves the needle.
+- **First-round draft picks playing** — lottery picks and recent first-rounders on the roster and expected usage.
+- **Returning Summer League players** — veterans of prior SL runs who know the speed/physicality.
+- **Coaching history in Summer League** — staff track record developing young cores in Vegas.
+- **Team depth** — can they survive a bad shooting night without folding?
+- **Injuries / players sitting out** — anyone listed OUT or unlikely to play; name only who you can verify or what the image shows.
+- **Pace and offensive/defensive ratings** — expected tempo and efficiency profile of the SL roster (projection wording).
+- **Recent Summer League performance** — how they've looked in pool play / early bracket games THIS year when applicable.
+- **Strength of schedule** — path difficulty in the pool and bracket.
+- **Live odds movement** — only if prices are visible in the image or context; never invent steam.
+- **Lineup confirmations** — who is actually suiting up tonight / next game.
+- **Rest days between games** — fatigue edge in a compressed schedule.
+- **Travel and back-to-backs** — any schedule spot disadvantages.
+- **Championship path** — bracket difficulty and likely opponents on the way to the title.
+- **Value vs. sportsbook odds (EV and edge)** — convert each contender's American price to implied %, state your honest projected win % with projection wording ("I project ~X%"), and compute edge = projected minus implied for your top pick ONLY when you can defend the projection.
+WORKFLOW: (1) Read every legible team + price from the image or user message. (2) Compare the top 3-5 contenders on the factors above. (3) END with this exact summary block (mandatory):
+**Best Pick:** <Team Name> (<American odds from the board>)
+**Confidence:** <X.X>/10
+**Edge:** <+/-Y.Y%> (omit Edge line if you cannot honestly compute it from a defended projection)
+**Reason:** <one tight sentence tying roster edge + path + price value>
+HONESTY: Confidence and Edge must be REAL estimates you can defend — never fabricate them to fill the template. If the board is blurry or a team isn't legible, say so. Do NOT emit PICK: lines for a pure "who would you pick?" futures ask unless the user explicitly asks to build/add a bet. Close with the responsible-gambling reminder.
+
 PRE-GAME MONEYLINE SIGNALS — VENUE / STREAK / SEASON (real ESPN, weigh them on EVERY side/ML pick when present):
 - homeVenueForm / awayVenueForm: { record, avgMargin, ptsFor, ptsAgainst, games } — the home side's form in its HOME games and the away side's form in its ROAD games (the venue-specific read for tonight's game, which is at the home team's building). A team that is strong at home (e.g. 8-2 home, +9.4) facing a team weak on the road (e.g. 3-7 away, −6.1) is a MEANINGFULLY stronger home ML/spread than the L10 overall record alone shows. Cite the venue split in the edge note when it's the deciding factor ("Nuggets 9-1 at home +11.2 vs a Wizards side 2-8 on the road −8.5 — strong home-venue edge").
 - homeStreak / awayStreak: { type: "W"|"L", count } — the side's CURRENT consecutive win/loss streak from real finals. A 5+ game win streak is a real tailwind; a long losing streak is a fade signal. Use as a secondary confirm, not the sole reason.
@@ -1949,11 +1973,23 @@ HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game res
   // follow-up and we steer the model to re-read it and optimize WITHIN those exact
   // games rather than running the verdict-only critique or the diversify path.
   const improveFromSlipImage = imageDataUrls.length > 0 && improveIntent;
+  const futuresOutrightImageAsk =
+    imageDataUrls.length > 0 &&
+    !improveFromSlipImage &&
+    /\b(who (?:would you |should I )?pick|which (?:team|one)|best (?:bet|pick|value)|futures?|outright|championship|tournament winner|summer\s*league)\b/i.test(
+      latestUser,
+    );
+  const summerLeagueFuturesIntent =
+    /\b(summer\s*league|vegas\s*summer\s*league|sl\s*championship|summer\s*league\s*championship)\b/i.test(
+      latestUser,
+    );
   const imageAnalysisAddendum = !imageDataUrls.length
     ? ""
     : improveFromSlipImage
       ? `\n\nIMPROVE THIS SLIP FROM THE PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo of their bet slip" : `${imageDataUrls.length} photos of their bet slip`} and wants a BETTER version of THAT SAME slip. First READ the slip and note to yourself the EXACT games on it and the EXACT number of legs. Then build an improved ticket under these HARD constraints: (1) KEEP THE SAME GAMES — every leg must be on a game that appears on the uploaded slip; do NOT add a game that isn't on the slip and do NOT drop games. (2) KEEP THE SAME NUMBER OF LEGS / props as the slip, UNLESS the user explicitly asked for a different count this turn. (3) IMPROVE THE PICKS within those games: swap weak, over-juiced, or over-correlated legs for stronger, less-correlated markets ON THE SAME GAMES (e.g. replace a duplicate second leg on one player with a different player or a different stat family in that same game, or move off a bad number to a better real line), while still obeying every HARD BAN (at most one leg per family×period×game, no anti-correlated or directionally-contradictory legs, no duplicate same-player exposure). (4) Every leg MUST be a REAL entry from realOdds / realProps — never invent a game, market, or price; if a game legible on the slip has no posted odds in the pool, keep the closest real market for it and note that one honestly. Open with ONE short line naming what you upgraded vs the uploaded slip, then the PICK lines. If a key detail on the slip is cut off or blurry, say so in a few words rather than guessing.`
-      : `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`;
+      : futuresOutrightImageAsk
+        ? `\n\nFUTURES / OUTRIGHT BOARD FROM PHOTO — the user attached ${imageDataUrls.length === 1 ? "a photo" : "photos"} of a futures/outright market (e.g. Summer League championship winner, tournament winner, season-long award) and wants a FULL pick analysis — NOT a 2-sentence verdict. Read every legible team/outcome and American price from the image. If this is NBA Summer League, apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full: walk the listed factors with bullets, compare the top contenders, and END with the mandatory Best Pick / Confidence / Edge / Reason block. For other outright markets, use the same structured depth with sport-appropriate factors. Do NOT emit PICK: lines unless the user explicitly asked to add a bet to their slip. NEVER fabricate a price or team that isn't legible in the image.`
+        : `\n\nIMAGE ANALYSIS — the user attached ${imageDataUrls.length === 1 ? "a PHOTO" : `${imageDataUrls.length} PHOTOS`} (most likely ${imageDataUrls.length === 1 ? "a bet slip, a sportsbook screen, or a scoreboard" : "bet slips, sportsbook screens, or scoreboards"}). Read ${imageDataUrls.length === 1 ? "it" : "all of them"}, then reply with ONLY a short overall verdict — 2 to 4 sentences${imageDataUrls.length === 1 ? "" : " covering them together"}. Do NOT list the legs one by one, do NOT walk through each pick, and do NOT add tangents or alternative-bet lectures. Just the bottom line: whether the slip${imageDataUrls.length === 1 ? " is" : "s are"} good or bad, the single biggest reason, and one concrete improvement if it's obvious. NEVER fabricate a number that isn't legible in ${imageDataUrls.length === 1 ? "the image" : "an image"}; if a key detail is cut off or blurry, note it in a few words rather than guessing. If ${imageDataUrls.length === 1 ? "the image is" : "the images are"} not about sports betting, say in one line what ${imageDataUrls.length === 1 ? "it appears" : "they appear"} to be and ask how you can help.`;
 
   const improveDiversifyLine = improveFromSlipImage
     ? `- KEEP THE SAME GAMES AND THE SAME LEG COUNT as the uploaded slip (read them from the attached photo): do NOT swap in new games and do NOT change the number of legs — improve the picks WITHIN those exact games only.`
@@ -1993,6 +2029,12 @@ The user wants an HONEST breakdown of the ticket they ALREADY built — the slip
 - ALWAYS state the ticket's combined American odds and the implied win probability that price represents — this is real math off the posted prices on the slip, not a fabricated edge, so include it to set honest expectations. Only omit it if a leg has no real price to combine, in which case say plainly that the combined number can't be computed from the available prices.
 - Name the SINGLE weakest leg and the one change that would help most. You MAY offer to build a tighter version if they want — but do NOT build it now (still no PICK lines this turn).`
     : "";
+
+  const summerLeagueSystemAddendum =
+    summerLeagueFuturesIntent || futuresOutrightImageAsk
+      ? `\n\n*** NBA SUMMER LEAGUE / FUTURES OUTRIGHT REQUEST FOR THIS TURN ***
+Apply the NBA SUMMER LEAGUE FUTURES ANALYSIS RULE in full for this reply. This overrides the default "3-6 short paragraphs" cap — use structured sections with bullets. Compare the top contenders on the listed factors and END with the mandatory Best Pick / Confidence / Edge / Reason block. Do NOT emit PICK: lines unless the user explicitly asked to add a bet to their slip.`
+      : "";
 
   // LIVE-BETS LOCK — the client sets context.liveOnly when the user explicitly
   // asks for live / in-play bets, and pre-filters realGames/realOdds/realProps to
@@ -2135,7 +2177,7 @@ The user asked for a ticket WITH player props, not necessarily "props only." Bui
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
