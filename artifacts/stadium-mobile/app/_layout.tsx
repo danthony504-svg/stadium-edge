@@ -30,6 +30,7 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS, clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
+import { isKnownCorruptCrashMessage, recordBootCrash } from "@/lib/crashRecovery";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { applyOtaUpdateIfAvailable, recoverFromCorruptOta, useOtaUpdater } from "@/lib/otaUpdater";
@@ -230,7 +231,8 @@ function TableTennisCrashBridge() {
     const prev = ErrorUtils.getGlobalHandler?.();
     ErrorUtils.setGlobalHandler((error, isFatal) => {
       const msg = String(error?.message ?? "");
-      if (isStaleBundleCrashError(msg)) {
+      if (isStaleBundleCrashError(msg) || isKnownCorruptCrashMessage(msg)) {
+        void recordBootCrash(msg);
         void recoverFromCorruptOta().catch(() => {
           void Updates.reloadAsync().catch(() => {});
         });

@@ -6,8 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
-import { markBundleAppliedIfReady } from "@/lib/bundleMark";
-import { applyOtaOnColdStart } from "@/lib/otaUpdater";
+import { applyOtaOnColdStart, markSuccessfulOtaBoot } from "@/lib/otaUpdater";
 
 type BootPhase = "checking" | "ready";
 
@@ -33,7 +32,7 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     const releaseBoot = async () => {
       if (released) return;
       released = true;
-      await markBundleAppliedIfReady();
+      await markSuccessfulOtaBoot();
       setBootPhase("ready");
     };
 

@@ -3,12 +3,20 @@ import { latestContext } from "expo-updates";
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
+import {
+  clearLastBootCrash,
+  isKnownCorruptCrashMessage,
+  readLastBootCrash,
+} from "@/lib/crashRecovery";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { browseSportsBundleReady } from "@/lib/browseSportsGuard";
 import {
   clearAppliedBundleMark,
+  clearOtaEpoch,
   markBundleAppliedIfReady,
+  markOtaEpochApplied,
   needsBrowseSportsBundleReload,
+  needsOtaEpochUpgrade,
 } from "@/lib/bundleMark";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
@@ -20,15 +28,23 @@ async function reloadWithFreshCache(): Promise<void> {
   await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
 }
 
+/** Fetch the latest production OTA when the server has one. Returns true when fetched. */
+async function fetchLatestOtaIfAvailable(): Promise<boolean> {
+  const check = await Updates.checkForUpdateAsync();
+  if (!check.isAvailable) return false;
+  await Updates.fetchUpdateAsync();
+  return true;
+}
+
 /** Download an OTA bundle without reloading — applies on the next cold start. */
 async function prefetchOtaUpdate(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
 
-  const result = await Updates.checkForUpdateAsync();
-  if (!result.isAvailable) return false;
-
-  await Updates.fetchUpdateAsync();
-  return true;
+  try {
+    return await fetchLatestOtaIfAvailable();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -44,20 +60,20 @@ export async function ensureBrowseSportOtaReady(): Promise<boolean> {
   }
 
   try {
-    const result = await Updates.checkForUpdateAsync();
-    if (!result.isAvailable) return false;
-    await Updates.fetchUpdateAsync();
-    await reloadWithFreshCache();
-    return true;
+    if (await fetchLatestOtaIfAvailable()) {
+      await reloadWithFreshCache();
+      return true;
+    }
   } catch {
     return false;
   }
+
+  return false;
 }
 
 /**
- * On cold start: apply a downloaded OTA, or prefetch a newer one.
- * Never force-reload just because the server has a newer bundle — that was
- * bricking users in a reload loop with corrupt in-memory JS.
+ * On cold start: apply any downloaded or server-newer OTA before the UI loads.
+ * Uses OTA epoch + last-crash markers so corrupt bundles cannot skip the fix.
  */
 export async function applyOtaOnColdStart(): Promise<boolean> {
   if (__DEV__ || !Updates.isEnabled) return false;
@@ -67,10 +83,16 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
     return true;
   }
 
-  if (await needsBrowseSportsBundleReload()) {
+  const lastCrash = await readLastBootCrash();
+  const hadCorruptCrash = !!lastCrash && isKnownCorruptCrashMessage(lastCrash);
+  const mustUpgrade =
+    hadCorruptCrash ||
+    (await needsOtaEpochUpgrade()) ||
+    (await needsBrowseSportsBundleReload());
+
+  if (mustUpgrade) {
     try {
-      const check = await Updates.checkForUpdateAsync();
-      if (check.isAvailable) await Updates.fetchUpdateAsync();
+      await fetchLatestOtaIfAvailable();
     } catch {
       // Offline — still try reload to apply a previously downloaded bundle.
     }
@@ -79,13 +101,25 @@ export async function applyOtaOnColdStart(): Promise<boolean> {
   }
 
   try {
-    await prefetchOtaUpdate();
+    if (await fetchLatestOtaIfAvailable()) {
+      await reloadWithFreshCache();
+      return true;
+    }
   } catch {
     // Offline — boot with the current bundle.
   }
 
   await markBundleAppliedIfReady();
+  await markOtaEpochApplied();
+  await clearLastBootCrash();
   return false;
+}
+
+/** Mark a successful boot after OTA gate releases the UI. */
+export async function markSuccessfulOtaBoot(): Promise<void> {
+  await markBundleAppliedIfReady();
+  await markOtaEpochApplied();
+  await clearLastBootCrash();
 }
 
 /** On cold start, reload immediately when a downloaded OTA is waiting to apply. */
@@ -102,11 +136,10 @@ export async function recoverFromCorruptOta(): Promise<boolean> {
 
   await clearDiscoverCache();
   await clearAppliedBundleMark();
+  await clearOtaEpoch();
 
   try {
-    const check = await Updates.checkForUpdateAsync();
-    if (check.isAvailable) {
-      await Updates.fetchUpdateAsync();
+    if (await fetchLatestOtaIfAvailable()) {
       await reloadWithFreshCache();
       return true;
     }

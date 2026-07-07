@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
+import { isKnownCorruptCrashMessage, recordBootCrash } from "@/lib/crashRecovery";
 import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
 
 export type ErrorFallbackProps = {
@@ -28,19 +29,23 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
+  const corruptCrash =
+    isStaleBundleCrashError(error.message ?? "") || isKnownCorruptCrashMessage(error.message ?? "");
+
   // Auto-recover from stale bundles without requiring the user to read the error.
   useEffect(() => {
-    if (!isStaleBundleCrashError(error.message ?? "") || !Updates.isEnabled) return;
+    if (!corruptCrash || !Updates.isEnabled) return;
+    void recordBootCrash(error.message ?? "");
     void recoverFromCorruptOta().catch(() => {
       // User can still tap Try Again.
     });
-  }, [error.message]);
+  }, [corruptCrash, error.message]);
 
   const handleRestart = async () => {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
-        if (isStaleBundleCrashError(error.message ?? "")) {
+        if (corruptCrash) {
           const reloading = await recoverFromCorruptOta();
           if (reloading) return;
         }
@@ -95,7 +100,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Text>
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
-          {isStaleBundleCrashError(error.message ?? "")
+          {corruptCrash
             ? "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
             : "Please reload the app to continue."}
         </Text>

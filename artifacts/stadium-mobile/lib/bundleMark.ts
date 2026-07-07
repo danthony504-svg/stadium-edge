@@ -4,9 +4,13 @@ import Constants from "expo-constants";
 import { browseSportsBundleReady } from "./browseSportsGuard";
 
 /** Bump when Table Tennis / browse-sport crash fixes ship — tracked in AsyncStorage only. */
-export const JS_BUNDLE_MARK = "tabletennis-v6";
+export const JS_BUNDLE_MARK = "tabletennis-v7";
+
+/** Bump to force one fetch+apply OTA cycle for installs stuck on corrupt bundles. */
+export const REQUIRED_OTA_EPOCH = 7;
 
 const STORAGE_KEY = "stadium-js-bundle-mark";
+const OTA_EPOCH_KEY = "stadium-ota-epoch";
 
 export function expectedBundleMark(): string {
   const fromConfig = (Constants.expoConfig?.extra as { jsBundleMark?: string } | undefined)
@@ -33,6 +37,33 @@ export async function writeAppliedBundleMark(mark: string): Promise<void> {
 export async function clearAppliedBundleMark(): Promise<void> {
   try {
     await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Best-effort
+  }
+}
+
+export async function needsOtaEpochUpgrade(): Promise<boolean> {
+  if (__DEV__) return false;
+  try {
+    const applied = await AsyncStorage.getItem(OTA_EPOCH_KEY);
+    return applied !== String(REQUIRED_OTA_EPOCH);
+  } catch {
+    return true;
+  }
+}
+
+export async function markOtaEpochApplied(): Promise<void> {
+  if (__DEV__) return;
+  try {
+    await AsyncStorage.setItem(OTA_EPOCH_KEY, String(REQUIRED_OTA_EPOCH));
+  } catch {
+    // Best-effort
+  }
+}
+
+export async function clearOtaEpoch(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(OTA_EPOCH_KEY);
   } catch {
     // Best-effort
   }
