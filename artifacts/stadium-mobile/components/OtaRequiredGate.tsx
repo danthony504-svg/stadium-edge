@@ -9,15 +9,17 @@ import { isKnownCorruptCrashMessage, readLastBootCrash } from "@/lib/crashRecove
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { applyOtaOnColdStart, recoverFromCorruptOta } from "@/lib/otaUpdater";
 
-type GatePhase = "recovering" | "ready";
+type GatePhase = "recovering" | "downloading" | "ready";
 
 /**
- * Blocks only when recovering from a corrupt bundle crash or when a downloaded
- * OTA is waiting to apply.
+ * Blocks when recovering from a corrupt bundle, downloading Discover UI on embedded,
+ * or when a downloaded OTA is waiting to apply.
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
-  const [phase, setPhase] = useState<GatePhase>("ready");
+  const [phase, setPhase] = useState<GatePhase>(() =>
+    !__DEV__ && Updates.isEnabled && Updates.isEmbeddedLaunch ? "downloading" : "ready",
+  );
   const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
 
   useEffect(() => {
@@ -32,9 +34,15 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
         } catch {
           // fall through — applyOtaOnColdStart may still fetch
         }
-        setPhase("ready");
+      } else if (Updates.isEmbeddedLaunch) {
+        setPhase("downloading");
       }
-      await applyOtaOnColdStart().catch(() => {});
+
+      const reloaded = await applyOtaOnColdStart().catch(() => false);
+      if (reloaded) return;
+
+      setPending(!!latestContext?.isUpdatePending);
+      setPhase("ready");
     })();
   }, []);
 
@@ -46,7 +54,7 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  if (phase === "recovering") {
+  if (phase === "recovering" || phase === "downloading") {
     return (
       <View
         style={{
@@ -69,7 +77,9 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 16,
           }}
         >
-          Downloading fix…
+          {phase === "downloading"
+            ? "Downloading Discover Home…"
+            : "Downloading fix…"}
         </Text>
       </View>
     );
@@ -125,7 +135,9 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 10,
           }}
         >
-          Stadium Edge downloaded a fix. Tap Restart once to load it.
+          {Updates.isEmbeddedLaunch
+            ? "Tap Restart once to load Discover Home (Table Tennis, Coach, and more)."
+            : "Stadium Edge downloaded a fix. Tap Restart once to load it."}
         </Text>
         <Pressable
           onPress={restart}

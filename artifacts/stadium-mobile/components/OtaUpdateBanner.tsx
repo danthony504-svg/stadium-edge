@@ -6,6 +6,7 @@ import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { applyOtaUpdateIfAvailable } from "@/lib/otaUpdater";
 
 type OtaUiState = { isUpdatePending: boolean; isDownloading: boolean };
@@ -19,13 +20,12 @@ function otaUiFromContext(ctx: typeof latestContext): OtaUiState {
 
 /**
  * Prompts the user when a prefetched OTA is ready — one tap applies it.
- * Uses the updates event listener instead of Updates.useUpdates() so a corrupt
- * mid-session bundle cannot brick the app via a broken hook export.
+ * On embedded TestFlight JS, auto-downloads the Discover Home OTA on mount.
  */
 export function OtaUpdateBanner() {
   const insets = useSafeAreaInsets();
   const [ota, setOta] = useState<OtaUiState>(() => otaUiFromContext(latestContext));
-  const [embeddedRestore, setEmbeddedRestore] = useState(
+  const [onEmbedded, setOnEmbedded] = useState(
     () => !__DEV__ && Updates.isEnabled && Updates.isEmbeddedLaunch,
   );
 
@@ -37,60 +37,28 @@ export function OtaUpdateBanner() {
     return () => sub.remove();
   }, []);
 
+  // Embedded rollback lands on old Player Props — prefetch Discover OTA immediately.
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled || !onEmbedded) return;
+    void (async () => {
+      try {
+        await applyOtaUpdateIfAvailable();
+        setOta(otaUiFromContext(latestContext));
+      } catch {
+        // offline — banner stays tappable
+      }
+    })();
+  }, [onEmbedded]);
+
   if (__DEV__ || !Updates.isEnabled) return null;
 
-  if (embeddedRestore) {
-    return (
-      <View
-        pointerEvents="box-none"
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: insets.top + 4,
-          zIndex: 10000,
-          alignItems: "center",
-          paddingHorizontal: 12,
-        }}
-      >
-        <Pressable
-          onPress={() => {
-            void applyOtaUpdateIfAvailable().finally(() => {
-              void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-            });
-          }}
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            backgroundColor: "#1d4ed8",
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 14,
-            maxWidth: 420,
-            width: "100%",
-            opacity: pressed ? 0.9 : 1,
-          })}
-        >
-          <Feather name="download" size={16} color="#fff" />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
-              Restore new Discover UI
-            </Text>
-            <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 11 }}>
-              Tap to download the latest Stadium Edge layout (Table Tennis, Coach, Home).
-            </Text>
-          </View>
-          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>Update</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (!ota.isUpdatePending && !ota.isDownloading) return null;
+  const showEmbeddedBanner = onEmbedded && !ota.isUpdatePending;
+  if (!showEmbeddedBanner && !ota.isUpdatePending && !ota.isDownloading) return null;
 
   const apply = () => {
-    void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+    void clearDiscoverCache().finally(() => {
+      void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+    });
   };
 
   return (
@@ -107,34 +75,61 @@ export function OtaUpdateBanner() {
       }}
     >
       <Pressable
-        onPress={ota.isUpdatePending ? apply : undefined}
+        onPress={
+          ota.isUpdatePending
+            ? apply
+            : showEmbeddedBanner
+              ? () => {
+                  void applyOtaUpdateIfAvailable().finally(() => {
+                    setOta(otaUiFromContext(latestContext));
+                    if (latestContext?.isUpdatePending) apply();
+                  });
+                }
+              : undefined
+        }
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
           gap: 10,
           backgroundColor: "#1d4ed8",
           borderRadius: 12,
-          paddingVertical: 10,
+          paddingVertical: 12,
           paddingHorizontal: 14,
           maxWidth: 420,
           width: "100%",
-          opacity: pressed && ota.isUpdatePending ? 0.9 : 1,
+          opacity: pressed ? 0.9 : 1,
+          shadowColor: "#000",
+          shadowOpacity: 0.35,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
         })}
       >
-        <Feather name={ota.isUpdatePending ? "download" : "refresh-cw"} size={16} color="#fff" />
+        <Feather
+          name={ota.isUpdatePending ? "check-circle" : ota.isDownloading ? "refresh-cw" : "download"}
+          size={18}
+          color="#fff"
+        />
         <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 13 }}>
-            {ota.isUpdatePending ? "App update ready" : "Downloading update…"}
-          </Text>
-          <Text style={{ color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 11 }}>
+          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 14 }}>
             {ota.isUpdatePending
-              ? "Tap to restart and load the latest Discover + Coach fixes."
-              : "Keep the app open for a moment."}
+              ? "Discover Home ready"
+              : showEmbeddedBanner
+                ? "Restore Discover Home"
+                : ota.isDownloading
+                  ? "Downloading update…"
+                  : "App update ready"}
+          </Text>
+          <Text style={{ color: "rgba(255,255,255,0.9)", fontFamily: FONT.medium, fontSize: 11 }}>
+            {ota.isUpdatePending
+              ? "Tap to restart — loads Table Tennis, Coach, and the new Home layout."
+              : showEmbeddedBanner
+                ? "You're on an older layout. Tap to download the latest UI."
+                : "Keep the app open for a moment."}
           </Text>
         </View>
-        {ota.isUpdatePending ? (
-          <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>Restart</Text>
-        ) : null}
+        <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 12 }}>
+          {ota.isUpdatePending ? "Restart" : "Update"}
+        </Text>
       </Pressable>
     </View>
   );
