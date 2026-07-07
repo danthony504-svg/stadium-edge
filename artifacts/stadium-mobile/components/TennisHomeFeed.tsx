@@ -19,7 +19,7 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { sportLabel } from "@/lib/sports";
+import { isOddsBrowseSport, sportLabel } from "@/lib/sports";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -69,6 +69,7 @@ export function TennisHomeFeed({
 }: TennisHomeFeedProps) {
   const colors = useColors();
   const label = sportLabel(sport);
+  const browseSport = isOddsBrowseSport(sport);
   const useFlags = sport === "tennis";
 
   const oddsQ = useQuery({
@@ -151,7 +152,7 @@ export function TennisHomeFeed({
           !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
       )
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsQ.data, liveKeySet]);
+  }, [oddsQ.data, liveKeySet, sport]);
 
   const loading = (oddsQ.isFetching || gamesQ.isFetching) && upcoming.length === 0;
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || (useFlags && flagsQ.isFetching);
@@ -163,6 +164,8 @@ export function TennisHomeFeed({
       params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
     });
   };
+
+  if (!browseSport) return null;
 
   return (
     <ScrollView

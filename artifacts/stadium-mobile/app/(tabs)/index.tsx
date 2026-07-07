@@ -2021,6 +2021,14 @@ function HomeSportFeed({
 }
 
 export default function HomeScreen() {
+  return (
+    <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
+      <HomeScreenBody />
+    </ErrorBoundary>
+  );
+}
+
+function HomeScreenBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
