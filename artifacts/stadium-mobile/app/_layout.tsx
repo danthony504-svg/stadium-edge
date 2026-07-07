@@ -29,6 +29,7 @@ import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS, clearDiscoverCache } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
+import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { applyOtaUpdateIfAvailable, ensureBrowseSportOtaReady, useOtaUpdater } from "@/lib/otaUpdater";
@@ -222,14 +223,14 @@ function DiscoverHydrateBridge() {
   return null;
 }
 
-/** Auto-reload when Hermes throws the stale table-tennis bundle ReferenceError. */
+/** Auto-reload when Hermes throws stale-bundle ReferenceErrors after a partial OTA. */
 function TableTennisCrashBridge() {
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
     const prev = ErrorUtils.getGlobalHandler?.();
     ErrorUtils.setGlobalHandler((error, isFatal) => {
       const msg = String(error?.message ?? "");
-      if (msg.includes("tabletennis")) {
+      if (isStaleBundleCrashError(msg)) {
         void (async () => {
           try {
             await clearDiscoverCache();

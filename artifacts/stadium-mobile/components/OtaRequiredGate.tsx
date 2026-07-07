@@ -26,12 +26,22 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
 
-    void applyOtaOnColdStart().then(async (reloaded) => {
-      if (!reloaded) {
+    const safety = setTimeout(() => setBootPhase("ready"), 15_000);
+
+    void applyOtaOnColdStart()
+      .then(async (reloaded) => {
+        if (!reloaded) {
+          await markBundleAppliedIfReady();
+          setBootPhase("ready");
+        }
+      })
+      .catch(async () => {
         await markBundleAppliedIfReady();
         setBootPhase("ready");
-      }
-    });
+      })
+      .finally(() => clearTimeout(safety));
+
+    return () => clearTimeout(safety);
   }, []);
 
   useEffect(() => {
@@ -122,8 +132,8 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
           }}
         >
           Stadium Edge downloaded a fix for Home, Tennis, and Table Tennis. Restart once to load it — using the
-          app before restarting can cause crashes like &quot;Property &apos;tabletennis&apos; doesn&apos;t exist&quot; or
-          &quot;userFound is not a function&quot;.
+          app before restarting can cause crashes like &quot;Property &apos;tabletennis&apos; doesn&apos;t exist&quot;,
+          &quot;getOddsSelector of undefined&quot;, or &quot;userFound is not a function&quot;.
         </Text>
         <Pressable
           onPress={restart}

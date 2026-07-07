@@ -3,8 +3,8 @@ import Constants from "expo-constants";
 
 import { browseSportsBundleReady } from "./browseSportsGuard";
 
-/** Bump when Table Tennis / browse-sport crash fixes ship — forces one OTA reload. */
-export const JS_BUNDLE_MARK = "tabletennis-v4";
+/** Bump when Table Tennis / browse-sport crash fixes ship — tracked in AsyncStorage only. */
+export const JS_BUNDLE_MARK = "tabletennis-v5";
 
 const STORAGE_KEY = "stadium-js-bundle-mark";
 
@@ -47,8 +47,11 @@ export async function markBundleAppliedIfReady(): Promise<void> {
   await writeAppliedBundleMark(expectedBundleMark());
 }
 
+/**
+ * True only when this in-memory bundle lacks browse-sport helpers (stale OTA).
+ * Do NOT key off the AsyncStorage mark — a good bundle with no mark yet must not reload.
+ */
 export async function needsBrowseSportsBundleReload(): Promise<boolean> {
   if (__DEV__) return false;
-  if (!browseSportsBundleReady()) return true;
-  return !(await isBundleMarkCurrent());
+  return !browseSportsBundleReady();
 }

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { isStaleBundleCrashError } from "@/lib/browseSportsGuard";
 import { applyOtaOnColdStart, ensureBrowseSportOtaReady } from "@/lib/otaUpdater";
 
 export type ErrorFallbackProps = {
@@ -27,9 +28,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  // Auto-recover from stale table-tennis bundles without requiring the user to read the error.
+  // Auto-recover from stale bundles without requiring the user to read the error.
   useEffect(() => {
-    if (!error.message?.includes("tabletennis") || !Updates.isEnabled) return;
+    if (!isStaleBundleCrashError(error.message ?? "") || !Updates.isEnabled) return;
     void (async () => {
       try {
         await clearDiscoverCache();
@@ -45,7 +46,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
-        if (error.message?.includes("tabletennis")) {
+        if (isStaleBundleCrashError(error.message ?? "")) {
           const reloading = await ensureBrowseSportOtaReady();
           if (reloading) return;
         }
@@ -100,8 +101,8 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Text>
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
-          {error.message?.includes("tabletennis")
-            ? "Table Tennis needs the latest app update. Tap Try Again to restart and load it."
+          {isStaleBundleCrashError(error.message ?? "")
+            ? "Stadium Edge needs the latest update. Tap Try Again to restart and load it."
             : "Please reload the app to continue."}
         </Text>
 

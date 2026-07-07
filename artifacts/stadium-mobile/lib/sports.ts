@@ -57,5 +57,5 @@ export function isKnownSport(id: string): boolean {
   return SPORTS.some((s) => s.id === id);
 }
 
-export { browseCoachMessage, browseSportsBundleReady } from "./browseSportsGuard";
+export { browseCoachMessage, browseSportsBundleReady, isStaleBundleCrashError } from "./browseSportsGuard";
 export { browseSportsUiEnabled } from "./bundleMark";
