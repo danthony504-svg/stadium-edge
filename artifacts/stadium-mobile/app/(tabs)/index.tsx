@@ -2,8 +2,6 @@ import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
@@ -45,6 +43,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { browseCoachMessage, DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
+import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -2052,35 +2051,35 @@ function HomeScreenBody() {
     (id: string) => {
       if (!HOME_SPORT_IDS.includes(id) || !isKnownSport(id)) return;
       if (id === sportRef.current) return;
-      // A downloaded OTA must load before browse sports (table tennis / cricket)
-      // — otherwise Hermes can throw "Property 'tabletennis' doesn't exist".
-      if (
-        isOddsBrowseSport(id) &&
-        Updates.isEnabled &&
-        latestContext?.isUpdatePending
-      ) {
-        void clearDiscoverCache().finally(() => {
-          void Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-        });
+
+      const applySportChange = () => {
+        sportRef.current = id;
+        sportFetchGenRef.current += 1;
+        queryClient.cancelQueries({ queryKey: ["odds"] });
+        queryClient.cancelQueries({ queryKey: ["games"] });
+        queryClient.cancelQueries({ queryKey: ["home-featured"] });
+        queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
+        queryClient.cancelQueries({ queryKey: ["home-upsets"] });
+        queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
+        queryClient.removeQueries({ queryKey: ["odds"] });
+        queryClient.removeQueries({ queryKey: ["games"] });
+        queryClient.removeQueries({ queryKey: ["home-featured"] });
+        queryClient.removeQueries({ queryKey: ["home-upsets"] });
+        queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
+        if (isOddsBrowseSport(id)) {
+          void clearDiscoverCache();
+        }
+        setSport(id);
+      };
+
+      // Stale in-memory JS can throw "Property 'tabletennis' doesn't exist" on browse
+      // sports — fetch/apply OTA first, and reload if this bundle lacks TT helpers.
+      if (isOddsBrowseSport(id)) {
+        void runWhenBrowseSportBundleReady(applySportChange);
         return;
       }
-      sportRef.current = id;
-      sportFetchGenRef.current += 1;
-      queryClient.cancelQueries({ queryKey: ["odds"] });
-      queryClient.cancelQueries({ queryKey: ["games"] });
-      queryClient.cancelQueries({ queryKey: ["home-featured"] });
-      queryClient.cancelQueries({ queryKey: ["tennis-flags"] });
-      queryClient.cancelQueries({ queryKey: ["home-upsets"] });
-      queryClient.cancelQueries({ queryKey: ["home-hot-grades"] });
-      queryClient.removeQueries({ queryKey: ["odds"] });
-      queryClient.removeQueries({ queryKey: ["games"] });
-      queryClient.removeQueries({ queryKey: ["home-featured"] });
-      queryClient.removeQueries({ queryKey: ["home-upsets"] });
-      queryClient.removeQueries({ queryKey: ["home-hot-grades"] });
-      if (isOddsBrowseSport(id)) {
-        void clearDiscoverCache();
-      }
-      setSport(id);
+
+      applySportChange();
     },
     [queryClient],
   );

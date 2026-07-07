@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { browseCoachMessage, isOddsBrowseSport, sportLabel } from "@/lib/sports";
+import { runWhenBrowseSportBundleReady } from "@/lib/otaUpdater";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -151,12 +152,18 @@ export function TennisHomeFeed({
   const loading = (oddsQ.isFetching || gamesQ.isFetching) && upcoming.length === 0;
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || (useFlags && flagsQ.isFetching);
 
-  const askCoach = (msg: string, silent = false) => {
-    if (silent) markCoachHomeLaunch();
-    router.push({
-      pathname: "/coach",
-      params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
+  const launchBrowseCoach = (msg: string, silent = false) => {
+    void runWhenBrowseSportBundleReady(() => {
+      if (silent) markCoachHomeLaunch();
+      router.push({
+        pathname: "/coach",
+        params: { autoMsg: msg, send: "1", ts: String(Date.now()) },
+      });
     });
+  };
+
+  const launchBuildParlay = () => {
+    void runWhenBrowseSportBundleReady(onBuildParlay);
   };
 
   if (!browseSport) return null;
@@ -177,7 +184,7 @@ export function TennisHomeFeed({
       }
     >
       <Pressable
-        onPress={onBuildParlay}
+        onPress={launchBuildParlay}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 18,
@@ -333,7 +340,7 @@ export function TennisHomeFeed({
       )}
 
       <Pressable
-        onPress={() => askCoach(browseCoachMessage(sport))}
+        onPress={() => launchBrowseCoach(browseCoachMessage(sport))}
         style={({ pressed }) => ({
           marginHorizontal: 16,
           marginTop: 20,

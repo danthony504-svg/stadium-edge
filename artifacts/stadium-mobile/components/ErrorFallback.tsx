@@ -79,7 +79,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
         </Text>
 
         <Text style={[styles.message, { color: colors.mutedForeground }]}>
-          Please reload the app to continue.
+          {error.message?.includes("tabletennis")
+            ? "Table Tennis needs the latest app update. Tap Try Again to restart and load it."
+            : "Please reload the app to continue."}
         </Text>
 
         {error.message ? (

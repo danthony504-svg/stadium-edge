@@ -6,6 +6,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { applyPendingOtaOnLaunch } from "@/lib/otaUpdater";
+
+type BootPhase = "checking" | "ready";
 
 /**
  * Blocks interaction when a downloaded OTA is waiting to apply. Prevents users
@@ -14,7 +17,18 @@ import { clearDiscoverCache } from "@/lib/discoverSessionCache";
  */
 export function OtaRequiredGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
+  const [bootPhase, setBootPhase] = useState<BootPhase>(() =>
+    __DEV__ || !Updates.isEnabled ? "ready" : "checking",
+  );
   const [pending, setPending] = useState(() => !!latestContext?.isUpdatePending);
+
+  useEffect(() => {
+    if (__DEV__ || !Updates.isEnabled) return;
+
+    void applyPendingOtaOnLaunch().then((reloaded) => {
+      if (!reloaded) setBootPhase("ready");
+    });
+  }, []);
 
   useEffect(() => {
     if (__DEV__ || !Updates.isEnabled) return;
@@ -23,6 +37,35 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
     });
     return () => sub.remove();
   }, []);
+
+  if (bootPhase === "checking") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#0f172a",
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 28,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        }}
+      >
+        <ActivityIndicator size="large" color="#38bdf8" />
+        <Text
+          style={{
+            color: "#94a3b8",
+            fontFamily: FONT.medium,
+            fontSize: 15,
+            textAlign: "center",
+            marginTop: 16,
+          }}
+        >
+          Checking for updates…
+        </Text>
+      </View>
+    );
+  }
 
   if (__DEV__ || !Updates.isEnabled || !pending) {
     return <>{children}</>;

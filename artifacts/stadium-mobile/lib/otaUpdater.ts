@@ -1,10 +1,66 @@
 import * as Updates from "expo-updates";
+import { latestContext } from "expo-updates";
 import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
+
+import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { browseSportsBundleReady } from "@/lib/sports";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** Wait for Clerk + first paint before prefetching OTA — avoids competing with home data. */
 const LAUNCH_DELAY_MS = 2500;
+
+/**
+ * Apply any downloaded or fetchable OTA before entering table tennis / cricket /
+ * tennis browse flows. Returns true when reloadAsync was invoked (caller should abort).
+ */
+export async function ensureBrowseSportOtaReady(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled) return false;
+
+  const reload = async () => {
+    await clearDiscoverCache();
+    await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+  };
+
+  if (latestContext?.isUpdatePending) {
+    await reload();
+    return true;
+  }
+
+  try {
+    const result = await Updates.checkForUpdateAsync();
+    if (!result.isAvailable) return false;
+    await Updates.fetchUpdateAsync();
+    await reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** On cold start, reload immediately when a downloaded OTA is waiting to apply. */
+export async function applyPendingOtaOnLaunch(): Promise<boolean> {
+  if (__DEV__ || !Updates.isEnabled || !latestContext?.isUpdatePending) return false;
+  await clearDiscoverCache();
+  await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+  return true;
+}
+
+/**
+ * Run a browse-sport action only after this bundle supports table tennis helpers
+ * and any downloaded OTA has been applied. Reloads when needed.
+ */
+export async function runWhenBrowseSportBundleReady(action: () => void): Promise<void> {
+  if (!browseSportsBundleReady()) {
+    if (Updates.isEnabled) {
+      await clearDiscoverCache();
+      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+    }
+    return;
+  }
+  const reloading = await ensureBrowseSportOtaReady();
+  if (!reloading) action();
+}
 
 /** Check expo-updates, fetch, and reload when a newer production bundle exists. */
 export async function applyOtaUpdateIfAvailable(): Promise<boolean> {
