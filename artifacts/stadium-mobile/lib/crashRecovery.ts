@@ -9,6 +9,7 @@ export function isKnownCorruptCrashMessage(message: string): boolean {
   if (m.includes("tabletennis")) return true;
   if (m.includes("userfound is not a function")) return true;
   if (/property ['"]?tabletennis['"]? doesn't exist/i.test(message)) return true;
+  if (/cannot read property ['"]?getoddsselector['"]? of undefined/i.test(message)) return true;
   return false;
 }
 

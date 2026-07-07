@@ -5,4 +5,8 @@ import "@/lib/browseOddsQueries";
 
 installOddsSelectorCompat();
 
-import "expo-router/entry";
+void (async () => {
+  const { applyPreBootOtaIfNeeded } = await import("@/lib/preBootOta");
+  await applyPreBootOtaIfNeeded();
+  await import("expo-router/entry");
+})();

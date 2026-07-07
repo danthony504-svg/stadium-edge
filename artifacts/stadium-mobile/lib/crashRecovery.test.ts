@@ -11,6 +11,10 @@ test("isKnownCorruptCrashMessage matches getOddsSelector eval errors", () => {
     isKnownCorruptCrashMessage("(eval) Cannot read property 'getOddsSelector' of undefined"),
     true,
   );
+  assert.equal(
+    isKnownCorruptCrashMessage("Cannot read property 'getOddsSelector' of undefined"),
+    true,
+  );
   assert.equal(isKnownCorruptCrashMessage("Network request failed"), false);
 });
 
