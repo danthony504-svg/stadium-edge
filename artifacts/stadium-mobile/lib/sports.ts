@@ -46,3 +46,13 @@ export function isOddsBrowseSport(id: string): boolean {
 export function sportLabel(id: string): string {
   return SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
 }
+
+/** Safe MaterialCommunityIcons name — unknown ids fall back instead of crashing Hermes. */
+export function sportIcon(id: string): MCIName {
+  const icon = SPORTS.find((s) => s.id === id)?.icon;
+  return icon ?? "help-circle";
+}
+
+export function isKnownSport(id: string): boolean {
+  return SPORTS.some((s) => s.id === id);
+}

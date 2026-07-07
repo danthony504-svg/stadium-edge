@@ -29,7 +29,7 @@ import {
   type ArbPropGame,
   type ValueBet,
 } from "@/lib/arbitrage";
-import { SPORTS, sportLabel } from "@/lib/sports";
+import { SPORTS, sportIcon, sportLabel } from "@/lib/sports";
 
 // Scan every sport for game-line arbs (cheap, one cached odds call per sport) and
 // the soonest games for player-prop arbs. Kept modest because the prop fan-out is
@@ -603,7 +603,7 @@ export default function ArbitrageScreen() {
                   backgroundColor: active ? colors.primary : colors.card,
                 }}
               >
-                <MaterialCommunityIcons name={s.icon} size={14} color={active ? "#fff" : colors.foreground} />
+                <MaterialCommunityIcons name={sportIcon(s.id)} size={14} color={active ? "#fff" : colors.foreground} />
                 <Text style={{ color: active ? "#fff" : colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>
                   {s.label}
                 </Text>

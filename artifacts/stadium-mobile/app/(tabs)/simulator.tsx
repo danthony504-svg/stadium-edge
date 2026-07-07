@@ -81,7 +81,7 @@ import {
   type SimulatorPropGrade,
 } from "@/lib/simulatorPickPool";
 import { formatAmerican } from "@/lib/format";
-import { SPORTS, isOddsBrowseSport, sportLabel } from "@/lib/sports";
+import { SPORTS, isOddsBrowseSport, sportIcon, sportLabel } from "@/lib/sports";
 import {
   cachedSimGames,
   pruneSimGamesCache,

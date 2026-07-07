@@ -42,7 +42,7 @@ import {
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
-import { DEFAULT_SPORTS, SPORTS, isOddsBrowseSport } from "@/lib/sports";
+import { DEFAULT_SPORTS, SPORTS, isKnownSport, isOddsBrowseSport, sportIcon } from "@/lib/sports";
 import {
   hydrateDiscoverCache,
   rememberLiveGames,
@@ -2040,6 +2040,7 @@ export default function HomeScreen() {
 
   const selectSport = useCallback(
     (id: string) => {
+      if (!HOME_SPORT_IDS.includes(id) || !isKnownSport(id)) return;
       if (id === sportRef.current) return;
       sportRef.current = id;
       sportFetchGenRef.current += 1;
@@ -2141,7 +2142,7 @@ export default function HomeScreen() {
                   }}
                 >
                   <MaterialCommunityIcons
-                    name={s.icon}
+                    name={sportIcon(s.id)}
                     size={15}
                     color={active ? "#fff" : colors.mutedForeground}
                   />

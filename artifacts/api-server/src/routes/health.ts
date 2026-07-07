@@ -17,6 +17,7 @@ router.get("/healthz", async (_req, res) => {
   const chatProbe = configured ? await probeOpenAIChat() : null;
   res.json({
     ...data,
+    build: "cricket-tabletennis-v1",
     ai: {
       configured,
       provider,

@@ -14,6 +14,8 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   soccer: ["soccer", "epl", "mls", "la liga", "bundesliga", "serie a", "ligue 1", "premier league", "champions league", "ucl", "world cup", "fifa"],
   ufc: ["ufc", "mma"],
   tennis: ["tennis", "atp", "wta"],
+  tabletennis: ["table tennis", "tabletennis", "table-tennis", "ping pong", "ping-pong"],
+  cricket: ["cricket", "ipl", "t20", "odi", "test match", "the hundred", "big bash"],
   nfl: ["nfl"],
   ncaaf: ["ncaaf", "cfb", "college football"],
   ncaab: ["ncaab", "cbb", "college basketball"],
@@ -178,8 +180,9 @@ export function coachBuildSports(
   if (named.size > 0) return [...named];
   const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
   if (n >= 11) return [...allSports];
-  if (n >= 6) return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
-    allSports.includes(id),
-  );
+  if (n >= 6)
+    return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "tabletennis", "cricket"].filter(
+      (id) => allSports.includes(id),
+    );
   return ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
 }
