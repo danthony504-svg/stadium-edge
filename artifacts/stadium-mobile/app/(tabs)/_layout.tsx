@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/expo";
 import { Redirect, Stack } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 
 import { NavMenu } from "@/components/NavMenu";
 import { SlipBar } from "@/components/SlipBar";
@@ -28,7 +28,18 @@ export default function TabLayout() {
   }, [isSignedIn, isLoaded]);
 
   if (!isLoaded) {
-    return <View style={{ flex: 1, backgroundColor: DARK_BG }} />;
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: DARK_BG,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator size="large" color="#38bdf8" />
+      </View>
+    );
   }
   if (!isSignedIn && signOutConfirmed) return <Redirect href="/welcome" />;
   if (!isSignedIn) {

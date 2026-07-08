@@ -10,7 +10,7 @@ import {
   Inter_700Bold,
   useFonts,
 } from "@expo-google-fonts/inter";
-import { ClerkLoaded, ClerkLoading, ClerkProvider, useAuth } from "@clerk/expo";
+import { ClerkProvider, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
@@ -96,16 +96,35 @@ const queryClient = new QueryClient({
   },
 });
 const DARK_BG = "#0f172a";
+const FONT_BOOT_TIMEOUT_MS = 8_000;
+const CLERK_BOOT_TIMEOUT_MS = 12_000;
+const BOOT_RETRY_DELAY_MS = 5_000;
 
-// Shown while Clerk is still initializing. If init never completes (e.g. the
-// auth backend is unreachable), surface a retry after a timeout instead of
-// leaving the user on a silent blank navy screen forever.
-function BootScreen() {
-  const [showRetry, setShowRetry] = useState(false);
+function reloadApp(): void {
+  void applyOtaUpdateIfAvailable().finally(() => {
+    Updates.reloadAsync().catch(() => {});
+  });
+}
+
+// Shown while Clerk or fonts are still initializing. Surfaces copy + retry quickly
+// instead of leaving the user on a silent spinner indefinitely.
+function BootScreen({
+  subtitle = "Starting Stadium Edge…",
+  forceRetry = false,
+}: {
+  subtitle?: string;
+  forceRetry?: boolean;
+}) {
+  const [showRetry, setShowRetry] = useState(forceRetry);
   useEffect(() => {
-    const t = setTimeout(() => setShowRetry(true), 15000);
+    if (forceRetry) {
+      setShowRetry(true);
+      return;
+    }
+    const t = setTimeout(() => setShowRetry(true), BOOT_RETRY_DELAY_MS);
     return () => clearTimeout(t);
-  }, []);
+  }, [forceRetry]);
+
   return (
     <View
       style={{
@@ -117,6 +136,17 @@ function BootScreen() {
       }}
     >
       <ActivityIndicator size="large" color="#38bdf8" />
+      <Text
+        style={{
+          color: "#94a3b8",
+          fontSize: 14,
+          lineHeight: 20,
+          textAlign: "center",
+          marginTop: 16,
+        }}
+      >
+        {subtitle}
+      </Text>
       {showRetry ? (
         <>
           <Text
@@ -128,15 +158,10 @@ function BootScreen() {
               marginTop: 22,
             }}
           >
-            Having trouble connecting. Check your internet connection and try
-            again.
+            Having trouble loading. Check your connection, then retry or restart the app.
           </Text>
           <Pressable
-            onPress={() => {
-              void applyOtaUpdateIfAvailable().finally(() => {
-                Updates.reloadAsync().catch(() => {});
-              });
-            }}
+            onPress={reloadApp}
             style={{
               marginTop: 18,
               paddingVertical: 11,
@@ -149,10 +174,52 @@ function BootScreen() {
               Retry
             </Text>
           </Pressable>
+          {!__DEV__ && Updates.isEnabled ? (
+            <Pressable
+              onPress={() => {
+                Updates.reloadAsync().catch(() => {});
+              }}
+              style={{
+                marginTop: 12,
+                paddingVertical: 11,
+                paddingHorizontal: 28,
+              }}
+            >
+              <Text style={{ color: "#64748b", fontSize: 14, fontWeight: "600" }}>
+                Restart app
+              </Text>
+            </Pressable>
+          ) : null}
         </>
       ) : null}
     </View>
   );
+}
+
+/** Clerk can hang on slow networks — time out to retry UI instead of a dead spinner. */
+function ClerkBootGate({ children }: { children: React.ReactNode }) {
+  const { isLoaded } = useAuth();
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (isLoaded) {
+      setTimedOut(false);
+      return;
+    }
+    const t = setTimeout(() => setTimedOut(true), CLERK_BOOT_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [isLoaded]);
+
+  if (!isLoaded) {
+    return (
+      <BootScreen
+        subtitle={timedOut ? "Sign-in is taking longer than usual." : "Connecting…"}
+        forceRetry={timedOut}
+      />
+    );
+  }
+
+  return <>{children}</>;
 }
 
 /** Runs OTA checks only after Clerk has loaded — avoids reload during auth boot. */
@@ -233,12 +300,20 @@ export default function RootLayout() {
     Bricolage_600SemiBold: BricolageGrotesque_600SemiBold,
     Bricolage_800ExtraBold: BricolageGrotesque_800ExtraBold,
   });
+  const [fontsTimedOut, setFontsTimedOut] = useState(false);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    const t = setTimeout(() => setFontsTimedOut(true), FONT_BOOT_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  const fontsReady = fontsLoaded || !!fontError || fontsTimedOut;
+
+  useEffect(() => {
+    if (fontsReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsReady]);
 
   if (!publishableKey) {
     return (
@@ -250,10 +325,10 @@ export default function RootLayout() {
     );
   }
 
-  if (!fontsLoaded && !fontError) {
+  if (!fontsReady) {
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG }}>
-        <BootScreen />
+        <BootScreen subtitle="Loading…" />
       </View>
     );
   }
@@ -266,10 +341,7 @@ export default function RootLayout() {
           tokenCache={tokenCache}
           proxyUrl={proxyUrl}
         >
-          <ClerkLoading>
-            <BootScreen />
-          </ClerkLoading>
-          <ClerkLoaded>
+          <ClerkBootGate>
             <OtaBridge />
             <DiscoverHydrateBridge />
             <QueryClientProvider client={queryClient}>
@@ -289,7 +361,7 @@ export default function RootLayout() {
                 </PickTrackerProvider>
               </BetSlipProvider>
             </QueryClientProvider>
-          </ClerkLoaded>
+          </ClerkBootGate>
         </ClerkProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
