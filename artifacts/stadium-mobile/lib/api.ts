@@ -20,6 +20,7 @@ import {
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
   propsOnlySlimChatContextForUpload,
+  soccerScorerGkSlimChatContextForUpload,
 } from "./slimChatContext";
 import {
   isPickable,
@@ -60,6 +61,7 @@ export {
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
   propsOnlySlimChatContextForUpload,
+  soccerScorerGkSlimChatContextForUpload,
 };
 // Pure slate/pickability helpers (defined in ./slate); re-exported so the many
 // existing `from "./api"` imports keep working unchanged.
@@ -2648,6 +2650,8 @@ type LightParlayOpts = {
   focalText?: string | null;
   /** Restrict to local-calendar today when games qualify. */
   tonightOnly?: boolean;
+  /** Soccer scorer/GK "today" asks — keep only today's upcoming kickoffs. */
+  todayOnly?: boolean;
 };
 
 async function buildLightParlayContext(
@@ -2725,6 +2729,10 @@ async function buildLightParlayContext(
       const soccerTonight = tonight.filter((g) => g.sport === "soccer");
       if (soccerTonight.length) allOdds.splice(0, allOdds.length, ...soccerTonight);
     }
+  }
+  if (opts.todayOnly) {
+    const today = allOdds.filter((g) => startsTodayUpcoming(g.commenceTime));
+    if (today.length) allOdds.splice(0, allOdds.length, ...today);
   }
   if (opts.focalText?.trim()) {
     allOdds.sort((a, b) => {
@@ -2838,19 +2846,19 @@ async function buildLightParlayContext(
   const fetchPropsForGame = async (g: OddsGame): Promise<PropsResponse | null> => {
     const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
     const ids = idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
+    const args = {
+      sport: g.sport,
+      eventId: g.id,
+      home: g.homeTeam!,
+      away: g.awayTeam!,
+      homeTeamId: ids?.homeTeamId,
+      awayTeamId: ids?.awayTeamId,
+      startsAt: g.commenceTime,
+    };
     try {
-      return await getProps(
-        {
-          sport: g.sport,
-          eventId: g.id,
-          home: g.homeTeam!,
-          away: g.awayTeam!,
-          homeTeamId: ids?.homeTeamId,
-          awayTeamId: ids?.awayTeamId,
-          startsAt: g.commenceTime,
-        },
-        signal,
-      );
+      return g.sport === "soccer"
+        ? await getPropsWithPrizePicksFallback(args, signal)
+        : await getProps(args, signal);
     } catch {
       return null;
     }
@@ -3009,6 +3017,7 @@ export async function buildPropPickContext(
     parallelPropFetch: true,
     focalText,
     tonightOnly,
+    todayOnly: soccerScorerGk && wantsTodayOnly(focalText),
   });
   const candidateStartTimes = [
     ...built.context.realGames.map((g) => g.startsAt),

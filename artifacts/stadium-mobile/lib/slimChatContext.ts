@@ -208,6 +208,23 @@ export function propsOnlySlimChatContextForUpload<T extends SlimChatContextInput
   };
 }
 
+/** Soccer scorer vs goalkeeper picks — keep a wide prop board in the upload. */
+export function soccerScorerGkSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
+  const slim = slimChatContextForUpload(context);
+  return {
+    ...slim,
+    selectedSports: ["soccer"],
+    realOdds: slim.realOdds.slice(0, 8),
+    realProps: slimRealPropsForUpload(slim.realProps, { maxMains: 48, maxAlts: 16 }),
+    matchupHistory: undefined,
+    playerHistory: undefined,
+    modelStrengths: undefined,
+    fightAnalysis: undefined,
+    tennisAnalysis: undefined,
+    realGames: slim.realGames.slice(0, 12),
+  };
+}
+
 /** Upload tier for 4-8 leg generic parlays — wider pool than micro, still under ~20KB. */
 export function compactSlimChatContextForUpload<T extends SlimChatContextInput>(context: T): T {
   const slim = slimChatContextForUpload(context);

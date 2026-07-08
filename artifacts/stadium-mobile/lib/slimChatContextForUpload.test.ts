@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload, largeCompactSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
+import { slimChatContextForUpload, ultraSlimChatContextForUpload, microSlimChatContextForUpload, compactSlimChatContextForUpload, largeCompactSlimChatContextForUpload, soccerScorerGkSlimChatContextForUpload, type SlimChatContextInput } from "./slimChatContext.ts";
 
 function heavyContext(): SlimChatContextInput {
   const game = "Away Team @ Home Team";
@@ -222,4 +222,28 @@ test("largeCompactSlimChatContextForUpload caps 9-15 leg cellular uploads", () =
   assert.ok(large.realProps.length <= 80);
   assert.ok((large.selectedSports?.length ?? 0) <= 6);
   assert.equal(large.matchupHistory, undefined);
+});
+
+test("soccerScorerGkSlimChatContextForUpload keeps a wide soccer prop board", () => {
+  const heavy: SlimChatContextInput = {
+    selectedSports: ["soccer"],
+    currentSlip: [],
+    realGames: Array(8).fill({ sport: "soccer", game: "France @ Morocco", status: "pre" }),
+    realOdds: Array(20).fill({ sport: "soccer", game: "France @ Morocco", market: "h2h", pick: "France", odds: 150, startsAt: new Date().toISOString() }),
+    realProps: Array(80).fill({
+      sport: "soccer",
+      game: "France @ Morocco",
+      startsAt: new Date().toISOString(),
+      player: "Mbappe",
+      market: "player_goal_scorer_anytime",
+      line: null,
+      over: 180,
+      under: null,
+      alt: false,
+    }),
+  };
+  const slim = soccerScorerGkSlimChatContextForUpload(heavy);
+  assert.ok(slim.realProps.length >= 48);
+  assert.deepEqual(slim.selectedSports, ["soccer"]);
+  assert.equal(slim.playerHistory, undefined);
 });

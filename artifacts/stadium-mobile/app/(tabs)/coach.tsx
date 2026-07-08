@@ -117,6 +117,7 @@ import {
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
   wantsPropPickRecommendation,
+  wantsSoccerScorerGoalkeeperPicks,
   wantsTonightSlate,
 } from "@/lib/slate";
 import {
@@ -146,6 +147,7 @@ import {
   compactSlimChatContextForUpload,
   largeCompactSlimChatContextForUpload,
   propsOnlySlimChatContextForUpload,
+  soccerScorerGkSlimChatContextForUpload,
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   ChatStreamError,
@@ -1561,6 +1563,8 @@ export default function CoachScreen() {
             uploadContext = largeCompactSlimChatContextForUpload(context);
           } else if (useMlbSlatePath) {
             uploadContext = compactSlimChatContextForUpload(context);
+          } else if (usePropPickPath && wantsSoccerScorerGoalkeeperPicks(trimmed)) {
+            uploadContext = soccerScorerGkSlimChatContextForUpload(context);
           } else if (usePropPickPath) {
             uploadContext = microSlimChatContextForUpload(context);
           } else {
@@ -1640,6 +1644,8 @@ export default function CoachScreen() {
                   : buildLegs <= 8
                     ? compactSlimChatContextForUpload(context)
                     : ultraSlimChatContextForUpload(context);
+            } else if (usePropPickPath && wantsSoccerScorerGoalkeeperPicks(trimmed)) {
+              uploadContext = soccerScorerGkSlimChatContextForUpload(context);
             } else if (usePropPickPath) {
               uploadContext = microSlimChatContextForUpload(context);
             }
