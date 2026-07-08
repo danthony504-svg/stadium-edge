@@ -3,6 +3,7 @@
 // first rung that clears the same simulator + Final AI gates.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { sameGame } from "../components/PickCard.tsx";
 import type { GameMeta, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import {
@@ -297,6 +298,8 @@ export type NearMissLadderOpts = {
   matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
   matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
   gameMeta?: GameMeta[];
+  /** Cap legs from one matchup on deep parlays (e.g. 4 for 12+ leg tickets). */
+  maxPerGame?: number;
 };
 
 export type NearMissSwapResult = {
@@ -426,7 +429,34 @@ export function applyNearMissLadderToPicks(
   return { picks: out, note: notes.filter(Boolean).join("\n\n") };
 }
 
-const PROMOTABLE_POOL_SCAN_CAP = 150;
+function countPerGame(picks: ParsedPick[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const p of picks) {
+    let key = p.game;
+    for (const existing of counts.keys()) {
+      if (sameGame(existing, p.game)) {
+        key = existing;
+        break;
+      }
+    }
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function canAddToTicket(
+  ticket: ParsedPick[],
+  candidate: ParsedPick,
+  maxPerGame?: number,
+): boolean {
+  if (!maxPerGame || maxPerGame <= 0) return true;
+  const counts = countPerGame(ticket);
+  for (const [game, n] of counts) {
+    if (sameGame(game, candidate.game) && n >= maxPerGame) return false;
+  }
+  return true;
+}
+
 
 /**
  * Promote near-miss rejects and qualifying prop-board alternates onto the main
@@ -470,7 +500,7 @@ export function fillTicketFromNearMissLadder(
       const promoted = promoteRejectToTicket(reject, opts);
       if (promoted.pick) {
         const pfp = pickLegFingerprint(promoted.pick);
-        if (!onTicket.has(pfp)) {
+        if (!onTicket.has(pfp) && canAddToTicket(out, promoted.pick, opts.maxPerGame)) {
           out.push(promoted.pick);
           onTicket.add(pfp);
           progress = true;
@@ -489,7 +519,7 @@ export function fillTicketFromNearMissLadder(
     const fromPool = promotableFromPoolWithLadder(out, target - out.length, opts);
     for (const p of fromPool.picks) {
       const fp = pickLegFingerprint(p);
-      if (!onTicket.has(fp)) {
+      if (!onTicket.has(fp) && canAddToTicket(out, p, opts.maxPerGame)) {
         out.push(p);
         onTicket.add(fp);
       }
@@ -502,6 +532,57 @@ export function fillTicketFromNearMissLadder(
     note: notes.filter(Boolean).join("\n\n"),
     filled: out.length - picks.length,
     remainingRejects: remaining,
+  };
+}
+
+/**
+ * Last-chance sweep: walk every remaining reject through the ladder and add
+ * qualifying alternates to the main ticket (never as backup cards).
+ */
+export function sweepRejectsOntoTicket(
+  picks: ParsedPick[],
+  rejects: ParlayLegReject[],
+  target: number,
+  opts: NearMissLadderOpts,
+): {
+  picks: ParsedPick[];
+  remainingRejects: ParlayLegReject[];
+  notes: string[];
+  added: number;
+} {
+  if (picks.length >= target || !rejects.length) {
+    return { picks, remainingRejects: rejects, notes: [], added: 0 };
+  }
+
+  const onTicket = new Set(picks.map(pickLegFingerprint));
+  const out = [...picks];
+  const notes: string[] = [];
+  const remaining: ParlayLegReject[] = [];
+  const sorted = [...rejects].sort((a, b) => b.nearScore - a.nearScore);
+
+  for (const reject of sorted) {
+    if (out.length >= target) {
+      remaining.push(reject);
+      continue;
+    }
+    const promoted = promoteRejectToTicket(reject, opts);
+    if (promoted.pick) {
+      const fp = pickLegFingerprint(promoted.pick);
+      if (!onTicket.has(fp) && canAddToTicket(out, promoted.pick, opts.maxPerGame)) {
+        out.push(promoted.pick);
+        onTicket.add(fp);
+        if (promoted.note) notes.push(promoted.note);
+        continue;
+      }
+    }
+    remaining.push(reject);
+  }
+
+  return {
+    picks: out,
+    remainingRejects: remaining,
+    notes,
+    added: out.length - picks.length,
   };
 }
 
@@ -581,6 +662,8 @@ export type TicketEdgeOptimizeResult = {
 export type TicketEdgeOptimizeOpts = NearMissLadderOpts & {
   /** Do not drop legs while the ticket is still short of this target. */
   minLegCount?: number;
+  /** When false, only ladder swaps run — no leg trims (use while filling a short ticket). */
+  allowLegDrops?: boolean;
 };
 
 function passesFillQualityGate(
@@ -596,6 +679,18 @@ function passesFillQualityGate(
   });
 }
 
+/** Reach-fill: strict gate OR near-miss with positive edge (posted alternate rungs). */
+function passesReachFillGate(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  propHit: number | null | undefined,
+): boolean {
+  if (passesFillQualityGate(pick, sim, propHit ?? null)) return true;
+  const edge = pickEdgePct(pick);
+  if (edge == null || edge <= 0) return false;
+  return isNearMissQualityFailure(pick, sim, propHit ?? null);
+}
+
 /** Try direct qualify, ladder swap, then any scored alternate — for ticket fill. */
 function promoteRejectToTicket(
   reject: ParlayLegReject,
@@ -605,19 +700,26 @@ function promoteRejectToTicket(
   const hit = propHitForPick(reject.pick, opts.propSimulations);
   const scored = attachPickScores([reject.pick], scoreOpts(opts))[0] ?? reject.pick;
 
-  if (passesFillQualityGate(scored, sim, hit ?? null)) {
+  if (passesReachFillGate(scored, sim, hit ?? null)) {
     return { pick: scored, note: "" };
   }
 
   const swapped = swapNearMissPick(scored, opts);
-  if (swapped.pick && passesFillQualityGate(swapped.pick, sim, propHitForPick(swapped.pick, opts.propSimulations) ?? null)) {
+  if (
+    swapped.pick &&
+    passesReachFillGate(
+      swapped.pick,
+      sim,
+      propHitForPick(swapped.pick, opts.propSimulations) ?? null,
+    )
+  ) {
     return { pick: swapped.pick, note: swapped.note };
   }
 
   for (const alt of collectScoredAlternates(scored, opts)) {
     const altHit = propHitForPick(alt, opts.propSimulations);
     const altSim = alt.isProp ? null : sim;
-    if (passesFillQualityGate(alt, altSim, altHit ?? null)) {
+    if (passesReachFillGate(alt, altSim, altHit ?? null)) {
       return {
         pick: alt,
         note: `_Promoted **${alt.pick}** from **${scored.pick}** — a posted alternate cleared the quality bar._`,
@@ -667,6 +769,8 @@ export function collectNearMissPropRejects(
   return rejects;
 }
 
+const PROMOTABLE_POOL_SCAN_CAP = 150;
+
 function promotableFromPoolWithLadder(
   ticket: ParsedPick[],
   limit: number,
@@ -714,9 +818,9 @@ function promotableFromPoolWithLadder(
       }
     }
 
-    if (!passesCoachPropQualityGate(candidate, hit ?? null)) continue;
+    if (!passesReachFillGate(candidate, null, hit ?? null)) continue;
     const fp = pickLegFingerprint(candidate);
-    if (onTicket.has(fp)) continue;
+    if (onTicket.has(fp) || !canAddToTicket(out, candidate, opts.maxPerGame)) continue;
     onTicket.add(fp);
     seenPlayers.add(norm(candidate.player ?? ""));
     out.push(candidate);
@@ -786,7 +890,8 @@ export function optimizeTicketAverageEdge(
 
   avg = averageTicketEdge(current);
   const floor = runOpts?.minLegCount ?? 0;
-  while (current.length > 1 && avg != null && avg < 0) {
+  const allowDrops = runOpts?.allowLegDrops !== false;
+  while (allowDrops && current.length > 1 && avg != null && avg < 0) {
     if (floor > 0 && current.length <= floor) break;
     const dropIdx = weakestEdgeLegIndex(current);
     if (dropIdx == null) break;
