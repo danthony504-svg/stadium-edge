@@ -23,6 +23,28 @@ type Props = {
   coachDetailNote?: string;
 };
 
+/** Old builds stuffed optimizer prose into legNote — route it to the collapsed detail. */
+function partitionCoachNotes(legNote?: string, coachDetailNote?: string) {
+  const leg = legNote?.trim() ?? "";
+  const storedDetail = coachDetailNote?.trim() ?? "";
+  const legIsShortfall =
+    leg &&
+    (/asked for \d+ legs/i.test(leg) ||
+      /tickets cap at/i.test(leg) ||
+      /held up against/i.test(leg) ||
+      /almost qualified/i.test(leg));
+  const legIsOptimizer =
+    leg &&
+    (/after the 10k sim/i.test(leg) ||
+      /built from player props/i.test(leg) ||
+      /chalk moneyline scaffold/i.test(leg) ||
+      /highest final ai score/i.test(leg));
+  return {
+    shortfall: legIsShortfall ? leg : "",
+    detail: storedDetail || (legIsOptimizer ? leg : ""),
+  };
+}
+
 function SummaryStat({
   label,
   value,
@@ -235,12 +257,16 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
   const { analytics, picks: trackedPicks } = usePickTracker();
+  const notes = useMemo(
+    () => partitionCoachNotes(legNote, coachDetailNote),
+    [legNote, coachDetailNote],
+  );
   const summary = useMemo(() => summarizeCoachTicket(picks), [picks]);
   const similar = useMemo(
     () => similarPickRecord(picks, trackedPicks),
     [picks, trackedPicks],
   );
-  const hasDetail = !!(coachDetailNote?.trim() || summary.gameLines.length > 0);
+  const hasDetail = !!(notes.detail || summary.gameLines.length > 0);
 
   return (
     <View style={{ gap: 10 }}>
@@ -336,9 +362,9 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
               ))}
             </View>
           ) : null}
-          {coachDetailNote?.trim() ? (
+          {notes.detail?.trim() ? (
             <ChatMarkdown
-              text={coachDetailNote.trim()}
+              text={notes.detail.trim()}
               color={colors.foreground}
               mutedColor={colors.mutedForeground}
             />
@@ -346,9 +372,9 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         </View>
       ) : null}
 
-      {legNote?.trim() ? (
+      {notes.shortfall?.trim() ? (
         <ChatMarkdown
-          text={legNote.trim()}
+          text={notes.shortfall.trim()}
           color={colors.foreground}
           mutedColor={colors.mutedForeground}
         />
