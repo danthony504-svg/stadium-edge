@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, parseRequestedLegCount, parsePropTicketLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -35,6 +35,13 @@ test("wantsPropsOnly: explicit-only phrasing, not mixed with-props phrasing", ()
   assert.equal(wantsPropsOnly("6 leg strikeout parlay"), true);
   assert.equal(wantsPropsOnly("Build me a 7 leg soccer parlay for today"), false);
   assert.equal(wantsPropsOnly("6-leg parlay for tonight"), false);
+  assert.equal(wantsPropsOnly("5 mlb player props no home runs or stolen bases"), true);
+});
+
+test("parsePropTicketLegCount and parseRequestedLegCount read N player props asks", () => {
+  assert.equal(parsePropTicketLegCount("5 mlb player props"), 5);
+  assert.equal(parseRequestedLegCount("5 mlb player props no home runs"), 5);
+  assert.equal(parseRequestedLegCount("Build me a 9-leg parlay"), 9);
 });
 
 test("effectiveBuildLegCount defaults bare parlay asks onto the compact path", () => {

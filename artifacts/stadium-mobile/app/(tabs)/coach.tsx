@@ -97,7 +97,13 @@ import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
-import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import {
+  filterExcludedPropPool,
+  filterExcludedProps,
+  filterExcludedRealProps,
+  exclusionNote,
+  parseExcludedPropFamilies,
+} from "@/lib/propMarketExclusions";
 import { blockOtaReload } from "@/lib/otaBlock";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import {
@@ -110,6 +116,7 @@ import {
   todayBuildNote,
   wantsPropsOnly,
   effectiveBuildLegCount,
+  parseRequestedLegCount,
   explicitSingleGameIntent,
   wantsMlbPitcherSlateAsk,
   wantsPropPickRecommendation,
@@ -432,7 +439,7 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 // prompts) so questions like "what is a parlay" or "is my parlay good" still
 // stream their answer normally.
 const PARLAY_BUILD_RE =
-  /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b/i;
+  /\bbuild\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\b\d{1,3}\s+(?:(?!leg\b)(?:\w+)\s+)*player\s+props?\b|\blongshot\b|\bplayer props only\b/i;
 
 // "Improve THIS slip" intent (mirror of the server's improveWording in chat.ts).
 // When the user uploaded a bet-slip photo and then asks for "a better one", they
@@ -471,14 +478,9 @@ function wantsAnalyzeSlip(text: string): boolean {
 }
 
 // Pull a requested leg count out of the user's ask ("build me a 50 leg",
-// "6-leg parlay") so we can be honest when we deliver fewer — capped at the
-// 15-leg slip max, or short because the real board was too thin to ground that
-// many. Allows up to 3 digits so big asks like "100 leg" are captured too.
+// "6-leg parlay", "5 mlb player props") so we can be honest when we deliver fewer.
 function requestedLegCount(text: string): number {
-  const m = text.match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
-  if (!m) return 0;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) ? n : 0;
+  return parseRequestedLegCount(text);
 }
 
 function appendUniqueNote(existing: string, addition: string): string {
@@ -1253,6 +1255,7 @@ export default function CoachScreen() {
         const requestedLegs = requestedLegCount(trimmed);
         const buildLegs = effectiveBuildLegCount(trimmed);
         const legTarget = requestedLegs > 0 ? requestedLegs : buildLegs;
+        const excludedPropFamilies = parseExcludedPropFamilies(trimmed);
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
         // real period legs to build from instead of honestly refusing.
@@ -1454,7 +1457,10 @@ export default function CoachScreen() {
             : useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal)
             : usePropsOnlyParlayPath
-              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
+              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal, {
+                  sports: focalSports.size === 1 ? [...focalSports] : undefined,
+                  focalText: trimmed,
+                })
             : useFocalSportParlayPath && focalSportId
               ? await buildFocalSportParlayContext(focalSportId, buildLegs, controller.signal, {
                   tonightOnly: slateDay === "tonight" || wantsTonightSlate(trimmed),
@@ -1492,6 +1498,15 @@ export default function CoachScreen() {
                 : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
+          if (excludedPropFamilies.size > 0) {
+            propPool = filterExcludedPropPool(propPool, excludedPropFamilies);
+            if (context.realProps?.length) {
+              context = {
+                ...context,
+                realProps: filterExcludedRealProps(context.realProps, excludedPropFamilies),
+              };
+            }
+          }
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1547,7 +1562,15 @@ export default function CoachScreen() {
             uploadContext = slimChatContextForUpload(context);
           }
           const parlayFirstTokenMs =
-            buildLegs >= 12 ? 120_000 : buildLegs >= 9 ? 90_000 : buildLegs >= 6 ? 75_000 : undefined;
+            buildLegs >= 12
+              ? 120_000
+              : buildLegs >= 9
+                ? 90_000
+                : buildLegs >= 6
+                  ? 75_000
+                  : buildLegs >= 4
+                    ? 60_000
+                    : undefined;
           const visionFirstTokenMs = hasOutgoingImages ? 90_000 : undefined;
           const propPickFirstTokenMs = usePropPickPath ? 75_000 : undefined;
           const runStream = async (streamContext: ChatContext = uploadContext) => {
@@ -1649,7 +1672,10 @@ export default function CoachScreen() {
             `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
           const seen = new Set(propPool.map(key));
           const extra = serverPropPool.filter((e) => !seen.has(key(e)));
-          return extra.length ? [...propPool, ...extra] : propPool;
+          const merged = extra.length ? [...propPool, ...extra] : propPool;
+          return excludedPropFamilies.size > 0
+            ? filterExcludedPropPool(merged, excludedPropFamilies)
+            : merged;
         })();
         selectionOpts = {
           propPool: mergedPropPool,
@@ -1689,6 +1715,9 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        if (!isAnalyze && excludedPropFamilies.size > 0) {
+          picks = filterExcludedProps(picks, excludedPropFamilies);
+        }
         // Belt-and-braces: when matchupHistory.mlLean names a winner, never render
         // an opposing ML/spread card — swap to the real posted line on the lean
         // side or drop. Variety rotates games/props/markets, not WHO wins.
@@ -1751,6 +1780,7 @@ export default function CoachScreen() {
           selectionOpts,
         };
         let propsOnlyNote = "";
+        const marketExclusionNote = exclusionNote(excludedPropFamilies);
         if (!isAnalyze && propsOnlyTicket && picks.some((p) => !p.isProp)) {
           const droppedGame = picks.filter((p) => !p.isProp).length;
           picks = picks.filter((p) => p.isProp);
@@ -2584,7 +2614,7 @@ export default function CoachScreen() {
         const legNoteForCards =
           picks.length > 0 && requestedLegs > picks.length ? legNote : "";
         const coachDetailNote = dedupeLegNoteParagraphs(
-          [diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote]
+          [diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, marketExclusionNote, tonightNote]
             .filter(Boolean)
             .join("\n\n"),
         );
@@ -2597,6 +2627,9 @@ export default function CoachScreen() {
           }
           if (propsOnlyNote) {
             legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
+          }
+          if (marketExclusionNote) {
+            legNote = legNote ? `${legNote}\n\n${marketExclusionNote}` : marketExclusionNote;
           }
           if (tonightNote) {
             legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;

@@ -2949,16 +2949,21 @@ export async function buildFocalSportParlayContext(
 export async function buildPropsOnlyParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
+  opts?: { sports?: string[]; focalText?: string | null },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(12, requestedLegs || 6));
+  const sports = opts?.sports?.length ? opts.sports : undefined;
+  const singleSport = sports?.length === 1;
   return buildLightParlayContext(signal, {
-    maxSports: 2,
-    maxPropGames: 3,
-    maxOddsGames: 5,
-    propsBalanceCap: Math.min(48, n * 8),
-    oddsSliceCap: 4,
-    parallelSports: true,
+    sports,
+    maxSports: singleSport ? 1 : 2,
+    maxPropGames: singleSport ? Math.min(10, n + 3) : 3,
+    maxOddsGames: singleSport ? 8 : 5,
+    propsBalanceCap: Math.min(singleSport ? 64 : 48, n * (singleSport ? 10 : 8)),
+    oddsSliceCap: singleSport ? 8 : 4,
+    parallelSports: !singleSport,
     parallelPropFetch: true,
+    focalText: opts?.focalText ?? null,
   });
 }
 
