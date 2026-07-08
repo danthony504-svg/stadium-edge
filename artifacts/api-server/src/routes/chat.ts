@@ -808,9 +808,10 @@ router.post("/chat", async (req, res): Promise<void> => {
         scan.slice(m.index + m[0].length);
     }
   }
+  const soccerScorerGkAsk = wantsSoccerScorerGoalkeeperPicks(latestUser);
   const multiMarketLock = matchedMarketKeywords.length > 1;
   const lockedMarket =
-    matchedMarketKeywords.length === 0
+    soccerScorerGkAsk || matchedMarketKeywords.length === 0
       ? undefined
       : !multiMarketLock
         ? matchedMarketKeywords[0]

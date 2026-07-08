@@ -3005,20 +3005,52 @@ export async function buildPropPickContext(
     ? "soccer"
     : inferPropPickSport(focalText);
   const soccerScorerGk = sport === "soccer" && wantsSoccerScorerGoalkeeperPicks(focalText);
-  const tonightOnly =
-    !soccerScorerGk && (wantsTodayOnly(focalText) || wantsTonightSlate(focalText));
+  if (soccerScorerGk) return buildSoccerScorerGkContext(focalText, signal);
+  const tonightOnly = wantsTodayOnly(focalText) || wantsTonightSlate(focalText);
   const built = await buildLightParlayContext(signal, {
     sports: [sport],
     maxSports: 1,
-    maxPropGames: soccerScorerGk ? 10 : 4,
-    maxOddsGames: soccerScorerGk ? 16 : 10,
-    propsBalanceCap: soccerScorerGk ? 64 : 40,
-    oddsSliceCap: soccerScorerGk ? 20 : 12,
+    maxPropGames: 4,
+    maxOddsGames: 10,
+    propsBalanceCap: 40,
+    oddsSliceCap: 12,
     parallelPropFetch: true,
     focalText,
     tonightOnly,
-    todayOnly: soccerScorerGk && wantsTodayOnly(focalText),
   });
+  const candidateStartTimes = [
+    ...built.context.realGames.map((g) => g.startsAt),
+    ...built.propPool.map((p) => p.startsAt),
+  ];
+  const todayOnly =
+    !wantsTomorrowOnly(focalText) &&
+    resolveTodayOnly(wantsTodayOnly(focalText), candidateStartTimes);
+  return { ...built, todayOnly, tomorrowOnly: false };
+}
+
+/** Ranked soccer scorer vs weak-keeper asks — soccer-only, wide prop pool, fallbacks. */
+export async function buildSoccerScorerGkContext(
+  focalText: string,
+  signal?: AbortSignal,
+): Promise<BuiltChatContext> {
+  const light = await buildLightParlayContext(signal, {
+    sports: ["soccer"],
+    maxSports: 1,
+    maxPropGames: 10,
+    maxOddsGames: 16,
+    propsBalanceCap: 64,
+    oddsSliceCap: 20,
+    parallelPropFetch: true,
+    focalText,
+    tonightOnly: false,
+  });
+  let built = light;
+  if (!built.context.realProps.length) {
+    built = await buildFocalSportParlayContext("soccer", 6, signal, {
+      focalText,
+      tonightOnly: false,
+    });
+  }
   const candidateStartTimes = [
     ...built.context.realGames.map((g) => g.startsAt),
     ...built.propPool.map((p) => p.startsAt),
