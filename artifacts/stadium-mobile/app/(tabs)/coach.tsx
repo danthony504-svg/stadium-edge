@@ -104,6 +104,7 @@ import {
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
+import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
   filterOddsForSlateDay,
   filterPicksForSlateDay,
@@ -1299,7 +1300,10 @@ export default function CoachScreen() {
         const priorUserTexts = messages
           .filter((m) => m.role === "user")
           .map((m) => m.content);
-        const slateDay = slateDayFromThread(trimmed, priorUserTexts);
+        const soccerScorerGkAsk = wantsSoccerScorerGoalkeeperPicks(trimmed);
+        const slateDay = soccerScorerGkAsk
+          ? null
+          : slateDayFromThread(trimmed, priorUserTexts);
         const slateLabel = slateOddsLabel(slateDay);
         const boardPhrase = slateDay ? `${slateLabel} board` : "the board";
         const thinSlateDepth = requestedLegs >= 9 && slateDay === "tonight";
@@ -1717,6 +1721,14 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        let soccerScorerGkSalvage = false;
+        if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
+          const salvaged = buildSoccerScorerGkPicks(mergedPropPool, context.realOdds, gameMeta);
+          if (salvaged.length > 0) {
+            picks = salvaged;
+            soccerScorerGkSalvage = true;
+          }
+        }
         // Belt-and-braces: when matchupHistory.mlLean names a winner, never render
         // an opposing ML/spread card — swap to the real posted line on the lean
         // side or drop. Variety rotates games/props/markets, not WHO wins.
@@ -2644,11 +2656,13 @@ export default function CoachScreen() {
         // successful request never shows as a blank reply.
         let finalContent =
           full + thresholdNote + confidenceNote + signNote + todayNote;
-        if ((salvageBuilt || boardBuilt) && picks.length > 0) {
+        if ((salvageBuilt || boardBuilt || soccerScorerGkSalvage) && picks.length > 0) {
           // Board-built / salvage tickets replace model prose (often chalk scaffold
           // or placeholder optimizer copy) with a clean lead-in. legNote carries
           // the honest diversity + sim transparency notes below the cards.
-          finalContent = boardBuilt
+          finalContent = soccerScorerGkSalvage
+            ? "No WC matches kick off today — here are the top posted scorer lines from the next slate. xG, keeper save %, and clean-sheet rates aren't in our feed; these cards use real anytime-goal and shots-on-target props only."
+            : boardBuilt
             ? `Here's your ${reachTarget}-leg ticket from today's live board — player props and alt rungs, scored with the 10k sim and Final AI.`
             : "Here's the strongest real ticket today's slate supports right now — every leg is a live price, nothing invented.";
         } else if (
