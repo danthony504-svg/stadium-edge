@@ -387,6 +387,34 @@ export function gameSimHitForPick(
   return null;
 }
 
+/** When the ticket pick label misses sim keys, probe sibling posted lines for the same cover query. */
+export function probeGameSimHitFromLines(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  lines: Array<{ game: string; market: string; pick: string; odds: number; sport?: string }>,
+): number | null {
+  const direct = gameSimHitForPick(pick, sim);
+  if (direct != null) return direct;
+  if (!sim) return null;
+  for (const row of lines) {
+    if (!/spread|moneyline|total/i.test(row.market)) continue;
+    const hit = gameSimHitForPick(
+      {
+        ...pick,
+        game: row.game,
+        market: row.market,
+        pick: row.pick,
+        odds: row.odds,
+        sport: row.sport ?? pick.sport,
+        isProp: false,
+      },
+      sim,
+    );
+    if (hit != null) return hit;
+  }
+  return null;
+}
+
 /** True when sim supports the pick at or above the coach floor. */
 export function gameSimAgreesWithPick(
   pick: ParsedPick,

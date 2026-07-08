@@ -2435,6 +2435,7 @@ export default function CoachScreen() {
           ...scoreAttachBase,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
+          ...(coachEvalLinesByGame ? { evalLinesByGame: coachEvalLinesByGame } : {}),
         });
         if (
           forceBoardBuild &&
@@ -2497,6 +2498,7 @@ export default function CoachScreen() {
             ...scoreAttachBase,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             gameSimulations,
+            ...(coachEvalLinesByGame ? { evalLinesByGame: coachEvalLinesByGame } : {}),
           });
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
@@ -2537,6 +2539,7 @@ export default function CoachScreen() {
               ...scoreAttachBase,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
+              ...(coachEvalLinesByGame ? { evalLinesByGame: coachEvalLinesByGame } : {}),
             });
           }
         }
@@ -2572,6 +2575,7 @@ export default function CoachScreen() {
               ...scoreAttachBase,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
+              ...(coachEvalLinesByGame ? { evalLinesByGame: coachEvalLinesByGame } : {}),
             });
             backupNote = buildParlayShortfallNote(
               requestedLegs,
@@ -2589,22 +2593,29 @@ export default function CoachScreen() {
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
               : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`);
         }
-        if (mlLeanNote) {
-          legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
+        // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
+        // failures only — never above rendered pick cards (PR #103). Shortfall copy is
+        // the only legNote we surface when cards are on screen.
+        const legNoteForCards =
+          picks.length > 0 && requestedLegs > picks.length ? legNote : "";
+        if (picks.length === 0) {
+          if (mlLeanNote) {
+            legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
+          }
+          if (diversityNote) {
+            legNote = legNote ? `${legNote}\n\n${diversityNote}` : diversityNote;
+          }
+          if (propsOnlyNote) {
+            legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
+          }
+          if (tonightNote) {
+            legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
+          }
+          if (gameSimNote) {
+            legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
+          }
         }
-        if (diversityNote) {
-          legNote = legNote ? `${legNote}\n\n${diversityNote}` : diversityNote;
-        }
-        if (propsOnlyNote) {
-          legNote = legNote ? `${legNote}\n\n${propsOnlyNote}` : propsOnlyNote;
-        }
-        if (tonightNote) {
-          legNote = legNote ? `${legNote}\n\n${tonightNote}` : tonightNote;
-        }
-        if (gameSimNote) {
-          legNote = legNote ? `${legNote}\n\n${gameSimNote}` : gameSimNote;
-        }
-        legNote = dedupeLegNoteParagraphs(legNote);
+        legNote = dedupeLegNoteParagraphs(picks.length > 0 ? legNoteForCards : legNote);
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
