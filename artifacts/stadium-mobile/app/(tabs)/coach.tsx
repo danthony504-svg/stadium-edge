@@ -2571,26 +2571,24 @@ export default function CoachScreen() {
           }
         }
         if (!isAnalyze && picks.some(isGameLinePick)) {
-          const finalSides = enforceConsistentGameSides(picks, {
+          const finalDeduped = dedupeCoachGameLinePicks(picks, {
             simByGame: gameSimulations,
             matchupHistory: context.matchupHistory,
           });
-          picks = finalSides.picks;
-          if (finalSides.dropped > 0) {
+          picks = finalDeduped.picks;
+          if (finalDeduped.sideNote) {
             gameSimSupplementNote = appendUniqueNote(
               gameSimSupplementNote,
-              finalSides.note,
+              finalDeduped.sideNote,
             );
-            if (gameSimNote && !gameSimNote.includes(finalSides.note)) {
-              gameSimNote = appendUniqueNote(gameSimNote, finalSides.note);
+            if (gameSimNote && !gameSimNote.includes(finalDeduped.sideNote)) {
+              gameSimNote = appendUniqueNote(gameSimNote, finalDeduped.sideNote);
             } else if (!gameSimNote) {
-              gameSimNote = finalSides.note;
+              gameSimNote = finalDeduped.sideNote;
             }
           }
-          const finalDeduped = dedupeCoachGameLinePicks(picks);
-          picks = finalDeduped.picks;
           if (finalDeduped.dropped > 0) {
-            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
+            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate or opposing game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
             gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, dedupeNote);
             if (gameSimNote && !gameSimNote.includes(dedupeNote)) {
               gameSimNote = appendUniqueNote(gameSimNote, dedupeNote);

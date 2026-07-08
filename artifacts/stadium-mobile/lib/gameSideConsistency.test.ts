@@ -32,6 +32,24 @@ test("simFavoredTeamSide picks away when Mets lead win prob", () => {
   assert.equal(side, "away");
 });
 
+test("enforceConsistentGameSides drops Athletics -1 and Tigers -2 on same game", () => {
+  const game = "Athletics @ Detroit Tigers";
+  const picks = [
+    { game, market: "Alt Spread", pick: "Athletics -1", odds: 150, isProp: false, sport: "mlb" },
+    {
+      game: "Oakland Athletics @ Detroit Tigers",
+      market: "Alt Spread",
+      pick: "Tigers -2",
+      odds: 182,
+      isProp: false,
+      sport: "mlb",
+    },
+  ];
+  const r = enforceConsistentGameSides(picks);
+  assert.equal(r.picks.length, 1);
+  assert.equal(r.dropped, 1);
+});
+
 test("enforceConsistentGameSides drops opposing alt spreads with mismatched game labels", () => {
   const picks = [
     leg("Orioles +1", "Alt Spread"),

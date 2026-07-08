@@ -9,6 +9,10 @@ import {
 import type { GameMeta, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import { gameLineLegBucket, isGameLinePick, normalizedGamePickKey } from "./gameSimScoring.ts";
+import {
+  enforceConsistentGameSides,
+  type GameSideConsistencyResult,
+} from "./gameSideConsistency.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -85,14 +89,26 @@ export function dedupeExactGameLineLegs(picks: ParsedPick[]): {
   return { picks: out, dropped };
 }
 
-/** Team-bucket + exact-leg dedupe — run before rendering Coach cards. */
-export function dedupeCoachGameLinePicks(picks: ParsedPick[]): {
+/** Team-bucket + exact-leg + one-side-per-game dedupe — run before rendering Coach cards. */
+export function dedupeCoachGameLinePicks(
+  picks: ParsedPick[],
+  opts: {
+    simByGame?: Map<string, import("./gameSimScoring.ts").CoachGameSimEntry>;
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+  } = {},
+): {
   picks: ParsedPick[];
   dropped: number;
+  sideNote: string;
 } {
   const team = dedupeSameTeamGameLegs(picks);
   const exact = dedupeExactGameLineLegs(team.picks);
-  return { picks: exact.picks, dropped: team.dropped + exact.dropped };
+  const sides: GameSideConsistencyResult = enforceConsistentGameSides(exact.picks, opts);
+  return {
+    picks: sides.picks,
+    dropped: team.dropped + exact.dropped + sides.dropped,
+    sideNote: sides.note,
+  };
 }
 
 /** Trim excess game legs so deep parlays leave room for props + alt rungs. */
