@@ -98,6 +98,10 @@ import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
+import {
+  isUnsupportedSoccerDisciplineAsk,
+  unsupportedSoccerDisciplineReply,
+} from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import {
@@ -1232,6 +1236,23 @@ export default function CoachScreen() {
           return;
         }
         // Non-abort errors: fall through to the AI chat path below.
+      }
+
+      if (!replay && !hasOutgoingImages && isUnsupportedSoccerDisciplineAsk(trimmed)) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: unsupportedSoccerDisciplineReply(trimmed),
+          };
+          return copy;
+        });
+        setWaiting(false);
+        setStreaming(false);
+        abortRef.current = null;
+        releaseOtaBlock();
+        scrollToEnd();
+        return;
       }
 
       try {
