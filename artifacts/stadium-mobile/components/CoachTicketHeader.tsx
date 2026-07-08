@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
-import { CoachLearningPanel } from "@/components/CoachLearningPanel";
 import { FONT } from "@/components/ui";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
@@ -303,8 +302,6 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
           mutedColor={colors.mutedForeground}
         />
       ) : null}
-
-      <CoachLearningPanel />
     </View>
   );
 }
