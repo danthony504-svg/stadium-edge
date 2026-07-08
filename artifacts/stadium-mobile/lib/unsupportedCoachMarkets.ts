@@ -20,21 +20,27 @@ function trimMatchupTail(s: string): string {
   return s.replace(MATCHUP_TAIL_RE, "").trim();
 }
 
+const MATCHUP_SEP = "(?:v\\.?|vs\\.?|versus|@|\\bx\\b)";
+
 /** Pull a readable matchup hint ("France vs Morocco") when the user named one. */
 export function extractMatchupHint(text: string): string | null {
   const t = String(text || "").trim();
+  const splitVs = (left: string, right: string) =>
+    `${trimMatchupTail(left)} vs ${trimMatchupTail(right)}`;
   const inGame = t.match(/\b(?:in|for)\s+(?:the\s+)?(.+?)\s+game\b/i);
   if (inGame) {
     const inner = trimMatchupTail(inGame[1]!.trim());
-    const innerVs = inner.match(/^(.+?)\s+(?:v\.?|vs\.?|versus|@)\s+(.+)$/i);
-    if (innerVs)
-      return `${trimMatchupTail(innerVs[1]!)} vs ${trimMatchupTail(innerVs[2]!)}`;
+    const innerVs = inner.match(new RegExp(`^(.+?)\\s+${MATCHUP_SEP}\\s+(.+)$`, "i"));
+    if (innerVs) return splitVs(innerVs[1]!, innerVs[2]!);
     return inner;
   }
   const vs = t.match(
-    /\b([\w.'’-]+(?:\s+[\w.'’-]+){0,2})\s+(?:v\.?|vs\.?|versus|@)\s+([\w.'’-]+(?:\s+[\w.'’-]+){0,2})\b/i,
+    new RegExp(
+      `\\b([\\w.'’-]+(?:\\s+[\\w.'’-]+){0,2})\\s+${MATCHUP_SEP}\\s+([\\w.'’-]+(?:\\s+[\\w.'’-]+){0,2})\\b`,
+      "i",
+    ),
   );
-  if (vs) return `${trimMatchupTail(vs[1]!)} vs ${trimMatchupTail(vs[2]!)}`;
+  if (vs) return splitVs(vs[1]!, vs[2]!);
   return null;
 }
 

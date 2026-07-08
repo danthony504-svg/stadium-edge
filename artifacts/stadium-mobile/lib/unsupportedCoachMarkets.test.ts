@@ -24,6 +24,19 @@ test("extractMatchupHint reads team-vs-team phrasing", () => {
     "france vs morocco",
   );
   assert.equal(extractMatchupHint("France vs Morocco tonight"), "France vs Morocco");
+  assert.equal(
+    extractMatchupHint("who's most likely to get a yellow card in the france x morocco game"),
+    "france vs morocco",
+  );
+});
+
+test("isUnsupportedSoccerDisciplineAsk: france x morocco yellow-card ask", () => {
+  assert.equal(
+    isUnsupportedSoccerDisciplineAsk(
+      "who's most likely to get a yellow card in the france x morocco game",
+    ),
+    true,
+  );
 });
 
 test("unsupportedSoccerDisciplineReply is honest and names supported soccer props", () => {

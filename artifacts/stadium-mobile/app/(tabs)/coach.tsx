@@ -1118,6 +1118,24 @@ export default function CoachScreen() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // Card/booking asks have no feed — answer instantly instead of streaming guesses.
+      if (!replay && !hasOutgoingImages && isUnsupportedSoccerDisciplineAsk(trimmed)) {
+        setMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = {
+            role: "assistant",
+            content: unsupportedSoccerDisciplineReply(trimmed),
+          };
+          return copy;
+        });
+        setWaiting(false);
+        setStreaming(false);
+        abortRef.current = null;
+        releaseOtaBlock();
+        scrollToEnd();
+        return;
+      }
+
       // Stat-lookup interception: a player/stat question (e.g. "Wembanyama
       // points last 10 games") is answered with a REAL ESPN stat card or a
       // StatMuse period game-log card instead of streamed AI text. Any miss or
@@ -1236,23 +1254,6 @@ export default function CoachScreen() {
           return;
         }
         // Non-abort errors: fall through to the AI chat path below.
-      }
-
-      if (!replay && !hasOutgoingImages && isUnsupportedSoccerDisciplineAsk(trimmed)) {
-        setMessages((prev) => {
-          const copy = [...prev];
-          copy[copy.length - 1] = {
-            role: "assistant",
-            content: unsupportedSoccerDisciplineReply(trimmed),
-          };
-          return copy;
-        });
-        setWaiting(false);
-        setStreaming(false);
-        abortRef.current = null;
-        releaseOtaBlock();
-        scrollToEnd();
-        return;
       }
 
       try {
