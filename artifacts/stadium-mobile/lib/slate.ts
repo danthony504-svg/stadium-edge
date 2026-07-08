@@ -71,7 +71,10 @@ export function wantsTodayOnly(text?: string | null): boolean {
 // Parlay-build phrasing with no explicit future date — users expect tonight's slate
 // (matches quick prompts + the Coach header copy).
 const PARLAY_BUILD_RE =
-  /\b(?:build|make|give me|need|want)\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\blongshot\b|\bplayer props only\b|\b(?:best|strongest|safest|top|good|great)\s+parlay\b/i;
+  /\b(?:build|make|give me|need|want)\b[^?]*\bparlay\b|\b\d{1,3}[-\s]?leg\b|\b\d{1,3}\s+(?:(?!leg\b)(?:\w+)\s+)*player\s+props?\b|\blongshot\b|\bplayer props only\b|\b(?:best|strongest|safest|top|good|great)\s+parlay\b/i;
+
+const PROP_TICKET_LEG_RE =
+  /\b(\d{1,3})\s+(?:(?!leg\b)(?:\w+)\s+)*player\s+props?\b/i;
 
 const FUTURE_SLATE_RE =
   /\b(?:next week|this weekend|weekend|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
@@ -351,6 +354,7 @@ export function mentionsPropIntent(text?: string | null): boolean {
 export function wantsPropsOnly(text?: string | null): boolean {
   if (!mentionsPropIntent(text)) return false;
   const t = String(text || "").toLowerCase();
+  if (PROP_TICKET_LEG_RE.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+only\b/.test(t)) return true;
   if (/\bonly\s+(?:player\s+)?props?\b/.test(t)) return true;
   if (/\b(?:player\s+)?props?\s+parlay\b/.test(t)) return true;
@@ -364,11 +368,20 @@ export function wantsPropsOnly(text?: string | null): boolean {
   return false;
 }
 
-/** Explicit N-leg count from user text, or 0 when omitted. */
-export function parseRequestedLegCount(text: string): number {
-  const m = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+/** Explicit N-prop ticket count ("5 mlb player props"), or 0 when omitted. */
+export function parsePropTicketLegCount(text: string): number {
+  const m = String(text || "").match(PROP_TICKET_LEG_RE);
   if (!m) return 0;
   const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Explicit N-leg count from user text, or 0 when omitted. */
+export function parseRequestedLegCount(text: string): number {
+  const leg = String(text || "").match(/\b(\d{1,3})\s*[-\s]?\s*leg/i);
+  const propTicket = parsePropTicketLegCount(text);
+  const fromLeg = leg ? parseInt(leg[1], 10) : 0;
+  const n = Math.max(Number.isFinite(fromLeg) ? fromLeg : 0, propTicket);
   return Number.isFinite(n) ? n : 0;
 }
 
