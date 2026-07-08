@@ -20,6 +20,7 @@ import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
+import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -1542,6 +1543,7 @@ export function parsePicks(
   // different players' props on the same game legitimately share a family
   // (marketFamily lumps player + game totals together), so they must not collide.
   const gameLevelSeen = new Set<string>();
+  const propSideByIdentity = new Map<string, string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1668,6 +1670,16 @@ export function parsePicks(
     }
 
     if (!resolved) continue; // selection/price not in any real pool -> drop
+
+    if (isPropSelection) {
+      const id = propIdentityKey({ ...resolved, isProp: true });
+      const side = propCommitSide(resolved);
+      if (id && side) {
+        const prev = propSideByIdentity.get(id);
+        if (prev && prev !== side) continue;
+        propSideByIdentity.set(id, side);
+      }
+    }
 
     // Attach the game's real scheduled start (ESPN) so the card can show its
     // date/time. Matched by BOTH team nicknames + sport (see gameStartFromMeta)

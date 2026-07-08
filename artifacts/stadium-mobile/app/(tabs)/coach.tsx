@@ -66,6 +66,7 @@ import {
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
+import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
@@ -772,7 +773,7 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
-  const { captureFromCoach } = usePickTracker();
+  const { captureFromCoach, picks: trackedPicks } = usePickTracker();
   // Soft, real-data-only signal about which bet categories the model has actually
   // been hitting (from the user's graded Model Report). Injected into every chat
   // context so the Coach can lean into hot categories — advisory only, omitted
@@ -2595,6 +2596,28 @@ export default function CoachScreen() {
               gameSimNote = appendUniqueNote(gameSimNote, dedupeNote);
             } else if (!gameSimNote) {
               gameSimNote = dedupeNote;
+            }
+          }
+        }
+        if (!isAnalyze && picks.some((p) => p.isProp)) {
+          const propSides = enforceConsistentPropSides(picks);
+          picks = propSides.picks;
+          if (propSides.dropped > 0) {
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, propSides.note);
+            if (gameSimNote && !gameSimNote.includes(propSides.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, propSides.note);
+            } else if (!gameSimNote) {
+              gameSimNote = propSides.note;
+            }
+          }
+          const antiFlip = dropPropsOpposingTrackedPicks(picks, trackedPicks);
+          picks = antiFlip.picks;
+          if (antiFlip.dropped > 0) {
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, antiFlip.note);
+            if (gameSimNote && !gameSimNote.includes(antiFlip.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, antiFlip.note);
+            } else if (!gameSimNote) {
+              gameSimNote = antiFlip.note;
             }
           }
         }
