@@ -3,18 +3,14 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
+import { CoachLearningPanel } from "@/components/CoachLearningPanel";
 import { FONT } from "@/components/ui";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
+import { gradeTierColor } from "@/lib/coachLearningDisplay";
 import { summarizeCoachTicket, type GameLineSummary } from "@/lib/coachTicketSummary";
 import type { ParsedPick } from "@/components/PickCard";
-import {
-  decided,
-  recordText,
-  winPct,
-  type TrackedAnalytics,
-} from "@/lib/pickTrackerAnalytics";
 import { similarPickRecord } from "@/lib/pickTrackerSimilar";
 import { formatAmerican } from "@/lib/format";
 
@@ -27,9 +23,11 @@ type Props = {
 function SummaryStat({
   label,
   value,
+  valueColor,
 }: {
   label: string;
   value: string;
+  valueColor?: string;
 }) {
   const colors = useColors();
   return (
@@ -47,7 +45,7 @@ function SummaryStat({
       </Text>
       <Text
         style={{
-          color: colors.foreground,
+          color: valueColor ?? colors.foreground,
           fontFamily: FONT.display,
           fontSize: 18,
           marginTop: 2,
@@ -150,7 +148,12 @@ function GameLineDetailCard({ row }: { row: GameLineSummary }) {
           gap: 6,
         }}
       >
-        {row.grade ? <DetailRow label="AI Grade" value={row.grade} /> : null}
+        {row.grade ? (
+          <DetailRow
+            label="AI Grade"
+            value={row.grade}
+          />
+        ) : null}
         {row.confidence != null ? (
           <DetailRow label="Confidence" value={`${row.confidence}%`} />
         ) : null}
@@ -169,89 +172,10 @@ function GameLineDetailCard({ row }: { row: GameLineSummary }) {
   );
 }
 
-function LearningSection({ analytics }: { analytics: TrackedAnalytics }) {
-  const colors = useColors();
-  const decidedCount = decided(analytics.legTally);
-  const overallWinPct = winPct(analytics.legTally);
-  const topSport = analytics.bySport.find((b) => decided(b.tally) >= 3);
-  const topMarket = analytics.byFamily.find((b) => decided(b.tally) >= 3);
-  const recent = analytics.recentWindow;
-
-  if (analytics.total === 0) return null;
-
-  return (
-    <View
-      style={{
-        backgroundColor: colors.card,
-        borderColor: colors.border,
-        borderWidth: 1,
-        borderRadius: 14,
-        padding: 14,
-        gap: 10,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <Feather name="cpu" size={14} color={colors.primary} />
-        <Text
-          style={{
-            color: colors.primary,
-            fontFamily: FONT.display,
-            fontSize: 13,
-            letterSpacing: 0.3,
-          }}
-        >
-          AI LEARNING
-        </Text>
-      </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
-        <SummaryStat label="Picks tracked" value={`${analytics.total}`} />
-        {overallWinPct != null ? (
-          <SummaryStat label="Win %" value={`${overallWinPct.toFixed(0)}%`} />
-        ) : null}
-        {analytics.roiPct != null ? (
-          <SummaryStat
-            label="ROI"
-            value={`${analytics.roiPct > 0 ? "+" : ""}${analytics.roiPct}%`}
-          />
-        ) : null}
-        {analytics.pending > 0 ? (
-          <SummaryStat label="Pending" value={`${analytics.pending}`} />
-        ) : null}
-      </View>
-      {topSport && decided(topSport.tally) >= 3 ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
-          Best sport — {topSport.label}: {winPct(topSport.tally)?.toFixed(0)}% (
-          {recordText(topSport.tally)})
-        </Text>
-      ) : null}
-      {topMarket && decided(topMarket.tally) >= 3 ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
-          Best market — {topMarket.label}: {winPct(topMarket.tally)?.toFixed(0)}% (
-          {recordText(topMarket.tally)})
-        </Text>
-      ) : null}
-      {recent.sampleSize > 0 ? (
-        <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
-          Last {recent.windowSize} days:{" "}
-          {recent.winPct != null
-            ? `${recent.winPct}% (${recent.wins}-${recent.losses}${recent.pushes ? `-${recent.pushes}` : ""})`
-            : `${recent.wins}-${recent.losses} — pending results`}
-        </Text>
-      ) : null}
-      {decidedCount === 0 && analytics.pending > 0 ? (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-          History updates automatically after games finish — the Coach uses settled
-          results to weight future picks.
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
 export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
-  const { analytics, picks: trackedPicks } = usePickTracker();
+  const { picks: trackedPicks } = usePickTracker();
   const notes = useMemo(
     () => partitionCoachNotes(legNote, coachDetailNote),
     [legNote, coachDetailNote],
@@ -262,6 +186,7 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
     [picks, trackedPicks],
   );
   const hasDetail = summary.gameLines.length > 0;
+  const gradeColor = gradeTierColor(summary.overallGrade, colors);
 
   return (
     <View style={{ gap: 10 }}>
@@ -306,7 +231,11 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
             />
           ) : null}
           {summary.overallGrade ? (
-            <SummaryStat label="Overall AI grade" value={summary.overallGrade} />
+            <SummaryStat
+              label="Overall AI grade"
+              value={summary.overallGrade}
+              valueColor={gradeColor}
+            />
           ) : null}
           {similar && similar.total >= 3 ? (
             <SummaryStat
@@ -375,7 +304,7 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         />
       ) : null}
 
-      <LearningSection analytics={analytics} />
+      <CoachLearningPanel />
     </View>
   );
 }
