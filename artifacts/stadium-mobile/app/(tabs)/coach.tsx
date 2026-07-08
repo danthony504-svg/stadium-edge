@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { CoachTicketHeader } from "@/components/CoachTicketHeader";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { PeriodGameLogCard, type PeriodGameLogCardData } from "@/components/PeriodGameLogCard";
 import {
@@ -178,6 +179,8 @@ type UIMessage = {
   // fewer legs than the user asked for — either capped at the 15-leg slip max
   // or short because the real board was too thin to ground that many.
   legNote?: string;
+  /** Full sim / diversity / optimizer transparency — collapsed under AI Summary. */
+  coachDetailNote?: string;
   /** Near-miss legs that almost cleared quality filters when ticket is short of requested count. */
   backupPicks?: ParsedPick[];
   backupNote?: string;
@@ -2598,6 +2601,11 @@ export default function CoachScreen() {
         // the only legNote we surface when cards are on screen.
         const legNoteForCards =
           picks.length > 0 && requestedLegs > picks.length ? legNote : "";
+        const coachDetailNote = dedupeLegNoteParagraphs(
+          [diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
         if (picks.length === 0) {
           if (mlLeanNote) {
             legNote = legNote ? `${legNote}\n\n${mlLeanNote}` : mlLeanNote;
@@ -2669,6 +2677,9 @@ export default function CoachScreen() {
             content: picks.length > 0 ? "" : finalContent,
             picks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
+            ...(picks.length > 0 && coachDetailNote.trim()
+              ? { coachDetailNote: coachDetailNote.trim() }
+              : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
           return copy;
@@ -3173,11 +3184,11 @@ export default function CoachScreen() {
 
                 {hasPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.legNote?.trim() ? (
-                      <ChatMarkdown
-                        text={m.legNote.trim()}
-                        color={colors.foreground}
-                        mutedColor={colors.mutedForeground}
+                    {m.picks!.length > 0 ? (
+                      <CoachTicketHeader
+                        picks={m.picks!}
+                        legNote={m.legNote}
+                        coachDetailNote={m.coachDetailNote}
                       />
                     ) : null}
                     {m.picks!.length > 1 ? (

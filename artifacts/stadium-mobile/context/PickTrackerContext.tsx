@@ -35,7 +35,6 @@ import {
   computeTrackedAnalytics,
   type TrackedAnalytics,
 } from "@/lib/pickTrackerAnalytics";
-import { getSync, putSync } from "@/lib/api";
 
 const STORAGE_KEY = "stadium-edge:pick-tracker:v1";
 
