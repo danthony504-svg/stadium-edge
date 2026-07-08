@@ -32,6 +32,31 @@ test("simFavoredTeamSide picks away when Mets lead win prob", () => {
   assert.equal(side, "away");
 });
 
+test("enforceConsistentGameSides drops opposing alt spreads with mismatched game labels", () => {
+  const picks = [
+    leg("Orioles +1", "Alt Spread"),
+    {
+      ...leg("Cubs -1", "Alt Spread"),
+      game: "Chicago Cubs @ Baltimore Orioles",
+    },
+  ];
+  picks[0]!.game = "Cubs @ Orioles";
+  const r = enforceConsistentGameSides(picks);
+  assert.equal(r.picks.length, 1);
+  assert.equal(r.dropped, 1);
+});
+
+test("enforceConsistentGameSides drops opposing alt spreads on same full game label", () => {
+  const game = "Chicago Cubs @ Baltimore Orioles";
+  const picks = [
+    { ...leg("Orioles +1", "Alt Spread"), game },
+    { ...leg("Cubs -1", "Alt Spread"), game },
+  ];
+  const r = enforceConsistentGameSides(picks);
+  assert.equal(r.picks.length, 1);
+  assert.equal(r.dropped, 1);
+});
+
 test("enforceConsistentGameSides drops opposing ML and spread on same game", () => {
   const sim = new Map([
     [

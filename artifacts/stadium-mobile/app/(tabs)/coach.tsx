@@ -2569,6 +2569,24 @@ export default function CoachScreen() {
             });
           }
         }
+        if (!isAnalyze && picks.some(isGameLinePick)) {
+          const finalSides = enforceConsistentGameSides(picks, {
+            simByGame: gameSimulations,
+            matchupHistory: context.matchupHistory,
+          });
+          picks = finalSides.picks;
+          if (finalSides.dropped > 0) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              finalSides.note,
+            );
+            if (gameSimNote && !gameSimNote.includes(finalSides.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, finalSides.note);
+            } else if (!gameSimNote) {
+              gameSimNote = finalSides.note;
+            }
+          }
+        }
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
