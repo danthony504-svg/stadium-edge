@@ -2,7 +2,12 @@
 
 import { gradeFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
-import { fairOddsFromProb } from "./gameSimQualityGates.ts";
+import { decimalToAmerican } from "./format.ts";
+
+function fairOddsFromSimHit(simHit: number | null | undefined): number | null {
+  if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) return null;
+  return decimalToAmerican(1 / simHit);
+}
 
 export type TicketPick = {
   game: string;
@@ -134,7 +139,7 @@ function scoresForPick(p: TicketPick) {
     edge: fa?.edgePct ?? rubric?.edgePct ?? null,
     composite: fa?.composite ?? rubric?.composite ?? null,
     simHitPct: simHit != null ? Math.round(simHit * 1000) / 10 : null,
-    fairOdds: fairOddsFromProb(simHit),
+    fairOdds: fairOddsFromSimHit(simHit),
   };
 }
 

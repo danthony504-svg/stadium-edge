@@ -158,6 +158,29 @@ export type TrackedAnalytics = {
   coldTrend: string | null;
 };
 
+export function emptyTrackedAnalytics(): TrackedAnalytics {
+  return {
+    total: 0,
+    pending: 0,
+    legTally: emptyTally(),
+    ungraded: 0,
+    roiPct: null,
+    unitsWon: 0,
+    bySport: [],
+    byFamily: [],
+    byMarketType: [],
+    byOddsBucket: [],
+    byOddsRole: [],
+    byGrade: [],
+    byConfidence: [],
+    byEdge: [],
+    rollingWinRate: [],
+    recentWindow: summarizeRecentPerformance([]),
+    hotTrend: null,
+    coldTrend: null,
+  };
+}
+
 function tallyMap(): Map<string, Tally> {
   return new Map();
 }
