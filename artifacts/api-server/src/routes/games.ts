@@ -76,6 +76,10 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     try {
       let rows = await loadTennisGames();
       if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
+      req.log.info(
+        { count: rows.length, simulatorOnly },
+        "tennis games slate",
+      );
       res.json(GetGamesResponse.parse(rows));
     } catch (err) {
       req.log.error({ err }, "Failed to fetch tennis games");
