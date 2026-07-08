@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/express";
@@ -15,8 +15,24 @@ import { resolveOpenAIConfig, chatTokenLimit, chatReasoningEffort, chatUsesStrea
 import { coachSystemPromptForProvider, trimLockedContextForDirectOpenAI } from "../lib/coachSystemPrompt.js";
 import { askStatMuse, resolveStatMuseLeague, playerPeriodGameLog, detectStatWord } from "../lib/statmuse.js";
 import { MARKETS_BY_SPORT } from "./props.js";
+import {
+  isUnsupportedSoccerDisciplineAsk,
+  unsupportedSoccerDisciplineReply,
+} from "../lib/coachUnsupportedMarkets.js";
 
 const router: IRouter = Router();
+
+function streamCannedCoachReply(res: Response, text: string): void {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+  res.write(`:${" ".repeat(2048)}\n\n`);
+  res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
+}
 
 // Cap expensive AI calls per IP. Bumped from 20 → 60/min because the demo
 // fires multiple chats in quick succession (per-game live parlay builds,
@@ -688,6 +704,10 @@ router.post("/chat", async (req, res): Promise<void> => {
   // pick anything else, and (b) inject a hard reminder line so the model
   // can't echo a prior wrong-market assistant turn.
   const latestUser = [...parsed.data.messages].reverse().find((m) => m.role === "user")?.content || "";
+  if (isUnsupportedSoccerDisciplineAsk(latestUser)) {
+    streamCannedCoachReply(res, unsupportedSoccerDisciplineReply(latestUser));
+    return;
+  }
   const MARKET_KEYWORDS: Array<{ re: RegExp; markets: string[]; label: string }> = [
     { re: /\b(strikeouts?|k'?s)\b/i, markets: ["pitcher_strikeouts"], label: "pitcher strikeouts" },
     { re: /\b(home runs?|hr\b)\b/i, markets: ["batter_home_runs"], label: "home runs" },
