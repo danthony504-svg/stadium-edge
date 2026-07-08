@@ -34,11 +34,13 @@ import {
   type PickSubScores,
 } from "@/lib/pickScore";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
+import { trackedSignalBias, type SignalPerf } from "@/lib/pickTrackerAnalytics";
 import { gameValueForMarket } from "@/lib/propStats";
 import {
   gameSimHitForPick,
   gameLabelsMatch,
   lookupGameSim,
+  probeGameSimHitFromLines,
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
@@ -174,6 +176,7 @@ export function scoreGameLinePick(
   matchupHistory: Record<string, MatchupHistoryEntry> | undefined,
   matchupInjuries: Record<string, GameInjuryReport> | undefined,
   gameSim?: CoachGameSimEntry | null,
+  evalLines?: RealOddsEntry[],
 ): CombinedPickScore | null {
   // Line Value + Line-Shopping come straight off the backing odds row, which
   // parsePicks copied verbatim — so an exact game/market/pick match is the row.
@@ -214,7 +217,10 @@ export function scoreGameLinePick(
     lineValue,
     injury,
     lineShopping,
-    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim)),
+    simulation: scoreSimulation(
+      probeGameSimHitFromLines(pick, gameSim, evalLines ?? []) ??
+        gameSimHitForPick(pick, gameSim),
+    ),
   };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
@@ -477,10 +483,14 @@ export function attachPickScores(
     // leg's Confidence. The fixed market-priority prior applies regardless; only
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
+    /** Real coach-pick history by signal category — nudges Confidence when cold/hot. */
+    trackedSignalPerf?: Map<string, SignalPerf>;
     /** Monte Carlo results keyed player|market|line|side */
     propSimulations?: Map<string, { hitProbability: number | null }>;
     /** Game-outcome sim keyed by "Away @ Home" (same engine as Simulator tab). */
     gameSimulations?: Map<string, CoachGameSimEntry>;
+    /** Posted ML/spread/total ladder per game — grounds sim hit for nickname alt lines. */
+    evalLinesByGame?: Map<string, RealOddsEntry[]>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
     playerHistory?: Record<string, PlayerHistorySlice>;
     /** Raw league injury teams when matchupInjuries report is absent. */
@@ -491,6 +501,7 @@ export function attachPickScores(
   const propPool = opts.propPool ?? [];
   const sims = opts.propSimulations;
   const gameSims = opts.gameSimulations;
+  const evalByGame = opts.evalLinesByGame;
   const propCtx = {
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
@@ -499,6 +510,16 @@ export function attachPickScores(
   };
   return picks.map((p) => {
     const gameSim = lookupGameSim(p.game, gameSims);
+    const evalLines = evalByGame
+      ? (() => {
+          const direct = evalByGame.get(p.game);
+          if (direct?.length) return direct;
+          for (const [label, rows] of evalByGame) {
+            if (gameLabelsMatch(label, p.game)) return rows;
+          }
+          return undefined;
+        })()
+      : undefined;
     const raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGameLinePick(
@@ -507,9 +528,23 @@ export function attachPickScores(
           opts.matchupHistory,
           opts.matchupInjuries,
           gameSim,
+          evalLines,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    if (!scores) return { ...p, scores: null };
+    const trackedDelta = opts.trackedSignalPerf
+      ? trackedSignalBias(p, opts.trackedSignalPerf)
+      : 0;
+    const weighted =
+      scores && trackedDelta !== 0 && scores.confidencePct != null
+        ? {
+            ...scores,
+            confidencePct: Math.max(
+              5,
+              Math.min(95, Math.round(scores.confidencePct + trackedDelta)),
+            ),
+          }
+        : scores;
+    if (!weighted) return { ...p, scores: null };
 
     const propKey =
       p.isProp && p.player && p.propLine != null && p.propSide
@@ -522,8 +557,8 @@ export function attachPickScores(
 
     const finalAiScore = buildFinalAiScore({
       pick: p,
-      rubricScores: scores.scores,
-      edgePct: scores.edgePct,
+      rubricScores: weighted.scores,
+      edgePct: weighted.edgePct,
       odds: p.odds,
       gameSim,
       propSimHit,

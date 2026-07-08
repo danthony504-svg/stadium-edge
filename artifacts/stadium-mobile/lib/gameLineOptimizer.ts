@@ -460,6 +460,8 @@ export function optimizeGameLinePicksToBestFinalAi(
       pick: best.entry.pick,
       odds: best.entry.odds,
       sport: best.entry.sport ?? pick.sport,
+      scores: best.finalAiScore.rubric,
+      finalAiScore: best.finalAiScore,
     };
 
     const same =
@@ -576,10 +578,33 @@ function formatGameLineScoreNote(
     );
     edge = rubric?.edgePct ?? null;
   }
-  const grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? "—";
+  let grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? null;
+  if (grade == null && simHit != null && opts) {
+    const rubric =
+      scored?.finalAiScore.rubric ??
+      pick.finalAiScore?.rubric ??
+      scoreGameLinePick(
+        pick,
+        opts.realOdds,
+        opts.matchupHistory,
+        opts.matchupInjuries,
+        sim,
+      )?.scores;
+    if (rubric) {
+      grade =
+        buildFinalAiScore({
+          pick,
+          rubricScores: rubric,
+          edgePct: edge,
+          odds: pick.odds,
+          gameSim: sim,
+        }).grade ?? null;
+    }
+  }
+  const gradeStr = grade ?? "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
   const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
-  return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade}, sim ${wp}, edge ${edgeStr}`;
+  return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${gradeStr}, sim ${wp}, edge ${edgeStr}`;
 }
 
 function isTeamSidedGameLine(pick: ParsedPick): boolean {

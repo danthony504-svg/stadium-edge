@@ -18,6 +18,7 @@ export type PropSimAttachOpts = {
   playerHistory?: Record<string, PlayerHistorySlice>;
   injuryTeams?: InjuryTeam[];
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
+  trackedSignalPerf?: Parameters<typeof attachPickScores>[1]["trackedSignalPerf"];
   /** Never drop below this many cards after sim scoring (restores as high-risk). */
   minLegs?: number;
 };
