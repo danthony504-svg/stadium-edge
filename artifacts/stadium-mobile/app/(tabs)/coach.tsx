@@ -67,7 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { applyNearMissLadderToPicks, fillTicketFromNearMissLadder } from "@/lib/coachNearMissLadder";
+import { applyNearMissLadderToPicks, fillTicketFromNearMissLadder, optimizeTicketAverageEdge } from "@/lib/coachNearMissLadder";
 import { alignPropPickGames } from "@/lib/propGameAlign";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
@@ -2736,6 +2736,42 @@ export default function CoachScreen() {
               backupPicks.length,
               oddsPhrase,
             );
+          }
+        }
+        if (!isAnalyze && picks.length > 1) {
+          const edgeOptimized = optimizeTicketAverageEdge(picks, {
+            evalLinesByGame: coachEvalLinesByGame ?? undefined,
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            propSimulations,
+            gameSimulations,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            gameMeta,
+          });
+          picks = edgeOptimized.picks;
+          if (edgeOptimized.note) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              edgeOptimized.note,
+            );
+            if (gameSimNote && !gameSimNote.includes(edgeOptimized.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, edgeOptimized.note);
+            } else if (!gameSimNote) {
+              gameSimNote = edgeOptimized.note;
+            }
+          }
+          if (edgeOptimized.dropped > 0) {
+            if (picks.some(isGameLinePick)) {
+              picks = dedupeCoachGameLinePicks(picks, {
+                simByGame: gameSimulations,
+                matchupHistory: context.matchupHistory,
+              }).picks;
+            }
+            if (picks.some((p) => p.isProp)) {
+              picks = enforceConsistentPropSides(picks).picks;
+            }
+            picks = alignPropPickGames(picks, mergedPropPool);
           }
         }
         if (picks.length > 0 && requestedLegs > picks.length) {

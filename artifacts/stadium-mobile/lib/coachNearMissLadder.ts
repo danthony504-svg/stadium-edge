@@ -20,6 +20,12 @@ import {
 import { attachPickScores } from "./pickScoreContext.ts";
 import { propSimKey } from "./propSelection.ts";
 import { pickLegFingerprint, type ParlayLegReject } from "./parlayReachCore.ts";
+import {
+  averageTicketEdge,
+  pickEdgePct,
+  shouldReoptimizeTicketEdge,
+  weakestEdgeLegIndex,
+} from "./coachTicketEdge.ts";
 
 /** How close a leg must be to the bar before we search alternates. */
 export const NEAR_MISS_MARGIN_PCT = 3;
@@ -551,5 +557,156 @@ export function fillTicketFromNearMissLadder(
     note: notes.filter(Boolean).join("\n\n"),
     filled: out.length - picks.length,
     remainingRejects: remaining,
+  };
+}
+
+function qualifiesEdgeAlternate(
+  original: ParsedPick,
+  alt: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  propHit: number | null | undefined,
+): boolean {
+  const legEdge = pickEdgePct(original);
+  const altEdge = pickEdgePct(alt);
+  if (altEdge != null && legEdge != null && altEdge > legEdge) return true;
+  if (original.isProp) return passesCoachPropQualityGate(alt, propHit ?? null);
+  if (!isGameLinePick(original)) return false;
+  return passesCoachSimQualityGate(alt, sim, {
+    finalAi: alt.finalAiScore,
+    odds: alt.odds,
+  });
+}
+
+/** All posted ladder rungs for a leg, scored and sorted by edge (best first). */
+function collectScoredAlternates(
+  pick: ParsedPick,
+  opts: NearMissLadderOpts,
+): ParsedPick[] {
+  const sim = lookupSim(pick.game, opts.gameSimulations);
+  const seen = new Set<string>();
+  const out: ParsedPick[] = [];
+
+  const tryAdd = (candidate: ParsedPick, propHit: number | null | undefined) => {
+    const fp = pickLegFingerprint(candidate);
+    if (seen.has(fp) || fp === pickLegFingerprint(pick)) return;
+    if (!qualifiesEdgeAlternate(pick, candidate, sim, propHit ?? null)) return;
+    seen.add(fp);
+    out.push(candidate);
+  };
+
+  if (pick.isProp) {
+    const pool = opts.propPool ?? [];
+    for (const row of ladderPropCandidates(pick, pool)) {
+      let candidate = parsedPickFromPoolEntry(row);
+      const hit = propHitForPick(candidate, opts.propSimulations);
+      candidate = attachPickScores([candidate], scoreOpts(opts))[0] ?? candidate;
+      tryAdd(candidate, hit ?? null);
+    }
+  } else if (isGameLinePick(pick)) {
+    const evalMap = opts.evalLinesByGame;
+    const lines = evalMap
+      ? evalLinesForGame(pick.game, evalMap)
+      : (opts.realOdds ?? []).filter((e) => gameLabelsMatch(e.game, pick.game));
+    if (!lines.length || !sim) return out;
+    for (const entry of ladderGameLineCandidates(pick, lines)) {
+      const stub: ParsedPick = {
+        game: entry.game,
+        market: entry.market,
+        pick: entry.pick,
+        odds: entry.odds,
+        sport: entry.sport ?? pick.sport,
+        isProp: false,
+        startsAt: entry.startsAt ?? pick.startsAt ?? null,
+      };
+      const scored = attachPickScores([stub], scoreOpts(opts))[0] ?? stub;
+      tryAdd(scored, null);
+    }
+  }
+
+  return out.sort((a, b) => (pickEdgePct(b) ?? -999) - (pickEdgePct(a) ?? -999));
+}
+
+export type TicketEdgeOptimizeResult = {
+  picks: ParsedPick[];
+  note: string;
+  swaps: number;
+  dropped: number;
+};
+
+/**
+ * When ticket avg edge is negative but within 1% of zero, walk every leg's
+ * alternate ladder and greedily swap for the best ticket-level edge gain.
+ * Repeat until avg edge is positive or no improving alternate exists, then drop
+ * the weakest-edge legs rather than keeping filler that drags the ticket under.
+ */
+export function optimizeTicketAverageEdge(
+  picks: ParsedPick[],
+  opts: NearMissLadderOpts,
+): TicketEdgeOptimizeResult {
+  if (picks.length === 0) {
+    return { picks, note: "", swaps: 0, dropped: 0 };
+  }
+
+  let current = [...picks];
+  let avg = averageTicketEdge(current);
+  if (!shouldReoptimizeTicketEdge(avg) && (avg == null || avg >= 0)) {
+    return { picks: current, note: "", swaps: 0, dropped: 0 };
+  }
+
+  const notes: string[] = [];
+  let swaps = 0;
+  let dropped = 0;
+  const maxRounds = Math.max(8, current.length * 4);
+
+  for (let round = 0; round < maxRounds; round++) {
+    avg = averageTicketEdge(current);
+    if (avg != null && avg > 0) break;
+    if (avg == null || avg <= -1) break;
+    if (!shouldReoptimizeTicketEdge(avg) && avg < 0) break;
+
+    let best: { idx: number; pick: ParsedPick; newAvg: number } | null = null;
+    for (let i = 0; i < current.length; i++) {
+      const leg = current[i]!;
+      for (const alt of collectScoredAlternates(leg, opts)) {
+        const trial = current.map((p, j) => (j === i ? alt : p));
+        const trialAvg = averageTicketEdge(trial);
+        if (trialAvg == null) continue;
+        const curAvg = avg ?? -999;
+        if (trialAvg > curAvg && (!best || trialAvg > best.newAvg)) {
+          best = { idx: i, pick: alt, newAvg: trialAvg };
+        }
+      }
+    }
+
+    if (!best) break;
+    const old = current[best.idx]!;
+    current[best.idx] = best.pick;
+    swaps += 1;
+    notes.push(
+      `_Swapped **${old.pick}** for **${best.pick.pick}** — alternate line lifts ticket avg edge (${avg}% → ${best.newAvg}%)._`,
+    );
+    if (best.newAvg > 0) break;
+  }
+
+  avg = averageTicketEdge(current);
+  while (current.length > 1 && avg != null && avg < 0) {
+    const dropIdx = weakestEdgeLegIndex(current);
+    if (dropIdx == null) break;
+    const removed = current[dropIdx]!;
+    current = current.filter((_, j) => j !== dropIdx);
+    dropped += 1;
+    const nextAvg = averageTicketEdge(current);
+    notes.push(
+      `_Dropped **${removed.pick}** — trimmed a weak-edge leg so the ticket average isn't negative (${avg}% → ${nextAvg ?? "—"}%)._`,
+    );
+    avg = nextAvg;
+    if (avg != null && avg > 0) break;
+  }
+
+  return {
+    picks: current,
+    note: notes.filter(Boolean).join("\n\n"),
+    swaps,
+    dropped,
   };
 }
