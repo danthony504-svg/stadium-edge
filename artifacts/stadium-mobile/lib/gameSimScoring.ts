@@ -126,9 +126,37 @@ const normGame = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/** Stable matchup key — nickname vs full-name labels collapse to the same game. */
+export function canonicalGameKey(game: string): string {
+  const { away, home } = splitLabel(game);
+  if (!away || !home) return normGame(game);
+  const a = teamNick(away);
+  const h = teamNick(home);
+  if (!a || !h) return normGame(game);
+  return `${a}|${h}`;
+}
+
+/** Exact leg identity for spread/ML/total dedupe across label variants. */
+export function normalizedGamePickKey(game: string, market: string, pick: string): string {
+  const gk = canonicalGameKey(game);
+  const fam = gameMarketFamily(market);
+  if (/\b(over|under)\b/i.test(pick) && !/team total/i.test(market)) {
+    const side = /\bover\b/i.test(pick) ? "over" : "under";
+    const line = numLine(pick);
+    return `${gk}|${fam}|${side}|${line ?? ""}`;
+  }
+  const team = gamePickTeam({ game, market, pick, odds: 0 });
+  if (team) {
+    if (fam.endsWith("moneyline")) return `${gk}|${fam}|${teamNick(team)}`;
+    const line = numLine(pick);
+    return `${gk}|${fam}|${teamNick(team)}|${line ?? ""}`;
+  }
+  return `${gk}|${fam}|${normGame(pick)}`;
+}
+
 /** One leg per team-sided bucket when backfilling or deduping multi-leg tickets. */
 export function gameLineLegBucket(game: string, market: string, pick: string): string {
-  const g = normGame(game);
+  const g = canonicalGameKey(game);
   const fam = gameMarketFamily(market);
   if (/\b(over|under)\b/i.test(pick) && !/team total/i.test(market)) {
     return `${g}|game-total`;

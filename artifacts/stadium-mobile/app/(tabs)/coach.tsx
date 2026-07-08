@@ -66,7 +66,7 @@ import {
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
-import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
@@ -2584,6 +2584,17 @@ export default function CoachScreen() {
               gameSimNote = appendUniqueNote(gameSimNote, finalSides.note);
             } else if (!gameSimNote) {
               gameSimNote = finalSides.note;
+            }
+          }
+          const finalDeduped = dedupeCoachGameLinePicks(picks);
+          picks = finalDeduped.picks;
+          if (finalDeduped.dropped > 0) {
+            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, dedupeNote);
+            if (gameSimNote && !gameSimNote.includes(dedupeNote)) {
+              gameSimNote = appendUniqueNote(gameSimNote, dedupeNote);
+            } else if (!gameSimNote) {
+              gameSimNote = dedupeNote;
             }
           }
         }

@@ -3,10 +3,13 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   buildGameCoverQuery,
+  canonicalGameKey,
+  gameLineLegBucket,
   gameSimAgreesWithPick,
   gameSimDisagreement,
   gameSimHitForPick,
   lookupGameSim,
+  normalizedGamePickKey,
 } from "./gameSimScoring.ts";
 
 function gamePick(overrides: Partial<ParsedPick> = {}): ParsedPick {
@@ -89,4 +92,31 @@ test("gameSimHitForPick fuzzy-matches nickname spread to full-name cover rate", 
     },
   };
   assert.equal(gameSimHitForPick(nickPick, nickSim), 0.54);
+});
+
+test("canonicalGameKey collapses nickname and full-name labels", () => {
+  assert.equal(
+    canonicalGameKey("Braves @ Pirates"),
+    canonicalGameKey("Atlanta Braves @ Pittsburgh Pirates"),
+  );
+});
+
+test("normalizedGamePickKey matches same spread across label variants", () => {
+  const a = normalizedGamePickKey("Braves @ Pirates", "Alt Spread", "Pirates +1");
+  const b = normalizedGamePickKey(
+    "Atlanta Braves @ Pittsburgh Pirates",
+    "Spread",
+    "Pittsburgh Pirates +1",
+  );
+  assert.equal(a, b);
+});
+
+test("gameLineLegBucket shares bucket for fuzzy game labels on same team", () => {
+  const a = gameLineLegBucket("Braves @ Pirates", "Alt Spread", "Pirates +1");
+  const b = gameLineLegBucket(
+    "Atlanta Braves @ Pittsburgh Pirates",
+    "Alt Spread",
+    "Pittsburgh Pirates +1",
+  );
+  assert.equal(a, b);
 });
