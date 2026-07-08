@@ -67,6 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
+import { applyNearMissLadderToPicks } from "@/lib/coachNearMissLadder";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
@@ -2262,6 +2263,16 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               oddsForEdge: mergedGameOdds,
               rejectsOut: reachFull ? parlayRejections : undefined,
+              nearMissLadder: {
+                evalLinesByGame,
+                realOdds: mergedGameOdds,
+                propPool: mergedPropPool,
+                propSimulations,
+                gameSimulations,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                gameMeta,
+              },
             });
             picks = filtered.picks;
             const edgeFiltered = filterNegativeEdgeGameLines(
@@ -2466,6 +2477,25 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (!isAnalyze && !salvageBuilt) {
+          const ladderApplied = applyNearMissLadderToPicks(picks, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            propSimulations,
+            gameSimulations,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            gameMeta,
+          });
+          picks = ladderApplied.picks;
+          if (ladderApplied.note) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              ladderApplied.note,
+            );
+          }
+        }
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2776,6 +2806,16 @@ export default function CoachScreen() {
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
             minLegs: requestedLegs > 0 ? requestedLegs : undefined,
+            nearMissLadder: {
+              evalLinesByGame: coachEvalLinesByGame,
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              propSimulations,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              gameMeta,
+            },
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(
