@@ -40,6 +40,17 @@ async function rememberMashSubqueries(query: string): Promise<void> {
   }
 }
 
+export function wantsSoccerScorerGoalkeeperPicks(text?: string | null): boolean {
+  const low = String(text || "").toLowerCase();
+  if (!low) return false;
+  const scorerCue =
+    /\b(?:best|top)\s+(?:goal\s+)?scorers?\b/.test(low) ||
+    /\bscorers?\s+facing\b/.test(low) ||
+    /\bworst\s+goalkeepers?\b/.test(low);
+  const keeperCue = /\b(?:goalkeepers?|keepers?|goalies?)\b/.test(low);
+  return scorerCue && keeperCue;
+}
+
 export async function shouldBlockPlayerSearch(
   query: string,
   rawMessage?: string,

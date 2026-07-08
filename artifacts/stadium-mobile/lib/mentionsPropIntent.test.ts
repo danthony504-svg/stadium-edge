@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -86,6 +86,14 @@ test("wantsMlbPitcherSlateAsk detects pitcher/bullpen slate targeting", () => {
     true,
   );
   assert.equal(wantsMlbPitcherSlateAsk("Build me a 6-leg parlay"), false);
+});
+
+test("wantsSoccerScorerGoalkeeperPicks: ranked scorer vs keeper matchup ask", () => {
+  const q =
+    "Show me the best scorers facing the worst goalkeepers today. Include goals, shots on target, xG, keeper save %, goals allowed, clean sheet rate, confidence, and edge.";
+  assert.equal(wantsSoccerScorerGoalkeeperPicks(q), true);
+  assert.equal(wantsPropPickRecommendation(q), true);
+  assert.equal(mentionsPropIntent(q), true);
 });
 
 test("wantsPropPickRecommendation: superlative prop asks without parlay phrasing", () => {

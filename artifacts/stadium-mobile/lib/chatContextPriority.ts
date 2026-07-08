@@ -48,7 +48,7 @@ const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
     re: /\b(rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|steals?|stl|blocks?|blk)\b/i,
   },
   { sport: "nhl", re: /\b(shots on goal|sog|goals?|saves?)\b/i },
-  { sport: "soccer", re: /\b(shots on target|sot|goal scorer|anytime goal|first goal)\b/i },
+  { sport: "soccer", re: /\b(scorers?|goalkeepers?|keepers?|shots on target|sot|goal scorer|anytime goal|first goal)\b/i },
 ];
 
 /** Infer a single sport for a prop-pick ask from named leagues or market words. */

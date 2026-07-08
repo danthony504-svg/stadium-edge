@@ -335,6 +335,7 @@ export function mentionsPropIntent(text?: string | null): boolean {
   const t = String(text || "");
   return (
     /\b(props?|prop bets?|player props?)\b/i.test(t) ||
+    /\b(scorers?|goalkeepers?|keepers?)\b/i.test(t) ||
     /\b(strikeouts?|k'?s|home runs?|hr|anytime td|anytime touchdowns?|touchdowns?|goal scorer|anytime goal|first goal|shots on target|sot|shots on goal|sog|shots?|passing yards?|pass yds?|rushing yards?|rush yds?|receiving yards?|rec yds?|receptions?|sacks?|pra|rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|stolen bases?|blocks?|blk|steals?|stl|turnovers?|hits?|total bases?)\b/i.test(
       t,
     ) ||
@@ -410,4 +411,16 @@ export function wantsPropPickRecommendation(text?: string | null): boolean {
   if (/\b(?:who|which)\b/.test(low) && /\b(?:hit|hr|home runs?|score|strikeout|touchdown|goal)\b/.test(low))
     return true;
   return false;
+}
+
+/** Ranked soccer scorer vs weak-keeper matchup asks — want PICK cards, not discovery prose. */
+export function wantsSoccerScorerGoalkeeperPicks(text?: string | null): boolean {
+  const low = String(text || "").toLowerCase();
+  if (!low) return false;
+  const scorerCue =
+    /\b(?:best|top)\s+(?:goal\s+)?scorers?\b/.test(low) ||
+    /\bscorers?\s+facing\b/.test(low) ||
+    /\bworst\s+goalkeepers?\b/.test(low);
+  const keeperCue = /\b(?:goalkeepers?|keepers?|goalies?)\b/.test(low);
+  return scorerCue && keeperCue;
 }

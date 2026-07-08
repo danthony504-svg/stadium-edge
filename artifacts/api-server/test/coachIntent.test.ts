@@ -4,6 +4,7 @@ import {
   isCoachRecommendationQuestion,
   looksLikeComparisonNameMash,
   shouldBlockPlayerSearch,
+  wantsSoccerScorerGoalkeeperPicks,
 } from "../src/lib/coachIntent.ts";
 
 test("player-search blocks comparison name mash", () => {
@@ -25,4 +26,14 @@ test("raw comparison message is detected", () => {
     isCoachRecommendationQuestion("willy adames or heliot ramos to hit a HR?"),
     true,
   );
+});
+
+test("wantsSoccerScorerGoalkeeperPicks detects ranked scorer vs keeper ask", () => {
+  assert.equal(
+    wantsSoccerScorerGoalkeeperPicks(
+      "Show me the best scorers facing the worst goalkeepers today",
+    ),
+    true,
+  );
+  assert.equal(wantsSoccerScorerGoalkeeperPicks("best HR props for Dodgers"), false);
 });

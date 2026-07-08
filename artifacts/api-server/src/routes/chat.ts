@@ -19,6 +19,7 @@ import {
   isUnsupportedSoccerDisciplineAsk,
   unsupportedSoccerDisciplineReply,
 } from "../lib/coachUnsupportedMarkets.js";
+import { wantsSoccerScorerGoalkeeperPicks } from "../lib/coachIntent.js";
 
 const router: IRouter = Router();
 
@@ -2184,6 +2185,11 @@ The user asked for a player-props-only ticket. EVERY PICK line MUST come from re
     : `\n\n*** PLAYER-PROP-HEAVY MIXED BUILD FOR THIS TURN ***
 The user asked for a ticket WITH player props, not necessarily "props only." Build the requested leg count up to the 15-leg cap by using realProps FIRST, then fill any remaining slots with team/game props from realOdds (moneyline/spread/total/period markets) if needed. Do NOT stop at 4-6 props: that target is only a floor for generic mixed tickets. If realProps has enough defensible distinct player/stat legs, it is fine for most or all of the ticket to be player props. If realProps runs short, use game/team props rather than returning only 6 legs.`;
 
+  const soccerScorerGoalkeeperSystemAddendum = !wantsSoccerScorerGoalkeeperPicks(latestUser)
+    ? ""
+    : `\n\n*** SOCCER SCORER VS GOALKEEPER PICKS — OVERRIDES DISCOVERY FOR THIS TURN ***
+The user wants ranked scorer picks against weak keeper matchups TODAY. This is a PICK recommendation, NOT stats-first discovery — emit 4-6 PICK lines (each followed by EDGE:) from realProps. Prioritize anytime goal scorer, then shots on target, then total shots. Rank matchups using ONLY real feed data: opponentDefense soccer entries (goals allowed, clean sheets, shots on target allowed) when present, plus playerHistory recent form when present. NEVER invent xG, xA, keeper save %, or per-keeper advanced rates — if the user asked for those, say in ONE short lead-in sentence they are not in the feed and you are ranking from posted props + team defense totals only. Do NOT return prose-only with zero PICK lines when realProps has qualifying entries. If realProps is genuinely empty for today, say so honestly in one sentence — do not claim the board is empty if realProps has rows.`;
+
   // The image attaches to the most recent user message only.
   let lastUserIdx = -1;
   parsed.data.messages.forEach((m, i) => {
@@ -2197,7 +2203,7 @@ The user asked for a ticket WITH player props, not necessarily "props only." Bui
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {

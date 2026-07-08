@@ -47,6 +47,7 @@ import {
   wantsPropsOnly,
   explicitSingleGameIntent,
   tonightExhaustedNote,
+  wantsSoccerScorerGoalkeeperPicks,
 } from "./slate";
 
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
@@ -2984,14 +2985,15 @@ export async function buildPropPickContext(
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
   const sport = inferPropPickSport(focalText);
+  const soccerScorerGk = sport === "soccer" && wantsSoccerScorerGoalkeeperPicks(focalText);
   const tonightOnly = wantsTodayOnly(focalText) || wantsTonightSlate(focalText);
   const built = await buildLightParlayContext(signal, {
     sports: [sport],
     maxSports: 1,
-    maxPropGames: 4,
-    maxOddsGames: 10,
-    propsBalanceCap: 40,
-    oddsSliceCap: 12,
+    maxPropGames: soccerScorerGk ? 8 : 4,
+    maxOddsGames: soccerScorerGk ? 14 : 10,
+    propsBalanceCap: soccerScorerGk ? 56 : 40,
+    oddsSliceCap: soccerScorerGk ? 16 : 12,
     parallelPropFetch: true,
     focalText,
     tonightOnly,
