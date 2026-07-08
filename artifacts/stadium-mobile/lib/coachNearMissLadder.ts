@@ -420,7 +420,9 @@ export function applyNearMissLadderToPicks(
   return { picks: out, note: notes.filter(Boolean).join("\n\n") };
 }
 
-import { alignPropPickGames } from "./propGameAlign.ts";
+const PROMOTABLE_POOL_SCAN_CAP = 150;
+
+function promotableFromPool(
   ticket: ParsedPick[],
   limit: number,
   opts: NearMissLadderOpts,
@@ -434,6 +436,7 @@ import { alignPropPickGames } from "./propGameAlign.ts";
   const out: ParsedPick[] = [];
   const stubs: ParsedPick[] = [];
   for (const e of pool) {
+    if (stubs.length >= PROMOTABLE_POOL_SCAN_CAP) break;
     if (seenPlayers.has(norm(e.player))) continue;
     const stub = parsedPickFromPoolEntry(e);
     const fp = pickLegFingerprint(stub);
