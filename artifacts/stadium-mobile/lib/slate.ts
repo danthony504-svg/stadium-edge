@@ -34,6 +34,19 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
+/** World Cup soccer props post days ahead — match the Props tab's 14-day window. */
+export function isPregameBettableForSport(
+  startsAt: string | null | undefined,
+  sport: string,
+): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  const horizonMs = sport === "soccer" ? 14 * 24 * 3600_000 : 48 * 3600_000;
+  return t > now && t < now + horizonMs;
+}
+
 /** Game Simulator pool: pregame only — no in-progress or final games. */
 export function isSimulatorEligible(
   game: {

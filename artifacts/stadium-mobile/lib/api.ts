@@ -24,6 +24,7 @@ import {
 import {
   isPickable,
   isPregameBettable,
+  isPregameBettableForSport,
   isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
@@ -65,6 +66,7 @@ export {
 export {
   isPickable,
   isPregameBettable,
+  isPregameBettableForSport,
   isSimulatorEligible,
   startsTodayUpcoming,
   wantsTodayOnly,
@@ -2665,7 +2667,7 @@ async function buildLightParlayContext(
           getGames(s, signal).catch(() => [] as EspnGame[]),
         ]);
         const pickable = o
-          .filter((x) => isPregameBettable(x.commenceTime))
+          .filter((x) => isPregameBettableForSport(x.commenceTime, s))
           .map((x) => ({ ...x, sport: s }));
         return { s, pickable, games: g };
       }),
@@ -2686,7 +2688,7 @@ async function buildLightParlayContext(
         getGames(s, signal).catch(() => [] as EspnGame[]),
       ]);
       const pickable = o
-        .filter((x) => isPregameBettable(x.commenceTime))
+        .filter((x) => isPregameBettableForSport(x.commenceTime, s))
         .map((x) => ({ ...x, sport: s }));
       if (pickable.length > 0) {
         activeSports.push(s);
@@ -2715,7 +2717,14 @@ async function buildLightParlayContext(
   allOdds.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   if (opts.tonightOnly) {
     const tonight = allOdds.filter((g) => startsTodayUpcoming(g.commenceTime));
-    if (tonight.length) allOdds.splice(0, allOdds.length, ...tonight);
+    // Only narrow when tonight still has games for the sports we're building.
+    const soccerOnly = activeSports.length === 1 && activeSports[0] === "soccer";
+    if (tonight.length && !soccerOnly) {
+      allOdds.splice(0, allOdds.length, ...tonight);
+    } else if (tonight.length && soccerOnly) {
+      const soccerTonight = tonight.filter((g) => g.sport === "soccer");
+      if (soccerTonight.length) allOdds.splice(0, allOdds.length, ...soccerTonight);
+    }
   }
   if (opts.focalText?.trim()) {
     allOdds.sort((a, b) => {
@@ -2986,14 +2995,15 @@ export async function buildPropPickContext(
 ): Promise<BuiltChatContext> {
   const sport = inferPropPickSport(focalText);
   const soccerScorerGk = sport === "soccer" && wantsSoccerScorerGoalkeeperPicks(focalText);
-  const tonightOnly = wantsTodayOnly(focalText) || wantsTonightSlate(focalText);
+  const tonightOnly =
+    !soccerScorerGk && (wantsTodayOnly(focalText) || wantsTonightSlate(focalText));
   const built = await buildLightParlayContext(signal, {
     sports: [sport],
     maxSports: 1,
-    maxPropGames: soccerScorerGk ? 8 : 4,
-    maxOddsGames: soccerScorerGk ? 14 : 10,
-    propsBalanceCap: soccerScorerGk ? 56 : 40,
-    oddsSliceCap: soccerScorerGk ? 16 : 12,
+    maxPropGames: soccerScorerGk ? 10 : 4,
+    maxOddsGames: soccerScorerGk ? 16 : 10,
+    propsBalanceCap: soccerScorerGk ? 64 : 40,
+    oddsSliceCap: soccerScorerGk ? 20 : 12,
     parallelPropFetch: true,
     focalText,
     tonightOnly,

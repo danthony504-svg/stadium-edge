@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -86,6 +86,12 @@ test("wantsMlbPitcherSlateAsk detects pitcher/bullpen slate targeting", () => {
     true,
   );
   assert.equal(wantsMlbPitcherSlateAsk("Build me a 6-leg parlay"), false);
+});
+
+test("isPregameBettableForSport: soccer uses 14-day WC horizon", () => {
+  const inSixDays = new Date(Date.now() + 6 * 24 * 3600_000);
+  assert.equal(isPregameBettableForSport(inSixDays.toISOString(), "soccer"), true);
+  assert.equal(isPregameBettableForSport(inSixDays.toISOString(), "mlb"), false);
 });
 
 test("wantsSoccerScorerGoalkeeperPicks: ranked scorer vs keeper matchup ask", () => {
