@@ -67,6 +67,8 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
+import { applyNearMissLadderToPicks, collectNearMissPropRejects, fillTicketFromNearMissLadder, optimizeTicketAverageEdge, sweepRejectsOntoTicket } from "@/lib/coachNearMissLadder";
+import { alignPropPickGames } from "@/lib/propGameAlign";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
@@ -2262,6 +2264,16 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               oddsForEdge: mergedGameOdds,
               rejectsOut: reachFull ? parlayRejections : undefined,
+              nearMissLadder: {
+                evalLinesByGame,
+                realOdds: mergedGameOdds,
+                propPool: mergedPropPool,
+                propSimulations,
+                gameSimulations,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                gameMeta,
+              },
             });
             picks = filtered.picks;
             const edgeFiltered = filterNegativeEdgeGameLines(
@@ -2466,6 +2478,25 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (!isAnalyze) {
+          const ladderApplied = applyNearMissLadderToPicks(picks, {
+            evalLinesByGame: coachEvalLinesByGame ?? undefined,
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            propSimulations,
+            gameSimulations,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            gameMeta,
+          });
+          picks = ladderApplied.picks;
+          if (ladderApplied.note) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              ladderApplied.note,
+            );
+          }
+        }
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2619,6 +2650,7 @@ export default function CoachScreen() {
             }
           }
         }
+        picks = alignPropPickGames(picks, mergedPropPool);
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -2631,6 +2663,68 @@ export default function CoachScreen() {
         const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         let backupPicks: ParsedPick[] = [];
         let backupNote = "";
+        let totalPromoted = 0;
+        const ladderFillOpts = {
+          evalLinesByGame: coachEvalLinesByGame ?? undefined,
+          realOdds: mergedGameOdds,
+          propPool: mergedPropPool,
+          propSimulations,
+          gameSimulations,
+          matchupHistory: context.matchupHistory,
+          matchupInjuries: context.matchupInjuries,
+          gameMeta,
+          maxPerGame: requestedLegs >= 12 ? 4 : undefined,
+        };
+        const finalizeFilledTicket = (filled: ParsedPick[], fillNotes: string[]) => {
+          let out = attachPickScores(filled, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            perfByFamily: marketPerf,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            gameSimulations,
+          });
+          out = alignPropPickGames(out, mergedPropPool);
+          if (out.some(isGameLinePick)) {
+            const deduped = dedupeCoachGameLinePicks(out, {
+              simByGame: gameSimulations,
+              matchupHistory: context.matchupHistory,
+            });
+            out = deduped.picks;
+            if (deduped.sideNote) {
+              gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, deduped.sideNote);
+            }
+          }
+          if (out.some((p) => p.isProp)) {
+            out = enforceConsistentPropSides(out).picks;
+          }
+          for (const n of fillNotes) {
+            if (n) gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, n);
+          }
+          return out;
+        };
+        if (!isAnalyze && picks.length > 1 && picks.length >= requestedLegs) {
+          const edgeOptimized = optimizeTicketAverageEdge(picks, ladderFillOpts, {
+            minLegCount: requestedLegs,
+            allowLegDrops: true,
+          });
+          picks = edgeOptimized.picks;
+          if (edgeOptimized.note) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              edgeOptimized.note,
+            );
+            if (gameSimNote && !gameSimNote.includes(edgeOptimized.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, edgeOptimized.note);
+            } else if (!gameSimNote) {
+              gameSimNote = edgeOptimized.note;
+            }
+          }
+          if (edgeOptimized.dropped > 0) {
+            picks = finalizeFilledTicket(picks, []);
+          }
+        }
         if (reachFull && requestedLegs > picks.length && picks.length > 0) {
           const nearMisses = coachEvalLinesByGame
             ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
@@ -2639,9 +2733,36 @@ export default function CoachScreen() {
                 matchupInjuries: context.matchupInjuries,
               })
             : [];
-          const mergedRejects = mergeParlayRejects(parlayRejections, nearMisses);
-          const backupTarget = Math.min(4, requestedLegs - picks.length);
-          backupPicks = selectParlayBackupPicks(picks, mergedRejects, backupTarget);
+          const propNearMisses = collectNearMissPropRejects(picks, ladderFillOpts);
+          let remainingRejects = mergeParlayRejects(
+            parlayRejections,
+            nearMisses,
+            propNearMisses,
+          );
+          for (let pass = 0; pass < 2 && picks.length < requestedLegs; pass++) {
+            const before = picks.length;
+            const ladderFill = fillTicketFromNearMissLadder(
+              picks,
+              remainingRejects,
+              requestedLegs,
+              ladderFillOpts,
+            );
+            const swept = sweepRejectsOntoTicket(
+              ladderFill.picks,
+              ladderFill.remainingRejects,
+              requestedLegs,
+              ladderFillOpts,
+            );
+            remainingRejects = swept.remainingRejects;
+            picks = finalizeFilledTicket(swept.picks, [
+              ladderFill.note,
+              ...swept.notes,
+            ]);
+            totalPromoted += picks.length - before;
+            if (picks.length >= requestedLegs || swept.added + ladderFill.filled === 0) break;
+          }
+          const backupTarget = Math.min(3, requestedLegs - picks.length);
+          backupPicks = selectParlayBackupPicks(picks, remainingRejects, backupTarget);
           if (backupPicks.length > 0) {
             backupPicks = attachPickScores(backupPicks, {
               realOdds: mergedGameOdds,
@@ -2652,13 +2773,90 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
-            backupNote = buildParlayShortfallNote(
-              requestedLegs,
-              picks.length,
-              mergedRejects,
-              backupPicks.length,
-              oddsPhrase,
+            backupNote =
+              totalPromoted > 0
+                ? `You asked for ${requestedLegs} legs. I promoted **${totalPromoted}** alternate line${totalPromoted === 1 ? "" : "s"} onto the ticket from the live board; **${picks.length}** cleared the quality bar — I won't pad with weak filler.`
+                : buildParlayShortfallNote(
+                    requestedLegs,
+                    picks.length,
+                    remainingRejects,
+                    backupPicks.length,
+                    oddsPhrase,
+                  );
+          } else if (picks.length < requestedLegs) {
+            backupNote =
+              totalPromoted > 0
+                ? `You asked for ${requestedLegs} legs. I promoted **${totalPromoted}** alternate line${totalPromoted === 1 ? "" : "s"} from the live board; **${picks.length}** cleared the quality filters — that's the honest ticket.`
+                : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`;
+          }
+        }
+        if (!isAnalyze && picks.length > 1) {
+          const shortOfTarget = requestedLegs > picks.length;
+          const edgeOptimized = optimizeTicketAverageEdge(
+            picks,
+            ladderFillOpts,
+            {
+              minLegCount: shortOfTarget ? picks.length : requestedLegs,
+              allowLegDrops: !shortOfTarget,
+            },
+          );
+          const beforeEdge = picks.length;
+          picks = edgeOptimized.picks;
+          if (edgeOptimized.note) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              edgeOptimized.note,
             );
+            if (gameSimNote && !gameSimNote.includes(edgeOptimized.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, edgeOptimized.note);
+            } else if (!gameSimNote) {
+              gameSimNote = edgeOptimized.note;
+            }
+          }
+          if (edgeOptimized.swaps > 0 || edgeOptimized.dropped > 0) {
+            picks = finalizeFilledTicket(picks, []);
+          }
+          if (
+            reachFull &&
+            shortOfTarget &&
+            picks.length < requestedLegs &&
+            (edgeOptimized.swaps > 0 || picks.length !== beforeEdge)
+          ) {
+            const propNearMisses = collectNearMissPropRejects(picks, ladderFillOpts);
+            const nearMisses = coachEvalLinesByGame
+              ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+                  realOdds: mergedGameOdds,
+                  matchupHistory: context.matchupHistory,
+                  matchupInjuries: context.matchupInjuries,
+                })
+              : [];
+            const topUpRejects = mergeParlayRejects(
+              parlayRejections,
+              nearMisses,
+              propNearMisses,
+            );
+            const beforeTopUp = picks.length;
+            const topUp = fillTicketFromNearMissLadder(
+              picks,
+              topUpRejects,
+              requestedLegs,
+              ladderFillOpts,
+            );
+            const swept = sweepRejectsOntoTicket(
+              topUp.picks,
+              topUp.remainingRejects,
+              requestedLegs,
+              ladderFillOpts,
+            );
+            picks = finalizeFilledTicket(swept.picks, [topUp.note, ...swept.notes]);
+            totalPromoted += picks.length - beforeTopUp;
+            if (picks.length < requestedLegs) {
+              backupPicks = selectParlayBackupPicks(
+                picks,
+                swept.remainingRejects,
+                Math.min(3, requestedLegs - picks.length),
+              );
+            }
           }
         }
         if (picks.length > 0 && requestedLegs > picks.length) {
@@ -2776,6 +2974,17 @@ export default function CoachScreen() {
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
             minLegs: requestedLegs > 0 ? requestedLegs : undefined,
+            nearMissLadder: {
+              evalLinesByGame: coachEvalLinesByGame ?? undefined,
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              propSimulations,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              gameMeta,
+            },
+            rejectsOut: reachFull ? parlayRejections : undefined,
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(
