@@ -90,9 +90,15 @@ import { FONT } from "@/components/ui";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
+import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
+import {
+  computeTrackedModelStrengths,
+  mergePerfMaps,
+  perfMapFromTrackedPicks,
+} from "@/lib/pickTrackerAnalytics";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -761,19 +767,29 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
+  const { picks: trackedPicks, signalPerf, captureFromCoach } = usePickTracker();
   // Soft, real-data-only signal about which bet categories the model has actually
-  // been hitting (from the user's graded Model Report). Injected into every chat
-  // context so the Coach can lean into hot categories — advisory only, omitted
-  // when nothing has settled. Recomputed only when the results ledger changes.
-  const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
-  // Real settled hit-rate per market family, from the SAME results ledger the
-  // Model Report uses. Feeds the market-weighting layer so a market above/below
-  // the user's historical thresholds nudges its legs' Confidence (real data only;
-  // markets without a sufficient sample contribute nothing). Recomputed only when
-  // the ledger changes.
+  // been hitting (from the user's graded Model Report + AI Coach pick ledger).
+  const modelStrengths = useMemo(() => {
+    const slip = computeModelStrengths(results);
+    const coach = computeTrackedModelStrengths(trackedPicks);
+    return [...coach, ...slip].slice(0, 8);
+  }, [results, trackedPicks]);
+  // Real settled hit-rate per market family — slip results plus coach picks.
   const marketPerf = useMemo(
-    () => perfMapFromByFamily(computeAnalytics(results).byFamily),
-    [results],
+    () =>
+      mergePerfMaps(
+        perfMapFromByFamily(computeAnalytics(results).byFamily),
+        perfMapFromTrackedPicks(trackedPicks),
+      ),
+    [results, trackedPicks],
+  );
+  const scoreAttachBase = useMemo(
+    () => ({
+      perfByFamily: marketPerf,
+      trackedSignalPerf: signalPerf,
+    }),
+    [marketPerf, signalPerf],
   );
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
@@ -1793,7 +1809,7 @@ export default function CoachScreen() {
             propPool: mergedPropPool,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
-            perfByFamily: marketPerf,
+            ...scoreAttachBase,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           });
           picks = scored.filter((p) =>
@@ -2416,7 +2432,7 @@ export default function CoachScreen() {
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
           matchupInjuries: context.matchupInjuries,
-          perfByFamily: marketPerf,
+          ...scoreAttachBase,
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
@@ -2478,7 +2494,7 @@ export default function CoachScreen() {
             propPool: mergedPropPool,
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
-            perfByFamily: marketPerf,
+            ...scoreAttachBase,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             gameSimulations,
           });
@@ -2518,7 +2534,7 @@ export default function CoachScreen() {
               propPool: mergedPropPool,
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
-              perfByFamily: marketPerf,
+              ...scoreAttachBase,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
@@ -2553,7 +2569,7 @@ export default function CoachScreen() {
               propPool: mergedPropPool,
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
-              perfByFamily: marketPerf,
+              ...scoreAttachBase,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
@@ -2646,7 +2662,10 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        if (picks.length > 0) setAiPicks(picks);
+        if (picks.length > 0) {
+          setAiPicks(picks);
+          captureFromCoach(picks);
+        }
         if (isParlayBuild && picks.length > 0) rememberParlayBuild(picks);
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
@@ -2659,7 +2678,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            perfByFamily: marketPerf,
+            ...scoreAttachBase,
             minLegs: requestedLegs > 0 ? requestedLegs : undefined,
           };
           const snapshot = picks;
@@ -2671,11 +2690,13 @@ export default function CoachScreen() {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                captureFromCoach(scored);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                captureFromCoach(scored);
               },
             },
             simController.signal,

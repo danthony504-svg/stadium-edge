@@ -34,6 +34,7 @@ import {
   type PickSubScores,
 } from "@/lib/pickScore";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
+import { trackedSignalBias, type SignalPerf } from "@/lib/pickTrackerAnalytics";
 import { gameValueForMarket } from "@/lib/propStats";
 import {
   gameSimHitForPick,
@@ -477,6 +478,8 @@ export function attachPickScores(
     // leg's Confidence. The fixed market-priority prior applies regardless; only
     // a grounded (non-null) Confidence is ever adjusted — never fabricated.
     perfByFamily?: Map<string, MarketPerf>;
+    /** Real coach-pick history by signal category — nudges Confidence when cold/hot. */
+    trackedSignalPerf?: Map<string, SignalPerf>;
     /** Monte Carlo results keyed player|market|line|side */
     propSimulations?: Map<string, { hitProbability: number | null }>;
     /** Game-outcome sim keyed by "Away @ Home" (same engine as Simulator tab). */
@@ -509,7 +512,20 @@ export function attachPickScores(
           gameSim,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
-    if (!scores) return { ...p, scores: null };
+    const trackedDelta = opts.trackedSignalPerf
+      ? trackedSignalBias(p, opts.trackedSignalPerf)
+      : 0;
+    const weighted =
+      scores && trackedDelta !== 0 && scores.confidencePct != null
+        ? {
+            ...scores,
+            confidencePct: Math.max(
+              5,
+              Math.min(95, Math.round(scores.confidencePct + trackedDelta)),
+            ),
+          }
+        : scores;
+    if (!weighted) return { ...p, scores: null };
 
     const propKey =
       p.isProp && p.player && p.propLine != null && p.propSide
@@ -522,8 +538,8 @@ export function attachPickScores(
 
     const finalAiScore = buildFinalAiScore({
       pick: p,
-      rubricScores: scores.scores,
-      edgePct: scores.edgePct,
+      rubricScores: weighted.scores,
+      edgePct: weighted.edgePct,
       odds: p.odds,
       gameSim,
       propSimHit,

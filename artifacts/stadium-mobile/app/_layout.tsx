@@ -30,6 +30,7 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { BetSlipProvider } from "@/context/BetSlipContext";
+import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
@@ -275,6 +276,7 @@ export default function RootLayout() {
               <AuthTokenBridge />
               <PushNotificationsBridge />
               <BetSlipProvider>
+                <PickTrackerProvider>
                 <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
                   <KeyboardProvider>
                     <StatusBar style="light" />
@@ -284,6 +286,7 @@ export default function RootLayout() {
                     <OtaUpdateBanner />
                   </KeyboardProvider>
                 </GestureHandlerRootView>
+                </PickTrackerProvider>
               </BetSlipProvider>
             </QueryClientProvider>
           </ClerkLoaded>
