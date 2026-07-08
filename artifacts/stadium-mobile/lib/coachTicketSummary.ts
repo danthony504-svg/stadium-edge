@@ -2,6 +2,7 @@
 
 import { gradeFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
+import { fairOddsFromProb } from "./gameSimQualityGates.ts";
 
 export type TicketPick = {
   game: string;
@@ -57,12 +58,60 @@ function gradeFromRank(rank: number): string | null {
   return best;
 }
 
+function normGame(s: string): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Team-sided spread / ML — at most one per game on the ticket display. */
+export function isTeamSidedGameLine(p: TicketPick): boolean {
+  if (!isGameLinePick(p as Parameters<typeof isGameLinePick>[0]) || p.isProp) return false;
+  const m = String(p.market ?? "").toLowerCase();
+  if (/total|over|under|o\/u/.test(m) || /\b(over|under)\b/i.test(p.pick)) return false;
+  return !/^(over|under)\s/i.test(p.pick.trim());
+}
+
+function pickComposite(p: TicketPick): number {
+  return p.finalAiScore?.composite ?? p.scores?.composite ?? -1;
+}
+
+/** One team-sided game line per matchup — the side on the final ticket. */
+export function dedupeTicketGameLines(gameLines: TicketPick[]): TicketPick[] {
+  const bestTeamSided = new Map<string, TicketPick>();
+  for (const p of gameLines) {
+    if (!isTeamSidedGameLine(p)) continue;
+    const key = normGame(p.game);
+    const prev = bestTeamSided.get(key);
+    if (!prev || pickComposite(p) > pickComposite(prev)) bestTeamSided.set(key, p);
+  }
+
+  const seenTeamGame = new Set<string>();
+  const out: TicketPick[] = [];
+  for (const p of gameLines) {
+    if (isTeamSidedGameLine(p)) {
+      const key = normGame(p.game);
+      const best = bestTeamSided.get(key);
+      if (!best || best !== p || seenTeamGame.has(key)) continue;
+      seenTeamGame.add(key);
+      out.push(p);
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 export type GameLineSummary = {
   pick: TicketPick;
   grade: string | null;
   confidence: number | null;
   edge: number | null;
   simHitPct: number | null;
+  fairOdds: number | null;
+  bookOdds: number;
+  whyLine: string;
 };
 
 export type CoachTicketSummary = {
@@ -70,6 +119,7 @@ export type CoachTicketSummary = {
   gameLineCount: number;
   simulations: number | null;
   avgConfidence: number | null;
+  avgEdge: number | null;
   overallGrade: string | null;
   gameLines: GameLineSummary[];
 };
@@ -77,20 +127,37 @@ export type CoachTicketSummary = {
 function scoresForPick(p: TicketPick) {
   const fa = p.finalAiScore;
   const rubric = p.scores;
+  const simHit = fa?.simHit ?? null;
   return {
     grade: fa?.grade ?? rubric?.grade ?? null,
     confidence: fa?.confidencePct ?? rubric?.confidencePct ?? null,
     edge: fa?.edgePct ?? rubric?.edgePct ?? null,
     composite: fa?.composite ?? rubric?.composite ?? null,
-    simHitPct:
-      fa?.simHit != null ? Math.round(fa.simHit * 1000) / 10 : null,
+    simHitPct: simHit != null ? Math.round(simHit * 1000) / 10 : null,
+    fairOdds: fairOddsFromProb(simHit),
   };
 }
 
+function whyLineForPick(p: TicketPick): string {
+  const market = String(p.market ?? "game line").toLowerCase();
+  if (/alt spread|spread/.test(market)) {
+    return "Highest Final AI Score among posted spread / alt spread rungs for this game after the 10k sim.";
+  }
+  if (/moneyline|ml/.test(market)) {
+    return "Highest Final AI Score among posted moneyline rungs for this game after the 10k sim.";
+  }
+  if (/total/.test(market)) {
+    return "Highest Final AI Score among posted total / alt total rungs for this game after the 10k sim.";
+  }
+  return "Selected from posted game-line rungs with the strongest Final AI Score after the 10k sim.";
+}
+
 export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
-  const gameLines = picks.filter((p) => isGameLinePick(p) && !p.isProp);
+  const rawGameLines = picks.filter((p) => isGameLinePick(p as Parameters<typeof isGameLinePick>[0]) && !p.isProp);
+  const gameLines = dedupeTicketGameLines(rawGameLines);
   const scored = picks.map(scoresForPick);
   const confs = scored.map((s) => s.confidence).filter((c): c is number => c != null);
+  const edges = scored.map((s) => s.edge).filter((e): e is number => e != null);
   const composites = scored.map((s) => s.composite).filter((c): c is number => c != null);
   const avgComposite =
     composites.length > 0
@@ -113,6 +180,10 @@ export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
       confs.length > 0
         ? Math.round(confs.reduce((a, b) => a + b, 0) / confs.length)
         : null,
+    avgEdge:
+      edges.length > 0
+        ? Math.round((edges.reduce((a, b) => a + b, 0) / edges.length) * 10) / 10
+        : null,
     overallGrade:
       avgComposite != null
         ? gradeFromComposite(avgComposite)
@@ -130,6 +201,9 @@ export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
         confidence: s.confidence,
         edge: s.edge,
         simHitPct: s.simHitPct,
+        fairOdds: s.fairOdds,
+        bookOdds: p.odds,
+        whyLine: whyLineForPick(p),
       };
     }),
   };

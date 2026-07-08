@@ -91,6 +91,7 @@ import { FONT } from "@/components/ui";
 import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
+import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
@@ -764,6 +765,7 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
+  const { captureFromCoach } = usePickTracker();
   // Soft, real-data-only signal about which bet categories the model has actually
   // been hitting (from the user's graded Model Report). Injected into every chat
   // context so the Coach can lean into hot categories — advisory only, omitted
@@ -2664,7 +2666,10 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        if (picks.length > 0) setAiPicks(picks);
+        if (picks.length > 0) {
+          setAiPicks(picks);
+          captureFromCoach(picks);
+        }
         if (isParlayBuild && picks.length > 0) rememberParlayBuild(picks);
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
@@ -2689,11 +2694,13 @@ export default function CoachScreen() {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                captureFromCoach(scored);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
                 patchLastAssistantPicks(setMessages, scored);
                 setAiPicks(scored);
+                captureFromCoach(scored);
               },
             },
             simController.signal,

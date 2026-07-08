@@ -4,10 +4,18 @@ import { Pressable, Text, View } from "react-native";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { FONT } from "@/components/ui";
+import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { summarizeCoachTicket, type GameLineSummary } from "@/lib/coachTicketSummary";
 import type { ParsedPick } from "@/components/PickCard";
+import {
+  decided,
+  recordText,
+  winPct,
+  type TrackedAnalytics,
+} from "@/lib/pickTrackerAnalytics";
+import { similarPickRecord } from "@/lib/pickTrackerSimilar";
 import { formatAmerican } from "@/lib/format";
 
 type Props = {
@@ -51,11 +59,40 @@ function SummaryStat({
   );
 }
 
-function GameLineCard({ row }: { row: GameLineSummary }) {
+function DetailRow({ label, value }: { label: string; value: string }) {
+  const colors = useColors();
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+      <Text
+        style={{
+          color: colors.mutedForeground,
+          fontFamily: FONT.medium,
+          fontSize: 11,
+          flex: 1,
+        }}
+      >
+        {label}
+      </Text>
+      <Text
+        style={{
+          color: colors.foreground,
+          fontFamily: FONT.semibold,
+          fontSize: 12,
+          textAlign: "right",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function GameLineDetailCard({ row }: { row: GameLineSummary }) {
   const colors = useColors();
   const p = row.pick;
   const edgeStr =
-    row.edge != null ? `${row.edge > 0 ? "+" : ""}${row.edge}%` : "—";
+    row.edge != null ? `${row.edge > 0 ? "+" : ""}${row.edge}%` : null;
+
   return (
     <View
       style={{
@@ -64,7 +101,7 @@ function GameLineCard({ row }: { row: GameLineSummary }) {
         borderWidth: 1,
         borderRadius: 12,
         padding: 12,
-        gap: 6,
+        gap: 8,
       }}
     >
       <Text
@@ -81,7 +118,7 @@ function GameLineCard({ row }: { row: GameLineSummary }) {
         style={{
           color: colors.foreground,
           fontFamily: FONT.semibold,
-          fontSize: 14,
+          fontSize: 15,
         }}
       >
         {p.pick}
@@ -95,50 +132,118 @@ function GameLineCard({ row }: { row: GameLineSummary }) {
       >
         {p.game}
       </Text>
-      <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-        <MiniMetric label="AI Grade" value={row.grade ?? "—"} highlight />
-        <MiniMetric
-          label="Confidence"
-          value={row.confidence != null ? `${row.confidence}%` : "—"}
-        />
-        <MiniMetric label="Edge" value={edgeStr} />
+      <Text
+        style={{
+          color: colors.foreground,
+          fontFamily: FONT.body,
+          fontSize: 12,
+          lineHeight: 18,
+        }}
+      >
+        {row.whyLine}
+      </Text>
+      <View
+        style={{
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          paddingTop: 8,
+          gap: 6,
+        }}
+      >
+        {row.grade ? <DetailRow label="AI Grade" value={row.grade} /> : null}
+        {row.confidence != null ? (
+          <DetailRow label="Confidence" value={`${row.confidence}%`} />
+        ) : null}
+        {edgeStr ? <DetailRow label="Edge" value={edgeStr} /> : null}
+        {row.simHitPct != null ? (
+          <DetailRow label="Simulation hit %" value={`${row.simHitPct}%`} />
+        ) : null}
+        {row.fairOdds != null ? (
+          <DetailRow
+            label="Fair vs book odds"
+            value={`${formatAmerican(row.fairOdds)} vs ${formatAmerican(row.bookOdds)}`}
+          />
+        ) : null}
       </View>
     </View>
   );
 }
 
-function MiniMetric({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-}) {
+function LearningSection({ analytics }: { analytics: TrackedAnalytics }) {
   const colors = useColors();
+  const decidedCount = decided(analytics.legTally);
+  const overallWinPct = winPct(analytics.legTally);
+  const topSport = analytics.bySport.find((b) => decided(b.tally) >= 3);
+  const topMarket = analytics.byFamily.find((b) => decided(b.tally) >= 3);
+  const recent = analytics.recentWindow;
+
+  if (analytics.total === 0) return null;
+
   return (
-    <View style={{ flex: 1 }}>
-      <Text
-        style={{
-          color: colors.mutedForeground,
-          fontFamily: FONT.medium,
-          fontSize: 9,
-          textTransform: "uppercase",
-        }}
-      >
-        {label}
-      </Text>
-      <Text
-        style={{
-          color: highlight ? colors.primary : colors.foreground,
-          fontFamily: FONT.bold,
-          fontSize: 13,
-          marginTop: 2,
-        }}
-      >
-        {value}
-      </Text>
+    <View
+      style={{
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 14,
+        gap: 10,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Feather name="cpu" size={14} color={colors.primary} />
+        <Text
+          style={{
+            color: colors.primary,
+            fontFamily: FONT.display,
+            fontSize: 13,
+            letterSpacing: 0.3,
+          }}
+        >
+          AI LEARNING
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
+        <SummaryStat label="Picks tracked" value={`${analytics.total}`} />
+        {overallWinPct != null ? (
+          <SummaryStat label="Win %" value={`${overallWinPct.toFixed(0)}%`} />
+        ) : null}
+        {analytics.roiPct != null ? (
+          <SummaryStat
+            label="ROI"
+            value={`${analytics.roiPct > 0 ? "+" : ""}${analytics.roiPct}%`}
+          />
+        ) : null}
+        {analytics.pending > 0 ? (
+          <SummaryStat label="Pending" value={`${analytics.pending}`} />
+        ) : null}
+      </View>
+      {topSport && decided(topSport.tally) >= 3 ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+          Best sport — {topSport.label}: {winPct(topSport.tally)?.toFixed(0)}% (
+          {recordText(topSport.tally)})
+        </Text>
+      ) : null}
+      {topMarket && decided(topMarket.tally) >= 3 ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+          Best market — {topMarket.label}: {winPct(topMarket.tally)?.toFixed(0)}% (
+          {recordText(topMarket.tally)})
+        </Text>
+      ) : null}
+      {recent.sampleSize > 0 ? (
+        <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Last {recent.windowSize} days:{" "}
+          {recent.winPct != null
+            ? `${recent.winPct}% (${recent.wins}-${recent.losses}${recent.pushes ? `-${recent.pushes}` : ""})`
+            : `${recent.wins}-${recent.losses} — pending results`}
+        </Text>
+      ) : null}
+      {decidedCount === 0 && analytics.pending > 0 ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+          History updates automatically after games finish — the Coach uses settled
+          results to weight future picks.
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -146,12 +251,17 @@ function MiniMetric({
 export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
+  const { analytics, picks: trackedPicks } = usePickTracker();
   const notes = useMemo(
     () => partitionCoachNotes(legNote, coachDetailNote),
     [legNote, coachDetailNote],
   );
   const summary = useMemo(() => summarizeCoachTicket(picks), [picks]);
-  const hasDetail = !!(notes.detail || summary.gameLines.length > 0);
+  const similar = useMemo(
+    () => similarPickRecord(picks, trackedPicks),
+    [picks, trackedPicks],
+  );
+  const hasDetail = summary.gameLines.length > 0;
 
   return (
     <View style={{ gap: 10 }}>
@@ -177,22 +287,33 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
           <SummaryStat label="Picks" value={`${summary.pickCount}`} />
-          <SummaryStat
-            label="AI game lines"
-            value={`${summary.gameLineCount}`}
-          />
-          <SummaryStat
-            label="Simulations"
-            value={summary.simulations != null ? summary.simulations.toLocaleString() : "—"}
-          />
-          <SummaryStat
-            label="Avg confidence"
-            value={summary.avgConfidence != null ? `${summary.avgConfidence}%` : "—"}
-          />
-          <SummaryStat
-            label="Overall AI grade"
-            value={summary.overallGrade ?? "—"}
-          />
+          {summary.gameLineCount > 0 ? (
+            <SummaryStat label="AI game lines" value={`${summary.gameLineCount}`} />
+          ) : null}
+          {summary.simulations != null ? (
+            <SummaryStat
+              label="Simulations"
+              value={summary.simulations.toLocaleString()}
+            />
+          ) : null}
+          {summary.avgConfidence != null ? (
+            <SummaryStat label="Avg confidence" value={`${summary.avgConfidence}%`} />
+          ) : null}
+          {summary.avgEdge != null ? (
+            <SummaryStat
+              label="Avg edge"
+              value={`${summary.avgEdge > 0 ? "+" : ""}${summary.avgEdge}%`}
+            />
+          ) : null}
+          {summary.overallGrade ? (
+            <SummaryStat label="Overall AI grade" value={summary.overallGrade} />
+          ) : null}
+          {similar && similar.total >= 3 ? (
+            <SummaryStat
+              label="Similar picks"
+              value={`${similar.wins}-${similar.losses}`}
+            />
+          ) : null}
         </View>
         {hasDetail ? (
           <Pressable
@@ -229,31 +350,20 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         ) : null}
       </View>
 
-      {expanded ? (
-        <View style={{ gap: 10 }}>
-          {summary.gameLines.length > 0 ? (
-            <View style={{ gap: 8 }}>
-              <Text
-                style={{
-                  color: colors.mutedForeground,
-                  fontFamily: FONT.semibold,
-                  fontSize: 12,
-                }}
-              >
-                AI game lines
-              </Text>
-              {summary.gameLines.map((row, i) => (
-                <GameLineCard key={`${row.pick.game}-${row.pick.pick}-${i}`} row={row} />
-              ))}
-            </View>
-          ) : null}
-          {notes.detail?.trim() ? (
-            <ChatMarkdown
-              text={notes.detail.trim()}
-              color={colors.foreground}
-              mutedColor={colors.mutedForeground}
-            />
-          ) : null}
+      {expanded && summary.gameLines.length > 0 ? (
+        <View style={{ gap: 8 }}>
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.semibold,
+              fontSize: 12,
+            }}
+          >
+            AI game lines
+          </Text>
+          {summary.gameLines.map((row, i) => (
+            <GameLineDetailCard key={`${row.pick.game}-${row.pick.pick}-${i}`} row={row} />
+          ))}
         </View>
       ) : null}
 
@@ -264,6 +374,8 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
           mutedColor={colors.mutedForeground}
         />
       ) : null}
+
+      <LearningSection analytics={analytics} />
     </View>
   );
 }
