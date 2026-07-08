@@ -66,7 +66,8 @@ import {
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
-import { rotatePool, dedupeSameTeamGameLegs, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
+import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
+import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
@@ -772,7 +773,7 @@ export default function CoachScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { legs, results, setAiPicks, addLeg, removeLeg, hasLeg } = useBetSlip();
-  const { captureFromCoach } = usePickTracker();
+  const { captureFromCoach, picks: trackedPicks } = usePickTracker();
   // Soft, real-data-only signal about which bet categories the model has actually
   // been hitting (from the user's graded Model Report). Injected into every chat
   // context so the Coach can lean into hot categories — advisory only, omitted
@@ -2567,6 +2568,55 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
+          }
+        }
+        if (!isAnalyze && picks.some(isGameLinePick)) {
+          const finalDeduped = dedupeCoachGameLinePicks(picks, {
+            simByGame: gameSimulations,
+            matchupHistory: context.matchupHistory,
+          });
+          picks = finalDeduped.picks;
+          if (finalDeduped.sideNote) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              finalDeduped.sideNote,
+            );
+            if (gameSimNote && !gameSimNote.includes(finalDeduped.sideNote)) {
+              gameSimNote = appendUniqueNote(gameSimNote, finalDeduped.sideNote);
+            } else if (!gameSimNote) {
+              gameSimNote = finalDeduped.sideNote;
+            }
+          }
+          if (finalDeduped.dropped > 0) {
+            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate or opposing game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, dedupeNote);
+            if (gameSimNote && !gameSimNote.includes(dedupeNote)) {
+              gameSimNote = appendUniqueNote(gameSimNote, dedupeNote);
+            } else if (!gameSimNote) {
+              gameSimNote = dedupeNote;
+            }
+          }
+        }
+        if (!isAnalyze && picks.some((p) => p.isProp)) {
+          const propSides = enforceConsistentPropSides(picks);
+          picks = propSides.picks;
+          if (propSides.dropped > 0) {
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, propSides.note);
+            if (gameSimNote && !gameSimNote.includes(propSides.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, propSides.note);
+            } else if (!gameSimNote) {
+              gameSimNote = propSides.note;
+            }
+          }
+          const antiFlip = dropPropsOpposingTrackedPicks(picks, trackedPicks);
+          picks = antiFlip.picks;
+          if (antiFlip.dropped > 0) {
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, antiFlip.note);
+            if (gameSimNote && !gameSimNote.includes(antiFlip.note)) {
+              gameSimNote = appendUniqueNote(gameSimNote, antiFlip.note);
+            } else if (!gameSimNote) {
+              gameSimNote = antiFlip.note;
+            }
           }
         }
         picks = picksWithSimPending(picks);

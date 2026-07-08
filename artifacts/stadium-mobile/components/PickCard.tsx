@@ -19,7 +19,8 @@ import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
-import { gameLineLegBucket } from "@/lib/gameSimScoring";
+import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
+import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -1542,6 +1543,7 @@ export function parsePicks(
   // different players' props on the same game legitimately share a family
   // (marketFamily lumps player + game totals together), so they must not collide.
   const gameLevelSeen = new Set<string>();
+  const propSideByIdentity = new Map<string, string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -1669,6 +1671,16 @@ export function parsePicks(
 
     if (!resolved) continue; // selection/price not in any real pool -> drop
 
+    if (isPropSelection) {
+      const id = propIdentityKey({ ...resolved, isProp: true });
+      const side = propCommitSide(resolved);
+      if (id && side) {
+        const prev = propSideByIdentity.get(id);
+        if (prev && prev !== side) continue;
+        propSideByIdentity.set(id, side);
+      }
+    }
+
     // Attach the game's real scheduled start (ESPN) so the card can show its
     // date/time. Matched by BOTH team nicknames + sport (see gameStartFromMeta)
     // — NOT sameGame()'s token overlap, which over-matches multi-word city names.
@@ -1681,13 +1693,13 @@ export function parsePicks(
     if (em) resolved.edge = em[1].trim();
 
     // Canonical, real fields only (real odds, real market, real selection).
-    const id = `${resolved.game}|${resolved.market}|${resolved.pick}`.toLowerCase();
-    if (out.some((p) => `${p.game}|${p.market}|${p.pick}`.toLowerCase() === id)) continue;
+    const legId = normalizedGamePickKey(resolved.game, resolved.market, resolved.pick);
+    if (out.some((p) => normalizedGamePickKey(p.game, p.market, p.pick) === legId)) continue;
 
     // Game-level anti-correlation: only ONE moneyline/spread/total side per game.
     // (Props are excluded — different players can share a family on one game.)
     if (!isPropSelection) {
-      const famKey = `${norm(resolved.game)}|${marketFamily(resolved.market)}`;
+      const famKey = `${canonicalGameKey(resolved.game)}|${marketFamily(resolved.market)}`;
       if (gameLevelSeen.has(famKey)) continue; // contradictory second side -> drop
       gameLevelSeen.add(famKey);
     }

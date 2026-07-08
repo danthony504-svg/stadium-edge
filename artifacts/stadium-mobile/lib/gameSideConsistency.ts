@@ -4,8 +4,10 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { MatchupHistoryEntry } from "./api.ts";
 import {
+  gameLabelsMatch,
   gameSimHasValidRun,
   isGameLinePick,
+  lookupGameSim,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 
@@ -60,18 +62,45 @@ export function simFavoredTeamSide(
   return sim!.homeWinProbability > sim!.awayWinProbability ? "home" : "away";
 }
 
+function lookupMatchupHistory(
+  game: string,
+  matchupHistory?: Record<string, MatchupHistoryEntry>,
+): MatchupHistoryEntry | undefined {
+  if (!matchupHistory) return undefined;
+  const direct = matchupHistory[game];
+  if (direct) return direct;
+  for (const [label, entry] of Object.entries(matchupHistory)) {
+    if (gameLabelsMatch(label, game)) return entry;
+  }
+  return undefined;
+}
+
 function leanSideForGame(
   game: string,
   away: string,
   home: string,
   matchupHistory?: Record<string, MatchupHistoryEntry>,
 ): "home" | "away" | null {
-  const entry = matchupHistory?.[game];
+  const entry = lookupMatchupHistory(game, matchupHistory);
   const lean = entry?.mlLean?.side;
   if (!lean) return null;
   if (teamsMatch(home, lean)) return "home";
   if (teamsMatch(away, lean)) return "away";
   return null;
+}
+
+/** Group ML/spread legs by matchup — pick and sim labels may differ by nickname. */
+function groupMlSpreadLegsByGame(picks: ParsedPick[]): Map<string, ParsedPick[]> {
+  const groups: { game: string; legs: ParsedPick[] }[] = [];
+  for (const p of picks) {
+    if (!isMlOrSpreadPick(p)) continue;
+    const existing = groups.find((g) => gameLabelsMatch(g.game, p.game));
+    if (existing) existing.legs.push(p);
+    else groups.push({ game: p.game, legs: [p] });
+  }
+  const byGame = new Map<string, ParsedPick[]>();
+  for (const { game, legs } of groups) byGame.set(game, legs);
+  return byGame;
 }
 
 function pickTeamName(pick: ParsedPick): string | null {
@@ -114,13 +143,7 @@ export function enforceConsistentGameSides(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
   } = {},
 ): GameSideConsistencyResult {
-  const byGame = new Map<string, ParsedPick[]>();
-  for (const p of picks) {
-    if (!isMlOrSpreadPick(p)) continue;
-    const arr = byGame.get(p.game) ?? [];
-    arr.push(p);
-    byGame.set(p.game, arr);
-  }
+  const byGame = groupMlSpreadLegsByGame(picks);
 
   const dropKeys = new Set<string>();
   let dropped = 0;
@@ -132,7 +155,7 @@ export function enforceConsistentGameSides(
     );
     if (sides.size <= 1) continue;
 
-    const sim = opts.simByGame?.get(game);
+    const sim = lookupGameSim(game, opts.simByGame);
     let keep: "home" | "away" | null = simFavoredTeamSide(sim);
     if (!keep) keep = leanSideForGame(game, away, home, opts.matchupHistory);
     if (!keep) {

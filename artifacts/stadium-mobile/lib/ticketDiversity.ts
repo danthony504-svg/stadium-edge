@@ -8,7 +8,11 @@ import {
 } from "../components/PickCard.tsx";
 import type { GameMeta, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
-import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
+import { gameLineLegBucket, isGameLinePick, normalizedGamePickKey } from "./gameSimScoring.ts";
+import {
+  enforceConsistentGameSides,
+  type GameSideConsistencyResult,
+} from "./gameSideConsistency.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -16,6 +20,10 @@ const norm = (s: string) =>
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+function pickRank(p: ParsedPick): number {
+  return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
+}
 
 function countDuplicateTeamLegs(picks: ParsedPick[]): number {
   const seen = new Set<string>();
@@ -34,7 +42,7 @@ export function dedupeSameTeamGameLegs(picks: ParsedPick[]): {
   picks: ParsedPick[];
   dropped: number;
 } {
-  const seen = new Set<string>();
+  const bucketIndex = new Map<string, number>();
   const out: ParsedPick[] = [];
   let dropped = 0;
   for (const p of picks) {
@@ -43,14 +51,64 @@ export function dedupeSameTeamGameLegs(picks: ParsedPick[]): {
       continue;
     }
     const bucket = gameLineLegBucket(p.game, p.market, p.pick);
-    if (seen.has(bucket)) {
-      dropped += 1;
+    const idx = bucketIndex.get(bucket);
+    if (idx == null) {
+      bucketIndex.set(bucket, out.length);
+      out.push(p);
       continue;
     }
-    seen.add(bucket);
-    out.push(p);
+    dropped += 1;
+    if (pickRank(p) > pickRank(out[idx]!)) out[idx] = p;
   }
   return { picks: out, dropped };
+}
+
+/** Drop repeated spread/ML/total legs that only differ by game label or odds. */
+export function dedupeExactGameLineLegs(picks: ParsedPick[]): {
+  picks: ParsedPick[];
+  dropped: number;
+} {
+  const legIndex = new Map<string, number>();
+  const out: ParsedPick[] = [];
+  let dropped = 0;
+  for (const p of picks) {
+    if (!isGameLinePick(p) || p.isProp) {
+      out.push(p);
+      continue;
+    }
+    const key = normalizedGamePickKey(p.game, p.market, p.pick);
+    const idx = legIndex.get(key);
+    if (idx == null) {
+      legIndex.set(key, out.length);
+      out.push(p);
+      continue;
+    }
+    dropped += 1;
+    if (pickRank(p) > pickRank(out[idx]!)) out[idx] = p;
+  }
+  return { picks: out, dropped };
+}
+
+/** Team-bucket + exact-leg + one-side-per-game dedupe — run before rendering Coach cards. */
+export function dedupeCoachGameLinePicks(
+  picks: ParsedPick[],
+  opts: {
+    simByGame?: Map<string, import("./gameSimScoring.ts").CoachGameSimEntry>;
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+  } = {},
+): {
+  picks: ParsedPick[];
+  dropped: number;
+  sideNote: string;
+} {
+  const team = dedupeSameTeamGameLegs(picks);
+  const exact = dedupeExactGameLineLegs(team.picks);
+  const sides: GameSideConsistencyResult = enforceConsistentGameSides(exact.picks, opts);
+  return {
+    picks: sides.picks,
+    dropped: team.dropped + exact.dropped + sides.dropped,
+    sideNote: sides.note,
+  };
 }
 
 /** Trim excess game legs so deep parlays leave room for props + alt rungs. */

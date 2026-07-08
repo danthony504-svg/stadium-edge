@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dedupeSameTeamGameLegs,
+  dedupeExactGameLineLegs,
   rotatePool,
   prepareDeepParlaySeed,
   needsParlayBackfill,
@@ -29,6 +30,51 @@ test("dedupeSameTeamGameLegs matches nickname vs full team name", () => {
     { game: "Mets @ Braves", market: "Spread", pick: "Braves +1.5", odds: -175, isProp: false },
   ];
   const { picks: out, dropped } = dedupeSameTeamGameLegs(picks);
+  assert.equal(dropped, 1);
+  assert.equal(out.length, 1);
+});
+
+test("dedupeSameTeamGameLegs collapses fuzzy game labels on same team", () => {
+  const picks = [
+    {
+      game: "Braves @ Pirates",
+      market: "Alt Spread",
+      pick: "Pirates +1",
+      odds: 155,
+      isProp: false,
+    },
+    {
+      game: "Atlanta Braves @ Pittsburgh Pirates",
+      market: "Alt Spread",
+      pick: "Pittsburgh Pirates +1",
+      odds: -165,
+      isProp: false,
+    },
+  ];
+  const { picks: out, dropped } = dedupeSameTeamGameLegs(picks);
+  assert.equal(dropped, 1);
+  assert.equal(out.length, 1);
+  assert.match(out[0]!.pick, /Pirates/i);
+});
+
+test("dedupeExactGameLineLegs drops same spread with different game labels", () => {
+  const picks = [
+    {
+      game: "Braves @ Pirates",
+      market: "Alt Spread",
+      pick: "Pirates +1",
+      odds: 155,
+      isProp: false,
+    },
+    {
+      game: "Atlanta Braves @ Pittsburgh Pirates",
+      market: "Spread",
+      pick: "Pittsburgh Pirates +1",
+      odds: -165,
+      isProp: false,
+    },
+  ];
+  const { picks: out, dropped } = dedupeExactGameLineLegs(picks);
   assert.equal(dropped, 1);
   assert.equal(out.length, 1);
 });
