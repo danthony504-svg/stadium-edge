@@ -25,6 +25,7 @@ import {
   swapNearMissPick,
   type NearMissLadderOpts,
 } from "./coachNearMissLadder.ts";
+import { rejectFromSimDrop } from "./parlayReach.ts";
 import { attachPickScores } from "./pickScoreContext.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
@@ -447,7 +448,11 @@ export { gamePickCoverQueryId, isGameLinePick };
 export function filterCoachPicksWithPropSim(
   picks: ParsedPick[],
   propSims: Map<string, { hitProbability: number | null }>,
-  opts: { minLegs?: number; nearMissLadder?: NearMissLadderOpts } = {},
+  opts: {
+    minLegs?: number;
+    nearMissLadder?: NearMissLadderOpts;
+    rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[];
+  } = {},
 ): GameSimFilterResult {
   const minLegs = opts.minLegs ?? 0;
   const kept: ParsedPick[] = [];
@@ -501,6 +506,7 @@ export function filterCoachPicksWithPropSim(
       warnings.push(
         `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
       );
+      opts.rejectsOut?.push(rejectFromSimDrop(p, hit, edge));
       dropped.push(p);
       continue;
     }

@@ -17,6 +17,9 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { attachPickScores } from "./pickScoreContext.ts";
+import { propSimKey } from "./propSelection.ts";
+import { pickLegFingerprint, type ParlayLegReject } from "./parlayReachCore.ts";
 
 /** How close a leg must be to the bar before we search alternates. */
 export const NEAR_MISS_MARGIN_PCT = 3;
@@ -316,10 +319,9 @@ export function swapNearMissPick(
     if (!pool.length) return { pick: null, note: "" };
     const candidates = ladderPropCandidates(failed, pool);
     for (const row of candidates) {
-      const candidate = parsedPickFromPoolEntry(row);
+      let candidate = parsedPickFromPoolEntry(row);
       const hit = propHitForPick(candidate, opts.propSimulations);
-      const scored = attachPickScores([candidate], scoreOpts(opts))[0]!;
-      candidate = scored;
+      candidate = attachPickScores([candidate], scoreOpts(opts))[0] ?? candidate;
       if (passesCoachPropQualityGate(candidate, hit ?? null)) {
         return {
           pick: candidate,
@@ -416,4 +418,135 @@ export function applyNearMissLadderToPicks(
   }
 
   return { picks: out, note: notes.filter(Boolean).join("\n\n") };
+}
+
+import { alignPropPickGames } from "./propGameAlign.ts";
+  ticket: ParsedPick[],
+  limit: number,
+  opts: NearMissLadderOpts,
+): ParsedPick[] {
+  const pool = opts.propPool ?? [];
+  if (!pool.length || limit <= 0) return [];
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const seenPlayers = new Set(
+    ticket.filter((p) => p.isProp && p.player).map((p) => norm(p.player!)),
+  );
+  const out: ParsedPick[] = [];
+  const stubs: ParsedPick[] = [];
+  for (const e of pool) {
+    if (seenPlayers.has(norm(e.player))) continue;
+    const stub = parsedPickFromPoolEntry(e);
+    const fp = pickLegFingerprint(stub);
+    if (onTicket.has(fp)) continue;
+    stubs.push(stub);
+  }
+  const scored = attachPickScores(stubs, scoreOpts(opts));
+  const ranked = scored
+    .map((pick) => ({
+      pick,
+      hit: propHitForPick(pick, opts.propSimulations),
+      edge: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? 0,
+    }))
+    .filter(({ pick, hit }) => passesCoachPropQualityGate(pick, hit ?? null))
+    .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0));
+  for (const row of ranked) {
+    const fp = pickLegFingerprint(row.pick);
+    if (onTicket.has(fp)) continue;
+    onTicket.add(fp);
+    seenPlayers.add(norm(row.pick.player ?? ""));
+    out.push(row.pick);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Promote near-miss rejects and qualifying prop-board alternates onto the main
+ * ticket (not backup cards) until the requested leg count or candidates run out.
+ */
+export function fillTicketFromNearMissLadder(
+  picks: ParsedPick[],
+  rejects: ParlayLegReject[],
+  target: number,
+  opts: NearMissLadderOpts,
+): {
+  picks: ParsedPick[];
+  note: string;
+  filled: number;
+  remainingRejects: ParlayLegReject[];
+} {
+  if (picks.length >= target) {
+    return { picks, note: "", filled: 0, remainingRejects: rejects };
+  }
+
+  const onTicket = new Set(picks.map(pickLegFingerprint));
+  const notes: string[] = [];
+  const out = [...picks];
+  const remaining: ParlayLegReject[] = [];
+  const sorted = [...rejects].sort((a, b) => b.nearScore - a.nearScore);
+
+  for (const reject of sorted) {
+    if (out.length >= target) {
+      remaining.push(reject);
+      continue;
+    }
+    const rejectFp = pickLegFingerprint(reject.pick);
+    if (onTicket.has(rejectFp)) {
+      remaining.push(reject);
+      continue;
+    }
+
+    const sim = lookupSim(reject.pick.game, opts.gameSimulations);
+    const hit = propHitForPick(reject.pick, opts.propSimulations);
+    const scored = attachPickScores([reject.pick], scoreOpts(opts))[0] ?? reject.pick;
+    let promoted: ParsedPick | null = null;
+
+    if (reject.pick.isProp) {
+      if (passesCoachPropQualityGate(scored, hit ?? null)) promoted = scored;
+    } else if (isGameLinePick(reject.pick)) {
+      if (
+        passesCoachSimQualityGate(scored, sim, {
+          finalAi: scored.finalAiScore,
+          odds: scored.odds,
+        })
+      ) {
+        promoted = scored;
+      }
+    }
+
+    if (!promoted && isNearMissQualityFailure(scored, sim, hit ?? null)) {
+      const swapped = swapNearMissPick(scored, opts);
+      if (swapped.pick) {
+        promoted = swapped.pick;
+        if (swapped.note) notes.push(swapped.note);
+      }
+    }
+
+    if (promoted) {
+      const pfp = pickLegFingerprint(promoted);
+      if (!onTicket.has(pfp)) {
+        out.push(promoted);
+        onTicket.add(pfp);
+        continue;
+      }
+    }
+    remaining.push(reject);
+  }
+
+  if (out.length < target) {
+    const fromPool = promotableFromPool(out, target - out.length, opts);
+    for (const p of fromPool) {
+      out.push(p);
+      notes.push(
+        `_Added **${p.pick}** from the live prop board — a posted line cleared the 10k sim and Final AI gates._`,
+      );
+    }
+  }
+
+  return {
+    picks: out,
+    note: notes.filter(Boolean).join("\n\n"),
+    filled: out.length - picks.length,
+    remainingRejects: remaining,
+  };
 }

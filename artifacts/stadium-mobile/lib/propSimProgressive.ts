@@ -21,6 +21,7 @@ export type PropSimAttachOpts = {
   /** Never drop below this many cards after sim scoring (restores as high-risk). */
   minLegs?: number;
   nearMissLadder?: import("@/lib/coachNearMissLadder").NearMissLadderOpts;
+  rejectsOut?: import("@/lib/parlayReachCore").ParlayLegReject[];
 };
 
 function simMapFromResults(
@@ -48,6 +49,7 @@ function scorePicksWithSim(
   const filtered = filterCoachPicksWithPropSim(scored, sims, {
     minLegs: opts.minLegs,
     nearMissLadder: opts.nearMissLadder,
+    rejectsOut: opts.rejectsOut,
   });
   return filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,

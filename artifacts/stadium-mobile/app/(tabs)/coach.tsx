@@ -67,7 +67,8 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { applyNearMissLadderToPicks } from "@/lib/coachNearMissLadder";
+import { applyNearMissLadderToPicks, fillTicketFromNearMissLadder } from "@/lib/coachNearMissLadder";
+import { alignPropPickGames } from "@/lib/propGameAlign";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
@@ -2477,9 +2478,9 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
-        if (!isAnalyze && !salvageBuilt) {
+        if (!isAnalyze) {
           const ladderApplied = applyNearMissLadderToPicks(picks, {
-            evalLinesByGame: coachEvalLinesByGame,
+            evalLinesByGame: coachEvalLinesByGame ?? undefined,
             realOdds: mergedGameOdds,
             propPool: mergedPropPool,
             propSimulations,
@@ -2649,6 +2650,7 @@ export default function CoachScreen() {
             }
           }
         }
+        picks = alignPropPickGames(picks, mergedPropPool);
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -2670,8 +2672,53 @@ export default function CoachScreen() {
               })
             : [];
           const mergedRejects = mergeParlayRejects(parlayRejections, nearMisses);
+          const ladderFill = fillTicketFromNearMissLadder(
+            picks,
+            mergedRejects,
+            requestedLegs,
+            {
+              evalLinesByGame: coachEvalLinesByGame ?? undefined,
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              propSimulations,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              gameMeta,
+            },
+          );
+          if (ladderFill.filled > 0) {
+            picks = attachPickScores(ladderFill.picks, {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            });
+            picks = alignPropPickGames(picks, mergedPropPool);
+            if (picks.some(isGameLinePick)) {
+              picks = dedupeCoachGameLinePicks(picks, {
+                simByGame: gameSimulations,
+                matchupHistory: context.matchupHistory,
+              }).picks;
+            }
+            if (picks.some((p) => p.isProp)) {
+              picks = enforceConsistentPropSides(picks).picks;
+            }
+            if (ladderFill.note) {
+              gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, ladderFill.note);
+            }
+          } else {
+            picks = ladderFill.picks;
+          }
           const backupTarget = Math.min(4, requestedLegs - picks.length);
-          backupPicks = selectParlayBackupPicks(picks, mergedRejects, backupTarget);
+          backupPicks = selectParlayBackupPicks(
+            picks,
+            ladderFill.remainingRejects,
+            backupTarget,
+          );
           if (backupPicks.length > 0) {
             backupPicks = attachPickScores(backupPicks, {
               realOdds: mergedGameOdds,
@@ -2685,7 +2732,7 @@ export default function CoachScreen() {
             backupNote = buildParlayShortfallNote(
               requestedLegs,
               picks.length,
-              mergedRejects,
+              ladderFill.remainingRejects,
               backupPicks.length,
               oddsPhrase,
             );
@@ -2807,7 +2854,7 @@ export default function CoachScreen() {
             perfByFamily: marketPerf,
             minLegs: requestedLegs > 0 ? requestedLegs : undefined,
             nearMissLadder: {
-              evalLinesByGame: coachEvalLinesByGame,
+              evalLinesByGame: coachEvalLinesByGame ?? undefined,
               realOdds: mergedGameOdds,
               propPool: mergedPropPool,
               propSimulations,
@@ -2816,6 +2863,7 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               gameMeta,
             },
+            rejectsOut: reachFull ? parlayRejections : undefined,
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(
