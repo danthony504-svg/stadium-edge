@@ -47,8 +47,11 @@ const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
     sport: "nba",
     re: /\b(rebounds?|reb|assists?|ast|threes|3pm|3-?pointers?|steals?|stl|blocks?|blk)\b/i,
   },
-  { sport: "nhl", re: /\b(shots on goal|sog|goals?|saves?)\b/i },
-  { sport: "soccer", re: /\b(scorers?|goalkeepers?|keepers?|shots on target|sot|goal scorer|anytime goal|first goal)\b/i },
+  {
+    sport: "soccer",
+    re: /\b(scorers?|goalkeepers?|keepers?|shots on target|sot|goal scorer|anytime goal|first goal|clean sheets?)\b/i,
+  },
+  { sport: "nhl", re: /\b(shots on goal|sog|saves?)\b/i },
 ];
 
 /** Infer a single sport for a prop-pick ask from named leagues or market words. */
@@ -56,6 +59,13 @@ export function inferPropPickSport(text: string | null | undefined): string {
   const t = String(text || "");
   const focal = focalSportsFromText(t);
   if (focal.size === 1) return [...focal][0]!;
+  // Soccer scorer/keeper matchup asks must not lose to a bare "goals" token (NHL).
+  if (
+    /\b(?:best|top)\s+(?:goal\s+)?scorers?\b/.test(t.toLowerCase()) &&
+    /\b(?:goalkeepers?|keepers?|goalies?)\b/.test(t.toLowerCase())
+  ) {
+    return "soccer";
+  }
   for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
     if (re.test(t)) return sport;
   }

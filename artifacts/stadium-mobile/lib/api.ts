@@ -2993,7 +2993,9 @@ export async function buildPropPickContext(
   focalText: string,
   signal?: AbortSignal,
 ): Promise<BuiltChatContext> {
-  const sport = inferPropPickSport(focalText);
+  const sport = wantsSoccerScorerGoalkeeperPicks(focalText)
+    ? "soccer"
+    : inferPropPickSport(focalText);
   const soccerScorerGk = sport === "soccer" && wantsSoccerScorerGoalkeeperPicks(focalText);
   const tonightOnly =
     !soccerScorerGk && (wantsTodayOnly(focalText) || wantsTonightSlate(focalText));

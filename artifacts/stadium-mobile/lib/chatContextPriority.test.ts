@@ -255,3 +255,9 @@ test("inferPropPickSport: HR ask defaults to mlb; named teams stay mlb", () => {
   assert.equal(inferPropPickSport("top anytime TD plays for Chiefs"), "nfl");
   assert.equal(inferPropPickSport("best NBA rebounds tonight"), "nba");
 });
+
+test("inferPropPickSport: scorer vs goalkeeper ask stays soccer despite goals token", () => {
+  const q =
+    "Show me the best scorers facing the worst goalkeepers today. Include goals, shots on target, xG, keeper save %, goals allowed, clean sheet rate, confidence, and edge.";
+  assert.equal(inferPropPickSport(q), "soccer");
+});
