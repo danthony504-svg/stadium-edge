@@ -2752,7 +2752,7 @@ export default function CoachScreen() {
             nearMisses,
             propNearMisses,
           );
-          for (let pass = 0; pass < 2 && picks.length < requestedLegs; pass++) {
+          for (let pass = 0; pass < 4 && picks.length < requestedLegs; pass++) {
             const before = picks.length;
             const ladderFill = fillTicketFromNearMissLadder(
               picks,

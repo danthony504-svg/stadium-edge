@@ -41,6 +41,29 @@ test("propHasGroundedGameLog accepts props with enough SB games in log", () => {
   assert.equal(propHasGroundedGameLog(jarvisPick, history), true);
 });
 
+test("propHasGroundedGameLog rejects stolen bases with only zero SB games", () => {
+  const ewingPick: ParsedPick = {
+    ...jarvisPick,
+    player: "A.J. Ewing",
+    athleteId: "ewing",
+    pick: "A.J. Ewing Over 0.5 Stolen Bases",
+    odds: 750,
+  };
+  const history: Record<string, PlayerHistorySlice> = {
+    "A.J. Ewing#ewing": {
+      player: "A.J. Ewing",
+      recent: [
+        { stats: { SB: "0" } },
+        { stats: { SB: "0" } },
+        { stats: { SB: "0" } },
+        { stats: { SB: "0" } },
+        { stats: { SB: "0" } },
+      ],
+    },
+  };
+  assert.equal(propHasGroundedGameLog(ewingPick, history), false);
+});
+
 test("dropUngroundedPropPicks keeps game lines and drops thin props", () => {
   const ml: ParsedPick = {
     game: "A @ B",

@@ -507,6 +507,18 @@ export function fillTicketFromNearMissLadder(
     notes.push(...fromPool.notes);
   }
 
+  if (out.length < target) {
+    const fromBoard = promotableGameLinesFromBoard(out, target - out.length, opts);
+    for (const p of fromBoard.picks) {
+      const fp = pickLegFingerprint(p);
+      if (!onTicket.has(fp) && canAddToTicket(out, p, opts.maxPerGame)) {
+        out.push(p);
+        onTicket.add(fp);
+      }
+    }
+    notes.push(...fromBoard.notes);
+  }
+
   return {
     picks: out,
     note: notes.filter(Boolean).join("\n\n"),
@@ -748,14 +760,22 @@ export function collectNearMissPropRejects(
 
     const scored = attachPickScores([stub], scoreOpts(opts))[0] ?? stub;
     const hit = propHitForPick(scored, opts.propSimulations);
-    if (passesFillQualityGate(scored, null, hit ?? null)) continue;
-    if (!isNearMissQualityFailure(scored, null, hit ?? null)) continue;
+    if (passesReachFillGate(scored, null, hit ?? null)) continue;
 
-    const edge = pickEdgePct(scored) ?? 0;
+    const swapped = swapNearMissPick(scored, opts);
+    const candidate = swapped.pick ?? scored;
+    const candHit = propHitForPick(candidate, opts.propSimulations);
+    if (!passesReachFillGate(candidate, null, candHit ?? null)) continue;
+
+    const edge = pickEdgePct(candidate) ?? 0;
+    const value =
+      alternateOverallValueScore(candidate, null, candHit ?? null) ?? edge;
     rejects.push({
-      pick: scored,
-      reason: `Prop near-miss — ${hit != null ? `${Math.round(hit * 100)}% sim` : "sim pending"}`,
-      nearScore: (hit ?? 0) * 50 + Math.max(0, edge) * 3,
+      pick: candidate,
+      reason: swapped.pick
+        ? `Prop alternate — ${swapped.note ? "ladder swap" : "near-miss"}`
+        : `Prop near-miss — ${candHit != null ? `${Math.round(candHit * 100)}% sim` : "sim pending"}`,
+      nearScore: value,
     });
   }
 
@@ -763,6 +783,86 @@ export function collectNearMissPropRejects(
 }
 
 const PROMOTABLE_POOL_SCAN_CAP = 150;
+const PROMOTABLE_GAME_SCAN_CAP = 400;
+
+function parsedPickFromOddsEntry(entry: RealOddsEntry, fallback?: ParsedPick): ParsedPick {
+  return {
+    game: entry.game,
+    market: entry.market,
+    pick: entry.pick,
+    odds: entry.odds,
+    sport: entry.sport ?? fallback?.sport,
+    isProp: false,
+    startsAt: entry.startsAt ?? fallback?.startsAt ?? null,
+  };
+}
+
+/** Walk every posted game line on the board and promote best-value qualifying rungs. */
+function promotableGameLinesFromBoard(
+  ticket: ParsedPick[],
+  limit: number,
+  opts: NearMissLadderOpts,
+): { picks: ParsedPick[]; notes: string[] } {
+  const evalMap = opts.evalLinesByGame;
+  if (!evalMap || limit <= 0) return { picks: [], notes: [] };
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const stubs: ParsedPick[] = [];
+  const seen = new Set<string>();
+
+  for (const lines of evalMap.values()) {
+    if (stubs.length >= PROMOTABLE_GAME_SCAN_CAP) break;
+    for (const entry of lines) {
+      if (!isTeamSidedEntry(entry) && !isGameTotalEntry(entry)) continue;
+      const stub = parsedPickFromOddsEntry(entry);
+      const fp = pickLegFingerprint(stub);
+      if (onTicket.has(fp) || seen.has(fp)) continue;
+      seen.add(fp);
+      stubs.push(stub);
+    }
+  }
+
+  const scored = attachPickScores(stubs, scoreOpts(opts));
+  const ranked = scored
+    .map((pick) => {
+      const sim = lookupSim(pick.game, opts.gameSimulations);
+      return {
+        pick,
+        sim,
+        value:
+          alternateOverallValueScore(pick, sim, null) ?? -999,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
+  const out: ParsedPick[] = [];
+  const notes: string[] = [];
+
+  for (const row of ranked) {
+    if (out.length >= limit) break;
+    let candidate = row.pick;
+    const sim = row.sim;
+
+    if (!passesReachFillGate(candidate, sim, null)) {
+      const swapped = swapNearMissPick(candidate, opts);
+      if (swapped.pick) {
+        candidate = swapped.pick;
+        if (swapped.note) notes.push(swapped.note);
+      }
+    }
+
+    const altSim = lookupSim(candidate.game, opts.gameSimulations);
+    if (!passesReachFillGate(candidate, altSim, null)) continue;
+    const fp = pickLegFingerprint(candidate);
+    if (onTicket.has(fp) || !canAddToTicket(out, candidate, opts.maxPerGame)) continue;
+    onTicket.add(fp);
+    out.push(candidate);
+    notes.push(
+      `_Added **${candidate.pick}** from the live game-line board — best overall value among posted alternates (${formatAlternateValueNote(candidate, altSim, null)})._`,
+    );
+  }
+
+  return { picks: out, notes };
+}
 
 function promotableFromPoolWithLadder(
   ticket: ParsedPick[],
@@ -793,9 +893,11 @@ function promotableFromPoolWithLadder(
     .map((pick) => ({
       pick,
       hit: propHitForPick(pick, opts.propSimulations),
-      edge: pickEdgePct(pick) ?? 0,
+      value:
+        alternateOverallValueScore(pick, null, propHitForPick(pick, opts.propSimulations) ?? null) ??
+        -999,
     }))
-    .sort((a, b) => b.edge - a.edge);
+    .sort((a, b) => b.value - a.value);
 
   for (const row of ranked) {
     if (out.length >= limit) break;
