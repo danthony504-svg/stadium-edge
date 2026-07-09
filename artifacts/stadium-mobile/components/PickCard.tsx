@@ -21,6 +21,7 @@ import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayV
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
+import { propPoolEntryHasGroundedHistory } from "@/lib/propHistoryGate";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
@@ -2035,6 +2036,20 @@ export function backfillProps(
         propPool: opts.selectionOpts.propPool.length ? opts.selectionOpts.propPool : propPool,
       })
     : [...byKey.values()];
+  if (opts.selectionOpts?.playerHistory) {
+    const ph = opts.selectionOpts.playerHistory;
+    candidates = candidates.filter((e) =>
+      propPoolEntryHasGroundedHistory(
+        {
+          player: e.player,
+          athleteId: e.athleteId,
+          marketKey: e.marketKey,
+          marketLabel: e.marketLabel,
+        },
+        ph,
+      ),
+    );
+  }
   if (avoidLegKeys?.size) {
     candidates = deprioritizePropPoolEntries(candidates, avoidLegKeys);
   }

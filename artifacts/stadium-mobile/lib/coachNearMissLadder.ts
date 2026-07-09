@@ -1,6 +1,6 @@
-// When a Coach leg barely misses the quality bar, walk the real alternate ladder
-// (props: other posted lines; game lines: spread/ML/total rungs) and swap in the
-// first rung that clears the same simulator + Final AI gates.
+// When a Coach leg fails the quality bar, walk every posted alternate ladder
+// (props: other lines; game lines: ML/spread/alt spread/total/alt total) and swap
+// in the qualifying rung with the best positive edge.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { sameGame } from "../components/PickCard.tsx";
@@ -10,6 +10,7 @@ import {
   COACH_SIM_MIN_CONFIDENCE,
   COACH_SIM_MIN_GRADE,
   passesCoachSimQualityGate,
+  simEvPct,
 } from "./gameSimQualityGates.ts";
 import { evalLinesForGame, gameLabelsMatch } from "./gameLineOptimizer.ts";
 import {
@@ -229,10 +230,34 @@ function marketRank(market: string): number {
   return 4;
 }
 
-function ladderGameLineCandidates(
+function ladderAllGameAlternates(
   pick: ParsedPick,
   lines: RealOddsEntry[],
 ): RealOddsEntry[] {
+  const pool = lines.filter(
+    (e) =>
+      gameLabelsMatch(e.game, pick.game) && (isTeamSidedEntry(e) || isGameTotalEntry(e)),
+  );
+  const seen = new Set<string>();
+  const out: RealOddsEntry[] = [];
+  const origKey = `${pick.market}|${pick.pick}`.toLowerCase();
+  for (const e of pool) {
+    const k = `${e.market}|${e.pick}`.toLowerCase();
+    if (k === origKey || seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  return out;
+}
+
+function ladderGameLineCandidates(
+  pick: ParsedPick,
+  lines: RealOddsEntry[],
+  opts?: { allGameMarkets?: boolean },
+): RealOddsEntry[] {
+  if (opts?.allGameMarkets) {
+    return ladderAllGameAlternates(pick, lines);
+  }
   const pool = lines.filter(
     (e) =>
       gameLabelsMatch(e.game, pick.game) && (isTeamSidedEntry(e) || isGameTotalEntry(e)),
@@ -318,64 +343,49 @@ function scoreOpts(opts: NearMissLadderOpts) {
   };
 }
 
-/** Search posted alternates and return the first qualifying replacement, if any. */
+function pickEvPct(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  propHit: number | null | undefined,
+): number | null {
+  const hit =
+    pick.isProp && propHit != null
+      ? propHit
+      : (pick.finalAiScore?.simHit ?? gameSimHitForPick(pick, sim ?? null));
+  const odds = pick.odds;
+  if (hit == null || odds == null || !Number.isFinite(odds)) return null;
+  return simEvPct(hit, odds);
+}
+
+/** Rank alternates: best positive edge first, then EV, confidence, grade. */
+function rankAlternate(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  propHit: number | null | undefined,
+): number {
+  const edge = pickEdgePct(pick) ?? -999;
+  const ev = pickEvPct(pick, sim, propHit) ?? -999;
+  const conf = pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? 0;
+  const grade = gradeRank(pick.finalAiScore?.grade);
+  return edge * 1e6 + ev * 1e3 + conf * 10 + grade;
+}
+
+/** Search posted alternates and return the best qualifying replacement, if any. */
 export function swapNearMissPick(
   failed: ParsedPick,
   opts: NearMissLadderOpts,
 ): NearMissSwapResult {
-  if (failed.isProp) {
-    const pool = opts.propPool ?? [];
-    if (!pool.length) return { pick: null, note: "" };
-    const candidates = ladderPropCandidates(failed, pool);
-    for (const row of candidates) {
-      let candidate = parsedPickFromPoolEntry(row);
-      const hit = propHitForPick(candidate, opts.propSimulations);
-      candidate = attachPickScores([candidate], scoreOpts(opts))[0] ?? candidate;
-      if (passesCoachPropQualityGate(candidate, hit ?? null)) {
-        return {
-          pick: candidate,
-          note: `_Swapped **${failed.pick}** for **${candidate.pick}** — the original line was within ${NEAR_MISS_MARGIN_PCT}% of the quality bar; this posted alternate cleared the 10k sim and Final AI gates._`,
-        };
-      }
-    }
-    return { pick: null, note: "" };
-  }
+  const sim = lookupSim(failed.game, opts.gameSimulations);
+  const alts = collectScoredAlternates(failed, opts, { allGameMarkets: true });
+  if (!alts.length) return { pick: null, note: "" };
 
-  if (!isGameLinePick(failed) || failed.isProp) return { pick: null, note: "" };
-  const evalMap = opts.evalLinesByGame;
-  if (!evalMap) return { pick: null, note: "" };
-  const lines = evalLinesForGame(failed.game, evalMap);
-  if (!lines.length) return { pick: null, note: "" };
-  const sim =
-    opts.gameSimulations?.get(failed.game) ??
-    [...(opts.gameSimulations ?? [])].find(([k]) => gameLabelsMatch(k, failed.game))?.[1];
-  if (!sim) return { pick: null, note: "" };
-
-  const candidates = ladderGameLineCandidates(failed, lines);
-  for (const entry of candidates) {
-    const stub: ParsedPick = {
-      game: entry.game,
-      market: entry.market,
-      pick: entry.pick,
-      odds: entry.odds,
-      sport: entry.sport ?? failed.sport,
-      isProp: false,
-      startsAt: entry.startsAt ?? failed.startsAt ?? null,
-    };
-    const scored = attachPickScores([stub], scoreOpts(opts))[0]!;
-    if (
-      passesCoachSimQualityGate(scored, sim, {
-        finalAi: scored.finalAiScore,
-        odds: scored.odds,
-      })
-    ) {
-      return {
-        pick: scored,
-        note: `_Swapped **${failed.pick}** for **${scored.pick}** — the original line was within ${NEAR_MISS_MARGIN_PCT}% of the quality bar; this posted alternate cleared the 10k sim and Final AI gates._`,
-      };
-    }
-  }
-  return { pick: null, note: "" };
+  const best = alts[0]!;
+  const altHit = propHitForPick(best, opts.propSimulations);
+  const altSim = best.isProp ? null : sim;
+  return {
+    pick: best,
+    note: `_Swapped **${failed.pick}** for **${best.pick}** — the original line failed quality filters; this posted alternate has the best positive edge (${pickEdgePct(best) ?? "—"}%) with ${best.finalAiScore?.grade ?? "—"} grade, ${best.finalAiScore?.confidencePct ?? "—"}% confidence${pickEvPct(best, altSim, altHit) != null ? `, ${pickEvPct(best, altSim, altHit)}% EV` : ""}._`,
+  };
 }
 
 function lookupSim(
@@ -392,8 +402,8 @@ function lookupSim(
 }
 
 /**
- * After picks are scored, try near-miss ladder swaps and drop legs that still
- * fail the quality bar with no qualifying alternate.
+ * After picks are scored, walk alternate ladders for every leg that fails the
+ * quality bar; drop legs only when no posted alternate clears the same gates.
  */
 export function applyNearMissLadderToPicks(
   picks: ParsedPick[],
@@ -415,7 +425,7 @@ export function applyNearMissLadderToPicks(
       });
     const fails = failsProp || failsGame;
 
-    if (fails && isNearMissQualityFailure(p, sim, hit ?? null)) {
+    if (fails) {
       const swapped = swapNearMissPick(p, opts);
       if (swapped.pick) {
         notes.push(swapped.note);
@@ -592,9 +602,8 @@ function qualifiesEdgeAlternate(
   sim: CoachGameSimEntry | null | undefined,
   propHit: number | null | undefined,
 ): boolean {
-  const legEdge = pickEdgePct(original);
-  const altEdge = pickEdgePct(alt);
-  if (altEdge != null && legEdge != null && altEdge > legEdge) return true;
+  const edge = pickEdgePct(alt);
+  if (edge == null || edge <= 0) return false;
   if (original.isProp) return passesCoachPropQualityGate(alt, propHit ?? null);
   if (!isGameLinePick(original)) return false;
   return passesCoachSimQualityGate(alt, sim, {
@@ -607,6 +616,7 @@ function qualifiesEdgeAlternate(
 function collectScoredAlternates(
   pick: ParsedPick,
   opts: NearMissLadderOpts,
+  ladderOpts?: { allGameMarkets?: boolean },
 ): ParsedPick[] {
   const sim = lookupSim(pick.game, opts.gameSimulations);
   const seen = new Set<string>();
@@ -634,7 +644,7 @@ function collectScoredAlternates(
       ? evalLinesForGame(pick.game, evalMap)
       : (opts.realOdds ?? []).filter((e) => gameLabelsMatch(e.game, pick.game));
     if (!lines.length || !sim) return out;
-    for (const entry of ladderGameLineCandidates(pick, lines)) {
+    for (const entry of ladderGameLineCandidates(pick, lines, ladderOpts)) {
       const stub: ParsedPick = {
         game: entry.game,
         market: entry.market,
@@ -649,7 +659,11 @@ function collectScoredAlternates(
     }
   }
 
-  return out.sort((a, b) => (pickEdgePct(b) ?? -999) - (pickEdgePct(a) ?? -999));
+  return out.sort((a, b) => {
+    const ra = rankAlternate(a, sim, propHitForPick(a, opts.propSimulations) ?? null);
+    const rb = rankAlternate(b, sim, propHitForPick(b, opts.propSimulations) ?? null);
+    return rb - ra;
+  });
 }
 
 export type TicketEdgeOptimizeResult = {

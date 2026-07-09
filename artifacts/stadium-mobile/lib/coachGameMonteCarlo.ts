@@ -21,7 +21,6 @@ import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import type { RealOddsEntry } from "./api.ts";
 import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
 import {
-  isNearMissQualityFailure,
   swapNearMissPick,
   type NearMissLadderOpts,
 } from "./coachNearMissLadder.ts";
@@ -379,10 +378,7 @@ export function filterCoachPicksWithGameSim(
               matchupInjuries: opts.nearMissLadder.matchupInjuries,
             })[0] ?? p
           : p;
-      if (
-        opts.nearMissLadder &&
-        isNearMissQualityFailure(scored, sim, null)
-      ) {
+      if (opts.nearMissLadder) {
         const swapped = swapNearMissPick(scored, {
           ...opts.nearMissLadder,
           gameSimulations: simByGame,
@@ -487,10 +483,7 @@ export function filterCoachPicksWithPropSim(
               gameSimulations: opts.nearMissLadder.gameSimulations,
             })[0] ?? p
           : p;
-      if (
-        opts.nearMissLadder &&
-        isNearMissQualityFailure(scored, null, hit)
-      ) {
+      if (opts.nearMissLadder) {
         const swapped = swapNearMissPick(scored, opts.nearMissLadder);
         if (swapped.pick) {
           kept.push({
