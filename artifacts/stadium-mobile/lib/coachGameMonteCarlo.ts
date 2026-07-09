@@ -20,6 +20,12 @@ import {
 import { gameLabelsMatch } from "./gameLineOptimizer.ts";
 import type { RealOddsEntry } from "./api.ts";
 import { passesCoachSimQualityGate } from "./gameSimQualityGates.ts";
+import {
+  swapNearMissPick,
+  type NearMissLadderOpts,
+} from "./coachNearMissLadder.ts";
+import { rejectFromSimDrop } from "./parlayReach.ts";
+import { attachPickScores } from "./pickScoreContext.ts";
 
 export type { CoachGameSimEntry, GameCoverQuery };
 
@@ -312,6 +318,7 @@ export function filterCoachPicksWithGameSim(
     /** Merged real + eval odds so optimized alt lines still have edge for high-risk checks. */
     oddsForEdge?: RealOddsEntry[];
     rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[];
+    nearMissLadder?: NearMissLadderOpts;
   } = {},
 ): GameSimFilterResult {
   const sideAligned = enforceConsistentGameSides(picks, {
@@ -319,6 +326,8 @@ export function filterCoachPicksWithGameSim(
     matchupHistory: opts.matchupHistory,
   });
   picks = sideAligned.picks;
+
+  const ladderNotes: string[] = [];
 
   const edgeForPick = (p: ParsedPick): number | null => {
     if (p.scores?.edgePct != null) return p.scores.edgePct;
@@ -359,6 +368,30 @@ export function filterCoachPicksWithGameSim(
         odds: p.odds,
       })
     ) {
+      const scored =
+        opts.nearMissLadder != null
+          ? attachPickScores([p], {
+              realOdds: opts.nearMissLadder.realOdds ?? opts.oddsForEdge ?? [],
+              propPool: opts.nearMissLadder.propPool ?? [],
+              gameSimulations: simByGame,
+              matchupHistory: opts.nearMissLadder.matchupHistory,
+              matchupInjuries: opts.nearMissLadder.matchupInjuries,
+            })[0] ?? p
+          : p;
+      if (opts.nearMissLadder) {
+        const swapped = swapNearMissPick(scored, {
+          ...opts.nearMissLadder,
+          gameSimulations: simByGame,
+        });
+        if (swapped.pick) {
+          kept.push({
+            ...swapped.pick,
+            highRiskValuePlay: highRiskValuePlay || undefined,
+          });
+          if (swapped.note) ladderNotes.push(swapped.note);
+          continue;
+        }
+      }
       coverRemoved += 1;
       const pct = hit != null ? Math.round(hit * 100) : 0;
       const grade = p.finalAiScore?.grade ?? "—";
@@ -384,6 +417,7 @@ export function filterCoachPicksWithGameSim(
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
   if (sideAligned.note) noteParts.push(sideAligned.note);
+  if (ladderNotes.length) noteParts.push(ladderNotes.join("\n\n"));
   if (coverRemoved > 0) {
     noteParts.push(
       `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that failed the four-question sim check (win, cover, cover rate, or price vs the 10,000-run draw)._`,
@@ -410,12 +444,17 @@ export { gamePickCoverQueryId, isGameLinePick };
 export function filterCoachPicksWithPropSim(
   picks: ParsedPick[],
   propSims: Map<string, { hitProbability: number | null }>,
-  opts: { minLegs?: number } = {},
+  opts: {
+    minLegs?: number;
+    nearMissLadder?: NearMissLadderOpts;
+    rejectsOut?: import("./parlayReachCore.ts").ParlayLegReject[];
+  } = {},
 ): GameSimFilterResult {
   const minLegs = opts.minLegs ?? 0;
   const kept: ParsedPick[] = [];
   const dropped: ParsedPick[] = [];
   const warnings: string[] = [];
+  const ladderNotes: string[] = [];
   let removed = 0;
 
   for (const p of picks) {
@@ -433,11 +472,34 @@ export function filterCoachPicksWithPropSim(
     const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
 
     if (hit != null && !simAligned && !highRiskValuePlay) {
+      const scored =
+        opts.nearMissLadder != null
+          ? attachPickScores([p], {
+              realOdds: opts.nearMissLadder.realOdds ?? [],
+              propPool: opts.nearMissLadder.propPool ?? [],
+              propSimulations: opts.nearMissLadder.propSimulations,
+              matchupHistory: opts.nearMissLadder.matchupHistory,
+              matchupInjuries: opts.nearMissLadder.matchupInjuries,
+              gameSimulations: opts.nearMissLadder.gameSimulations,
+            })[0] ?? p
+          : p;
+      if (opts.nearMissLadder) {
+        const swapped = swapNearMissPick(scored, opts.nearMissLadder);
+        if (swapped.pick) {
+          kept.push({
+            ...swapped.pick,
+            highRiskValuePlay: swapped.pick.highRiskValuePlay,
+          });
+          if (swapped.note) ladderNotes.push(swapped.note);
+          continue;
+        }
+      }
       removed += 1;
       const pct = Math.round(hit * 100);
       warnings.push(
         `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
       );
+      opts.rejectsOut?.push(rejectFromSimDrop(p, hit, edge));
       dropped.push(p);
       continue;
     }
@@ -461,6 +523,7 @@ export function filterCoachPicksWithPropSim(
 
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
+  if (ladderNotes.length) noteParts.push(ladderNotes.join("\n\n"));
   if (removed > 0) {
     noteParts.push(
       `_Removed ${removed} prop leg${removed === 1 ? "" : "s"} that conflicted with the 10,000-run prop simulator._`,
