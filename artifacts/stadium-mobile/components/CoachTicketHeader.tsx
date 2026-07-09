@@ -223,7 +223,15 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
           {summary.avgConfidence != null ? (
             <SummaryStat label="Avg confidence" value={`${summary.avgConfidence}%`} />
           ) : null}
-          {summary.avgEdge != null ? (
+          {summary.combinedEvPct != null ? (
+            <SummaryStat
+              label="Ticket EV"
+              value={`${summary.combinedEvPct > 0 ? "+" : ""}${summary.combinedEvPct}%`}
+              valueColor={
+                summary.combinedEvPct > 0 ? colors.success : colors.destructive
+              }
+            />
+          ) : summary.avgEdge != null ? (
             <SummaryStat
               label="Avg edge"
               value={`${summary.avgEdge > 0 ? "+" : ""}${summary.avgEdge}%`}

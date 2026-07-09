@@ -67,7 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { applyNearMissLadderToPicks, collectNearMissPropRejects, fillTicketFromNearMissLadder, optimizeTicketAverageEdge, sweepRejectsOntoTicket } from "@/lib/coachNearMissLadder";
+import { applyNearMissLadderToPicks, collectNearMissPropRejects, fillTicketFromNearMissLadder, optimizeTicketCombinedEv, sweepRejectsOntoTicket } from "@/lib/coachNearMissLadder";
 import { alignPropPickGames } from "@/lib/propGameAlign";
 import { enforceGroundedPropHistory, groundedPropHistoryNote } from "@/lib/propHistoryGate";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2717,27 +2717,6 @@ export default function CoachScreen() {
           }
           return out;
         };
-        if (!isAnalyze && picks.length > 1 && picks.length >= requestedLegs) {
-          const edgeOptimized = optimizeTicketAverageEdge(picks, ladderFillOpts, {
-            minLegCount: requestedLegs,
-            allowLegDrops: true,
-          });
-          picks = edgeOptimized.picks;
-          if (edgeOptimized.note) {
-            gameSimSupplementNote = appendUniqueNote(
-              gameSimSupplementNote,
-              edgeOptimized.note,
-            );
-            if (gameSimNote && !gameSimNote.includes(edgeOptimized.note)) {
-              gameSimNote = appendUniqueNote(gameSimNote, edgeOptimized.note);
-            } else if (!gameSimNote) {
-              gameSimNote = edgeOptimized.note;
-            }
-          }
-          if (edgeOptimized.dropped > 0) {
-            picks = finalizeFilledTicket(picks, []);
-          }
-        }
         if (reachFull && requestedLegs > picks.length && picks.length > 0) {
           const nearMisses = coachEvalLinesByGame
             ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
@@ -2805,14 +2784,10 @@ export default function CoachScreen() {
         }
         if (!isAnalyze && picks.length > 1) {
           const shortOfTarget = requestedLegs > picks.length;
-          const edgeOptimized = optimizeTicketAverageEdge(
-            picks,
-            ladderFillOpts,
-            {
-              minLegCount: shortOfTarget ? picks.length : requestedLegs,
-              allowLegDrops: !shortOfTarget,
-            },
-          );
+          const edgeOptimized = optimizeTicketCombinedEv(picks, ladderFillOpts, {
+            minLegCount: shortOfTarget ? picks.length : requestedLegs,
+            allowLegDrops: !shortOfTarget,
+          });
           const beforeEdge = picks.length;
           picks = edgeOptimized.picks;
           if (edgeOptimized.note) {
@@ -2826,7 +2801,7 @@ export default function CoachScreen() {
               gameSimNote = edgeOptimized.note;
             }
           }
-          if (edgeOptimized.swaps > 0 || edgeOptimized.dropped > 0) {
+          if (edgeOptimized.swaps > 0 || edgeOptimized.dropped > 0 || edgeOptimized.qualifiedDropped > 0) {
             picks = finalizeFilledTicket(picks, []);
           }
           if (

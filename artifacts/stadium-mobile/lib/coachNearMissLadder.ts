@@ -32,6 +32,13 @@ import {
   shouldReoptimizeTicketEdge,
   weakestEdgeLegIndex,
 } from "./coachTicketEdge.ts";
+import {
+  combinedParlayEvPct,
+  filterToQualifiedLegs,
+  passesIndividualTicketLeg,
+  weakestIndividualLegIndex,
+  type TicketEvContext,
+} from "./coachTicketEv.ts";
 
 /** How close a leg must be to the bar before we search alternates. */
 export const NEAR_MISS_MARGIN_PCT = 3;
@@ -927,11 +934,113 @@ function promotableFromPoolWithLadder(
   return { picks: out, notes };
 }
 
+export type TicketEvOptimizeResult = TicketEdgeOptimizeResult & {
+  combinedEvPct: number | null;
+  qualifiedDropped: number;
+};
+
+function ticketEvContext(opts: NearMissLadderOpts): TicketEvContext {
+  return {
+    gameSimulations: opts.gameSimulations,
+    propSimulations: opts.propSimulations,
+  };
+}
+
 /**
- * When ticket avg edge is negative but within 1% of zero, walk every leg's
- * alternate ladder and greedily swap for the best ticket-level edge gain.
- * Repeat until avg edge is positive or no improving alternate exists, then drop
- * the weakest-edge legs rather than keeping filler that drags the ticket under.
+ * Keep only legs that individually pass edge, confidence, grade, and sim gates.
+ * Then swap the weakest leg for better alternates until combined parlay EV > 0.
+ */
+export function optimizeTicketCombinedEv(
+  picks: ParsedPick[],
+  opts: NearMissLadderOpts,
+  runOpts?: { minLegCount?: number; allowLegDrops?: boolean },
+): TicketEvOptimizeResult {
+  if (picks.length === 0) {
+    return { picks, note: "", swaps: 0, dropped: 0, combinedEvPct: null, qualifiedDropped: 0 };
+  }
+
+  const ctx = ticketEvContext(opts);
+  const qualified = filterToQualifiedLegs(picks, ctx);
+  let current = [...qualified.picks];
+  let qualifiedDropped = qualified.dropped.length;
+  const notes: string[] = [];
+  if (qualifiedDropped > 0) {
+    notes.push(
+      `_Removed ${qualifiedDropped} leg${qualifiedDropped === 1 ? "" : "s"} that failed individual quality gates (each leg needs positive edge, grade ≥ C+, confidence ≥ 52, and sim support)._`,
+    );
+  }
+
+  let swaps = 0;
+  let dropped = 0;
+  const floor = runOpts?.minLegCount ?? 0;
+  const allowDrops = runOpts?.allowLegDrops !== false;
+  const maxRounds = Math.max(12, current.length * 6);
+
+  for (let round = 0; round < maxRounds; round++) {
+    const ev = combinedParlayEvPct(current, ctx);
+    if (ev != null && ev > 0) break;
+    if (current.length <= 1) break;
+
+    let best: { idx: number; pick: ParsedPick; newEv: number } | null = null;
+    const startIdx = weakestIndividualLegIndex(current) ?? 0;
+    const indices = [
+      startIdx,
+      ...current.map((_, i) => i).filter((i) => i !== startIdx),
+    ];
+
+    for (const i of indices) {
+      const leg = current[i]!;
+      const alts = collectScoredAlternates(leg, opts).filter((alt) =>
+        passesIndividualTicketLeg(alt, ctx),
+      );
+      for (const alt of alts) {
+        const trial = current.map((p, j) => (j === i ? alt : p));
+        const trialEv = combinedParlayEvPct(trial, ctx);
+        if (trialEv == null) continue;
+        const curEv = ev ?? -999;
+        if (trialEv > curEv && (!best || trialEv > best.newEv)) {
+          best = { idx: i, pick: alt, newEv: trialEv };
+        }
+      }
+    }
+
+    if (best) {
+      const old = current[best.idx]!;
+      current[best.idx] = best.pick;
+      swaps += 1;
+      notes.push(
+        `_Swapped **${old.pick}** for **${best.pick.pick}** — lifts combined ticket EV (${ev ?? "—"}% → ${best.newEv}%)._`,
+      );
+      if (best.newEv > 0) break;
+      continue;
+    }
+
+    if (!allowDrops || (floor > 0 && current.length <= floor)) break;
+    const dropIdx = weakestIndividualLegIndex(current);
+    if (dropIdx == null) break;
+    const removed = current[dropIdx]!;
+    current = current.filter((_, j) => j !== dropIdx);
+    dropped += 1;
+    const nextEv = combinedParlayEvPct(current, ctx);
+    notes.push(
+      `_Dropped **${removed.pick}** — no qualifying alternate could lift combined ticket EV (${ev ?? "—"}% → ${nextEv ?? "—"}%)._`,
+    );
+    if (nextEv != null && nextEv > 0) break;
+  }
+
+  const finalEv = combinedParlayEvPct(current, ctx);
+  return {
+    picks: current,
+    note: notes.filter(Boolean).join("\n\n"),
+    swaps,
+    dropped,
+    combinedEvPct: finalEv,
+    qualifiedDropped,
+  };
+}
+
+/**
+ * @deprecated Prefer optimizeTicketCombinedEv — optimizes avg edge, not parlay EV.
  */
 export function optimizeTicketAverageEdge(
   picks: ParsedPick[],

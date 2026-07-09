@@ -2,7 +2,7 @@
 
 import { gradeFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
-import { decimalToAmerican } from "./format.ts";
+import { americanToDecimal, decimalToAmerican } from "./format.ts";
 
 function fairOddsFromSimHit(simHit: number | null | undefined): number | null {
   if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) return null;
@@ -124,10 +124,29 @@ export type CoachTicketSummary = {
   gameLineCount: number;
   simulations: number | null;
   avgConfidence: number | null;
+  /** @deprecated Use combinedEvPct — per-leg average is not how we judge tickets. */
   avgEdge: number | null;
+  combinedEvPct: number | null;
   overallGrade: string | null;
   gameLines: GameLineSummary[];
 };
+
+function combinedEvFromPicks(picks: TicketPick[]): number | null {
+  if (!picks.length) return null;
+  let hitProduct = 1;
+  let decProduct = 1;
+  for (const p of picks) {
+    const hit = p.finalAiScore?.simHit;
+    if (hit == null || !Number.isFinite(hit) || hit <= 0 || hit >= 1) return null;
+    const odds = p.odds;
+    if (!Number.isFinite(odds) || odds === 0) return null;
+    hitProduct *= hit;
+    decProduct *= americanToDecimal(odds);
+  }
+  const ev = hitProduct * decProduct - 1;
+  if (!Number.isFinite(ev)) return null;
+  return Math.round(ev * 1000) / 10;
+}
 
 function scoresForPick(p: TicketPick) {
   const fa = p.finalAiScore;
@@ -189,6 +208,7 @@ export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
       edges.length > 0
         ? Math.round((edges.reduce((a, b) => a + b, 0) / edges.length) * 10) / 10
         : null,
+    combinedEvPct: combinedEvFromPicks(picks),
     overallGrade:
       avgComposite != null
         ? gradeFromComposite(avgComposite)
