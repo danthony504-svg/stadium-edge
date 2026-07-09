@@ -67,6 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
+import { enforceGroundedPropHistory, groundedPropHistoryNote } from "@/lib/propHistoryGate";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
@@ -1746,6 +1747,21 @@ export default function CoachScreen() {
           picks = enforced.picks;
           mlLeanNote = mlLeanEnforcementNote(enforced);
         }
+        const playerHist = context.playerHistory as Record<string, PlayerHistorySlice> | undefined;
+        const propHistoryDropped: ParsedPick[] = [];
+        const propHistoryDropKeys = new Set<string>();
+        const gatePropsByHistory = () => {
+          if (isAnalyze) return;
+          const gated = enforceGroundedPropHistory(picks, playerHist);
+          picks = gated.picks;
+          for (const d of gated.dropped) {
+            const k = `${d.game}|${d.player}|${d.market}|${d.pick}`.toLowerCase();
+            if (propHistoryDropKeys.has(k)) continue;
+            propHistoryDropKeys.add(k);
+            propHistoryDropped.push(d);
+          }
+        };
+        if (!isAnalyze && picks.some((p) => p.isProp)) gatePropsByHistory();
         // Props-only ask: drop any game-level legs the model slipped in (ML/spread/
         // total). The reach-count backfill below will fill from realProps instead.
         const mentionsProps = mentionsPropIntent(trimmed);
@@ -2449,14 +2465,9 @@ export default function CoachScreen() {
             gameSimulations = aliasCoachGameSimLabels(picks, gameSimulations);
           }
         }
-        // Grade each resolved leg with the 5-component pick rubric, from the SAME
-        // real context the legs were resolved against (odds carry edge +
-        // book-spread, props carry their +EV/spread; matchup history + injuries
-        // ground the trend/matchup/injury sub-scores). Honest-or-null: any signal
-        // that can't be grounded for a leg stays absent on its card. The grade is
-        // DISPLAY-ONLY — every resolved leg the model returned is kept and shown
-        // with its real grade; we never drop a leg for grading low, so a requested
-        // N-leg ticket is never trimmed by grade.
+        // Grade each resolved leg with the 5-component pick rubric. Props without a
+        // real ESPN game-log sample for that stat are dropped earlier by
+        // gatePropsByHistory — never shown as Coach picks.
         picks = attachPickScores(picks, {
           realOdds: mergedGameOdds,
           propPool: mergedPropPool,
@@ -2619,6 +2630,8 @@ export default function CoachScreen() {
             }
           }
         }
+        if (!isAnalyze && picks.some((p) => p.isProp)) gatePropsByHistory();
+        const propHistoryNote = groundedPropHistoryNote(propHistoryDropped);
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
@@ -2705,7 +2718,7 @@ export default function CoachScreen() {
         // (the threshold note when the ask carried an odds bound), guaranteeing a
         // successful request never shows as a blank reply.
         let finalContent =
-          full + thresholdNote + confidenceNote + signNote + todayNote;
+          full + thresholdNote + confidenceNote + signNote + propHistoryNote + todayNote;
         if ((salvageBuilt || boardBuilt || soccerScorerGkSalvage) && picks.length > 0) {
           // Board-built / salvage tickets replace model prose (often chalk scaffold
           // or placeholder optimizer copy) with a clean lead-in. legNote carries
@@ -2727,6 +2740,7 @@ export default function CoachScreen() {
             thresholdNote ||
             confidenceNote ||
             signNote ||
+            propHistoryNote ||
             legNote ||
             (emittedPickLines > 0
               ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
