@@ -1,6 +1,6 @@
 // When a Coach leg fails the quality bar, walk every posted alternate ladder
 // (props: other lines; game lines: ML/spread/alt spread/total/alt total) and swap
-// in the qualifying rung with the best positive edge.
+// in the qualifying rung with the best overall value — not the safest line.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { sameGame } from "../components/PickCard.tsx";
@@ -10,7 +10,6 @@ import {
   COACH_SIM_MIN_CONFIDENCE,
   COACH_SIM_MIN_GRADE,
   passesCoachSimQualityGate,
-  simEvPct,
 } from "./gameSimQualityGates.ts";
 import { evalLinesForGame, gameLabelsMatch } from "./gameLineOptimizer.ts";
 import {
@@ -22,6 +21,11 @@ import {
 import { attachPickScores } from "./pickScoreContext.ts";
 import { propSimKey } from "./propSelection.ts";
 import { pickLegFingerprint, type ParlayLegReject } from "./parlayReachCore.ts";
+import {
+  alternateOverallValueScore,
+  formatAlternateValueNote,
+  metricsForAlternate,
+} from "./coachAltValueScore.ts";
 import {
   averageTicketEdge,
   pickEdgePct,
@@ -200,15 +204,7 @@ function ladderPropCandidates(pick: ParsedPick, propPool: PropPoolEntry[]): Prop
       e.line != null &&
       e.line !== pick.propLine,
   );
-  const over = side === "Over" || /\bover\b/i.test(pick.pick);
-  const under = side === "Under" || /\bunder\b/i.test(pick.pick);
-  return rows.sort((a, b) => {
-    const la = a.line ?? 0;
-    const lb = b.line ?? 0;
-    if (over) return la - lb;
-    if (under) return lb - la;
-    return Math.abs(la - (pick.propLine ?? la)) - Math.abs(lb - (pick.propLine ?? lb));
-  });
+  return rows;
 }
 
 function isGameTotalEntry(e: RealOddsEntry): boolean {
@@ -343,48 +339,22 @@ function scoreOpts(opts: NearMissLadderOpts) {
   };
 }
 
-function pickEvPct(
-  pick: ParsedPick,
-  sim: CoachGameSimEntry | null | undefined,
-  propHit: number | null | undefined,
-): number | null {
-  const hit =
-    pick.isProp && propHit != null
-      ? propHit
-      : (pick.finalAiScore?.simHit ?? gameSimHitForPick(pick, sim ?? null));
-  const odds = pick.odds;
-  if (hit == null || odds == null || !Number.isFinite(odds)) return null;
-  return simEvPct(hit, odds);
-}
-
-/** Rank alternates: best positive edge first, then EV, confidence, grade. */
-function rankAlternate(
-  pick: ParsedPick,
-  sim: CoachGameSimEntry | null | undefined,
-  propHit: number | null | undefined,
-): number {
-  const edge = pickEdgePct(pick) ?? -999;
-  const ev = pickEvPct(pick, sim, propHit) ?? -999;
-  const conf = pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? 0;
-  const grade = gradeRank(pick.finalAiScore?.grade);
-  return edge * 1e6 + ev * 1e3 + conf * 10 + grade;
-}
-
-/** Search posted alternates and return the best qualifying replacement, if any. */
+/** Search posted alternates and return the best-value qualifying replacement, if any. */
 export function swapNearMissPick(
   failed: ParsedPick,
   opts: NearMissLadderOpts,
 ): NearMissSwapResult {
   const sim = lookupSim(failed.game, opts.gameSimulations);
-  const alts = collectScoredAlternates(failed, opts, { allGameMarkets: true });
+  const alts = collectScoredAlternates(failed, opts);
   if (!alts.length) return { pick: null, note: "" };
 
   const best = alts[0]!;
   const altHit = propHitForPick(best, opts.propSimulations);
   const altSim = best.isProp ? null : sim;
+  const valueNote = formatAlternateValueNote(best, altSim, altHit);
   return {
     pick: best,
-    note: `_Swapped **${failed.pick}** for **${best.pick}** — the original line failed quality filters; this posted alternate has the best positive edge (${pickEdgePct(best) ?? "—"}%) with ${best.finalAiScore?.grade ?? "—"} grade, ${best.finalAiScore?.confidencePct ?? "—"}% confidence${pickEvPct(best, altSim, altHit) != null ? `, ${pickEvPct(best, altSim, altHit)}% EV` : ""}._`,
+    note: `_Swapped **${failed.pick}** for **${best.pick}** — tested every posted alternate and chose the best overall value (${valueNote}), not just the safest line._`,
   };
 }
 
@@ -415,25 +385,25 @@ export function applyNearMissLadderToPicks(
   for (const p of picks) {
     const sim = lookupSim(p.game, opts.gameSimulations);
     const hit = propHitForPick(p, opts.propSimulations);
-    const failsProp = !!p.isProp && !passesCoachPropQualityGate(p, hit ?? null);
-    const failsGame =
-      !p.isProp &&
-      isGameLinePick(p) &&
-      !passesCoachSimQualityGate(p, sim, {
-        finalAi: p.finalAiScore,
-        odds: p.odds,
-      });
-    const fails = failsProp || failsGame;
+    const passesQuality = p.isProp
+      ? passesCoachPropQualityGate(p, hit ?? null)
+      : isGameLinePick(p) &&
+        passesCoachSimQualityGate(p, sim, {
+          finalAi: p.finalAiScore,
+          odds: p.odds,
+        });
+    const hasPositiveValue = metricsForAlternate(p, sim, hit ?? null) != null;
 
-    if (fails) {
-      const swapped = swapNearMissPick(p, opts);
-      if (swapped.pick) {
-        notes.push(swapped.note);
-        out.push(swapped.pick);
-      }
+    if (passesQuality && hasPositiveValue) {
+      out.push(p);
       continue;
     }
-    out.push(p);
+
+    const swapped = swapNearMissPick(p, opts);
+    if (swapped.pick) {
+      notes.push(swapped.note);
+      out.push(swapped.pick);
+    }
   }
 
   return { picks: out, note: notes.filter(Boolean).join("\n\n") };
@@ -596,14 +566,13 @@ export function sweepRejectsOntoTicket(
   };
 }
 
-function qualifiesEdgeAlternate(
+function qualifiesPositiveValueAlternate(
   original: ParsedPick,
   alt: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
   propHit: number | null | undefined,
 ): boolean {
-  const edge = pickEdgePct(alt);
-  if (edge == null || edge <= 0) return false;
+  if (!metricsForAlternate(alt, sim, propHit ?? null)) return false;
   if (original.isProp) return passesCoachPropQualityGate(alt, propHit ?? null);
   if (!isGameLinePick(original)) return false;
   return passesCoachSimQualityGate(alt, sim, {
@@ -612,11 +581,11 @@ function qualifiesEdgeAlternate(
   });
 }
 
-/** All posted ladder rungs for a leg, scored and sorted by edge (best first). */
+/** All posted ladder rungs for a leg, scored and sorted by overall value (best first). */
 function collectScoredAlternates(
   pick: ParsedPick,
   opts: NearMissLadderOpts,
-  ladderOpts?: { allGameMarkets?: boolean },
+  ladderOpts: { allGameMarkets?: boolean } = { allGameMarkets: true },
 ): ParsedPick[] {
   const sim = lookupSim(pick.game, opts.gameSimulations);
   const seen = new Set<string>();
@@ -625,7 +594,7 @@ function collectScoredAlternates(
   const tryAdd = (candidate: ParsedPick, propHit: number | null | undefined) => {
     const fp = pickLegFingerprint(candidate);
     if (seen.has(fp) || fp === pickLegFingerprint(pick)) return;
-    if (!qualifiesEdgeAlternate(pick, candidate, sim, propHit ?? null)) return;
+    if (!qualifiesPositiveValueAlternate(pick, candidate, sim, propHit ?? null)) return;
     seen.add(fp);
     out.push(candidate);
   };
@@ -660,8 +629,12 @@ function collectScoredAlternates(
   }
 
   return out.sort((a, b) => {
-    const ra = rankAlternate(a, sim, propHitForPick(a, opts.propSimulations) ?? null);
-    const rb = rankAlternate(b, sim, propHitForPick(b, opts.propSimulations) ?? null);
+    const ra =
+      alternateOverallValueScore(a, sim, propHitForPick(a, opts.propSimulations) ?? null) ??
+      -999;
+    const rb =
+      alternateOverallValueScore(b, sim, propHitForPick(b, opts.propSimulations) ?? null) ??
+      -999;
     return rb - ra;
   });
 }
@@ -693,16 +666,22 @@ function passesFillQualityGate(
   });
 }
 
-/** Reach-fill: strict gate OR near-miss with positive edge (posted alternate rungs). */
+function passesPositiveValueGate(
+  pick: ParsedPick,
+  sim: CoachGameSimEntry | null | undefined,
+  propHit: number | null | undefined,
+): boolean {
+  if (!passesFillQualityGate(pick, sim, propHit ?? null)) return false;
+  return metricsForAlternate(pick, sim, propHit ?? null) != null;
+}
+
+/** Reach-fill: strict gate plus positive EV / payout value (no buried chalk). */
 function passesReachFillGate(
   pick: ParsedPick,
   sim: CoachGameSimEntry | null | undefined,
   propHit: number | null | undefined,
 ): boolean {
-  if (passesFillQualityGate(pick, sim, propHit ?? null)) return true;
-  const edge = pickEdgePct(pick);
-  if (edge == null || edge <= 0) return false;
-  return isNearMissQualityFailure(pick, sim, propHit ?? null);
+  return passesPositiveValueGate(pick, sim, propHit ?? null);
 }
 
 /** Try direct qualify, ladder swap, then any scored alternate — for ticket fill. */
@@ -736,7 +715,7 @@ function promoteRejectToTicket(
     if (passesReachFillGate(alt, altSim, altHit ?? null)) {
       return {
         pick: alt,
-        note: `_Promoted **${alt.pick}** from **${scored.pick}** — a posted alternate cleared the quality bar._`,
+        note: `_Promoted **${alt.pick}** from **${scored.pick}** — best overall value among posted alternates (${formatAlternateValueNote(alt, altSim, altHit)})._`,
       };
     }
   }
