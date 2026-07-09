@@ -80,6 +80,10 @@ export default function SignUpScreen() {
     );
   }
 
+  const emailTaken = /taken|already exists|already registered/i.test(
+    errors.fields.emailAddress?.message ?? "",
+  );
+
   return (
     <AuthShell title="Create your account" subtitle="Save your slips and sync them everywhere">
       <AuthField
@@ -92,6 +96,23 @@ export default function SignUpScreen() {
         keyboardType="email-address"
         error={errors.fields.emailAddress?.message}
       />
+      {emailTaken ? (
+        <Text
+          style={{
+            fontFamily: FONT.body,
+            fontSize: 13,
+            color: colors.mutedForeground,
+            marginTop: -8,
+            marginBottom: 8,
+          }}
+        >
+          This email already has an account.{" "}
+          <Link href="/sign-in" replace>
+            <Text style={{ fontFamily: FONT.semibold, color: colors.primary }}>Sign in</Text>
+          </Link>{" "}
+          instead.
+        </Text>
+      ) : null}
       <AuthField
         label="Password"
         value={password}

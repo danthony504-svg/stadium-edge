@@ -1,4 +1,4 @@
-import { useSSO } from "@clerk/expo";
+import { useClerk, useSSO } from "@clerk/expo";
 import { useSignInWithApple } from "@clerk/expo/apple";
 import { Feather } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
@@ -292,15 +292,9 @@ function AppleLogo({ size = 18, color = "#000" }: { size?: number; color?: strin
 }
 
 // Sign in with Apple button. Required by App Store Guideline 4.8 as an equivalent
-// privacy-focused login option whenever third-party/social sign-in is offered. Uses Clerk's
-// oauth_apple SSO flow (startSSOFlow signs up AND signs in). Styled per Apple's
-// button guidelines: a white button with the black Apple glyph stands out on the
-// dark auth UI (white is an Apple-approved style for dark backgrounds).
-// Pulls a human-readable reason out of whatever Clerk / the SSO flow throws.
-// Clerk API errors arrive as { errors: [{ code, message, longMessage }] };
-// other failures may only have `.message`. Surfacing this turns an opaque
-// "Apple SSO failed" into the actual cause (e.g. provider not enabled,
-// invalid redirect URL), which is what we need to diagnose App Review issues.
+// privacy-focused login option whenever third-party/social sign-in is offered.
+// iOS uses native Sign in with Apple (oauth_token_apple); other platforms use
+// Clerk's browser SSO (oauth_apple). Apple must be enabled in the Clerk Auth pane.
 function describeSsoError(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as {
@@ -319,13 +313,44 @@ function describeSsoError(err: unknown): string {
   return "Unknown error";
 }
 
+const APPLE_STRATEGY_UNAVAILABLE =
+  /oauth_apple|oauth_token_apple|form_param_value_invalid|allowed values for parameter strategy/i;
+
+/** Never surface raw Clerk strategy codes to users — map to actionable copy. */
+function friendlyAppleSignInError(detail: string): string {
+  if (APPLE_STRATEGY_UNAVAILABLE.test(detail)) {
+    return Platform.OS === "ios"
+      ? "Sign in with Apple is not available in this build yet. Use email and password below, or install the latest TestFlight update when it is available."
+      : "Sign in with Apple is only available on iPhone. Use email and password instead.";
+  }
+  if (/provider|not enabled|connection/i.test(detail)) {
+    return "Sign in with Apple is not configured yet. Use email and password for now.";
+  }
+  return `Apple sign-in failed. Try email and password, or contact support if this keeps happening.`;
+}
+
+function clerkSupportsAppleSignIn(
+  client: ReturnType<typeof useClerk>["client"],
+  platform: "ios" | "android" | "web" | "windows" | "macos",
+): boolean | null {
+  const factors =
+    (client as { authConfig?: { firstFactors?: Array<{ strategy?: string }> } } | null | undefined)
+      ?.authConfig?.firstFactors;
+  if (!factors?.length) return null;
+  const wanted = platform === "ios" ? "oauth_token_apple" : "oauth_apple";
+  return factors.some((f) => f.strategy === wanted || f.strategy === "oauth_apple");
+}
+
 export function AppleAuthButton() {
   useWarmUpBrowser();
   const router = useRouter();
+  const { client } = useClerk();
   const { startSSOFlow } = useSSO();
   const { startAppleAuthenticationFlow } = useSignInWithApple();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const appleSupported =
+    client == null ? null : clerkSupportsAppleSignIn(client, Platform.OS);
 
   const finishSession = useCallback(
     async (createdSessionId: string | null | undefined, setActive: ((...args: any[]) => Promise<void>) | undefined) => {
@@ -371,15 +396,6 @@ export function AppleAuthButton() {
       if (e.code === "ERR_REQUEST_CANCELED" || e.code === "ERR_CANCELED") return;
       if (typeof e.message === "string" && e.message.includes("ERR_REQUEST_CANCELED")) return;
       const detail = describeSsoError(err);
-      if (
-        Platform.OS === "ios" &&
-        /oauth_apple|form_param_value_invalid/i.test(detail)
-      ) {
-        setError(
-          "This app build is out of date for Sign in with Apple. Install the latest TestFlight or App Store version, then try again.",
-        );
-        return;
-      }
       let raw = "";
       try {
         raw = JSON.stringify(err, null, 2);
@@ -387,11 +403,15 @@ export function AppleAuthButton() {
         raw = String(err);
       }
       console.error("Apple SSO failed:", detail, raw);
-      setError(`Apple sign-in failed: ${detail}`);
+      setError(friendlyAppleSignInError(detail));
     } finally {
       setBusy(false);
     }
   }, [busy, finishSession, startAppleAuthenticationFlow, startSSOFlow]);
+
+  if (appleSupported === false) {
+    return null;
+  }
 
   return (
     <View style={{ gap: 8 }}>
