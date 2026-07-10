@@ -930,7 +930,13 @@ function HomeSportFeed({
   // price + edge), section hidden when there are none.
   const upsetsQ = useQuery({
     queryKey: ["home-upsets", sport],
-    queryFn: ({ signal }) => fetchUpsetSpots([sport], signal),
+    queryFn: async ({ signal }) => {
+      try {
+        return await fetchUpsetSpots([sport], signal);
+      } catch {
+        return [];
+      }
+    },
     staleTime: 2 * 60_000,
     // Tennis uses tennisAnalysis (rank/form/H2H), not team matchup-history mlLean.
     enabled: sport !== "tennis",
@@ -1692,7 +1698,8 @@ function HomeSportFeed({
           </Pressable>
         </View>
 
-        {/* Upcoming games */}
+        {/* Upcoming games — isolated so a render/API blip never takes down Home. */}
+        <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
         <View
           style={{
             flexDirection: "row",
@@ -1901,7 +1908,7 @@ function HomeSportFeed({
                           Edge
                         </Text>
                         <Text style={{ color: "#34d399", fontFamily: FONT.bold, fontSize: 12 }}>
-                          +{best.ev.toFixed(1)}%
+                          +{typeof best.ev === "number" ? best.ev.toFixed(1) : "—"}%
                         </Text>
                       </View>
                     </View>
@@ -1911,6 +1918,7 @@ function HomeSportFeed({
             })}
           </View>
         )}
+        </ErrorBoundary>
 
         {/* Upset Watch — real spots where the app's analytics (mlLean) favor the
             betting underdog. Styled like the other home rails; hidden when there

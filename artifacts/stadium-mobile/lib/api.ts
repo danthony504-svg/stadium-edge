@@ -470,8 +470,14 @@ export async function sendTestPush(): Promise<{ ok: boolean; sent: number }> {
   return (await res.json()) as { ok: boolean; sent: number };
 }
 
-export function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
-  return getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
+export async function getOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
+  try {
+    return await getJson<OddsGame[]>(`/sports/odds?sport=${encodeURIComponent(sport)}`, signal);
+  } catch {
+    // Browse surfaces (Home / upcoming) must never hard-crash on a missing route or
+    // transient 404 — return an empty slate and let the UI show an empty state.
+    return [];
+  }
 }
 
 // ---------- Golf (PGA majors outright winner) ----------
@@ -510,8 +516,12 @@ export function getGolf(signal?: AbortSignal): Promise<GolfTournament[]> {
   return getJson<GolfTournament[]>("/sports/golf", signal);
 }
 
-export function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
-  return getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
+export async function getGames(sport: string, signal?: AbortSignal): Promise<EspnGame[]> {
+  try {
+    return await getJson<EspnGame[]>(`/sports/games?sport=${encodeURIComponent(sport)}`, signal);
+  } catch {
+    return [];
+  }
 }
 
 /** Pregame-only slate for Game Simulator — server filters with `simulator=1`. */
@@ -797,7 +807,7 @@ export type GetPropsArgs = {
 // real Odds API event id when eventId came from a fallback odds source, and
 // team ids so it can attach real ESPN headshots. startsAt disambiguates same-
 // team rematches (e.g. MLB doubleheaders) when resolving the Odds API event id.
-export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
+export async function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<PropsResponse> {
   if (!args?.sport || !args?.eventId) {
     return Promise.resolve({ home: null, away: null, bookmaker: null, props: [] });
   }
@@ -808,7 +818,11 @@ export function getProps(args: GetPropsArgs, signal?: AbortSignal): Promise<Prop
   if (args.awayTeamId) q.set("awayTeamId", args.awayTeamId);
   if (args.startsAt) q.set("startsAt", args.startsAt);
   // Props fan out 3 Odds API calls + roster lookups — cold hosts often exceed 12s.
-  return getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+  try {
+    return await getJson<PropsResponse>(`/sports/props?${q.toString()}`, signal, 30_000);
+  } catch {
+    return { home: null, away: null, bookmaker: null, props: [] };
+  }
 }
 
 function ppStatToMarketKey(sport: string, stat: string | null | undefined): string {
