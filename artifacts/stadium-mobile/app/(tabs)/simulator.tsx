@@ -98,8 +98,16 @@ import {
   getCachedGameSim,
   rememberGameSim,
 } from "@/lib/simulatorResultCache";
+import { isUfcFightRow } from "@/lib/ufcSimulatorGames";
 
 const gameEligibleForSim = isSimulatorPregame;
+
+function simulatorGameEligible(sport: string, g: EspnGame): boolean {
+  if (!gameEligibleForSim(g)) return false;
+  const s = sport.toLowerCase();
+  if ((s === "ufc" || s === "mma") && !isUfcFightRow(g)) return false;
+  return true;
+}
 
 const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc"] as const;
 
@@ -332,11 +340,11 @@ export default function SimulatorScreen() {
   }, []);
 
   const gamesQ = useQuery({
-    queryKey: ["sim-games", sport],
+    queryKey: ["sim-games-v2", sport],
     queryFn: async ({ signal }) => {
       try {
         const rows = await fetchSimulatorGames(sport, signal);
-        const list = asGameList(rows).filter((g) => gameEligibleForSim(g));
+        const list = asGameList(rows).filter((g) => simulatorGameEligible(sport, g));
         rememberSimGames(sport, list);
         return list;
       } catch {
@@ -348,17 +356,22 @@ export default function SimulatorScreen() {
     refetchInterval: 60_000,
     retry: false,
     throwOnError: false,
-    placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey?.[1] === sport
-        ? previousData
-        : cachedSimGames(sport).length > 0
-          ? cachedSimGames(sport)
-          : undefined,
+    placeholderData: (previousData, previousQuery) => {
+      const qSport = previousQuery?.queryKey?.[1];
+      if (qSport !== sport) {
+        const cached = cachedSimGames(sport);
+        return cached.length > 0 ? cached : undefined;
+      }
+      // Never paint a UFC event placeholder (venue/time but no fighters).
+      if (sport === "ufc" || sport === "mma") return undefined;
+      const prev = asGameList(previousData).filter((g) => simulatorGameEligible(sport, g));
+      return prev.length > 0 ? prev : undefined;
+    },
   });
 
   const games = useMemo(
-    () => asGameList(gamesQ.data).filter((g) => gameEligibleForSim(g)),
-    [gamesQ.data, clockTick],
+    () => asGameList(gamesQ.data).filter((g) => simulatorGameEligible(sport, g)),
+    [gamesQ.data, sport, clockTick],
   );
 
   // Drop started games as soon as the user returns to this tab.
@@ -1085,17 +1098,21 @@ export default function SimulatorScreen() {
           <EmptyState
             title="No upcoming games"
             subtitle={
-              isGameLinesOnly
-                ? gamesQ.isError
-                  ? sport === "ufc"
-                    ? "Couldn't reach the UFC fight card right now. Pull down to refresh — or check back when pregame bouts are in the next 48 hours."
-                    : "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
-                  : sport === "ufc"
-                    ? "No pregame UFC fights in the next 48 hours right now. Live and completed bouts are hidden."
-                    : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
-                : gamesQ.isError
-                  ? `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
-                  : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
+              gamesQ.isError
+                ? sport === "ufc"
+                  ? "Couldn't load UFC fights from the odds feed. Pull down to refresh."
+                  : isGameLinesOnly
+                    ? sport === "tennis"
+                      ? "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
+                      : "Couldn't reach the UFC fight card right now. Pull down to refresh."
+                    : `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
+                : sport === "ufc"
+                  ? "No pregame UFC fights in the next 48 hours — matchups load from the posted odds feed, not ESPN event cards."
+                  : isGameLinesOnly
+                    ? sport === "tennis"
+                      ? "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
+                      : "No pregame UFC fights in the next 48 hours right now. Live and completed bouts are hidden."
+                    : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
             }
           />
         ) : (

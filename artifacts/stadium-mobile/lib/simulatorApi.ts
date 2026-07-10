@@ -68,6 +68,12 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
       ? rows.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
       : [];
   const sportId = sport.toLowerCase();
+
+  // UFC: skip stale ESPN-backed /sports/games — build slate from odds (+ ESPN venue).
+  if (sportId === "ufc" || sportId === "mma") {
+    return resolveUfcSimulatorGames([], (sig) => fetchSimulatorOdds("ufc", sig), signal);
+  }
+
   let rows: EspnGame[] = [];
   try {
     rows = parse(
@@ -89,11 +95,6 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     } catch {
       rows = [];
     }
-  }
-
-  // UFC: games route is ESPN-backed and often stale — resolve via odds primary.
-  if (sportId === "ufc" || sportId === "mma") {
-    return resolveUfcSimulatorGames(rows, (sig) => fetchSimulatorOdds("ufc", sig), signal);
   }
 
   return rows;
