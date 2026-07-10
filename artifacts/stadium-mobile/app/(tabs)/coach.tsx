@@ -2467,7 +2467,11 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
-        if (coachEvalLinesByGame && gameSimulations.size > 0) {
+        if (
+          coachEvalLinesByGame &&
+          gameSimulations.size > 0 &&
+          !picks.some((p) => p.isProp)
+        ) {
           picks = attachSimAltOptionsToPicks(picks, {
             evalLinesByGame: coachEvalLinesByGame,
             gameSimulations,

@@ -59,13 +59,14 @@ function scorePicksWithSim(
   let out = filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );
-  if (opts.altAttach) {
+  if (opts.altAttach && !simulationPending) {
     out = attachSimAltOptionsToPicks(out, {
       ...opts.altAttach,
       propPool: opts.propPool,
       propSimulations: fullSimRows,
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
+      requireDeepPropSim: true,
     });
   }
   return out;
@@ -100,7 +101,6 @@ export async function loadPropSimulationsProgressive(
       simMapFromResults(quickRows),
       opts,
       true,
-      quickRows,
     );
     callbacks.onQuick?.(quickScored);
   } catch {

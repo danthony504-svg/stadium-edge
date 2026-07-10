@@ -39,6 +39,13 @@ export type AltRungOption = {
   };
 };
 
+export type SimAltTierLabel = "Safest" | "Best Value" | "High Confidence" | "Best Overall";
+
+/** A quality-filtered alt rung labeled after the 10k sim completes. */
+export type SimAltLine = AltRungOption & {
+  tierLabel: SimAltTierLabel;
+};
+
 export type ParsedPick = {
   game: string;
   market: string;
@@ -75,6 +82,8 @@ export type ParsedPick = {
     value?: AltRungOption;
     highConfidence?: AltRungOption;
   };
+  /** 10k-sim alt lines that passed quality filters — labeled Safest / Best Value / etc. */
+  simAltLines?: SimAltLine[];
   // Render-only prop metadata used to open the prop detail page. Carried on
   // AI-recommended prop cards so a tap can fetch the player's REAL game log and
   // show the line/side. Never affects the slip leg key (game/market/pick do).
@@ -124,6 +133,9 @@ function cardLegs(parent: ParsedPick): { market: string; pick: string }[] {
   if (c) legs.push({ market: c.market ?? parent.market, pick: c.pick });
   if (v) legs.push({ market: v.market ?? parent.market, pick: v.pick });
   if (hc) legs.push({ market: hc.market ?? parent.market, pick: hc.pick });
+  for (const alt of parent.simAltLines ?? []) {
+    legs.push({ market: alt.market ?? parent.market, pick: alt.pick });
+  }
   return legs;
 }
 
@@ -209,7 +221,7 @@ function LineTierChip({
   parent,
   simMetrics,
 }: {
-  tone: "safe" | "best" | "value" | "confidence";
+  tone: "safe" | "best" | "value" | "confidence" | "overall";
   label: string;
   game: string;
   market: string;
@@ -239,7 +251,15 @@ function LineTierChip({
     }
   };
   const icon =
-    tone === "safe" ? "shield" : tone === "value" ? "trending-up" : tone === "confidence" ? "target" : "star";
+    tone === "safe"
+      ? "shield"
+      : tone === "value"
+        ? "trending-up"
+        : tone === "confidence"
+          ? "target"
+          : tone === "overall"
+            ? "star"
+            : "star";
   const fg = added ? colors.primaryForeground : undefined;
   // BEST reads as the emphasized tier (primary outline) even before it's added.
   const idleBorder = isBest ? colors.primary : colors.border;
@@ -284,26 +304,66 @@ function LineTierChip({
       </View>
       {simMetrics ? (
         <Text style={{ color: fg ?? colors.mutedForeground, fontFamily: FONT.body, fontSize: 9, lineHeight: 12 }}>
-          {Math.round(simMetrics.winProb * 100)}% · +{simMetrics.evPct.toFixed(1)}% EV · {simMetrics.confidencePct}%
+          {Math.round(simMetrics.winProb * 100)}% win · {simMetrics.confidencePct}% conf ·{" "}
+          {simMetrics.edgePct >= 0 ? "+" : ""}
+          {simMetrics.edgePct.toFixed(1)}% edge
         </Text>
       ) : null}
     </Pressable>
   );
 }
 
-// The SAFE / BEST / VALUE line ladder shown on every pick card. BEST is the
-// model's recommended line (always present). SAFE (cushion) and VALUE
-// (higher-payout) are the nearest REAL alternate rungs from the same ladder when
-// the book posts them — moneyline and yes/no props have no alternate line, so
-// those cards honestly show BEST only. Every tier is tappable + mutually
-// exclusive.
+function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confidence" | "overall" {
+  if (label === "Safest") return "safe";
+  if (label === "Best Value") return "value";
+  if (label === "High Confidence") return "confidence";
+  return "overall";
+}
+
+// Line ladder: heuristic Safe/Best/Value before sim; labeled 10k alt lines after.
 function LineLadder({ pick }: { pick: ParsedPick }) {
   const colors = useColors();
+  const simAlts = pick.simAltLines ?? [];
+
+  if (simAlts.length > 0) {
+    return (
+      <View style={{ gap: 5 }}>
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.bold,
+            fontSize: 9,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+          }}
+        >
+          Alternate lines · 10k sim
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "stretch" }}>
+          {simAlts.map((alt) => (
+            <LineTierChip
+              key={`${alt.tierLabel}|${alt.pick}|${alt.odds}`}
+              tone={simAltTone(alt.tierLabel)}
+              label={alt.tierLabel}
+              game={pick.game}
+              market={alt.market ?? pick.market}
+              pick={alt.pick}
+              odds={alt.odds}
+              sport={pick.sport}
+              lineLabel={compactLine(alt.pick)}
+              parent={pick}
+              simMetrics={alt.simMetrics}
+            />
+          ))}
+        </View>
+      </View>
+    );
+  }
+
   const cushion = pick.altOptions?.cushion;
   const value = pick.altOptions?.value;
   const highConfidence = pick.altOptions?.highConfidence;
   const hasAlts = !!(cushion || value || highConfidence);
-  const hasSimAlts = !!(cushion?.simMetrics || value?.simMetrics || highConfidence?.simMetrics);
   return (
     <View style={{ gap: 5 }}>
       <Text
@@ -315,17 +375,13 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
           textTransform: "uppercase",
         }}
       >
-        {hasSimAlts
-          ? "Safest · Best · Value · High Conf"
-          : hasAlts
-            ? "Safe · Best · Value"
-            : "Best line"}
+        {hasAlts ? "Safe · Best · Value" : "Best line"}
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "stretch" }}>
         {cushion ? (
           <LineTierChip
             tone="safe"
-            label={cushion.simMetrics ? "Safest" : "Safe"}
+            label="Safe"
             game={pick.game}
             market={cushion.market ?? pick.market}
             pick={cushion.pick}
@@ -333,7 +389,6 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
             sport={pick.sport}
             lineLabel={compactLine(cushion.pick)}
             parent={pick}
-            simMetrics={cushion.simMetrics}
           />
         ) : null}
         <LineTierChip
@@ -350,7 +405,7 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
         {value ? (
           <LineTierChip
             tone="value"
-            label={value.simMetrics ? "Best Value" : "Value"}
+            label="Value"
             game={pick.game}
             market={value.market ?? pick.market}
             pick={value.pick}
@@ -358,7 +413,6 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
             sport={pick.sport}
             lineLabel={compactLine(value.pick)}
             parent={pick}
-            simMetrics={value.simMetrics}
           />
         ) : null}
         {highConfidence ? (
@@ -372,7 +426,6 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
             sport={pick.sport}
             lineLabel={compactLine(highConfidence.pick)}
             parent={pick}
-            simMetrics={highConfidence.simMetrics}
           />
         ) : null}
       </View>

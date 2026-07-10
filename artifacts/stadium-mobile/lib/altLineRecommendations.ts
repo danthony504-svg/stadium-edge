@@ -2,9 +2,9 @@
 // Every posted alt rung is scored against the same 10k draw; only lines that
 // pass quality filters (positive EV, edge, confidence floor) are surfaced.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
-import { americanToDecimal, impliedProb } from "./format.ts";
+import { impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   evaluateGameLines,
@@ -38,12 +38,16 @@ export type AltRungMetrics = {
   evPct: number;
   confidencePct: number;
   grade: string;
+  composite?: number | null;
 };
+
+export const DEEP_SIM_COUNT = 10_000;
 
 export type SimAltRecommendations = {
   safest: AltRungMetrics | null;
   bestValue: AltRungMetrics | null;
   highestConfidence: AltRungMetrics | null;
+  bestOverall: AltRungMetrics | null;
 };
 
 const GRADE_RANK: Record<string, number> = {
@@ -160,15 +164,66 @@ function evaluatedToAltRung(row: EvaluatedGameLine): AltRungMetrics | null {
     evPct: m.evPct,
     confidencePct: m.confidencePct,
     grade: m.grade,
+    composite: row.finalAiScore.composite ?? null,
   };
 }
 
+function overallScore(r: AltRungMetrics): number {
+  if (r.composite != null && Number.isFinite(r.composite)) return r.composite;
+  return r.winProb * 35 + r.edgePct * 2.5 + r.confidencePct * 0.25;
+}
+
 function pickTiers(rows: AltRungMetrics[]): SimAltRecommendations {
-  if (!rows.length) return { safest: null, bestValue: null, highestConfidence: null };
+  if (!rows.length) {
+    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+  }
   const safest = [...rows].sort((a, b) => b.winProb - a.winProb)[0]!;
   const bestValue = [...rows].sort((a, b) => b.evPct - a.evPct)[0]!;
   const highestConfidence = [...rows].sort((a, b) => b.confidencePct - a.confidencePct)[0]!;
-  return { safest, bestValue, highestConfidence };
+  const bestOverall = [...rows].sort((a, b) => overallScore(b) - overallScore(a))[0]!;
+  return { safest, bestValue, highestConfidence, bestOverall };
+}
+
+const TIER_ORDER: SimAltTierLabel[] = [
+  "Best Overall",
+  "Safest",
+  "Best Value",
+  "High Confidence",
+];
+
+function buildLabeledSimAltLines(tiers: SimAltRecommendations): SimAltLine[] {
+  const entries: Array<{ label: SimAltTierLabel; rung: AltRungMetrics | null }> = [
+    { label: "Best Overall", rung: tiers.bestOverall },
+    { label: "Safest", rung: tiers.safest },
+    { label: "Best Value", rung: tiers.bestValue },
+    { label: "High Confidence", rung: tiers.highestConfidence },
+  ];
+  const seen = new Set<string>();
+  const lines: SimAltLine[] = [];
+  for (const { label, rung } of entries) {
+    if (!rung) continue;
+    const key = `${rung.market ?? ""}|${rung.pick}|${rung.odds}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push({
+      side: rung.side,
+      line: rung.line,
+      odds: rung.odds,
+      pick: rung.pick,
+      market: rung.market,
+      tierLabel: label,
+      simMetrics: {
+        winProb: rung.winProb,
+        edgePct: rung.edgePct,
+        evPct: rung.evPct,
+        confidencePct: rung.confidencePct,
+        grade: rung.grade,
+      },
+    });
+  }
+  return lines.sort(
+    (a, b) => TIER_ORDER.indexOf(a.tierLabel) - TIER_ORDER.indexOf(b.tierLabel),
+  );
 }
 
 /** Rank alt game-line rungs from a 10k-evaluated ladder. */
@@ -183,7 +238,7 @@ export function recommendGameAltTiers(
   },
 ): SimAltRecommendations {
   if (!isGameLinePick(pick) || pick.isProp || !sim) {
-    return { safest: null, bestValue: null, highestConfidence: null };
+    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
   }
 
   const pool = evalLines.filter(
@@ -193,7 +248,7 @@ export function recommendGameAltTiers(
       sameSideAsPick(e, pick) &&
       !(e.market === pick.market && e.pick === pick.pick && e.odds === pick.odds),
   );
-  if (!pool.length) return { safest: null, bestValue: null, highestConfidence: null };
+  if (!pool.length) return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
 
   const ranked = evaluateGameLines({
     lines: pool,
@@ -218,7 +273,10 @@ export function recommendPropAltTiers(
   finalAi?: FinalAiScore | null,
 ): SimAltRecommendations {
   if (!pick.isProp || !pick.player || !pick.propSide || sim?.lineHitRates == null) {
-    return { safest: null, bestValue: null, highestConfidence: null };
+    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+  }
+  if ((sim.simulations ?? 0) < DEEP_SIM_COUNT) {
+    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
   }
 
   const side = pick.propSide === "Under" ? "Under" : "Over";
@@ -252,30 +310,24 @@ export function recommendPropAltTiers(
       evPct: metrics.evPct,
       confidencePct: metrics.confidencePct,
       grade: metrics.grade,
+      composite: overallScore({
+        side,
+        line,
+        odds: poolEntry.odds,
+        pick: `${pick.player} ${side} ${line}`,
+        winProb: hit,
+        edgePct: metrics.edgePct,
+        evPct: metrics.evPct,
+        confidencePct: metrics.confidencePct,
+        grade: metrics.grade,
+      }),
     });
   }
 
   return pickTiers(rows);
 }
 
-function altRungToOption(r: AltRungMetrics): NonNullable<ParsedPick["altOptions"]>["cushion"] {
-  return {
-    side: r.side,
-    line: r.line,
-    odds: r.odds,
-    pick: r.pick,
-    market: r.market,
-    simMetrics: {
-      winProb: r.winProb,
-      edgePct: r.edgePct,
-      evPct: r.evPct,
-      confidencePct: r.confidencePct,
-      grade: r.grade,
-    },
-  };
-}
-
-/** Replace heuristic SAFE/VALUE with 10k-sim alt tiers on each pick card. */
+/** Replace heuristic alts with 10k-sim labeled alt lines on each pick card. */
 export function attachSimAltOptionsToPicks(
   picks: ParsedPick[],
   opts: {
@@ -286,6 +338,8 @@ export function attachSimAltOptionsToPicks(
     propSimulations?: Map<string, PropSimulationResult>;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    /** When true, prop alts require a completed 10k sim (deep tier). */
+    requireDeepPropSim?: boolean;
   },
 ): ParsedPick[] {
   return picks.map((pick) => {
@@ -293,6 +347,7 @@ export function attachSimAltOptionsToPicks(
       safest: null,
       bestValue: null,
       highestConfidence: null,
+      bestOverall: null,
     };
 
     if (isGameLinePick(pick) && !pick.isProp) {
@@ -306,26 +361,27 @@ export function attachSimAltOptionsToPicks(
           }
         }
       }
-      tiers = recommendGameAltTiers(pick, evalLines, sim, {
-        realOdds: opts.realOdds,
-        matchupHistory: opts.matchupHistory,
-        matchupInjuries: opts.matchupInjuries,
-      });
+      if ((sim?.simulations ?? DEEP_SIM_COUNT) >= DEEP_SIM_COUNT) {
+        tiers = recommendGameAltTiers(pick, evalLines, sim, {
+          realOdds: opts.realOdds,
+          matchupHistory: opts.matchupHistory,
+          matchupInjuries: opts.matchupInjuries,
+        });
+      }
     } else if (pick.isProp && pick.player && pick.propLine != null) {
+      if (!opts.requireDeepPropSim) {
+        return pick;
+      }
       const sim = findPropSimResult(pick, opts.propSimulations);
       tiers = recommendPropAltTiers(pick, opts.propPool, sim, pick.finalAiScore);
     }
 
-    if (!tiers.safest && !tiers.bestValue && !tiers.highestConfidence) {
+    const simAltLines = buildLabeledSimAltLines(tiers);
+    if (!simAltLines.length) {
       return pick;
     }
 
-    const altOptions: ParsedPick["altOptions"] = {};
-    if (tiers.safest) altOptions.cushion = altRungToOption(tiers.safest);
-    if (tiers.bestValue) altOptions.value = altRungToOption(tiers.bestValue);
-    if (tiers.highestConfidence) altOptions.highConfidence = altRungToOption(tiers.highestConfidence);
-
-    return { ...pick, altOptions };
+    return { ...pick, simAltLines, altOptions: undefined };
   });
 }
 
