@@ -555,6 +555,25 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const metrics = data.simMetrics;
   const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
   const simReady = sim && sim.simulations > 0 && metrics;
+  const awayOnEspn = !!(fa.record || fa.athleteId);
+  const homeOnEspn = !!(fh.record || fh.athleteId);
+  const resolvedCount = (awayOnEspn ? 1 : 0) + (homeOnEspn ? 1 : 0);
+  const coveragePct = Math.max(pre?.dataCoveragePct ?? 0, estimateFromTape(fa, fh));
+
+  function estimateFromTape(a: typeof fa, h: typeof fh): number {
+    let n = 0;
+    if (a.record) n += 12;
+    if (h.record) n += 12;
+    if (a.stats?.strikeLPM != null || h.stats?.strikeLPM != null) n += 8;
+    if (a.profile?.age != null || h.profile?.age != null) n += 6;
+    return Math.min(100, n);
+  }
+
+  function fighterStatus(f: typeof fa, label: string): string {
+    if (f.record) return `${label}: on ESPN (${recStr(f)})`;
+    if (f.athleteId) return `${label}: on ESPN (profile thin)`;
+    return `${label}: not in ESPN feed`;
+  }
 
   return (
     <View
@@ -685,13 +704,38 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             PRE-PICK ANALYSIS
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-            {pre.dataCoveragePct}% grounded data · {pre.resolvedFighters}/2 fighters resolved on ESPN
+            {coveragePct}% grounded data · {resolvedCount}/2 fighters on ESPN
           </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+            {fighterStatus(fa, aName)}
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+            {fighterStatus(fh, hName)}
+          </Text>
+          {resolvedCount < 2 ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+              One-sided data — graded moneyline picks need both profiles or a much stronger edge on the resolved
+              fighter.
+            </Text>
+          ) : null}
           {pre.advantages?.ageAdvantage?.available ? (
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
               Age edge: {pre.advantages.ageAdvantage.value}
             </Text>
           ) : null}
+        </View>
+      ) : null}
+
+      {!simReady ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            10,000-FIGHT SIMULATION
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+            {sim?.simulations === 0
+              ? "Full sim + graded picks need the latest API server running (restart after deploy)."
+              : "Simulation pending — thin ESPN data on this bout."}
+          </Text>
         </View>
       ) : null}
 
@@ -777,8 +821,10 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
           ))}
         </View>
       ) : (
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center" }}>
-          No moneyline passes quality filters (edge, grade, sim, data coverage).
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+          {resolvedCount < 2
+            ? `No moneyline passes quality filters — ${homeOnEspn ? hName : aName} has no ESPN profile, so we won't force a pick.`
+            : "No moneyline passes quality filters (edge, grade, sim, data coverage)."}
         </Text>
       )}
 

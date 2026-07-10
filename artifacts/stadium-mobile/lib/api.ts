@@ -2246,11 +2246,81 @@ function normalizeFightFighter(f: Partial<FightFighter> | null | undefined, fall
   };
 }
 
+function fightFighterResolved(f: FightFighter): boolean {
+  return !!(f.record || f.athleteId || f.resolvedName);
+}
+
+function estimateFightCoverage(away: FightFighter, home: FightFighter): number {
+  let avail = 0;
+  let max = 0;
+  for (const f of [away, home]) {
+    const fields = [
+      f.record,
+      f.profile?.age,
+      f.profile?.displayHeight,
+      f.profile?.displayReach,
+      f.stats?.strikeLPM,
+      f.stats?.strikeAccuracy,
+      f.stats?.finishPct,
+      f.stats?.takedownAvg,
+      f.style,
+    ];
+    max += fields.length;
+    avail += fields.filter((v) => v != null).length;
+  }
+  if (max <= 0) return 0;
+  return Math.round((avail / max) * 1000) / 10;
+}
+
+function defaultUnavailableMarkets(): string[] {
+  return [
+    "Method of victory",
+    "Fight goes the distance / doesn't go the distance",
+    "Over/Under rounds",
+    "Fighter total strikes",
+    "Alternate lines",
+    "Same-game parlays",
+  ];
+}
+
+function buildFightPrePick(
+  away: FightFighter,
+  home: FightFighter,
+  existing: FightPickAnalysis | undefined,
+): FightPickAnalysis {
+  const resolved = (fightFighterResolved(away) ? 1 : 0) + (fightFighterResolved(home) ? 1 : 0);
+  const coverage = estimateFightCoverage(away, home);
+  if (existing && existing.resolvedFighters > 0) {
+    return {
+      ...existing,
+      resolvedFighters: Math.max(existing.resolvedFighters, resolved),
+      dataCoveragePct: Math.max(existing.dataCoveragePct, coverage),
+    };
+  }
+  return {
+    dataCoveragePct: coverage,
+    resolvedFighters: resolved,
+    unavailableFactors: existing?.unavailableFactors?.length
+      ? existing.unavailableFactors
+      : ["UFC-specific record", "Recent form", "Injury history", "Public/sharp betting %"],
+    unavailableMarkets: existing?.unavailableMarkets?.length
+      ? existing.unavailableMarkets
+      : defaultUnavailableMarkets(),
+    advantages: existing?.advantages ?? {
+      styleMatchup: { value: null, available: false },
+      reachAdvantage: { value: null, available: false },
+      ageAdvantage: { value: null, available: false },
+    },
+  };
+}
+
 function normalizeFightAnalysis(raw: Partial<FightAnalysis> | null, away = "", home = ""): FightAnalysis | null {
   if (!raw?.away && !raw?.home) return null;
+  const awayF = normalizeFightFighter(raw.away, away);
+  const homeF = normalizeFightFighter(raw.home, home);
   return {
-    away: normalizeFightFighter(raw.away, away),
-    home: normalizeFightFighter(raw.home, home),
+    away: awayF,
+    home: homeF,
     lean: raw.lean ?? null,
     comparison: raw.comparison ?? {
       reachAdvantageIn: null,
@@ -2268,17 +2338,7 @@ function normalizeFightAnalysis(raw: Partial<FightAnalysis> | null, away = "", h
       methodRates: null,
       roundWinPct: null,
     },
-    prePickAnalysis: raw.prePickAnalysis ?? {
-      dataCoveragePct: 0,
-      resolvedFighters: 0,
-      unavailableFactors: [],
-      unavailableMarkets: [],
-      advantages: {
-        styleMatchup: { value: null, available: false },
-        reachAdvantage: { value: null, available: false },
-        ageAdvantage: { value: null, available: false },
-      },
-    },
+    prePickAnalysis: buildFightPrePick(awayF, homeF, raw.prePickAnalysis),
     simMetrics: raw.simMetrics ?? {
       winProbability: { away: 0.5, home: 0.5 },
       finishProbability: { away: 0, home: 0 },
