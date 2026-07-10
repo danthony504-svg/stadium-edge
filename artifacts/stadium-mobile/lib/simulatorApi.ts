@@ -15,7 +15,7 @@ import type {
   PropSimulationResult,
 } from "./api";
 
-export { propMarketLabel };
+export { propMarketLabel } from "./propMarketLabel";
 
 const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN;
 const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
