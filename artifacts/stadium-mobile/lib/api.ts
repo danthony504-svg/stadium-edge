@@ -2222,8 +2222,8 @@ export async function getFightAnalysis(
         body: JSON.stringify({ away, home, h2hOutcomes }),
         signal,
       });
-      if (!res.ok) return null;
-      return (await res.json()) as FightAnalysis;
+      if (res.ok) return (await res.json()) as FightAnalysis;
+      // POST needs a restarted API — fall back to GET so Tale of the Tape still loads.
     }
     const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
     return await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
@@ -2402,11 +2402,14 @@ export async function getTennisAnalysis(
         body: JSON.stringify({ away, home, ...markets }),
         signal,
       });
-      if (!res.ok) return null;
-      return (await res.json()) as TennisAnalysis;
+      if (res.ok) return (await res.json()) as TennisAnalysis;
+      // POST needs a restarted API — fall back to GET so the matchup card still loads.
     }
     const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
-    return await getJson<TennisAnalysis>(`/sports/tennis-analysis?${qs}`, signal);
+    const data = await getJson<TennisAnalysis>(`/sports/tennis-analysis?${qs}`, signal);
+    if (data) return data;
+    // Last resort: legacy matchup endpoint when analysis route is unavailable.
+    return (await getJson<TennisMatchup>(`/sports/tennis-matchup?${qs}`, signal)) as TennisAnalysis | null;
   } catch {
     return null;
   }

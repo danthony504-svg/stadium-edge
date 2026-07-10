@@ -874,7 +874,28 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
 
   const hasData = (p?: TennisPlayer | null) =>
     !!p && (p.rank != null || p.country != null || p.recentForm.length > 0);
-  if (!data || (!hasData(data.away) && !hasData(data.home))) return null;
+  if (!data || (!hasData(data.away) && !hasData(data.home))) {
+    return (
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderColor: colors.border,
+          borderWidth: 1,
+          borderRadius: colors.radius,
+          padding: 14,
+          gap: 8,
+        }}
+      >
+        <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13, letterSpacing: 0.5 }}>
+          MATCHUP
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
+          ESPN has no ATP/WTA ranking or recent-form data for {game.awayTeam} or {game.homeTeam} — common on
+          challenger/ITF draws. Use posted moneyline odds only; we never invent rankings or form.
+        </Text>
+      </View>
+    );
+  }
 
   const aw = data.away;
   const hm = data.home;
