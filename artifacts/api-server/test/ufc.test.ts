@@ -8,6 +8,7 @@ import {
 } from "../src/lib/ufc.ts";
 import { awayWinProbFromFight, runFightMonteCarlo } from "../src/lib/ufcMonteCarlo.ts";
 import { buildFightRecommendations } from "../src/lib/fightRecommendations.ts";
+import { buildFightPickAnalysis } from "../src/lib/fightPickAnalysis.ts";
 
 function fighter(partial: Partial<Fighter> & { name: string }): Fighter {
   return {
@@ -102,12 +103,16 @@ describe("buildFightRecommendations", () => {
     const away = fighter({ name: "Mick Stanton" });
     const home = fighter({ name: "Kamil Oniszczuk" });
     const lean = computeFightLean(away, home);
+    const comparison = { reachAdvantageIn: null, reachAdvantageFighter: null, styleMatchup: null, unavailable: [] };
+    const prePick = buildFightPickAnalysis(away, home, comparison, 4);
     const analysis = {
       away,
       home,
       lean,
-      comparison: { reachAdvantageIn: null, reachAdvantageFighter: null, styleMatchup: null, unavailable: [] },
+      comparison,
       simulation: runFightMonteCarlo({ away, home, lean }, 500),
+      prePickAnalysis: prePick,
+      simMetrics: { winProbability: { away: 0.6, home: 0.4 }, finishProbability: { away: 0.3, home: 0.2 }, koProbability: { away: 0.2, home: 0.1 }, submissionProbability: { away: 0.05, home: 0.05 }, decisionProbability: { away: 0.35, home: 0.25 }, roundWinPct: null },
       recommendations: [],
       books: [],
     };
@@ -123,6 +128,7 @@ describe("buildFightRecommendations", () => {
       "Kamil Oniszczuk",
       outcomes,
       analysis.simulation,
+      prePick,
     );
     assert.ok(recommendations.length >= 1);
     const fav = recommendations.find((r) => r.pick.includes("Oniszczuk"));

@@ -1,6 +1,12 @@
-// UFC moneyline recommendations from REAL fight analysis + posted h2h prices.
+// UFC moneyline recommendations — only after full pre-pick analysis + quality filters.
 
 import type { FightAnalysis, FightSimResult } from "./ufc.js";
+import {
+  passesDataCoverageGate,
+  simMetricsFromResult,
+  type FightPickAnalysis,
+  type FightSimMetrics,
+} from "./fightPickAnalysis.js";
 
 function normFighter(s: unknown): string {
   return String(s ?? "")
@@ -39,6 +45,14 @@ export type FightRecommendation = {
   evPct: number | null;
   skipped: boolean;
   reason: string;
+  quality: {
+    winProbability: number | null;
+    finishProbability: number | null;
+    koProbability: number | null;
+    submissionProbability: number | null;
+    decisionProbability: number | null;
+    dataCoveragePct: number;
+  } | null;
 };
 
 function americanToProb(american: number): number {
@@ -185,6 +199,32 @@ function scorePick(
   return { composite: Math.round(composite * 10) / 10, confidence };
 }
 
+function pickQuality(
+  isAway: boolean,
+  metrics: FightSimMetrics | null,
+  coveragePct: number,
+): FightRecommendation["quality"] {
+  if (!metrics) {
+    return {
+      winProbability: null,
+      finishProbability: null,
+      koProbability: null,
+      submissionProbability: null,
+      decisionProbability: null,
+      dataCoveragePct: coveragePct,
+    };
+  }
+  const side = isAway ? "away" : "home";
+  return {
+    winProbability: Math.round(metrics.winProbability[side] * 1000) / 10,
+    finishProbability: Math.round(metrics.finishProbability[side] * 1000) / 10,
+    koProbability: Math.round(metrics.koProbability[side] * 1000) / 10,
+    submissionProbability: Math.round(metrics.submissionProbability[side] * 1000) / 10,
+    decisionProbability: Math.round(metrics.decisionProbability[side] * 1000) / 10,
+    dataCoveragePct: coveragePct,
+  };
+}
+
 function clamp(n: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -195,10 +235,13 @@ export function buildFightRecommendations(
   homeName: string,
   outcomes: H2hPostedOutcome[],
   sim: FightSimResult | null,
+  prePick: FightPickAnalysis,
 ): { recommendations: FightRecommendation[]; books: FightBookLine[] } {
   const best = bestByFighter(awayName, homeName, outcomes);
   const books = allBookLines(awayName, homeName, outcomes);
   const recommendations: FightRecommendation[] = [];
+  const metrics = sim ? simMetricsFromResult(sim) : null;
+  const coverageOk = passesDataCoverageGate(prePick);
 
   for (const [fighter, { price, book }] of best.entries()) {
     const isAway = nameMatch(fighter, awayName);
@@ -210,6 +253,14 @@ export function buildFightRecommendations(
 
     let skipped = false;
     const reasons: string[] = [];
+    if (!coverageOk) {
+      skipped = true;
+      reasons.push("insufficient grounded fighter data for pre-pick analysis");
+    }
+    if (prePick.resolvedFighters < 2 && (edge ?? 0) < 3.5) {
+      skipped = true;
+      reasons.push("opponent profile unresolved — need stronger edge");
+    }
     if (edge == null || edge < MIN_EDGE_PCT) {
       skipped = true;
       reasons.push("insufficient line value");
@@ -232,9 +283,9 @@ export function buildFightRecommendations(
 
     const posReason =
       analysis.lean?.side && nameMatch(analysis.lean.side, fighter)
-        ? `Data lean favors ${fighter}${edge != null ? ` with +${edge}% edge` : ""}`
+        ? `Pre-pick analysis + ${prePick.dataCoveragePct}% data coverage favor ${fighter}${edge != null ? ` (+${edge}% EV)` : ""}`
         : edge != null
-          ? `Best posted price carries +${edge}% edge`
+          ? `Passes quality filters with +${edge}% edge`
           : "Best available moneyline";
 
     recommendations.push({
@@ -249,6 +300,7 @@ export function buildFightRecommendations(
       evPct: edge,
       skipped,
       reason: skipped ? `Skipped: ${reasons.join(", ")}` : posReason,
+      quality: pickQuality(isAway, metrics, prePick.dataCoveragePct),
     });
   }
 

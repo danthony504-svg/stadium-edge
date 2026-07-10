@@ -35,6 +35,11 @@ export type FightSimResult = {
     away: FightMethodRates;
     home: FightMethodRates;
   } | null;
+  /** Model round-win rates (3-round bout) from finish/decision mix — not fight logs. */
+  roundWinPct: {
+    away: { r1: number; r2: number; r3: number };
+    home: { r1: number; r2: number; r3: number };
+  } | null;
 };
 
 function methodDistribution(methods: FighterMethods, wins: number): FightMethodRates | null {
@@ -64,6 +69,53 @@ function sampleMethod(dist: FightMethodRates): keyof FightMethodRates {
   acc += dist.sub;
   if (r < acc) return "sub";
   return "decision";
+}
+
+/** Earlier finishes weighted toward R1/R2 from career method rates (model, not logs). */
+function sampleFinishRound(method: keyof FightMethodRates): number {
+  const r = Math.random();
+  if (method === "decision") return 3;
+  if (method === "sub") return r < 0.35 ? 1 : r < 0.7 ? 2 : 3;
+  return r < 0.42 ? 1 : r < 0.75 ? 2 : 3;
+}
+
+function assignRoundWins(
+  awayWon: boolean,
+  isFinish: boolean,
+  finishRound: number,
+  awayRounds: { r1: number; r2: number; r3: number },
+  homeRounds: { r1: number; r2: number; r3: number },
+) {
+  if (!isFinish) {
+    if (awayWon) {
+      awayRounds.r1 += 1;
+      awayRounds.r2 += 1;
+      awayRounds.r3 += 1;
+    } else {
+      homeRounds.r1 += 1;
+      homeRounds.r2 += 1;
+      homeRounds.r3 += 1;
+    }
+    return;
+  }
+  const winnerRounds = awayWon ? awayRounds : homeRounds;
+  const loserRounds = awayWon ? homeRounds : awayRounds;
+  if (finishRound >= 1) {
+    if (finishRound === 1) {
+      loserRounds.r1 += 0.15;
+      winnerRounds.r1 += 1;
+    } else if (finishRound === 2) {
+      loserRounds.r1 += 0.55;
+      winnerRounds.r1 += 0.45;
+      winnerRounds.r2 += 1;
+    } else {
+      loserRounds.r1 += 0.45;
+      loserRounds.r2 += 0.45;
+      winnerRounds.r1 += 0.55;
+      winnerRounds.r2 += 0.55;
+      winnerRounds.r3 += 1;
+    }
+  }
 }
 
 export type FightSimInput = {
@@ -178,21 +230,32 @@ export function runFightMonteCarlo(
   let homeWins = 0;
   const awayMethods: FightMethodRates = { ko: 0, tko: 0, sub: 0, decision: 0 };
   const homeMethods: FightMethodRates = { ko: 0, tko: 0, sub: 0, decision: 0 };
+  const awayRounds = { r1: 0, r2: 0, r3: 0 };
+  const homeRounds = { r1: 0, r2: 0, r3: 0 };
 
   for (let i = 0; i < n; i++) {
     const awayWinsFight = Math.random() < awayProb;
+    let finishRound = 3;
+    let isFinish = false;
+
     if (awayWinsFight) {
       awayWins += 1;
       if (trackMethods && awayDist) {
         const m = sampleMethod(awayDist);
         awayMethods[m] += 1;
+        isFinish = m !== "decision";
+        finishRound = isFinish ? sampleFinishRound(m) : 3;
       }
+      assignRoundWins(true, isFinish, finishRound, awayRounds, homeRounds);
     } else {
       homeWins += 1;
       if (trackMethods && homeDist) {
         const m = sampleMethod(homeDist);
         homeMethods[m] += 1;
+        isFinish = m !== "decision";
+        finishRound = isFinish ? sampleFinishRound(m) : 3;
       }
+      assignRoundWins(false, isFinish, finishRound, awayRounds, homeRounds);
     }
   }
 
@@ -212,6 +275,12 @@ export function runFightMonteCarlo(
     decision: wins > 0 ? round3(m.decision / wins) : 0,
   });
 
+  const normRounds = (r: { r1: number; r2: number; r3: number }, total: number) => ({
+    r1: total > 0 ? round3(r.r1 / total) : 0,
+    r2: total > 0 ? round3(r.r2 / total) : 0,
+    r3: total > 0 ? round3(r.r3 / total) : 0,
+  });
+
   return {
     simulations: n,
     awayWinProbability: round3(awayWins / n),
@@ -223,6 +292,12 @@ export function runFightMonteCarlo(
       ? {
           away: normMethods(awayMethods, awayWins),
           home: normMethods(homeMethods, homeWins),
+        }
+      : null,
+    roundWinPct: trackMethods
+      ? {
+          away: normRounds(awayRounds, n),
+          home: normRounds(homeRounds, n),
         }
       : null,
   };

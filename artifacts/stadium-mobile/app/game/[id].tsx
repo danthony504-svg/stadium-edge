@@ -549,6 +549,8 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const weightClass = fa.weightClass || fh.weightClass;
   const sim = data.simulation;
   const cmp = data.comparison;
+  const pre = data.prePickAnalysis;
+  const metrics = data.simMetrics;
   const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
 
   return (
@@ -674,7 +676,23 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
         </View>
       ) : null}
 
-      {sim ? (
+      {pre ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            PRE-PICK ANALYSIS
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            {pre.dataCoveragePct}% grounded data · {pre.resolvedFighters}/2 fighters resolved on ESPN
+          </Text>
+          {pre.advantages.ageAdvantage.available ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+              Age edge: {pre.advantages.ageAdvantage.value}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {sim && metrics ? (
         <View
           style={{
             borderTopWidth: 1,
@@ -687,13 +705,32 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             10,000-FIGHT SIMULATION
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
-            {aName} {Math.round(sim.awayWinProbability * 1000) / 10}% · {hName}{" "}
-            {Math.round(sim.homeWinProbability * 1000) / 10}%
+            Win: {aName} {Math.round(metrics.winProbability.away * 1000) / 10}% · {hName}{" "}
+            {Math.round(metrics.winProbability.home * 1000) / 10}%
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            Finish/KO/Sub/Dec (model): {aName}{" "}
+            {Math.round(metrics.finishProbability.away * 1000) / 10}% /{" "}
+            {Math.round(metrics.koProbability.away * 1000) / 10}% /{" "}
+            {Math.round(metrics.submissionProbability.away * 1000) / 10}% /{" "}
+            {Math.round(metrics.decisionProbability.away * 1000) / 10}%
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            {hName}{" "}
+            {Math.round(metrics.finishProbability.home * 1000) / 10}% /{" "}
+            {Math.round(metrics.koProbability.home * 1000) / 10}% /{" "}
+            {Math.round(metrics.submissionProbability.home * 1000) / 10}% /{" "}
+            {Math.round(metrics.decisionProbability.home * 1000) / 10}%
+          </Text>
+          {metrics.roundWinPct ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              Round win % (model): {aName} R1 {Math.round(metrics.roundWinPct.away.r1 * 100)}% · R2{" "}
+              {Math.round(metrics.roundWinPct.away.r2 * 100)}% · R3 {Math.round(metrics.roundWinPct.away.r3 * 100)}%
+            </Text>
+          ) : null}
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
             Model confidence {sim.confidenceScore}% · projected winner{" "}
-            {sim.mostLikelyWinner === "away" ? aName : hName} (
-            {Math.round(sim.mostLikelyWinnerPct * 1000) / 10}%)
+            {sim.mostLikelyWinner === "away" ? aName : hName}
           </Text>
         </View>
       ) : null}
@@ -701,7 +738,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
       {recs.length > 0 ? (
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
           <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
-            AI RECOMMENDED PLAYS
+            QUALITY-FILTERED PLAYS (MONEYLINE ONLY)
           </Text>
           {recs.map((r, i) => (
             <View
@@ -722,19 +759,37 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
                 ) : null}
               </View>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                Edge {r.edgePct != null ? `+${r.edgePct}%` : "—"} · Confidence {r.confidencePct ?? "—"}% · Sim win{" "}
-                {r.simHitPct ?? "—"}%
+                EV {r.evPct != null ? `+${r.evPct}%` : "—"} · Edge {r.edgePct != null ? `+${r.edgePct}%` : "—"} ·
+                Confidence {r.confidencePct ?? "—"}% · Sim win {r.simHitPct ?? "—"}%
                 {r.book ? ` · ${r.book}` : ""}
               </Text>
+              {r.quality ? (
+                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10 }}>
+                  Win {r.quality.winProbability ?? "—"}% · Finish {r.quality.finishProbability ?? "—"}% · Data{" "}
+                  {r.quality.dataCoveragePct}%
+                </Text>
+              ) : null}
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>{r.reason}</Text>
             </View>
           ))}
         </View>
       ) : (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center" }}>
-          No strong moneyline edge on the posted board right now.
+          No moneyline passes quality filters (edge, grade, sim, data coverage).
         </Text>
       )}
+
+      {pre?.unavailableMarkets?.length ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.4 }}>
+            NOT IN FEED — CANNOT RECOMMEND
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 14 }}>
+            {pre.unavailableMarkets.slice(0, 4).join(" · ")}
+            {pre.unavailableMarkets.length > 4 ? " · …" : ""}
+          </Text>
+        </View>
+      ) : null}
 
       {data.books?.length > 1 ? (
         <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>

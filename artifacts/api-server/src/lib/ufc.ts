@@ -5,6 +5,12 @@ import type {
   FightRecommendation,
   H2hPostedOutcome,
 } from "./fightRecommendations.js";
+import {
+  buildFightPickAnalysis,
+  simMetricsFromResult,
+  type FightPickAnalysis,
+  type FightSimMetrics,
+} from "./fightPickAnalysis.js";
 
 // ---------------------------------------------------------------------------
 // UFC / MMA fighter data from ESPN's public core API. The app's UFC tab only
@@ -81,6 +87,8 @@ export type FightAnalysis = {
   lean: FightLean | null;
   comparison: FightComparison;
   simulation: FightSimResult;
+  prePickAnalysis: FightPickAnalysis;
+  simMetrics: FightSimMetrics;
   recommendations: FightRecommendation[];
   books: FightBookLine[];
 };
@@ -466,7 +474,7 @@ export async function buildFightAnalysis(
   opts: BuildFightAnalysisOpts = {},
 ): Promise<FightAnalysis> {
   const key = `ufc:fight:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
-  const base = await cachedJson<Omit<FightAnalysis, "recommendations" | "books">>(
+  const base = await cachedJson<Omit<FightAnalysis, "recommendations" | "books" | "prePickAnalysis" | "simMetrics">>(
     key,
     ANALYSIS_TTL,
     async () => {
@@ -474,25 +482,28 @@ export async function buildFightAnalysis(
       const [a, h] = await Promise.all([getFighterProfile(away), getFighterProfile(home)]);
       const lean = computeFightLean(a, h);
       const comparison = buildFightComparison(a, h);
-      const partial = { away: a, home: h, lean, comparison };
       const simulation = runFightMonteCarlo({ away: a, home: h, lean, comparison });
-      return { ...partial, simulation };
+      return { away: a, home: h, lean, comparison, simulation };
     },
   );
 
   const outcomes = opts.h2hOutcomes ?? [];
+  const prePickAnalysis = buildFightPickAnalysis(base.away, base.home, base.comparison, outcomes.length);
+  const simMetrics = simMetricsFromResult(base.simulation);
+
   if (outcomes.length === 0) {
-    return { ...base, recommendations: [], books: [] };
+    return { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [] };
   }
   const { buildFightRecommendations } = await import("./fightRecommendations.js");
   const { recommendations, books } = buildFightRecommendations(
-    { ...base, recommendations: [], books: [] },
+    { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [] },
     away,
     home,
     outcomes,
     base.simulation,
+    prePickAnalysis,
   );
-  return { ...base, recommendations, books };
+  return { ...base, prePickAnalysis, simMetrics, recommendations, books };
 }
 
-export type { FightSimResult, FightRecommendation, FightBookLine, H2hPostedOutcome };
+export type { FightSimResult, FightRecommendation, FightBookLine, H2hPostedOutcome, FightPickAnalysis, FightSimMetrics };

@@ -2145,6 +2145,10 @@ export type FightSimResult = {
     away: { ko: number; tko: number; sub: number; decision: number };
     home: { ko: number; tko: number; sub: number; decision: number };
   } | null;
+  roundWinPct: {
+    away: { r1: number; r2: number; r3: number };
+    home: { r1: number; r2: number; r3: number };
+  } | null;
 };
 export type FightRecommendation = {
   market: string;
@@ -2158,14 +2162,46 @@ export type FightRecommendation = {
   evPct: number | null;
   skipped: boolean;
   reason: string;
+  quality: {
+    winProbability: number | null;
+    finishProbability: number | null;
+    koProbability: number | null;
+    submissionProbability: number | null;
+    decisionProbability: number | null;
+    dataCoveragePct: number;
+  } | null;
 };
 export type FightBookLine = { fighter: string; book: string; price: number };
+export type FightPickAnalysis = {
+  dataCoveragePct: number;
+  resolvedFighters: number;
+  unavailableFactors: string[];
+  unavailableMarkets: string[];
+  advantages: {
+    styleMatchup: { value: string | null; available: boolean };
+    reachAdvantage: { value: string | null; available: boolean };
+    ageAdvantage: { value: string | null; available: boolean };
+  };
+};
+export type FightSimMetrics = {
+  winProbability: { away: number; home: number };
+  finishProbability: { away: number; home: number };
+  koProbability: { away: number; home: number };
+  submissionProbability: { away: number; home: number };
+  decisionProbability: { away: number; home: number };
+  roundWinPct: {
+    away: { r1: number; r2: number; r3: number };
+    home: { r1: number; r2: number; r3: number };
+  } | null;
+};
 export type FightAnalysis = {
   away: FightFighter;
   home: FightFighter;
   lean: FightLean | null;
   comparison: FightComparison;
   simulation: FightSimResult;
+  prePickAnalysis: FightPickAnalysis;
+  simMetrics: FightSimMetrics;
   recommendations: FightRecommendation[];
   books: FightBookLine[];
 };
