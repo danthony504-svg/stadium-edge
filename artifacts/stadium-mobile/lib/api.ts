@@ -2158,6 +2158,71 @@ export async function getTennisAnalysis(
   }
 }
 
+/** Pre-graded tennis prop recommendations from the prop engine (Option B). */
+export type TennisPropEngineRecommendation = {
+  line: {
+    player: string;
+    market: string;
+    marketLabel: string;
+    line: number | null;
+    side: string;
+    odds: number;
+    alt: boolean;
+    matchLabel: string;
+  };
+  grade: {
+    edgePct: number | null;
+    evPct: number | null;
+    grade: string | null;
+    confidencePct: number | null;
+    simHit: number | null;
+    recommends: boolean;
+    skipReason: string | null;
+  };
+  sim: { simulations: number; hitProbability: number | null; meanProjection: number | null };
+  rankScore: number | null;
+};
+
+export type TennisPropAnalyzeResult = {
+  matchLabel: string;
+  analyzed: number;
+  recommended: TennisPropEngineRecommendation[];
+  vendorStatus: {
+    propsAvailable: boolean;
+    statsComplete: boolean;
+    message: string | null;
+  };
+};
+
+export async function getTennisPropEngineStatus(
+  signal?: AbortSignal,
+): Promise<{ enabled: boolean; requires: string[] }> {
+  return getJson(`/sports/tennis-props/status`, signal);
+}
+
+export async function analyzeTennisMatchProps(
+  away: string,
+  home: string,
+  opts?: { eventId?: string; signal?: AbortSignal },
+): Promise<TennisPropAnalyzeResult | null> {
+  const q = new URLSearchParams({ away, home });
+  if (opts?.eventId) q.set("eventId", opts.eventId);
+  try {
+    return await getJson<TennisPropAnalyzeResult>(`/sports/tennis-props/analyze?${q}`, opts?.signal);
+  } catch {
+    return null;
+  }
+}
+
+export async function tennisPropsEngineAvailable(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const s = await getTennisPropEngineStatus(signal);
+    return s.enabled;
+  } catch {
+    return false;
+  }
+}
+
 export type TennisBio = {
   age: number | null;
   height: string | null;
