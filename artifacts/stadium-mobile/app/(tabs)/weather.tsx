@@ -12,32 +12,41 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader, PageTitleRow } from "@/components/AppHeader";
-import { Badge, Card, FONT, Pill } from "@/components/ui";
+import { Card, FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getParkWeather, type ParkWeatherReport } from "@/lib/api";
+import {
+  conditionIconName,
+  gameWeatherEffects,
+  impactBannerCopy,
+  impactLevelLabel,
+  impactLevelTone,
+  precipDisplay,
+  shortImpactBadge,
+  windDisplay,
+  type GameEffectCard,
+  type ImpactLevel,
+} from "@/lib/parkWeatherUi";
 
 type FeatherName = React.ComponentProps<typeof Feather>["name"];
 type TabKey = "today" | "tomorrow" | "outlook";
 
-// Auto-refresh cadence — within the 10–15 min window the feature calls for. The
-// server caches each park's OpenWeather reading for ~10–12 min, so this lines up
-// with fresh upstream data without hammering the API.
 const REFETCH_MS = 12 * 60 * 1000;
 
-// Map the deterministic, calc-only impact rating to a theme colour. Order runs
-// from best to worst; anything unexpected falls back to a neutral tone.
-function ratingTone(rating: string, colors: ReturnType<typeof useColors>) {
-  switch (rating) {
-    case "Very Favorable":
-    case "Favorable":
-      return colors.success;
-    case "Unfavorable":
-      return "#f59e0b"; // amber-500
-    case "Very Unfavorable":
-      return colors.live;
-    default:
-      return colors.primary; // Neutral
-  }
+function impactColors(level: ImpactLevel, colors: ReturnType<typeof useColors>) {
+  if (level === "positive") return { border: colors.success, bg: "rgba(34,197,94,0.12)", text: colors.success };
+  if (level === "negative") return { border: "#f59e0b", bg: "rgba(245,158,11,0.12)", text: "#f59e0b" };
+  return { border: colors.primary, bg: "rgba(59,130,246,0.1)", text: colors.primary };
+}
+
+function trendColors(trend: GameEffectCard["trend"], colors: ReturnType<typeof useColors>) {
+  if (trend === "INCREASED") return colors.success;
+  if (trend === "DECREASED") return colors.live;
+  return colors.mutedForeground;
+}
+
+function fmtVal(v: number | null, fmt: (n: number) => string): string {
+  return v != null ? fmt(v) : "—";
 }
 
 function fmtFirstPitch(iso: string): string {
@@ -46,17 +55,12 @@ function fmtFirstPitch(iso: string): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-// Format a possibly-null reading. We NEVER substitute a fabricated value: when
-// OpenWeather omitted the field we show "Not reported" instead of guessing.
-function fmtVal(v: number | null, fmt: (n: number) => string): string {
-  return v != null ? fmt(v) : "Not reported";
-}
-
 export default function WeatherScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("today");
+  const [venueOpen, setVenueOpen] = useState(false);
 
   const q = useQuery({
     queryKey: ["parkWeather", "mlb"],
@@ -72,20 +76,13 @@ export default function WeatherScreen() {
     [reports, selectedId],
   );
 
-  const lastUpdated = q.dataUpdatedAt
-    ? new Date(q.dataUpdatedAt).toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
         <PageTitleRow
           icon="cloud-drizzle"
           title="Park Weather Report"
-          subtitle="Real OpenWeather conditions for today's MLB ballparks"
+          subtitle="Real-time weather impact for today's games"
         />
       </AppHeader>
 
@@ -107,206 +104,70 @@ export default function WeatherScreen() {
             </Text>
           </View>
         ) : q.isError ? (
-          <Card>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-              Couldn&apos;t load weather
-            </Text>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.body,
-                fontSize: 13,
-                marginTop: 4,
-              }}
-            >
-              The live weather feed is unavailable right now. Pull to refresh to try again.
-            </Text>
-            <Pressable
-              onPress={() => q.refetch()}
-              style={({ pressed }) => ({
-                marginTop: 12,
-                alignSelf: "flex-start",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingHorizontal: 14,
-                paddingVertical: 9,
-                borderRadius: 999,
-                backgroundColor: "rgba(59,130,246,0.12)",
-                borderWidth: 1,
-                borderColor: colors.primary,
-                opacity: pressed ? 0.85 : 1,
-              })}
-            >
-              <Feather name="refresh-cw" size={14} color={colors.primary} />
-              <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>
-                Retry
-              </Text>
-            </Pressable>
-          </Card>
+          <ErrorCard onRetry={() => q.refetch()} />
         ) : reports.length === 0 ? (
           <Card>
             <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
               No MLB games today
             </Text>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.body,
-                fontSize: 13,
-                marginTop: 4,
-              }}
-            >
-              There are no MLB games on today&apos;s slate with a known ballpark, so there&apos;s no
-              park weather to show right now.
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4 }}>
+              There are no MLB games on today&apos;s slate with a known ballpark right now.
             </Text>
           </Card>
         ) : (
           <>
-            {/* Park selector — one chip per game on today's slate. */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
-              style={{ marginBottom: 14 }}
-            >
-              {reports.map((r) => (
-                <Pill
-                  key={r.gameId}
-                  label={`${r.awayAbbr} @ ${r.homeAbbr}`}
-                  active={selected?.gameId === r.gameId}
-                  onPress={() => setSelectedId(r.gameId)}
-                />
-              ))}
-            </ScrollView>
+            <TabRow tab={tab} onTab={setTab} />
 
             {selected && (
               <>
-                {/* Game header line */}
-                <View style={{ marginBottom: 12 }}>
-                  <Text
-                    style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 16 }}
-                  >
-                    {selected.awayTeam} @ {selected.homeTeam}
-                  </Text>
-                  <Text
-                    style={{
-                      color: colors.mutedForeground,
-                      fontFamily: FONT.body,
-                      fontSize: 13,
-                      marginTop: 2,
-                    }}
-                  >
-                    {selected.parkName} · {selected.city}
-                    {fmtFirstPitch(selected.commenceTime)
-                      ? ` · First pitch ${fmtFirstPitch(selected.commenceTime)}`
-                      : ""}
-                  </Text>
-                </View>
+                <VenueSelector
+                  report={selected}
+                  reports={reports}
+                  open={venueOpen}
+                  onToggle={() => setVenueOpen((v) => !v)}
+                  onSelect={(id) => {
+                    setSelectedId(id);
+                    setVenueOpen(false);
+                  }}
+                />
 
-                {/* AI Weather Impact — deterministic rating computed from real values. */}
-                <ImpactCard report={selected} colors={colors} />
+                {tab === "today" && (
+                  <>
+                    <HeroWeatherCard report={selected} />
+                    <ImpactBanner report={selected} />
+                    <SectionTitle>Detailed Conditions</SectionTitle>
+                    <DetailGrid report={selected} />
+                    <SectionTitle>How This Affects The Game</SectionTitle>
+                    <GameEffectsGrid report={selected} />
+                  </>
+                )}
 
-                {/* Today / Tomorrow / Outlook tabs */}
-                <View style={{ flexDirection: "row", gap: 8, marginTop: 16, marginBottom: 12 }}>
-                  <TabPill label="Today" active={tab === "today"} onPress={() => setTab("today")} />
-                  <TabPill
-                    label="Tomorrow"
-                    active={tab === "tomorrow"}
-                    onPress={() => setTab("tomorrow")}
-                  />
-                  <TabPill
-                    label="3-Day Outlook"
-                    active={tab === "outlook"}
-                    onPress={() => setTab("outlook")}
-                  />
-                </View>
-
-                {tab === "today" && <TodayConditions report={selected} colors={colors} />}
-                {tab === "tomorrow" && <TomorrowForecast report={selected} colors={colors} />}
-                {tab === "outlook" && <OutlookForecast report={selected} colors={colors} />}
+                {tab === "tomorrow" && <TomorrowPanel report={selected} />}
+                {tab === "outlook" && <OutlookPanel report={selected} />}
               </>
             )}
 
-            {/* Today's games quick list */}
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: FONT.semibold,
-                fontSize: 15,
-                marginTop: 22,
-                marginBottom: 10,
-              }}
-            >
-              Today&apos;s Games
-            </Text>
-            {reports.map((r) => {
-              const tone = ratingTone(r.impact.rating, colors);
-              const active = selected?.gameId === r.gameId;
-              return (
-                <Pressable
-                  key={r.gameId}
-                  onPress={() => setSelectedId(r.gameId)}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 8 })}
-                >
-                  <Card
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      borderColor: active ? colors.primary : colors.border,
-                    }}
-                  >
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text
-                        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
-                      >
-                        {r.awayAbbr} @ {r.homeAbbr}
-                      </Text>
-                      <Text
-                        style={{
-                          color: colors.mutedForeground,
-                          fontFamily: FONT.body,
-                          fontSize: 12,
-                          marginTop: 2,
-                        }}
-                      >
-                        {[
-                          r.parkName,
-                          r.current.tempF != null ? `${Math.round(r.current.tempF)}°F` : null,
-                          r.current.condition,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </Text>
-                    </View>
-                    <View
-                      style={{
-                        paddingHorizontal: 9,
-                        paddingVertical: 5,
-                        borderRadius: 8,
-                        backgroundColor: tone + "22",
-                      }}
-                    >
-                      <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 11 }}>
-                        {r.impact.rating}
-                      </Text>
-                    </View>
-                  </Card>
-                </Pressable>
-              );
-            })}
+            <SectionTitle style={{ marginTop: 22 }}>Today&apos;s Games</SectionTitle>
+            {reports.map((r) => (
+              <GameListRow
+                key={r.gameId}
+                report={r}
+                active={selected?.gameId === r.gameId}
+                onPress={() => {
+                  setSelectedId(r.gameId);
+                  setTab("today");
+                  setVenueOpen(false);
+                }}
+              />
+            ))}
 
-            {/* Provenance + auto-update note */}
-            <View style={{ marginTop: 16, alignItems: "center", gap: 2 }}>
+            <View style={{ marginTop: 18, alignItems: "center", gap: 4 }}>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                Live data from OpenWeather · auto-updates every ~12 min
+                Weather updates every 15 minutes
               </Text>
-              {lastUpdated && (
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-                  Last updated {lastUpdated}
-                </Text>
-              )}
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+                Weather powered by OpenWeather
+              </Text>
             </View>
           </>
         )}
@@ -315,26 +176,52 @@ export default function WeatherScreen() {
   );
 }
 
-function TabPill({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
+function SectionTitle({ children, style }: { children: string; style?: object }) {
+  const colors = useColors();
+  return (
+    <Text
+      style={{
+        color: colors.foreground,
+        fontFamily: FONT.semibold,
+        fontSize: 15,
+        marginTop: 18,
+        marginBottom: 10,
+        ...style,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+function TabRow({ tab, onTab }: { tab: TabKey; onTab: (t: TabKey) => void }) {
+  const items: { id: TabKey; label: string }[] = [
+    { id: "today", label: "Today" },
+    { id: "tomorrow", label: "Tomorrow" },
+    { id: "outlook", label: "5-Day Outlook" },
+  ];
+  return (
+    <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+      {items.map((item) => (
+        <TabPill key={item.id} label={item.label} active={tab === item.id} onPress={() => onTab(item.id)} />
+      ))}
+    </View>
+  );
+}
+
+function TabPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const colors = useColors();
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => ({
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 10,
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: active ? colors.primary : colors.border,
-        backgroundColor: active ? "rgba(59,130,246,0.12)" : colors.card,
+        backgroundColor: active ? "rgba(59,130,246,0.14)" : colors.card,
+        alignItems: "center",
         opacity: pressed ? 0.85 : 1,
       })}
     >
@@ -351,169 +238,353 @@ function TabPill({
   );
 }
 
-function ImpactCard({
+function VenueSelector({
   report,
-  colors,
+  reports,
+  open,
+  onToggle,
+  onSelect,
 }: {
   report: ParkWeatherReport;
-  colors: ReturnType<typeof useColors>;
+  reports: ParkWeatherReport[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (id: string) => void;
 }) {
-  const tone = ratingTone(report.impact.rating, colors);
+  const colors = useColors();
   return (
-    <Card style={{ borderColor: tone + "55" }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <Feather name="activity" size={16} color={tone} />
-        <Text
+    <View style={{ marginBottom: 12 }}>
+      <Pressable
+        onPress={onToggle}
+        style={({ pressed }) => ({
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 14,
+          padding: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          opacity: pressed ? 0.9 : 1,
+        })}
+      >
+        <View
           style={{
-            color: colors.mutedForeground,
-            fontFamily: FONT.bold,
-            fontSize: 11,
-            letterSpacing: 0.6,
+            width: 36,
+            height: 36,
+            borderRadius: 10,
+            backgroundColor: "rgba(59,130,246,0.12)",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          AI WEATHER IMPACT
-        </Text>
+          <Feather name="map-pin" size={18} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
+            {report.parkName}
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+            {report.city}
+            {fmtFirstPitch(report.commenceTime) ? ` · ${report.awayAbbr} @ ${report.homeAbbr}` : ""}
+          </Text>
+        </View>
+        <Feather name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
+      </Pressable>
+      {open ? (
+        <View
+          style={{
+            marginTop: 8,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 14,
+            overflow: "hidden",
+          }}
+        >
+          {reports.map((r, i) => (
+            <Pressable
+              key={r.gameId}
+              onPress={() => onSelect(r.gameId)}
+              style={({ pressed }) => ({
+                padding: 12,
+                borderTopWidth: i === 0 ? 0 : 1,
+                borderTopColor: colors.border,
+                backgroundColor: report.gameId === r.gameId ? "rgba(59,130,246,0.08)" : "transparent",
+                opacity: pressed ? 0.85 : 1,
+              })}
+            >
+              <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                {r.parkName}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12 }}>
+                {r.awayAbbr} @ {r.homeAbbr} · {r.city}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function HeroWeatherCard({ report }: { report: ParkWeatherReport }) {
+  const colors = useColors();
+  const c = report.current;
+  const icon = conditionIconName(c.condition);
+  return (
+    <Card style={{ marginBottom: 12 }}>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+        <View>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 48, lineHeight: 52 }}>
+            {fmtVal(c.tempF, (n) => `${Math.round(n)}°F`)}
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 2 }}>
+            Feels like {fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`)}
+          </Text>
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 4 }}>
+          <Feather name={icon} size={36} color={colors.primary} />
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            {c.condition ?? "Conditions"}
+          </Text>
+        </View>
       </View>
+
       <View
         style={{
-          alignSelf: "flex-start",
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 8,
-          backgroundColor: tone + "22",
-          marginBottom: 10,
+          flexDirection: "row",
+          marginTop: 16,
+          paddingTop: 14,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
         }}
       >
-        <Text style={{ color: tone, fontFamily: FONT.display, fontSize: 18 }}>
-          {report.impact.rating}
-        </Text>
+        <HeroStat label="Wind" value={windDisplay(c)} />
+        <HeroStat label="Humidity" value={fmtVal(c.humidity, (n) => `${n}%`)} />
+        <HeroStat label="Precip" value={precipDisplay(c)} />
       </View>
-      <Text
-        style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 14, lineHeight: 20 }}
-      >
-        {report.impact.summary}
-      </Text>
-      {report.climateControlled && (
-        <View style={{ marginTop: 10 }}>
-          <Badge label="ROOF / CLIMATE CONTROLLED" tone="muted" />
-        </View>
-      )}
     </Card>
   );
 }
 
-function StatTile({
-  label,
-  value,
-  icon,
-  colors,
-}: {
-  label: string;
-  value: string;
-  icon: FeatherName;
-  colors: ReturnType<typeof useColors>;
-}) {
+function HeroStat({ label, value }: { label: string; value: string }) {
+  const colors = useColors();
   return (
-    <View
-      style={{
-        width: "48%",
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 12,
-        padding: 12,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
-        <Feather name={icon} size={13} color={colors.mutedForeground} />
-        <Text
-          style={{
-            color: colors.mutedForeground,
-            fontFamily: FONT.medium,
-            fontSize: 11,
-            letterSpacing: 0.3,
-          }}
-        >
-          {label}
-        </Text>
-      </View>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 18 }}>
+    <View style={{ flex: 1 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, letterSpacing: 0.4 }}>
+        {label.toUpperCase()}
+      </Text>
+      <Text
+        style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, marginTop: 4 }}
+        numberOfLines={2}
+      >
         {value}
       </Text>
     </View>
   );
 }
 
-function TodayConditions({
-  report,
-  colors,
-}: {
-  report: ParkWeatherReport;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const c = report.current;
+function ImpactBanner({ report }: { report: ParkWeatherReport }) {
+  const colors = useColors();
+  const level = impactLevelTone(report.impact.rating);
+  const theme = impactColors(level, colors);
   return (
-    <View style={{ gap: 10 }}>
-      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-        {c.condition ? `Current Conditions — ${c.condition}` : "Current Conditions"}
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: theme.border,
+        backgroundColor: theme.bg,
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 4,
+      }}
+    >
+      <Text style={{ color: theme.text, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
+        TODAY&apos;S IMPACT: {impactLevelLabel(report.impact.rating)}
       </Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-        <StatTile label="TEMPERATURE" value={fmtVal(c.tempF, (n) => `${Math.round(n)}°F`)} icon="thermometer" colors={colors} />
-        <StatTile label="FEELS LIKE" value={fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`)} icon="thermometer" colors={colors} />
-        <StatTile label="WIND SPEED" value={fmtVal(c.windMph, (n) => `${Math.round(n)} mph`)} icon="wind" colors={colors} />
-        <StatTile
-          label="WIND DIRECTION"
-          value={
-            c.windDir != null && c.windDeg != null
-              ? `${c.windDir} · ${Math.round(c.windDeg)}°`
-              : "Not reported"
-          }
-          icon="compass"
-          colors={colors}
-        />
-        <StatTile label="GUSTS" value={fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`)} icon="wind" colors={colors} />
-        <StatTile label="HUMIDITY" value={fmtVal(c.humidity, (n) => `${n}%`)} icon="droplet" colors={colors} />
-        <StatTile label="PRESSURE" value={fmtVal(c.pressureInHg, (n) => `${n.toFixed(2)} inHg`)} icon="bar-chart-2" colors={colors} />
-        <StatTile label="CLOUD COVER" value={fmtVal(c.cloudCoverPct, (n) => `${n}%`)} icon="cloud" colors={colors} />
-        <StatTile label="PRECIP CHANCE" value={fmtVal(c.precipChancePct, (n) => `${n}%`)} icon="cloud-rain" colors={colors} />
-      </View>
+      <Text
+        style={{
+          color: colors.foreground,
+          fontFamily: FONT.body,
+          fontSize: 14,
+          lineHeight: 20,
+          marginTop: 8,
+        }}
+      >
+        {impactBannerCopy(report.impact.rating, report.climateControlled)}
+      </Text>
     </View>
   );
 }
 
-function ForecastRow({
-  day,
-  colors,
-}: {
-  day: ParkWeatherReport["forecast"][number];
-  colors: ReturnType<typeof useColors>;
-}) {
+function DetailGrid({ report }: { report: ParkWeatherReport }) {
+  const colors = useColors();
+  const c = report.current;
+  const tiles = [
+    { label: "Temp", value: fmtVal(c.tempF, (n) => `${Math.round(n)}°F`), icon: "thermometer" as FeatherName },
+    { label: "Feels Like", value: fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`), icon: "thermometer" },
+    { label: "Wind", value: windDisplay(c), icon: "wind" },
+    { label: "Gusts", value: fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`), icon: "wind" },
+    { label: "Humidity", value: fmtVal(c.humidity, (n) => `${n}%`), icon: "droplet" },
+    { label: "Pressure", value: fmtVal(c.pressureInHg, (n) => `${n.toFixed(2)} in`), icon: "bar-chart-2" },
+    { label: "Cloud Cover", value: fmtVal(c.cloudCoverPct, (n) => `${n}%`), icon: "cloud" },
+    { label: "Precip Chance", value: fmtVal(c.precipChancePct, (n) => `${n}%`), icon: "cloud-rain" },
+  ];
   return (
-    <Card
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        marginBottom: 8,
-      }}
-    >
-      <View style={{ flex: 1, paddingRight: 10 }}>
-        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-          {day.label}
-        </Text>
-        <Text
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+      {tiles.map((t) => (
+        <View
+          key={t.label}
           style={{
-            color: colors.mutedForeground,
-            fontFamily: FONT.body,
-            fontSize: 12,
-            marginTop: 2,
+            width: "48%",
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 12,
           }}
         >
-          {[
-            day.condition,
-            day.precipChancePct != null ? `${day.precipChancePct}% precip` : null,
-            day.windMph != null ? `${Math.round(day.windMph)} mph wind` : null,
-          ]
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <Feather name={t.icon} size={13} color={colors.mutedForeground} />
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{t.label}</Text>
+          </View>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 17 }}>{t.value}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function GameEffectsGrid({ report }: { report: ParkWeatherReport }) {
+  const colors = useColors();
+  const effects = gameWeatherEffects(report);
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+      {effects.map((e) => (
+        <GameEffectTile key={e.label} effect={e} />
+      ))}
+    </View>
+  );
+}
+
+function GameEffectTile({ effect }: { effect: GameEffectCard }) {
+  const colors = useColors();
+  const tone = trendColors(effect.trend, colors);
+  return (
+    <View
+      style={{
+        width: "48%",
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 12,
+        padding: 12,
+      }}
+    >
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{effect.label}</Text>
+      <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 13, marginTop: 6, letterSpacing: 0.3 }}>
+        {effect.trend}
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 4 }}>
+        {effect.detail}
+      </Text>
+    </View>
+  );
+}
+
+function GameListRow({
+  report,
+  active,
+  onPress,
+}: {
+  report: ParkWeatherReport;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  const c = report.current;
+  const badge = shortImpactBadge(report.impact.rating);
+  const badgeTone = impactLevelTone(report.impact.rating);
+  const badgeColor = impactColors(badgeTone, colors).text;
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 8 })}>
+      <Card
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          borderColor: active ? colors.primary : colors.border,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            {report.awayAbbr} @ {report.homeAbbr}
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+            {fmtFirstPitch(report.commenceTime)}
+            {c.tempF != null ? ` · ${Math.round(c.tempF)}°F` : ""}
+            {c.windMph != null ? ` · ${Math.round(c.windMph)} mph` : ""}
+          </Text>
+        </View>
+        <View
+          style={{
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            borderRadius: 8,
+            backgroundColor: badgeColor + "22",
+          }}
+        >
+          <Text style={{ color: badgeColor, fontFamily: FONT.bold, fontSize: 10 }}>{badge}</Text>
+        </View>
+      </Card>
+    </Pressable>
+  );
+}
+
+function TomorrowPanel({ report }: { report: ParkWeatherReport }) {
+  const colors = useColors();
+  const day = report.forecast.find((d) => d.label === "Tomorrow");
+  if (!day) {
+    return (
+      <Card>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
+          Tomorrow&apos;s forecast isn&apos;t available from the feed yet.
+        </Text>
+      </Card>
+    );
+  }
+  return <ForecastCard day={day} />;
+}
+
+function OutlookPanel({ report }: { report: ParkWeatherReport }) {
+  const days = report.forecast.filter((d) => d.label !== "Today").slice(0, 5);
+  const colors = useColors();
+  if (!days.length) {
+    return (
+      <Card>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
+          A multi-day outlook isn&apos;t available from the feed right now.
+        </Text>
+      </Card>
+    );
+  }
+  return (
+    <View style={{ gap: 8 }}>
+      {days.map((d) => (
+        <ForecastCard key={d.date} day={d} />
+      ))}
+    </View>
+  );
+}
+
+function ForecastCard({ day }: { day: ParkWeatherReport["forecast"][number] }) {
+  const colors = useColors();
+  return (
+    <Card style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <View style={{ flex: 1, paddingRight: 10 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>{day.label}</Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+          {[day.condition, day.precipChancePct != null ? `${day.precipChancePct}% precip` : null, day.windMph != null ? `${Math.round(day.windMph)} mph wind` : null]
             .filter(Boolean)
             .join(" · ") || "Limited forecast data"}
         </Text>
@@ -525,49 +596,36 @@ function ForecastRow({
   );
 }
 
-function TomorrowForecast({
-  report,
-  colors,
-}: {
-  report: ParkWeatherReport;
-  colors: ReturnType<typeof useColors>;
-}) {
-  const day = report.forecast.find((d) => d.label === "Tomorrow");
-  if (!day) {
-    return (
-      <Card>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
-          Tomorrow&apos;s forecast isn&apos;t available from the feed yet.
-        </Text>
-      </Card>
-    );
-  }
-  return <ForecastRow day={day} colors={colors} />;
-}
-
-function OutlookForecast({
-  report,
-  colors,
-}: {
-  report: ParkWeatherReport;
-  colors: ReturnType<typeof useColors>;
-}) {
-  // Skip "Today"; show the next available days (the feed returns up to ~5).
-  const days = report.forecast.filter((d) => d.label !== "Today").slice(0, 3);
-  if (days.length === 0) {
-    return (
-      <Card>
-        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13 }}>
-          A multi-day outlook isn&apos;t available from the feed right now.
-        </Text>
-      </Card>
-    );
-  }
+function ErrorCard({ onRetry }: { onRetry: () => void }) {
+  const colors = useColors();
   return (
-    <View>
-      {days.map((d) => (
-        <ForecastRow key={d.date} day={d} colors={colors} />
-      ))}
-    </View>
+    <Card>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
+        Couldn&apos;t load weather
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, marginTop: 4 }}>
+        The live weather feed is unavailable right now. Pull to refresh to try again.
+      </Text>
+      <Pressable
+        onPress={onRetry}
+        style={({ pressed }) => ({
+          marginTop: 12,
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingHorizontal: 14,
+          paddingVertical: 9,
+          borderRadius: 999,
+          backgroundColor: "rgba(59,130,246,0.12)",
+          borderWidth: 1,
+          borderColor: colors.primary,
+          opacity: pressed ? 0.85 : 1,
+        })}
+      >
+        <Feather name="refresh-cw" size={14} color={colors.primary} />
+        <Text style={{ color: colors.primary, fontFamily: FONT.bold, fontSize: 13 }}>Retry</Text>
+      </Pressable>
+    </Card>
   );
 }
