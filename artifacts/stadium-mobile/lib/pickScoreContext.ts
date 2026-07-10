@@ -227,6 +227,19 @@ export function scoreGameLinePick(
         : fight.simulation.homeWinProbability
       : null;
 
+  const ufcPropRec =
+    (pick.sport === "ufc" || pick.sport === "mma") && fight?.propRecommendations?.length
+      ? fight.propRecommendations.find(
+          (r) =>
+            !r.skipped &&
+            r.market === pick.market &&
+            r.pick.toLowerCase() === pick.pick.toLowerCase(),
+        )
+      : null;
+  const ufcPropSimHit =
+    ufcPropRec?.simHitPct != null ? ufcPropRec.simHitPct / 100 : null;
+  const ufcPropEdge = ufcPropRec?.edgePct ?? null;
+
   const tennisSimHit =
     tennis?.simulation && pickSide
       ? pickSide === "away"
@@ -237,16 +250,19 @@ export function scoreGameLinePick(
   const scores: PickSubScores = {
     matchup,
     trend,
-    lineValue,
+    lineValue: ufcPropEdge != null ? scoreLineValue(ufcPropEdge) : lineValue,
     injury,
     lineShopping,
-    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? tennisSimHit),
+    simulation: scoreSimulation(
+      gameSimHitForPick(pick, gameSim) ?? ufcPropSimHit ?? fightSimHit ?? tennisSimHit,
+    ),
   };
-  // Pass the leg's real price AND the picked side's no-vig fair win probability so
-  // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
-  // of a two-sided main market, so a pick on the non-+EV side (which carries no
-  // `edge`) still gets a real win chance instead of reading "—".
-  const combined = combinePickScore(scores, edgePct, pick.odds, ro?.noVigFair ?? null);
+  const combined = combinePickScore(
+    scores,
+    ufcPropEdge ?? edgePct,
+    pick.odds,
+    ro?.noVigFair ?? null,
+  );
   return combined.composite == null ? null : combined;
 }
 

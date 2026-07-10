@@ -5,6 +5,8 @@ import type {
   FightRecommendation,
   H2hPostedOutcome,
 } from "./fightRecommendations.js";
+import type { UfcFightPropMarket, UfcFightPropsBundle } from "./citoUfcOdds.js";
+import { fetchUfcFightProps, availableUfcPropKeys } from "./citoUfcOdds.js";
 import {
   buildFightPickAnalysis,
   simMetricsFromResult,
@@ -102,6 +104,8 @@ export type FightAnalysis = {
   simMetrics: FightSimMetrics;
   recommendations: FightRecommendation[];
   books: FightBookLine[];
+  fightProps: UfcFightPropsBundle;
+  propRecommendations: FightRecommendation[];
 };
 
 const SEARCH_TTL = 24 * 60 * 60 * 1000;
@@ -537,22 +541,54 @@ export async function buildFightAnalysis(
   );
 
   const outcomes = opts.h2hOutcomes ?? [];
-  const prePickAnalysis = buildFightPickAnalysis(base.away, base.home, base.comparison, outcomes.length);
+  const fightProps = await fetchUfcFightProps(away, home);
+  const propKeys = availableUfcPropKeys(fightProps.markets);
+  const prePickAnalysis = buildFightPickAnalysis(
+    base.away,
+    base.home,
+    base.comparison,
+    outcomes.length,
+    propKeys,
+  );
   const simMetrics = simMetricsFromResult(base.simulation);
 
-  if (outcomes.length === 0) {
-    return { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [] };
+  let recommendations: FightRecommendation[] = [];
+  let books: FightBookLine[] = [];
+  if (outcomes.length > 0) {
+    const { buildFightRecommendations } = await import("./fightRecommendations.js");
+    const graded = buildFightRecommendations(
+      { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [], fightProps, propRecommendations: [] },
+      away,
+      home,
+      outcomes,
+      base.simulation,
+      prePickAnalysis,
+    );
+    recommendations = graded.recommendations;
+    books = graded.books;
   }
-  const { buildFightRecommendations } = await import("./fightRecommendations.js");
-  const { recommendations, books } = buildFightRecommendations(
-    { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [] },
-    away,
-    home,
-    outcomes,
-    base.simulation,
+
+  let propRecommendations: FightRecommendation[] = [];
+  if (fightProps.markets.length > 0) {
+    const { buildUfcPropRecommendations } = await import("./ufcPropRecommendations.js");
+    propRecommendations = buildUfcPropRecommendations(
+      fightProps.markets,
+      away,
+      home,
+      base.simulation,
+      prePickAnalysis,
+    );
+  }
+
+  return {
+    ...base,
     prePickAnalysis,
-  );
-  return { ...base, prePickAnalysis, simMetrics, recommendations, books };
+    simMetrics,
+    recommendations,
+    books,
+    fightProps,
+    propRecommendations,
+  };
 }
 
-export type { FightSimResult, FightRecommendation, FightBookLine, H2hPostedOutcome, FightPickAnalysis, FightSimMetrics };
+export type { FightSimResult, FightRecommendation, FightBookLine, H2hPostedOutcome, FightPickAnalysis, FightSimMetrics, UfcFightPropMarket, UfcFightPropsBundle };

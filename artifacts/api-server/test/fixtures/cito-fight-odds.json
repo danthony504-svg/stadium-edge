@@ -1,0 +1,25 @@
+{
+  "data": {
+    "boutId": "770c5302e32916ea",
+    "fighters": ["Tom Aspinall", "Jon Jones"],
+    "markets": {
+      "method_of_victory": [
+        { "outcome": "Tom Aspinall by KO/TKO", "odds": 280, "bookmaker": "draftkings" },
+        { "outcome": "Tom Aspinall by Submission", "odds": 900, "bookmaker": "draftkings" },
+        { "outcome": "Tom Aspinall by Decision", "odds": 450, "bookmaker": "fanduel" },
+        { "outcome": "Jon Jones by KO/TKO", "odds": 220, "bookmaker": "draftkings" },
+        { "outcome": "Jon Jones by Submission", "odds": 650, "bookmaker": "betonline" },
+        { "outcome": "Jon Jones by Decision", "odds": 180, "bookmaker": "draftkings" }
+      ],
+      "exact_round": [
+        { "outcome": "Round 1", "odds": 450, "bookmaker": "draftkings" },
+        { "outcome": "Round 2", "odds": 550, "bookmaker": "draftkings" },
+        { "outcome": "Round 3", "odds": 320, "bookmaker": "fanduel" }
+      ],
+      "goes_distance": [
+        { "outcome": "Yes", "odds": -110, "bookmaker": "draftkings" },
+        { "outcome": "No", "odds": -110, "bookmaker": "draftkings" }
+      ]
+    }
+  }
+}

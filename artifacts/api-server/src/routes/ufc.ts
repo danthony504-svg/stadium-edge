@@ -1,10 +1,12 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
+import { fetchUfcFightProps, isCitoConfigured } from "../lib/citoUfcOdds.js";
 
 const router: IRouter = Router();
 
 router.use("/sports/fight-analysis", rateLimit({ windowMs: 60_000, max: 120, name: "fight-analysis" }));
+router.use("/sports/ufc-fight-props", rateLimit({ windowMs: 60_000, max: 120, name: "ufc-fight-props" }));
 
 function parseH2hOutcomes(raw: unknown) {
   if (!Array.isArray(raw)) return [];
@@ -50,6 +52,26 @@ router.post("/sports/fight-analysis", async (req, res) => {
   const home = String(req.body?.home || "").trim();
   const h2hOutcomes = parseH2hOutcomes(req.body?.h2hOutcomes);
   await respondFightAnalysis(away, home, h2hOutcomes, res);
+});
+
+// Cito UFC prop odds — method of victory, goes distance, exact round, etc.
+// Returns empty markets when CITO_API_KEY is unset or no lines are posted.
+router.get("/sports/ufc-fight-props", async (req, res) => {
+  const away = String(req.query.away || "").trim();
+  const home = String(req.query.home || "").trim();
+  if (!away || !home) {
+    res.status(400).json({ error: "away and home fighter names are required" });
+    return;
+  }
+  try {
+    const props = await fetchUfcFightProps(away, home);
+    res.json({
+      ...props,
+      configured: isCitoConfigured(),
+    });
+  } catch {
+    res.status(502).json({ error: "ufc fight props unavailable" });
+  }
 });
 
 export default router;

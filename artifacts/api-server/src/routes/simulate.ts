@@ -291,6 +291,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
   if (sport === "ufc" || sport === "mma") {
     const analysis = await buildFightAnalysis(awayTeam, homeTeam);
     const sim = analysis.simulation;
+    const fightProps = analysis.fightProps;
     res.json({
       sport,
       homeTeam: homeTeam || null,
@@ -304,6 +305,9 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       confidenceScore: sim.confidenceScore,
       methodRates: sim.methodRates,
       lean: analysis.lean,
+      fightProps: fightProps?.markets?.length ? fightProps : undefined,
+      propRecommendations: (analysis.propRecommendations ?? []).filter((r) => !r.skipped),
+      simMetrics: analysis.simMetrics,
     });
     return;
   }

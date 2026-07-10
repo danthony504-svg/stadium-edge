@@ -4,6 +4,7 @@
 
 import type { FightComparison, Fighter, FighterRecentFight, FighterStyle } from "./ufc.js";
 import type { FightSimResult } from "./ufcMonteCarlo.js";
+import { adjustUnavailableMarkets } from "./citoUfcOdds.js";
 
 export type AnalysisFactor<T = string | number | null> = {
   value: T;
@@ -228,6 +229,7 @@ export function buildFightPickAnalysis(
   home: Fighter,
   comparison: FightComparison,
   booksCount: number,
+  availablePropKeys: string[] = [],
 ): FightPickAnalysis {
   const awayF = buildFighterPickFactors(away);
   const homeF = buildFighterPickFactors(home);
@@ -275,7 +277,7 @@ export function buildFightPickAnalysis(
     dataCoveragePct: Math.round((avail / maxAvail) * 1000) / 10,
     resolvedFighters: resolved,
     unavailableFactors: unavailableFactorLabels(away, home),
-    unavailableMarkets: [...UFC_UNAVAILABLE_MARKETS],
+    unavailableMarkets: adjustUnavailableMarkets(UFC_UNAVAILABLE_MARKETS, availablePropKeys),
   };
 }
 

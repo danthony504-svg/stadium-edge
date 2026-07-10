@@ -10,6 +10,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { AiPickCard } from "@/components/AiPickCard";
 import { GamePropsSection } from "@/components/GamePropsSection";
+import { UfcFightPropsSection } from "@/components/UfcFightPropsSection";
 import { InjuryReport } from "@/components/InjuryReport";
 import { parsePicks, sameGame, type ParsedPick } from "@/components/PickCard";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -554,6 +555,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const pre = data.prePickAnalysis;
   const metrics = data.simMetrics;
   const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
+  const propRecs = (data.propRecommendations ?? []).filter((r) => !r.skipped);
   const simReady = sim && sim.simulations > 0 && metrics;
   const fighterResolved = (f: FightAnalysis["away"]) => !!(f.record || f.athleteId || f.resolvedName);
   const resolvedCount = (fighterResolved(fa) ? 1 : 0) + (fighterResolved(fh) ? 1 : 0);
@@ -846,6 +848,41 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             : "No moneyline passes quality filters (edge, grade, sim, data coverage)."}
         </Text>
       )}
+
+      {propRecs.length > 0 ? (
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            QUALITY-FILTERED FIGHT PROPS
+          </Text>
+          {propRecs.map((r, i) => (
+            <View
+              key={`prop-${r.pick}-${i}`}
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: colors.radius,
+                padding: 10,
+                gap: 4,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, flex: 1 }}>
+                  {r.market}: {r.pick}
+                </Text>
+                {r.grade ? (
+                  <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12 }}>{r.grade}</Text>
+                ) : null}
+              </View>
+              <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+                {formatAmerican(r.odds)}
+                {r.edgePct != null ? ` · +${r.edgePct}% edge` : ""}
+                {r.simHitPct != null ? ` · sim ${r.simHitPct}%` : ""}
+                {r.book ? ` · ${r.book}` : ""}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>{r.reason}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {pre?.unavailableMarkets?.length ? (
         <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>
@@ -1556,6 +1593,8 @@ function GameDetailBody() {
           ) : null}
 
           {(game.sport === "ufc" || game.sport === "mma") ? <FightTaleOfTape game={game} /> : null}
+
+          {(game.sport === "ufc" || game.sport === "mma") ? <UfcFightPropsSection game={game} /> : null}
 
           {game.sport === "tennis" ? <TennisMatchupCard game={game} /> : null}
 

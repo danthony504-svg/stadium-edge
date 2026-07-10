@@ -1013,6 +1013,8 @@ export function marketFamily(s: string): string {
   if (/spread|run ?line|puck ?line/.test(m)) fam = "spread";
   else if (/total|over|under|o\/u/.test(m)) fam = "total";
   else if (/money|h2h|\bml\b/.test(m)) fam = "moneyline";
+  else if (/method of victory|ko\/tko|submission|decision|exact round|goes.*distance|fight goes/.test(m))
+    fam = "ufcprop";
   else fam = m;
   return period + fam;
 }
