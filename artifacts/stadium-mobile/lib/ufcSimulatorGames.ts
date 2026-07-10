@@ -33,7 +33,12 @@ type EspnCompetitor = {
   order?: number;
   score?: string;
   id?: string;
-  athlete?: { id?: string; displayName?: string; shortName?: string };
+  athlete?: {
+    id?: string;
+    displayName?: string;
+    shortName?: string;
+    flag?: { href?: string };
+  };
   team?: { id?: string; displayName?: string; abbreviation?: string; logo?: string };
 };
 
@@ -86,7 +91,7 @@ function competitorAbbr(c: EspnCompetitor | undefined): string | null {
 
 function competitorLogo(c: EspnCompetitor | undefined): string | null {
   if (!c) return null;
-  return c.team?.logo ?? null;
+  return c.athlete?.flag?.href ?? c.team?.logo ?? null;
 }
 
 export function mapEspnMmaScoreboardEvents(events: EspnEvent[]): EspnGame[] {
