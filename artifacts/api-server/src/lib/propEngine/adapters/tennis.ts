@@ -1,29 +1,8 @@
 import type { AnalyzePropsInput, PropLine, PropSimResult, SportPropAdapter } from "../types.js";
 import { runTennisPropMonteCarlo } from "../../tennisPropMonteCarlo.js";
 import type { TennisMatchPropContext, TennisPropLine } from "../../tennisPropTypes.js";
-import {
-  createTennisPropVendor,
-  createTennisStatsVendor,
-} from "../../tennisPropVendor.js";
-
-function toPropLine(row: TennisPropLine, sport: string): PropLine {
-  return {
-    sport,
-    eventId: row.eventId,
-    matchLabel: row.matchLabel,
-    awayName: row.awayPlayer,
-    homeName: row.homePlayer,
-    subject: row.player,
-    market: row.market,
-    marketLabel: row.marketLabel,
-    line: row.line,
-    side: row.side,
-    odds: row.odds,
-    book: row.book,
-    alt: row.alt,
-    commenceTime: row.commenceTime,
-  };
-}
+import { createTennisStatsVendor } from "../../tennisPropVendor.js";
+import { fetchSportPropLines, TENNIS_PROP_MARKETS } from "../vendors/propOdds.js";
 
 function toTennisLine(line: PropLine): TennisPropLine {
   return {
@@ -47,13 +26,14 @@ export const tennisPropAdapter: SportPropAdapter = {
   sports: ["tennis"],
 
   async fetchLines(input: AnalyzePropsInput): Promise<PropLine[]> {
-    const vendor = createTennisPropVendor(async () => input.eventId ?? null);
-    const rows = await vendor.fetchPropLines({
+    const rows = await fetchSportPropLines({
+      sport: "tennis",
       away: input.away,
       home: input.home,
       eventId: input.eventId,
+      markets: TENNIS_PROP_MARKETS,
     });
-    return rows.map((r) => toPropLine(r, "tennis"));
+    return rows.map((r) => ({ ...r, sport: "tennis" }));
   },
 
   async buildContext(input: AnalyzePropsInput): Promise<TennisMatchPropContext | null> {

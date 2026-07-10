@@ -665,6 +665,10 @@ export type PropsResponse = {
 // back empty and just narrow the pool — never fabricated.
 export const PROPS_SPORTS = ["mlb", "wnba", "nba", "nhl", "nfl", "ncaaf", "ncaab", "soccer"];
 
+// Sports whose player/fighter props are served by the cross-sport prop engine
+// (tennis aces/games, UFC method/round/sig-strikes) rather than the team props feed.
+export const ENGINE_PROP_SPORTS = ["tennis", "ufc"] as const;
+
 // ---------- +500 Steals (mobile-only longshot value feed + W/L record) ----------
 
 // A single longshot "steal": a live/upcoming bet at American odds +500..+30000
@@ -2030,9 +2034,14 @@ export type ChatContext = {
   // no UFC bout resolved real data.
   fightAnalysis?: Record<string, FightAnalysis>;
   // Real tennis matchup breakdowns keyed by "Away @ Home" — ATP/WTA ranking,
-  // recent form, H2H, and a deterministic stronger-player lean. Tennis is
-  // moneyline/spread/total only (no props). Omitted when no bout resolved data.
+  // recent form, H2H, and a deterministic stronger-player lean. Player props
+  // (when posted) ship via propRecommendations from the cross-sport prop engine.
   tennisAnalysis?: Record<string, TennisAnalysis>;
+  // Pre-graded engine props keyed by match label ("Away @ Home"). Coach may ONLY
+  // recommend props listed here for tennis/UFC (and any sport the engine covers).
+  propRecommendations?: Record<string, PropEngineRecommendation[]>;
+  // Legacy tennis-only alias — same shape as propRecommendations per match.
+  tennisPropRecommendations?: Record<string, PropEngineRecommendation[]>;
   // Real ESPN per-player game logs keyed by "Player Name#athleteId" — recent
   // form + vs-opponent + home/away & venue-correct split — so the coach defends
   // a prop with real numbers, not the book price. Omitted when none resolved.
@@ -2159,6 +2168,12 @@ export async function getTennisAnalysis(
 }
 
 /** Pre-graded prop recommendations from the cross-sport prop engine (Option B). */
+export type PropLearningRow = {
+  sport: string;
+  market: string;
+  outcome: "win" | "loss" | "push";
+};
+
 export type PropEngineRecommendation = {
   line: {
     sport: string;
@@ -2206,14 +2221,42 @@ export async function analyzeEventProps(
   sport: string,
   away: string,
   home: string,
-  opts?: { eventId?: string; signal?: AbortSignal },
+  opts?: { eventId?: string; learningHistory?: PropLearningRow[]; signal?: AbortSignal },
 ): Promise<PropEngineAnalyzeResult | null> {
   const q = new URLSearchParams({ sport, away, home });
   if (opts?.eventId) q.set("eventId", opts.eventId);
+  if (opts?.learningHistory?.length) q.set("learning", JSON.stringify(opts.learningHistory));
   try {
     return await getJson<PropEngineAnalyzeResult>(`/sports/prop-engine/analyze?${q}`, opts?.signal);
   } catch {
     return null;
+  }
+}
+
+export async function analyzeEventPropsBatch(
+  events: Array<{ sport: string; away: string; home: string; eventId?: string }>,
+  opts?: { learningHistory?: PropLearningRow[]; signal?: AbortSignal },
+): Promise<PropEngineAnalyzeResult[]> {
+  if (events.length === 0) return [];
+  try {
+    const res = await withTimeout(
+      expoFetch(`${API_BASE}/sports/prop-engine/analyze-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events,
+          learningHistory: opts?.learningHistory,
+        }),
+        signal: opts?.signal,
+      }),
+      REQUEST_TIMEOUT_MS * 2,
+      "/sports/prop-engine/analyze-batch",
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as { results?: PropEngineAnalyzeResult[] };
+    return json.results ?? [];
+  } catch {
+    return [];
   }
 }
 
@@ -3137,6 +3180,138 @@ export async function buildSoccerScorerGkContext(
   return { ...built, todayOnly, tomorrowOnly: false };
 }
 
+function engineRecToPropPoolEntry(rec: PropEngineRecommendation, startsAt: string): PropPoolEntry {
+  const { line, grade } = rec;
+  const side: "Over" | "Under" =
+    line.side === "Under" || line.side === "No" ? "Under" : "Over";
+  return {
+    sport: line.sport,
+    game: line.matchLabel,
+    marketLabel: line.marketLabel,
+    player: line.subject,
+    line: line.line,
+    side,
+    odds: line.odds,
+    athleteId: null,
+    marketKey: line.market,
+    startsAt,
+    edge: grade.edgePct,
+  };
+}
+
+function engineRecToRealProp(rec: PropEngineRecommendation, startsAt: string): RealPropEntry {
+  const { line, grade } = rec;
+  const isOver = line.side === "Over" || line.side === "Yes";
+  return {
+    sport: line.sport,
+    game: line.matchLabel,
+    startsAt,
+    player: line.subject,
+    market: line.market,
+    line: line.line,
+    over: isOver ? line.odds : null,
+    under: !isOver ? line.odds : null,
+    alt: line.alt,
+    edge: grade.edgePct,
+    ev: grade.evPct,
+    fairProb: grade.simHit,
+    simHitPct: grade.simHit != null ? Math.round(grade.simHit * 100) : null,
+  };
+}
+
+async function fetchEnginePropRecommendations(
+  sports: string[],
+  oddsAll: OddsGame[][],
+  gamesAll: EspnGame[][],
+  opts: {
+    signal?: AbortSignal;
+    learningHistory?: PropLearningRow[];
+    focalText?: string | null;
+    todayOnly: boolean;
+    tomorrowOnly: boolean;
+    maxEvents?: number;
+  },
+): Promise<{
+  propRecommendations: Record<string, PropEngineRecommendation[]>;
+  poolEntries: PropPoolEntry[];
+  realProps: RealPropEntry[];
+}> {
+  const empty = {
+    propRecommendations: {} as Record<string, PropEngineRecommendation[]>,
+    poolEntries: [] as PropPoolEntry[],
+    realProps: [] as RealPropEntry[],
+  };
+
+  let enabled = false;
+  try {
+    enabled = await propEngineAvailable(opts.signal);
+  } catch {
+    return empty;
+  }
+  if (!enabled) return empty;
+
+  const events: Array<{
+    sport: string;
+    away: string;
+    home: string;
+    eventId?: string;
+    startsAt: string;
+  }> = [];
+
+  for (const engSport of ENGINE_PROP_SPORTS) {
+    const idx = sports.indexOf(engSport);
+    if (idx < 0) continue;
+    for (const g of gamesAll[idx] ?? []) {
+      if (g.state === "post") continue;
+      const away = g.awayTeam || g.awayAbbr || "";
+      const home = g.homeTeam || g.homeAbbr || "";
+      if (!away || !home) continue;
+      if (!isPickable(g.startsAt)) continue;
+      if (opts.tomorrowOnly && !startsTomorrowUpcoming(g.startsAt)) continue;
+      if (opts.todayOnly && !startsTodayUpcoming(g.startsAt)) continue;
+      const oddsEntry = (oddsAll[idx] ?? []).find((o) => o.awayTeam === away && o.homeTeam === home);
+      events.push({
+        sport: engSport,
+        away,
+        home,
+        eventId: oddsEntry?.id,
+        startsAt: g.startsAt ?? oddsEntry?.commenceTime ?? "",
+      });
+    }
+  }
+
+  if (events.length === 0) return empty;
+
+  if (opts.focalText) {
+    const focalSports = focalSportsFromText(opts.focalText);
+    const isFocal = (e: (typeof events)[0]) =>
+      gameMatchesFocalText(`${e.away} @ ${e.home}`, opts.focalText) || focalSports.has(e.sport);
+    const focal = events.filter(isFocal);
+    if (focal.length > 0 && focal.length < events.length) {
+      events.splice(0, events.length, ...focal, ...events.filter((e) => !isFocal(e)));
+    }
+  }
+
+  const capped = events.slice(0, opts.maxEvents ?? 8);
+  const batch = await analyzeEventPropsBatch(
+    capped.map(({ sport, away, home, eventId }) => ({ sport, away, home, eventId })),
+    { learningHistory: opts.learningHistory, signal: opts.signal },
+  );
+
+  const out = { ...empty };
+  for (let i = 0; i < batch.length; i++) {
+    const result = batch[i];
+    if (!result?.recommended?.length) continue;
+    out.propRecommendations[result.matchLabel] = result.recommended;
+    const startsAt = capped[i]?.startsAt ?? "";
+    for (const rec of result.recommended) {
+      out.poolEntries.push(engineRecToPropPoolEntry(rec, startsAt));
+      out.realProps.push(engineRecToRealProp(rec, startsAt));
+    }
+  }
+  return out;
+}
+
 // Fetch live odds + games across the selected sports and assemble the real-data
 // context the chat AI requires so it never fabricates fixtures or prices.
 export async function buildChatContext(
@@ -3149,6 +3324,7 @@ export async function buildChatContext(
   altSign: AltSign = null,
   requestedLegs = 0,
   analyzeSlip = false,
+  propLearningHistory?: PropLearningRow[],
 ): Promise<BuiltChatContext> {
   // Scale how much of the slate we send the model to the ticket size the user
   // asked for (small parlays don't need the whole night's pool). Big tickets keep
@@ -3605,6 +3781,19 @@ export async function buildChatContext(
     await Promise.all(propGameSlice.map(ingestPropsForGame));
   }
 
+  // Cross-sport prop engine — tennis + UFC player/fighter props (10k sim, B+ gate).
+  const engineProps = lightParlay
+    ? { propRecommendations: {}, poolEntries: [], realProps: [] }
+    : await fetchEnginePropRecommendations(sports, oddsAll, gamesAll, {
+        signal,
+        learningHistory: propLearningHistory,
+        focalText,
+        todayOnly,
+        tomorrowOnly,
+      });
+  if (engineProps.poolEntries.length > 0) propPool.push(...engineProps.poolEntries);
+  if (engineProps.realProps.length > 0) realProps.push(...engineProps.realProps);
+
   // Focus the capped realOdds on the league/game the user actually named so a
   // single-game or single-sport ask (e.g. a Q1 same-game parlay) doesn't get its
   // odds truncated out by other sports that iterate first. Without this, the
@@ -3880,6 +4069,14 @@ export async function buildChatContext(
       ...(Object.keys(matchupHistory).length ? { matchupHistory } : {}),
       ...(Object.keys(fightAnalysis).length ? { fightAnalysis } : {}),
       ...(Object.keys(tennisAnalysis).length ? { tennisAnalysis } : {}),
+      ...(Object.keys(engineProps.propRecommendations).length
+        ? {
+            propRecommendations: engineProps.propRecommendations,
+            ...(sports.includes("tennis")
+              ? { tennisPropRecommendations: engineProps.propRecommendations }
+              : {}),
+          }
+        : {}),
       ...(Object.keys(playerHistory).length ? { playerHistory } : {}),
       ...(Object.keys(mlbPlatoon).length ? { mlbPlatoon } : {}),
       ...(Object.keys(mlbGameEnv).length ? { mlbGameEnv } : {}),

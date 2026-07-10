@@ -27,12 +27,15 @@ import { TeamPropsSheet, type TeamSheetData } from "@/components/TeamPropsSheet"
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
+  analyzeEventPropsBatch,
+  ENGINE_PROP_SPORTS,
   fetchPropSimulations,
   fetchUpsetSpots,
   getGames,
   getOdds,
   getProps,
   isPickable,
+  propEngineAvailable,
   propMarketLabel,
   PROPS_SPORTS,
   searchPlayer,
@@ -480,6 +483,7 @@ export default function PropsScreen() {
   // browse sports. The props data queries below still run only over propsSports —
   // browse sports have no prop feed, so they get a real matches list instead.
   const isBrowseSport = BROWSE_ONLY_SPORTS.includes(sport);
+  const isEngineSport = (ENGINE_PROP_SPORTS as readonly string[]).includes(sport);
 
   const searching = query.trim().length > 0;
 
@@ -588,6 +592,34 @@ export default function PropsScreen() {
       .filter((g) => isPickable(g.commenceTime))
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [browseOddsQ.data, isBrowseSport]);
+
+  const engineEvents = useMemo(
+    () =>
+      isBrowseSport && isEngineSport
+        ? browseGames.slice(0, 8).map((g) => ({
+            sport,
+            away: g.awayTeam,
+            home: g.homeTeam,
+            eventId: g.id,
+          }))
+        : [],
+    [browseGames, isBrowseSport, isEngineSport, sport],
+  );
+
+  const enginePropsQ = useQuery({
+    queryKey: [
+      "engine-props",
+      sport,
+      engineEvents.map((e) => `${e.away}|${e.home}|${e.eventId ?? ""}`).join(","),
+    ],
+    enabled: engineEvents.length > 0,
+    staleTime: 3 * 60_000,
+    queryFn: async ({ signal }) => {
+      const available = await propEngineAvailable(signal);
+      if (!available) return [];
+      return analyzeEventPropsBatch(engineEvents, { signal });
+    },
+  });
 
   // Candidate pool for the AI RECOMMENDED rail — built ONLY from the real props
   // feed: a real player, real posted line, and the value side (recommendSide).
@@ -737,6 +769,53 @@ export default function PropsScreen() {
     stats?: { grade: string; hits: number; n: number; hitPct: number };
   };
   const recommended = useMemo<RecItem[]>(() => {
+    if (isBrowseSport && isEngineSport) {
+      const batch = enginePropsQ.data ?? [];
+      const items: { item: RecItem; rank: number }[] = [];
+      for (const result of batch) {
+        for (const rec of result.recommended) {
+          const { line, grade } = rec;
+          const side = line.side === "Under" || line.side === "No" ? "Under" : "Over";
+          const label = line.marketLabel || propMarketLabel(line.market);
+          const pickStr =
+            line.line != null
+              ? `${line.subject} ${side} ${line.line} ${label}`
+              : `${line.subject} ${label}`;
+          items.push({
+            rank: rec.rankScore ?? 0,
+            item: {
+              pick: {
+                game: line.matchLabel,
+                market: label,
+                pick: pickStr,
+                odds: line.odds,
+                sport,
+                isProp: true,
+                startsAt: null,
+                player: line.subject,
+                propMarketKey: line.market,
+                propLine: line.line,
+                propSide: side,
+              },
+              badge: grade.grade ? { text: grade.grade, tone: "grade" } : null,
+              stats: grade.grade
+                ? {
+                    grade: grade.grade,
+                    hits: grade.simHit != null ? Math.round(grade.simHit * 100) : 0,
+                    n: rec.sim.simulations,
+                    hitPct: grade.simHit != null ? Math.round(grade.simHit * 100) : 0,
+                  }
+                : undefined,
+            },
+          });
+        }
+      }
+      if (items.length > 0) {
+        items.sort((a, b) => b.rank - a.rank);
+        return items.slice(0, REC_CAP).map((x) => x.item);
+      }
+    }
+
     const grades = gradesQ.data;
     const sims = simRankQ.data;
     const selectionOpts = {
@@ -814,7 +893,18 @@ export default function PropsScreen() {
       .sort((a, b) => a.pick.odds - b.pick.odds)
       .slice(0, REC_CAP)
       .map((c) => ({ pick: { ...c.pick, simulationPending: simRankQ.isFetching }, badge: null }));
-  }, [gradeCandidates, gradesQ.data, upsetsQ.data, simRankQ.data, simRankQ.isFetching, propPoolForRank]);
+  }, [
+    gradeCandidates,
+    gradesQ.data,
+    upsetsQ.data,
+    simRankQ.data,
+    simRankQ.isFetching,
+    propPoolForRank,
+    isBrowseSport,
+    isEngineSport,
+    enginePropsQ.data,
+    sport,
+  ]);
 
   // VALUE (+EV) rail — props whose BEST posted price beats the de-vigged
   // cross-book consensus fair value (a real market inefficiency). ev/evSide/

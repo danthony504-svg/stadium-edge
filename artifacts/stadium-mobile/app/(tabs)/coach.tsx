@@ -93,6 +93,7 @@ import { AnalysisProgress } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
+import { buildPropLearningHistory } from "@/lib/pickTracker";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
@@ -779,6 +780,10 @@ export default function CoachScreen() {
   // context so the Coach can lean into hot categories — advisory only, omitted
   // when nothing has settled. Recomputed only when the results ledger changes.
   const modelStrengths = useMemo(() => computeModelStrengths(results), [results]);
+  const propLearningHistory = useMemo(
+    () => buildPropLearningHistory(trackedPicks),
+    [trackedPicks],
+  );
   // Real settled hit-rate per market family, from the SAME results ledger the
   // Model Report uses. Feeds the market-weighting layer so a market above/below
   // the user's historical thresholds nudges its legs' Confidence (real data only;
@@ -1180,6 +1185,10 @@ export default function CoachScreen() {
                 undefined,
                 false,
                 trimmed,
+                null,
+                0,
+                false,
+                propLearningHistory,
               );
               if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
               const grounded: ChatMessage[] = history.map((m) => ({
@@ -1505,6 +1514,7 @@ export default function CoachScreen() {
                 altSign,
                 buildLegs,
                 wantsAnalyzeSlip(trimmed),
+                propLearningHistory,
               );
           const enriched =
             slipImageVerdictOnly || usePropPickPath

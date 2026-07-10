@@ -32,6 +32,8 @@ TENNIS_STATS_VENDOR_URL=...    # tennis-specific stats overlay
 |----------|---------|
 | `GET /sports/prop-engine/status` | Enabled + registered sports |
 | `GET /sports/prop-engine/analyze?sport=&away=&home=&eventId=` | Full scan → ranked recommendations |
+| `POST /sports/prop-engine/analyze-batch` | Batch scan for up to 16 events |
+| `GET /sports/prop-stats/match?sport=&away=&home=` | Embedded ESPN stats (+ HTTP overlay) |
 | `GET /sports/tennis-props/analyze` | Legacy alias (sport=tennis) |
 
 ## Architecture
@@ -90,8 +92,8 @@ Coach copies lines verbatim; never invents props.
 
 ## Next steps
 
-1. Wire `buildChatContext` to call `analyzeEventProps` per pickable event
-2. Connect pick-tracker graded outcomes → `learning` query param
+1. ~~Wire `buildChatContext` to call `analyzeEventProps` per pickable event~~ ✅
+2. ~~Connect pick-tracker graded outcomes → `learning` query param~~ ✅
 3. Roster resolution for team sports (athleteId in sim path)
-4. Props tab graded rail using `propEngine` for all sports
-5. Confirm live Odds API tennis/UFC player market keys
+4. ~~Props tab graded rail using `propEngine` for tennis/UFC~~ ✅
+5. Confirm live Odds API tennis/UFC player market keys + configure `PROP_ODDS_VENDOR_URL`

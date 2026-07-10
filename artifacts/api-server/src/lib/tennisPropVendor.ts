@@ -251,7 +251,7 @@ export function createTennisStatsVendor(): TennisStatsVendor {
 export function createTennisPropVendor(
   resolveEventId: (away: string, home: string) => Promise<string | null>,
 ): TennisPropVendor {
-  if (process.env.TENNIS_PROPS_ENABLED !== "1") return new StubTennisPropVendor();
+  if (!tennisPropsFeatureEnabled()) return new StubTennisPropVendor();
   const key = process.env.ODDS_API_KEY?.trim() ?? "";
   if (!key) return new StubTennisPropVendor();
   return new OddsApiTennisPropVendor(key, resolveEventId);

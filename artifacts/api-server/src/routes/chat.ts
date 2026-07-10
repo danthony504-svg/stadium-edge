@@ -1923,6 +1923,7 @@ router.post("/chat", async (req, res): Promise<void> => {
           matchupInjuries: bytes(lc.matchupInjuries),
           fightAnalysis: bytes(lc.fightAnalysis),
           tennisAnalysis: bytes(lc.tennisAnalysis),
+          propRecommendations: bytes(lc.propRecommendations),
           currentSlip: bytes(lc.currentSlip),
         },
       },

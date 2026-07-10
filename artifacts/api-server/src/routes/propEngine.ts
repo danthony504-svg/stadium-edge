@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { rateLimit } from "../lib/sports.js";
-import { analyzeEventProps, propEngineEnabled } from "../lib/propEngine/analyze.js";
+import { analyzeEventProps, analyzeEventPropsBatch, propEngineEnabled } from "../lib/propEngine/analyze.js";
 import { registeredPropEngineSports } from "../lib/propEngine/registry.js";
 import type { PropLearningRow } from "../lib/propEngine/types.js";
 
@@ -18,6 +18,11 @@ router.get("/sports/prop-engine/status", (_req, res) => {
       "optional PROP_ODDS_VENDOR_URL (combat/tennis prop overlay)",
       "optional PROP_STATS_VENDOR_URL (serve/return depth)",
       "optional TENNIS_STATS_VENDOR_URL (tennis-specific stats)",
+    ],
+    endpoints: [
+      "GET /sports/prop-engine/analyze",
+      "POST /sports/prop-engine/analyze-batch",
+      "GET /sports/prop-stats/match",
     ],
   });
 });
@@ -61,6 +66,52 @@ router.get("/sports/prop-engine/analyze", async (req, res): Promise<void> => {
     req.log?.error?.({ err }, "prop-engine analyze failed");
     res.status(502).json({
       error: err instanceof Error ? err.message : "prop analysis failed",
+    });
+  }
+});
+
+// POST /sports/prop-engine/analyze-batch
+// Body: { events: [{ sport, away, home, eventId? }], learningHistory?, maxRecommendations? }
+router.post("/sports/prop-engine/analyze-batch", async (req, res): Promise<void> => {
+  const body = req.body as {
+    events?: Array<{ sport?: string; away?: string; home?: string; eventId?: string }>;
+    learningHistory?: PropLearningRow[];
+    maxRecommendations?: number;
+    simulations?: number;
+  };
+
+  const events = Array.isArray(body.events) ? body.events : [];
+  if (events.length === 0) {
+    res.status(400).json({ error: "events array required" });
+    return;
+  }
+
+  const normalized = events
+    .map((e) => ({
+      sport: String(e.sport ?? "").trim().toLowerCase(),
+      away: String(e.away ?? "").trim(),
+      home: String(e.home ?? "").trim(),
+      eventId: e.eventId ? String(e.eventId).trim() : undefined,
+    }))
+    .filter((e) => e.sport && e.away && e.home);
+
+  if (normalized.length === 0) {
+    res.status(400).json({ error: "each event needs sport, away, and home" });
+    return;
+  }
+
+  try {
+    const results = await analyzeEventPropsBatch({
+      events: normalized,
+      learningHistory: body.learningHistory,
+      maxRecommendations: body.maxRecommendations,
+      simulations: body.simulations,
+    });
+    res.json({ results });
+  } catch (err) {
+    req.log?.error?.({ err }, "prop-engine analyze-batch failed");
+    res.status(502).json({
+      error: err instanceof Error ? err.message : "prop batch analysis failed",
     });
   }
 });

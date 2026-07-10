@@ -108,6 +108,27 @@ export async function analyzeEventProps(input: AnalyzePropsInput): Promise<PropE
   };
 }
 
+export type AnalyzeBatchInput = {
+  events: Array<Omit<AnalyzePropsInput, "learningHistory">>;
+  learningHistory?: AnalyzePropsInput["learningHistory"];
+  maxRecommendations?: number;
+  simulations?: number;
+};
+
+export async function analyzeEventPropsBatch(input: AnalyzeBatchInput): Promise<PropEngineResult[]> {
+  const capped = input.events.slice(0, 16);
+  return Promise.all(
+    capped.map((ev) =>
+      analyzeEventProps({
+        ...ev,
+        learningHistory: input.learningHistory,
+        maxRecommendations: input.maxRecommendations,
+        simulations: input.simulations,
+      }),
+    ),
+  );
+}
+
 /** @deprecated Use analyzeEventProps */
 export const analyzeTennisMatchProps = (input: Omit<AnalyzePropsInput, "sport"> & { away: string; home: string }) =>
   analyzeEventProps({ ...input, sport: "tennis" });

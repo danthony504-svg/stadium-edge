@@ -54,6 +54,8 @@ export type SlimChatContextInput = {
   matchupHistory?: Record<string, SlimMatchupEntry>;
   fightAnalysis?: Record<string, unknown>;
   tennisAnalysis?: Record<string, unknown>;
+  propRecommendations?: Record<string, unknown[]>;
+  tennisPropRecommendations?: Record<string, unknown[]>;
   playerHistory?: Record<string, unknown>;
   mlbPlatoon?: Record<string, unknown>;
   mlbGameEnv?: Record<string, unknown>;
@@ -127,6 +129,8 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
   const slimProps = slimRealPropsForUpload(context.realProps);
   const hasUfc = context.selectedSports?.includes("ufc");
   const hasTennis = context.selectedSports?.includes("tennis");
+  const hasEngineProps =
+    context.propRecommendations && Object.keys(context.propRecommendations).length > 0;
   return {
     ...context,
     realGames: [],
@@ -136,6 +140,8 @@ export function slimChatContextForUpload<T extends SlimChatContextInput>(context
     playerHistory: Object.keys(slimHistory).length ? slimHistory : context.playerHistory,
     fightAnalysis: hasUfc ? context.fightAnalysis : undefined,
     tennisAnalysis: hasTennis ? context.tennisAnalysis : undefined,
+    propRecommendations: hasEngineProps ? context.propRecommendations : undefined,
+    tennisPropRecommendations: hasTennis ? context.tennisPropRecommendations : undefined,
     mlbPlatoon: undefined,
     mlbGameEnv: undefined,
     matchupInjuries: undefined,
