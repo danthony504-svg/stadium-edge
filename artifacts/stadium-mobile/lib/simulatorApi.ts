@@ -91,7 +91,7 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     }
   }
 
-  // Stale API deploys return UFC event cards with null fighters — ESPN then odds.
+  // UFC: games route is ESPN-backed and often stale — resolve via odds primary.
   if (sportId === "ufc" || sportId === "mma") {
     return resolveUfcSimulatorGames(rows, (sig) => fetchSimulatorOdds("ufc", sig), signal);
   }

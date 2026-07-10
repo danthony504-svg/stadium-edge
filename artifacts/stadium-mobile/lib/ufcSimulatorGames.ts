@@ -1,5 +1,5 @@
-// UFC Game Simulator slate — ESPN scoreboard + odds API fallbacks when the games
-// route returns event-level cards without fighter names (stale API deploy).
+// UFC Game Simulator slate — The Odds API (via /sports/odds) is the primary fight
+// list when the games route is stale; ESPN scoreboard only enriches venue/IDs.
 
 import type { EspnGame, OddsGame } from "./api";
 
@@ -144,7 +144,14 @@ export function hasUfcFightLabels(games: EspnGame[]): boolean {
 }
 
 function normFightKey(away: string, home: string): string {
-  return `${away.toLowerCase().trim()}|${home.toLowerCase().trim()}`;
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  return `${norm(away)}|${norm(home)}`;
 }
 
 export function mapOddsRowsToUfcSimulatorGames(odds: OddsGame[]): EspnGame[] {
@@ -212,7 +219,29 @@ export async function fetchUfcSimulatorGamesFromEspn(signal?: AbortSignal): Prom
   }
 }
 
-/** Prefer API fights with names, then ESPN card, then odds-feed matchups. */
+/** Copy venue/start from ESPN when odds matched the same bout. */
+export function mergeEspnVenueIntoOdds(oddsGames: EspnGame[], espnGames: EspnGame[]): EspnGame[] {
+  const byKey = new Map<string, EspnGame>();
+  for (const g of espnGames) {
+    if (!g.awayTeam || !g.homeTeam) continue;
+    byKey.set(normFightKey(g.awayTeam, g.homeTeam), g);
+  }
+  return oddsGames.map((o) => {
+    if (!o.awayTeam || !o.homeTeam) return o;
+    const espn = byKey.get(normFightKey(o.awayTeam, o.homeTeam));
+    if (!espn) return o;
+    return {
+      ...o,
+      venue: o.venue ?? espn.venue,
+      homeTeamId: o.homeTeamId ?? espn.homeTeamId,
+      awayTeamId: o.awayTeamId ?? espn.awayTeamId,
+      homeAbbr: o.homeAbbr ?? espn.homeAbbr,
+      awayAbbr: o.awayAbbr ?? espn.awayAbbr,
+    };
+  });
+}
+
+/** Prefer API fights with names, then odds feed (primary), ESPN scoreboard enriches venue. */
 export async function resolveUfcSimulatorGames(
   apiRows: EspnGame[],
   fetchOdds: (signal?: AbortSignal) => Promise<OddsGame[]>,
@@ -221,14 +250,13 @@ export async function resolveUfcSimulatorGames(
   const labeled = apiRows.filter(isUfcFightRow);
   if (labeled.length) return labeled;
 
-  const [espn, odds] = await Promise.all([
-    fetchUfcSimulatorGamesFromEspn(signal),
+  const [odds, espn] = await Promise.all([
     fetchOdds(signal).catch(() => [] as OddsGame[]),
+    fetchUfcSimulatorGamesFromEspn(signal),
   ]);
-  if (espn.length) return espn;
 
   const fromOdds = mapOddsRowsToUfcSimulatorGames(odds);
-  if (fromOdds.length) return fromOdds;
+  if (fromOdds.length) return mergeEspnVenueIntoOdds(fromOdds, espn);
 
-  return [];
+  return espn;
 }
