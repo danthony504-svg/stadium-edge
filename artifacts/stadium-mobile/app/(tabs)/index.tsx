@@ -19,6 +19,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
+import { UpcomingGamesModal } from "@/components/UpcomingGamesModal";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -439,6 +440,7 @@ type HomeSportFeedProps = {
   isWideLayout: boolean;
   hotCardWidth: number;
   quickCardWidth: number;
+  onViewAllUpcoming: () => void;
 };
 
 function HomeSportFeed({
@@ -452,6 +454,7 @@ function HomeSportFeed({
   isWideLayout,
   hotCardWidth,
   quickCardWidth,
+  onViewAllUpcoming,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
 
@@ -1728,8 +1731,9 @@ function HomeSportFeed({
           {displayUpcoming.length > 0 ? (
             <Pressable
               hitSlop={8}
-              onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}
+              onPress={onViewAllUpcoming}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            >
             >
               <Text
                 style={{
@@ -2034,6 +2038,7 @@ export default function HomeScreen() {
   // Five shortcut cards — horizontal scroll when they don't fit on one screen.
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
+  const [upcomingModalSport, setUpcomingModalSport] = useState<string | null>(null);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
   sportRef.current = sport;
@@ -2168,6 +2173,7 @@ export default function HomeScreen() {
             width={width}
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
+            onViewAllUpcoming={() => setUpcomingModalSport("tennis")}
             onBuildParlay={() => {
               markCoachHomeLaunch();
               router.push({
@@ -2194,8 +2200,14 @@ export default function HomeScreen() {
           isWideLayout={isWideLayout}
           hotCardWidth={hotCardWidth}
           quickCardWidth={quickCardWidth}
+          onViewAllUpcoming={() => setUpcomingModalSport(sport)}
         />
       )}
+      <UpcomingGamesModal
+        sportId={upcomingModalSport}
+        visible={upcomingModalSport != null}
+        onClose={() => setUpcomingModalSport(null)}
+      />
     </View>
   );
 }

@@ -48,6 +48,7 @@ type TennisHomeFeedProps = {
   slipClearance: number;
   bottomInset: number;
   onBuildParlay: () => void;
+  onViewAllUpcoming: () => void;
 };
 
 /** Minimal Home feed for Tennis — no featured props, upsets, or useQueries fan-out. */
@@ -57,6 +58,7 @@ export function TennisHomeFeed({
   slipClearance,
   bottomInset,
   onBuildParlay,
+  onViewAllUpcoming,
 }: TennisHomeFeedProps) {
   const colors = useColors();
   const sport = "tennis";
@@ -238,7 +240,7 @@ export function TennisHomeFeed({
           Upcoming Matches
         </Text>
         {upcoming.length > 0 ? (
-          <Pressable onPress={() => router.push({ pathname: "/upcoming", params: { sport } })}>
+          <Pressable onPress={onViewAllUpcoming}>
             <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>View all</Text>
           </Pressable>
         ) : null}

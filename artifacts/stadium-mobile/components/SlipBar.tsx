@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { usePathname, useRouter } from "expo-router";
+import { usePathname, router } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useEffect, useState } from "react";
 import {
@@ -79,7 +79,6 @@ function SlipBarBody({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { legs, combinedOdds, stake, removeLeg, clearLegs } = useBetSlip();
   const [open, setOpen] = useState(false);
   const [kbVisible, setKbVisible] = useState(false);
