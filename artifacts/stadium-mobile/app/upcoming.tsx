@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRootNavigationState, useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -205,6 +205,7 @@ function UpcomingScreenBody() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const rootNav = useRootNavigationState();
   const { sport } = useLocalSearchParams<{ sport: string | string[] }>();
   const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "").toLowerCase();
 
@@ -295,6 +296,14 @@ function UpcomingScreenBody() {
     );
   }
 
+  if (!rootNav?.key) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <Loading label="Loading upcoming games…" />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View
@@ -375,7 +384,7 @@ function UpcomingScreenBody() {
           })}
         </ScrollView>
       )}
-      <SlipBar />
+      <SlipBar pathname="/upcoming" />
     </View>
   );
 }

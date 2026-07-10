@@ -38,6 +38,21 @@ test("oddsRowsFromQuery ignores malformed object without rows", () => {
   assert.deepEqual(oddsRowsFromQuery({ gen: 1, league: "ufc" }, "ufc"), []);
 });
 
+test("oddsRowsFromQuery reads MLB Home cache payload", () => {
+  const rows: OddsGame[] = [
+    {
+      id: "mlb-1",
+      sport: "mlb",
+      awayTeam: "New York Yankees",
+      homeTeam: "Boston Red Sox",
+      commenceTime: "2026-07-10T23:00:00Z",
+      markets: [{ key: "h2h", outcomes: [] }],
+    },
+  ];
+  assert.deepEqual(oddsRowsFromQuery({ gen: 1, league: "mlb", rows }, "mlb"), rows);
+  assert.deepEqual(oddsPayloadFromQuery({ gen: 1, league: "mlb", rows }, "mlb").rows.length, 1);
+});
+
 test("oddsRowsFromQuery reads WNBA Home cache payload", () => {
   const rows: OddsGame[] = [
     {
