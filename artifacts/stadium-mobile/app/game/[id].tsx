@@ -295,6 +295,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
         propPool,
         matchupHistory: context.matchupHistory,
         matchupInjuries: context.matchupInjuries,
+        fightAnalysis: context.fightAnalysis,
         perfByFamily: marketPerf,
       });
       // Only commit if this is still the latest in-flight request (a refresh or
@@ -426,11 +427,29 @@ function AiGamePicks({ game }: { game: OddsGame }) {
   );
 }
 
-// Real UFC "Tale of the Tape" — both fighters' real ESPN records + career
-// striking/grappling rates, plus the deterministic stronger-fighter lean and an
-// upset badge when that fighter is also the betting dog. Honest-null cells (—)
-// when ESPN carries no value; never fabricated. Renders nothing for non-UFC
-// games or bouts with no resolvable data.
+function h2hOutcomesFromGame(game: OddsGame) {
+  const out: { name: string; price: number; book: string | null }[] = [];
+  for (const m of safeMarkets(game).filter((mk) => mk.key === "h2h")) {
+    for (const o of m.outcomes ?? []) {
+      if (o.books?.length) {
+        for (const b of o.books) {
+          out.push({ name: o.name, price: b.price, book: b.book });
+        }
+      } else if (typeof o.price === "number") {
+        out.push({ name: o.name, price: o.price, book: null });
+      }
+    }
+  }
+  const seen = new Set<string>();
+  return out.filter((r) => {
+    const k = `${r.book}|${r.name}|${r.price}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+// Real UFC "Tale of the Tape" — ESPN records, career rates, 10k sim, graded ML picks.
 function FightTaleOfTape({ game }: { game: OddsGame }) {
   const colors = useColors();
   const [data, setData] = useState<FightAnalysis | null>(null);
@@ -441,7 +460,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
-    getFightAnalysis(game.awayTeam, game.homeTeam, controller.signal)
+    getFightAnalysis(game.awayTeam, game.homeTeam, controller.signal, h2hOutcomesFromGame(game))
       .then((d) => {
         if (controller.signal.aborted) return;
         // Enrich the lean with the real betting-dog price from this game's h2h
@@ -500,17 +519,37 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const fmtNum = (v: number | null) => (typeof v === "number" ? `${v}` : "—");
   const recStr = (f: FightAnalysis["away"]) =>
     f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—";
+  const methodStr = (f: FightAnalysis["away"]) => {
+    const m = f.methods;
+    const parts: string[] = [];
+    if (m.koWins != null) parts.push(`${m.koWins} KO`);
+    if (m.tkoWins != null) parts.push(`${m.tkoWins} TKO`);
+    if (m.subWins != null) parts.push(`${m.subWins} SUB`);
+    if (m.decisionWins != null) parts.push(`${m.decisionWins} DEC`);
+    return parts.length ? parts.join(" · ") : "—";
+  };
   const rows: { label: string; a: string; h: string }[] = [
     { label: "Record", a: recStr(fa), h: recStr(fh) },
     { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
-    { label: "Strike Acc.", a: fmtPct(fa.stats.strikeAccuracy), h: fmtPct(fh.stats.strikeAccuracy) },
+    { label: "Age", a: fmtNum(fa.profile.age), h: fmtNum(fh.profile.age) },
+    { label: "Height", a: fa.profile.displayHeight ?? "—", h: fh.profile.displayHeight ?? "—" },
+    { label: "Reach", a: fa.profile.displayReach ?? "—", h: fh.profile.displayReach ?? "—" },
+    { label: "Stance", a: fa.profile.stance ?? "—", h: fh.profile.stance ?? "—" },
+    { label: "Country", a: fa.profile.citizenship ?? "—", h: fh.profile.citizenship ?? "—" },
     { label: "Sig. Strikes/min", a: fmtNum(fa.stats.strikeLPM), h: fmtNum(fh.stats.strikeLPM) },
+    { label: "Strike Acc.", a: fmtPct(fa.stats.strikeAccuracy), h: fmtPct(fh.stats.strikeAccuracy) },
     { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats.finishPct), h: fmtPct(fh.stats.finishPct) },
+    { label: "Decision %", a: fmtPct(fa.stats.decisionPct), h: fmtPct(fh.stats.decisionPct) },
+    { label: "Win Methods", a: methodStr(fa), h: methodStr(fh) },
     { label: "Takedowns/15min", a: fmtNum(fa.stats.takedownAvg), h: fmtNum(fh.stats.takedownAvg) },
     { label: "Takedown Acc.", a: fmtPct(fa.stats.takedownAccuracy), h: fmtPct(fh.stats.takedownAccuracy) },
     { label: "Sub. Attempts/15min", a: fmtNum(fa.stats.submissionAvg), h: fmtNum(fh.stats.submissionAvg) },
+    { label: "Style", a: fa.style ? fa.style.charAt(0).toUpperCase() + fa.style.slice(1) : "—", h: fh.style ? fh.style.charAt(0).toUpperCase() + fh.style.slice(1) : "—" },
   ];
   const weightClass = fa.weightClass || fh.weightClass;
+  const sim = data.simulation;
+  const cmp = data.comparison;
+  const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
 
   return (
     <View
@@ -616,6 +655,99 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
           Too close to call on the available data.
         </Text>
       )}
+
+      {cmp.styleMatchup || cmp.reachAdvantageFighter ? (
+        <View style={{ gap: 4 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+            MATCHUP NOTES
+          </Text>
+          {cmp.styleMatchup ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+              Style: {cmp.styleMatchup}
+            </Text>
+          ) : null}
+          {cmp.reachAdvantageFighter && cmp.reachAdvantageIn != null ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+              Reach edge: {cmp.reachAdvantageFighter} (+{Math.abs(cmp.reachAdvantageIn)}")
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {sim ? (
+        <View
+          style={{
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            paddingTop: 10,
+            gap: 6,
+          }}
+        >
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            10,000-FIGHT SIMULATION
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+            {aName} {Math.round(sim.awayWinProbability * 1000) / 10}% · {hName}{" "}
+            {Math.round(sim.homeWinProbability * 1000) / 10}%
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            Model confidence {sim.confidenceScore}% · projected winner{" "}
+            {sim.mostLikelyWinner === "away" ? aName : hName} (
+            {Math.round(sim.mostLikelyWinnerPct * 1000) / 10}%)
+          </Text>
+        </View>
+      ) : null}
+
+      {recs.length > 0 ? (
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            AI RECOMMENDED PLAYS
+          </Text>
+          {recs.map((r, i) => (
+            <View
+              key={`${r.pick}-${i}`}
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: colors.radius,
+                padding: 10,
+                gap: 4,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, flex: 1 }}>
+                  {r.pick} ML {formatAmerican(r.odds)}
+                </Text>
+                {r.grade ? (
+                  <Badge label={r.grade} tone="primary" />
+                ) : null}
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+                Edge {r.edgePct != null ? `+${r.edgePct}%` : "—"} · Confidence {r.confidencePct ?? "—"}% · Sim win{" "}
+                {r.simHitPct ?? "—"}%
+                {r.book ? ` · ${r.book}` : ""}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>{r.reason}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center" }}>
+          No strong moneyline edge on the posted board right now.
+        </Text>
+      )}
+
+      {data.books?.length > 1 ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.4 }}>
+            ODDS BY SPORTSBOOK ({data.books.length} lines)
+          </Text>
+          {data.books.slice(0, 8).map((b, i) => (
+            <Text key={i} style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+              {b.fighter}: {formatAmerican(b.price)} ({b.book})
+            </Text>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }

@@ -9,6 +9,7 @@
 import type { ParsedPick } from "@/components/PickCard";
 import type {
   InjuryTeam,
+  FightAnalysis,
   MatchupHistoryEntry,
   PlayerProp,
   PropPoolEntry,
@@ -174,6 +175,7 @@ export function scoreGameLinePick(
   matchupHistory: Record<string, MatchupHistoryEntry> | undefined,
   matchupInjuries: Record<string, GameInjuryReport> | undefined,
   gameSim?: CoachGameSimEntry | null,
+  fightAnalysis?: Record<string, FightAnalysis>,
 ): CombinedPickScore | null {
   // Line Value + Line-Shopping come straight off the backing odds row, which
   // parsePicks copied verbatim — so an exact game/market/pick match is the row.
@@ -186,9 +188,14 @@ export function scoreGameLinePick(
   const pickTeam = gamePickTeam(pick);
   const pickSide = pickTeam ? sideOfTeam(pickTeam, away, home) : null;
 
-  // Matchup: does the model's moneyline lean back the side we picked?
+  // Matchup: team mlLean, or UFC fightAnalysis lean for MMA moneylines.
   const entry = matchupHistory?.[pick.game];
-  const { aligned, leanEdge } = matchupAlignment(entry?.mlLean, pickTeam);
+  const fight = fightAnalysis?.[pick.game];
+  const leanSource =
+    fight?.lean?.side && (pick.sport === "ufc" || pick.sport === "mma")
+      ? { side: fight.lean.side, edge: fight.lean.edge }
+      : entry?.mlLean;
+  const { aligned, leanEdge } = matchupAlignment(leanSource, pickTeam);
   const matchup = scoreMatchup(aligned, leanEdge);
 
   // Trend: the picked team's recent streak + L10 average margin.
@@ -208,13 +215,20 @@ export function scoreGameLinePick(
     injury = scoreInjury(injuryFavorGame(ie, pickSide === "home"));
   }
 
+  const fightSimHit =
+    fight?.simulation && pickSide
+      ? pickSide === "away"
+        ? fight.simulation.awayWinProbability
+        : fight.simulation.homeWinProbability
+      : null;
+
   const scores: PickSubScores = {
     matchup,
     trend,
     lineValue,
     injury,
     lineShopping,
-    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim)),
+    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim) ?? fightSimHit),
   };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
@@ -395,6 +409,7 @@ function scorePropPick(
   ctx?: {
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    fightAnalysis?: Record<string, FightAnalysis>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     injuryTeams?: InjuryTeam[];
   },
@@ -472,6 +487,7 @@ export function attachPickScores(
     propPool?: PropPoolEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
+    fightAnalysis?: Record<string, FightAnalysis>;
     // Real settled hit-rate by market family (Model Report's byFamily). When
     // present, a market above/below the user's historical thresholds nudges that
     // leg's Confidence. The fixed market-priority prior applies regardless; only
@@ -483,6 +499,8 @@ export function attachPickScores(
     gameSimulations?: Map<string, CoachGameSimEntry>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
     playerHistory?: Record<string, PlayerHistorySlice>;
+    /** UFC fight analysis keyed by "Away @ Home". */
+    fightAnalysis?: Record<string, FightAnalysis>;
     /** Raw league injury teams when matchupInjuries report is absent. */
     injuryTeams?: InjuryTeam[];
   },
@@ -507,6 +525,7 @@ export function attachPickScores(
           opts.matchupHistory,
           opts.matchupInjuries,
           gameSim,
+          opts.fightAnalysis,
         );
     const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
     if (!scores) return { ...p, scores: null };
