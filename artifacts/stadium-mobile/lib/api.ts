@@ -2364,7 +2364,8 @@ function normalizeFightAnalysis(raw: Partial<FightAnalysis> | null, away = "", h
 }
 
 // Fetch fight breakdown (+ 10k sim). POST when h2h outcomes are available so
-// moneyline recommendations can be graded across all books.
+// moneyline recommendations can be graded across all books. When the API server
+// is stale, client-side Sherdog fills unresolved/thin fighter rows.
 export async function getFightAnalysis(
   away: string,
   home: string,
@@ -2372,6 +2373,8 @@ export async function getFightAnalysis(
   h2hOutcomes?: { name: string; price: number; book?: string | null }[],
 ): Promise<FightAnalysis | null> {
   try {
+    const { enrichFightAnalysisClient } = await import("./ufcSupplement");
+    let normalized: FightAnalysis | null = null;
     if (h2hOutcomes?.length) {
       const res = await authedFetch("/sports/fight-analysis", {
         method: "POST",
@@ -2379,12 +2382,16 @@ export async function getFightAnalysis(
         body: JSON.stringify({ away, home, h2hOutcomes }),
         signal,
       });
-      if (res.ok) return normalizeFightAnalysis((await res.json()) as FightAnalysis, away, home);
+      if (res.ok) normalized = normalizeFightAnalysis((await res.json()) as FightAnalysis, away, home);
       // POST needs a restarted API — fall back to GET so Tale of the Tape still loads.
     }
-    const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
-    const data = await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
-    return normalizeFightAnalysis(data, away, home);
+    if (!normalized) {
+      const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+      const data = await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
+      normalized = normalizeFightAnalysis(data, away, home);
+    }
+    if (!normalized) return null;
+    return enrichFightAnalysisClient(normalized, away, home, signal);
   } catch {
     return null;
   }
