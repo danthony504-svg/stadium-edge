@@ -18,7 +18,7 @@ import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type FightFighterDataSource, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer } from "@/lib/api";
 import {
   findOddsByTeams,
   oddsGameFromEspnOdds,
@@ -555,10 +555,20 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const metrics = data.simMetrics;
   const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
   const simReady = sim && sim.simulations > 0 && metrics;
-  const awayOnEspn = !!(fa.record || fa.athleteId);
-  const homeOnEspn = !!(fh.record || fh.athleteId);
-  const resolvedCount = (awayOnEspn ? 1 : 0) + (homeOnEspn ? 1 : 0);
+  const fighterResolved = (f: FightAnalysis["away"]) => !!(f.record || f.athleteId || f.resolvedName);
+  const resolvedCount = (fighterResolved(fa) ? 1 : 0) + (fighterResolved(fh) ? 1 : 0);
   const coveragePct = Math.max(pre?.dataCoveragePct ?? 0, estimateFromTape(fa, fh));
+
+  function formatDataSources(sources: FightFighterDataSource[]): string {
+    const uniq = [...new Set(sources)];
+    if (!uniq.length) return "ESPN";
+    return uniq.map((s) => s.toUpperCase()).join(" + ");
+  }
+
+  const tapeSources = formatDataSources([
+    ...(fa.dataSources ?? []),
+    ...(fh.dataSources ?? []),
+  ]);
 
   function estimateFromTape(a: typeof fa, h: typeof fh): number {
     let n = 0;
@@ -570,9 +580,18 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   }
 
   function fighterStatus(f: typeof fa, label: string): string {
-    if (f.record) return `${label}: on ESPN (${recStr(f)})`;
-    if (f.athleteId) return `${label}: on ESPN (profile thin)`;
-    return `${label}: not in ESPN feed`;
+    const sources = f.dataSources?.length
+      ? f.dataSources
+      : f.athleteId
+        ? (["espn"] as FightFighterDataSource[])
+        : [];
+    const srcLabel = sources.length
+      ? sources.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" + ")
+      : "not in feed";
+    if (f.record) return `${label}: ${srcLabel} (${recStr(f)})`;
+    if (f.athleteId) return `${label}: ESPN (profile thin)`;
+    if (sources.length) return `${label}: ${srcLabel} (no record)`;
+    return `${label}: not in feed`;
   }
 
   return (
@@ -591,7 +610,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
           TALE OF THE TAPE
         </Text>
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
-          REAL CAREER DATA · ESPN
+          REAL CAREER DATA · {tapeSources}
         </Text>
       </View>
 
@@ -704,7 +723,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             PRE-PICK ANALYSIS
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
-            {coveragePct}% grounded data · {resolvedCount}/2 fighters on ESPN
+            {coveragePct}% grounded data · {resolvedCount}/2 fighters resolved
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
             {fighterStatus(fa, aName)}

@@ -38,10 +38,17 @@ module.registerHooks({
     }
 
     // Generic relative `.js` -> `.ts` fallback.
-    if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-      const jsUrl = new URL(specifier, parent);
-      if (!existsSync(fileURLToPath(jsUrl))) {
-        const tsUrl = new URL(specifier.replace(/\.js$/, ".ts"), parent);
+    if (specifier.startsWith("./") || specifier.startsWith("../")) {
+      if (specifier.endsWith(".js")) {
+        const jsUrl = new URL(specifier, parent);
+        if (!existsSync(fileURLToPath(jsUrl))) {
+          const tsUrl = new URL(specifier.replace(/\.js$/, ".ts"), parent);
+          if (existsSync(fileURLToPath(tsUrl))) {
+            return { url: tsUrl.href, shortCircuit: true };
+          }
+        }
+      } else if (!/\.[a-z]+$/i.test(specifier)) {
+        const tsUrl = new URL(`${specifier}.ts`, parent);
         if (existsSync(fileURLToPath(tsUrl))) {
           return { url: tsUrl.href, shortCircuit: true };
         }

@@ -2116,6 +2116,13 @@ export type FightFighterMethods = {
   subWins: number | null;
   decisionWins: number | null;
 };
+export type FightFighterDataSource = "espn" | "sherdog" | "tapology";
+export type FightFighterRecentFight = {
+  result: "W" | "L" | "D" | null;
+  opponent: string | null;
+  date: string | null;
+  method: string | null;
+};
 export type FightFighter = {
   name: string;
   resolvedName: string | null;
@@ -2126,6 +2133,8 @@ export type FightFighter = {
   profile: FightFighterProfile;
   methods: FightFighterMethods;
   style: "striker" | "grappler" | "wrestler" | "mixed" | null;
+  dataSources?: FightFighterDataSource[];
+  recentForm?: FightFighterRecentFight[];
 };
 export type FightLean = { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } };
 export type FightComparison = {
@@ -2243,6 +2252,8 @@ function normalizeFightFighter(f: Partial<FightFighter> | null | undefined, fall
     profile: { ...EMPTY_FIGHT_PROFILE, ...(f?.profile ?? {}) },
     methods: { ...EMPTY_FIGHT_METHODS, ...(f?.methods ?? {}) },
     style: f?.style ?? null,
+    dataSources: f?.dataSources ?? [],
+    recentForm: f?.recentForm ?? [],
   };
 }
 

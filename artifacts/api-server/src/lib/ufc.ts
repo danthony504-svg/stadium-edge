@@ -55,6 +55,15 @@ export type FighterProfile = {
 
 export type FighterStyle = "striker" | "grappler" | "wrestler" | "mixed" | null;
 
+export type FighterDataSource = "espn" | "sherdog" | "tapology";
+
+export type FighterRecentFight = {
+  result: "W" | "L" | "D" | null;
+  opponent: string | null;
+  date: string | null;
+  method: string | null;
+};
+
 export type Fighter = {
   name: string;
   resolvedName: string | null;
@@ -65,6 +74,8 @@ export type Fighter = {
   profile: FighterProfile;
   methods: FighterMethods;
   style: FighterStyle;
+  dataSources: FighterDataSource[];
+  recentForm: FighterRecentFight[];
 };
 
 export type FightLean = {
@@ -278,6 +289,14 @@ const styleLabel = (s: FighterStyle): string => {
   return "Unknown";
 };
 
+function unavailableComparisonStats(away: Fighter, home: Fighter): string[] {
+  const hasRecentForm = away.recentForm.length > 0 || home.recentForm.length > 0;
+  return UNAVAILABLE_STATS.filter((s) => {
+    if (s === "Recent form (last 5 fights)" && hasRecentForm) return false;
+    return true;
+  });
+}
+
 export function buildFightComparison(away: Fighter, home: Fighter): FightComparison {
   const reachAdvantageIn =
     away.profile.reachIn != null && home.profile.reachIn != null
@@ -298,12 +317,12 @@ export function buildFightComparison(away: Fighter, home: Fighter): FightCompari
     reachAdvantageIn,
     reachAdvantageFighter,
     styleMatchup,
-    unavailable: [...UNAVAILABLE_STATS],
+    unavailable: unavailableComparisonStats(away, home),
   };
 }
 
-export async function getFighterProfile(name: string): Promise<Fighter> {
-  const empty: Fighter = {
+function emptyFighter(name: string): Fighter {
+  return {
     name,
     resolvedName: null,
     athleteId: null,
@@ -321,9 +340,12 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
     profile: emptyProfile(),
     methods: emptyMethods(),
     style: null,
+    dataSources: [],
+    recentForm: [],
   };
-  const id = await resolveFighterId(name);
-  if (!id) return empty;
+}
+
+async function loadEspnFighterProfile(name: string, id: string): Promise<Fighter> {
   return cachedJson<Fighter>(`ufc:profile:${id}`, PROFILE_TTL, async () => {
     const base = `https://sports.core.api.espn.com/v2/sports/mma/athletes/${id}`;
     const [core, records, statistics] = await Promise.allSettled([
@@ -331,7 +353,9 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
       fetchJson(`${base}/records?lang=en&region=us`),
       fetchJson(`${base}/statistics?lang=en&region=us`),
     ]);
-    const out: Fighter = { ...empty, athleteId: id };
+    const out = emptyFighter(name);
+    out.athleteId = id;
+    out.dataSources = ["espn"];
     if (core.status === "fulfilled") {
       const d = core.value;
       out.resolvedName = d?.displayName || d?.fullName || null;
@@ -378,6 +402,28 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
     out.style = classifyFighterStyle(out);
     return out;
   });
+}
+
+export async function getFighterProfile(
+  name: string,
+  opts: { opponent?: string } = {},
+): Promise<Fighter> {
+  const id = await resolveFighterId(name);
+  let base: Fighter = id ? await loadEspnFighterProfile(name, id) : emptyFighter(name);
+  if (base.athleteId && !base.dataSources.includes("espn")) {
+    base.dataSources = ["espn"];
+  }
+  const { fighterNeedsSupplement, loadSupplementalFighterProfile, mergeFighters } = await import(
+    "./mmaSupplement.js"
+  );
+  if (fighterNeedsSupplement(base)) {
+    const supplemental = await loadSupplementalFighterProfile(name, opts);
+    if (supplemental) {
+      base = id ? mergeFighters(base, supplemental) : { ...supplemental, name };
+      if (!base.style) base.style = classifyFighterStyle(base);
+    }
+  }
+  return base;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -479,7 +525,10 @@ export async function buildFightAnalysis(
     ANALYSIS_TTL,
     async () => {
       const { runFightMonteCarlo } = await import("./ufcMonteCarlo.js");
-      const [a, h] = await Promise.all([getFighterProfile(away), getFighterProfile(home)]);
+      const [a, h] = await Promise.all([
+        getFighterProfile(away, { opponent: home }),
+        getFighterProfile(home, { opponent: away }),
+      ]);
       const lean = computeFightLean(a, h);
       const comparison = buildFightComparison(a, h);
       const simulation = runFightMonteCarlo({ away: a, home: h, lean, comparison });

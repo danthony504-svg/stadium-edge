@@ -2,7 +2,7 @@
 // real ESPN data or explicitly marked unavailable. Never fabricates UFC record,
 // fight logs, injuries, betting splits, or prop markets.
 
-import type { FightComparison, Fighter, FighterStyle } from "./ufc.js";
+import type { FightComparison, Fighter, FighterRecentFight, FighterStyle } from "./ufc.js";
 import type { FightSimResult } from "./ufcMonteCarlo.js";
 
 export type AnalysisFactor<T = string | number | null> = {
@@ -112,6 +112,26 @@ function subFinishPct(f: Fighter): number | null {
   return Math.round((subs / w) * 1000) / 10;
 }
 
+function formLabel(form: FighterRecentFight[], n: number): string | null {
+  const slice = form.slice(0, n);
+  if (!slice.length) return null;
+  return slice
+    .map((r) => {
+      const mark = r.result ?? "?";
+      const opp = r.opponent ?? "unknown";
+      return `${mark} vs ${opp}`;
+    })
+    .join(", ");
+}
+
+function unavailableFactorLabels(away: Fighter, home: Fighter): string[] {
+  const hasRecentForm = away.recentForm.length > 0 || home.recentForm.length > 0;
+  return UNAVAILABLE_FACTOR_LABELS.filter((s) => {
+    if (s === "Recent form (last 5 fights)" && hasRecentForm) return false;
+    return true;
+  });
+}
+
 function decFinishPct(f: Fighter): number | null {
   if (f.stats.decisionPct != null) return f.stats.decisionPct;
   const w = f.record?.wins ?? 0;
@@ -145,7 +165,7 @@ export function buildFighterPickFactors(f: Fighter): FighterPickFactors {
     submissionAttemptsPer15: factor(f.stats.submissionAvg),
     avgFightTime: { value: null, available: false },
     controlTime: { value: null, available: false },
-    recentFormLast5: { value: null, available: false },
+    recentFormLast5: factor(formLabel(f.recentForm, 5), f.recentForm.length > 0),
     strengthOfSchedule: { value: null, available: false },
     winLossStreak: { value: null, available: false },
     daysSinceLastFight: { value: null, available: false },
@@ -196,6 +216,8 @@ function totalFactors(): number {
       subLosses: null,
     },
     style: null,
+    dataSources: [],
+    recentForm: [],
   })).length;
 }
 
@@ -252,7 +274,7 @@ export function buildFightPickAnalysis(
     },
     dataCoveragePct: Math.round((avail / maxAvail) * 1000) / 10,
     resolvedFighters: resolved,
-    unavailableFactors: [...UNAVAILABLE_FACTOR_LABELS],
+    unavailableFactors: unavailableFactorLabels(away, home),
     unavailableMarkets: [...UFC_UNAVAILABLE_MARKETS],
   };
 }

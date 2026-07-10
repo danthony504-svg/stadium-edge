@@ -4,8 +4,9 @@ import {
   classifyFighterStyle,
   computeFightLean,
   normFighter,
-  type Fighter,
 } from "../src/lib/ufc.ts";
+import { mergeFighters, fighterNeedsSupplement } from "../src/lib/mmaSupplement.ts";
+import type { Fighter } from "../src/lib/ufc.ts";
 import { awayWinProbFromFight, runFightMonteCarlo } from "../src/lib/ufcMonteCarlo.ts";
 import { buildFightRecommendations } from "../src/lib/fightRecommendations.ts";
 import { buildFightPickAnalysis } from "../src/lib/fightPickAnalysis.ts";
@@ -44,6 +45,8 @@ function fighter(partial: Partial<Fighter> & { name: string }): Fighter {
       subLosses: null,
     },
     style: null,
+    dataSources: ["espn"],
+    recentForm: [],
     ...partial,
   };
 }
@@ -77,7 +80,28 @@ describe("computeFightLean", () => {
 
 describe("classifyFighterStyle", () => {
   it("labels high-volume striker", () => {
-    const f = fighter({ name: "Striker", style: null });
+    const f = fighter({
+      name: "Striker",
+      style: null,
+      stats: {
+        strikeAccuracy: 55,
+        strikeLPM: 5,
+        takedownAccuracy: null,
+        takedownAvg: null,
+        submissionAvg: null,
+        finishPct: 70,
+        decisionPct: 20,
+      },
+      methods: {
+        koWins: 8,
+        tkoWins: 2,
+        subWins: 0,
+        decisionWins: 0,
+        koLosses: null,
+        tkoLosses: null,
+        subLosses: null,
+      },
+    });
     f.style = classifyFighterStyle(f);
     assert.equal(f.style, "striker");
   });
@@ -142,5 +166,57 @@ describe("awayWinProbFromFight", () => {
     const home = fighter({ name: "Home" });
     const p = awayWinProbFromFight({ away, home, lean: null });
     assert.ok(p >= 0.12 && p <= 0.88);
+  });
+});
+
+describe("mmaSupplement mergeFighters", () => {
+  it("fills Sherdog gaps when ESPN profile is thin", () => {
+    const espn: Fighter = fighter({
+      name: "Kamil Milic",
+      athleteId: "espn-1",
+      record: null,
+      dataSources: ["espn"],
+      recentForm: [],
+      stats: {
+        strikeAccuracy: null,
+        strikeLPM: null,
+        takedownAccuracy: null,
+        takedownAvg: null,
+        submissionAvg: null,
+        finishPct: null,
+        decisionPct: null,
+      },
+      profile: {
+        age: null,
+        heightIn: null,
+        displayHeight: null,
+        reachIn: null,
+        displayReach: null,
+        stance: null,
+        citizenship: null,
+      },
+    });
+    const sherdog: Fighter = fighter({
+      name: "Kamil Milic",
+      athleteId: null,
+      record: { wins: 6, losses: 2, draws: 0, winPct: 75 },
+      dataSources: ["sherdog"],
+      recentForm: [{ result: "W", opponent: "Test Op", date: "2025-01-01", method: "TKO" }],
+      profile: {
+        age: 28,
+        heightIn: 66,
+        displayHeight: `5'6"`,
+        reachIn: 68,
+        displayReach: `68"`,
+        stance: "Orthodox",
+        citizenship: "Sweden",
+      },
+    });
+    assert.equal(fighterNeedsSupplement(espn), true);
+    const merged = mergeFighters(espn, sherdog);
+    assert.deepEqual(merged.dataSources, ["espn", "sherdog"]);
+    assert.equal(merged.record?.wins, 6);
+    assert.equal(merged.profile.citizenship, "Sweden");
+    assert.equal(merged.recentForm.length, 1);
   });
 });
