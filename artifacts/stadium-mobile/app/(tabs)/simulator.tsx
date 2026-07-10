@@ -99,6 +99,7 @@ import {
   rememberGameSim,
 } from "@/lib/simulatorResultCache";
 import { isUfcFightRow } from "@/lib/ufcSimulatorGames";
+import { fetchUfcSimulatorGameOutcome } from "@/lib/ufcSimulatorSim";
 
 const gameEligibleForSim = isSimulatorPregame;
 
@@ -693,7 +694,7 @@ export default function SimulatorScreen() {
     !!game.awayTeam &&
     (isNameOnlySimSport(sport) || (!!game.homeTeamId && !!game.awayTeamId)) &&
     oddsQ.isFetched &&
-    injuriesQ.isFetched &&
+    (isNameOnlySimSport(sport) || injuriesQ.isFetched) &&
     (sport !== "mlb" || parkQ.isFetched) &&
     (sport !== "mlb" || probablesQ.isFetched);
 
@@ -825,7 +826,11 @@ export default function SimulatorScreen() {
             buildDefaultGameCoverQueries(label, game.homeTeam, game.awayTeam),
             coverQueriesFromEvalLines(evalMap),
           );
-          const gr = await fetchSimulatorGameOutcome({
+          const fetchOutcome =
+            sport === "ufc" || sport === "mma"
+              ? fetchUfcSimulatorGameOutcome
+              : fetchSimulatorGameOutcome;
+          const gr = await fetchOutcome({
             sport,
             homeTeamId: game.homeTeamId ?? "",
             awayTeamId: game.awayTeamId ?? "",
@@ -1433,7 +1438,15 @@ export default function SimulatorScreen() {
               {showWeatherRow ? (
                 <SettingRow label="Weather" value={weatherLabel!} icon="cloud" />
               ) : null}
-              <SettingRow label="Home Field" value={game.venue ?? game.homeTeam ?? "—"} icon="map-pin" />
+              <SettingRow
+                label={sport === "ufc" || sport === "mma" ? "Venue" : "Home Field"}
+                value={
+                  sport === "ufc" || sport === "mma"
+                    ? game.venue ?? "Neutral site"
+                    : game.venue ?? game.homeTeam ?? "—"
+                }
+                icon="map-pin"
+              />
             </Card>
 
             {/* Run */}
