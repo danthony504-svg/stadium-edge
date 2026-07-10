@@ -18,7 +18,7 @@ import { TennisPlayerSheet } from "@/components/TennisPlayerSheet";
 import { Badge, ErrorState, FONT, Loading, PrimaryButton } from "@/components/ui";
 import { useBetSlip } from "@/context/BetSlipContext";
 import { useColors } from "@/hooks/useColors";
-import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisMatchup, streamChat, type FightAnalysis, type OddsGame, type OddsMarket, type TennisMatchup, type TennisPlayer } from "@/lib/api";
+import { buildChatContext, getFightAnalysis, getEspnOdds, getGames, getOdds, getTennisAnalysis, streamChat, tennisMarketsFromGame, type FightAnalysis, type OddsGame, type OddsMarket, type TennisAnalysis, type TennisPlayer } from "@/lib/api";
 import {
   findOddsByTeams,
   oddsGameFromEspnOdds,
@@ -296,6 +296,7 @@ function AiGamePicks({ game }: { game: OddsGame }) {
         matchupHistory: context.matchupHistory,
         matchupInjuries: context.matchupInjuries,
         fightAnalysis: context.fightAnalysis,
+        tennisAnalysis: context.tennisAnalysis,
         perfByFamily: marketPerf,
       });
       // Only commit if this is still the latest in-flight request (a refresh or
@@ -807,22 +808,38 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   );
 }
 
-// Real tennis matchup — both players' ESPN ATP/WTA ranking + country + season
-// recent form (set scores) + any recent head-to-head. Every value comes from
-// ESPN; missing values are honest-nulled (—), never fabricated. Renders nothing
-// when neither player resolves to real data.
+function tennisMarketsFromOddsGame(game: OddsGame) {
+  return tennisMarketsFromGame(game);
+}
+
+// Real tennis matchup — ESPN ranking + form + H2H + 10k sim + quality-filtered picks.
 function TennisMatchupCard({ game }: { game: OddsGame }) {
   const colors = useColors();
-  const [data, setData] = useState<TennisMatchup | null>(null);
+  const [data, setData] = useState<TennisAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
   const [sheet, setSheet] = useState<{ name: string; fallback: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    getTennisMatchup(game.awayTeam, game.homeTeam, controller.signal)
+    getTennisAnalysis(game.awayTeam, game.homeTeam, controller.signal, tennisMarketsFromOddsGame(game))
       .then((d) => {
-        if (!controller.signal.aborted) setData(d);
+        if (controller.signal.aborted) return;
+        if (d?.lean?.side) {
+          const h2h = safeMarkets(game).find((m) => m.key === "h2h");
+          const nf = (s: unknown) =>
+            String(s ?? "")
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9]+/g, " ")
+              .trim();
+          const out = (h2h?.outcomes || []).find((o) => nf(o.name) === nf(d.lean!.side));
+          if (out && typeof out.price === "number" && out.price >= 100) {
+            d.lean.upset = { dogOdds: out.price };
+          }
+        }
+        setData(d);
       })
       .catch(() => {
         if (!controller.signal.aborted) setData(null);
@@ -831,7 +848,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [game.awayTeam, game.homeTeam]);
+  }, [game.awayTeam, game.homeTeam, game.markets]);
 
   if (loading) {
     return (
@@ -864,6 +881,11 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
   const aName = aw.resolvedName || game.awayTeam || "Away";
   const hName = hm.resolvedName || game.homeTeam || "Home";
   const tour = aw.tour || hm.tour;
+  const lean = data.lean;
+  const pre = data.prePickAnalysis;
+  const sim = data.simulation;
+  const metrics = data.simMetrics;
+  const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
   const rankStr = (p: TennisPlayer) =>
     p.rank != null ? `${p.tour || tour || ""} #${p.rank}`.trim() : "Unranked";
   const formStr = (p: TennisPlayer) =>
@@ -1043,6 +1065,129 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
               {r.score ? ` ${r.score}` : ""}
             </Text>
           ))}
+        </View>
+      ) : null}
+
+      {lean?.side ? (
+        <View
+          style={{
+            backgroundColor: lean.upset ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)",
+            borderColor: lean.upset ? "rgba(245,158,11,0.5)" : "rgba(16,185,129,0.45)",
+            borderWidth: 1,
+            borderRadius: colors.radius,
+            padding: 11,
+            gap: 7,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+              DATA EDGE
+            </Text>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 14 }}>
+              {lean.side}
+            </Text>
+            {lean.upset ? (
+              <View style={{ backgroundColor: "rgba(245,158,11,0.18)", borderColor: "rgba(245,158,11,0.5)", borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                <Text style={{ color: "#f59e0b", fontFamily: FONT.semibold, fontSize: 10, letterSpacing: 0.3 }}>
+                  UPSET VALUE {formatAmerican(lean.upset.dogOdds)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {lean.reasons?.length ? (
+            <View style={{ gap: 4 }}>
+              {lean.reasons.map((rsn, i) => (
+                <View key={i} style={{ flexDirection: "row", gap: 6 }}>
+                  <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 12 }}>›</Text>
+                  <Text style={{ flex: 1, color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, lineHeight: 17 }}>
+                    {rsn}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {pre ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            PRE-PICK ANALYSIS
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+            {pre.dataCoveragePct}% grounded data · {pre.resolvedPlayers}/2 players resolved on ESPN
+          </Text>
+          {pre.matchup.surface.available ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
+              Surface: {pre.matchup.surface.value}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {sim && metrics ? (
+        <View style={{ borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 6 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            10,000-MATCH SIMULATION
+          </Text>
+          <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
+            Win: {aName} {Math.round(metrics.winProbability.away * 1000) / 10}% · {hName}{" "}
+            {Math.round(metrics.winProbability.home * 1000) / 10}%
+          </Text>
+          {metrics.projectedTotalGames != null ? (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              Projected total games {metrics.projectedTotalGames} · model confidence {sim.confidenceScore}%
+            </Text>
+          ) : (
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+              Model confidence {sim.confidenceScore}%
+            </Text>
+          )}
+        </View>
+      ) : null}
+
+      {recs.length > 0 ? (
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 12, letterSpacing: 0.4 }}>
+            QUALITY-FILTERED PLAYS
+          </Text>
+          {recs.map((r, i) => (
+            <View
+              key={`${r.market}-${r.pick}-${i}`}
+              style={{ backgroundColor: colors.surface, borderRadius: colors.radius, padding: 10, gap: 4 }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14, flex: 1 }}>
+                  {r.pick} {formatAmerican(r.odds)}
+                </Text>
+                {r.grade ? <Badge label={r.grade} tone="primary" /> : null}
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10 }}>
+                {r.market}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
+                EV {r.evPct != null ? `+${r.evPct}%` : "—"} · Edge {r.edgePct != null ? `+${r.edgePct}%` : "—"} ·
+                Confidence {r.confidencePct ?? "—"}% · Sim {r.simHitPct ?? "—"}%
+                {r.book ? ` · ${r.book}` : ""}
+              </Text>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>{r.reason}</Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center" }}>
+          No posted lines pass quality filters (edge, grade, sim, data coverage).
+        </Text>
+      )}
+
+      {pre?.unavailableMarkets?.length ? (
+        <View style={{ gap: 4, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.4 }}>
+            NOT IN FEED — CANNOT RECOMMEND
+          </Text>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 14 }}>
+            {pre.unavailableMarkets.join(" · ")}
+          </Text>
         </View>
       ) : null}
     </View>

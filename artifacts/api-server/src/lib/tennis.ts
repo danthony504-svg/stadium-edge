@@ -27,7 +27,7 @@ export type TennisPlayer = {
   rank: number | null; // ATP/WTA singles rank (null if outside the ranked list)
   rankPoints: number | null;
   tour: "ATP" | "WTA" | null;
-  recentForm: TennisRecentResult[]; // most-recent first, up to 5
+  recentForm: TennisRecentResult[]; // most-recent first, up to 10
   formSummary: { wins: number; losses: number } | null;
 };
 
@@ -52,7 +52,24 @@ export type TennisLean = {
   upset?: { dogOdds: number };
 };
 
-export type TennisAnalysis = TennisMatchup & { lean: TennisLean | null };
+import type { GameSimResult } from "./gameMonteCarlo.js";
+import type { TennisPickAnalysis, TennisSimMetrics } from "./tennisPickAnalysis.js";
+import type {
+  H2hPostedOutcome,
+  SpreadPostedOutcome,
+  TennisBookLine,
+  TennisRecommendation,
+  TotalPostedOutcome,
+} from "./tennisRecommendations.js";
+
+export type TennisAnalysis = TennisMatchup & {
+  lean: TennisLean | null;
+  prePickAnalysis: TennisPickAnalysis;
+  simulation: GameSimResult;
+  simMetrics: TennisSimMetrics;
+  recommendations: TennisRecommendation[];
+  books: TennisBookLine[];
+};
 
 // Real player bio + career stats from ESPN. Every field is honest-nulled when
 // ESPN doesn't carry it; nothing is estimated.
@@ -382,7 +399,7 @@ async function loadRecentForm(
         (i: any) => i?.played && i?.competition?.$ref,
       );
       // Resolve the tail (most-recent) competitions; cap the fan-out.
-      const tail = items.slice(-8);
+      const tail = items.slice(-14);
       const out: TennisRecentResult[] = [];
       await Promise.all(
         tail.map(async (it: any) => {
@@ -422,7 +439,7 @@ async function loadRecentForm(
         }),
       );
       out.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-      return out.slice(0, 5);
+      return out.slice(0, 10);
     },
   );
 }
@@ -541,10 +558,130 @@ export function computeTennisLean(away: TennisPlayer, home: TennisPlayer, h2h: T
   return { side, edge, reasons };
 }
 
-export async function buildTennisAnalysis(away: string, home: string): Promise<TennisAnalysis> {
-  const matchup = await buildTennisMatchup(away, home);
-  return { ...matchup, lean: computeTennisLean(matchup.away, matchup.home, matchup.h2h) };
+const ANALYSIS_TTL = 10 * 60 * 1000;
+
+export type BuildTennisAnalysisOpts = {
+  h2hOutcomes?: H2hPostedOutcome[];
+  spreadOutcomes?: SpreadPostedOutcome[];
+  totalOutcomes?: TotalPostedOutcome[];
+  simulations?: number;
+};
+
+export async function buildTennisAnalysis(
+  away: string,
+  home: string,
+  opts: BuildTennisAnalysisOpts = {},
+): Promise<TennisAnalysis> {
+  const key = `tennis:analysis:${normName(away)}|${normName(home)}`;
+  const base = await cachedJson<
+    Omit<TennisAnalysis, "recommendations" | "books" | "prePickAnalysis" | "simMetrics">
+  >(key, ANALYSIS_TTL, async () => {
+    const { runTennisMonteCarlo } = await import("./tennisMonteCarlo.js");
+    const matchup = await buildTennisMatchup(away, home);
+    const lean = computeTennisLean(matchup.away, matchup.home, matchup.h2h);
+    const simulation = (await runTennisMonteCarlo({
+      away,
+      home,
+      retainOutcomes: false,
+    })) ?? {
+      simulations: 10000,
+      homeWinProbability: 0.5,
+      awayWinProbability: 0.5,
+      tieProbability: 0,
+      homeProjectedScore: 11,
+      awayProjectedScore: 11,
+      mostLikelyWinner: "home" as const,
+      mostLikelyWinnerPct: 0.5,
+      confidenceScore: 45,
+    };
+    return { ...matchup, lean, simulation };
+  });
+
+  const h2hOutcomes = opts.h2hOutcomes ?? [];
+  const spreadOutcomes = opts.spreadOutcomes ?? [];
+  const totalOutcomes = opts.totalOutcomes ?? [];
+  const booksCount = h2hOutcomes.length + spreadOutcomes.length + totalOutcomes.length;
+
+  const profiles = await Promise.all([
+    base.away.athleteId && base.away.tour
+      ? loadAthleteProfile(base.away.athleteId, base.away.tour).catch(() => ({
+          bio: null,
+          career: null,
+        }))
+      : Promise.resolve({ bio: null, career: null }),
+    base.home.athleteId && base.home.tour
+      ? loadAthleteProfile(base.home.athleteId, base.home.tour).catch(() => ({
+          bio: null,
+          career: null,
+        }))
+      : Promise.resolve({ bio: null, career: null }),
+  ]);
+
+  const { buildTennisPickAnalysis, tennisSimMetrics } = await import("./tennisPickAnalysis.js");
+  const prePickAnalysis = await buildTennisPickAnalysis(
+    base,
+    { away: profiles[0]!, home: profiles[1]! },
+    booksCount,
+  );
+  const simMetrics = tennisSimMetrics(base.simulation);
+
+  let simulation = base.simulation;
+  if (spreadOutcomes.length > 0 || totalOutcomes.length > 0) {
+    const { buildCoverQueriesFromOutcomes } = await import("./tennisRecommendations.js");
+    const { runTennisMonteCarlo } = await import("./tennisMonteCarlo.js");
+    const coverQueries = buildCoverQueriesFromOutcomes(away, home, spreadOutcomes, totalOutcomes);
+    const simWithCovers = await runTennisMonteCarlo({
+      away,
+      home,
+      simulations: opts.simulations,
+      coverQueries,
+      retainOutcomes: false,
+    });
+    if (simWithCovers) simulation = simWithCovers;
+  }
+
+  if (booksCount === 0) {
+    return {
+      ...base,
+      simulation,
+      prePickAnalysis,
+      simMetrics: tennisSimMetrics(simulation),
+      recommendations: [],
+      books: [],
+    };
+  }
+
+  const { buildTennisRecommendations } = await import("./tennisRecommendations.js");
+  const { recommendations, books } = buildTennisRecommendations(
+    { ...base, prePickAnalysis, simMetrics, recommendations: [], books: [] },
+    away,
+    home,
+    h2hOutcomes,
+    spreadOutcomes,
+    totalOutcomes,
+    simulation,
+    prePickAnalysis,
+  );
+
+  return {
+    ...base,
+    simulation,
+    prePickAnalysis,
+    simMetrics: tennisSimMetrics(simulation),
+    recommendations,
+    books,
+  };
 }
+
+export type {
+  H2hPostedOutcome,
+  SpreadPostedOutcome,
+  TotalPostedOutcome,
+  TennisRecommendation,
+  TennisBookLine,
+  TennisPickAnalysis,
+  TennisSimMetrics,
+};
 
 export async function buildTennisMatchup(away: string, home: string): Promise<TennisMatchup> {
   return cachedJson<TennisMatchup>(

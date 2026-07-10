@@ -2265,15 +2265,147 @@ export type TennisMatchup = {
   round: string | null;
 };
 export type TennisLean = { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } };
-export type TennisAnalysis = TennisMatchup & { lean: TennisLean | null };
+export type TennisRecommendation = {
+  market: string;
+  pick: string;
+  odds: number;
+  line?: number | null;
+  book: string | null;
+  grade: string | null;
+  confidencePct: number | null;
+  edgePct: number | null;
+  simHitPct: number | null;
+  evPct: number | null;
+  skipped: boolean;
+  reason: string;
+  quality: {
+    winProbability: number | null;
+    projectedTotalGames: number | null;
+    dataCoveragePct: number;
+  } | null;
+};
+export type TennisBookLine = {
+  market: "h2h" | "spread" | "total";
+  label: string;
+  book: string;
+  price: number;
+  point?: number;
+};
+export type TennisPickAnalysis = {
+  dataCoveragePct: number;
+  resolvedPlayers: number;
+  unavailableFactors: string[];
+  unavailableMarkets: string[];
+  matchup: {
+    surface: { value: string | null; available: boolean };
+    tournament: { value: string | null; available: boolean };
+    h2hOverall: { value: string | null; available: boolean };
+  };
+};
+export type TennisSimMetrics = {
+  winProbability: { away: number; home: number };
+  projectedTotalGames: number | null;
+  avgGamesAway: number | null;
+  avgGamesHome: number | null;
+  confidenceScore: number;
+};
+export type TennisAnalysis = TennisMatchup & {
+  lean: TennisLean | null;
+  prePickAnalysis: TennisPickAnalysis;
+  simulation: {
+    simulations: number;
+    homeWinProbability: number;
+    awayWinProbability: number;
+    confidenceScore: number;
+    homeProjectedScore: number;
+    awayProjectedScore: number;
+    mostLikelyWinner: "home" | "away";
+    mostLikelyWinnerPct: number;
+  };
+  simMetrics: TennisSimMetrics;
+  recommendations: TennisRecommendation[];
+  books: TennisBookLine[];
+};
+
+// Posted tennis market outcomes for graded analysis (all books).
+export function tennisMarketsFromGame(g: OddsGame) {
+  const h2hOutcomes: { name: string; price: number; book: string | null }[] = [];
+  const spreadOutcomes: { name: string; price: number; point: number; book: string | null }[] = [];
+  const totalOutcomes: { name: string; price: number; point: number; book: string | null }[] = [];
+  const push = (
+    list: typeof h2hOutcomes | typeof spreadOutcomes | typeof totalOutcomes,
+    o: { name: string; price?: number | null; point?: number | null; books?: { price: number; book: string }[] },
+    withPoint = false,
+  ) => {
+    if (o.books?.length) {
+      for (const b of o.books) {
+        if (withPoint && typeof o.point === "number") {
+          (list as typeof spreadOutcomes).push({ name: o.name, price: b.price, point: o.point, book: b.book });
+        } else if (!withPoint) {
+          (list as typeof h2hOutcomes).push({ name: o.name, price: b.price, book: b.book });
+        }
+      }
+    } else if (typeof o.price === "number") {
+      if (withPoint && typeof o.point === "number") {
+        (list as typeof spreadOutcomes).push({ name: o.name, price: o.price, point: o.point, book: null });
+      } else if (!withPoint) {
+        (list as typeof h2hOutcomes).push({ name: o.name, price: o.price, book: null });
+      }
+    }
+  };
+  for (const m of g.markets ?? []) {
+    if (m.key === "h2h") {
+      for (const o of m.outcomes ?? []) push(h2hOutcomes, o);
+    }
+    if (m.key === "spreads") {
+      for (const o of m.outcomes ?? []) push(spreadOutcomes, o, true);
+    }
+    if (m.key === "totals") {
+      for (const o of m.outcomes ?? []) push(totalOutcomes, o, true);
+    }
+  }
+  const dedupe = <T extends { book: string | null; name: string; price: number; point?: number }>(rows: T[]) => {
+    const seen = new Set<string>();
+    return rows.filter((r) => {
+      const k = `${r.book}|${r.name}|${r.price}|${r.point ?? ""}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
+  return {
+    h2hOutcomes: dedupe(h2hOutcomes),
+    spreadOutcomes: dedupe(spreadOutcomes),
+    totalOutcomes: dedupe(totalOutcomes),
+  };
+}
 
 export async function getTennisAnalysis(
   away: string,
   home: string,
   signal?: AbortSignal,
+  markets?: {
+    h2hOutcomes?: { name: string; price: number; book?: string | null }[];
+    spreadOutcomes?: { name: string; price: number; point: number; book?: string | null }[];
+    totalOutcomes?: { name: string; price: number; point: number; book?: string | null }[];
+  },
 ): Promise<TennisAnalysis | null> {
-  const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
   try {
+    const hasMarkets =
+      (markets?.h2hOutcomes?.length ?? 0) > 0 ||
+      (markets?.spreadOutcomes?.length ?? 0) > 0 ||
+      (markets?.totalOutcomes?.length ?? 0) > 0;
+    if (hasMarkets) {
+      const res = await authedFetch("/sports/tennis-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ away, home, ...markets }),
+        signal,
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as TennisAnalysis;
+    }
+    const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
     return await getJson<TennisAnalysis>(`/sports/tennis-analysis?${qs}`, signal);
   } catch {
     return null;
@@ -3442,10 +3574,11 @@ export async function buildChatContext(
         const away = g.awayTeam || g.awayAbbr || "";
         const home = g.homeTeam || g.homeAbbr || "";
         const gameLabel = `${away} @ ${home}`;
-        const data = await getTennisAnalysis(away, home, signal);
+        const oddsEntry = tennisOdds.find((o) => o.awayTeam === away && o.homeTeam === home);
+        const markets = oddsEntry ? tennisMarketsFromGame(oddsEntry) : undefined;
+        const data = await getTennisAnalysis(away, home, signal, markets);
         if (!data || (!data.away?.rank && !data.home?.rank && !data.lean)) return;
         if (data.lean?.side) {
-          const oddsEntry = tennisOdds.find((o) => o.awayTeam === away && o.homeTeam === home);
           const h2h = oddsEntry?.markets?.find((m) => m.key === "h2h");
           const nf = (s: unknown) =>
             String(s ?? "")
