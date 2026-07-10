@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
-
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { FighterAvatar } from "@/components/FighterAvatar";
 import { type GameMeta } from "@/components/GameCard";
 import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -24,6 +24,7 @@ import {
   type SportFeedPayload,
 } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
+import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -66,10 +67,12 @@ function UpcomingGameRow({
   game,
   meta,
   onPress,
+  isUfc = false,
 }: {
   game: OddsGame;
   meta?: GameMeta;
   onPress: () => void;
+  isUfc?: boolean;
 }) {
   const colors = useColors();
   const h2h = game.markets?.find((m) => m.key === "h2h");
@@ -118,11 +121,7 @@ function UpcomingGameRow({
 
       {rows.map((t, i) => (
         <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          {t.logo ? (
-            <Image source={{ uri: t.logo }} style={{ width: 24, height: 24 }} resizeMode="contain" />
-          ) : (
-            <View style={{ width: 24, height: 24 }} />
-          )}
+          <FighterAvatar uri={t.logo} name={t.name} size={24} photo={isUfc} />
           <Text
             style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}
             numberOfLines={1}
@@ -226,6 +225,26 @@ export function UpcomingGamesFeed({
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [oddsQ.data, liveKeySet]);
 
+  const ufcPhotoKey = useMemo(
+    () =>
+      games
+        .map((g) => `${g.awayTeam}|${g.homeTeam}`)
+        .sort()
+        .join(";"),
+    [games],
+  );
+
+  const ufcPhotosQ = useQuery({
+    queryKey: ["ufc-feed-photos", ufcPhotoKey],
+    queryFn: ({ signal }) =>
+      buildUfcFeedPhotoMap(
+        games.map((g) => ({ awayTeam: g.awayTeam, homeTeam: g.homeTeam })),
+        signal,
+      ),
+    staleTime: 24 * 60 * 60_000,
+    enabled: sportId === "ufc" && games.length > 0,
+  });
+
   const sportLabel = SPORTS.find((s) => s.id === sportId)?.label ?? sportId;
   const feedLoading = oddsQ.isFetching && games.length === 0;
 
@@ -262,7 +281,11 @@ export function UpcomingGamesFeed({
           `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
         );
         const meta =
-          sportId === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
+          sportId === "tennis"
+            ? withTennisFlags(baseMeta, tennisFlagsQ.data, g)
+            : sportId === "ufc"
+              ? (withUfcFightPhotos(baseMeta, ufcPhotosQ.data, g.awayTeam, g.homeTeam) as GameMeta)
+              : baseMeta;
         const row = { ...g, sport: g.sport || sportId };
         return (
           <UpcomingGameRow
@@ -270,6 +293,7 @@ export function UpcomingGamesFeed({
             game={row}
             meta={meta}
             onPress={() => onSelectGame(row)}
+            isUfc={sportId === "ufc"}
           />
         );
       })}

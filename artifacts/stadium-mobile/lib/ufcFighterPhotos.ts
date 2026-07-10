@@ -49,6 +49,72 @@ export async function fetchEspnMmaCountryFlag(
 
 export type UfcFightPhotos = { away: string | null; home: string | null };
 
+export type UfcPhotoMap = Record<string, string>;
+
+const photoCache = new Map<string, string | null>();
+
+export function normFighterName(s: string): string {
+  return normName(s);
+}
+
+/** Batch-resolve Sherdog headshots for a UFC odds feed (cached per fighter). */
+export async function buildUfcFeedPhotoMap(
+  fights: ReadonlyArray<{ awayTeam: string; homeTeam: string }>,
+  signal?: AbortSignal,
+): Promise<UfcPhotoMap> {
+  const out: UfcPhotoMap = {};
+  const espn = await fetchUfcSimulatorGamesFromEspn(signal).catch(() => []);
+  for (const g of espn) {
+    if (g.awayTeam && g.awayLogo) out[normName(g.awayTeam)] = g.awayLogo;
+    if (g.homeTeam && g.homeLogo) out[normName(g.homeTeam)] = g.homeLogo;
+  }
+
+  const opponent = new Map<string, string>();
+  const toFetch: string[] = [];
+  for (const f of fights) {
+    opponent.set(normName(f.awayTeam), f.homeTeam);
+    opponent.set(normName(f.homeTeam), f.awayTeam);
+    for (const name of [f.awayTeam, f.homeTeam]) {
+      const k = normName(name);
+      if (out[k]) continue;
+      const cached = photoCache.get(k);
+      if (cached) {
+        if (cached) out[k] = cached;
+        continue;
+      }
+      if (!toFetch.includes(name)) toFetch.push(name);
+    }
+  }
+
+  const CONCURRENCY = 5;
+  for (let i = 0; i < toFetch.length; i += CONCURRENCY) {
+    const batch = toFetch.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(async (name) => {
+        const k = normName(name);
+        const url = await fetchSherdogFighterPhoto(name, opponent.get(k), signal);
+        photoCache.set(k, url);
+        if (url) out[k] = url;
+      }),
+    );
+  }
+
+  return out;
+}
+
+export function withUfcFightPhotos(
+  base: { awayLogo?: string | null; homeLogo?: string | null } | undefined,
+  photoMap: UfcPhotoMap | undefined,
+  awayTeam: string,
+  homeTeam: string,
+): { awayLogo?: string | null; homeLogo?: string | null } | undefined {
+  if (!photoMap) return base;
+  const awayLogo = photoMap[normName(awayTeam)] ?? base?.awayLogo ?? null;
+  const homeLogo = photoMap[normName(homeTeam)] ?? base?.homeLogo ?? null;
+  if (!awayLogo && !homeLogo && !base?.awayLogo && !base?.homeLogo) return base;
+  return { ...(base ?? {}), awayLogo, homeLogo };
+}
+
 /** Sherdog headshots first; ESPN scoreboard country flags when no photo. */
 export async function resolveUfcFightPhotos(
   awayName: string,

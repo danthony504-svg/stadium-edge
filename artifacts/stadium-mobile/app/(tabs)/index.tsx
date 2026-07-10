@@ -19,6 +19,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
+import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -52,6 +53,7 @@ import {
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
 import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
+import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -597,6 +599,26 @@ function HomeSportFeed({
       );
     return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [oddsForSport, liveKeySet]);
+
+  const ufcPhotoKey = useMemo(
+    () =>
+      games
+        .map((g) => `${g.awayTeam}|${g.homeTeam}`)
+        .sort()
+        .join(";"),
+    [games],
+  );
+
+  const ufcPhotosQ = useQuery({
+    queryKey: ["ufc-feed-photos", ufcPhotoKey],
+    queryFn: ({ signal }) =>
+      buildUfcFeedPhotoMap(
+        games.map((g) => ({ awayTeam: g.awayTeam, homeTeam: g.homeTeam })),
+        signal,
+      ),
+    staleTime: 24 * 60 * 60_000,
+    enabled: sport === "ufc" && games.length > 0,
+  });
 
   useEffect(() => {
     if (games.length > 0) {
@@ -1784,7 +1806,11 @@ function HomeSportFeed({
                 `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
               );
               const meta =
-                sport === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
+                sport === "tennis"
+                  ? withTennisFlags(baseMeta, tennisFlagsQ.data, g)
+                  : sport === "ufc"
+                    ? (withUfcFightPhotos(baseMeta, ufcPhotosQ.data, g.awayTeam, g.homeTeam) as GameMeta)
+                    : baseMeta;
               const h2h = safeMarkets(g).find((m) => m.key === "h2h");
               const awayML = h2h?.outcomes?.find((o) => o.name === g.awayTeam)?.price;
               const homeML = h2h?.outcomes?.find((o) => o.name === g.homeTeam)?.price;
@@ -1834,15 +1860,12 @@ function HomeSportFeed({
 
                   {rows.map((t, i) => (
                     <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      {t.logo ? (
-                        <Image
-                          source={{ uri: t.logo }}
-                          style={{ width: 24, height: 24 }}
-                          resizeMode="contain"
-                        />
-                      ) : (
-                        <View style={{ width: 24, height: 24 }} />
-                      )}
+                      <FighterAvatar
+                        uri={t.logo}
+                        name={t.name}
+                        size={24}
+                        photo={sport === "ufc"}
+                      />
                       <Text
                         style={{
                           color: colors.foreground,
