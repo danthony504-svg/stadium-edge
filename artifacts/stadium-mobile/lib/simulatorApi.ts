@@ -3,7 +3,7 @@
 // large api.ts barrel is stale and exports like getInjuries are undefined).
 import { fetch as expoFetch } from "expo/fetch";
 
-import { propMarketLabel } from "./propMarketLabel";
+import { fetchUfcSimulatorGamesFromEspn, hasUfcFightLabels } from "./ufcSimulatorGames";
 import type {
   EspnGame,
   GameSimulationResult,
@@ -67,8 +67,10 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     Array.isArray(rows)
       ? rows.filter((g): g is EspnGame => !!g && typeof g === "object" && typeof g.id === "string")
       : [];
+  const sportId = sport.toLowerCase();
+  let rows: EspnGame[] = [];
   try {
-    return parse(
+    rows = parse(
       await simGetJson<EspnGame[]>(
         `/sports/games?sport=${encodeURIComponent(sport)}&simulator=1`,
         signal,
@@ -77,7 +79,7 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     );
   } catch {
     try {
-      return parse(
+      rows = parse(
         await simGetJson<EspnGame[]>(
           `/sports/games?sport=${encodeURIComponent(sport)}`,
           signal,
@@ -85,11 +87,21 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
         ),
       );
     } catch {
-      // Tennis used to 400 before ESPN scoreboard support — never leave the
-      // simulator pill spinning on a failed games fetch.
-      return [];
+      rows = [];
     }
   }
+
+  // Stale API deploys return UFC event cards with null fighters — flatten via ESPN.
+  if ((sportId === "ufc" || sportId === "mma") && !hasUfcFightLabels(rows)) {
+    const espn = await fetchUfcSimulatorGamesFromEspn(signal);
+    if (espn.length) return espn;
+  }
+
+  if (sportId === "ufc" || sportId === "mma") {
+    return rows.filter((g) => !!g.homeTeam && !!g.awayTeam);
+  }
+
+  return rows;
 }
 
 export async function fetchSimulatorOdds(sport: string, signal?: AbortSignal): Promise<OddsGame[]> {
