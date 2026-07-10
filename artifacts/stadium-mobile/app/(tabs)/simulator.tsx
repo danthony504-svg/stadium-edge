@@ -100,6 +100,7 @@ import {
 } from "@/lib/simulatorResultCache";
 import { isUfcFightRow } from "@/lib/ufcSimulatorGames";
 import { fetchUfcSimulatorGameOutcome } from "@/lib/ufcSimulatorSim";
+import { resolveUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
 const gameEligibleForSim = isSimulatorPregame;
 
@@ -401,6 +402,23 @@ export default function SimulatorScreen() {
     staleTime: 60_000,
     enabled: !!game,
   });
+
+  const ufcPhotosQ = useQuery({
+    queryKey: ["ufc-fight-photos", game?.awayTeam, game?.homeTeam],
+    queryFn: ({ signal }) =>
+      resolveUfcFightPhotos(game!.awayTeam!, game!.homeTeam!, signal),
+    staleTime: 24 * 60 * 60_000,
+    enabled: (sport === "ufc" || sport === "mma") && !!game?.awayTeam && !!game?.homeTeam,
+  });
+
+  const awayFighterImage =
+    (sport === "ufc" || sport === "mma") && game
+      ? ufcPhotosQ.data?.away ?? game.awayLogo ?? null
+      : game?.awayLogo ?? null;
+  const homeFighterImage =
+    (sport === "ufc" || sport === "mma") && game
+      ? ufcPhotosQ.data?.home ?? game.homeLogo ?? null
+      : game?.homeLogo ?? null;
 
   // Switching games must drop prior prop selections (PP lines are per-matchup).
   useEffect(() => {
@@ -1167,16 +1185,18 @@ export default function SimulatorScreen() {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <TeamCol
                   name={game.awayTeam ?? ""}
-                  logo={game.awayLogo}
+                  logo={awayFighterImage}
                   record={game.awayAbbr ?? ""}
                   align="left"
+                  photo={sport === "ufc" || sport === "mma"}
                 />
                 <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 16 }}>@</Text>
                 <TeamCol
                   name={game.homeTeam ?? ""}
-                  logo={game.homeLogo}
+                  logo={homeFighterImage}
                   record={game.homeAbbr ?? ""}
                   align="right"
+                  photo={sport === "ufc" || sport === "mma"}
                 />
               </View>
               <Text
@@ -1738,17 +1758,28 @@ function TeamCol({
   logo,
   record,
   align,
+  photo = false,
 }: {
   name: string;
   logo?: string | null;
   record: string;
   align: "left" | "right";
+  photo?: boolean;
 }) {
   const colors = useColors();
   return (
     <View style={{ flex: 1, alignItems: align === "left" ? "flex-start" : "flex-end", gap: 6 }}>
       {logo ? (
-        <Image source={{ uri: logo }} style={{ width: 40, height: 40 }} contentFit="contain" />
+        <Image
+          source={{ uri: logo }}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: photo ? 20 : 10,
+            backgroundColor: colors.surface,
+          }}
+          contentFit={photo ? "cover" : "contain"}
+        />
       ) : (
         <View
           style={{

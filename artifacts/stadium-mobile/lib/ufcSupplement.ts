@@ -97,8 +97,19 @@ function stripTags(s: string): string {
   return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/** Parse Sherdog fighter profile HTML for the cropped headshot URL. */
+export function parseSherdogFighterPhoto(html: string): string | null {
+  const rel =
+    /<img[^>]+src="([^"]+_images\/fighter\/[^"]+)"/i.exec(html)?.[1] ??
+    /src="(\/image_crop\/[^"]+_images\/fighter\/[^"]+)"/i.exec(html)?.[1] ??
+    null;
+  if (!rel) return null;
+  return rel.startsWith("http") ? rel : `https://www.sherdog.com${rel}`;
+}
+
 type SherdogPatch = {
   resolvedName: string;
+  photoUrl: string | null;
   record: FightFighter["record"];
   weightClass: string | null;
   profile: FightFighterProfile;
@@ -150,6 +161,7 @@ function parseSherdogProfile(html: string, slug: string): SherdogPatch | null {
   }
 
   const weightClass = /CLASS<br \/><a href="[^"]+">([^<]+)<\/a>/i.exec(html)?.[1]?.trim() ?? null;
+  const photoUrl = parseSherdogFighterPhoto(html);
   const ko = parseInt(
     /KO <em>\/<\/em> TKO<\/div>\s*<div class="meter">[\s\S]*?<div class="pl">(\d+)/i.exec(html)?.[1] || "",
     10,
@@ -189,6 +201,7 @@ function parseSherdogProfile(html: string, slug: string): SherdogPatch | null {
 
   return {
     resolvedName,
+    photoUrl,
     record,
     weightClass,
     profile: {
