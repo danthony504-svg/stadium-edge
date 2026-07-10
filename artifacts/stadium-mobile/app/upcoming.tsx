@@ -119,7 +119,7 @@ function UpcomingScreenBody() {
   );
 }
 
-/** Deep-link / legacy route — prefer UpcomingGamesModal from Home for "View all". */
+/** Deep-link / legacy route — Home "View all" expands inline on Discover. */
 export default function UpcomingScreen() {
   return (
     <ErrorBoundary FallbackComponent={UpcomingFeedErrorFallback}>

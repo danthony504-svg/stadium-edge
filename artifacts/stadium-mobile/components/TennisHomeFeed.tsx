@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
-import { UpcomingGamesModal } from "@/components/UpcomingGamesModal";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
@@ -22,6 +21,7 @@ import {
 import { formatAmerican } from "@/lib/format";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
+const UPCOMING_PREVIEW_COUNT = 12;
 
 function withTennisFlags(
   base: GameMeta | undefined,
@@ -61,7 +61,7 @@ export function TennisHomeFeed({
 }: TennisHomeFeedProps) {
   const colors = useColors();
   const sport = "tennis";
-  const [upcomingModalOpen, setUpcomingModalOpen] = useState(false);
+  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -132,6 +132,13 @@ export function TennisHomeFeed({
       .sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
   }, [oddsQ.data, liveKeySet]);
 
+  const visibleUpcoming = useMemo(
+    () =>
+      upcomingExpanded ? upcoming : upcoming.slice(0, UPCOMING_PREVIEW_COUNT),
+    [upcoming, upcomingExpanded],
+  );
+  const canExpandUpcoming = upcoming.length > UPCOMING_PREVIEW_COUNT;
+
   const loading = oddsQ.isFetching || gamesQ.isFetching;
   const refreshing = oddsQ.isFetching || gamesQ.isFetching || flagsQ.isFetching;
 
@@ -144,8 +151,7 @@ export function TennisHomeFeed({
   };
 
   return (
-    <>
-      <ScrollView
+    <ScrollView
       contentContainerStyle={{ paddingBottom: bottomInset + 24 + slipClearance }}
       refreshControl={
         <RefreshControl
@@ -240,9 +246,11 @@ export function TennisHomeFeed({
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18 }}>
           Upcoming Matches
         </Text>
-        {upcoming.length > 0 ? (
-          <Pressable onPress={() => setUpcomingModalOpen(true)}>
-            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>View all</Text>
+        {canExpandUpcoming || upcomingExpanded ? (
+          <Pressable onPress={() => setUpcomingExpanded((open) => !open)}>
+            <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+              {upcomingExpanded ? "Show less" : "View all"}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -265,7 +273,7 @@ export function TennisHomeFeed({
         </View>
       ) : (
         <View style={{ paddingHorizontal: 16, gap: 10 }}>
-          {upcoming.slice(0, 12).map((g) => {
+          {visibleUpcoming.map((g) => {
             const baseMeta = metaMap.get(
               `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
             );
@@ -342,11 +350,5 @@ export function TennisHomeFeed({
         </Text>
       </Pressable>
     </ScrollView>
-    <UpcomingGamesModal
-      sportId={sport}
-      visible={upcomingModalOpen}
-      onClose={() => setUpcomingModalOpen(false)}
-    />
-    </>
   );
 }

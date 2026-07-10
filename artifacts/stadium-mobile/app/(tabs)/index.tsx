@@ -19,7 +19,6 @@ import { AppHeader } from "@/components/AppHeader";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
-import { UpcomingGamesModal } from "@/components/UpcomingGamesModal";
 import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
@@ -74,6 +73,7 @@ function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 const HOME_MIN_VALUE_EV = 1.5;
 const HOME_SPORT_IDS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl"];
 const HOME_SPORTS = SPORTS.filter((s) => HOME_SPORT_IDS.includes(s.id));
+const UPCOMING_PREVIEW_COUNT = 8;
 
 function buildMetaMap(games: EspnGame[]): Map<string, GameMeta> {
   const map = new Map<string, GameMeta>();
@@ -455,7 +455,7 @@ function HomeSportFeed({
   quickCardWidth,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
-  const [upcomingModalOpen, setUpcomingModalOpen] = useState(false);
+  const [upcomingExpanded, setUpcomingExpanded] = useState(false);
 
   // Refetch the active league when the pill changes. Kept separate from
   // useFocusEffect so a sport tap never retriggers OTA reload side-effects.
@@ -463,6 +463,7 @@ function HomeSportFeed({
     void queryClient.invalidateQueries({ queryKey: ["odds", sport] });
     void queryClient.invalidateQueries({ queryKey: ["games", sport] });
     void queryClient.invalidateQueries({ queryKey: ["home-featured", sport] });
+    setUpcomingExpanded(false);
   }, [queryClient, sport]);
 
   useFocusEffect(
@@ -602,6 +603,14 @@ function HomeSportFeed({
     }
   }, [games, sport]);
   const displayUpcoming = useMemo(() => games, [games]);
+  const visibleUpcoming = useMemo(
+    () =>
+      upcomingExpanded
+        ? displayUpcoming
+        : displayUpcoming.slice(0, UPCOMING_PREVIEW_COUNT),
+    [displayUpcoming, upcomingExpanded],
+  );
+  const canExpandUpcoming = displayUpcoming.length > UPCOMING_PREVIEW_COUNT;
 
   const sportFeedLoading =
     oddsQ.isFetching ||
@@ -1727,10 +1736,10 @@ function HomeSportFeed({
               </View>
             ) : null}
           </View>
-          {displayUpcoming.length > 0 ? (
+          {(canExpandUpcoming || upcomingExpanded) && displayUpcoming.length > 0 ? (
             <Pressable
               hitSlop={8}
-              onPress={() => setUpcomingModalOpen(true)}
+              onPress={() => setUpcomingExpanded((open) => !open)}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
               <Text
@@ -1740,7 +1749,7 @@ function HomeSportFeed({
                   fontSize: 14,
                 }}
               >
-                View all
+                {upcomingExpanded ? "Show less" : "View all"}
               </Text>
             </Pressable>
           ) : null}
@@ -1763,7 +1772,7 @@ function HomeSportFeed({
           </View>
         ) : (
           <View style={{ paddingHorizontal: 16, gap: 10 }}>
-            {displayUpcoming.slice(0, 8).map((g) => {
+            {visibleUpcoming.map((g) => {
               const baseMeta = metaMap.get(
                 `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
               );
@@ -2018,11 +2027,6 @@ function HomeSportFeed({
           </View>
         ) : null}
       </ScrollView>
-      <UpcomingGamesModal
-        sportId={sport}
-        visible={upcomingModalOpen}
-        onClose={() => setUpcomingModalOpen(false)}
-      />
     </ErrorBoundary>
   );
 }
