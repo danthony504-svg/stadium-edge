@@ -2181,6 +2181,13 @@ export type FightRecommendation = {
   } | null;
 };
 export type FightBookLine = { fighter: string; book: string; price: number };
+export type UfcPropOutcome = { name: string; price: number; book: string | null; point?: number | null };
+export type UfcFightPropMarket = { key: string; label: string; outcomes: UfcPropOutcome[] };
+export type UfcFightPropsBundle = {
+  boutId: string | null;
+  provider: "cito" | null;
+  markets: UfcFightPropMarket[];
+};
 export type FightPickAnalysis = {
   dataCoveragePct: number;
   resolvedFighters: number;
@@ -2213,6 +2220,8 @@ export type FightAnalysis = {
   simMetrics: FightSimMetrics;
   recommendations: FightRecommendation[];
   books: FightBookLine[];
+  fightProps?: UfcFightPropsBundle;
+  propRecommendations?: FightRecommendation[];
 };
 
 const EMPTY_FIGHT_PROFILE: FightFighterProfile = {
@@ -2360,7 +2369,55 @@ function normalizeFightAnalysis(raw: Partial<FightAnalysis> | null, away = "", h
     },
     recommendations: raw.recommendations ?? [],
     books: raw.books ?? [],
+    fightProps: raw.fightProps ?? { boutId: null, provider: null, markets: [] },
+    propRecommendations: raw.propRecommendations ?? [],
   };
+}
+
+// Fetch Cito UFC prop odds for one bout (empty when key unset or no lines).
+export async function getUfcFightProps(
+  away: string,
+  home: string,
+  signal?: AbortSignal,
+): Promise<UfcFightPropsBundle> {
+  try {
+    const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+    const data = await getJson<UfcFightPropsBundle & { configured?: boolean }>(
+      `/sports/ufc-fight-props?${qs}`,
+      signal,
+    );
+    return {
+      boutId: data?.boutId ?? null,
+      provider: data?.provider ?? null,
+      markets: data?.markets ?? [],
+    };
+  } catch {
+    return { boutId: null, provider: null, markets: [] };
+  }
+}
+
+// Surface real UFC prop lines in the coach odds pool (Cito only — never fabricated).
+export function buildUfcPropRealOdds(
+  gameLabel: string,
+  sport: string,
+  startsAt: string | undefined,
+  props: UfcFightPropsBundle | undefined,
+): RealOddsEntry[] {
+  if (!props?.markets?.length) return [];
+  const base = { sport, game: gameLabel, startsAt };
+  const out: RealOddsEntry[] = [];
+  for (const m of props.markets) {
+    for (const o of m.outcomes) {
+      if (!Number.isFinite(o.price) || !o.name?.trim()) continue;
+      out.push({
+        ...base,
+        market: m.label,
+        pick: o.name,
+        odds: o.price,
+      });
+    }
+  }
+  return out;
 }
 
 // Fetch fight breakdown (+ 10k sim). POST when h2h outcomes are available so
@@ -3717,6 +3774,13 @@ export async function buildChatContext(
           }
         }
         fightAnalysis[gameLabel] = data;
+        const propOdds = buildUfcPropRealOdds(
+          gameLabel,
+          "ufc",
+          oddsEntry?.commenceTime,
+          data.fightProps,
+        );
+        if (propOdds.length) realOdds.push(...propOdds);
       }),
     );
   }
