@@ -78,6 +78,35 @@ describe("computeFightLean", () => {
   });
 });
 
+describe("mmaSupplement", () => {
+  it("fighterNeedsSupplement when ESPN has record but no strike stats", () => {
+    const thin = fighter({
+      name: "Aaron Aby",
+      athleteId: "4083014",
+      stats: {
+        strikeAccuracy: null,
+        strikeLPM: null,
+        takedownAccuracy: null,
+        takedownAvg: null,
+        submissionAvg: null,
+        finishPct: null,
+        decisionPct: null,
+      },
+      methods: {
+        koWins: null,
+        tkoWins: 1,
+        subWins: 5,
+        decisionWins: null,
+        koLosses: null,
+        tkoLosses: 2,
+        subLosses: 0,
+      },
+      recentForm: [],
+    });
+    assert.equal(fighterNeedsSupplement(thin), true);
+  });
+});
+
 describe("classifyFighterStyle", () => {
   it("labels high-volume striker", () => {
     const f = fighter({

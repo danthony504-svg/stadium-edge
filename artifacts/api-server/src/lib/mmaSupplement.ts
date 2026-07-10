@@ -68,8 +68,14 @@ export function mergeFighters(base: Fighter, patch: Fighter): Fighter {
       age: base.profile.age ?? patch.profile.age,
       heightIn: base.profile.heightIn ?? patch.profile.heightIn,
       displayHeight: base.profile.displayHeight ?? patch.profile.displayHeight,
-      reachIn: base.profile.reachIn ?? patch.profile.reachIn,
-      displayReach: base.profile.displayReach ?? patch.profile.displayReach,
+      reachIn:
+        base.profile.reachIn != null && base.profile.reachIn > 0
+          ? base.profile.reachIn
+          : patch.profile.reachIn,
+      displayReach:
+        base.profile.displayReach && base.profile.displayReach !== '0"'
+          ? base.profile.displayReach
+          : patch.profile.displayReach,
       stance: base.profile.stance ?? patch.profile.stance,
       citizenship: base.profile.citizenship ?? patch.profile.citizenship,
     },
@@ -98,6 +104,14 @@ export function mergeFighters(base: Fighter, patch: Fighter): Fighter {
   return merged;
 }
 
+function isBogusReach(f: Fighter): boolean {
+  return (
+    f.profile.reachIn === 0 ||
+    f.profile.displayReach === '0"' ||
+    f.profile.displayReach === "0' 0\""
+  );
+}
+
 export function fighterNeedsSupplement(f: Fighter): boolean {
   if (!f.record && !f.athleteId) return true;
 
@@ -109,12 +123,25 @@ export function fighterNeedsSupplement(f: Fighter): boolean {
     f.methods.subWins == null &&
     f.methods.decisionWins == null;
   const missingStats =
-    !f.stats.strikeLPM && !f.stats.takedownAvg && !f.stats.strikeAccuracy;
+    f.stats.strikeLPM == null &&
+    f.stats.takedownAvg == null &&
+    f.stats.strikeAccuracy == null &&
+    f.stats.finishPct == null;
 
   // ESPN core profile can fail while records/statistics succeed — fill bio via Sherdog.
   if (missingBio) return true;
+  if (isBogusReach(f)) return true;
   // Method split missing from ESPN records — Sherdog carries KO/SUB/DEC counts.
   if (missingMethods && !!f.record) return true;
+  // ESPN resolved the fighter but strike/finish rates are empty — common on regional cards.
+  if (!!f.athleteId && !!f.record && missingStats && f.recentForm.length === 0) return true;
+  // Partial method split without recent form — Sherdog fills the rest.
+  const partialMethods =
+    !!f.record &&
+    f.recentForm.length === 0 &&
+    (f.methods.decisionWins == null || f.methods.koWins == null) &&
+    (f.methods.subWins != null || f.methods.tkoWins != null);
+  if (partialMethods) return true;
   // Fully unresolved regional fighter with no stats anywhere.
   if (missingStats && f.recentForm.length === 0 && !f.record) return true;
 
