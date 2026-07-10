@@ -12,7 +12,7 @@ export type CachedPropEntry = {
   teamLogo: string | null;
 };
 
-const PREFIX = "discover-cache:v3:";
+const PREFIX = "discover-cache:v4:";
 const GEN_KEY = `${PREFIX}ota-generation`;
 /** Hero legs older than this are not shown while a fresh fetch is in flight. */
 export const HERO_STICKY_MAX_MS = 12 * 60_000;

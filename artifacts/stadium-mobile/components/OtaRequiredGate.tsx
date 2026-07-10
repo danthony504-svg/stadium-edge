@@ -74,8 +74,8 @@ export function OtaRequiredGate({ children }: { children: ReactNode }) {
             marginTop: 10,
           }}
         >
-          Stadium Edge downloaded a fix for Home and Tennis. Restart once to load it — using the
-          app before restarting can cause crashes like &quot;userFound is not a function&quot;.
+          Stadium Edge downloaded a fix for Home. Restart once to load it — using the
+          app before restarting can cause crashes on Discover.
         </Text>
         <Pressable
           onPress={restart}
