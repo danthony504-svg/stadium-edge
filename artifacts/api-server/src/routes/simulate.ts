@@ -5,6 +5,7 @@ import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monte
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
+import { buildFightAnalysis } from "../lib/ufc.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
@@ -242,7 +243,12 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
 
   const homeTeam = String(req.body?.homeTeam ?? "");
   const awayTeam = String(req.body?.awayTeam ?? "");
-  const nameOnlySports = sport === "tennis" || sport === "tabletennis" || sport === "cricket";
+  const nameOnlySports =
+    sport === "tennis" ||
+    sport === "tabletennis" ||
+    sport === "cricket" ||
+    sport === "ufc" ||
+    sport === "mma";
 
   if (!nameOnlySports && (!homeTeamId || !awayTeamId)) {
     res.status(400).json({ error: "sport, homeTeamId, awayTeamId required" });
@@ -278,6 +284,26 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
       homeTeam: homeTeam || null,
       awayTeam: awayTeam || null,
       ...result,
+    });
+    return;
+  }
+
+  if (sport === "ufc" || sport === "mma") {
+    const analysis = await buildFightAnalysis(awayTeam, homeTeam);
+    const sim = analysis.simulation;
+    res.json({
+      sport,
+      homeTeam: homeTeam || null,
+      awayTeam: awayTeam || null,
+      simulations: sim.simulations,
+      homeWinProbability: sim.homeWinProbability,
+      awayWinProbability: sim.awayWinProbability,
+      tieProbability: 0,
+      mostLikelyWinner: sim.mostLikelyWinner === "home" ? "home" : "away",
+      mostLikelyWinnerPct: sim.mostLikelyWinnerPct,
+      confidenceScore: sim.confidenceScore,
+      methodRates: sim.methodRates,
+      lean: analysis.lean,
     });
     return;
   }

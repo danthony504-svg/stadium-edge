@@ -1,4 +1,10 @@
 import { cachedJson } from "./sports.js";
+import type { FightSimResult } from "./ufcMonteCarlo.js";
+import type {
+  FightBookLine,
+  FightRecommendation,
+  H2hPostedOutcome,
+} from "./fightRecommendations.js";
 
 // ---------------------------------------------------------------------------
 // UFC / MMA fighter data from ESPN's public core API. The app's UFC tab only
@@ -12,41 +18,115 @@ import { cachedJson } from "./sports.js";
 // ---------------------------------------------------------------------------
 
 export type FighterStats = {
-  // career rates (ESPN "General" statistics split). null when ESPN doesn't
-  // carry the value OR reports a placeholder 0 for a percentage/accuracy stat.
-  strikeAccuracy: number | null; // % of significant strikes that land
-  strikeLPM: number | null; // significant strikes landed per minute
-  takedownAccuracy: number | null; // % of takedown attempts that land
-  takedownAvg: number | null; // takedowns landed per 15 min
-  submissionAvg: number | null; // submission attempts per 15 min
-  finishPct: number | null; // KO/TKO % + (decision is the remainder)
-  decisionPct: number | null; // % of wins by decision
+  strikeAccuracy: number | null;
+  strikeLPM: number | null;
+  takedownAccuracy: number | null;
+  takedownAvg: number | null;
+  submissionAvg: number | null;
+  finishPct: number | null;
+  decisionPct: number | null;
 };
 
+export type FighterMethods = {
+  koWins: number | null;
+  tkoWins: number | null;
+  subWins: number | null;
+  decisionWins: number | null;
+  koLosses: number | null;
+  tkoLosses: number | null;
+  subLosses: number | null;
+};
+
+export type FighterProfile = {
+  age: number | null;
+  heightIn: number | null;
+  displayHeight: string | null;
+  reachIn: number | null;
+  displayReach: string | null;
+  stance: string | null;
+  citizenship: string | null;
+};
+
+export type FighterStyle = "striker" | "grappler" | "wrestler" | "mixed" | null;
+
 export type Fighter = {
-  name: string; // the name we resolved against (echo of the query)
-  resolvedName: string | null; // ESPN's canonical display name (null if unresolved)
+  name: string;
+  resolvedName: string | null;
   athleteId: string | null;
   weightClass: string | null;
   record: { wins: number; losses: number; draws: number; winPct: number } | null;
   stats: FighterStats;
+  profile: FighterProfile;
+  methods: FighterMethods;
+  style: FighterStyle;
 };
 
 export type FightLean = {
-  side: string; // resolvedName of the favored fighter
-  edge: number; // strength of the lean (>= 1 = a confident read)
-  reasons: string[]; // real cited numbers behind the lean
+  side: string;
+  edge: number;
+  reasons: string[];
+};
+
+export type FightComparison = {
+  reachAdvantageIn: number | null;
+  reachAdvantageFighter: string | null;
+  styleMatchup: string | null;
+  /** Stats requested by product but not available from ESPN for either fighter. */
+  unavailable: string[];
 };
 
 export type FightAnalysis = {
   away: Fighter;
   home: Fighter;
   lean: FightLean | null;
+  comparison: FightComparison;
+  simulation: FightSimResult;
+  recommendations: FightRecommendation[];
+  books: FightBookLine[];
 };
 
-const SEARCH_TTL = 24 * 60 * 60 * 1000; // fighter ids are stable — cache a day
-const PROFILE_TTL = 6 * 60 * 60 * 1000; // records/stats move slowly between cards
+const SEARCH_TTL = 24 * 60 * 60 * 1000;
+const PROFILE_TTL = 6 * 60 * 60 * 1000;
 const ANALYSIS_TTL = 30 * 60 * 1000;
+
+const UNAVAILABLE_STATS = [
+  "Significant strike defense",
+  "Knockdown average",
+  "Takedown defense",
+  "Recent form (last 5 fights)",
+  "Win/loss streak",
+  "Strength of opponents",
+  "UFC experience (bout count)",
+  "Days since last fight",
+  "Weight misses",
+  "Injuries",
+  "Travel distance / altitude",
+  "Round count (main vs prelim)",
+  "Cardio / chin / ground control",
+  "Betting line movement",
+  "Public / sharp betting %",
+  "Round props & method props",
+] as const;
+
+const emptyMethods = (): FighterMethods => ({
+  koWins: null,
+  tkoWins: null,
+  subWins: null,
+  decisionWins: null,
+  koLosses: null,
+  tkoLosses: null,
+  subLosses: null,
+});
+
+const emptyProfile = (): FighterProfile => ({
+  age: null,
+  heightIn: null,
+  displayHeight: null,
+  reachIn: null,
+  displayReach: null,
+  stance: null,
+  citizenship: null,
+});
 
 async function fetchJson(url: string): Promise<any> {
   const r = await fetch(url);
@@ -54,10 +134,6 @@ async function fetchJson(url: string): Promise<any> {
   return r.json();
 }
 
-// Diacritic-/punctuation-insensitive fighter-name key for matching ESPN display
-// names against the odds-feed names (e.g. "Joanderson Brito" vs "Joandérson
-// Brito", "Cory Sandhagen" vs "Cory  Sandhagen"). Lowercased, accents stripped,
-// non-alphanumerics collapsed to single spaces.
 export function normFighter(s: unknown): string {
   return String(s ?? "")
     .toLowerCase()
@@ -67,11 +143,6 @@ export function normFighter(s: unknown): string {
     .trim();
 }
 
-// Resolve a fighter name -> ESPN numeric athlete id via the public search API.
-// The search "player" result carries a GUID id, but the REAL numeric athlete id
-// lives in the web link (".../fighter/_/id/2335639/jon-jones") — parse it out.
-// We only accept results whose sport is mma so a same-name athlete in another
-// sport can never leak in. Returns null when no mma fighter matches.
 export async function resolveFighterId(name: string): Promise<string | null> {
   const clean = String(name || "").trim();
   if (!clean) return null;
@@ -95,11 +166,6 @@ export async function resolveFighterId(name: string): Promise<string | null> {
       const m = /\/id\/(\d+)\//.exec(String(web));
       return m ? m[1] : null;
     };
-    // Fail-closed resolution so a wrong fighter's REAL stats are never attached
-    // to a bout (misattributed real data still violates the never-fabricate rule).
-    // Require a diacritic-/punctuation-insensitive exact display-name match; only
-    // fall back to a lone hit when the mma search returned exactly ONE candidate
-    // (unambiguous). Anything else returns null and the card shows "unavailable".
     const target = normFighter(clean);
     const exact = mma.find((c) => normFighter(c?.displayName) === target);
     if (exact) return idFrom(exact);
@@ -125,17 +191,107 @@ function parseRecord(summary: string | undefined, winPctValue: unknown): Fighter
   return { wins, losses, draws, winPct: Math.round(winPct * 10) / 10 };
 }
 
-// A percentage/accuracy stat reported as exactly 0 is almost always an
-// unpopulated placeholder for an active fighter, so treat it as missing rather
-// than fabricating a "0% accuracy" comparison. Per-fight averages (LPM, TD avg,
-// sub avg) CAN legitimately be 0, so those are kept as-is.
 function pctOrNull(v: number | null | undefined): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
   return Math.round(v * 10) / 10;
 }
+
 function avgOrNull(v: number | null | undefined): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return null;
   return Math.round(v * 100) / 100;
+}
+
+function intOrNull(v: number | null | undefined): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return null;
+  return Math.round(v);
+}
+
+function parseStance(raw: unknown): string | null {
+  const text = typeof raw === "object" && raw ? (raw as { text?: string }).text : raw;
+  const s = String(text ?? "").trim();
+  if (!s || s === "--" || s === "-") return null;
+  return s;
+}
+
+function statVal(stats: any[], name: string): number | null {
+  const s = stats.find((x) => x?.name === name);
+  return typeof s?.value === "number" && Number.isFinite(s.value) ? s.value : null;
+}
+
+function parseMethodStats(stats: any[], wins: number | null): FighterMethods {
+  const ko = intOrNull(statVal(stats, "kos"));
+  const tko = intOrNull(statVal(stats, "tkos"));
+  const sub = intOrNull(statVal(stats, "submissions"));
+  let decision: number | null = null;
+  if (wins != null && ko != null && tko != null && sub != null) {
+    const d = wins - ko - tko - sub;
+    decision = d >= 0 ? d : null;
+  }
+  return {
+    koWins: ko,
+    tkoWins: tko,
+    subWins: sub,
+    decisionWins: decision,
+    koLosses: null,
+    tkoLosses: intOrNull(statVal(stats, "tkoLosses")),
+    subLosses: intOrNull(statVal(stats, "submissionLosses")),
+  };
+}
+
+export function classifyFighterStyle(f: Fighter): FighterStyle {
+  let strike = 0;
+  let wrestle = 0;
+  let grapple = 0;
+  if (f.stats.strikeLPM != null && f.stats.strikeLPM >= 4) strike += 1;
+  if (f.stats.strikeAccuracy != null && f.stats.strikeAccuracy >= 52) strike += 0.5;
+  if (f.stats.takedownAvg != null && f.stats.takedownAvg >= 1.5) wrestle += 1;
+  if (f.stats.takedownAccuracy != null && f.stats.takedownAccuracy >= 38) wrestle += 0.5;
+  if (f.stats.submissionAvg != null && f.stats.submissionAvg >= 0.35) grapple += 1;
+  const w = f.record?.wins ?? 0;
+  if (w > 0) {
+    const subs = f.methods.subWins ?? 0;
+    const finishes = (f.methods.koWins ?? 0) + (f.methods.tkoWins ?? 0) + subs;
+    if (subs / w >= 0.25) grapple += 1;
+    if (finishes / w >= 0.55) strike += 0.5;
+  }
+  const top = Math.max(strike, wrestle, grapple);
+  if (top < 0.75) return null;
+  if (strike >= wrestle && strike >= grapple && strike >= 1 && wrestle < 0.75) return "striker";
+  if (wrestle >= grapple && wrestle >= 1 && strike < 0.75) return "wrestler";
+  if (grapple >= 1 && strike < 0.75 && wrestle < 0.75) return "grappler";
+  return "mixed";
+}
+
+const styleLabel = (s: FighterStyle): string => {
+  if (s === "striker") return "Striker";
+  if (s === "wrestler") return "Wrestler";
+  if (s === "grappler") return "Grappler";
+  if (s === "mixed") return "Mixed";
+  return "Unknown";
+};
+
+export function buildFightComparison(away: Fighter, home: Fighter): FightComparison {
+  const reachAdvantageIn =
+    away.profile.reachIn != null && home.profile.reachIn != null
+      ? Math.round((away.profile.reachIn - home.profile.reachIn) * 10) / 10
+      : null;
+  let reachAdvantageFighter: string | null = null;
+  if (reachAdvantageIn != null && Math.abs(reachAdvantageIn) >= 0.5) {
+    reachAdvantageFighter =
+      reachAdvantageIn > 0
+        ? away.resolvedName || away.name
+        : home.resolvedName || home.name;
+  }
+  let styleMatchup: string | null = null;
+  if (away.style && home.style) {
+    styleMatchup = `${styleLabel(away.style)} vs ${styleLabel(home.style)}`;
+  }
+  return {
+    reachAdvantageIn,
+    reachAdvantageFighter,
+    styleMatchup,
+    unavailable: [...UNAVAILABLE_STATS],
+  };
 }
 
 export async function getFighterProfile(name: string): Promise<Fighter> {
@@ -154,6 +310,9 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
       finishPct: null,
       decisionPct: null,
     },
+    profile: emptyProfile(),
+    methods: emptyMethods(),
+    style: null,
   };
   const id = await resolveFighterId(name);
   if (!id) return empty;
@@ -170,11 +329,23 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
       out.resolvedName = d?.displayName || d?.fullName || null;
       const wc = d?.weightClass;
       out.weightClass = (typeof wc === "object" ? wc?.text : wc) || null;
+      out.profile = {
+        age: typeof d?.age === "number" && Number.isFinite(d.age) ? d.age : null,
+        heightIn: typeof d?.height === "number" ? d.height : null,
+        displayHeight: d?.displayHeight ?? null,
+        reachIn: typeof d?.reach === "number" ? d.reach : null,
+        displayReach:
+          typeof d?.reach === "number" ? `${d.reach}"` : null,
+        stance: parseStance(d?.stance),
+        citizenship: d?.citizenship ?? d?.birthPlace?.country ?? null,
+      };
     }
     if (records.status === "fulfilled") {
       const items = records.value?.items || [];
       const overall = items.find((x: any) => x?.type === "total") || items[0];
       out.record = parseRecord(overall?.summary || overall?.displayValue, overall?.value);
+      const recStats = overall?.stats ?? [];
+      out.methods = parseMethodStats(recStats, out.record?.wins ?? null);
     }
     if (statistics.status === "fulfilled") {
       const cats = statistics.value?.splits?.categories || [];
@@ -196,6 +367,7 @@ export async function getFighterProfile(name: string): Promise<Fighter> {
         decisionPct: pctOrNull(flat.decisionPercentage),
       };
     }
+    out.style = classifyFighterStyle(out);
     return out;
   });
 }
@@ -204,13 +376,8 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-// Deterministic "stronger fighter" lean from REAL numbers only. Each factor
-// contributes a signed amount toward whichever fighter has the better real
-// value; a factor is skipped entirely unless BOTH fighters have real data for
-// it (so a missing/placeholder stat never invents an edge). Positive total
-// favors `away`, negative favors `home`. reasons[] cite the real figures.
 export function computeFightLean(away: Fighter, home: Fighter): FightLean | null {
-  let signed = 0; // + favors away, - favors home
+  let signed = 0;
   let used = 0;
   const awayReasons: string[] = [];
   const homeReasons: string[] = [];
@@ -224,14 +391,13 @@ export function computeFightLean(away: Fighter, home: Fighter): FightLean | null
   ) => {
     if (a == null || h == null) return;
     const contrib = clamp((a - h) * weight, -cap, cap);
-    if (Math.abs(contrib) < 0.15) return; // ignore negligible diffs
+    if (Math.abs(contrib) < 0.15) return;
     used++;
     signed += contrib;
     if (contrib > 0) awayReasons.push(label(away.resolvedName || away.name, a, h));
     else homeReasons.push(label(home.resolvedName || home.name, h, a));
   };
 
-  // Record win% — the most reliable signal (weight tuned so a 20-pt gap ~= 1.0).
   if (away.record && home.record) {
     factor(
       away.record.winPct,
@@ -245,6 +411,19 @@ export function computeFightLean(away: Fighter, home: Fighter): FightLean | null
       },
     );
   }
+
+  if (away.profile.age != null && home.profile.age != null) {
+    factor(home.profile.age, away.profile.age, 0.03, 0.6, (fav, f, d) =>
+      `${fav} younger (${d} vs ${f} years)`,
+    );
+  }
+
+  if (away.profile.reachIn != null && home.profile.reachIn != null) {
+    factor(away.profile.reachIn, home.profile.reachIn, 0.04, 0.8, (fav, f, d) =>
+      `${fav} longer reach (${f}" vs ${d}")`,
+    );
+  }
+
   factor(away.stats.strikeAccuracy, home.stats.strikeAccuracy, 0.06, 1.2, (fav, f, d) =>
     `${fav} lands ${f}% of significant strikes vs ${d}%`,
   );
@@ -254,26 +433,66 @@ export function computeFightLean(away: Fighter, home: Fighter): FightLean | null
   factor(away.stats.finishPct, home.stats.finishPct, 0.04, 1.2, (fav, f, d) =>
     `${fav} finishes more often (${f}% KO/TKO vs ${d}%)`,
   );
+  factor(away.stats.decisionPct, home.stats.decisionPct, -0.03, 0.8, (fav, f, d) =>
+    `${fav} goes to decision less (${f}% vs ${d}%)`,
+  );
   factor(away.stats.takedownAvg, home.stats.takedownAvg, 0.35, 1.0, (fav, f, d) =>
     `${fav} stronger grappling (${f} takedowns/15min vs ${d})`,
   );
   factor(away.stats.takedownAccuracy, home.stats.takedownAccuracy, 0.04, 0.8, (fav, f, d) =>
     `${fav} better takedown accuracy (${f}% vs ${d}%)`,
   );
+  factor(away.stats.submissionAvg, home.stats.submissionAvg, 0.45, 0.8, (fav, f, d) =>
+    `${fav} more submission threat (${f} att/15min vs ${d})`,
+  );
 
   if (used === 0) return null;
   const edge = Math.round(Math.abs(signed) * 10) / 10;
-  if (edge < 0.3) return null; // genuinely too close to call
+  if (edge < 0.3) return null;
   const awayFav = signed > 0;
   const side = awayFav ? away.resolvedName || away.name : home.resolvedName || home.name;
   const reasons = awayFav ? awayReasons : homeReasons;
   return { side, edge, reasons };
 }
 
-export async function buildFightAnalysis(away: string, home: string): Promise<FightAnalysis> {
+export type BuildFightAnalysisOpts = {
+  h2hOutcomes?: H2hPostedOutcome[];
+  simulations?: number;
+};
+
+export async function buildFightAnalysis(
+  away: string,
+  home: string,
+  opts: BuildFightAnalysisOpts = {},
+): Promise<FightAnalysis> {
   const key = `ufc:fight:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
-  return cachedJson<FightAnalysis>(key, ANALYSIS_TTL, async () => {
-    const [a, h] = await Promise.all([getFighterProfile(away), getFighterProfile(home)]);
-    return { away: a, home: h, lean: computeFightLean(a, h) };
-  });
+  const base = await cachedJson<Omit<FightAnalysis, "recommendations" | "books">>(
+    key,
+    ANALYSIS_TTL,
+    async () => {
+      const { runFightMonteCarlo } = await import("./ufcMonteCarlo.js");
+      const [a, h] = await Promise.all([getFighterProfile(away), getFighterProfile(home)]);
+      const lean = computeFightLean(a, h);
+      const comparison = buildFightComparison(a, h);
+      const partial = { away: a, home: h, lean, comparison };
+      const simulation = runFightMonteCarlo({ away: a, home: h, lean, comparison });
+      return { ...partial, simulation };
+    },
+  );
+
+  const outcomes = opts.h2hOutcomes ?? [];
+  if (outcomes.length === 0) {
+    return { ...base, recommendations: [], books: [] };
+  }
+  const { buildFightRecommendations } = await import("./fightRecommendations.js");
+  const { recommendations, books } = buildFightRecommendations(
+    { ...base, recommendations: [], books: [] },
+    away,
+    home,
+    outcomes,
+    base.simulation,
+  );
+  return { ...base, recommendations, books };
 }
+
+export type { FightSimResult, FightRecommendation, FightBookLine, H2hPostedOutcome };

@@ -2101,6 +2101,21 @@ export type FightFighterStats = {
   finishPct: number | null;
   decisionPct: number | null;
 };
+export type FightFighterProfile = {
+  age: number | null;
+  heightIn: number | null;
+  displayHeight: string | null;
+  reachIn: number | null;
+  displayReach: string | null;
+  stance: string | null;
+  citizenship: string | null;
+};
+export type FightFighterMethods = {
+  koWins: number | null;
+  tkoWins: number | null;
+  subWins: number | null;
+  decisionWins: number | null;
+};
 export type FightFighter = {
   name: string;
   resolvedName: string | null;
@@ -2108,16 +2123,73 @@ export type FightFighter = {
   weightClass: string | null;
   record: { wins: number; losses: number; draws: number; winPct: number } | null;
   stats: FightFighterStats;
+  profile: FightFighterProfile;
+  methods: FightFighterMethods;
+  style: "striker" | "grappler" | "wrestler" | "mixed" | null;
 };
 export type FightLean = { side: string; edge: number; reasons: string[]; upset?: { dogOdds: number } };
-export type FightAnalysis = { away: FightFighter; home: FightFighter; lean: FightLean | null };
+export type FightComparison = {
+  reachAdvantageIn: number | null;
+  reachAdvantageFighter: string | null;
+  styleMatchup: string | null;
+  unavailable: string[];
+};
+export type FightSimResult = {
+  simulations: number;
+  awayWinProbability: number;
+  homeWinProbability: number;
+  mostLikelyWinner: "away" | "home";
+  mostLikelyWinnerPct: number;
+  confidenceScore: number;
+  methodRates: {
+    away: { ko: number; tko: number; sub: number; decision: number };
+    home: { ko: number; tko: number; sub: number; decision: number };
+  } | null;
+};
+export type FightRecommendation = {
+  market: string;
+  pick: string;
+  odds: number;
+  book: string | null;
+  grade: string | null;
+  confidencePct: number | null;
+  edgePct: number | null;
+  simHitPct: number | null;
+  evPct: number | null;
+  skipped: boolean;
+  reason: string;
+};
+export type FightBookLine = { fighter: string; book: string; price: number };
+export type FightAnalysis = {
+  away: FightFighter;
+  home: FightFighter;
+  lean: FightLean | null;
+  comparison: FightComparison;
+  simulation: FightSimResult;
+  recommendations: FightRecommendation[];
+  books: FightBookLine[];
+};
 
-// Fetch the real fight breakdown for one UFC bout (records + striking/grappling
-// rates + a deterministic stronger-fighter lean). Returns null on a failed/empty
-// fetch — the caller treats that as "no data", never fabricates.
-export async function getFightAnalysis(away: string, home: string, signal?: AbortSignal): Promise<FightAnalysis | null> {
-  const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
+// Fetch fight breakdown (+ 10k sim). POST when h2h outcomes are available so
+// moneyline recommendations can be graded across all books.
+export async function getFightAnalysis(
+  away: string,
+  home: string,
+  signal?: AbortSignal,
+  h2hOutcomes?: { name: string; price: number; book?: string | null }[],
+): Promise<FightAnalysis | null> {
   try {
+    if (h2hOutcomes?.length) {
+      const res = await authedFetch("/sports/fight-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ away, home, h2hOutcomes }),
+        signal,
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as FightAnalysis;
+    }
+    const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
     return await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
   } catch {
     return null;
