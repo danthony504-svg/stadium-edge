@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OddsGame } from "./api.ts";
-import { isRenderableOddsGame, oddsRowsFromQuery } from "./sportFeed.ts";
+import { isRenderableOddsGame, oddsRowsFromQuery, oddsPayloadFromQuery } from "./sportFeed.ts";
 
 test("oddsRowsFromQuery reads Home generation-tagged payload", () => {
   const rows: OddsGame[] = [
@@ -36,6 +36,41 @@ test("oddsRowsFromQuery reads plain array cache", () => {
 
 test("oddsRowsFromQuery ignores malformed object without rows", () => {
   assert.deepEqual(oddsRowsFromQuery({ gen: 1, league: "ufc" }, "ufc"), []);
+});
+
+test("oddsRowsFromQuery reads WNBA Home cache payload", () => {
+  const rows: OddsGame[] = [
+    {
+      id: "wnba-1",
+      sport: "wnba",
+      awayTeam: "Liberty",
+      homeTeam: "Aces",
+      commenceTime: "2026-07-10T23:00:00Z",
+      markets: [],
+    },
+  ];
+  assert.deepEqual(oddsRowsFromQuery({ gen: 3, league: "wnba", rows }, "wnba"), rows);
+});
+
+test("oddsRowsFromQuery returns empty for null/undefined cache", () => {
+  assert.deepEqual(oddsRowsFromQuery(null, "wnba"), []);
+  assert.deepEqual(oddsRowsFromQuery(undefined, "wnba"), []);
+});
+
+test("oddsPayloadFromQuery normalizes legacy plain-array cache", () => {
+  const rows: OddsGame[] = [
+    {
+      id: "wnba-2",
+      sport: "wnba",
+      awayTeam: "Storm",
+      homeTeam: "Sun",
+      commenceTime: "2026-07-10T24:00:00Z",
+      markets: [{ key: "h2h", outcomes: [] }],
+    },
+  ];
+  const p = oddsPayloadFromQuery(rows, "wnba");
+  assert.equal(p.league, "wnba");
+  assert.equal(p.rows.length, 1);
 });
 
 test("isRenderableOddsGame requires core fields", () => {

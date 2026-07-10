@@ -24,9 +24,9 @@ import {
 import { cachedUpcomingGames } from "@/lib/discoverSessionCache";
 import { formatAmerican } from "@/lib/format";
 import {
-  espnRowsFromQuery,
+  espnPayloadFromQuery,
   isRenderableOddsGame,
-  oddsRowsFromQuery,
+  oddsPayloadFromQuery,
   type SportFeedPayload,
 } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
@@ -206,7 +206,13 @@ function UpcomingScreenBody() {
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const { sport } = useLocalSearchParams<{ sport: string | string[] }>();
-  const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "");
+  const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "").toLowerCase();
+
+  const oddsPlaceholder = useMemo((): SportFeedPayload<OddsGame> | undefined => {
+    if (!sportId) return undefined;
+    const cached = cachedUpcomingGames(sportId).filter(isRenderableOddsGame);
+    return cached.length > 0 ? { gen: 0, league: sportId, rows: cached } : undefined;
+  }, [sportId]);
 
   const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
     queryKey: ["upcoming-odds", sportId],
@@ -221,10 +227,12 @@ function UpcomingScreenBody() {
     },
     staleTime: 60_000,
     enabled: !!sportId,
-    placeholderData: () => {
-      const cached = cachedUpcomingGames(sportId).filter(isRenderableOddsGame);
-      return cached.length > 0 ? { gen: 0, league: sportId, rows: cached } : undefined;
-    },
+    placeholderData: oddsPlaceholder,
+    // Never reuse Home's generation-tagged cache entry from a shared key — we use
+    // dedicated keys, but disable structural sharing so a shape mismatch cannot
+    // crash render with "null is not an object (evaluating 'e.data')".
+    structuralSharing: false,
+    select: (data) => oddsPayloadFromQuery(data, sportId),
   });
   const gamesQ = useQuery<SportFeedPayload<EspnGame>>({
     queryKey: ["upcoming-games", sportId],
@@ -239,6 +247,8 @@ function UpcomingScreenBody() {
     },
     staleTime: 60_000,
     enabled: !!sportId,
+    structuralSharing: false,
+    select: (data) => espnPayloadFromQuery(data, sportId),
   });
 
   const tennisFlagsQ = useQuery({
@@ -249,10 +259,7 @@ function UpcomingScreenBody() {
     retry: false,
   });
 
-  const espnGames = useMemo(
-    () => espnRowsFromQuery(gamesQ.data, sportId),
-    [gamesQ.data, sportId],
-  );
+  const espnGames = useMemo(() => gamesQ.data?.rows ?? [], [gamesQ.data]);
   const metaMap = useMemo(() => buildMetaMap(espnGames), [espnGames]);
 
   const liveKeySet = useMemo(() => {
@@ -268,8 +275,7 @@ function UpcomingScreenBody() {
   }, [espnGames]);
 
   const games: OddsGame[] = useMemo(() => {
-    const list = oddsRowsFromQuery(oddsQ.data, sportId)
-      .filter(isRenderableOddsGame)
+    const list = (oddsQ.data?.rows ?? [])
       .filter((g) => isPickable(g.commenceTime))
       .filter(
         (g) =>

@@ -16,9 +16,10 @@ export function isSportFeedPayload<T>(v: unknown): v is SportFeedPayload<T> {
 
 /** Normalize react-query cache data from Home (payload) or Upcoming (plain array). */
 export function oddsRowsFromQuery(data: unknown, sport: string): OddsGame[] {
+  if (data == null) return [];
   if (isSportFeedPayload<OddsGame>(data)) {
     if (data.league !== sport) return [];
-    return data.rows.filter((g) => !g.sport || g.sport === sport);
+    return data.rows.filter((g) => g && (!g.sport || g.sport === sport));
   }
   if (Array.isArray(data)) {
     return data.filter(
@@ -33,9 +34,10 @@ export function oddsRowsFromQuery(data: unknown, sport: string): OddsGame[] {
 }
 
 export function espnRowsFromQuery(data: unknown, sport: string): EspnGame[] {
+  if (data == null) return [];
   if (isSportFeedPayload<EspnGame>(data)) {
     if (data.league !== sport) return [];
-    return data.rows.filter((g) => g.sport === sport);
+    return data.rows.filter((g) => g && g.sport === sport);
   }
   if (Array.isArray(data)) {
     return data.filter(
@@ -47,6 +49,22 @@ export function espnRowsFromQuery(data: unknown, sport: string): EspnGame[] {
     );
   }
   return [];
+}
+
+export function oddsPayloadFromQuery(data: unknown, sport: string): SportFeedPayload<OddsGame> {
+  return {
+    gen: isSportFeedPayload<OddsGame>(data) ? data.gen : 0,
+    league: sport,
+    rows: oddsRowsFromQuery(data, sport).filter(isRenderableOddsGame),
+  };
+}
+
+export function espnPayloadFromQuery(data: unknown, sport: string): SportFeedPayload<EspnGame> {
+  return {
+    gen: isSportFeedPayload<EspnGame>(data) ? data.gen : 0,
+    league: sport,
+    rows: espnRowsFromQuery(data, sport),
+  };
 }
 
 /** Drop odds rows that are missing the fields GameCard needs to render safely. */
