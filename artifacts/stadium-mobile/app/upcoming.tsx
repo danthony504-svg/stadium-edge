@@ -2,12 +2,12 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
-import { GameCard, type GameMeta } from "@/components/GameCard";
+import { type GameMeta } from "@/components/GameCard";
 import { SlipBar, useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
@@ -22,6 +22,7 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { cachedUpcomingGames } from "@/lib/discoverSessionCache";
+import { formatAmerican } from "@/lib/format";
 import {
   espnRowsFromQuery,
   isRenderableOddsGame,
@@ -70,7 +71,7 @@ function withTennisFlags(
 function UpcomingFeedErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const colors = useColors();
   return (
-    <View style={{ padding: 24, gap: 12 }}>
+    <View style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12 }}>
       <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
         Couldn't load upcoming games
       </Text>
@@ -119,7 +120,87 @@ function UpcomingFeedErrorFallback({ error, resetError }: ErrorFallbackProps) {
   );
 }
 
-export default function UpcomingScreen() {
+function UpcomingGameRow({
+  game,
+  sportId,
+  meta,
+  onPress,
+}: {
+  game: OddsGame;
+  sportId: string;
+  meta?: GameMeta;
+  onPress: () => void;
+}) {
+  const colors = useColors();
+  const h2h = game.markets?.find((m) => m.key === "h2h");
+  const awayML = h2h?.outcomes?.find((o) => o.name === game.awayTeam)?.price;
+  const homeML = h2h?.outcomes?.find((o) => o.name === game.homeTeam)?.price;
+  const rows = [
+    { name: game.awayTeam, logo: meta?.awayLogo, ml: awayML },
+    { name: game.homeTeam, logo: meta?.homeLogo, ml: homeML },
+  ];
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: colors.radius,
+        padding: 14,
+        gap: 10,
+        opacity: pressed ? 0.9 : 1,
+      })}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <Text
+          style={{
+            color: colors.mutedForeground,
+            fontFamily: FONT.semibold,
+            fontSize: 12,
+            flex: 1,
+          }}
+          numberOfLines={1}
+        >
+          {nickname(game.awayTeam)} @ {nickname(game.homeTeam)}
+        </Text>
+        {game.commenceTime ? (
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
+            {new Date(game.commenceTime).toLocaleString([], {
+              weekday: "short",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </Text>
+        ) : null}
+      </View>
+
+      {rows.map((t, i) => (
+        <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {t.logo ? (
+            <Image source={{ uri: t.logo }} style={{ width: 24, height: 24 }} resizeMode="contain" />
+          ) : (
+            <View style={{ width: 24, height: 24 }} />
+          )}
+          <Text
+            style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15, flex: 1 }}
+            numberOfLines={1}
+          >
+            {t.name}
+          </Text>
+          {t.ml != null ? (
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 14 }}>
+              {formatAmerican(t.ml)}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </Pressable>
+  );
+}
+
+function UpcomingScreenBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
@@ -127,16 +208,13 @@ export default function UpcomingScreen() {
   const { sport } = useLocalSearchParams<{ sport: string | string[] }>();
   const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "");
 
-  // Use dedicated query keys so we never treat Home's generation-tagged cache
-  // (`{ gen, league, rows }`) as a plain OddsGame[] — that mismatch was
-  // crashing "View all" when the Home feed had already warmed the cache.
   const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
     queryKey: ["upcoming-odds", sportId],
     queryFn: async ({ signal, queryKey }) => {
       const league = String(queryKey[1] ?? "");
       try {
         const rows = await getOdds(league, signal);
-        return { gen: 0, league, rows };
+        return { gen: 0, league, rows: rows.filter(isRenderableOddsGame) };
       } catch {
         return { gen: 0, league, rows: [] as OddsGame[] };
       }
@@ -144,7 +222,7 @@ export default function UpcomingScreen() {
     staleTime: 60_000,
     enabled: !!sportId,
     placeholderData: () => {
-      const cached = cachedUpcomingGames(sportId);
+      const cached = cachedUpcomingGames(sportId).filter(isRenderableOddsGame);
       return cached.length > 0 ? { gen: 0, league: sportId, rows: cached } : undefined;
     },
   });
@@ -203,6 +281,14 @@ export default function UpcomingScreen() {
   const sportLabel = SPORTS.find((s) => s.id === sportId)?.label ?? sportId;
   const feedLoading = oddsQ.isFetching && games.length === 0;
 
+  if (!sportId) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, padding: 16 }}>
+        <EmptyState icon="calendar" title="No league selected" subtitle="Go back and pick a sport on Home." />
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View
@@ -256,37 +342,42 @@ export default function UpcomingScreen() {
           />
         </View>
       ) : (
-        <ErrorBoundary FallbackComponent={UpcomingFeedErrorFallback}>
-          <ScrollView
-            contentContainerStyle={{
-              padding: 16,
-              paddingBottom: insets.bottom + 40 + slipClearance,
-              gap: 12,
-            }}
-          >
-            {games.map((g) => {
-              const baseMeta = metaMap.get(
-                `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
-              );
-              const meta =
-                sportId === "tennis"
-                  ? withTennisFlags(baseMeta, tennisFlagsQ.data, g)
-                  : baseMeta;
-              return (
-                <GameCard
-                  key={g.id}
-                  game={{ ...g, sport: g.sport || sportId }}
-                  meta={meta}
-                  onPress={() =>
-                    router.push({ pathname: "/game/[id]", params: { id: g.id, sport: sportId } })
-                  }
-                />
-              );
-            })}
-          </ScrollView>
-        </ErrorBoundary>
+        <ScrollView
+          contentContainerStyle={{
+            padding: 16,
+            paddingBottom: insets.bottom + 40 + slipClearance,
+            gap: 12,
+          }}
+        >
+          {games.map((g) => {
+            const baseMeta = metaMap.get(
+              `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
+            );
+            const meta =
+              sportId === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
+            return (
+              <UpcomingGameRow
+                key={g.id}
+                game={{ ...g, sport: g.sport || sportId }}
+                sportId={sportId}
+                meta={meta}
+                onPress={() =>
+                  router.push({ pathname: "/game/[id]", params: { id: g.id, sport: sportId } })
+                }
+              />
+            );
+          })}
+        </ScrollView>
       )}
       <SlipBar />
     </View>
+  );
+}
+
+export default function UpcomingScreen() {
+  return (
+    <ErrorBoundary FallbackComponent={UpcomingFeedErrorFallback}>
+      <UpcomingScreenBody />
+    </ErrorBoundary>
   );
 }
