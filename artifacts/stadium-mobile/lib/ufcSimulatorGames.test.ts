@@ -6,6 +6,7 @@ import {
   isUfcFightRow,
   mapEspnMmaScoreboardEvents,
   mapOddsRowsToUfcSimulatorGames,
+  mergeEspnVenueIntoOdds,
   resolveUfcSimulatorGames,
 } from "./ufcSimulatorGames.ts";
 
@@ -53,7 +54,7 @@ test("mapOddsRowsToUfcSimulatorGames builds pregame fights from odds feed", () =
   assert.equal(rows[0]!.homeTeam, "Zoran Milic");
 });
 
-test("resolveUfcSimulatorGames falls back to odds when API rows lack fighters", async () => {
+test("resolveUfcSimulatorGames prefers odds over ESPN when API rows lack fighters", async () => {
   const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
   const rows = await resolveUfcSimulatorGames(
     [
@@ -82,6 +83,39 @@ test("resolveUfcSimulatorGames falls back to odds when API rows lack fighters", 
   );
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.awayTeam, "Aaron Aby");
+});
+
+test("mergeEspnVenueIntoOdds copies venue from ESPN match", () => {
+  const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const merged = mergeEspnVenueIntoOdds(
+    [
+      {
+        id: "o1",
+        sport: "ufc",
+        name: "A vs B",
+        shortName: "A vs B",
+        status: "Scheduled",
+        startsAt: soon,
+        awayTeam: "Cody Durden",
+        homeTeam: "Alessandro Costa",
+        venue: null,
+      } as any,
+    ],
+    [
+      {
+        id: "401883599",
+        sport: "ufc",
+        name: "Durden vs Costa",
+        shortName: "Durden vs Costa",
+        status: "Scheduled",
+        startsAt: soon,
+        awayTeam: "Cody Durden",
+        homeTeam: "Alessandro Costa",
+        venue: "T-Mobile Arena",
+      } as any,
+    ],
+  );
+  assert.equal(merged[0]!.venue, "T-Mobile Arena");
 });
 
 test("isUfcFightRow rejects event placeholders", () => {
