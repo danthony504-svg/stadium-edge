@@ -346,7 +346,7 @@ function emptyFighter(name: string): Fighter {
 }
 
 async function loadEspnFighterProfile(name: string, id: string): Promise<Fighter> {
-  return cachedJson<Fighter>(`ufc:profile:${id}`, PROFILE_TTL, async () => {
+  return cachedJson<Fighter>(`ufc:profile:v2:${id}`, PROFILE_TTL, async () => {
     const base = `https://sports.core.api.espn.com/v2/sports/mma/athletes/${id}`;
     const [core, records, statistics] = await Promise.allSettled([
       fetchJson(`${base}?lang=en&region=us`),
@@ -519,7 +519,7 @@ export async function buildFightAnalysis(
   home: string,
   opts: BuildFightAnalysisOpts = {},
 ): Promise<FightAnalysis> {
-  const key = `ufc:fight:v2:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
+  const key = `ufc:fight:v3:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
   const base = await cachedJson<Omit<FightAnalysis, "recommendations" | "books" | "prePickAnalysis" | "simMetrics">>(
     key,
     ANALYSIS_TTL,

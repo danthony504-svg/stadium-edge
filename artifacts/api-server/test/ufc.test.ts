@@ -219,4 +219,29 @@ describe("mmaSupplement mergeFighters", () => {
     assert.equal(merged.profile.citizenship, "Sweden");
     assert.equal(merged.recentForm.length, 1);
   });
+
+  it("requests supplement when ESPN has stats but profile bio is empty", () => {
+    const espn = fighter({
+      name: "Conor McGregor",
+      profile: {
+        age: null,
+        heightIn: null,
+        displayHeight: null,
+        reachIn: null,
+        displayReach: null,
+        stance: null,
+        citizenship: null,
+      },
+      methods: {
+        koWins: null,
+        tkoWins: null,
+        subWins: null,
+        decisionWins: null,
+        koLosses: null,
+        tkoLosses: null,
+        subLosses: null,
+      },
+    });
+    assert.equal(fighterNeedsSupplement(espn), true);
+  });
 });

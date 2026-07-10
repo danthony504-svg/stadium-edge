@@ -100,13 +100,25 @@ export function mergeFighters(base: Fighter, patch: Fighter): Fighter {
 
 export function fighterNeedsSupplement(f: Fighter): boolean {
   if (!f.record && !f.athleteId) return true;
-  const thin =
-    !f.profile.displayHeight &&
-    !f.profile.displayReach &&
-    !f.stats.strikeLPM &&
-    !f.stats.takedownAvg &&
-    f.recentForm.length === 0;
-  return thin;
+
+  const missingBio =
+    f.profile.age == null && !f.profile.displayHeight && !f.profile.displayReach;
+  const missingMethods =
+    f.methods.koWins == null &&
+    f.methods.tkoWins == null &&
+    f.methods.subWins == null &&
+    f.methods.decisionWins == null;
+  const missingStats =
+    !f.stats.strikeLPM && !f.stats.takedownAvg && !f.stats.strikeAccuracy;
+
+  // ESPN core profile can fail while records/statistics succeed — fill bio via Sherdog.
+  if (missingBio) return true;
+  // Method split missing from ESPN records — Sherdog carries KO/SUB/DEC counts.
+  if (missingMethods && !!f.record) return true;
+  // Fully unresolved regional fighter with no stats anywhere.
+  if (missingStats && f.recentForm.length === 0 && !f.record) return true;
+
+  return false;
 }
 
 /** Tapology when reachable, otherwise Sherdog. */
