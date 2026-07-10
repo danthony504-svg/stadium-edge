@@ -1,5 +1,13 @@
 import { Router, type IRouter } from "express";
 import { GetGamesQueryParams, GetGamesResponse } from "@workspace/api-zod";
+import {
+  espnCompetitorAbbr,
+  espnCompetitorId,
+  espnCompetitorLogo,
+  espnCompetitorName,
+  resolveEspnCompetitorSides,
+  type EspnTeamCompetitor,
+} from "../lib/espnCompetitors.js";
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { loadTennisGames } from "../lib/tennis.js";
 import { loadOddsSlateGames, ODDS_SLATE_SPORT_IDS } from "../lib/oddsSlateGames.js";
@@ -43,6 +51,8 @@ type EspnEvent = {
     type?: { description?: string; state?: string; shortDetail?: string };
   };
   competitions?: Array<{
+    id?: string;
+    date?: string;
     venue?: { fullName?: string };
     status?: {
       clock?: number;
@@ -50,13 +60,90 @@ type EspnEvent = {
       period?: number;
       type?: { description?: string; state?: string; shortDetail?: string };
     };
-    competitors?: Array<{
-      homeAway: "home" | "away";
-      score?: string;
-      team?: { id?: string; displayName?: string; abbreviation?: string; logo?: string; logos?: Array<{ href?: string }> };
-    }>;
+    competitors?: EspnTeamCompetitor[];
   }>;
 };
+
+type EspnGameOut = {
+  id: string;
+  sport: string;
+  name: string;
+  shortName: string;
+  status: string;
+  startsAt: string;
+  homeTeam: string | null;
+  awayTeam: string | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  homeLogo: string | null;
+  awayLogo: string | null;
+  homeAbbr: string | null;
+  awayAbbr: string | null;
+  venue: string | null;
+  clock: string | null;
+  period: number | null;
+  periodLabel: string | null;
+  state: string | null;
+};
+
+function mapEspnEventToGames(
+  e: EspnEvent,
+  sportId: string,
+  mma: boolean,
+): EspnGameOut[] {
+  const competitions = mma
+    ? (e.competitions ?? [])
+    : e.competitions?.[0]
+      ? [e.competitions[0]]
+      : [];
+
+  return competitions.map((comp) => {
+    const { home, away } = resolveEspnCompetitorSides(comp?.competitors, mma);
+    const homeScore = home?.score != null ? parseInt(home.score, 10) : null;
+    const awayScore = away?.score != null ? parseInt(away.score, 10) : null;
+    const statusObj = comp?.status ?? e.status;
+    const displayClock = statusObj?.displayClock ?? null;
+    const period = statusObj?.period ?? null;
+    const periodLabel = statusObj?.type?.shortDetail ?? statusObj?.type?.description ?? null;
+    const awayName = espnCompetitorName(away);
+    const homeName = espnCompetitorName(home);
+    const fightLabel =
+      awayName && homeName ? `${awayName} vs. ${homeName}` : e.shortName || e.name;
+    return {
+      id: mma ? String(comp?.id ?? e.id) : e.id,
+      sport: sportId,
+      name: mma ? fightLabel : e.name,
+      shortName: mma ? fightLabel : e.shortName,
+      status:
+        e.status?.type?.description ??
+        (e.status?.type?.state === "in"
+          ? "In Progress"
+          : e.status?.type?.state === "post"
+            ? "Final"
+            : e.status?.type?.state === "pre"
+              ? "Scheduled"
+              : "Unknown"),
+      startsAt: comp?.date ?? e.date,
+      homeTeam: homeName,
+      awayTeam: awayName,
+      homeScore: Number.isFinite(homeScore) ? homeScore : null,
+      awayScore: Number.isFinite(awayScore) ? awayScore : null,
+      homeTeamId: espnCompetitorId(home),
+      awayTeamId: espnCompetitorId(away),
+      homeLogo: espnCompetitorLogo(home),
+      awayLogo: espnCompetitorLogo(away),
+      homeAbbr: espnCompetitorAbbr(home),
+      awayAbbr: espnCompetitorAbbr(away),
+      venue: comp?.venue?.fullName ?? null,
+      clock: displayClock,
+      period,
+      periodLabel,
+      state: statusObj?.type?.state ?? e.status?.type?.state ?? null,
+    };
+  });
+}
 
 router.get("/sports/games", async (req, res): Promise<void> => {
   const parsed = GetGamesQueryParams.safeParse(req.query);
@@ -169,51 +256,8 @@ router.get("/sports/games", async (req, res): Promise<void> => {
       },
     );
 
-    const out = (data.events ?? []).map((e) => {
-      const comp = e.competitions?.[0];
-      const home = comp?.competitors?.find((c) => c.homeAway === "home");
-      const away = comp?.competitors?.find((c) => c.homeAway === "away");
-      const homeScore = home?.score != null ? parseInt(home.score, 10) : null;
-      const awayScore = away?.score != null ? parseInt(away.score, 10) : null;
-      // Real in-game clock + period. ESPN exposes these on both the event
-      // status and the competition status — prefer competition (more
-      // reliable mid-game) and fall back to event.
-      const statusObj = comp?.status ?? e.status;
-      const displayClock = statusObj?.displayClock ?? null;
-      const period = statusObj?.period ?? null;
-      // shortDetail is the human-friendly "Q3 8:42" / "Bot 7th" / "HT" /
-      // "Final" string ESPN ships for live scoreboards. Prefer it over the
-      // generic description ("In Progress") so the UI shows what fans
-      // actually see on ESPN.
-      const periodLabel = statusObj?.type?.shortDetail ?? statusObj?.type?.description ?? null;
-      return {
-        id: e.id,
-        sport: sportId,
-        name: e.name,
-        shortName: e.shortName,
-        status: e.status?.type?.description
-          ?? (e.status?.type?.state === "in" ? "In Progress"
-              : e.status?.type?.state === "post" ? "Final"
-              : e.status?.type?.state === "pre" ? "Scheduled"
-              : "Unknown"),
-        startsAt: e.date,
-        homeTeam: home?.team?.displayName ?? null,
-        awayTeam: away?.team?.displayName ?? null,
-        homeScore: Number.isFinite(homeScore) ? homeScore : null,
-        awayScore: Number.isFinite(awayScore) ? awayScore : null,
-        homeTeamId: home?.team?.id ?? null,
-        awayTeamId: away?.team?.id ?? null,
-        homeLogo: home?.team?.logo ?? home?.team?.logos?.[0]?.href ?? null,
-        awayLogo: away?.team?.logo ?? away?.team?.logos?.[0]?.href ?? null,
-        homeAbbr: home?.team?.abbreviation ?? null,
-        awayAbbr: away?.team?.abbreviation ?? null,
-        venue: comp?.venue?.fullName ?? null,
-        clock: displayClock,
-        period,
-        periodLabel,
-        state: statusObj?.type?.state ?? e.status?.type?.state ?? null,
-      };
-    });
+    const mma = sportId === "ufc";
+    const out = (data.events ?? []).flatMap((e) => mapEspnEventToGames(e, sportId, mma));
 
     const filtered = simulatorOnly ? out.filter((g) => isSimulatorPregame(g)) : out;
     res.json(GetGamesResponse.parse(filtered));

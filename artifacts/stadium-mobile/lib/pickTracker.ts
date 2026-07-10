@@ -74,6 +74,19 @@ export type TrackedPick = {
 
 export const MAX_TRACKED_PICKS = 500;
 
+/** Graded prop outcomes for the cross-sport prop engine learning layer. */
+export function buildPropLearningHistory(
+  picks: TrackedPick[],
+): Array<{ sport: string; market: string; outcome: "win" | "loss" | "push" }> {
+  return picks
+    .filter((p) => p.isProp && p.status !== "pending" && p.status !== "ungraded")
+    .map((p) => ({
+      sport: p.sport,
+      market: (p.propMarketKey ?? p.market).toLowerCase(),
+      outcome: p.status as "win" | "loss" | "push",
+    }));
+}
+
 const pickKey = (p: {
   sport?: string;
   game: string;
