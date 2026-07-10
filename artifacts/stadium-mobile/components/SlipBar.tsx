@@ -70,11 +70,16 @@ export function useCoachSlipClearance() {
   return legs.length > 0 ? SLIP_BAR_CLEARANCE : 0;
 }
 
-export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}) {
+function SlipBarBody({
+  pathname,
+  onNavigateAway,
+}: {
+  pathname: string;
+  onNavigateAway?: () => void;
+}) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const pathname = usePathname();
   const { legs, combinedOdds, stake, removeLeg, clearLegs } = useBetSlip();
   const [open, setOpen] = useState(false);
   const [kbVisible, setKbVisible] = useState(false);
@@ -413,4 +418,16 @@ export function SlipBar({ onNavigateAway }: { onNavigateAway?: () => void } = {}
       </View>
     </>
   );
+}
+
+/** Root-stack routes (upcoming, game detail) pass pathname to avoid hook churn mid-push. */
+export function SlipBar({
+  onNavigateAway,
+  pathname: pathnameOverride,
+}: { onNavigateAway?: () => void; pathname?: string } = {}) {
+  if (pathnameOverride != null) {
+    return <SlipBarBody pathname={pathnameOverride} onNavigateAway={onNavigateAway} />;
+  }
+  const pathname = usePathname();
+  return <SlipBarBody pathname={pathname} onNavigateAway={onNavigateAway} />;
 }
