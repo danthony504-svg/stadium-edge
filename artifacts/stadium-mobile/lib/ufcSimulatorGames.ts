@@ -1,7 +1,7 @@
-// Client-side ESPN MMA scoreboard for UFC Game Simulator when the API server
-// returns event-level cards without per-bout competitors (stale deploy).
+// UFC Game Simulator slate — ESPN scoreboard + odds API fallbacks when the games
+// route returns event-level cards without fighter names (stale API deploy).
 
-import type { EspnGame } from "./api";
+import type { EspnGame, OddsGame } from "./api";
 
 function isPregameFight(game: {
   startsAt?: string | null;
@@ -22,6 +22,10 @@ function isPregameFight(game: {
   if (!Number.isFinite(t)) return false;
   const now = Date.now();
   return t > now && t < now + 48 * 3600_000;
+}
+
+export function isUfcFightRow(game: EspnGame | null | undefined): boolean {
+  return !!game?.homeTeam?.trim() && !!game?.awayTeam?.trim();
 }
 
 type EspnCompetitor = {
@@ -136,19 +140,95 @@ export function mapEspnMmaScoreboardEvents(events: EspnEvent[]): EspnGame[] {
 }
 
 export function hasUfcFightLabels(games: EspnGame[]): boolean {
-  return games.some((g) => !!g.homeTeam && !!g.awayTeam);
+  return games.some(isUfcFightRow);
+}
+
+function normFightKey(away: string, home: string): string {
+  return `${away.toLowerCase().trim()}|${home.toLowerCase().trim()}`;
+}
+
+export function mapOddsRowsToUfcSimulatorGames(odds: OddsGame[]): EspnGame[] {
+  const seen = new Set<string>();
+  const out: EspnGame[] = [];
+  for (const row of odds) {
+    const away = row.awayTeam?.trim();
+    const home = row.homeTeam?.trim();
+    if (!away || !home) continue;
+    const key = normFightKey(away, home);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label = `${away} vs. ${home}`;
+    const game: EspnGame = {
+      id: row.id || `ufc-odds-${key.replace(/\|/g, "-")}`,
+      sport: "ufc",
+      name: label,
+      shortName: label,
+      status: "Scheduled",
+      startsAt: row.commenceTime,
+      homeTeam: home,
+      awayTeam: away,
+      homeScore: null,
+      awayScore: null,
+      homeTeamId: null,
+      awayTeamId: null,
+      homeLogo: null,
+      awayLogo: null,
+      homeAbbr: null,
+      awayAbbr: null,
+      venue: null,
+      clock: null,
+      period: null,
+      periodLabel: null,
+      state: "pre",
+    };
+    if (isPregameFight(game)) out.push(game);
+  }
+  return out;
+}
+
+async function httpGet(url: string, signal?: AbortSignal): Promise<Response> {
+  try {
+    const { fetch: expoFetch } = await import("expo/fetch");
+    return expoFetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "StadiumEdge/1.0" },
+      signal,
+    });
+  } catch {
+    return fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "StadiumEdge/1.0" },
+      signal,
+    });
+  }
 }
 
 export async function fetchUfcSimulatorGamesFromEspn(signal?: AbortSignal): Promise<EspnGame[]> {
   try {
-    const res = await fetch("https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", {
-      headers: { Accept: "application/json" },
-      signal,
-    });
+    const res = await httpGet("https://site.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard", signal);
     if (!res.ok) return [];
     const data = (await res.json()) as { events?: EspnEvent[] };
     return mapEspnMmaScoreboardEvents(data.events ?? []).filter((g) => isPregameFight(g));
   } catch {
     return [];
   }
+}
+
+/** Prefer API fights with names, then ESPN card, then odds-feed matchups. */
+export async function resolveUfcSimulatorGames(
+  apiRows: EspnGame[],
+  fetchOdds: (signal?: AbortSignal) => Promise<OddsGame[]>,
+  signal?: AbortSignal,
+): Promise<EspnGame[]> {
+  const labeled = apiRows.filter(isUfcFightRow);
+  if (labeled.length) return labeled;
+
+  const [espn, odds] = await Promise.all([
+    fetchUfcSimulatorGamesFromEspn(signal),
+    fetchOdds(signal).catch(() => [] as OddsGame[]),
+  ]);
+  if (espn.length) return espn;
+
+  const fromOdds = mapOddsRowsToUfcSimulatorGames(odds);
+  if (fromOdds.length) return fromOdds;
+
+  return [];
 }

@@ -3,7 +3,7 @@
 // large api.ts barrel is stale and exports like getInjuries are undefined).
 import { fetch as expoFetch } from "expo/fetch";
 
-import { fetchUfcSimulatorGamesFromEspn, hasUfcFightLabels } from "./ufcSimulatorGames";
+import { resolveUfcSimulatorGames } from "./ufcSimulatorGames";
 import type {
   EspnGame,
   GameSimulationResult,
@@ -91,14 +91,9 @@ export async function fetchSimulatorGames(sport: string, signal?: AbortSignal): 
     }
   }
 
-  // Stale API deploys return UFC event cards with null fighters — flatten via ESPN.
-  if ((sportId === "ufc" || sportId === "mma") && !hasUfcFightLabels(rows)) {
-    const espn = await fetchUfcSimulatorGamesFromEspn(signal);
-    if (espn.length) return espn;
-  }
-
+  // Stale API deploys return UFC event cards with null fighters — ESPN then odds.
   if (sportId === "ufc" || sportId === "mma") {
-    return rows.filter((g) => !!g.homeTeam && !!g.awayTeam);
+    return resolveUfcSimulatorGames(rows, (sig) => fetchSimulatorOdds("ufc", sig), signal);
   }
 
   return rows;
