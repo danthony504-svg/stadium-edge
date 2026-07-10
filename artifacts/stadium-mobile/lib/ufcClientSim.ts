@@ -10,6 +10,8 @@ import type {
   FightSimResult,
 } from "./api";
 
+export type { FightLean };
+
 const SIM_COUNT = 10_000;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -296,9 +298,12 @@ export function classifyFighterStyle(f: FightFighter): FightFighter["style"] {
   const w = f.record?.wins ?? 0;
   if (w > 0) {
     const subs = f.methods.subWins ?? 0;
-    const finishes = (f.methods.koWins ?? 0) + (f.methods.tkoWins ?? 0) + subs;
+    const kos = (f.methods.koWins ?? 0) + (f.methods.tkoWins ?? 0);
+    const finishes = kos + subs;
     if (subs / w >= 0.25) grapple += 1;
-    if (finishes / w >= 0.55) strike += 0.5;
+    if (kos / w >= 0.35) strike += 1;
+    else if (finishes / w >= 0.55) strike += 0.5;
+    if ((f.methods.decisionWins ?? 0) / w >= 0.5 && finishes / w < 0.35) return "mixed";
   }
   const top = Math.max(strike, wrestle, grapple);
   if (top < 0.75) return null;
@@ -306,6 +311,79 @@ export function classifyFighterStyle(f: FightFighter): FightFighter["style"] {
   if (wrestle >= grapple && wrestle >= 1 && strike < 0.75) return "wrestler";
   if (grapple >= 1 && strike < 0.75 && wrestle < 0.75) return "grappler";
   return "mixed";
+}
+
+/** Grounded lean from merged Sherdog/ESPN fields when API omitted lean. */
+export function computeClientFightLean(away: FightFighter, home: FightFighter): FightLean | null {
+  let signed = 0;
+  let used = 0;
+  const awayReasons: string[] = [];
+  const homeReasons: string[] = [];
+
+  const factor = (
+    a: number | null,
+    h: number | null,
+    weight: number,
+    cap: number,
+    label: (favName: string, fav: number, dog: number) => string,
+  ) => {
+    if (a == null || h == null) return;
+    const contrib = clamp((a - h) * weight, -cap, cap);
+    if (Math.abs(contrib) < 0.15) return;
+    used++;
+    signed += contrib;
+    if (contrib > 0) awayReasons.push(label(away.resolvedName || away.name, a, h));
+    else homeReasons.push(label(home.resolvedName || home.name, h, a));
+  };
+
+  if (away.record && home.record) {
+    factor(away.record.winPct, home.record.winPct, 0.05, 2.0, (fav, _f, _d) => {
+      const r = fav === (away.resolvedName || away.name) ? away.record! : home.record!;
+      const or = fav === (away.resolvedName || away.name) ? home.record! : away.record!;
+      return `${fav} ${r.wins}-${r.losses}-${r.draws} (${r.winPct}% wins) vs ${or.wins}-${or.losses}-${or.draws} (${or.winPct}%)`;
+    });
+  }
+
+  if (away.profile.age != null && home.profile.age != null) {
+    factor(home.profile.age, away.profile.age, 0.03, 0.6, (fav, f, d) =>
+      `${fav} younger (${d} vs ${f} years)`,
+    );
+  }
+
+  if (away.profile.reachIn != null && home.profile.reachIn != null && away.profile.reachIn > 0 && home.profile.reachIn > 0) {
+    factor(away.profile.reachIn, home.profile.reachIn, 0.04, 0.8, (fav, f, d) =>
+      `${fav} longer reach (${f}" vs ${d}")`,
+    );
+  }
+
+  factor(away.stats.strikeAccuracy, home.stats.strikeAccuracy, 0.06, 1.2, (fav, f, d) =>
+    `${fav} lands ${f}% of significant strikes vs ${d}%`,
+  );
+  factor(away.stats.strikeLPM, home.stats.strikeLPM, 0.5, 1.0, (fav, f, d) =>
+    `${fav} higher striking output (${f} sig strikes/min vs ${d})`,
+  );
+  factor(away.stats.finishPct, home.stats.finishPct, 0.04, 1.2, (fav, f, d) =>
+    `${fav} finishes more often (${f}% KO/TKO vs ${d}%)`,
+  );
+  factor(away.stats.decisionPct, home.stats.decisionPct, -0.03, 0.8, (fav, f, d) =>
+    `${fav} goes to decision less (${f}% vs ${d}%)`,
+  );
+  factor(away.stats.takedownAvg, home.stats.takedownAvg, 0.35, 1.0, (fav, f, d) =>
+    `${fav} stronger grappling (${f} takedowns/15min vs ${d})`,
+  );
+  factor(away.stats.takedownAccuracy, home.stats.takedownAccuracy, 0.04, 0.8, (fav, f, d) =>
+    `${fav} better takedown accuracy (${f}% vs ${d}%)`,
+  );
+  factor(away.stats.submissionAvg, home.stats.submissionAvg, 0.45, 0.8, (fav, f, d) =>
+    `${fav} more submission threat (${f} att/15min vs ${d})`,
+  );
+
+  if (used === 0) return null;
+  const edge = Math.round(Math.abs(signed) * 10) / 10;
+  if (edge < 0.3) return null;
+  const awayFav = signed > 0;
+  const side = awayFav ? away.resolvedName || away.name : home.resolvedName || home.name;
+  return { side, edge, reasons: awayFav ? awayReasons : homeReasons };
 }
 
 export function buildClientFightComparison(away: FightFighter, home: FightFighter): FightComparison {
@@ -338,29 +416,36 @@ export function buildClientFightComparison(away: FightFighter, home: FightFighte
   };
 }
 
-/** Run 10k sim on-device when API omitted simulation (stale deploy). */
-export function enrichFightAnalysisWithClientSim(analysis: FightAnalysis): FightAnalysis {
-  const hasSim = (analysis.simulation?.simulations ?? 0) > 0;
-  if (hasSim) return analysis;
+function withClassifiedStyles(away: FightFighter, home: FightFighter) {
+  return {
+    away: { ...away, style: away.style ?? classifyFighterStyle(away) },
+    home: { ...home, style: home.style ?? classifyFighterStyle(home) },
+  };
+}
 
-  const away = { ...analysis.away, style: analysis.away.style ?? classifyFighterStyle(analysis.away) };
-  const home = { ...analysis.home, style: analysis.home.style ?? classifyFighterStyle(analysis.home) };
-  if (!away.record && !home.record) return { ...analysis, away, home };
-
-  const lean = analysis.lean;
-  const simulation = runClientFightMonteCarlo({ away, home, lean });
-  const simMetrics = simMetricsFromFightResult(simulation);
+/** Style, lean, comparison, and 10k sim when API response is thin. */
+export function finalizeClientFightAnalysis(analysis: FightAnalysis): FightAnalysis {
+  const { away, home } = withClassifiedStyles(analysis.away, analysis.home);
+  const lean = analysis.lean ?? computeClientFightLean(away, home);
   const comparison =
     analysis.comparison?.styleMatchup || analysis.comparison?.reachAdvantageFighter
-      ? analysis.comparison
+      ? { ...analysis.comparison, styleMatchup: analysis.comparison.styleMatchup ?? buildClientFightComparison(away, home).styleMatchup }
       : buildClientFightComparison(away, home);
 
-  return {
-    ...analysis,
-    away,
-    home,
-    comparison,
-    simulation,
-    simMetrics,
-  };
+  const hasSim = (analysis.simulation?.simulations ?? 0) > 0;
+  if (hasSim) {
+    return { ...analysis, away, home, lean, comparison };
+  }
+  if (!away.record && !home.record) {
+    return { ...analysis, away, home, lean, comparison };
+  }
+
+  const simulation = runClientFightMonteCarlo({ away, home, lean });
+  const simMetrics = simMetricsFromFightResult(simulation);
+  return { ...analysis, away, home, lean, comparison, simulation, simMetrics };
+}
+
+/** @deprecated use finalizeClientFightAnalysis */
+export function enrichFightAnalysisWithClientSim(analysis: FightAnalysis): FightAnalysis {
+  return finalizeClientFightAnalysis(analysis);
 }

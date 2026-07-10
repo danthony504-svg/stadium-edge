@@ -13,7 +13,7 @@ import type {
 } from "./api";
 import {
   classifyFighterStyle,
-  enrichFightAnalysisWithClientSim,
+  finalizeClientFightAnalysis,
 } from "./ufcClientSim";
 
 const UA = "Mozilla/5.0 (compatible; StadiumEdge/1.0)";
@@ -108,6 +108,14 @@ type SherdogPatch = {
   decisionPct: number | null;
 };
 
+function ageFromBirthDate(text: string | null): number | null {
+  if (!text || /^n\/a$/i.test(text.trim())) return null;
+  const t = Date.parse(text.trim());
+  if (!Number.isFinite(t)) return null;
+  const age = Math.floor((Date.now() - t) / (365.25 * 24 * 3600_000));
+  return age > 0 && age < 60 ? age : null;
+}
+
 function parseSherdogProfile(html: string, slug: string): SherdogPatch | null {
   const resolvedName = /<span class="fn">([^<]+)/.exec(html)?.[1]?.trim();
   if (!resolvedName) return null;
@@ -129,8 +137,16 @@ function parseSherdogProfile(html: string, slug: string): SherdogPatch | null {
     displayReach = /<tr><td>REACH<\/td><td><b[^>]*>([^<]+)/i.exec(chunk)?.[1]?.trim() ?? null;
     const st = /<tr><td>STANCE<\/td><td><b[^>]*>([^<]+)/i.exec(chunk)?.[1]?.trim();
     stance = st && !/^n\/a$/i.test(st) ? st : null;
-    const a = parseInt(/<tr>\s*<td>AGE<\/td>\s*<td><b>([^<]*)</i.exec(chunk)?.[1]?.trim() ?? "", 10);
+    const ageRaw = /<tr>\s*<td>AGE<\/td>\s*<td><b>([^<]*)</i.exec(chunk)?.[1]?.trim() ?? "";
+    const a = parseInt(ageRaw, 10);
     if (Number.isFinite(a) && a > 0) age = a;
+    if (age == null) {
+      const birth =
+        /<span[^>]*itemprop="birthDate"[^>]*>([^<]+)/i.exec(chunk)?.[1]?.trim() ??
+        /<em>\/<\/em>\s*<span[^>]*>([A-Za-z]{3}\s+\d{1,2},\s+\d{4})<\/span>/i.exec(chunk)?.[1]?.trim() ??
+        null;
+      age = ageFromBirthDate(birth);
+    }
   }
 
   const weightClass = /CLASS<br \/><a href="[^"]+">([^<]+)<\/a>/i.exec(html)?.[1]?.trim() ?? null;
@@ -285,6 +301,7 @@ export function fighterNeedsClientSupplement(f: FightFighter): boolean {
   if (missingBio) return true;
   if (isBogusReach(f)) return true;
   if (missingMethods && !!f.record) return true;
+  if (!f.style && !!f.record && (f.methods?.koWins != null || f.methods?.subWins != null)) return true;
   if (!!f.athleteId && !!f.record && missingStats && !(f.recentForm?.length)) return true;
   return false;
 }
@@ -389,7 +406,7 @@ export async function enrichFightAnalysisClient(
     }
   }
   if (!patched) {
-    return enrichFightAnalysisWithClientSim(analysis);
+    return finalizeClientFightAnalysis(analysis);
   }
 
   const resolved =
@@ -397,7 +414,7 @@ export async function enrichFightAnalysisClient(
     (home.record || home.athleteId || home.resolvedName ? 1 : 0);
   const coverage = Math.max(analysis.prePickAnalysis?.dataCoveragePct ?? 0, estimateCoverage(away, home));
 
-  return enrichFightAnalysisWithClientSim({
+  return finalizeClientFightAnalysis({
     ...analysis,
     away,
     home,
