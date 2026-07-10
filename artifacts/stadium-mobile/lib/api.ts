@@ -2206,6 +2206,92 @@ export type FightAnalysis = {
   books: FightBookLine[];
 };
 
+const EMPTY_FIGHT_PROFILE: FightFighterProfile = {
+  age: null,
+  heightIn: null,
+  displayHeight: null,
+  reachIn: null,
+  displayReach: null,
+  stance: null,
+  citizenship: null,
+};
+const EMPTY_FIGHT_STATS: FightFighterStats = {
+  strikeAccuracy: null,
+  strikeLPM: null,
+  takedownAccuracy: null,
+  takedownAvg: null,
+  submissionAvg: null,
+  finishPct: null,
+  decisionPct: null,
+};
+const EMPTY_FIGHT_METHODS: FightFighterMethods = {
+  koWins: null,
+  tkoWins: null,
+  subWins: null,
+  decisionWins: null,
+};
+
+/** API responses may omit nested profile/stats when ESPN data is thin — never crash the UI. */
+function normalizeFightFighter(f: Partial<FightFighter> | null | undefined, fallbackName = ""): FightFighter {
+  return {
+    name: f?.name ?? fallbackName,
+    resolvedName: f?.resolvedName ?? null,
+    athleteId: f?.athleteId ?? null,
+    weightClass: f?.weightClass ?? null,
+    record: f?.record ?? null,
+    stats: { ...EMPTY_FIGHT_STATS, ...(f?.stats ?? {}) },
+    profile: { ...EMPTY_FIGHT_PROFILE, ...(f?.profile ?? {}) },
+    methods: { ...EMPTY_FIGHT_METHODS, ...(f?.methods ?? {}) },
+    style: f?.style ?? null,
+  };
+}
+
+function normalizeFightAnalysis(raw: Partial<FightAnalysis> | null, away = "", home = ""): FightAnalysis | null {
+  if (!raw?.away && !raw?.home) return null;
+  return {
+    away: normalizeFightFighter(raw.away, away),
+    home: normalizeFightFighter(raw.home, home),
+    lean: raw.lean ?? null,
+    comparison: raw.comparison ?? {
+      reachAdvantageIn: null,
+      reachAdvantageFighter: null,
+      styleMatchup: null,
+      unavailable: [],
+    },
+    simulation: raw.simulation ?? {
+      simulations: 0,
+      awayWinProbability: 0.5,
+      homeWinProbability: 0.5,
+      mostLikelyWinner: "home",
+      mostLikelyWinnerPct: 0.5,
+      confidenceScore: 0,
+      methodRates: null,
+      roundWinPct: null,
+    },
+    prePickAnalysis: raw.prePickAnalysis ?? {
+      dataCoveragePct: 0,
+      resolvedFighters: 0,
+      unavailableFactors: [],
+      unavailableMarkets: [],
+      advantages: {
+        styleMatchup: { value: null, available: false },
+        reachAdvantage: { value: null, available: false },
+        ageAdvantage: { value: null, available: false },
+      },
+    },
+    simMetrics: raw.simMetrics ?? {
+      winProbability: { away: 0.5, home: 0.5 },
+      finishProbability: { away: 0, home: 0 },
+      koProbability: { away: 0, home: 0 },
+      submissionProbability: { away: 0, home: 0 },
+      decisionProbability: { away: 0, home: 0 },
+      roundWinPct: null,
+    },
+    recommendations: raw.recommendations ?? [],
+    books: raw.books ?? [],
+  };
+}
+
 // Fetch fight breakdown (+ 10k sim). POST when h2h outcomes are available so
 // moneyline recommendations can be graded across all books.
 export async function getFightAnalysis(
@@ -2222,11 +2308,12 @@ export async function getFightAnalysis(
         body: JSON.stringify({ away, home, h2hOutcomes }),
         signal,
       });
-      if (res.ok) return (await res.json()) as FightAnalysis;
+      if (res.ok) return normalizeFightAnalysis((await res.json()) as FightAnalysis, away, home);
       // POST needs a restarted API — fall back to GET so Tale of the Tape still loads.
     }
     const qs = `away=${encodeURIComponent(away)}&home=${encodeURIComponent(home)}`;
-    return await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
+    const data = await getJson<FightAnalysis>(`/sports/fight-analysis?${qs}`, signal);
+    return normalizeFightAnalysis(data, away, home);
   } catch {
     return null;
   }

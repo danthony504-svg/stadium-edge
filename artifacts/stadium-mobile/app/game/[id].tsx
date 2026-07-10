@@ -521,7 +521,8 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const recStr = (f: FightAnalysis["away"]) =>
     f?.record ? `${f.record.wins}-${f.record.losses}-${f.record.draws}` : "—";
   const methodStr = (f: FightAnalysis["away"]) => {
-    const m = f.methods;
+    const m = f?.methods;
+    if (!m) return "—";
     const parts: string[] = [];
     if (m.koWins != null) parts.push(`${m.koWins} KO`);
     if (m.tkoWins != null) parts.push(`${m.tkoWins} TKO`);
@@ -532,19 +533,19 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const rows: { label: string; a: string; h: string }[] = [
     { label: "Record", a: recStr(fa), h: recStr(fh) },
     { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
-    { label: "Age", a: fmtNum(fa.profile.age), h: fmtNum(fh.profile.age) },
-    { label: "Height", a: fa.profile.displayHeight ?? "—", h: fh.profile.displayHeight ?? "—" },
-    { label: "Reach", a: fa.profile.displayReach ?? "—", h: fh.profile.displayReach ?? "—" },
-    { label: "Stance", a: fa.profile.stance ?? "—", h: fh.profile.stance ?? "—" },
-    { label: "Country", a: fa.profile.citizenship ?? "—", h: fh.profile.citizenship ?? "—" },
-    { label: "Sig. Strikes/min", a: fmtNum(fa.stats.strikeLPM), h: fmtNum(fh.stats.strikeLPM) },
-    { label: "Strike Acc.", a: fmtPct(fa.stats.strikeAccuracy), h: fmtPct(fh.stats.strikeAccuracy) },
-    { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats.finishPct), h: fmtPct(fh.stats.finishPct) },
-    { label: "Decision %", a: fmtPct(fa.stats.decisionPct), h: fmtPct(fh.stats.decisionPct) },
+    { label: "Age", a: fmtNum(fa.profile?.age ?? null), h: fmtNum(fh.profile?.age ?? null) },
+    { label: "Height", a: fa.profile?.displayHeight ?? "—", h: fh.profile?.displayHeight ?? "—" },
+    { label: "Reach", a: fa.profile?.displayReach ?? "—", h: fh.profile?.displayReach ?? "—" },
+    { label: "Stance", a: fa.profile?.stance ?? "—", h: fh.profile?.stance ?? "—" },
+    { label: "Country", a: fa.profile?.citizenship ?? "—", h: fh.profile?.citizenship ?? "—" },
+    { label: "Sig. Strikes/min", a: fmtNum(fa.stats?.strikeLPM ?? null), h: fmtNum(fh.stats?.strikeLPM ?? null) },
+    { label: "Strike Acc.", a: fmtPct(fa.stats?.strikeAccuracy ?? null), h: fmtPct(fh.stats?.strikeAccuracy ?? null) },
+    { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats?.finishPct ?? null), h: fmtPct(fh.stats?.finishPct ?? null) },
+    { label: "Decision %", a: fmtPct(fa.stats?.decisionPct ?? null), h: fmtPct(fh.stats?.decisionPct ?? null) },
     { label: "Win Methods", a: methodStr(fa), h: methodStr(fh) },
-    { label: "Takedowns/15min", a: fmtNum(fa.stats.takedownAvg), h: fmtNum(fh.stats.takedownAvg) },
-    { label: "Takedown Acc.", a: fmtPct(fa.stats.takedownAccuracy), h: fmtPct(fh.stats.takedownAccuracy) },
-    { label: "Sub. Attempts/15min", a: fmtNum(fa.stats.submissionAvg), h: fmtNum(fh.stats.submissionAvg) },
+    { label: "Takedowns/15min", a: fmtNum(fa.stats?.takedownAvg ?? null), h: fmtNum(fh.stats?.takedownAvg ?? null) },
+    { label: "Takedown Acc.", a: fmtPct(fa.stats?.takedownAccuracy ?? null), h: fmtPct(fh.stats?.takedownAccuracy ?? null) },
+    { label: "Sub. Attempts/15min", a: fmtNum(fa.stats?.submissionAvg ?? null), h: fmtNum(fh.stats?.submissionAvg ?? null) },
     { label: "Style", a: fa.style ? fa.style.charAt(0).toUpperCase() + fa.style.slice(1) : "—", h: fh.style ? fh.style.charAt(0).toUpperCase() + fh.style.slice(1) : "—" },
   ];
   const weightClass = fa.weightClass || fh.weightClass;
@@ -553,6 +554,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
   const pre = data.prePickAnalysis;
   const metrics = data.simMetrics;
   const recs = (data.recommendations ?? []).filter((r) => !r.skipped);
+  const simReady = sim && sim.simulations > 0 && metrics;
 
   return (
     <View
@@ -659,17 +661,17 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
         </Text>
       )}
 
-      {cmp.styleMatchup || cmp.reachAdvantageFighter ? (
+      {cmp?.styleMatchup || cmp?.reachAdvantageFighter ? (
         <View style={{ gap: 4 }}>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
             MATCHUP NOTES
           </Text>
-          {cmp.styleMatchup ? (
+          {cmp?.styleMatchup ? (
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
               Style: {cmp.styleMatchup}
             </Text>
           ) : null}
-          {cmp.reachAdvantageFighter && cmp.reachAdvantageIn != null ? (
+          {cmp?.reachAdvantageFighter && cmp.reachAdvantageIn != null ? (
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
               Reach edge: {cmp.reachAdvantageFighter} (+{Math.abs(cmp.reachAdvantageIn)}")
             </Text>
@@ -685,7 +687,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
             {pre.dataCoveragePct}% grounded data · {pre.resolvedFighters}/2 fighters resolved on ESPN
           </Text>
-          {pre.advantages.ageAdvantage.available ? (
+          {pre.advantages?.ageAdvantage?.available ? (
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
               Age edge: {pre.advantages.ageAdvantage.value}
             </Text>
@@ -693,7 +695,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
         </View>
       ) : null}
 
-      {sim && metrics ? (
+      {simReady ? (
         <View
           style={{
             borderTopWidth: 1,
@@ -706,8 +708,8 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
             10,000-FIGHT SIMULATION
           </Text>
           <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 12 }}>
-            Win: {aName} {Math.round(metrics.winProbability.away * 1000) / 10}% · {hName}{" "}
-            {Math.round(metrics.winProbability.home * 1000) / 10}%
+            Win: {aName} {Math.round(metrics!.winProbability.away * 1000) / 10}% · {hName}{" "}
+            {Math.round(metrics!.winProbability.home * 1000) / 10}%
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
             Finish/KO/Sub/Dec (model): {aName}{" "}
