@@ -530,28 +530,36 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
     if (m.decisionWins != null) parts.push(`${m.decisionWins} DEC`);
     return parts.length ? parts.join(" · ") : "—";
   };
-  const rows: { label: string; a: string; h: string; espnOnly?: boolean }[] = [
+  const rows: { label: string; a: string; h: string; espnOnly?: boolean; hideIfEmpty?: boolean }[] = [
     { label: "Record", a: recStr(fa), h: recStr(fh) },
     { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
-    { label: "Age", a: fmtNum(fa.profile?.age ?? null), h: fmtNum(fh.profile?.age ?? null) },
+    { label: "Age", a: fmtNum(fa.profile?.age ?? null), h: fmtNum(fh.profile?.age ?? null), hideIfEmpty: true },
     { label: "Height", a: fa.profile?.displayHeight ?? "—", h: fh.profile?.displayHeight ?? "—" },
-    { label: "Reach", a: fa.profile?.displayReach ?? "—", h: fh.profile?.displayReach ?? "—" },
-    { label: "Stance", a: fa.profile?.stance ?? "—", h: fh.profile?.stance ?? "—" },
+    { label: "Reach", a: fa.profile?.displayReach ?? "—", h: fh.profile?.displayReach ?? "—", hideIfEmpty: true },
+    { label: "Stance", a: fa.profile?.stance ?? "—", h: fh.profile?.stance ?? "—", hideIfEmpty: true },
     { label: "Country", a: fa.profile?.citizenship ?? "—", h: fh.profile?.citizenship ?? "—" },
     { label: "Sig. Strikes/min", a: fmtNum(fa.stats?.strikeLPM ?? null), h: fmtNum(fh.stats?.strikeLPM ?? null), espnOnly: true },
     { label: "Strike Acc.", a: fmtPct(fa.stats?.strikeAccuracy ?? null), h: fmtPct(fh.stats?.strikeAccuracy ?? null), espnOnly: true },
     { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats?.finishPct ?? null), h: fmtPct(fh.stats?.finishPct ?? null) },
     { label: "Decision %", a: fmtPct(fa.stats?.decisionPct ?? null), h: fmtPct(fh.stats?.decisionPct ?? null) },
     { label: "Win Methods", a: methodStr(fa), h: methodStr(fh) },
+    { label: "Style", a: fa.style ? fa.style.charAt(0).toUpperCase() + fa.style.slice(1) : "—", h: fh.style ? fh.style.charAt(0).toUpperCase() + fh.style.slice(1) : "—", hideIfEmpty: true },
     { label: "Takedowns/15min", a: fmtNum(fa.stats?.takedownAvg ?? null), h: fmtNum(fh.stats?.takedownAvg ?? null), espnOnly: true },
     { label: "Takedown Acc.", a: fmtPct(fa.stats?.takedownAccuracy ?? null), h: fmtPct(fh.stats?.takedownAccuracy ?? null), espnOnly: true },
     { label: "Sub. Attempts/15min", a: fmtNum(fa.stats?.submissionAvg ?? null), h: fmtNum(fh.stats?.submissionAvg ?? null), espnOnly: true },
-    { label: "Style", a: fa.style ? fa.style.charAt(0).toUpperCase() + fa.style.slice(1) : "—", h: fh.style ? fh.style.charAt(0).toUpperCase() + fh.style.slice(1) : "—" },
   ];
   const visibleRows = rows.filter((r) => {
     if (r.a !== "—" || r.h !== "—") return true;
-    return !r.espnOnly;
+    if (r.espnOnly) return false;
+    if (r.hideIfEmpty) return false;
+    return true;
   });
+  const showRecentForm = (fa.recentForm?.length ?? 0) > 0 || (fh.recentForm?.length ?? 0) > 0;
+  const strikeStatsMissing =
+    fa.stats?.strikeLPM == null &&
+    fh.stats?.strikeLPM == null &&
+    fa.stats?.strikeAccuracy == null &&
+    fh.stats?.strikeAccuracy == null;
   const weightClass = fa.weightClass || fh.weightClass;
   const sim = data.simulation;
   const cmp = data.comparison;
@@ -657,6 +665,38 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
           </View>
         ))}
       </View>
+
+      {strikeStatsMissing && showRecentForm ? (
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, lineHeight: 15, textAlign: "center" }}>
+          Strike/takedown rates need ESPN fight stats — not published for this card on Sherdog. Recent form below is from Sherdog fight logs.
+        </Text>
+      ) : null}
+
+      {showRecentForm ? (
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 10, letterSpacing: 0.5 }}>
+            RECENT FORM (SHERDOG)
+          </Text>
+          {[fa, fh].map((f, idx) => {
+            const label = idx === 0 ? aName : hName;
+            const fights = (f.recentForm ?? []).slice(0, 5);
+            if (!fights.length) return null;
+            return (
+              <View key={label} style={{ gap: 4 }}>
+                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 12 }}>{label}</Text>
+                {fights.map((rf, i) => (
+                  <Text key={`${label}-${i}`} style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, lineHeight: 16 }}>
+                    {rf.result === "W" ? "W" : rf.result === "L" ? "L" : rf.result === "D" ? "D" : "—"}{" "}
+                    vs {rf.opponent ?? "—"}
+                    {rf.method ? ` · ${rf.method}` : ""}
+                    {rf.date ? ` · ${rf.date}` : ""}
+                  </Text>
+                ))}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
 
       {lean?.side ? (
         <View

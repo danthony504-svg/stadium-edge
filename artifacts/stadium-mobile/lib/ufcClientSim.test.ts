@@ -4,7 +4,9 @@ import { test } from "node:test";
 import type { FightFighter } from "./api.ts";
 import {
   classifyFighterStyle,
+  computeClientFightLean,
   enrichFightAnalysisWithClientSim,
+  finalizeClientFightAnalysis,
   runClientFightMonteCarlo,
   simMetricsFromFightResult,
 } from "./ufcClientSim.ts";
@@ -78,7 +80,7 @@ test("enrichFightAnalysisWithClientSim fills missing simulation block", () => {
     methods: { koWins: 2, tkoWins: null, subWins: 0, decisionWins: 1 },
   });
   const home = fighter({ name: "B", record: { wins: 1, losses: 2, draws: 0, winPct: 33.3 } });
-  const out = enrichFightAnalysisWithClientSim({
+  const out = finalizeClientFightAnalysis({
     away,
     home,
     lean: null,
@@ -118,6 +120,20 @@ test("enrichFightAnalysisWithClientSim fills missing simulation block", () => {
   assert.ok(out.simMetrics.winProbability.away !== 0.5 || out.simMetrics.winProbability.home !== 0.5);
 });
 
+test("computeClientFightLean from Sherdog records", () => {
+  const away = fighter({
+    name: "Aaron Aby",
+    record: { wins: 14, losses: 8, draws: 1, winPct: 63 },
+  });
+  const home = fighter({
+    name: "Zoran Milic",
+    record: { wins: 6, losses: 2, draws: 0, winPct: 75 },
+  });
+  const lean = computeClientFightLean(away, home);
+  assert.ok(lean);
+  assert.equal(lean!.side, "Zoran Milic");
+});
+
 test("classifyFighterStyle from Sherdog method split", () => {
   const subHeavy = fighter({
     name: "G",
@@ -125,4 +141,11 @@ test("classifyFighterStyle from Sherdog method split", () => {
     methods: { koWins: 0, tkoWins: null, subWins: 3, decisionWins: 1 },
   });
   assert.equal(classifyFighterStyle(subHeavy), "grappler");
+
+  const koHeavy = fighter({
+    name: "M",
+    record: { wins: 6, losses: 2, draws: 0, winPct: 75 },
+    methods: { koWins: 3, tkoWins: null, subWins: 0, decisionWins: 3 },
+  });
+  assert.equal(classifyFighterStyle(koHeavy), "striker");
 });
