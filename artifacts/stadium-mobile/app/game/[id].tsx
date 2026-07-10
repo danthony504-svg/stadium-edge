@@ -530,7 +530,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
     if (m.decisionWins != null) parts.push(`${m.decisionWins} DEC`);
     return parts.length ? parts.join(" · ") : "—";
   };
-  const rows: { label: string; a: string; h: string }[] = [
+  const rows: { label: string; a: string; h: string; espnOnly?: boolean }[] = [
     { label: "Record", a: recStr(fa), h: recStr(fh) },
     { label: "Win %", a: fa.record ? `${fa.record.winPct}%` : "—", h: fh.record ? `${fh.record.winPct}%` : "—" },
     { label: "Age", a: fmtNum(fa.profile?.age ?? null), h: fmtNum(fh.profile?.age ?? null) },
@@ -538,16 +538,20 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
     { label: "Reach", a: fa.profile?.displayReach ?? "—", h: fh.profile?.displayReach ?? "—" },
     { label: "Stance", a: fa.profile?.stance ?? "—", h: fh.profile?.stance ?? "—" },
     { label: "Country", a: fa.profile?.citizenship ?? "—", h: fh.profile?.citizenship ?? "—" },
-    { label: "Sig. Strikes/min", a: fmtNum(fa.stats?.strikeLPM ?? null), h: fmtNum(fh.stats?.strikeLPM ?? null) },
-    { label: "Strike Acc.", a: fmtPct(fa.stats?.strikeAccuracy ?? null), h: fmtPct(fh.stats?.strikeAccuracy ?? null) },
+    { label: "Sig. Strikes/min", a: fmtNum(fa.stats?.strikeLPM ?? null), h: fmtNum(fh.stats?.strikeLPM ?? null), espnOnly: true },
+    { label: "Strike Acc.", a: fmtPct(fa.stats?.strikeAccuracy ?? null), h: fmtPct(fh.stats?.strikeAccuracy ?? null), espnOnly: true },
     { label: "Finish % (KO/TKO)", a: fmtPct(fa.stats?.finishPct ?? null), h: fmtPct(fh.stats?.finishPct ?? null) },
     { label: "Decision %", a: fmtPct(fa.stats?.decisionPct ?? null), h: fmtPct(fh.stats?.decisionPct ?? null) },
     { label: "Win Methods", a: methodStr(fa), h: methodStr(fh) },
-    { label: "Takedowns/15min", a: fmtNum(fa.stats?.takedownAvg ?? null), h: fmtNum(fh.stats?.takedownAvg ?? null) },
-    { label: "Takedown Acc.", a: fmtPct(fa.stats?.takedownAccuracy ?? null), h: fmtPct(fh.stats?.takedownAccuracy ?? null) },
-    { label: "Sub. Attempts/15min", a: fmtNum(fa.stats?.submissionAvg ?? null), h: fmtNum(fh.stats?.submissionAvg ?? null) },
+    { label: "Takedowns/15min", a: fmtNum(fa.stats?.takedownAvg ?? null), h: fmtNum(fh.stats?.takedownAvg ?? null), espnOnly: true },
+    { label: "Takedown Acc.", a: fmtPct(fa.stats?.takedownAccuracy ?? null), h: fmtPct(fh.stats?.takedownAccuracy ?? null), espnOnly: true },
+    { label: "Sub. Attempts/15min", a: fmtNum(fa.stats?.submissionAvg ?? null), h: fmtNum(fh.stats?.submissionAvg ?? null), espnOnly: true },
     { label: "Style", a: fa.style ? fa.style.charAt(0).toUpperCase() + fa.style.slice(1) : "—", h: fh.style ? fh.style.charAt(0).toUpperCase() + fh.style.slice(1) : "—" },
   ];
+  const visibleRows = rows.filter((r) => {
+    if (r.a !== "—" || r.h !== "—") return true;
+    return !r.espnOnly;
+  });
   const weightClass = fa.weightClass || fh.weightClass;
   const sim = data.simulation;
   const cmp = data.comparison;
@@ -630,7 +634,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
       ) : null}
 
       <View style={{ gap: 0 }}>
-        {rows.map((r, i) => (
+        {visibleRows.map((r, i) => (
           <View
             key={r.label}
             style={{

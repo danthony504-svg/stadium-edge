@@ -1741,11 +1741,15 @@ export type GameSimulationResult = {
   homeWinProbability: number;
   awayWinProbability: number;
   tieProbability: number;
-  homeProjectedScore: number;
-  awayProjectedScore: number;
+  homeProjectedScore?: number;
+  awayProjectedScore?: number;
   mostLikelyWinner: "home" | "away";
   mostLikelyWinnerPct: number;
   confidenceScore: number;
+  methodRates?: {
+    away: { ko: number; tko: number; sub: number; decision: number };
+    home: { ko: number; tko: number; sub: number; decision: number };
+  } | null;
   coverHitRates?: Record<string, number>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
 };

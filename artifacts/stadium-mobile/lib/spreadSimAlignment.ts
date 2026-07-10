@@ -82,9 +82,9 @@ function projectedMarginForTeam(
   sim: CoachGameSimEntry,
   teamSide: "home" | "away",
 ): number {
-  return teamSide === "home"
-    ? sim.homeProjectedScore - sim.awayProjectedScore
-    : sim.awayProjectedScore - sim.homeProjectedScore;
+  const home = sim.homeProjectedScore ?? 0;
+  const away = sim.awayProjectedScore ?? 0;
+  return teamSide === "home" ? home - away : away - home;
 }
 
 function teamSideFromPick(pick: SpreadPick): "home" | "away" | null {

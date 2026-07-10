@@ -11,6 +11,10 @@ import type {
   FightFighterRecentFight,
   FightFighterStats,
 } from "./api";
+import {
+  classifyFighterStyle,
+  enrichFightAnalysisWithClientSim,
+} from "./ufcClientSim";
 
 const UA = "Mozilla/5.0 (compatible; StadiumEdge/1.0)";
 
@@ -80,6 +84,13 @@ function parseHeightIn(display: string | null): number | null {
   const m = /(\d+)'\s*(\d+)/.exec(display);
   if (!m) return null;
   return parseInt(m[1]!, 10) * 12 + parseInt(m[2]!, 10);
+}
+
+function parseReachIn(display: string | null): number | null {
+  if (!display) return null;
+  const m = /(\d+(?:\.\d+)?)\s*"/.exec(display);
+  if (!m) return null;
+  return Math.round(parseFloat(m[1]!) * 10) / 10;
 }
 
 function stripTags(s: string): string {
@@ -168,7 +179,7 @@ function parseSherdogProfile(html: string, slug: string): SherdogPatch | null {
       age,
       heightIn: parseHeightIn(displayHeight),
       displayHeight,
-      reachIn: null,
+      reachIn: parseReachIn(displayReach),
       displayReach,
       stance,
       citizenship: nat,
@@ -314,6 +325,21 @@ function mergeFighter(base: FightFighter, patch: SherdogPatch): FightFighter {
     },
     dataSources: sources,
     recentForm: base.recentForm?.length ? base.recentForm : patch.recentForm,
+    style: base.style ?? classifyFighterStyle({
+      ...base,
+      record: base.record || patch.record,
+      methods: {
+        koWins: base.methods.koWins ?? patch.methods.koWins,
+        tkoWins: base.methods.tkoWins ?? patch.methods.tkoWins,
+        subWins: base.methods.subWins ?? patch.methods.subWins,
+        decisionWins: base.methods.decisionWins ?? patch.methods.decisionWins,
+      },
+      stats: {
+        ...base.stats,
+        finishPct: base.stats.finishPct ?? patch.finishPct,
+        decisionPct: base.stats.decisionPct ?? patch.decisionPct,
+      },
+    }),
   };
 }
 
@@ -362,14 +388,16 @@ export async function enrichFightAnalysisClient(
       patched = true;
     }
   }
-  if (!patched) return analysis;
+  if (!patched) {
+    return enrichFightAnalysisWithClientSim(analysis);
+  }
 
   const resolved =
     (away.record || away.athleteId || away.resolvedName ? 1 : 0) +
     (home.record || home.athleteId || home.resolvedName ? 1 : 0);
   const coverage = Math.max(analysis.prePickAnalysis?.dataCoveragePct ?? 0, estimateCoverage(away, home));
 
-  return {
+  return enrichFightAnalysisWithClientSim({
     ...analysis,
     away,
     home,
@@ -378,5 +406,5 @@ export async function enrichFightAnalysisClient(
       resolvedFighters: Math.max(analysis.prePickAnalysis?.resolvedFighters ?? 0, resolved),
       dataCoveragePct: coverage,
     },
-  };
+  });
 }

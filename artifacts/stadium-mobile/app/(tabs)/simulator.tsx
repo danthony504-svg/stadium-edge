@@ -101,7 +101,15 @@ import {
 
 const gameEligibleForSim = isSimulatorPregame;
 
-const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis"] as const;
+const SIM_SPORTS = ["mlb", "nba", "wnba", "nhl", "soccer", "tennis", "ufc"] as const;
+
+function isGameLinesOnlySport(sport: string): boolean {
+  return sport === "tennis" || sport === "ufc" || sport === "mma";
+}
+
+function isNameOnlySimSport(sport: string): boolean {
+  return isGameLinesOnlySport(sport);
+}
 const SIM_COUNT = 10_000;
 const MAX_PROPS = 6;
 
@@ -304,10 +312,10 @@ export default function SimulatorScreen() {
     if (!sportFilters.some((f) => f.id === filter)) setFilter("popular");
   }, [sport, sportFilters, filter]);
 
-  const isTennis = sport === "tennis";
+  const isGameLinesOnly = isGameLinesOnlySport(sport);
   useEffect(() => {
-    if (isTennis) setMode("game");
-  }, [isTennis]);
+    if (isGameLinesOnly) setMode("game");
+  }, [isGameLinesOnly]);
 
   // Re-filter the slate when kickoff passes without waiting for the next refetch.
   const [clockTick, setClockTick] = useState(0);
@@ -662,8 +670,9 @@ export default function SimulatorScreen() {
   const simInputsReady =
     gameEligible &&
     !!game?.id &&
-    !!game.homeTeamId &&
-    !!game.awayTeamId &&
+    !!game.homeTeam &&
+    !!game.awayTeam &&
+    (isNameOnlySimSport(sport) || (!!game.homeTeamId && !!game.awayTeamId)) &&
     oddsQ.isFetched &&
     injuriesQ.isFetched &&
     (sport !== "mlb" || parkQ.isFetched) &&
@@ -746,7 +755,13 @@ export default function SimulatorScreen() {
 
   const runSimulation = useCallback(
     async (opts?: { force?: boolean; auto?: boolean }) => {
-      if (!gameEligible || !game?.homeTeamId || !game?.awayTeamId || !game.homeTeam || !game.awayTeam || !game.id) {
+      if (
+        !gameEligible ||
+        !game?.homeTeam ||
+        !game?.awayTeam ||
+        !game.id ||
+        (!isNameOnlySimSport(sport) && (!game.homeTeamId || !game.awayTeamId))
+      ) {
         return;
       }
       if (runInFlightRef.current) return;
@@ -793,8 +808,8 @@ export default function SimulatorScreen() {
           );
           const gr = await fetchSimulatorGameOutcome({
             sport,
-            homeTeamId: game.homeTeamId,
-            awayTeamId: game.awayTeamId,
+            homeTeamId: game.homeTeamId ?? "",
+            awayTeamId: game.awayTeamId ?? "",
             homeTeam: game.homeTeam,
             awayTeam: game.awayTeam,
             simulations: SIM_COUNT,
@@ -1059,7 +1074,7 @@ export default function SimulatorScreen() {
           {SIM_SPORTS.map((id) => {
             const label = SPORTS.find((s) => s.id === id)?.label ?? id.toUpperCase();
             return (
-              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (id === "tennis") setMode("game"); }} />
+              <Pill key={id} label={label} active={sport === id} onPress={() => { setSport(id); setGameIdx(0); setSelected([]); setFilter("popular"); if (isGameLinesOnlySport(id)) setMode("game"); }} />
             );
           })}
         </ScrollView>
@@ -1070,10 +1085,14 @@ export default function SimulatorScreen() {
           <EmptyState
             title="No upcoming games"
             subtitle={
-              isTennis
+              isGameLinesOnly
                 ? gamesQ.isError
-                  ? "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
-                  : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
+                  ? sport === "ufc"
+                    ? "Couldn't reach the UFC fight card right now. Pull down to refresh — or check back when pregame bouts are in the next 48 hours."
+                    : "Couldn't reach the tennis slate right now. Pull down to refresh — or check back when pregame ATP/WTA matches are in the next 48 hours."
+                  : sport === "ufc"
+                    ? "No pregame UFC fights in the next 48 hours right now. Live and completed bouts are hidden."
+                    : "No pregame tennis matchups in the next 48 hours right now. Live and completed matches are hidden."
                 : gamesQ.isError
                   ? `Couldn't reach the ${sport.toUpperCase()} slate right now. Pull down to refresh.`
                   : `No pregame ${sport.toUpperCase()} matchups to simulate right now — in-progress and final games are hidden.`
@@ -1152,8 +1171,8 @@ export default function SimulatorScreen() {
               ) : null}
             </Card>
 
-            {/* Mode tabs — tennis is game-lines only (no player props). */}
-            {!isTennis ? (
+            {/* Mode tabs — tennis/UFC are game-lines only (no player props). */}
+            {!isGameLinesOnly ? (
             <View
               style={{
                 flexDirection: "row",
@@ -1195,7 +1214,7 @@ export default function SimulatorScreen() {
             ) : null}
 
             {/* Player prop builder */}
-            {(mode === "props" || mode === "full") && !isTennis && (
+            {(mode === "props" || mode === "full") && !isGameLinesOnly && (
               <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                   <View>
@@ -1457,14 +1476,16 @@ export default function SimulatorScreen() {
                 {gameResult && game.homeTeam && game.awayTeam ? (
                   <>
                     <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                      <ResultCol title="Projected Score (Avg)">
-                        <ScorePair
-                          away={gameResult.awayProjectedScore}
-                          home={gameResult.homeProjectedScore}
-                          awayLogo={game.awayLogo}
-                          homeLogo={game.homeLogo}
-                        />
-                      </ResultCol>
+                      {!isGameLinesOnlySport(sport) || sport === "tennis" ? (
+                        <ResultCol title="Projected Score (Avg)">
+                          <ScorePair
+                            away={gameResult.awayProjectedScore ?? 0}
+                            home={gameResult.homeProjectedScore ?? 0}
+                            awayLogo={game.awayLogo}
+                            homeLogo={game.homeLogo}
+                          />
+                        </ResultCol>
+                      ) : null}
                       <ResultCol title="Win Probability">
                         {normalizedWin ? (
                           <WinBar
@@ -1477,6 +1498,18 @@ export default function SimulatorScreen() {
                         ) : null}
                       </ResultCol>
                     </View>
+                    {sport === "ufc" && gameResult.methodRates ? (
+                      <Card style={{ marginBottom: 12 }}>
+                        <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 8 }}>
+                          Method of Victory (Sim)
+                        </Text>
+                        <MethodRatesBlock
+                          awayLabel={game.awayAbbr ?? game.awayTeam}
+                          homeLabel={game.homeAbbr ?? game.homeTeam}
+                          rates={gameResult.methodRates}
+                        />
+                      </Card>
+                    ) : null}
                     {gameSimRecommendation ? (
                       <Card style={{ marginBottom: 12 }}>
                         <Text style={{ fontFamily: FONT.semibold, fontSize: 14, color: colors.foreground, marginBottom: 6 }}>
@@ -2048,6 +2081,57 @@ function FourQuestionsBlock({ team }: { team: TeamFourQuestions }) {
           </Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+function MethodRatesBlock({
+  awayLabel,
+  homeLabel,
+  rates,
+}: {
+  awayLabel: string;
+  homeLabel: string;
+  rates: NonNullable<GameSimulationResult["methodRates"]>;
+}) {
+  const colors = useColors();
+  const rows: { key: keyof typeof rates.away; label: string }[] = [
+    { key: "ko", label: "KO" },
+    { key: "tko", label: "TKO" },
+    { key: "sub", label: "Sub" },
+    { key: "decision", label: "Decision" },
+  ];
+  return (
+    <View style={{ gap: 10 }}>
+      {[awayLabel, homeLabel].map((label, idx) => {
+        const side = idx === 0 ? rates.away : rates.home;
+        return (
+          <View key={label}>
+            <Text style={{ fontFamily: FONT.medium, fontSize: 11, color: colors.foreground, marginBottom: 4 }}>
+              {label}
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+              {rows.map((r) => (
+                <View
+                  key={`${label}-${r.key}`}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ fontFamily: FONT.body, fontSize: 10, color: colors.mutedForeground }}>
+                    {r.label} {(side[r.key] * 100).toFixed(1)}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
