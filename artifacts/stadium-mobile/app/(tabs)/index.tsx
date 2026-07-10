@@ -51,6 +51,7 @@ import {
   clearDiscoverCache,
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
+import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -551,7 +552,7 @@ function HomeSportFeed({
     ) {
       return [];
     }
-    return payload.rows.filter((g) => g.sport === sport);
+    return payload.rows.filter((g) => g.sport === sport && isRenderableOddsGame(g));
   }, [oddsQ.data, oddsQ.isPlaceholderData, oddsQ.isFetching, oddsQ.isSuccess, sport]);
 
   const metaMap = useMemo(() => buildMetaMap(gamesForSport), [gamesForSport]);
@@ -1756,7 +1757,7 @@ function HomeSportFeed({
               );
               const meta =
                 sport === "tennis" ? withTennisFlags(baseMeta, tennisFlagsQ.data, g) : baseMeta;
-              const h2h = g.markets?.find((m) => m.key === "h2h");
+              const h2h = safeMarkets(g).find((m) => m.key === "h2h");
               const awayML = h2h?.outcomes?.find((o) => o.name === g.awayTeam)?.price;
               const homeML = h2h?.outcomes?.find((o) => o.name === g.homeTeam)?.price;
               const best = bestPropByGame.get(`${g.awayTeam} @ ${g.homeTeam}`);

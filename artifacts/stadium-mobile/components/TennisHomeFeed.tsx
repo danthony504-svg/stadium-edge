@@ -19,7 +19,7 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
-import { oddsRowsFromQuery } from "@/lib/sportFeed";
+import { espnRowsFromQuery, oddsRowsFromQuery, safeMarkets } from "@/lib/sportFeed";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -81,10 +81,7 @@ export function TennisHomeFeed({
     retry: false,
   });
 
-  const gamesForSport = useMemo(() => {
-    const rows = Array.isArray(gamesQ.data) ? gamesQ.data : [];
-    return rows.filter((g) => g.sport === sport);
-  }, [gamesQ.data]);
+  const gamesForSport = useMemo(() => espnRowsFromQuery(gamesQ.data, sport), [gamesQ.data, sport]);
 
   const metaMap = useMemo(() => {
     const map = new Map<string, GameMeta>();
@@ -263,7 +260,7 @@ export function TennisHomeFeed({
               `${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase(),
             );
             const meta = withTennisFlags(baseMeta, flagsQ.data, g);
-            const h2h = g.markets?.find((m) => m.key === "h2h");
+            const h2h = safeMarkets(g).find((m) => m.key === "h2h");
             const awayML = h2h?.outcomes?.find((o) => o.name === g.awayTeam)?.price;
             const homeML = h2h?.outcomes?.find((o) => o.name === g.homeTeam)?.price;
             const rows = [

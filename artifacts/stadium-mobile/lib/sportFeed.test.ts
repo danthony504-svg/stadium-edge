@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { OddsGame } from "./api.ts";
-import { isRenderableOddsGame, oddsRowsFromQuery, oddsPayloadFromQuery } from "./sportFeed.ts";
+import { isRenderableOddsGame, oddsRowsFromQuery, oddsPayloadFromQuery, safeMarkets } from "./sportFeed.ts";
 
 test("oddsRowsFromQuery reads Home generation-tagged payload", () => {
   const rows: OddsGame[] = [
@@ -86,6 +86,15 @@ test("oddsPayloadFromQuery normalizes legacy plain-array cache", () => {
   const p = oddsPayloadFromQuery(rows, "wnba");
   assert.equal(p.league, "wnba");
   assert.equal(p.rows.length, 1);
+});
+
+test("safeMarkets returns [] for corrupt markets", () => {
+  assert.deepEqual(safeMarkets({ markets: undefined as unknown as OddsGame["markets"] }), []);
+  assert.deepEqual(safeMarkets({ markets: {} as unknown as OddsGame["markets"] }), []);
+  assert.deepEqual(
+    safeMarkets({ markets: [{ key: "h2h", outcomes: [] }] }),
+    [{ key: "h2h", outcomes: [] }],
+  );
 });
 
 test("isRenderableOddsGame requires core fields", () => {

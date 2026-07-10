@@ -1,4 +1,10 @@
-import type { OddsGame, EspnGame } from "./api";
+import type { OddsGame, EspnGame, OddsMarket } from "./api";
+
+/** Odds API rows should carry markets[]; guard corrupt/partial cache entries. */
+export function safeMarkets(g: Pick<OddsGame, "markets"> | null | undefined): OddsMarket[] {
+  const m = g?.markets;
+  return Array.isArray(m) ? m : [];
+}
 
 /** Generation-tagged odds/games payload used on Home to block cross-league bleed. */
 export type SportFeedPayload<T> = { gen: number; league: string; rows: T[] };

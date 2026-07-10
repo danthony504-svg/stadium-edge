@@ -1,11 +1,13 @@
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { AiPickCard } from "@/components/AiPickCard";
 import { GamePropsSection } from "@/components/GamePropsSection";
 import { InjuryReport } from "@/components/InjuryReport";
@@ -22,7 +24,7 @@ import {
   oddsGameFromEspnOdds,
   oddsGameFromEspnShell,
 } from "@/lib/gameResolve";
-import { espnRowsFromQuery, oddsRowsFromQuery } from "@/lib/sportFeed";
+import { espnRowsFromQuery, isRenderableOddsGame, oddsRowsFromQuery, safeMarkets } from "@/lib/sportFeed";
 import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
@@ -445,7 +447,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
         // Enrich the lean with the real betting-dog price from this game's h2h
         // pool so an upset (data-favored fighter = plus-money side) can be flagged.
         if (d?.lean?.side) {
-          const h2h = game.markets?.find((m) => m.key === "h2h");
+          const h2h = safeMarkets(game).find((m) => m.key === "h2h");
           // Normalize accents/punctuation/spacing before joining ESPN's lean side
           // to the odds-feed outcome name, so real upsets aren't missed on === .
           const nf = (s: any) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
@@ -909,36 +911,81 @@ function LiveScoreBanner({ espn }: { espn: EspnGame }) {
 }
 
 export default function GameDetailScreen() {
+  return (
+    <ErrorBoundary FallbackComponent={GameDetailErrorFallback}>
+      <GameDetailBody />
+    </ErrorBoundary>
+  );
+}
+
+function GameDetailErrorFallback({ error, resetError }: ErrorFallbackProps) {
+  const colors = useColors();
+  const router = useRouter();
+  return (
+    <View style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12, backgroundColor: colors.background }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17, textAlign: "center" }}>
+        Couldn't open this game
+      </Text>
+      {error.message ? (
+        <Text
+          style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", opacity: 0.75 }}
+          numberOfLines={3}
+        >
+          {error.message}
+        </Text>
+      ) : null}
+      <Pressable
+        onPress={() => {
+          resetError();
+          router.back();
+        }}
+        style={({ pressed }) => ({
+          alignSelf: "center",
+          backgroundColor: colors.primary,
+          borderRadius: 10,
+          paddingVertical: 12,
+          paddingHorizontal: 28,
+          opacity: pressed ? 0.9 : 1,
+        })}
+      >
+        <Text style={{ color: colors.primaryForeground, fontFamily: FONT.semibold, fontSize: 14 }}>Back</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function GameDetailBody() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
-  const { id, sport } = useLocalSearchParams<{ id: string; sport: string }>();
+  const queryClient = useQueryClient();
+  const params = useLocalSearchParams<{ id: string | string[]; sport: string | string[] }>();
+  const sport = String((Array.isArray(params.sport) ? params.sport[0] : params.sport) || "");
+  const id = String((Array.isArray(params.id) ? params.id[0] : params.id) || "");
   const [tennisSheet, setTennisSheet] = useState<string | null>(null);
 
   const oddsQ = useQuery({
-    queryKey: ["odds", sport],
-    queryFn: ({ signal }) => getOdds(String(sport), signal),
+    queryKey: ["game-detail-odds", sport],
+    queryFn: ({ signal }) => getOdds(sport, signal),
+    initialData: () => queryClient.getQueryData(["odds", sport]),
     staleTime: 60_000,
     enabled: !!sport,
+    retry: false,
   });
 
   const gamesQ = useQuery({
-    queryKey: ["games", sport],
-    queryFn: ({ signal }) => getGames(String(sport), signal),
+    queryKey: ["game-detail-games", sport],
+    queryFn: ({ signal }) => getGames(sport, signal),
+    initialData: () => queryClient.getQueryData(["games", sport]),
     staleTime: 30_000,
     enabled: !!sport,
+    retry: false,
   });
 
-  const oddsRows = useMemo(
-    () => oddsRowsFromQuery(oddsQ.data, String(sport ?? "")),
-    [oddsQ.data, sport],
-  );
+  const oddsRows = useMemo(() => oddsRowsFromQuery(oddsQ.data, sport), [oddsQ.data, sport]);
 
-  const gamesRows = useMemo(
-    () => espnRowsFromQuery(gamesQ.data, String(sport ?? "")),
-    [gamesQ.data, sport],
-  );
+  const gamesRows = useMemo(() => espnRowsFromQuery(gamesQ.data, sport), [gamesQ.data, sport]);
 
   const espnGame = useMemo(
     () => gamesRows.find((g) => g.id === id),
@@ -962,27 +1009,30 @@ export default function GameDetailScreen() {
   });
 
   const game = useMemo(() => {
+    let resolved: OddsGame | undefined;
     if (oddsMatch) {
       // Live cards pass ESPN ids — keep that id for props resolution while using
       // the richer odds-api market ladder when we matched by team names.
       if (espnGame && oddsMatch.id !== espnGame.id) {
-        return {
+        resolved = {
           ...oddsMatch,
           id: espnGame.id,
           commenceTime: espnGame.startsAt || oddsMatch.commenceTime,
         };
+      } else {
+        resolved = oddsMatch;
       }
-      return oddsMatch;
+    } else if (espnGame) {
+      if (espnOddsQ.data) {
+        const fromEspn = oddsGameFromEspnOdds(sport, espnGame, espnOddsQ.data);
+        if (fromEspn) resolved = fromEspn;
+      }
+      if (!resolved && (espnGame.state === "in" || espnGame.state === "pre")) {
+        resolved = oddsGameFromEspnShell(sport, espnGame) ?? undefined;
+      }
     }
-    if (!espnGame) return undefined;
-    if (espnOddsQ.data) {
-      const fromEspn = oddsGameFromEspnOdds(String(sport), espnGame, espnOddsQ.data);
-      if (fromEspn) return fromEspn;
-    }
-    if (espnGame.state === "in" || espnGame.state === "pre") {
-      return oddsGameFromEspnShell(String(sport), espnGame) ?? undefined;
-    }
-    return undefined;
+    if (!resolved) return undefined;
+    return { ...resolved, markets: safeMarkets(resolved) };
   }, [oddsMatch, espnGame, espnOddsQ.data, sport]);
 
   const isLoading =
@@ -1093,7 +1143,7 @@ export default function GameDetailScreen() {
           {(() => {
             // Decode + drop unrenderable keys, then order: full-game mains first,
             // full-game alt ladders next, period markets last.
-            const blocks = game.markets
+            const blocks = safeMarkets(game)
               .map((m) => ({ m, d: decodeMarket(m.key) }))
               .filter((x): x is { m: OddsMarket; d: Decoded } => x.d != null);
             const rank = (d: Decoded) => (d.period === "" && !d.alt ? 0 : d.period === "" ? 1 : 2);
