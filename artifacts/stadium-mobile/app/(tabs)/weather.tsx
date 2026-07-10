@@ -1,6 +1,7 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,6 +24,7 @@ import {
   impactLevelTone,
   precipDisplay,
   shortImpactBadge,
+  windCarryLabel,
   windDisplay,
   type GameEffectCard,
   type ImpactLevel,
@@ -32,6 +34,7 @@ type FeatherName = React.ComponentProps<typeof Feather>["name"];
 type TabKey = "today" | "tomorrow" | "outlook";
 
 const REFETCH_MS = 12 * 60 * 1000;
+const FAV_PARKS_KEY = "weather:favoriteParks";
 
 function impactColors(level: ImpactLevel, colors: ReturnType<typeof useColors>) {
   if (level === "positive") return { border: colors.success, bg: "rgba(34,197,94,0.12)", text: colors.success };
@@ -61,6 +64,35 @@ export default function WeatherScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("today");
   const [venueOpen, setVenueOpen] = useState(false);
+  const [favoriteParks, setFavoriteParks] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(FAV_PARKS_KEY);
+        if (!cancelled && raw) {
+          const parsed = JSON.parse(raw) as string[];
+          if (Array.isArray(parsed)) setFavoriteParks(new Set(parsed));
+        }
+      } catch {
+        /* ignore corrupt cache */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleFavorite = useCallback(async (homeAbbr: string) => {
+    setFavoriteParks((prev) => {
+      const next = new Set(prev);
+      if (next.has(homeAbbr)) next.delete(homeAbbr);
+      else next.add(homeAbbr);
+      void AsyncStorage.setItem(FAV_PARKS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
 
   const q = useQuery({
     queryKey: ["parkWeather", "mlb"],
@@ -124,6 +156,8 @@ export default function WeatherScreen() {
                   report={selected}
                   reports={reports}
                   open={venueOpen}
+                  favorite={favoriteParks.has(selected.homeAbbr)}
+                  onToggleFavorite={() => toggleFavorite(selected.homeAbbr)}
                   onToggle={() => setVenueOpen((v) => !v)}
                   onSelect={(id) => {
                     setSelectedId(id);
@@ -242,21 +276,24 @@ function VenueSelector({
   report,
   reports,
   open,
+  favorite,
+  onToggleFavorite,
   onToggle,
   onSelect,
 }: {
   report: ParkWeatherReport;
   reports: ParkWeatherReport[];
   open: boolean;
+  favorite: boolean;
+  onToggleFavorite: () => void;
   onToggle: () => void;
   onSelect: (id: string) => void;
 }) {
   const colors = useColors();
   return (
     <View style={{ marginBottom: 12 }}>
-      <Pressable
-        onPress={onToggle}
-        style={({ pressed }) => ({
+      <View
+        style={{
           backgroundColor: colors.card,
           borderWidth: 1,
           borderColor: colors.border,
@@ -265,32 +302,51 @@ function VenueSelector({
           flexDirection: "row",
           alignItems: "center",
           gap: 10,
-          opacity: pressed ? 0.9 : 1,
-        })}
+        }}
       >
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            backgroundColor: "rgba(59,130,246,0.12)",
+        <Pressable
+          onPress={onToggle}
+          style={({ pressed }) => ({
+            flex: 1,
+            flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center",
-          }}
+            gap: 10,
+            opacity: pressed ? 0.9 : 1,
+          })}
         >
-          <Feather name="map-pin" size={18} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-            {report.parkName}
-          </Text>
-          <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-            {report.city}
-            {fmtFirstPitch(report.commenceTime) ? ` · ${report.awayAbbr} @ ${report.homeAbbr}` : ""}
-          </Text>
-        </View>
-        <Feather name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
-      </Pressable>
+          <View
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              backgroundColor: "rgba(59,130,246,0.12)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Feather name="map-pin" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
+              {report.parkName}
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+              {report.city}
+              {fmtFirstPitch(report.commenceTime) ? ` · ${report.awayAbbr} @ ${report.homeAbbr}` : ""}
+            </Text>
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={onToggleFavorite}
+          hitSlop={8}
+          style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 4 })}
+        >
+          <Feather name="star" size={18} color={favorite ? "#fbbf24" : colors.mutedForeground} />
+        </Pressable>
+        <Pressable onPress={onToggle} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, padding: 2 })}>
+          <Feather name={open ? "chevron-up" : "chevron-down"} size={18} color={colors.mutedForeground} />
+        </Pressable>
+      </View>
       {open ? (
         <View
           style={{
@@ -360,7 +416,7 @@ function HeroWeatherCard({ report }: { report: ParkWeatherReport }) {
           borderTopColor: colors.border,
         }}
       >
-        <HeroStat label="Wind" value={windDisplay(c)} />
+        <HeroStat label="Wind" value={windDisplay(c, report.homeAbbr)} />
         <HeroStat label="Humidity" value={fmtVal(c.humidity, (n) => `${n}%`)} />
         <HeroStat label="Precip" value={precipDisplay(c)} />
       </View>
@@ -389,6 +445,7 @@ function ImpactBanner({ report }: { report: ParkWeatherReport }) {
   const colors = useColors();
   const level = impactLevelTone(report.impact.rating);
   const theme = impactColors(level, colors);
+  const carry = windCarryLabel(report.current.windDeg, report.current.windMph, report.homeAbbr);
   return (
     <View
       style={{
@@ -400,8 +457,8 @@ function ImpactBanner({ report }: { report: ParkWeatherReport }) {
         marginBottom: 4,
       }}
     >
-      <Text style={{ color: theme.text, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5 }}>
-        TODAY&apos;S IMPACT: {impactLevelLabel(report.impact.rating)}
+      <Text style={{ color: theme.text, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.3 }}>
+        today&apos;s verdict? {impactLevelLabel(report.impact.rating)}
       </Text>
       <Text
         style={{
@@ -412,7 +469,7 @@ function ImpactBanner({ report }: { report: ParkWeatherReport }) {
           marginTop: 8,
         }}
       >
-        {impactBannerCopy(report.impact.rating, report.climateControlled)}
+        {impactBannerCopy(report.impact.rating, report.climateControlled, carry)}
       </Text>
     </View>
   );
@@ -424,7 +481,7 @@ function DetailGrid({ report }: { report: ParkWeatherReport }) {
   const tiles = [
     { label: "Temp", value: fmtVal(c.tempF, (n) => `${Math.round(n)}°F`), icon: "thermometer" as FeatherName },
     { label: "Feels Like", value: fmtVal(c.feelsLikeF, (n) => `${Math.round(n)}°F`), icon: "thermometer" },
-    { label: "Wind", value: windDisplay(c), icon: "wind" },
+    { label: "Wind", value: windDisplay(c, report.homeAbbr), icon: "wind" },
     { label: "Gusts", value: fmtVal(c.gustMph, (n) => `${Math.round(n)} mph`), icon: "wind" },
     { label: "Humidity", value: fmtVal(c.humidity, (n) => `${n}%`), icon: "droplet" },
     { label: "Pressure", value: fmtVal(c.pressureInHg, (n) => `${n.toFixed(2)} in`), icon: "bar-chart-2" },
@@ -485,6 +542,7 @@ function GameEffectTile({ effect }: { effect: GameEffectCard }) {
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>{effect.label}</Text>
       <Text style={{ color: tone, fontFamily: FONT.bold, fontSize: 13, marginTop: 6, letterSpacing: 0.3 }}>
         {effect.trend}
+        {effect.pct != null ? ` ${effect.pct > 0 ? "+" : ""}${effect.pct}%` : ""}
       </Text>
       <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, marginTop: 4 }}>
         {effect.detail}
@@ -507,6 +565,15 @@ function GameListRow({
   const badge = shortImpactBadge(report.impact.rating);
   const badgeTone = impactLevelTone(report.impact.rating);
   const badgeColor = impactColors(badgeTone, colors).text;
+  const icon = conditionIconName(c.condition);
+  const subtitle = [
+    fmtFirstPitch(report.commenceTime),
+    c.tempF != null ? `${Math.round(c.tempF)}°F` : null,
+    c.condition,
+    c.windMph != null ? `${Math.round(c.windMph)} mph wind` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.85 : 1, marginBottom: 8 })}>
       <Card
@@ -516,14 +583,13 @@ function GameListRow({
           borderColor: active ? colors.primary : colors.border,
         }}
       >
+        <Feather name={icon} size={16} color={colors.mutedForeground} style={{ marginRight: 10 }} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
             {report.awayAbbr} @ {report.homeAbbr}
           </Text>
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
-            {fmtFirstPitch(report.commenceTime)}
-            {c.tempF != null ? ` · ${Math.round(c.tempF)}°F` : ""}
-            {c.windMph != null ? ` · ${Math.round(c.windMph)} mph` : ""}
+            {subtitle}
           </Text>
         </View>
         <View
