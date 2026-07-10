@@ -22,6 +22,7 @@ import {
   oddsGameFromEspnOdds,
   oddsGameFromEspnShell,
 } from "@/lib/gameResolve";
+import { espnRowsFromQuery, oddsRowsFromQuery } from "@/lib/sportFeed";
 import type { EspnGame } from "@/lib/api";
 import { attachPickScores } from "@/lib/pickScoreContext";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
@@ -929,18 +930,27 @@ export default function GameDetailScreen() {
     enabled: !!sport,
   });
 
+  const oddsRows = useMemo(
+    () => oddsRowsFromQuery(oddsQ.data, String(sport ?? "")),
+    [oddsQ.data, sport],
+  );
+
+  const gamesRows = useMemo(
+    () => espnRowsFromQuery(gamesQ.data, String(sport ?? "")),
+    [gamesQ.data, sport],
+  );
+
   const espnGame = useMemo(
-    () => (gamesQ.data ?? []).find((g) => g.id === id),
-    [gamesQ.data, id],
+    () => gamesRows.find((g) => g.id === id),
+    [gamesRows, id],
   );
 
   const oddsMatch = useMemo(() => {
-    const odds = oddsQ.data ?? [];
-    const direct = odds.find((g) => g.id === id);
+    const direct = oddsRows.find((g) => g.id === id);
     if (direct) return direct;
     if (!espnGame) return undefined;
-    return findOddsByTeams(odds, espnGame.awayTeam ?? "", espnGame.homeTeam ?? "");
-  }, [oddsQ.data, id, espnGame]);
+    return findOddsByTeams(oddsRows, espnGame.awayTeam ?? "", espnGame.homeTeam ?? "");
+  }, [oddsRows, id, espnGame]);
 
   const needsEspnOdds = !!espnGame && !oddsMatch;
 
@@ -1112,7 +1122,7 @@ export default function GameDetailScreen() {
       />
       {/* Floating slip popup — this is a root-stack screen (outside the tab
           layout), so render its own instance to overlay this screen. */}
-      <SlipBar pathname="/upcoming" />
+      <SlipBar pathname="/game" />
     </View>
   );
 }

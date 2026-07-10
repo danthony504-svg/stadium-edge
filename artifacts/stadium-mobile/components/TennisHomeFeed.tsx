@@ -19,6 +19,7 @@ import {
   type TennisFlag,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
+import { oddsRowsFromQuery } from "@/lib/sportFeed";
 
 const nickname = (full: string) => (full || "").split(/\s+/).filter(Boolean).pop() || full;
 
@@ -120,7 +121,7 @@ export function TennisHomeFeed({
   }, [liveGames]);
 
   const upcoming = useMemo(() => {
-    const rows = Array.isArray(oddsQ.data) ? oddsQ.data : [];
+    const rows = oddsRowsFromQuery(oddsQ.data, sport);
     return rows
       .filter((g) => g.sport === sport && isPickable(g.commenceTime))
       .filter(

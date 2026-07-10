@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { teamNameMatches } from "@/lib/injuries";
 import { formatAmerican, formatGameTime } from "@/lib/format";
+import { oddsRowsFromQuery } from "@/lib/sportFeed";
 import { SPORTS } from "@/lib/sports";
 import { factorsForTeam } from "@/lib/teamFactors";
 
@@ -117,10 +118,11 @@ export function TeamPropsSheet({
   });
   const markets = useMemo(() => {
     if (!data || !oddsQ.data) return null;
+    const oddsRows = oddsRowsFromQuery(oddsQ.data, sport);
     // Require BOTH full names to match (order-independent) — nickname-only sets
     // can misbind in leagues with duplicate nicknames. The paired match also
     // disambiguates which side is "our" team regardless of feed orientation.
-    const g = oddsQ.data.find(
+    const g = oddsRows.find(
       (o) =>
         (teamNameMatches(o.homeTeam, team) && teamNameMatches(o.awayTeam, opp)) ||
         (teamNameMatches(o.homeTeam, opp) && teamNameMatches(o.awayTeam, team)),
