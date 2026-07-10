@@ -118,6 +118,39 @@ test("mergeEspnVenueIntoOdds copies venue from ESPN match", () => {
   assert.equal(merged[0]!.venue, "T-Mobile Arena");
 });
 
+test("mergeEspnVenueIntoOdds applies event venue when bout match missing", () => {
+  const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const merged = mergeEspnVenueIntoOdds(
+    [
+      {
+        id: "o1",
+        sport: "ufc",
+        name: "A vs B",
+        shortName: "A vs B",
+        status: "Scheduled",
+        startsAt: soon,
+        awayTeam: "Aaron Aby",
+        homeTeam: "Zoran Milic",
+        venue: null,
+      } as any,
+    ],
+    [
+      {
+        id: "401883599",
+        sport: "ufc",
+        name: "Durden vs Costa",
+        shortName: "Durden vs Costa",
+        status: "Scheduled",
+        startsAt: soon,
+        awayTeam: "Cody Durden",
+        homeTeam: "Alessandro Costa",
+        venue: "T-Mobile Arena",
+      } as any,
+    ],
+  );
+  assert.equal(merged[0]!.venue, "T-Mobile Arena");
+});
+
 test("isUfcFightRow rejects event placeholders", () => {
   assert.equal(isUfcFightRow({ homeTeam: null, awayTeam: null } as any), false);
   assert.equal(hasUfcFightLabels([{ homeTeam: "A", awayTeam: "B" } as any]), true);

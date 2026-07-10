@@ -221,6 +221,7 @@ export async function fetchUfcSimulatorGamesFromEspn(signal?: AbortSignal): Prom
 
 /** Copy venue/start from ESPN when odds matched the same bout. */
 export function mergeEspnVenueIntoOdds(oddsGames: EspnGame[], espnGames: EspnGame[]): EspnGame[] {
+  const eventVenue = espnGames.find((g) => g.venue)?.venue ?? null;
   const byKey = new Map<string, EspnGame>();
   for (const g of espnGames) {
     if (!g.awayTeam || !g.homeTeam) continue;
@@ -229,14 +230,17 @@ export function mergeEspnVenueIntoOdds(oddsGames: EspnGame[], espnGames: EspnGam
   return oddsGames.map((o) => {
     if (!o.awayTeam || !o.homeTeam) return o;
     const espn = byKey.get(normFightKey(o.awayTeam, o.homeTeam));
-    if (!espn) return o;
+    if (!espn && !eventVenue) return o;
     return {
       ...o,
-      venue: o.venue ?? espn.venue,
-      homeTeamId: o.homeTeamId ?? espn.homeTeamId,
-      awayTeamId: o.awayTeamId ?? espn.awayTeamId,
-      homeAbbr: o.homeAbbr ?? espn.homeAbbr,
-      awayAbbr: o.awayAbbr ?? espn.awayAbbr,
+      venue: o.venue ?? espn?.venue ?? eventVenue,
+      homeTeamId: o.homeTeamId ?? espn?.homeTeamId ?? null,
+      awayTeamId: o.awayTeamId ?? espn?.awayTeamId ?? null,
+      homeAbbr: o.homeAbbr ?? espn?.homeAbbr ?? null,
+      awayAbbr: o.awayAbbr ?? espn?.awayAbbr ?? null,
+      homeLogo: o.homeLogo ?? espn?.homeLogo ?? null,
+      awayLogo: o.awayLogo ?? espn?.awayLogo ?? null,
+      startsAt: o.startsAt || espn?.startsAt || o.startsAt,
     };
   });
 }
