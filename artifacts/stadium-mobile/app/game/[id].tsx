@@ -842,7 +842,7 @@ function FightTaleOfTape({ game }: { game: OddsGame }) {
       ) : (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11, textAlign: "center", lineHeight: 16 }}>
           {resolvedCount < 2
-            ? `No moneyline passes quality filters — ${homeOnEspn ? hName : aName} has no ESPN profile, so we won't force a pick.`
+            ? `No moneyline passes quality filters — ${!fighterResolved(fa) ? aName : hName} has no resolved profile, so we won't force a pick.`
             : "No moneyline passes quality filters (edge, grade, sim, data coverage)."}
         </Text>
       )}
@@ -1205,7 +1205,7 @@ function TennisMatchupCard({ game }: { game: OddsGame }) {
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 11 }}>
             {pre.dataCoveragePct}% grounded data · {pre.resolvedPlayers}/2 players resolved on ESPN
           </Text>
-          {pre.matchup.surface.available ? (
+          {pre.matchup?.surface?.available ? (
             <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 11 }}>
               Surface: {pre.matchup.surface.value}
             </Text>
