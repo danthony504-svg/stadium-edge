@@ -11,6 +11,7 @@ import {
 import { ESPN_SPORT_PATHS, cachedJson, rateLimit } from "../lib/sports";
 import { loadTennisGames } from "../lib/tennis.js";
 import { loadOddsSlateGames, ODDS_SLATE_SPORT_IDS } from "../lib/oddsSlateGames.js";
+import { loadUfcSlateGames } from "../lib/ufcGames.js";
 
 const router: IRouter = Router();
 
@@ -157,6 +158,19 @@ router.get("/sports/games", async (req, res): Promise<void> => {
     req.query.simulator === "1" ||
     req.query.simulator === "true" ||
     req.query.pregameOnly === "1";
+
+  // UFC: odds feed has fighter names; ESPN event cards often lack competitors.
+  if (sportId === "ufc") {
+    try {
+      let rows = await loadUfcSlateGames();
+      if (simulatorOnly) rows = rows.filter((g) => isSimulatorPregame(g));
+      res.json(GetGamesResponse.parse(rows));
+    } catch (err) {
+      req.log.error({ err }, "Failed to fetch UFC games");
+      res.json([]);
+    }
+    return;
+  }
 
   // Tennis uses ESPN's grouped scoreboard (ATP + WTA), not team-sport paths.
   if (sportId === "tennis") {

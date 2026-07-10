@@ -340,7 +340,7 @@ export default function SimulatorScreen() {
   }, []);
 
   const gamesQ = useQuery({
-    queryKey: ["sim-games-v2", sport],
+    queryKey: ["sim-games-v3", sport],
     queryFn: async ({ signal }) => {
       try {
         const rows = await fetchSimulatorGames(sport, signal);
@@ -387,6 +387,12 @@ export default function SimulatorScreen() {
   }, [gameIdx, games.length]);
 
   const game: EspnGame | null = games[gameIdx] ?? games[0] ?? null;
+  const ufcFightIncomplete =
+    (sport === "ufc" || sport === "mma") && !!game && !isUfcFightRow(game);
+
+  useEffect(() => {
+    if (ufcFightIncomplete) void gamesQ.refetch();
+  }, [ufcFightIncomplete, gamesQ.refetch]);
 
   const oddsQ = useQuery({
     queryKey: ["sim-odds", sport, game?.id],
@@ -1092,8 +1098,14 @@ export default function SimulatorScreen() {
           })}
         </ScrollView>
 
-        {gamesBootstrapping ? (
-          <Loading label="Loading games…" />
+        {gamesBootstrapping || ufcFightIncomplete ? (
+          <Loading
+            label={
+              ufcFightIncomplete
+                ? "Loading UFC fights…"
+                : "Loading games…"
+            }
+          />
         ) : !game ? (
           <EmptyState
             title="No upcoming games"
