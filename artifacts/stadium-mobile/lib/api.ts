@@ -1671,6 +1671,7 @@ export async function fetchPropSimulations(
     side: "Over" | "Under";
     athleteId?: string | null;
     sport: string;
+    additionalLines?: number[];
   }> = [];
 
   for (const p of picks) {
@@ -1688,6 +1689,15 @@ export async function fetchPropSimulations(
     const market = p.propMarketKey ?? pool?.marketKey;
     if (!market) continue;
     const sport = (p.sport ?? pool?.sport ?? "nba").toLowerCase();
+    const additionalLines: number[] = [];
+    for (const e of propPool) {
+      if (e.player !== p.player || e.side !== side) continue;
+      if (market && e.marketKey !== market) continue;
+      if (p.game && e.game !== p.game) continue;
+      if (e.line == null || e.line === p.propLine || !e.alt) continue;
+      if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
+    }
+    additionalLines.sort((a, b) => a - b);
     props.push({
       player: p.player,
       market,
@@ -1695,6 +1705,7 @@ export async function fetchPropSimulations(
       side,
       athleteId: p.athleteId ?? pool?.athleteId,
       sport,
+      ...(additionalLines.length ? { additionalLines } : {}),
     });
   }
 

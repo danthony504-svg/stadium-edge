@@ -3,10 +3,12 @@
 // then deep-tier refines the grade in the background.
 
 import type { ParsedPick } from "@/components/PickCard";
-import type { PropPoolEntry } from "@/lib/api";
+import type { PropPoolEntry, RealOddsEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
+import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
+import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -20,6 +22,12 @@ export type PropSimAttachOpts = {
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
   /** Never drop below this many cards after sim scoring (restores as high-risk). */
   minLegs?: number;
+  /** When set, attach 10k-sim alt tiers (safest / value / high confidence). */
+  altAttach?: {
+    evalLinesByGame: Map<string, RealOddsEntry[]>;
+    gameSimulations: Map<string, CoachGameSimEntry>;
+    realOdds: RealOddsEntry[];
+  };
 };
 
 function simMapFromResults(
@@ -39,6 +47,7 @@ function scorePicksWithSim(
   sims: Map<string, { hitProbability: number | null }>,
   opts: PropSimAttachOpts,
   simulationPending: boolean,
+  fullSimRows?: Map<string, PropSimulationResult>,
 ): ParsedPick[] {
   const scored = attachPickScores(picks, {
     ...opts,
@@ -47,9 +56,19 @@ function scorePicksWithSim(
   const filtered = filterCoachPicksWithPropSim(scored, sims, {
     minLegs: opts.minLegs,
   });
-  return filtered.picks.map((p) =>
+  let out = filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );
+  if (opts.altAttach) {
+    out = attachSimAltOptionsToPicks(out, {
+      ...opts.altAttach,
+      propPool: opts.propPool,
+      propSimulations: fullSimRows,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+  }
+  return out;
 }
 
 /** Mark prop legs as awaiting simulation without blocking render. */
@@ -81,6 +100,7 @@ export async function loadPropSimulationsProgressive(
       simMapFromResults(quickRows),
       opts,
       true,
+      quickRows,
     );
     callbacks.onQuick?.(quickScored);
   } catch {
@@ -90,12 +110,12 @@ export async function loadPropSimulationsProgressive(
   try {
     const deepRows = await fetchPropSimulations(picks, opts.propPool, { tier: "deep" }, signal);
     if (signal?.aborted) return;
-    const deepScored = scorePicksWithSim(picks, simMapFromResults(deepRows), opts, false);
+    const deepScored = scorePicksWithSim(picks, simMapFromResults(deepRows), opts, false, deepRows);
     callbacks.onDeep?.(deepScored);
   } catch {
     /* keep quick-tier scores if deep fails */
     if (quickRows.size > 0) {
-      const fallback = scorePicksWithSim(picks, simMapFromResults(quickRows), opts, false);
+      const fallback = scorePicksWithSim(picks, simMapFromResults(quickRows), opts, false, quickRows);
       callbacks.onDeep?.(fallback);
     }
   }

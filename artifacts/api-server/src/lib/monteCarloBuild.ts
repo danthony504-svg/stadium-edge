@@ -16,6 +16,8 @@ export type SimPropRequest = {
   sport: string;
   isHome?: boolean | null;
   opponentTeamId?: string | null;
+  /** Extra alt rungs scored on the same 10k draw as `line`. */
+  additionalLines?: number[];
 };
 
 export type PlayerHistoryShape = {
@@ -104,6 +106,7 @@ export function buildPropSimulationContext(
     ownKeyInjuries: game.ownKeyInjuries ?? 0,
     weatherImpact: game.weatherImpact ?? null,
     discrete: isDiscreteCountMarket(req.market),
+    additionalLines: req.additionalLines,
   };
 }
 

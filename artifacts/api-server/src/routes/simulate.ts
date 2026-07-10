@@ -107,12 +107,12 @@ async function runPropSims(
 
   const rows = await Promise.all(
     props.map(async (p) => {
-      const cacheKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, tier);
+      const cacheKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, tier, p.additionalLines);
       const cached = await getCachedSim<SimPropRow>(cacheKey);
       if (cached && cached.hitProbability != null) {
         const row: SimPropRow = { ...cached, tier, cached: true };
         if (tier === "quick") {
-          const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep");
+          const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
           const deepHit = await getCachedSim(deepKey);
           if (!deepHit) {
             deepPending = true;
@@ -183,7 +183,7 @@ async function warmDeepSims(
   const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
 
   for (const p of props) {
-    const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep");
+    const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
     if (deepInFlight.has(deepKey)) continue;
     const existing = await getCachedSim(deepKey);
     if (existing) continue;

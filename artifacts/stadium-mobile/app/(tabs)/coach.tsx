@@ -65,6 +65,7 @@ import {
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
+import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2466,6 +2467,16 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (coachEvalLinesByGame && gameSimulations.size > 0) {
+          picks = attachSimAltOptionsToPicks(picks, {
+            evalLinesByGame: coachEvalLinesByGame,
+            gameSimulations,
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          });
+        }
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2776,6 +2787,14 @@ export default function CoachScreen() {
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
             minLegs: requestedLegs > 0 ? requestedLegs : undefined,
+            altAttach:
+              coachEvalLinesByGame && gameSimulations.size > 0
+                ? {
+                    evalLinesByGame: coachEvalLinesByGame,
+                    gameSimulations,
+                    realOdds: mergedGameOdds,
+                  }
+                : undefined,
           };
           const snapshot = picks;
           void loadPropSimulationsProgressive(

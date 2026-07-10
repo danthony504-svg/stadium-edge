@@ -17,8 +17,12 @@ export function simCacheKey(
   line: number,
   side: string,
   tier: SimTier,
+  additionalLines?: number[],
 ): string {
-  return `sim:${tier}:${sport}:${player}:${market}:${line}:${side}`;
+  const base = `sim:${tier}:${sport}:${player}:${market}:${line}:${side}`;
+  if (!additionalLines?.length) return base;
+  const alts = [...additionalLines].sort((a, b) => a - b).join(",");
+  return `${base}:alts=${alts}`;
 }
 
 export async function getCachedSim<T>(key: string): Promise<T | undefined> {
