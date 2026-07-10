@@ -519,7 +519,7 @@ export async function buildFightAnalysis(
   home: string,
   opts: BuildFightAnalysisOpts = {},
 ): Promise<FightAnalysis> {
-  const key = `ufc:fight:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
+  const key = `ufc:fight:v2:${String(away).toLowerCase()}|${String(home).toLowerCase()}`;
   const base = await cachedJson<Omit<FightAnalysis, "recommendations" | "books" | "prePickAnalysis" | "simMetrics">>(
     key,
     ANALYSIS_TTL,
