@@ -1,10 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Router } from "expo-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 
 import type { GameMeta } from "@/components/GameCard";
+import { UpcomingGamesModal } from "@/components/UpcomingGamesModal";
 import { EmptyState, ErrorState, FONT, Loading } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
@@ -48,7 +49,6 @@ type TennisHomeFeedProps = {
   slipClearance: number;
   bottomInset: number;
   onBuildParlay: () => void;
-  onViewAllUpcoming: () => void;
 };
 
 /** Minimal Home feed for Tennis — no featured props, upsets, or useQueries fan-out. */
@@ -58,10 +58,10 @@ export function TennisHomeFeed({
   slipClearance,
   bottomInset,
   onBuildParlay,
-  onViewAllUpcoming,
 }: TennisHomeFeedProps) {
   const colors = useColors();
   const sport = "tennis";
+  const [upcomingModalOpen, setUpcomingModalOpen] = useState(false);
 
   const oddsQ = useQuery({
     queryKey: ["odds", sport],
@@ -144,7 +144,8 @@ export function TennisHomeFeed({
   };
 
   return (
-    <ScrollView
+    <>
+      <ScrollView
       contentContainerStyle={{ paddingBottom: bottomInset + 24 + slipClearance }}
       refreshControl={
         <RefreshControl
@@ -240,7 +241,7 @@ export function TennisHomeFeed({
           Upcoming Matches
         </Text>
         {upcoming.length > 0 ? (
-          <Pressable onPress={onViewAllUpcoming}>
+          <Pressable onPress={() => setUpcomingModalOpen(true)}>
             <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>View all</Text>
           </Pressable>
         ) : null}
@@ -341,5 +342,11 @@ export function TennisHomeFeed({
         </Text>
       </Pressable>
     </ScrollView>
+    <UpcomingGamesModal
+      sportId={sport}
+      visible={upcomingModalOpen}
+      onClose={() => setUpcomingModalOpen(false)}
+    />
+    </>
   );
 }

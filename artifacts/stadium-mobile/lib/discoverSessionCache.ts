@@ -213,7 +213,9 @@ export function rememberLiveGames(sport: string, games: EspnGame[]): void {
 }
 
 export function cachedUpcomingGames(sport: string): OddsGame[] {
-  return (upcomingBySport.get(sport) ?? []).filter((g) => g.sport === sport);
+  const raw = upcomingBySport.get(sport);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((g) => g && (!g.sport || g.sport === sport));
 }
 
 export function rememberUpcomingGames(sport: string, games: OddsGame[]): void {

@@ -440,7 +440,6 @@ type HomeSportFeedProps = {
   isWideLayout: boolean;
   hotCardWidth: number;
   quickCardWidth: number;
-  onViewAllUpcoming: () => void;
 };
 
 function HomeSportFeed({
@@ -454,9 +453,9 @@ function HomeSportFeed({
   isWideLayout,
   hotCardWidth,
   quickCardWidth,
-  onViewAllUpcoming,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
+  const [upcomingModalOpen, setUpcomingModalOpen] = useState(false);
 
   // Refetch the active league when the pill changes. Kept separate from
   // useFocusEffect so a sport tap never retriggers OTA reload side-effects.
@@ -1731,9 +1730,8 @@ function HomeSportFeed({
           {displayUpcoming.length > 0 ? (
             <Pressable
               hitSlop={8}
-              onPress={onViewAllUpcoming}
+              onPress={() => setUpcomingModalOpen(true)}
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-            >
             >
               <Text
                 style={{
@@ -2020,6 +2018,11 @@ function HomeSportFeed({
           </View>
         ) : null}
       </ScrollView>
+      <UpcomingGamesModal
+        sportId={sport}
+        visible={upcomingModalOpen}
+        onClose={() => setUpcomingModalOpen(false)}
+      />
     </ErrorBoundary>
   );
 }
@@ -2038,7 +2041,6 @@ export default function HomeScreen() {
   // Five shortcut cards — horizontal scroll when they don't fit on one screen.
   const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
-  const [upcomingModalSport, setUpcomingModalSport] = useState<string | null>(null);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
   sportRef.current = sport;
@@ -2173,7 +2175,6 @@ export default function HomeScreen() {
             width={width}
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
-            onViewAllUpcoming={() => setUpcomingModalSport("tennis")}
             onBuildParlay={() => {
               markCoachHomeLaunch();
               router.push({
@@ -2200,14 +2201,8 @@ export default function HomeScreen() {
           isWideLayout={isWideLayout}
           hotCardWidth={hotCardWidth}
           quickCardWidth={quickCardWidth}
-          onViewAllUpcoming={() => setUpcomingModalSport(sport)}
         />
       )}
-      <UpcomingGamesModal
-        sportId={upcomingModalSport}
-        visible={upcomingModalSport != null}
-        onClose={() => setUpcomingModalSport(null)}
-      />
     </View>
   );
 }

@@ -153,8 +153,10 @@ export function UpcomingGamesFeed({
   const colors = useColors();
 
   const oddsPlaceholder = useMemo((): SportFeedPayload<OddsGame> | undefined => {
-    const cached = cachedUpcomingGames(sportId).filter(isRenderableOddsGame);
-    return cached.length > 0 ? { gen: 0, league: sportId, rows: cached } : undefined;
+    const cached = cachedUpcomingGames(sportId);
+    if (!Array.isArray(cached) || cached.length === 0) return undefined;
+    const rows = cached.filter(isRenderableOddsGame);
+    return rows.length > 0 ? { gen: 0, league: sportId, rows } : undefined;
   }, [sportId]);
 
   const oddsQ = useQuery<SportFeedPayload<OddsGame>>({
