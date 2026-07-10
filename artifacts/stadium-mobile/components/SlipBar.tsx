@@ -420,6 +420,16 @@ function SlipBarBody({
   );
 }
 
+/** Resolves pathname via expo-router — isolated so override instances skip this hook. */
+function SlipBarWithRouterPathname({
+  onNavigateAway,
+}: {
+  onNavigateAway?: () => void;
+}) {
+  const pathname = usePathname();
+  return <SlipBarBody pathname={pathname} onNavigateAway={onNavigateAway} />;
+}
+
 /** Root-stack routes (upcoming, game detail) pass pathname to avoid hook churn mid-push. */
 export function SlipBar({
   onNavigateAway,
@@ -428,6 +438,5 @@ export function SlipBar({
   if (pathnameOverride != null) {
     return <SlipBarBody pathname={pathnameOverride} onNavigateAway={onNavigateAway} />;
   }
-  const pathname = usePathname();
-  return <SlipBarBody pathname={pathname} onNavigateAway={onNavigateAway} />;
+  return <SlipBarWithRouterPathname onNavigateAway={onNavigateAway} />;
 }

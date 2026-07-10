@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/expo";
+import { useIsFocused } from "@react-navigation/native";
 import { Redirect, Stack } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
@@ -9,6 +10,7 @@ import { SlipBar } from "@/components/SlipBar";
 const DARK_BG = "#0f172a";
 
 export default function TabLayout() {
+  const tabsFocused = useIsFocused();
   // Hard auth gate: the main app requires sign-in. Clerk is already loaded by the
   // time this renders (ClerkLoaded wraps the root), so isSignedIn is reliable and
   // there is no signed-in flash. Unauthenticated users land on the welcome screen
@@ -56,10 +58,14 @@ export default function TabLayout() {
         <Stack.Screen name="report" />
         <Stack.Screen name="pick-performance" />
       </Stack>
-      {/* Floating slip popup + nav are siblings of the nested Stack so they
-          reliably paint over tab content (a root-level overlay does not). */}
-      <SlipBar />
-      <NavMenu />
+      {/* Hide tab chrome while a root-stack screen (upcoming, game detail) is
+          focused — avoids duplicate SlipBars and expo-router hook churn mid-push. */}
+      {tabsFocused ? (
+        <>
+          <SlipBar />
+          <NavMenu />
+        </>
+      ) : null}
     </View>
   );
 }

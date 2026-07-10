@@ -1178,7 +1178,7 @@ export default function PropDetailScreen() {
         </Pressable>
       </ScrollView>
 
-      <SlipBar />
+      <SlipBar pathname="/prop" />
     </View>
   );
 }

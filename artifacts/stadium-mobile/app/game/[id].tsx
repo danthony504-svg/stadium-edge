@@ -1112,7 +1112,7 @@ export default function GameDetailScreen() {
       />
       {/* Floating slip popup — this is a root-stack screen (outside the tab
           layout), so render its own instance to overlay this screen. */}
-      <SlipBar />
+      <SlipBar pathname="/upcoming" />
     </View>
   );
 }

@@ -689,7 +689,7 @@ function TeamPickView() {
         </Pressable>
       </ScrollView>
 
-      <SlipBar />
+      <SlipBar pathname="/team-pick" />
     </View>
   );
 }
@@ -1060,7 +1060,7 @@ function TotalMatchupView() {
         </Pressable>
       </ScrollView>
 
-      <SlipBar />
+      <SlipBar pathname="/team-pick" />
     </View>
   );
 }

@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
-import { useLocalSearchParams, useRootNavigationState, useRouter } from "expo-router";
-import { useMemo } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -205,9 +206,19 @@ function UpcomingScreenBody() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
-  const rootNav = useRootNavigationState();
+  const isFocused = useIsFocused();
+  const [navReady, setNavReady] = useState(false);
   const { sport } = useLocalSearchParams<{ sport: string | string[] }>();
   const sportId = String((Array.isArray(sport) ? sport[0] : sport) || "").toLowerCase();
+
+  useEffect(() => {
+    if (!isFocused) {
+      setNavReady(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setNavReady(true));
+    return () => cancelAnimationFrame(id);
+  }, [isFocused]);
 
   const oddsPlaceholder = useMemo((): SportFeedPayload<OddsGame> | undefined => {
     if (!sportId) return undefined;
@@ -296,7 +307,7 @@ function UpcomingScreenBody() {
     );
   }
 
-  if (!rootNav?.key) {
+  if (!navReady) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <Loading label="Loading upcoming games…" />
