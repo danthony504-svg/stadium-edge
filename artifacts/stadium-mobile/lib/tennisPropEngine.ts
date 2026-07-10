@@ -1,9 +1,3 @@
-// Re-exports for Coach / Props integration — implementations live in api.ts.
+// @deprecated Use propEngine.ts — tennis-specific alias.
 
-export {
-  analyzeTennisMatchProps,
-  getTennisPropEngineStatus,
-  tennisPropsEngineAvailable,
-  type TennisPropAnalyzeResult,
-  type TennisPropEngineRecommendation,
-} from "./api.ts";
+export * from "./propEngine.ts";

@@ -258,5 +258,5 @@ export function createTennisPropVendor(
 }
 
 export function tennisPropsFeatureEnabled(): boolean {
-  return process.env.TENNIS_PROPS_ENABLED === "1";
+  return process.env.PROP_ENGINE_ENABLED === "1" || process.env.TENNIS_PROPS_ENABLED === "1";
 }

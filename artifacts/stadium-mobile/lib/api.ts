@@ -2158,10 +2158,11 @@ export async function getTennisAnalysis(
   }
 }
 
-/** Pre-graded tennis prop recommendations from the prop engine (Option B). */
-export type TennisPropEngineRecommendation = {
+/** Pre-graded prop recommendations from the cross-sport prop engine (Option B). */
+export type PropEngineRecommendation = {
   line: {
-    player: string;
+    sport: string;
+    subject: string;
     market: string;
     marketLabel: string;
     line: number | null;
@@ -2183,10 +2184,11 @@ export type TennisPropEngineRecommendation = {
   rankScore: number | null;
 };
 
-export type TennisPropAnalyzeResult = {
+export type PropEngineAnalyzeResult = {
+  sport: string;
   matchLabel: string;
   analyzed: number;
-  recommended: TennisPropEngineRecommendation[];
+  recommended: PropEngineRecommendation[];
   vendorStatus: {
     propsAvailable: boolean;
     statsComplete: boolean;
@@ -2194,34 +2196,43 @@ export type TennisPropAnalyzeResult = {
   };
 };
 
-export async function getTennisPropEngineStatus(
+export async function getPropEngineStatus(
   signal?: AbortSignal,
-): Promise<{ enabled: boolean; requires: string[] }> {
-  return getJson(`/sports/tennis-props/status`, signal);
+): Promise<{ enabled: boolean; sports: string[]; requires: string[] }> {
+  return getJson(`/sports/prop-engine/status`, signal);
 }
 
-export async function analyzeTennisMatchProps(
+export async function analyzeEventProps(
+  sport: string,
   away: string,
   home: string,
   opts?: { eventId?: string; signal?: AbortSignal },
-): Promise<TennisPropAnalyzeResult | null> {
-  const q = new URLSearchParams({ away, home });
+): Promise<PropEngineAnalyzeResult | null> {
+  const q = new URLSearchParams({ sport, away, home });
   if (opts?.eventId) q.set("eventId", opts.eventId);
   try {
-    return await getJson<TennisPropAnalyzeResult>(`/sports/tennis-props/analyze?${q}`, opts?.signal);
+    return await getJson<PropEngineAnalyzeResult>(`/sports/prop-engine/analyze?${q}`, opts?.signal);
   } catch {
     return null;
   }
 }
 
-export async function tennisPropsEngineAvailable(signal?: AbortSignal): Promise<boolean> {
+export async function propEngineAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    const s = await getTennisPropEngineStatus(signal);
+    const s = await getPropEngineStatus(signal);
     return s.enabled;
   } catch {
     return false;
   }
 }
+
+/** @deprecated Use analyzeEventProps(sport, away, home) */
+export type TennisPropEngineRecommendation = PropEngineRecommendation;
+export type TennisPropAnalyzeResult = PropEngineAnalyzeResult;
+export const getTennisPropEngineStatus = getPropEngineStatus;
+export const analyzeTennisMatchProps = (away: string, home: string, opts?: { eventId?: string; signal?: AbortSignal }) =>
+  analyzeEventProps("tennis", away, home, opts);
+export const tennisPropsEngineAvailable = propEngineAvailable;
 
 export type TennisBio = {
   age: number | null;
