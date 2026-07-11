@@ -19,6 +19,7 @@ export type RecommendablePick = {
   isProp?: boolean;
   sport?: string;
   odds?: number | null;
+  ticketRole?: "main" | "alt";
 };
 
 const GRADE_RANK: Record<string, number> = {
@@ -57,6 +58,9 @@ export function pickGradeDisplayLabel(
 ): string | null {
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
   if (!pickHasSimGrade(pick, score?.simHit)) return null;
+  if (pick.ticketRole === "alt" && qualifiesAltPick(pick, score ?? undefined)) {
+    return score?.grade ?? null;
+  }
   if (pickIsAiRecommended(pick, score ?? undefined)) return score?.grade ?? null;
   return NOT_AI_RECOMMENDED;
 }

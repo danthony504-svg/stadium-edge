@@ -16,9 +16,9 @@ import {
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
-import { qualifiesAltPick } from "./pickRecommendation.ts";
+import { qualifiesAltPick, pickIsAiRecommended } from "./pickRecommendation.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
-import { isAltPropPick, isQualifyingBackupGameLine, isMainLineGameLeg } from "./altLinePool.ts";
+import { isAltPropPick, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -37,6 +37,8 @@ export {
   buildQualifyingAltShortfallNote,
   buildFullBoardShortfallNote,
   promoteQualifyingAltsToTicket,
+  promoteQualifyingStagedToTicket,
+  selectParlayMainBackupPicks,
 } from "./parlayReachCore.ts";
 
 function nearScoreFromEval(row: EvaluatedGameLine): number {
@@ -131,6 +133,88 @@ export function collectQualifyingGameLines(
   return qualified.sort((a, b) => b.nearScore - a.nearScore);
 }
 
+/** Main game lines (ML/spread/total) that pass the strict AI gate — not already on ticket. */
+export function collectQualifyingMainGameLines(
+  ticket: ParsedPick[],
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
+    excludedSports?: Set<string>;
+  },
+): ParlayLegReject[] {
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const qualified: ParlayLegReject[] = [];
+  const byGame = new Map<string, RealOddsEntry[]>();
+  for (const lines of evalLinesByGame.values()) {
+    for (const e of lines) {
+      if (opts.excludedSports?.size && e.sport && opts.excludedSports.has(e.sport)) continue;
+      const arr = byGame.get(e.game) ?? [];
+      arr.push(e);
+      byGame.set(e.game, arr);
+    }
+  }
+  for (const [game, lines] of byGame) {
+    const sim =
+      simByGame.get(game) ??
+      [...simByGame.entries()].find(([k]) => k.toLowerCase() === game.toLowerCase())?.[1];
+    const merged = mergeOddsEntries(opts.realOdds, lines);
+    const ranked = evaluateGameLines({
+      lines,
+      gameSim: sim,
+      realOdds: merged,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+    for (const row of ranked) {
+      const fp = pickLegFingerprint(row.pick);
+      if (onTicket.has(fp)) continue;
+      if (!isMainLineGameLeg(row.pick)) continue;
+      if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
+        continue;
+      }
+      if (!pickIsAiRecommended(row.pick, row.finalAiScore)) continue;
+      qualified.push({
+        pick: row.pick,
+        reason: reasonForQualifyingLine(row),
+        nearScore: qualifyScoreFromEval(row),
+      });
+    }
+  }
+  return qualified.sort((a, b) => b.nearScore - a.nearScore);
+}
+
+/** Main (non-alt) props that pass the strict AI gate — not already on ticket. */
+export function collectQualifyingMainProps(
+  ticket: ParsedPick[],
+  propPool: PropPoolEntry[],
+  scoredMainProps: ParsedPick[],
+): ParlayLegReject[] {
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const qualified: ParlayLegReject[] = [];
+  const scoredByFp = new Map(scoredMainProps.map((p) => [pickLegFingerprint(p), p]));
+  for (const entry of propPool) {
+    if (entry.alt) continue;
+    const scored = scoredByFp.get(pickLegFingerprint(parsedPickFromPoolEntry(entry)));
+    if (!scored) continue;
+    const fp = pickLegFingerprint(scored);
+    if (onTicket.has(fp)) continue;
+    if (isAltPropPick(scored)) continue;
+    if (!pickIsAiRecommended(scored, scored.finalAiScore)) continue;
+    qualified.push({
+      pick: scored,
+      reason: reasonForQualifyingAltProp(scored),
+      nearScore:
+        (scored.finalAiScore?.composite ?? 0) * 0.5 +
+        (scored.finalAiScore?.simHit ?? 0) * 40 +
+        Math.max(0, scored.finalAiScore?.edgePct ?? 0) * 2,
+    });
+  }
+  return qualified.sort((a, b) => b.nearScore - a.nearScore);
+}
+
 /** Alt-ladder prop rows that pass the softer reach-N alt gate. */
 export function collectQualifyingAltProps(
   ticket: ParsedPick[],
@@ -179,6 +263,49 @@ export function fillReachTicketWithQualifyingAlts(
   qualifying: ParlayLegReject[],
 ): { picks: ParsedPick[]; promoted: ParsedPick[] } {
   return promoteQualifyingAltsToTicket(ticket, qualifying, target);
+}
+
+/** Mains first, then qualifying alts — staged reach-N fill from the live board. */
+export function fillReachTicketStaged(
+  ticket: ParsedPick[],
+  target: number,
+  qualifyingMains: ParlayLegReject[],
+  qualifyingAlts: ParlayLegReject[],
+): { picks: ParsedPick[]; promotedMains: ParsedPick[]; promotedAlts: ParsedPick[] } {
+  return promoteQualifyingStagedToTicket(ticket, qualifyingMains, qualifyingAlts, target);
+}
+
+/** Collect mains + alts from eval lines and prop pool for staged reach fill. */
+export function collectReachStagedQualifiers(
+  ticket: ParsedPick[],
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  simByGame: Map<string, CoachGameSimEntry>,
+  propPool: PropPoolEntry[],
+  scoredMainProps: ParsedPick[],
+  scoredAltProps: ParsedPick[],
+  opts: {
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
+    excludedSports?: Set<string>;
+  },
+): { mains: ParlayLegReject[]; alts: ParlayLegReject[] } {
+  const reachOpts = {
+    realOdds: opts.realOdds,
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+    excludedSports: opts.excludedSports,
+  };
+  return {
+    mains: mergeParlayRejects(
+      collectQualifyingMainGameLines(ticket, evalLinesByGame, simByGame, reachOpts),
+      collectQualifyingMainProps(ticket, propPool, scoredMainProps),
+    ),
+    alts: mergeParlayRejects(
+      collectQualifyingGameLines(ticket, evalLinesByGame, simByGame, reachOpts),
+      collectQualifyingAltProps(ticket, propPool, scoredAltProps),
+    ),
+  };
 }
 
 /** Rank eval-ladder rungs that almost made the ticket (not already on it). */

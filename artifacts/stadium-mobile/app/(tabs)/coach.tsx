@@ -57,6 +57,7 @@ import { enforceMlLeanOnPicks, mlLeanEnforcementNote } from "@/lib/mlLeanEnforce
 import {
   buildGameTeamIdMap,
   fetchCoachGameSimulationsForPicks,
+  fetchSlateGameSimulations,
   filterCoachPicksWithGameSim,
   filterNegativeEdgeGameLines,
   supplementCoachGameSimulations,
@@ -78,9 +79,8 @@ import {
 } from "@/lib/parlayVarietyMemory";
 import {
   collectQualifyingGameLines,
-  collectQualifyingAltProps,
-  fillReachTicketWithQualifyingAlts,
-  mergeParlayRejects,
+  collectReachStagedQualifiers,
+  fillReachTicketStaged,
   replenishParlayToTarget,
   selectParlayBackupPicks,
   buildQualifyingAltShortfallNote,
@@ -2625,6 +2625,94 @@ export default function CoachScreen() {
           mergedGameOdds,
           gameMeta,
         );
+        let reachStagedPromotedMains = 0;
+        let reachStagedPromotedAlts = 0;
+        if (
+          !isAnalyze &&
+          reachFull &&
+          picks.length < reachTarget &&
+          !oddsThreshold &&
+          !confidenceThreshold
+        ) {
+          if (!coachEvalLinesByGame) {
+            const reachSports = [
+              ...new Set(
+                [...mergedPropPool.map((e) => e.sport), ...context.realOdds.map((e) => e.sport)].filter(
+                  Boolean,
+                ),
+              ),
+            ].filter((s) => !excludedSports.has(s)) as string[];
+            const [reachOdds, reachEspn] = await Promise.all([
+              Promise.all(reachSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              Promise.all(reachSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+            ]);
+            coachEvalLinesByGame = buildEvalLinesForAllGames(reachOdds);
+            mergedGameOdds = mergeOddsEntries(
+              context.realOdds,
+              ...coachEvalLinesByGame.values(),
+            );
+            if (!teamIdMap) teamIdMap = buildGameTeamIdMap(reachEspn);
+          }
+          if (coachEvalLinesByGame && gameSimulations.size === 0 && teamIdMap) {
+            gameSimulations = await fetchSlateGameSimulations(
+              coachEvalLinesByGame,
+              teamIdMap,
+              abortRef.current?.signal,
+            );
+          }
+          if (coachEvalLinesByGame && gameSimulations.size > 0) {
+            const reachScoreOpts = {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            };
+            const scoredMainProps = attachPickScores(
+              mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+              reachScoreOpts,
+            );
+            const scoredAltProps = mergedPropPool.some((e) => e.alt)
+              ? attachPickScores(
+                  mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                  reachScoreOpts,
+                )
+              : [];
+            const { mains, alts } = collectReachStagedQualifiers(
+              picks,
+              coachEvalLinesByGame,
+              gameSimulations,
+              mergedPropPool,
+              scoredMainProps,
+              scoredAltProps,
+              {
+                realOdds: mergedGameOdds,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                excludedSports,
+              },
+            );
+            const filled = fillReachTicketStaged(picks, reachTarget, mains, alts);
+            if (filled.promotedMains.length > 0 || filled.promotedAlts.length > 0) {
+              reachStagedPromotedMains += filled.promotedMains.length;
+              reachStagedPromotedAlts += filled.promotedAlts.length;
+              picks = attachPickScores(filled.picks, reachScoreOpts);
+              picks = scrubExcludedSportsFromPicks(
+                picks,
+                excludedSports,
+                mergedPropPool,
+                mergedGameOdds,
+                gameMeta,
+              );
+            }
+          }
+        }
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2826,10 +2914,49 @@ export default function CoachScreen() {
           reachFull &&
           picks.length < reachTarget &&
           !oddsThreshold &&
-          !confidenceThreshold &&
-          !fullBoardScanned
+          !confidenceThreshold
         ) {
-          if (coachEvalLinesByGame && gameSimulations.size > 0) {
+          if (fullBoardScanned && coachEvalLinesByGame && gameSimulations.size > 0) {
+            const reachScoreOpts = {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            };
+            const scoredMainProps = attachPickScores(
+              mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+              reachScoreOpts,
+            );
+            const scoredAltProps = mergedPropPool.some((e) => e.alt)
+              ? attachPickScores(
+                  mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                  reachScoreOpts,
+                )
+              : [];
+            const { mains, alts } = collectReachStagedQualifiers(
+              picks,
+              coachEvalLinesByGame,
+              gameSimulations,
+              mergedPropPool,
+              scoredMainProps,
+              scoredAltProps,
+              {
+                realOdds: mergedGameOdds,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                excludedSports,
+              },
+            );
+            const filled = fillReachTicketStaged(picks, reachTarget, mains, alts);
+            if (filled.promotedMains.length > 0 || filled.promotedAlts.length > 0) {
+              reachStagedPromotedMains += filled.promotedMains.length;
+              reachStagedPromotedAlts += filled.promotedAlts.length;
+              picks = attachPickScores(filled.picks, reachScoreOpts);
+            }
+          } else if (coachEvalLinesByGame && gameSimulations.size > 0) {
             picks = replenishParlayToTarget(picks, reachTarget, {
               longshotAsk,
               plusMoneyBias: propBackfillOpts.plusMoneyBias,
@@ -2940,7 +3067,7 @@ export default function CoachScreen() {
             }
           }
         }
-        let reachAltPromoted = 0;
+        let reachAltPromoted = reachStagedPromotedAlts;
         if (
           !isAnalyze &&
           reachFull &&
@@ -2948,50 +3075,45 @@ export default function CoachScreen() {
           coachEvalLinesByGame &&
           gameSimulations.size > 0
         ) {
+          const reachScoreOpts = {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            perfByFamily: marketPerf,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            gameSimulations,
+          };
+          const scoredMainProps = attachPickScores(
+            mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+            reachScoreOpts,
+          );
           const scoredAltProps = mergedPropPool.some((e) => e.alt)
             ? attachPickScores(
                 mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
-                {
-                  realOdds: mergedGameOdds,
-                  propPool: mergedPropPool,
-                  matchupHistory: context.matchupHistory,
-                  matchupInjuries: context.matchupInjuries,
-                  perfByFamily: marketPerf,
-                  playerHistory: context.playerHistory as
-                    | Record<string, PlayerHistorySlice>
-                    | undefined,
-                  gameSimulations,
-                },
+                reachScoreOpts,
               )
             : [];
-          const qualifyingReach = mergeParlayRejects(
-            collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+          const { mains, alts } = collectReachStagedQualifiers(
+            picks,
+            coachEvalLinesByGame,
+            gameSimulations,
+            mergedPropPool,
+            scoredMainProps,
+            scoredAltProps,
+            {
               realOdds: mergedGameOdds,
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               excludedSports,
-            }),
-            collectQualifyingAltProps(picks, mergedPropPool, scoredAltProps),
+            },
           );
-          if (qualifyingReach.length > 0) {
-            const filled = fillReachTicketWithQualifyingAlts(
-              picks,
-              reachTarget,
-              qualifyingReach,
-            );
-            if (filled.promoted.length > 0) {
-              reachAltPromoted = filled.promoted.length;
-              picks = attachPickScores(filled.picks, {
-                realOdds: mergedGameOdds,
-                propPool: mergedPropPool,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                perfByFamily: marketPerf,
-                playerHistory: context.playerHistory as
-                  | Record<string, PlayerHistorySlice>
-                  | undefined,
-                gameSimulations,
-              });
+          if (mains.length > 0 || alts.length > 0) {
+            const filled = fillReachTicketStaged(picks, reachTarget, mains, alts);
+            if (filled.promotedMains.length > 0 || filled.promotedAlts.length > 0) {
+              reachStagedPromotedMains += filled.promotedMains.length;
+              reachAltPromoted += filled.promotedAlts.length;
+              picks = attachPickScores(filled.picks, reachScoreOpts);
               picks = scrubExcludedSportsFromPicks(
                 picks,
                 excludedSports,
@@ -3016,9 +3138,21 @@ export default function CoachScreen() {
         }
         if (picks.length > 0 && requestedLegs > picks.length) {
           const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
+          const mainOnTicket = picks.length - altOnTicket;
+          const stagingForNote = fullBoardScanMeta?.staging
+            ? {
+                ...fullBoardScanMeta.staging,
+                mainOnTicket,
+                altOnTicket,
+              }
+            : {
+                mainQualified: mainOnTicket + reachStagedPromotedMains,
+                altQualified: altOnTicket + reachAltPromoted,
+                mainOnTicket,
+                altOnTicket,
+              };
           legNote =
-            backupNote ||
-            (fullBoardScanned && fullBoardScanMeta
+            fullBoardScanned && fullBoardScanMeta
               ? buildFullBoardShortfallNote(
                   requestedLegs,
                   picks.length,
@@ -3026,17 +3160,18 @@ export default function CoachScreen() {
                   fullBoardScanMeta.totalQualified,
                   oddsPhrase,
                   excludeSportsList,
-                  fullBoardScanMeta.staging,
+                  stagingForNote,
                 )
               : requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
                 ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-                : buildQualifyingAltShortfallNote(
+                : backupNote ||
+                  buildQualifyingAltShortfallNote(
                     requestedLegs,
                     picks.length,
-                    reachAltPromoted > 0 ? altOnTicket : backupPicks.length,
+                    altOnTicket > 0 ? altOnTicket : backupPicks.length,
                     oddsPhrase,
                     excludeSportsList,
-                  ));
+                  );
         }
         // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
         // failures only — never above rendered pick cards. Shortfall copy is the only
@@ -3052,7 +3187,13 @@ export default function CoachScreen() {
                   fullBoardScanMeta.totalQualified,
                   oddsPhrase,
                   excludeSportsList,
-                  fullBoardScanMeta.staging,
+                  fullBoardScanMeta.staging
+                    ? {
+                        ...fullBoardScanMeta.staging,
+                        mainOnTicket: picks.filter((p) => p.ticketRole !== "alt").length,
+                        altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+                      }
+                    : undefined,
                 )
             : picks.length > 0 && requestedLegs > picks.length
               ? legNote
@@ -3193,49 +3334,43 @@ export default function CoachScreen() {
               coachEvalLinesByGame &&
               gameSimulations.size > 0
             ) {
+              const reachScoreOpts = {
+                realOdds: mergedGameOdds,
+                propPool: mergedPropPool,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                perfByFamily: marketPerf,
+                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+                gameSimulations,
+              };
+              const scoredMainProps = attachPickScores(
+                mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+                reachScoreOpts,
+              );
               const scoredAltProps = mergedPropPool.some((e) => e.alt)
                 ? attachPickScores(
                     mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
-                    {
-                      realOdds: mergedGameOdds,
-                      propPool: mergedPropPool,
-                      matchupHistory: context.matchupHistory,
-                      matchupInjuries: context.matchupInjuries,
-                      perfByFamily: marketPerf,
-                      playerHistory: context.playerHistory as
-                        | Record<string, PlayerHistorySlice>
-                        | undefined,
-                      gameSimulations,
-                    },
+                    reachScoreOpts,
                   )
                 : [];
-              const qualifyingReach = mergeParlayRejects(
-                collectQualifyingGameLines(next, coachEvalLinesByGame, gameSimulations, {
+              const { mains, alts } = collectReachStagedQualifiers(
+                next,
+                coachEvalLinesByGame,
+                gameSimulations,
+                mergedPropPool,
+                scoredMainProps,
+                scoredAltProps,
+                {
                   realOdds: mergedGameOdds,
                   matchupHistory: context.matchupHistory,
                   matchupInjuries: context.matchupInjuries,
                   excludedSports,
-                }),
-                collectQualifyingAltProps(next, mergedPropPool, scoredAltProps),
+                },
               );
-              if (qualifyingReach.length > 0) {
-                const filled = fillReachTicketWithQualifyingAlts(
-                  next,
-                  reachTarget,
-                  qualifyingReach,
-                );
-                if (filled.promoted.length > 0) {
-                  next = attachPickScores(filled.picks, {
-                    realOdds: mergedGameOdds,
-                    propPool: mergedPropPool,
-                    matchupHistory: context.matchupHistory,
-                    matchupInjuries: context.matchupInjuries,
-                    perfByFamily: marketPerf,
-                    playerHistory: context.playerHistory as
-                      | Record<string, PlayerHistorySlice>
-                      | undefined,
-                    gameSimulations,
-                  });
+              if (mains.length > 0 || alts.length > 0) {
+                const filled = fillReachTicketStaged(next, reachTarget, mains, alts);
+                if (filled.promotedMains.length > 0 || filled.promotedAlts.length > 0) {
+                  next = attachPickScores(filled.picks, reachScoreOpts);
                 }
               }
             }

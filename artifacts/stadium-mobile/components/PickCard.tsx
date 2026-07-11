@@ -15,6 +15,7 @@ import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, NOT_YET_AI_GRADED, pickHasSimGrade } from "@/lib/simMarketSupport";
 import {
+  NOT_AI_RECOMMENDED,
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
 } from "@/lib/pickRecommendation";
@@ -893,11 +894,11 @@ export function PickCard({
           variant="compact"
           simulationPending={pick.simulationPending}
           gradeLabel={
-            pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
-              ? pickGradeDisplayLabel(pick, pick.finalAiScore)
-              : marketSupportsSimulation(pick.market ?? "", pick)
-                ? NOT_YET_AI_GRADED
+            marketSupportsSimulation(pick.market ?? "", pick)
+              ? pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+                ? (pickGradeDisplayLabel(pick, pick.finalAiScore) ?? NOT_AI_RECOMMENDED)
                 : NOT_YET_AI_GRADED
+              : undefined
           }
           gradeCaption={pickGradeDisplayCaption(pick, pick.finalAiScore)}
         />

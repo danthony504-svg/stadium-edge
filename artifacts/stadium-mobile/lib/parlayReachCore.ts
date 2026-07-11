@@ -1,7 +1,12 @@
 // Pure helpers for explicit N-leg parlay reach (no React / PickCard imports).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isAltPropPick, isQualifyingBackupGameLine } from "./altLinePool.ts";
+import {
+  isAltPropPick,
+  isMainBoardPick,
+  isMainLineGameLeg,
+  isQualifyingBackupGameLine,
+} from "./altLinePool.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
@@ -33,6 +38,34 @@ export function mergeParlayRejects(...groups: ParlayLegReject[][]): ParlayLegRej
   return [...byFp.values()].sort((a, b) => b.nearScore - a.nearScore);
 }
 
+export function selectParlayMainBackupPicks(
+  ticket: ParsedPick[],
+  rejects: ParlayLegReject[],
+  limit: number,
+): ParsedPick[] {
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const out: ParsedPick[] = [];
+  const seen = new Set<string>();
+  for (const r of rejects) {
+    const fp = pickLegFingerprint(r.pick);
+    if (onTicket.has(fp) || seen.has(fp)) continue;
+    if (!isMainBoardPick(r.pick)) continue;
+    if (r.pick.isProp) {
+      if (isAltPropPick(r.pick)) continue;
+    } else if (!isMainLineGameLeg(r.pick)) {
+      continue;
+    }
+    seen.add(fp);
+    out.push({
+      ...r.pick,
+      ticketRole: "main" as const,
+      backupReason: r.reason,
+    } as ParsedPick & { backupReason?: string });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export function selectParlayBackupPicks(
   ticket: ParsedPick[],
   rejects: ParlayLegReject[],
@@ -58,6 +91,43 @@ export function selectParlayBackupPicks(
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** Step 2 then 3: mains first, then qualifying alts to reach target. */
+export function promoteQualifyingStagedToTicket(
+  ticket: ParsedPick[],
+  qualifyingMains: ParlayLegReject[],
+  qualifyingAlts: ParlayLegReject[],
+  target: number,
+): { picks: ParsedPick[]; promotedMains: ParsedPick[]; promotedAlts: ParsedPick[] } {
+  let merged = [...ticket];
+  const promotedMains: ParsedPick[] = [];
+  const promotedAlts: ParsedPick[] = [];
+  const onTicket = new Set(merged.map(pickLegFingerprint));
+
+  const mainGap = Math.max(0, target - merged.length);
+  if (mainGap > 0 && qualifyingMains.length > 0) {
+    for (const p of selectParlayMainBackupPicks(merged, qualifyingMains, mainGap)) {
+      const fp = pickLegFingerprint(p);
+      if (onTicket.has(fp)) continue;
+      onTicket.add(fp);
+      merged.push(p);
+      promotedMains.push(p);
+    }
+  }
+
+  const altGap = Math.max(0, target - merged.length);
+  if (altGap > 0 && qualifyingAlts.length > 0) {
+    for (const p of selectParlayBackupPicks(merged, qualifyingAlts, altGap)) {
+      const fp = pickLegFingerprint(p);
+      if (onTicket.has(fp)) continue;
+      onTicket.add(fp);
+      merged.push(p);
+      promotedAlts.push(p);
+    }
+  }
+
+  return { picks: merged, promotedMains, promotedAlts };
 }
 
 /** Pull sim-graded alt rungs onto the main ticket when a reach-N ask is short. */

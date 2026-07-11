@@ -6,8 +6,10 @@ import {
   buildFullBoardShortfallNote,
   mergeParlayRejects,
   promoteQualifyingAltsToTicket,
+  promoteQualifyingStagedToTicket,
   reachParlayMix,
   selectParlayBackupPicks,
+  selectParlayMainBackupPicks,
 } from "./parlayReachCore.ts";
 
 test("reachParlayMix allows more game legs for 15-leg tickets", () => {
@@ -75,6 +77,56 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   const { picks, promoted } = promoteQualifyingAltsToTicket(ticket as any, qualifying as any, 3);
   assert.equal(promoted.length, 2);
   assert.equal(picks.length, 3);
+});
+
+test("promoteQualifyingStagedToTicket fills mains before alts", () => {
+  const ticket = [
+    { game: "A @ B", market: "Points", pick: "Player A Over 10.5 Points", odds: -110, isProp: true },
+  ];
+  const mains = [
+    {
+      pick: { game: "C @ D", market: "Spread", pick: "D +1.5", odds: -110, isProp: false },
+      reason: "+2% edge",
+      nearScore: 50,
+    },
+  ];
+  const alts = [
+    {
+      pick: { game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, isProp: false },
+      reason: "+2% edge",
+      nearScore: 40,
+    },
+  ];
+  const { picks, promotedMains, promotedAlts } = promoteQualifyingStagedToTicket(
+    ticket as any,
+    mains as any,
+    alts as any,
+    3,
+  );
+  assert.equal(promotedMains.length, 1);
+  assert.equal(promotedAlts.length, 1);
+  assert.equal(picks.length, 3);
+  assert.equal(picks[1]!.ticketRole, "main");
+  assert.equal(picks[2]!.ticketRole, "alt");
+});
+
+test("selectParlayMainBackupPicks skips alt rungs", () => {
+  const ticket: any[] = [];
+  const rejects = [
+    {
+      pick: { game: "A @ B", market: "Alt Spread", pick: "B +3.5", odds: -105, isProp: false },
+      reason: "alt",
+      nearScore: 40,
+    },
+    {
+      pick: { game: "C @ D", market: "Spread", pick: "D +1.5", odds: -110, isProp: false },
+      reason: "main",
+      nearScore: 50,
+    },
+  ];
+  const mains = selectParlayMainBackupPicks(ticket, rejects as any, 2);
+  assert.equal(mains.length, 1);
+  assert.equal(mains[0]!.market, "Spread");
 });
 
 test("buildFullBoardShortfallNote explains entire-board scan when short", () => {
