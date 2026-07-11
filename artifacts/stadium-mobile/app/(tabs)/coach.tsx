@@ -1862,9 +1862,13 @@ export default function CoachScreen() {
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
             calibration: modelCalibration,
-            signal: abortRef.current?.signal,
           });
         }
+        let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
+        let fullBoardScanMeta: FullBoardScanResult | null =
+          reachBoardScan?.picks?.length ? reachBoardScan : preBoardScan?.picks?.length ? preBoardScan : null;
+        let boardBuilt = fullBoardScanned;
+        let diversityNote = fullBoardScanMeta?.note ?? "";
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -1892,9 +1896,12 @@ export default function CoachScreen() {
         // of those legs" empty-bubble note from ever replacing the analysis if the
         // model were to slip a stray PICK line through.
         const isAnalyze = wantsAnalyzeSlip(trimmed);
-        let picks = isAnalyze
-          ? []
-          : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        let picks =
+          isAnalyze
+            ? []
+            : fullBoardScanMeta?.picks?.length
+              ? [...fullBoardScanMeta.picks]
+              : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
         picks = scrubExcludedSportsFromPicks(
           picks,
           excludedSports,
@@ -1930,10 +1937,6 @@ export default function CoachScreen() {
         // total). The reach-count backfill below will fill from realProps instead.
         const mentionsProps = mentionsPropIntent(trimmed);
         const propsOnlyTicket = wantsPropsOnly(trimmed);
-        let diversityNote = "";
-        let boardBuilt = false;
-        let fullBoardScanned = false;
-        let fullBoardScanMeta: FullBoardScanResult | null = null;
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
@@ -1945,10 +1948,10 @@ export default function CoachScreen() {
             explicitSingleGame,
             propsOnly: propsOnlyTicket,
           });
-        if (composeFromBoard) {
+        if (!fullBoardScanned && composeFromBoard) {
           picks = picks.filter((p) => p.isProp);
         }
-        if (!isAnalyze && deepMultiLegParlay && !propsOnlyTicket) {
+        if (!fullBoardScanned && !isAnalyze && deepMultiLegParlay && !propsOnlyTicket) {
           picks = dedupeSameTeamGameLegs(picks).picks;
           const seeded = prepareDeepParlaySeed(picks, legTarget, { longshotAsk });
           picks = seeded.picks;
@@ -2149,14 +2152,16 @@ export default function CoachScreen() {
             requestedLegs,
             reachFull,
           });
-        if (preBoardScan || reachBoardScan) {
+        if (!fullBoardScanned && (preBoardScan || reachBoardScan)) {
           const boardScanResult = reachBoardScan ?? preBoardScan!;
-          picks = boardScanResult.picks;
-          fullBoardScanMeta = boardScanResult;
-          fullBoardScanned = true;
-          boardBuilt = true;
-          diversityNote = boardScanResult.note;
-        } else if (useFullBoardScan) {
+          if (boardScanResult.picks.length > 0) {
+            picks = boardScanResult.picks;
+            fullBoardScanMeta = boardScanResult;
+            fullBoardScanned = true;
+            boardBuilt = true;
+            diversityNote = boardScanResult.note;
+          }
+        } else if (!fullBoardScanned && useFullBoardScan) {
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
             (s) => !excludedSports.has(s),
           );
