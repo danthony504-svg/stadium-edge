@@ -99,7 +99,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { coachBuildSports, enrichPicksWithSport, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
+import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -1743,10 +1743,13 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
-        picks = enrichPicksWithSport(picks, mergedPropPool, context.realOdds);
-        if (excludedSports.size > 0) { {
-          picks = filterForExcludedSports(picks, excludedSports);
-        }
+        picks = scrubExcludedSportsFromPicks(
+          picks,
+          excludedSports,
+          mergedPropPool,
+          context.realOdds,
+          gameMeta,
+        );
         let soccerScorerGkSalvage = false;
         if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
           const salvaged = buildSoccerScorerGkPicks(mergedPropPool, context.realOdds, gameMeta);
@@ -2158,6 +2161,13 @@ export default function CoachScreen() {
         {
           const dedupedAfterBackfill = dedupeSameTeamGameLegs(picks);
           picks = dedupedAfterBackfill.picks;
+          picks = scrubExcludedSportsFromPicks(
+            picks,
+            excludedSports,
+            mergedPropPool,
+            mergedGameOdds,
+            gameMeta,
+          );
           if (dedupedAfterBackfill.dropped > 0 && !diversityNote) {
             diversityNote = `_Dropped ${dedupedAfterBackfill.dropped} duplicate team leg${dedupedAfterBackfill.dropped === 1 ? "" : "s"} after backfill._`;
           }
@@ -2494,9 +2504,13 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
-        if (excludedSports.size > 0) {
-          picks = filterForExcludedSports(picks, excludedSports);
-        }
+        picks = scrubExcludedSportsFromPicks(
+          picks,
+          excludedSports,
+          mergedPropPool,
+          mergedGameOdds,
+          gameMeta,
+        );
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2559,6 +2573,13 @@ export default function CoachScreen() {
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             gameSimulations,
           });
+          picks = scrubExcludedSportsFromPicks(
+            picks,
+            excludedSports,
+            mergedPropPool,
+            mergedGameOdds,
+            gameMeta,
+          );
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
           const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
@@ -2662,12 +2683,14 @@ export default function CoachScreen() {
           });
         }
         picks = picksWithSimPending(picks);
+        picks = scrubExcludedSportsFromPicks(
+          picks,
+          excludedSports,
+          mergedPropPool,
+          mergedGameOdds,
+          gameMeta,
+        );
         if (excludedSports.size > 0) {
-          picks = filterForExcludedSports(picks, excludedSports);
-        }
-        picks = enrichPicksWithSport(picks, mergedPropPool, mergedGameOdds);
-        if (excludedSports.size > 0) {
-          picks = filterForExcludedSports(picks, excludedSports);
           mergedGameOdds = filterForExcludedSports(mergedGameOdds, excludedSports);
           if (coachEvalLinesByGame) {
             coachEvalLinesByGame = filterEvalLinesByExcludedSports(
@@ -2737,7 +2760,13 @@ export default function CoachScreen() {
             backupNote ||
             (requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
               ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : `You asked for ${requestedLegs} legs, but only ${picks.length} held up against ${oddsPhrase} — that's the honest ticket, I won't pad it with invented legs.`);
+              : buildQualifyingAltShortfallNote(
+                  requestedLegs,
+                  picks.length,
+                  0,
+                  oddsPhrase,
+                  excludeSportsList,
+                ));
         }
         // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
         // failures only — never above rendered pick cards. Shortfall copy is the only
@@ -2857,14 +2886,22 @@ export default function CoachScreen() {
                   }
                 : undefined,
           };
-          const snapshot =
-            excludedSports.size > 0 ? filterForExcludedSports(picks, excludedSports) : picks;
+          const snapshot = scrubExcludedSportsFromPicks(
+            picks,
+            excludedSports,
+            mergedPropPool,
+            mergedGameOdds,
+            gameMeta,
+          );
           const applySimPicks = (scored: ParsedPick[]) => {
             let next = attachPropPoolLadder(scored, mergedPropPool);
-            next = enrichPicksWithSport(next, mergedPropPool, mergedGameOdds);
-            if (excludedSports.size > 0) {
-              next = filterForExcludedSports(next, excludedSports);
-            }
+            next = scrubExcludedSportsFromPicks(
+              next,
+              excludedSports,
+              mergedPropPool,
+              mergedGameOdds,
+              gameMeta,
+            );
             patchLastAssistantPicks(setMessages, next);
             setAiPicks(next);
             captureFromCoach(next);

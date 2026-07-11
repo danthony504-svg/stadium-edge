@@ -9,7 +9,7 @@ import { attachSimAltOptionsToPicks, attachPropSimAltLines } from "@/lib/altLine
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
-import { filterForExcludedSports } from "@/lib/chatContextPriority";
+import { filterPicksForExcludedSports } from "@/lib/chatContextPriority";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -64,12 +64,12 @@ function scorePicksWithSim(
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );
   if (opts.excludedSports?.size) {
-    out = filterForExcludedSports(out, opts.excludedSports);
+    out = filterPicksForExcludedSports(out, opts.excludedSports);
   }
   if (!simulationPending && fullSimRows?.size) {
     out = attachPropSimAltLines(out, opts.propPool, fullSimRows, { swapToBestAlt: true });
     if (opts.excludedSports?.size) {
-      out = filterForExcludedSports(out, opts.excludedSports);
+      out = filterPicksForExcludedSports(out, opts.excludedSports);
     }
   }
   if (opts.altAttach && !simulationPending) {

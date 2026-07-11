@@ -3,6 +3,9 @@
 // expo/fetch and can't load in a plain Node test) so the prioritization that
 // guards player game logs on busy slates can be unit-tested in isolation.
 
+import type { ParsedPick } from "../components/PickCard.tsx";
+import type { PropPoolEntry } from "./api.ts";
+
 // Sport keywords used to focus the chat realOdds context on the league(s) the
 // user named. Only unambiguous terms — "football" is omitted because it spans
 // NFL/CFB (and soccer in much of the world), so it can't resolve to one league.
@@ -72,48 +75,23 @@ export function filterForExcludedSports<T extends { sport?: string | null }>(
   return entries.filter((e) => !e.sport || !excluded.has(e.sport));
 }
 
-/** Scan the full Coach thread — exclusions from an earlier turn still apply. */
-export function excludedSportsFromThread(
-  ...texts: (string | null | undefined)[]
-): Set<string> {
-  return excludedSportsFromText(texts.filter(Boolean).join(" "));
-}
-
-/** Fill missing pick.sport from the prop pool or game odds so exclusion filters work. */
-export function enrichPicksWithSport(
+/** Strict pick filter — drops legs with unknown sport so excluded leagues cannot slip through. */
+export function filterPicksForExcludedSports(
   picks: ParsedPick[],
-  propPool: PropPoolEntry[],
-  realOdds: { game: string; sport?: string }[],
+  excluded: Set<string>,
 ): ParsedPick[] {
-  const sportByGame = new Map<string, string>();
-  for (const e of realOdds) {
-    if (e.sport && e.game) sportByGame.set(e.game.toLowerCase(), e.sport);
-  }
-  return picks.map((p) => {
-    if (p.sport) return p;
-    if (p.isProp && p.player) {
-      const pool = propPool.find(
-        (e) => e.player === p.player && (!p.game || e.game === p.game),
-      );
-      if (pool?.sport) return { ...p, sport: pool.sport };
-    }
-    const fromGame = p.game ? sportByGame.get(p.game.toLowerCase()) : undefined;
-    return fromGame ? { ...p, sport: fromGame } : p;
-  });
+  if (!excluded.size) return picks;
+  return picks.filter((p) => !!p.sport && !excluded.has(p.sport));
 }
 
-/** Drop excluded leagues from per-game eval ladders used for alt-line grading. */
-export function filterEvalLinesByExcludedSports(
-  map: Map<string, { sport?: string | null }[]>,
-  excluded: Set<string>,
-): Map<string, { sport?: string | null }[]> {
-  if (!excluded.size) return map;
-  const out = new Map<string, { sport?: string | null }[]>();
-  for (const [game, lines] of map) {
-    const kept = filterForExcludedSports(lines, excluded);
-    if (kept.length) out.set(game, kept);
+function sportForGameLabel(game: string, sportByGame: Map<string, string>): string | undefined {
+  const key = game.toLowerCase();
+  const direct = sportByGame.get(key);
+  if (direct) return direct;
+  for (const [g, sport] of sportByGame) {
+    if (g === key || g.includes(key) || key.includes(g)) return sport;
   }
-  return out;
+  return undefined;
 }
 
 const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
@@ -135,6 +113,79 @@ const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
   },
   { sport: "nhl", re: /\b(shots on goal|sog|saves?)\b/i },
 ];
+
+function inferSportFromPickText(pick: ParsedPick): string | undefined {
+  const blob = `${pick.market} ${pick.pick}`;
+  for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
+    if (re.test(blob)) return sport;
+  }
+  return undefined;
+}
+
+/** Scan the full Coach thread — exclusions from an earlier turn still apply. */
+export function excludedSportsFromThread(
+  ...texts: (string | null | undefined)[]
+): Set<string> {
+  return excludedSportsFromText(texts.filter(Boolean).join(" "));
+}
+
+/** Fill missing pick.sport from the prop pool or game odds so exclusion filters work. */
+export function enrichPicksWithSport(
+  picks: ParsedPick[],
+  propPool: PropPoolEntry[],
+  realOdds: { game: string; sport?: string }[],
+  gameMeta?: { game: string; sport: string }[],
+): ParsedPick[] {
+  const sportByGame = new Map<string, string>();
+  for (const e of realOdds) {
+    if (e.sport && e.game) sportByGame.set(e.game.toLowerCase(), e.sport);
+  }
+  for (const g of gameMeta ?? []) {
+    if (g.sport && g.game) sportByGame.set(g.game.toLowerCase(), g.sport);
+  }
+  return picks.map((p) => {
+    if (p.sport) return p;
+    if (p.isProp && p.player) {
+      const pool = propPool.find(
+        (e) => e.player === p.player && (!p.game || e.game === p.game),
+      );
+      if (pool?.sport) return { ...p, sport: pool.sport };
+    }
+    const fromGame = p.game ? sportForGameLabel(p.game, sportByGame) : undefined;
+    if (fromGame) return { ...p, sport: fromGame };
+    const inferred = inferSportFromPickText(p);
+    return inferred ? { ...p, sport: inferred } : p;
+  });
+}
+
+/** Enrich sport tags, then drop any leg from an excluded league (or unknown sport). */
+export function scrubExcludedSportsFromPicks(
+  picks: ParsedPick[],
+  excluded: Set<string>,
+  propPool: PropPoolEntry[],
+  realOdds: { game: string; sport?: string }[],
+  gameMeta?: { game: string; sport: string }[],
+): ParsedPick[] {
+  if (!excluded.size) return picks;
+  return filterPicksForExcludedSports(
+    enrichPicksWithSport(picks, propPool, realOdds, gameMeta),
+    excluded,
+  );
+}
+
+/** Drop excluded leagues from per-game eval ladders used for alt-line grading. */
+export function filterEvalLinesByExcludedSports(
+  map: Map<string, { sport?: string | null }[]>,
+  excluded: Set<string>,
+): Map<string, { sport?: string | null }[]> {
+  if (!excluded.size) return map;
+  const out = new Map<string, { sport?: string | null }[]>();
+  for (const [game, lines] of map) {
+    const kept = filterForExcludedSports(lines, excluded);
+    if (kept.length) out.set(game, kept);
+  }
+  return out;
+}
 
 /** Infer a single sport for a prop-pick ask from named leagues or market words. */
 export function inferPropPickSport(text: string | null | undefined): string {
