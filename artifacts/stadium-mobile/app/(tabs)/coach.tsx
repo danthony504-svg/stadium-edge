@@ -1636,7 +1636,6 @@ export default function CoachScreen() {
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
                 perfByFamily: marketPerf,
                 calibration: modelCalibration,
-                signal: abortRef.current?.signal,
               });
             } catch {
               preBoardScan = null;
