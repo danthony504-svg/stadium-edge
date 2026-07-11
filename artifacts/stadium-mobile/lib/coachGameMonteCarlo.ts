@@ -410,9 +410,11 @@ export { gamePickCoverQueryId, isGameLinePick };
 export function filterCoachPicksWithPropSim(
   picks: ParsedPick[],
   propSims: Map<string, { hitProbability: number | null }>,
-  opts: { minLegs?: number } = {},
+  opts: { minLegs?: number; excludedSports?: Set<string> } = {},
 ): GameSimFilterResult {
   const minLegs = opts.minLegs ?? 0;
+  const excluded = opts.excludedSports;
+  const isBanned = (p: ParsedPick) => !!(p.sport && excluded?.has(p.sport));
   const kept: ParsedPick[] = [];
   const dropped: ParsedPick[] = [];
   const warnings: string[] = [];
@@ -421,6 +423,12 @@ export function filterCoachPicksWithPropSim(
   for (const p of picks) {
     if (!p.isProp) {
       kept.push(p);
+      continue;
+    }
+    if (isBanned(p)) {
+      removed += 1;
+      warnings.push(`Dropped **${p.pick}**: excluded league (${p.sport?.toUpperCase()}).`);
+      dropped.push(p);
       continue;
     }
     const marketKey = p.propMarketKey ?? p.market;
@@ -451,6 +459,7 @@ export function filterCoachPicksWithPropSim(
   if (minLegs > 0 && kept.length < minLegs) {
     for (const p of dropped) {
       if (kept.length >= minLegs) break;
+      if (isBanned(p)) continue;
       kept.push({ ...p, highRiskValuePlay: true });
       warnings.push(
         `Kept **${p.pick}** despite a sub-threshold sim read — your ticket asked for ${minLegs} legs and every card is still a real posted line.`,

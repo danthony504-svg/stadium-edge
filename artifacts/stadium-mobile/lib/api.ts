@@ -3063,6 +3063,8 @@ const TINY_PARLAY_SPORTS = ["mlb", "wnba", "nba", "nhl"] as const;
 
 type LightParlayOpts = {
   sports?: readonly string[];
+  /** Leagues the user excluded ("no MLB") — never fetched in light parlay builds. */
+  excludeSports?: readonly string[];
   maxSports: number;
   maxPropGames: number;
   maxOddsGames: number;
@@ -3087,7 +3089,8 @@ async function buildLightParlayContext(
   const allOdds: OddsGame[] = [];
   const gamesBySport = new Map<string, EspnGame[]>();
   const activeSports: string[] = [];
-  const sportList = opts.sports ?? TINY_PARLAY_SPORTS;
+  const excluded = new Set(opts.excludeSports ?? []);
+  const sportList = (opts.sports ?? TINY_PARLAY_SPORTS).filter((s) => !excluded.has(s));
 
   if (opts.parallelSports) {
     const probes = await Promise.all(
@@ -3332,8 +3335,12 @@ async function buildLightParlayContext(
  * no matchup/player-history/platoon fetches. Keeps pre-stream work under a few
  * seconds on cellular so /api/chat can open before connect budgets exhaust.
  */
-export async function buildTinyParlayContext(signal?: AbortSignal): Promise<BuiltChatContext> {
+export async function buildTinyParlayContext(
+  signal?: AbortSignal,
+  opts?: { excludeSports?: readonly string[] },
+): Promise<BuiltChatContext> {
   return buildLightParlayContext(signal, {
+    excludeSports: opts?.excludeSports,
     maxSports: 1,
     maxPropGames: 2,
     maxOddsGames: 6,
@@ -3346,9 +3353,11 @@ export async function buildTinyParlayContext(signal?: AbortSignal): Promise<Buil
 export async function buildCompactParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
+  opts?: { excludeSports?: readonly string[] },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(15, requestedLegs));
   return buildLightParlayContext(signal, {
+    excludeSports: opts?.excludeSports,
     maxSports: n >= 11 ? 6 : n >= 9 ? 5 : 4,
     maxPropGames: Math.min(14, n + 2),
     maxOddsGames: Math.min(24, n + 8),
@@ -3393,9 +3402,11 @@ export async function buildFocalSportParlayContext(
 export async function buildPropsOnlyParlayContext(
   requestedLegs: number,
   signal?: AbortSignal,
+  opts?: { excludeSports?: readonly string[] },
 ): Promise<BuiltChatContext> {
   const n = Math.max(4, Math.min(12, requestedLegs || 6));
   return buildLightParlayContext(signal, {
+    excludeSports: opts?.excludeSports,
     maxSports: 2,
     maxPropGames: 3,
     maxOddsGames: 5,
