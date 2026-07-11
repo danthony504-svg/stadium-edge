@@ -211,17 +211,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
 
   totalScanned += pool.length;
-  const propHits = await simAllPropPoolRows(
-    pool,
-    {
-      realOdds: mergedOdds,
-      propPool: pool,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-      playerHistory: opts.playerHistory,
-    },
-    opts.signal,
-  );
+  const propHits = await simAllPropPoolRows(pool, opts.signal);
 
   const propPicks = attachPickScores(
     pool.map(parsedPickFromPoolEntry),
@@ -248,7 +238,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   const note =
     picks.length >= opts.target
       ? `_Scanned every posted moneyline, spread, alt spread, total, alt total, team total, period, and player prop on the board (${totalScanned} lines, 10k sim each). These **${picks.length}** are the highest-rated by EV, edge, confidence, and AI grade._`
-      : `_Scanned the entire board — **${totalScanned}** posted lines across moneylines, spreads, alternate spreads, totals, alternate totals, team totals, innings, halves, quarters, periods, and player props (10k sim each). Only **${totalQualified}** met quality standards (positive EV/edge, grade ≥ C+, confidence ≥ 52%). Here are the top **${picks.length}** by EV, edge, confidence, and AI grade._`;
+      : `_Scanned the entire board — **${totalScanned}** posted lines across moneylines, spreads, alternate spreads, totals, alternate totals, team totals, first 5 innings, innings, first half, first quarter, first period, player props, and alternate player props (10k sim each). Only **${totalQualified}** met quality standards (positive EV/edge, grade ≥ C+, confidence ≥ 52%). Here are the top **${picks.length}** by EV, edge, confidence, and AI grade._`;
 
   return {
     picks,
@@ -262,13 +252,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
 export function shouldUseFullBoardScan(
   legTarget: number,
-  opts: { propsOnly?: boolean; explicitSingleGame?: boolean; oddsThreshold?: unknown; confidenceThreshold?: unknown },
+  opts: {
+    propsOnly?: boolean;
+    explicitSingleGame?: boolean;
+    oddsThreshold?: unknown;
+    confidenceThreshold?: unknown;
+    requestedLegs?: number;
+  },
 ): boolean {
-  return (
-    legTarget >= 6 &&
-    !opts.propsOnly &&
-    !opts.explicitSingleGame &&
-    !opts.oddsThreshold &&
-    !opts.confidenceThreshold
-  );
+  if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
+    return false;
+  }
+  const asked = opts.requestedLegs ?? 0;
+  return asked > 0 && legTarget >= 3;
 }

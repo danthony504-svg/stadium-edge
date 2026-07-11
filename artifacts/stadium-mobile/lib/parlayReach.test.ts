@@ -76,11 +76,17 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   assert.equal(picks.length, 3);
 });
 
-test("buildFullBoardShortfallNote explains entire-board scan", () => {
+test("buildFullBoardShortfallNote explains entire-board scan when short", () => {
   const note = buildFullBoardShortfallNote(15, 11, 840, 11, "today's real odds");
   assert.match(note, /840/);
-  assert.match(note, /moneylines/i);
-  assert.match(note, /alt props/i);
+  assert.match(note, /first 5 innings/i);
+  assert.match(note, /alternate player props/i);
+});
+
+test("buildFullBoardShortfallNote confirms top 15 when board has more qualifiers", () => {
+  const note = buildFullBoardShortfallNote(15, 15, 920, 48, "today's real odds");
+  assert.match(note, /48/);
+  assert.match(note, /highest-rated/i);
 });
 
 test("mergeParlayRejects dedupes by leg fingerprint", () => {

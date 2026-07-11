@@ -2028,59 +2028,62 @@ export default function CoachScreen() {
           reachFull,
           selectionOpts,
         };
-        if (forceBoardBuild) {
-          const useFullBoardScan = shouldUseFullBoardScan(legTarget, {
+        const useFullBoardScan =
+          !isAnalyze &&
+          requestedLegs > 0 &&
+          shouldUseFullBoardScan(legTarget, {
             propsOnly: propsOnlyTicket,
             explicitSingleGame,
             oddsThreshold,
             confidenceThreshold,
+            requestedLegs,
           });
-          if (useFullBoardScan) {
-            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-              (s) => !excludedSports.has(s),
-            );
-            const [espnGames, oddsGames] = await Promise.all([
-              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-                rows.flat(),
-              ),
-              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                rows.flat(),
-              ),
-            ]);
-            const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-            fullBoardScanMeta = await buildTopLegsFromFullBoardScan({
-              target: reachTarget,
-              oddsGames,
-              propPool: mergedPropPool,
-              realOdds: context.realOdds,
-              gameMeta,
-              teamIdMap: scanTeamIdMap,
-              excludedSports,
-              matchupHistory: context.matchupHistory,
-              matchupInjuries: context.matchupInjuries,
-              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-              signal: abortRef.current?.signal,
-            });
-            picks = fullBoardScanMeta.picks;
-            fullBoardScanned = true;
+        if (useFullBoardScan) {
+          const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+            (s) => !excludedSports.has(s),
+          );
+          const [espnGames, oddsGames] = await Promise.all([
+            Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+              rows.flat(),
+            ),
+            Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+              rows.flat(),
+            ),
+          ]);
+          const scanTeamIdMap = buildGameTeamIdMap(espnGames);
+          fullBoardScanMeta = await buildTopLegsFromFullBoardScan({
+            target: reachTarget,
+            oddsGames,
+            propPool: mergedPropPool,
+            realOdds: context.realOdds,
+            gameMeta,
+            teamIdMap: scanTeamIdMap,
+            excludedSports,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            signal: abortRef.current?.signal,
+          });
+          picks = fullBoardScanMeta.picks;
+          fullBoardScanned = true;
+          boardBuilt = true;
+          diversityNote = fullBoardScanMeta.note;
+        } else if (forceBoardBuild) {
+          picks = assembleDeepParlayFromBoard(
+            reachTarget,
+            mergedPropPool,
+            reachPool,
+            gameMeta,
+            boardBuildOpts,
+          );
+          if (picks.length > 0) {
             boardBuilt = true;
-            diversityNote = fullBoardScanMeta.note;
-          } else {
-            picks = assembleDeepParlayFromBoard(
-              reachTarget,
-              mergedPropPool,
-              reachPool,
-              gameMeta,
-              boardBuildOpts,
-            );
-            if (picks.length > 0) {
-              boardBuilt = true;
-              diversityNote = longshotAsk
-                ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
-                : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
-            }
+            diversityNote = longshotAsk
+              ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
+              : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
           }
         } else if (
+          !fullBoardScanned &&
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
           (picks.length > 0 ||
             mentionsProps ||
@@ -3001,7 +3004,20 @@ export default function CoachScreen() {
         // failures only — never above rendered pick cards. Shortfall copy is the only
         // legNote we surface when cards are on screen.
         const legNoteForCards =
-          picks.length > 0 && requestedLegs > picks.length ? legNote : "";
+          picks.length > 0 && fullBoardScanned && fullBoardScanMeta
+            ? requestedLegs > picks.length
+              ? legNote
+              : buildFullBoardShortfallNote(
+                  requestedLegs,
+                  picks.length,
+                  fullBoardScanMeta.totalScanned,
+                  fullBoardScanMeta.totalQualified,
+                  oddsPhrase,
+                  excludeSportsList,
+                )
+            : picks.length > 0 && requestedLegs > picks.length
+              ? legNote
+              : "";
         const exclusionNote =
           excludedSports.size > 0
             ? `_Leagues excluded on this ticket: **${[...excludedSports].map((s) => s.toUpperCase()).join(", ")}** — say an league name to include it again (e.g. "15 leg MLB parlay")._`
