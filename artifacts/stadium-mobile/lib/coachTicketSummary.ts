@@ -133,10 +133,11 @@ function scoresForPick(p: TicketPick) {
   const fa = p.finalAiScore;
   const rubric = p.scores;
   const simHit = fa?.simHit ?? null;
+  const simGraded = simHit != null;
   return {
     grade: fa?.grade ?? rubric?.grade ?? null,
     confidence: fa?.confidencePct ?? rubric?.confidencePct ?? null,
-    edge: fa?.edgePct ?? rubric?.edgePct ?? null,
+    edge: simGraded ? (fa?.edgePct ?? null) : (fa?.edgePct ?? rubric?.edgePct ?? null),
     composite: fa?.composite ?? rubric?.composite ?? null,
     simHitPct: simHit != null ? Math.round(simHit * 1000) / 10 : null,
     fairOdds: fairOddsFromSimHit(simHit),

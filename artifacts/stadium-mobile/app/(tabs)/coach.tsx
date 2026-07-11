@@ -68,7 +68,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
-import { isQualifyingBackupGameLine } from "@/lib/altLinePool";
+import { isQualifyingBackupGameLine, isAltBoardPick, isAltPropPick } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -1413,6 +1413,7 @@ export default function CoachScreen() {
         let full: string;
         let propSimulations = new Map<string, { hitProbability: number | null }>();
         let selectionOpts: PropSelectionOpts | undefined;
+        let preBoardScan: FullBoardScanResult | null = null;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
@@ -1590,6 +1591,57 @@ export default function CoachScreen() {
             };
             propPool = filterForExcludedSports(propPool, excludedSports);
           }
+          const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
+          const reachFullPreScan =
+            isParlayBuild &&
+            !wantsAnalyzeSlip(trimmed) &&
+            requestedLegs >= 12 &&
+            legTarget >= 6 &&
+            !wantsPropsOnly(trimmed) &&
+            !explicitSingleGame &&
+            !oddsThreshold &&
+            !confidenceThreshold;
+          if (reachFullPreScan) {
+            try {
+              const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+                (s) => !excludedSports.has(s),
+              );
+              const [espnGames, oddsGames, liveFeed] = await Promise.all([
+                Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                  rows.flat(),
+                ),
+                Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                  rows.flat(),
+                ),
+                getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
+                  games: [],
+                  odds: [],
+                })),
+              ]);
+              const scanTeamIdMap = buildGameTeamIdMap(espnGames);
+              preBoardScan = await buildTopLegsFromFullBoardScan({
+                target: reachTargetPreScan,
+                oddsGames,
+                propPool,
+                realOdds: context.realOdds,
+                liveOdds: liveFeed.odds,
+                espnGames,
+                gameMeta,
+                teamIdMap: scanTeamIdMap,
+                excludedSports,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+                perfByFamily: marketPerf,
+                calibration: modelCalibration,
+                signal: abortRef.current?.signal,
+              });
+            } catch {
+              preBoardScan = null;
+            }
+          }
+          const skipModelStreamForBoardScan =
+            !!preBoardScan && preBoardScan.picks.length > 0 && reachFullPreScan;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1605,7 +1657,9 @@ export default function CoachScreen() {
           // (keyed by buildId) FIRST so a kill/relaunch can still rebuild the
           // cards, then pass the same buildId + opt-in flag to the server. A
           // non-parlay chat or signed-out user just streams normally.
-          const bg = shouldHandOffBuild({ isParlayBuild, isSignedIn: !!isSignedIn });
+          const bg = skipModelStreamForBoardScan
+            ? false
+            : shouldHandOffBuild({ isParlayBuild, isSignedIn: !!isSignedIn });
           const buildId = bg ? makeBuildId() : "";
           if (bg) {
             pendingBgRef.current = { buildId };
@@ -1681,7 +1735,12 @@ export default function CoachScreen() {
           };
 
           try {
-            full = await runStream();
+            if (skipModelStreamForBoardScan) {
+              full = "";
+              setWaiting(false);
+            } else {
+              full = await runStream();
+            }
             if (!wantsAnalyzeSlip(trimmed)) {
               setMessages((prev) => {
                 const copy = [...prev];
@@ -2048,7 +2107,13 @@ export default function CoachScreen() {
             requestedLegs,
             reachFull,
           });
-        if (useFullBoardScan) {
+        if (preBoardScan) {
+          picks = preBoardScan.picks;
+          fullBoardScanMeta = preBoardScan;
+          fullBoardScanned = true;
+          boardBuilt = true;
+          diversityNote = preBoardScan.note;
+        } else if (useFullBoardScan) {
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
             (s) => !excludedSports.has(s),
           );
@@ -3382,7 +3447,34 @@ export default function CoachScreen() {
               mergedGameOdds,
               gameMeta,
             );
-            patchLastAssistantPicks(setMessages, next);
+            let simLegNote: string | undefined;
+            if (requestedLegs > 0 && next.length < requestedLegs) {
+              const altOnTicket = next.filter((p) => p.ticketRole === "alt").length;
+              const mainOnTicket = next.length - altOnTicket;
+              const oddsPhraseSim = slateDay ? `${slateLabel} real odds` : "the real odds";
+              const stagingForSim = fullBoardScanMeta?.staging
+                ? { ...fullBoardScanMeta.staging, mainOnTicket, altOnTicket }
+                : { mainQualified: mainOnTicket, altQualified: altOnTicket, mainOnTicket, altOnTicket };
+              simLegNote =
+                fullBoardScanned && fullBoardScanMeta
+                  ? buildFullBoardShortfallNote(
+                      requestedLegs,
+                      next.length,
+                      fullBoardScanMeta.totalScanned,
+                      fullBoardScanMeta.totalQualified,
+                      oddsPhraseSim,
+                      excludeSportsList,
+                      stagingForSim,
+                    )
+                  : buildQualifyingAltShortfallNote(
+                      requestedLegs,
+                      next.length,
+                      altOnTicket,
+                      oddsPhraseSim,
+                      excludeSportsList,
+                    );
+            }
+            patchLastAssistantPicks(setMessages, next, simLegNote);
             setAiPicks(next);
             captureFromCoach(next);
           };
@@ -3884,7 +3976,7 @@ export default function CoachScreen() {
                         pick={p}
                         onPress={statsHandlerFor(p)}
                         badge={
-                          p.ticketRole === "alt"
+                          p.ticketRole === "alt" || isAltBoardPick(p) || isAltPropPick(p)
                             ? {
                                 text: "ALT PICK",
                                 caption: "Alternate rung — positive EV, edge, and sim grade",

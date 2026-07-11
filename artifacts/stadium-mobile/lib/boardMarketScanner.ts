@@ -305,6 +305,7 @@ export function shouldUseFullBoardScan(
     return false;
   }
   const asked = opts.requestedLegs ?? 0;
+  if (asked >= 12) return true;
   if (opts.reachFull && asked > 0) return true;
   return asked > 0 && legTarget >= 3;
 }

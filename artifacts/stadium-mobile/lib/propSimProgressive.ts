@@ -137,7 +137,11 @@ export async function loadPropSimulationsProgressive(
 /** Update the most recent assistant message that carries picks. */
 export function patchLastAssistantPicks<
   T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
->(setMessages: (fn: (prev: T[]) => T[]) => void, picks: ParsedPick[]): void {
+>(
+  setMessages: (fn: (prev: T[]) => T[]) => void,
+  picks: ParsedPick[],
+  legNote?: string,
+): void {
   setMessages((prev) => {
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
@@ -146,6 +150,7 @@ export function patchLastAssistantPicks<
           ...copy[i],
           picks,
           content: picks.length > 0 ? "" : copy[i].content,
+          ...(legNote !== undefined ? { legNote: legNote.trim() || undefined } : {}),
         };
         return copy;
       }

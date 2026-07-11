@@ -63,12 +63,13 @@ export function boardLegPoolRole(
 
 /** Label each leg main vs alt for ticket gating and ALT PICK badges. */
 export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
-  return picks.map((p) => ({
-    ...p,
-    ticketRole:
-      p.ticketRole ??
-      (isAltBoardPick(p) || isAltPropPick(p) ? ("alt" as const) : ("main" as const)),
-  }));
+  return picks.map((p) => {
+    if (isAltBoardPick(p) || isAltPropPick(p)) {
+      return { ...p, ticketRole: "alt" as const };
+    }
+    if (p.ticketRole === "alt") return p;
+    return { ...p, ticketRole: "main" as const };
+  });
 }
 
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
