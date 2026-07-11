@@ -401,14 +401,6 @@ export function attachPropPoolLadder(
   });
 }
 
-function norm(s: string): string {
-  return String(s ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /** Swap a prop leg to the best strict qualifying alt rung from 10k sim. */
 export function optimizePropPickToBestAlt(
   pick: ParsedPick,
