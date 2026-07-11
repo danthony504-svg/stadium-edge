@@ -14,7 +14,7 @@ test("reachParlayMix allows more game legs for 15-leg tickets", () => {
   assert.ok(mix.minProps <= 6);
 });
 
-test("selectParlayBackupPicks returns near-miss legs not on ticket", () => {
+test("selectParlayBackupPicks skips main moneylines", () => {
   const ticket = [
     {
       game: "A @ B",
@@ -26,19 +26,19 @@ test("selectParlayBackupPicks returns near-miss legs not on ticket", () => {
   ];
   const rejects = [
     {
-      pick: { game: "C @ D", market: "Hits", pick: "Player O 1.5 Hits", odds: 200, isProp: true },
-      reason: "sim 48%",
+      pick: { game: "C @ D", market: "Moneyline", pick: "D ML", odds: 680, isProp: false },
+      reason: "+1.7% edge",
       nearScore: 40,
     },
     {
       pick: { game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, isProp: false },
-      reason: "edge -1%",
+      reason: "edge +2%",
       nearScore: 35,
     },
   ];
   const backups = selectParlayBackupPicks(ticket, rejects, 2);
-  assert.equal(backups.length, 2);
-  assert.notEqual(backups[0]!.game, ticket[0]!.game);
+  assert.equal(backups.length, 1);
+  assert.equal(backups[0]!.market, "Alt Spread");
 });
 
 test("buildQualifyingAltShortfallNote mentions positive-edge alts", () => {

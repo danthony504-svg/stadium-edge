@@ -23,7 +23,7 @@ import {
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { gameAltPoolForPick } from "./altLinePool.ts";
-export { gameAltPoolForPick, poolMatchesPickFamily } from "./altLinePool.ts";
+export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import type { PropSimulationResult } from "./api.ts";
@@ -355,6 +355,58 @@ export function recommendPropAltTiers(
     tiers.ranked = buildRankedSimAltLines(rows, onTicket);
   }
   return tiers;
+}
+
+/** Posted prop ladder rungs on the card before deep sim returns (real pool lines only). */
+export function attachPropPoolLadder(
+  picks: ParsedPick[],
+  propPool: PropPoolEntry[],
+): ParsedPick[] {
+  return picks.map((pick) => {
+    if (!pick.isProp || !pick.player || pick.propLine == null || (pick.simAltLines?.length ?? 0) > 0) {
+      return pick;
+    }
+    const side = pick.propSide === "Under" ? "Under" : "Over";
+    const marketKey = pick.propMarketKey;
+    const siblings = propPool
+      .filter(
+        (e) =>
+          e.player === pick.player &&
+          e.side === side &&
+          e.line != null &&
+          (marketKey ? e.marketKey === marketKey : norm(e.marketLabel) === norm(pick.market)) &&
+          (!pick.game || e.game === pick.game),
+      )
+      .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+    if (siblings.length <= 1) return pick;
+    const onLine = pick.propLine;
+    const others = siblings.filter((e) => e.line !== onLine);
+    if (!others.length) return pick;
+    const tierForIndex = (i: number, n: number): SimAltTierLabel => {
+      if (n === 1) return "Best";
+      if (i === 0) return side === "Under" ? "Safest" : "High Risk";
+      if (i === n - 1) return side === "Under" ? "High Risk" : "Safest";
+      if (i === Math.floor(n / 2)) return "Best Value";
+      return "Best";
+    };
+    const ranked = others.slice(0, MAX_SIM_ALT_LINES).map((e, i) => ({
+      side: e.side,
+      line: e.line!,
+      odds: e.odds,
+      pick: `${e.player} ${e.side} ${e.line} ${e.marketLabel}`,
+      market: e.marketLabel,
+      tierLabel: tierForIndex(i, Math.min(others.length, MAX_SIM_ALT_LINES)),
+    }));
+    return { ...pick, simAltLines: ranked, altOptions: undefined };
+  });
+}
+
+function norm(s: string): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Swap a prop leg to the best strict qualifying alt rung from 10k sim. */

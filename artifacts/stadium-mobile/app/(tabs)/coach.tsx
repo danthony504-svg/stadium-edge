@@ -66,8 +66,8 @@ import {
 import { isGameLinePick } from "@/lib/gameSimScoring";
 import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
-import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
-import { isAlternateOrPeriodMarket } from "@/lib/altLinePool";
+import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
+import { isQualifyingBackupGameLine } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2650,6 +2650,7 @@ export default function CoachScreen() {
             }
           }
         }
+        picks = attachPropPoolLadder(picks, mergedPropPool);
         if (coachEvalLinesByGame && gameSimulations.size > 0) {
           picks = attachSimAltOptionsToPicks(picks, {
             evalLinesByGame: coachEvalLinesByGame,
@@ -2708,9 +2709,8 @@ export default function CoachScreen() {
               gameSimulations,
             });
             backupPicks = backupPicks.filter((p) => {
-              if (p.isProp) return true;
-              if (!isGameLinePick(p)) return true;
-              if (!isAlternateOrPeriodMarket(p.market)) return false;
+              if (p.isProp) return false;
+              if (!isQualifyingBackupGameLine(p)) return false;
               const sim = gameSimulations.get(p.game);
               return passesCoachSimQualityGate(p, sim, {
                 edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
@@ -2721,13 +2721,15 @@ export default function CoachScreen() {
             if (excludedSports.size > 0) {
               backupPicks = filterForExcludedSports(backupPicks, excludedSports);
             }
-            backupNote = buildQualifyingAltShortfallNote(
-              requestedLegs,
-              picks.length,
-              backupPicks.length,
-              oddsPhrase,
-              excludeSportsList,
-            );
+            if (backupPicks.length > 0) {
+              backupNote = buildQualifyingAltShortfallNote(
+                requestedLegs,
+                picks.length,
+                backupPicks.length,
+                oddsPhrase,
+                excludeSportsList,
+              );
+            }
           }
         }
         if (picks.length > 0 && requestedLegs > picks.length) {
@@ -2858,7 +2860,8 @@ export default function CoachScreen() {
           const snapshot =
             excludedSports.size > 0 ? filterForExcludedSports(picks, excludedSports) : picks;
           const applySimPicks = (scored: ParsedPick[]) => {
-            let next = enrichPicksWithSport(scored, mergedPropPool, mergedGameOdds);
+            let next = attachPropPoolLadder(scored, mergedPropPool);
+            next = enrichPicksWithSport(next, mergedPropPool, mergedGameOdds);
             if (excludedSports.size > 0) {
               next = filterForExcludedSports(next, excludedSports);
             }

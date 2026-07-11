@@ -90,7 +90,7 @@ export function gameAltPoolForPick(pick: AltPoolPick, evalLines: RealOddsEntry[]
 /** True for alt spreads/totals, period markets, team totals, F5 run lines — not main ML/spread/total. */
 export function isAlternateOrPeriodMarket(market: string): boolean {
   const m = market.trim().toLowerCase();
-  if (/^moneyline$/i.test(m)) return false;
+  if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return false;
   if (/^spread$/i.test(m)) return false;
   if (/^total$/i.test(m)) return false;
   if (/\balt\b/i.test(m)) return true;
@@ -98,4 +98,31 @@ export function isAlternateOrPeriodMarket(market: string): boolean {
   if (/\b(1h|2h|q1|q2|q3|q4|f5|1st inning)\b/i.test(m)) return true;
   if (/run line|puck line/i.test(m)) return true;
   return false;
+}
+
+/** Main full-game ML / spread / total (incl. picks ending in " ML") — never backup "alt" cards. */
+export function isMainLineGameLeg(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  if (isAlternateOrPeriodMarket(pick.market)) return false;
+  const m = pick.market.trim().toLowerCase();
+  if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return true;
+  if (/^spread$/i.test(m)) return true;
+  if (/^total$/i.test(m)) return true;
+  if (/\bml\b/i.test(pick.pick) && !/\balt\b/i.test(m)) return true;
+  return false;
+}
+
+/** Game-line backup cards must be true alt/period rungs — never main-board ML/spread/total. */
+export function isQualifyingBackupGameLine(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  if (isMainLineGameLeg(pick)) return false;
+  return isAlternateOrPeriodMarket(pick.market);
 }
