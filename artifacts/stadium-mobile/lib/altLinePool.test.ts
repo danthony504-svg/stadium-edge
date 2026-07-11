@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gameAltPoolForPick, isAlternateOrPeriodMarket, poolMatchesPickFamily } from "./altLinePool.ts";
+import {
+  gameAltPoolForPick,
+  isAlternateOrPeriodMarket,
+  isMainLineGameLeg,
+  poolMatchesPickFamily,
+} from "./altLinePool.ts";
 import type { RealOddsEntry } from "./api.ts";
 
 const pick = {
@@ -35,4 +40,31 @@ test("isAlternateOrPeriodMarket rejects main ML but accepts alt spread and F5", 
 test("gameAltPoolForPick returns every same-side spread-family rung", () => {
   const pool = gameAltPoolForPick(pick, evalLines);
   assert.equal(pool.length, 4);
+});
+
+test("isMainLineGameLeg rejects main ML even when market label is empty", () => {
+  assert.ok(
+    isMainLineGameLeg({
+      market: "",
+      pick: "Pittsburgh Pirates ML",
+    }),
+  );
+  assert.ok(
+    isMainLineGameLeg({
+      market: "Moneyline",
+      pick: "Pirates ML",
+    }),
+  );
+  assert.ok(
+    !isMainLineGameLeg({
+      market: "Alt Spread",
+      pick: "Pirates +2.5",
+    }),
+  );
+  assert.ok(
+    !isMainLineGameLeg({
+      market: "F5 Run Line",
+      pick: "Pirates +1.5",
+    }),
+  );
 });
