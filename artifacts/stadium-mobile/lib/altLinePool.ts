@@ -2,6 +2,24 @@
 
 import type { RealOddsEntry } from "./api.ts";
 
+export type AltLadderTierLabel = "Safest" | "Best" | "Best Value" | "High Risk";
+
+/** Max plus-money alt rung on pool ladder chips before deep sim (skip junk +40000 lines). */
+export const MAX_POOL_LADDER_PLUS_ODDS = 2500;
+
+export function isPostablePoolLadderOdds(odds: number): boolean {
+  return Number.isFinite(odds) && odds > -1000 && odds <= MAX_POOL_LADDER_PLUS_ODDS;
+}
+
+/** Lowest posted line = Safest; highest = High Risk (Over and Under). */
+export function ladderTierForSiblingIndex(i: number, n: number): AltLadderTierLabel {
+  if (n <= 1) return "Best";
+  if (i === 0) return "Safest";
+  if (i === n - 1) return "High Risk";
+  if (i === Math.floor(n / 2)) return "Best Value";
+  return "Best";
+}
+
 export type AltPoolPick = {
   game: string;
   market: string;

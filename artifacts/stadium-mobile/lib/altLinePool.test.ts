@@ -4,7 +4,9 @@ import {
   gameAltPoolForPick,
   isAlternateOrPeriodMarket,
   isMainLineGameLeg,
+  isPostablePoolLadderOdds,
   isQualifyingBackupGameLine,
+  ladderTierForSiblingIndex,
   poolMatchesPickFamily,
 } from "./altLinePool.ts";
 import type { RealOddsEntry } from "./api.ts";
@@ -89,4 +91,14 @@ test("isQualifyingBackupGameLine accepts alt spread but rejects main ML", () => 
       pick: "Pittsburgh Pirates ML",
     }),
   );
+});
+
+test("ladderTierForSiblingIndex labels lowest line Safest and highest High Risk", () => {
+  assert.equal(ladderTierForSiblingIndex(0, 3), "Safest");
+  assert.equal(ladderTierForSiblingIndex(2, 3), "High Risk");
+});
+
+test("isPostablePoolLadderOdds rejects junk +40000 alt rungs", () => {
+  assert.ok(isPostablePoolLadderOdds(1100));
+  assert.ok(!isPostablePoolLadderOdds(40000));
 });
