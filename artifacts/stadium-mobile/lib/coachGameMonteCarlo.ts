@@ -186,6 +186,59 @@ export async function fetchCoachGameSimulationsForPicks(
   return out;
 }
 
+/** 10k sim for every game on the slate — all eval-ladder rungs scored in one draw per game. */
+export async function fetchSlateGameSimulations(
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  teamIdsByGame: Map<string, GameTeamIds>,
+  signal?: AbortSignal,
+): Promise<Map<string, CoachGameSimEntry>> {
+  const out = new Map<string, CoachGameSimEntry>();
+  const entries = [...evalLinesByGame.entries()];
+
+  await Promise.all(
+    entries.map(async ([gameLabel, lines]) => {
+      if (!lines.length) return;
+      const sport = lines[0]?.sport;
+      const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
+      if (!ids) return;
+
+      const seen = new Set<string>();
+      const coverQueries: GameCoverQuery[] = [];
+      for (const e of lines) {
+        const q = buildGameCoverQuery({
+          game: e.game,
+          market: e.market,
+          pick: e.pick,
+          odds: e.odds,
+          isProp: false,
+          sport: e.sport,
+        });
+        if (!q || seen.has(q.id)) continue;
+        seen.add(q.id);
+        coverQueries.push(q);
+      }
+      if (!coverQueries.length) return;
+
+      const result = await fetchGameOutcomeSimulation(
+        {
+          sport: ids.sport || sport || "mlb",
+          homeTeamId: ids.homeTeamId,
+          awayTeamId: ids.awayTeamId,
+          homeTeam: ids.homeTeam,
+          awayTeam: ids.awayTeam,
+          simulations: COACH_GAME_SIMS,
+          coverQueries,
+          retainOutcomes: true,
+        },
+        signal,
+      );
+      if (result) out.set(gameLabel, result as CoachGameSimEntry);
+    }),
+  );
+
+  return out;
+}
+
 /** Fetch 10k sim for game-line legs whose games are missing from an existing map. */
 export async function supplementCoachGameSimulations(
   picks: ParsedPick[],

@@ -81,8 +81,14 @@ import {
   replenishParlayToTarget,
   selectParlayBackupPicks,
   buildQualifyingAltShortfallNote,
+  buildFullBoardShortfallNote,
   type ParlayLegReject,
 } from "@/lib/parlayReach";
+import {
+  buildTopLegsFromFullBoardScan,
+  shouldUseFullBoardScan,
+  type FullBoardScanResult,
+} from "@/lib/boardMarketScanner";
 import {
   confidenceSatisfiesThreshold,
   confidenceScoreFromSignals,
@@ -1816,6 +1822,8 @@ export default function CoachScreen() {
         const propsOnlyTicket = wantsPropsOnly(trimmed);
         let diversityNote = "";
         let boardBuilt = false;
+        let fullBoardScanned = false;
+        let fullBoardScanMeta: FullBoardScanResult | null = null;
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
@@ -2021,18 +2029,56 @@ export default function CoachScreen() {
           selectionOpts,
         };
         if (forceBoardBuild) {
-          picks = assembleDeepParlayFromBoard(
-            reachTarget,
-            mergedPropPool,
-            reachPool,
-            gameMeta,
-            boardBuildOpts,
-          );
-          if (picks.length > 0) {
+          const useFullBoardScan = shouldUseFullBoardScan(legTarget, {
+            propsOnly: propsOnlyTicket,
+            explicitSingleGame,
+            oddsThreshold,
+            confidenceThreshold,
+          });
+          if (useFullBoardScan) {
+            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+              (s) => !excludedSports.has(s),
+            );
+            const [espnGames, oddsGames] = await Promise.all([
+              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+            ]);
+            const scanTeamIdMap = buildGameTeamIdMap(espnGames);
+            fullBoardScanMeta = await buildTopLegsFromFullBoardScan({
+              target: reachTarget,
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              gameMeta,
+              teamIdMap: scanTeamIdMap,
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              signal: abortRef.current?.signal,
+            });
+            picks = fullBoardScanMeta.picks;
+            fullBoardScanned = true;
             boardBuilt = true;
-            diversityNote = longshotAsk
-              ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
-              : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
+            diversityNote = fullBoardScanMeta.note;
+          } else {
+            picks = assembleDeepParlayFromBoard(
+              reachTarget,
+              mergedPropPool,
+              reachPool,
+              gameMeta,
+              boardBuildOpts,
+            );
+            if (picks.length > 0) {
+              boardBuilt = true;
+              diversityNote = longshotAsk
+                ? `_Longshot parlays are built from player props and alt rungs on the live board — not chalk moneylines._`
+                : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
+            }
           }
         } else if (
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
@@ -2260,7 +2306,14 @@ export default function CoachScreen() {
         let mergedGameOdds = context.realOdds;
         let coachEvalLinesByGame: Map<string, import("@/lib/api").RealOddsEntry[]> | null = null;
         let teamIdMap: Map<string, import("@/lib/coachGameMonteCarlo").GameTeamIds> | null = null;
-        if (!isAnalyze && picks.some(isGameLinePick)) {
+        if (fullBoardScanned && fullBoardScanMeta) {
+          gameSimulations = fullBoardScanMeta.gameSimulations;
+          coachEvalLinesByGame = fullBoardScanMeta.evalLinesByGame;
+          mergedGameOdds = mergeOddsEntries(
+            context.realOdds,
+            ...fullBoardScanMeta.evalLinesByGame.values(),
+          );
+        } else if (!isAnalyze && picks.some(isGameLinePick)) {
           picks = dedupeSameTeamGameLegs(picks).picks;
           const gameSports = [
             ...new Set(
@@ -2326,7 +2379,7 @@ export default function CoachScreen() {
           // Salvage tickets are honest posted lines from the live board — skip the
           // optimizer/sim gates that run before attachPickScores and would drop every
           // leg (no grade/edge yet) or swap them off the named slate (common on WC).
-          if (!salvageBuilt) {
+          if (!salvageBuilt && !fullBoardScanned) {
             const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
               evalLinesByGame,
               realOdds: context.realOdds,
@@ -2755,7 +2808,8 @@ export default function CoachScreen() {
           reachFull &&
           picks.length < reachTarget &&
           !oddsThreshold &&
-          !confidenceThreshold
+          !confidenceThreshold &&
+          !fullBoardScanned
         ) {
           if (coachEvalLinesByGame && gameSimulations.size > 0) {
             picks = replenishParlayToTarget(picks, reachTarget, {
@@ -2924,15 +2978,24 @@ export default function CoachScreen() {
         if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =
             backupNote ||
-            (requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
-              ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
-              : buildQualifyingAltShortfallNote(
+            (fullBoardScanned && fullBoardScanMeta
+              ? buildFullBoardShortfallNote(
                   requestedLegs,
                   picks.length,
-                  0,
+                  fullBoardScanMeta.totalScanned,
+                  fullBoardScanMeta.totalQualified,
                   oddsPhrase,
                   excludeSportsList,
-                ));
+                )
+              : requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
+                ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
+                : buildQualifyingAltShortfallNote(
+                    requestedLegs,
+                    picks.length,
+                    0,
+                    oddsPhrase,
+                    excludeSportsList,
+                  ));
         }
         // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
         // failures only — never above rendered pick cards. Shortfall copy is the only

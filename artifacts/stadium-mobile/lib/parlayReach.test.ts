@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildParlayShortfallNote,
   buildQualifyingAltShortfallNote,
+  buildFullBoardShortfallNote,
   mergeParlayRejects,
   promoteQualifyingAltsToTicket,
   reachParlayMix,
@@ -73,6 +74,13 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   const { picks, promoted } = promoteQualifyingAltsToTicket(ticket as any, qualifying as any, 3);
   assert.equal(promoted.length, 2);
   assert.equal(picks.length, 3);
+});
+
+test("buildFullBoardShortfallNote explains entire-board scan", () => {
+  const note = buildFullBoardShortfallNote(15, 11, 840, 11, "today's real odds");
+  assert.match(note, /840/);
+  assert.match(note, /moneylines/i);
+  assert.match(note, /alt props/i);
 });
 
 test("mergeParlayRejects dedupes by leg fingerprint", () => {

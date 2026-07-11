@@ -87,6 +87,26 @@ export function buildParlayShortfallNote(
   ].join("\n\n");
 }
 
+export function buildFullBoardShortfallNote(
+  requested: number,
+  actual: number,
+  totalScanned: number,
+  totalQualified: number,
+  oddsPhrase: string,
+  excludedSports?: string[],
+): string {
+  const exclusion =
+    excludedSports && excludedSports.length > 0
+      ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues were off the board. `
+      : "";
+  return [
+    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — moneylines, spreads, alternate spreads, totals, alternate totals, team totals, innings, halves, quarters, periods, player props, and alt props — and ran a 10k sim on each.`,
+    totalQualified > actual
+      ? `**${totalQualified}** cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%). These **${actual}** are the highest-rated by EV, edge, confidence, and AI grade.`
+      : `Only **${totalQualified}** lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).`,
+  ].join("\n\n");
+}
+
 export function buildQualifyingAltShortfallNote(
   requested: number,
   actual: number,

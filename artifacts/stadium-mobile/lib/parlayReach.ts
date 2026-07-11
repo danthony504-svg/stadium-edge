@@ -33,6 +33,7 @@ export {
   selectParlayBackupPicks,
   buildParlayShortfallNote,
   buildQualifyingAltShortfallNote,
+  buildFullBoardShortfallNote,
   promoteQualifyingAltsToTicket,
 } from "./parlayReachCore.ts";
 
