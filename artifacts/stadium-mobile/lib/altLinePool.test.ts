@@ -4,6 +4,7 @@ import {
   gameAltPoolForPick,
   isAlternateOrPeriodMarket,
   isMainLineGameLeg,
+  isQualifyingBackupGameLine,
   poolMatchesPickFamily,
 } from "./altLinePool.ts";
 import type { RealOddsEntry } from "./api.ts";
@@ -65,6 +66,27 @@ test("isMainLineGameLeg rejects main ML even when market label is empty", () => 
     !isMainLineGameLeg({
       market: "F5 Run Line",
       pick: "Pirates +1.5",
+    }),
+  );
+});
+
+test("isQualifyingBackupGameLine accepts alt spread but rejects main ML", () => {
+  assert.ok(
+    isQualifyingBackupGameLine({
+      market: "Alt Spread",
+      pick: "Pirates +2.5",
+    }),
+  );
+  assert.ok(
+    !isQualifyingBackupGameLine({
+      market: "Moneyline",
+      pick: "Pirates ML",
+    }),
+  );
+  assert.ok(
+    !isQualifyingBackupGameLine({
+      market: "",
+      pick: "Pittsburgh Pirates ML",
     }),
   );
 });

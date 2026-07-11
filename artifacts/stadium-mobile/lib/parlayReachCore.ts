@@ -1,6 +1,7 @@
 // Pure helpers for explicit N-leg parlay reach (no React / PickCard imports).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { isQualifyingBackupGameLine } from "./altLinePool.ts";
 
 export type ParlayLegReject = {
   pick: ParsedPick;
@@ -42,6 +43,7 @@ export function selectParlayBackupPicks(
   for (const r of rejects) {
     const fp = pickLegFingerprint(r.pick);
     if (onTicket.has(fp) || seen.has(fp)) continue;
+    if (!r.pick.isProp && !isQualifyingBackupGameLine(r.pick)) continue;
     seen.add(fp);
     out.push({ ...r.pick, backupReason: r.reason } as ParsedPick & { backupReason?: string });
     if (out.length >= limit) break;

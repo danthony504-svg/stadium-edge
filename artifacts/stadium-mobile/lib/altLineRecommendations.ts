@@ -23,7 +23,7 @@ import {
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { gameAltPoolForPick } from "./altLinePool.ts";
-export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg } from "./altLinePool.ts";
+export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import type { PropSimulationResult } from "./api.ts";

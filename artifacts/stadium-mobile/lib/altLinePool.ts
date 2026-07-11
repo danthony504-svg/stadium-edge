@@ -115,3 +115,14 @@ export function isMainLineGameLeg(pick: {
   if (/\bml\b/i.test(pick.pick) && !/\balt\b/i.test(m)) return true;
   return false;
 }
+
+/** Game-line backup cards must be true alt/period rungs — never main-board ML/spread/total. */
+export function isQualifyingBackupGameLine(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+}): boolean {
+  if (pick.isProp) return false;
+  if (isMainLineGameLeg(pick)) return false;
+  return isAlternateOrPeriodMarket(pick.market);
+}

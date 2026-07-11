@@ -16,7 +16,7 @@ import {
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
-import { isAlternateOrPeriodMarket, isMainLineGameLeg } from "./altLinePool.ts";
+import { isQualifyingBackupGameLine, isMainLineGameLeg } from "./altLinePool.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -112,8 +112,7 @@ export function collectQualifyingGameLines(
     for (const row of ranked) {
       const fp = pickLegFingerprint(row.pick);
       if (onTicket.has(fp)) continue;
-      if (isMainLineGameLeg(row.pick)) continue;
-      if (!isAlternateOrPeriodMarket(row.entry.market)) continue;
+      if (!isQualifyingBackupGameLine(row.pick)) continue;
       if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
         continue;
       }

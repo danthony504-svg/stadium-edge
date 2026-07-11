@@ -67,7 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
-import { isAlternateOrPeriodMarket, isMainLineGameLeg } from "@/lib/altLinePool";
+import { isQualifyingBackupGameLine } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -2709,10 +2709,8 @@ export default function CoachScreen() {
               gameSimulations,
             });
             backupPicks = backupPicks.filter((p) => {
-              if (p.isProp) return true;
-              if (!isGameLinePick(p)) return true;
-              if (isMainLineGameLeg(p)) return false;
-              if (!isAlternateOrPeriodMarket(p.market)) return false;
+              if (p.isProp) return false;
+              if (!isQualifyingBackupGameLine(p)) return false;
               const sim = gameSimulations.get(p.game);
               return passesCoachSimQualityGate(p, sim, {
                 edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
