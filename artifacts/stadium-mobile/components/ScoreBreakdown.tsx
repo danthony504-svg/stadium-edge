@@ -6,6 +6,7 @@ import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
+import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
 // Renders the 6-component pick rubric (Matchup / Trend / Line Value / Injury /
 // Line-Shopping / Model Sim) plus the combined AI Grade, Confidence, and Edge %
@@ -116,10 +117,20 @@ function confidenceBlurb(pct: number | null, composite?: number | null): string 
 // The header row of combined metrics: AI Grade, Confidence, and (when real)
 // Edge %. Edge is omitted rather than shown as "—" when there is no genuine
 // betting edge to report.
-function HeaderTiles({ data, simNotGraded }: { data: CombinedPickScore; simNotGraded?: boolean }) {
+function HeaderTiles({
+  data,
+  gradeLabel,
+  gradeCaption,
+}: {
+  data: CombinedPickScore;
+  gradeLabel?: string | null;
+  gradeCaption?: string | null;
+}) {
   const colors = useColors();
   const scoreColor = useScoreColor();
-  const gradeColor = simNotGraded ? colors.mutedForeground : scoreColor(data.composite);
+  const displayGrade = gradeLabel ?? data.grade ?? "—";
+  const notRecommended = displayGrade === NOT_AI_RECOMMENDED || displayGrade === NOT_YET_AI_GRADED;
+  const gradeColor = notRecommended ? colors.mutedForeground : scoreColor(data.composite);
   const edge = data.edgePct;
   const edgeColor =
     edge == null ? colors.mutedForeground : edge >= 0 ? colors.success : colors.destructive;
@@ -128,9 +139,9 @@ function HeaderTiles({ data, simNotGraded }: { data: CombinedPickScore; simNotGr
       <MetricTile
         icon="award"
         label="AI Grade"
-        value={simNotGraded ? NOT_YET_AI_GRADED : (data.grade ?? "—")}
+        value={displayGrade}
         valueColor={gradeColor}
-        caption={simNotGraded ? "Simulation not available for this market yet" : gradeBlurb(data.composite)}
+        caption={gradeCaption ?? gradeBlurb(data.composite)}
       />
       <MetricTile
         icon="target"
@@ -210,14 +221,16 @@ export function ScoreBreakdown({
   title,
   note,
   simulationPending,
-  simNotGraded,
+  gradeLabel,
+  gradeCaption,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
   simulationPending?: boolean;
-  simNotGraded?: boolean;
+  gradeLabel?: string | null;
+  gradeCaption?: string | null;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -229,7 +242,7 @@ export function ScoreBreakdown({
     if (data.composite == null) return null;
     return (
       <View style={{ gap: 8 }}>
-        <HeaderTiles data={data} simNotGraded={simNotGraded} />
+        <HeaderTiles data={data} gradeLabel={gradeLabel} gradeCaption={gradeCaption} />
         {simulationPending ? (
           <Text
             style={{
@@ -295,7 +308,7 @@ export function ScoreBreakdown({
       >
         {title ?? "Pick Score"}
       </Text>
-      <HeaderTiles data={data} simNotGraded={simNotGraded} />
+      <HeaderTiles data={data} gradeLabel={gradeLabel} gradeCaption={gradeCaption} />
       {simulationPending ? (
         <Text
           style={{

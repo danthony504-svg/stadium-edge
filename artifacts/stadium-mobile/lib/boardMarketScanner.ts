@@ -5,7 +5,6 @@ import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from 
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
-import { classifySimAlignment } from "./finalAiScore.ts";
 import {
   buildEvalLinesForAllGames,
   evaluateGameLines,
@@ -14,11 +13,7 @@ import {
 } from "./gameLineOptimizer.ts";
 import { gameSimHitForPick } from "./gameSimScoring.ts";
 import {
-  COACH_SIM_MIN_CONFIDENCE,
-  COACH_SIM_MIN_GRADE,
   deriveGameSimLineMetrics,
-  qualifiesCoachSimEvalLine,
-  qualifiesCoachSimLineMetrics,
   simEvPct,
 } from "./gameSimQualityGates.ts";
 import {
@@ -39,6 +34,9 @@ import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+import { pickIsAiRecommended } from "./pickRecommendation.ts";
+import type { CalibrationBucket } from "./modelCalibration.ts";
+import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
 const PROP_SIM_BATCH = 28;
 const GRADE_RANK: Record<string, number> = {
@@ -94,46 +92,33 @@ function confidenceWithLearning(
   pick: ParsedPick,
   base: number | null | undefined,
   perfByFamily?: Map<string, MarketPerf>,
+  calibration?: Map<string, CalibrationBucket>,
 ): number | null {
   if (base == null) return null;
-  const delta = perfByFamily ? marketConfidenceDelta(pick, perfByFamily) : 0;
+  const delta =
+    (perfByFamily ? marketConfidenceDelta(pick, perfByFamily) : 0) +
+    calibrationDeltaForPick(pick, calibration, perfByFamily);
   if (!delta) return base;
   return Math.max(5, Math.min(95, Math.round(base + delta)));
 }
 
 function gameLineQualifies(row: EvaluatedGameLine, simHit: number | null): boolean {
   if (!pickHasSimGrade(row.pick, simHit)) return false;
-  if (qualifiesCoachSimEvalLine(row)) return true;
-  if (row.finalAiScore.highRiskValuePlay && row.finalAiScore.grade) return true;
-  const m = deriveGameSimLineMetrics(row);
-  return m != null && qualifiesCoachSimLineMetrics(m);
+  if (!pickIsAiRecommended(row.pick, row.finalAiScore)) return false;
+  return true;
 }
 
 function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
   if (!pickHasSimGrade(pick, simHit)) return false;
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return false;
-  const edge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
-  const grade = pick.finalAiScore?.grade ?? pick.scores?.grade ?? null;
-  const conf = pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null;
-  if (edge == null || grade == null || conf == null) return false;
-  const { simAligned, highRiskValuePlay } = classifySimAlignment(simHit, edge);
-  if (!simAligned && !highRiskValuePlay) return false;
-  if (edge <= 0 && !highRiskValuePlay) return false;
-  if (gradeRank(grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if (conf < COACH_SIM_MIN_CONFIDENCE) return false;
-  if (simHit != null && pick.odds != null) {
-    const implied = impliedProb(pick.odds);
-    if (simHit <= implied && !highRiskValuePlay) return false;
-    const ev = simEvPct(simHit, pick.odds);
-    if (ev != null && ev <= 0 && !highRiskValuePlay) return false;
-  }
-  return true;
+  return pickIsAiRecommended(pick, pick.finalAiScore ?? undefined);
 }
 
 function scoredFromEvalRow(
   row: EvaluatedGameLine,
   perfByFamily?: Map<string, MarketPerf>,
   simHit?: number | null,
+  calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
   const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
   if (!gameLineQualifies(row, hit)) return null;
@@ -148,7 +133,7 @@ function scoredFromEvalRow(
     },
     evPct: m?.evPct ?? null,
     edgePct: row.edgePct ?? row.finalAiScore.edgePct,
-    confidencePct: confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily),
+    confidencePct: confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily, calibration),
     impliedProbPct: implied,
     lineShoppingScore: lineShoppingFromPick(row.pick, row.entry),
     grade: row.finalAiScore.grade,
@@ -162,6 +147,7 @@ function scoredFromPropPick(
   pick: ParsedPick,
   simHit: number | null,
   perfByFamily?: Map<string, MarketPerf>,
+  calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
   if (!propQualifies(pick, simHit)) return null;
   const ev =
@@ -176,6 +162,7 @@ function scoredFromPropPick(
       pick,
       pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct,
       perfByFamily,
+      calibration,
     ),
     impliedProbPct: implied,
     lineShoppingScore: lineShoppingFromPick(pick),
@@ -238,6 +225,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
   perfByFamily?: Map<string, MarketPerf>;
+  calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
 }): Promise<FullBoardScanResult> {
   const poolBase =
@@ -283,7 +271,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     totalScanned += evaluated.length;
     for (const row of evaluated) {
       const simHit = gameSimHitForPick(row.pick, sim);
-      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit);
+      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
       if (leg) scored.push(leg);
     }
   }
@@ -306,7 +294,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   for (const pick of propPicks) {
     const simHit = pick.finalAiScore?.simHit ?? null;
-    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily);
+    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
     if (leg) scored.push(leg);
   }
 

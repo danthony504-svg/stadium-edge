@@ -104,6 +104,7 @@ import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
+import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -798,6 +799,7 @@ export default function CoachScreen() {
     () => perfMapFromByFamily(computeAnalytics(results).byFamily),
     [results],
   );
+  const modelCalibration = useMemo(() => calibrationFromTrackedPicks(results), [results]);
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -2067,6 +2069,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
+            calibration: modelCalibration,
             signal: abortRef.current?.signal,
           });
           picks = fullBoardScanMeta.picks;

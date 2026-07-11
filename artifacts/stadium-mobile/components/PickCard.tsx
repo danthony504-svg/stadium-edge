@@ -13,7 +13,11 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
-import { pickHasSimGrade } from "@/lib/simMarketSupport";
+import { marketSupportsSimulation, NOT_YET_AI_GRADED, pickHasSimGrade } from "@/lib/simMarketSupport";
+import {
+  pickGradeDisplayCaption,
+  pickGradeDisplayLabel,
+} from "@/lib/pickRecommendation";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -884,7 +888,14 @@ export function PickCard({
           data={pick.scores}
           variant="compact"
           simulationPending={pick.simulationPending}
-          simNotGraded={!pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)}
+          gradeLabel={
+            pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)
+              ? pickGradeDisplayLabel(pick, pick.finalAiScore)
+              : marketSupportsSimulation(pick.market ?? "", pick)
+                ? NOT_YET_AI_GRADED
+                : NOT_YET_AI_GRADED
+          }
+          gradeCaption={pickGradeDisplayCaption(pick, pick.finalAiScore)}
         />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />

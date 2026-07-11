@@ -1824,6 +1824,8 @@ export type GameSimulationResult = {
   } | null;
   coverHitRates?: Record<string, number>;
   outcomes?: { homeScores: number[]; awayScores: number[] };
+  simModel?: string;
+  simModelLabel?: string;
 };
 
 export type GameCoverQueryInput = {

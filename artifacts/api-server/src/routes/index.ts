@@ -25,6 +25,7 @@ import stealsRouter from "./steals";
 import accountRouter from "./account";
 import simulateRouter from "./simulate";
 import liveOddsRouter from "./liveOdds";
+import modelCalibrationRouter from "./modelCalibration";
 
 const router: IRouter = Router();
 
@@ -54,5 +55,6 @@ router.use(stealsRouter);
 router.use(accountRouter);
 router.use(simulateRouter);
 router.use(liveOddsRouter);
+router.use(modelCalibrationRouter);
 
 export default router;

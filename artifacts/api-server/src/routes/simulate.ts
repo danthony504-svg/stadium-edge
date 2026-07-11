@@ -5,6 +5,7 @@ import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monte
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
 import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
+import { runSportGameMonteCarlo } from "../lib/sportSim/registry.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
@@ -328,7 +329,7 @@ router.post("/sports/simulate/game-outcome", async (req, res): Promise<void> => 
     fetchTeamHistory(baseUrl, sport, awayTeamId),
   ]);
 
-  const result = runGameMonteCarlo({
+  const result = runSportGameMonteCarlo({
     sport,
     simulations,
     weatherImpact,

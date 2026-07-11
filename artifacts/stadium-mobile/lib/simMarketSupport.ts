@@ -1,5 +1,9 @@
 // Which markets have a dedicated Monte Carlo model — only these get AI recommendations.
 
+import { sportSimModelForSport, type SportSimModelId } from "./sportSimModels.ts";
+
+export type { SportSimModelId };
+
 export type SimModelKind =
   | "fullGame"
   | "period"
@@ -81,3 +85,9 @@ export function pickHasSimGrade(
 }
 
 export const NOT_YET_AI_GRADED = "Not yet AI graded";
+
+/** Sport-specific engine used for this pick's simulation. */
+export function simEngineForPick(pick: { sport?: string; isProp?: boolean }): SportSimModelId | "player-prop" {
+  if (pick.isProp) return "player-prop";
+  return sportSimModelForSport(pick.sport ?? "");
+}
