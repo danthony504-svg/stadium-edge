@@ -11,6 +11,7 @@ import {
   inferPropPickSport,
   isNegatedSportKeyword,
   parlayPoolHint,
+  pickMatchesExcludedSport,
   prioritizePlayerHistoryTargets,
   resolveExcludedSports,
   scrubExcludedSportsFromPicks,
@@ -265,6 +266,37 @@ test("resolveExcludedSports lifts MLB ban when user asks for an MLB ticket", () 
   const persisted = new Set(["mlb"]);
   const resolved = resolveExcludedSports([], "12 leg MLB parlay", persisted);
   assert.ok(!resolved.has("mlb"));
+});
+
+test("scrub removes Christian Walker H+R+RBI prop when MLB is excluded", () => {
+  const excluded = new Set(["mlb"]);
+  const picks = [
+    {
+      game: "Houston Astros @ Texas Rangers",
+      market: "Hits+Runs+RBIs",
+      pick: "Christian Walker Over 1.5 Hits+Runs+RBIs",
+      odds: 100,
+      isProp: true,
+      player: "Christian Walker",
+      propMarketKey: "batter_hits_runs_rbis",
+      propLine: 1.5,
+      propSide: "Over",
+    },
+  ];
+  const out = scrubExcludedSportsFromPicks(picks as any, excluded, [], [], []);
+  assert.equal(out.length, 0);
+});
+
+test("pickMatchesExcludedSport tags Hits+Runs+RBIs as MLB", () => {
+  const pick = {
+    game: "Houston Astros @ Texas Rangers",
+    market: "Hits+Runs+RBIs",
+    pick: "Christian Walker Over 1.5 Hits+Runs+RBIs",
+    odds: 100,
+    isProp: true,
+    propMarketKey: "batter_hits_runs_rbis",
+  };
+  assert.ok(pickMatchesExcludedSport(pick as any, "mlb"));
 });
 
 test("isNegatedSportKeyword matches common phrasing", () => {

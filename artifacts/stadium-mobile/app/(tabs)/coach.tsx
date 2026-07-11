@@ -1568,6 +1568,7 @@ export default function CoachScreen() {
           if (excludedSports.size > 0) {
             context = {
               ...context,
+              excludedSports: excludeSportsList,
               realOdds: filterForExcludedSports(context.realOdds, excludedSports),
               realProps: filterForExcludedSports(context.realProps ?? [], excludedSports),
               realGames: filterForExcludedSports(context.realGames ?? [], excludedSports),
@@ -2777,7 +2778,13 @@ export default function CoachScreen() {
               });
             });
             if (excludedSports.size > 0) {
-              backupPicks = filterForExcludedSports(backupPicks, excludedSports);
+              backupPicks = scrubExcludedSportsFromPicks(
+                backupPicks,
+                excludedSports,
+                mergedPropPool,
+                mergedGameOdds,
+                gameMeta,
+              );
             }
             if (backupPicks.length > 0) {
               backupNote = buildQualifyingAltShortfallNote(
@@ -2808,8 +2815,12 @@ export default function CoachScreen() {
         // legNote we surface when cards are on screen.
         const legNoteForCards =
           picks.length > 0 && requestedLegs > picks.length ? legNote : "";
+        const exclusionNote =
+          excludedSports.size > 0
+            ? `_Leagues excluded on this ticket: **${[...excludedSports].map((s) => s.toUpperCase()).join(", ")}** — say an league name to include it again (e.g. "15 leg MLB parlay")._`
+            : "";
         const coachDetailNote = dedupeLegNoteParagraphs(
-          [diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote]
+          [exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote]
             .filter(Boolean)
             .join("\n\n"),
         );

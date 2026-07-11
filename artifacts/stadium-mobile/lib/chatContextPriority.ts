@@ -75,13 +75,18 @@ export function filterForExcludedSports<T extends { sport?: string | null }>(
   return entries.filter((e) => !e.sport || !excluded.has(e.sport));
 }
 
-/** Strict pick filter — drops legs with unknown sport so excluded leagues cannot slip through. */
+/** Strict pick filter — drops legs tagged or inferred as an excluded league. */
 export function filterPicksForExcludedSports(
   picks: ParsedPick[],
   excluded: Set<string>,
 ): ParsedPick[] {
   if (!excluded.size) return picks;
-  return picks.filter((p) => !!p.sport && !excluded.has(p.sport));
+  return picks.filter((p) => {
+    for (const sport of excluded) {
+      if (pickMatchesExcludedSport(p, sport)) return false;
+    }
+    return true;
+  });
 }
 
 function sportForGameLabel(game: string, sportByGame: Map<string, string>): string | undefined {
@@ -97,7 +102,7 @@ function sportForGameLabel(game: string, sportByGame: Map<string, string>): stri
 const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
   {
     sport: "mlb",
-    re: /\b(home runs?|hrs?|strikeouts?|k'?s|hits?|total bases?|stolen bases?|pitchers?|bullpens?)\b/i,
+    re: /\b(home runs?|hrs?|strikeouts?|k'?s|hits?|hits runs rbis|rbis?|total bases?|stolen bases?|pitchers?|bullpens?)\b/i,
   },
   {
     sport: "nfl",
@@ -114,12 +119,39 @@ const PROP_MARKET_SPORT_HINTS: { sport: string; re: RegExp }[] = [
   { sport: "nhl", re: /\b(shots on goal|sog|saves?)\b/i },
 ];
 
+function normPickText(s: string): string {
+  return String(s ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sportFromPropMarketKey(key?: string | null): string | undefined {
+  if (!key) return undefined;
+  if (/^batter_|^pitcher_/.test(key)) return "mlb";
+  if (/^player_(threes|points_rebounds_assists|points_rebounds|points_assists|rebounds_assists)/.test(key)) {
+    return "nba";
+  }
+  return undefined;
+}
+
 function inferSportFromPickText(pick: ParsedPick): string | undefined {
-  const blob = `${pick.market} ${pick.pick}`;
+  const fromKey = sportFromPropMarketKey(pick.propMarketKey);
+  if (fromKey) return fromKey;
+  const blob = normPickText(`${pick.market} ${pick.pick}`);
   for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
     if (re.test(blob)) return sport;
   }
   return undefined;
+}
+
+/** True when a leg should be removed for an active sport exclusion. */
+export function pickMatchesExcludedSport(pick: ParsedPick, sport: string): boolean {
+  if (pick.sport === sport) return true;
+  if (inferSportFromPickText(pick) === sport) return true;
+  if (sportFromPropMarketKey(pick.propMarketKey) === sport) return true;
+  return false;
 }
 
 /** Scan the full Coach thread — exclusions from an earlier turn still apply. */
@@ -172,6 +204,8 @@ export function enrichPicksWithSport(
     }
     const fromGame = p.game ? sportForGameLabel(p.game, sportByGame) : undefined;
     if (fromGame) return { ...p, sport: fromGame };
+    const fromKey = sportFromPropMarketKey(p.propMarketKey);
+    if (fromKey) return { ...p, sport: fromKey };
     const inferred = inferSportFromPickText(p);
     return inferred ? { ...p, sport: inferred } : p;
   });
