@@ -4,20 +4,30 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { GameSimulationResult, RealOddsEntry } from "./api.ts";
 import { fourQuestionsNoteForPick } from "./gameLineFourQuestions.ts";
+import { parseMarketPeriod, type SimPeriodScope, marketSupportsSimulation } from "./simMarketSupport.ts";
+import { periodScoresForDraw, raceToHits, sportSupportsPeriod } from "./gamePeriodScoring.ts";
 
 /** Same period-scoped family logic as PickCard.marketFamily (kept local for tests). */
 function gameMarketFamily(market: string): string {
+  const period = parseMarketPeriod(market);
+  const prefix =
+    period === "fg"
+      ? ""
+      : period === "h1"
+        ? "1h:"
+        : period === "h2"
+          ? "2h:"
+          : period === "f5"
+            ? "f5:"
+            : `${period}:`;
   const m = String(market ?? "").toLowerCase();
-  let period = "";
-  if (/\b1h\b|first half|1st half/.test(m)) period = "1h:";
-  else if (/\b2h\b|second half|2nd half/.test(m)) period = "2h:";
-  else if (/\bf5\b|first 5|1st 5/.test(m)) period = "f5:";
   let fam: string;
   if (/spread|run ?line|puck ?line/.test(m)) fam = "spread";
   else if (/total|over|under|o\/u/.test(m)) fam = "total";
   else if (/money|h2h|\bml\b/.test(m)) fam = "moneyline";
+  else if (/race to/.test(m)) fam = "raceto";
   else fam = m;
-  return period + fam;
+  return prefix + fam;
 }
 
 /** Same floor as prop Monte Carlo — game-line legs must clear this in the shared sim. */
@@ -25,10 +35,12 @@ export const GAME_SIM_MIN_HIT = 0.52;
 
 export type GameCoverQuery = {
   id: string;
-  kind: "ml" | "spread" | "total" | "teamTotal";
+  kind: "ml" | "spread" | "total" | "teamTotal" | "raceTo";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";
+  period?: SimPeriodScope;
+  raceTarget?: number;
 };
 
 export type CoachGameSimEntry = GameSimulationResult & {
@@ -175,8 +187,15 @@ export function gameLineLegBucket(game: string, market: string, pick: string): s
 /** Moneyline, spread/run line, or game total — not a player prop. */
 export function isGameLinePick(pick: ParsedPick): boolean {
   if (pick.isProp) return false;
+  const m = String(pick.market ?? "").toLowerCase();
+  if (/team total|race to/.test(m)) return true;
   const fam = gameMarketFamily(pick.market);
-  return fam.endsWith("moneyline") || fam.endsWith("spread") || fam.endsWith("total");
+  return (
+    fam.endsWith("moneyline") ||
+    fam.endsWith("spread") ||
+    fam.endsWith("total") ||
+    fam.endsWith("raceto")
+  );
 }
 
 /** Stable key for a game-line leg's cover query inside a game's sim result. */
@@ -219,6 +238,18 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   const { away, home } = splitLabel(pick.game);
   const fam = gameMarketFamily(pick.market);
   const p = pick.pick;
+  const period = parseMarketPeriod(pick.market);
+
+  if (/race to/i.test(pick.market)) {
+    const team = gamePickTeam(pick);
+    if (!team) return null;
+    const teamSide = sideOfTeam(team, away, home);
+    if (!teamSide) return null;
+    const targetMatch = pick.market.match(/race to\s+(\d+(?:\.\d+)?)/i);
+    const raceTarget = targetMatch ? Number(targetMatch[1]) : null;
+    if (raceTarget == null || !Number.isFinite(raceTarget)) return null;
+    return { id, kind: "raceTo", teamSide, raceTarget, period: period === "fg" ? undefined : period };
+  }
 
   if (fam.endsWith("total")) {
     const line = numLine(p);
@@ -232,9 +263,9 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
       if (!team) return null;
       const teamSide = sideOfTeam(team, away, home);
       if (!teamSide) return null;
-      return { id, kind: "teamTotal", teamSide, line, totalSide: over ? "over" : "under" };
+      return { id, kind: "teamTotal", teamSide, line, totalSide: over ? "over" : "under", period: period === "fg" ? undefined : period };
     }
-    return { id, kind: "total", line, totalSide: over ? "over" : "under" };
+    return { id, kind: "total", line, totalSide: over ? "over" : "under", period: period === "fg" ? undefined : period };
   }
 
   const team = gamePickTeam(pick);
@@ -243,12 +274,12 @@ export function buildGameCoverQuery(pick: ParsedPick): GameCoverQuery | null {
   if (!teamSide) return null;
 
   if (fam.endsWith("moneyline")) {
-    return { id, kind: "ml", teamSide };
+    return { id, kind: "ml", teamSide, period: period === "fg" ? undefined : period };
   }
   if (fam.endsWith("spread")) {
     const line = numLine(p);
     if (line == null) return null;
-    return { id, kind: "spread", teamSide, line };
+    return { id, kind: "spread", teamSide, line, period: period === "fg" ? undefined : period };
   }
   return null;
 }
@@ -257,17 +288,32 @@ function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
+  sport = "nba",
 ): boolean {
-  const total = homeScore + awayScore;
+  if (q.kind === "raceTo") {
+    const target = q.raceTarget ?? 0;
+    const side = q.teamSide ?? "home";
+    if (target <= 0) return false;
+    return raceToHits(target, side, homeScore, awayScore);
+  }
+  const period: SimPeriodScope = q.period ?? "fg";
+  const scoped =
+    period === "fg" || !sportSupportsPeriod(sport, period)
+      ? { home: homeScore, away: awayScore }
+      : periodScoresForDraw(sport, period, homeScore, awayScore);
+  const hs = scoped.home;
+  const as = scoped.away;
+  const total = hs + as;
+
   if (q.kind === "ml") {
-    if (q.teamSide === "home") return homeScore > awayScore;
-    if (q.teamSide === "away") return awayScore > homeScore;
+    if (q.teamSide === "home") return hs > as;
+    if (q.teamSide === "away") return as > hs;
     return false;
   }
   if (q.kind === "spread") {
     const line = q.line ?? 0;
-    if (q.teamSide === "home") return homeScore + line > awayScore;
-    if (q.teamSide === "away") return awayScore + line > homeScore;
+    if (q.teamSide === "home") return hs + line > as;
+    if (q.teamSide === "away") return as + line > hs;
     return false;
   }
   if (q.kind === "total") {
@@ -278,7 +324,7 @@ function coverQueryHits(
   }
   if (q.kind === "teamTotal") {
     const line = q.line ?? 0;
-    const score = q.teamSide === "home" ? homeScore : awayScore;
+    const score = q.teamSide === "home" ? hs : as;
     if (q.totalSide === "over") return score > line;
     if (q.totalSide === "under") return score < line;
     return false;
@@ -290,6 +336,7 @@ function coverQueryHits(
 export function deriveCoverHitRatesFromOutcomes(
   outcomes: { homeScores: number[]; awayScores: number[] },
   queries: GameCoverQuery[],
+  sport = "nba",
 ): Record<string, number> {
   const n = outcomes.homeScores.length;
   if (!n || n !== outcomes.awayScores.length) return {};
@@ -297,7 +344,7 @@ export function deriveCoverHitRatesFromOutcomes(
   for (const q of queries) {
     let hits = 0;
     for (let i = 0; i < n; i++) {
-      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!)) hits += 1;
+      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport)) hits += 1;
     }
     rates[q.id] = Math.round((hits / n) * 1000) / 1000;
   }
@@ -317,6 +364,10 @@ function spreadLinesMatch(a: number | null | undefined, b: number | null | undef
 
 function coverQueriesEquivalent(a: GameCoverQuery, b: GameCoverQuery): boolean {
   if (a.kind !== b.kind) return false;
+  if ((a.period ?? "fg") !== (b.period ?? "fg")) return false;
+  if (a.kind === "raceTo") {
+    return a.teamSide === b.teamSide && spreadLinesMatch(a.raceTarget ?? null, b.raceTarget ?? null);
+  }
   if (a.kind === "ml") return a.teamSide === b.teamSide;
   if (a.kind === "spread") {
     return a.teamSide === b.teamSide && spreadLinesMatch(a.line, b.line);
@@ -380,7 +431,7 @@ function fuzzyCoverHitRate(
       };
       const q = buildGameCoverQuery(probe);
       if (!q || !coverQueriesEquivalent(q, target)) continue;
-      const derived = deriveCoverHitRatesFromOutcomes(sim.outcomes, [q]);
+      const derived = deriveCoverHitRatesFromOutcomes(sim.outcomes, [q], pick.sport ?? "nba");
       const hit = derived[q.id];
       if (hit != null && Number.isFinite(hit)) return hit;
     }
@@ -394,6 +445,7 @@ export function gameSimHitForPick(
   sim: CoachGameSimEntry | null | undefined,
 ): number | null {
   if (!gameSimHasValidRun(sim)) return null;
+  if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
   const query = buildGameCoverQuery(pick);
   if (!query) return null;
   const fromCover = sim!.coverHitRates?.[query.id];
@@ -403,7 +455,7 @@ export function gameSimHitForPick(
   if (fuzzy != null) return fuzzy;
 
   if (sim!.outcomes) {
-    const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query]);
+    const derived = deriveCoverHitRatesFromOutcomes(sim!.outcomes, [query], pick.sport ?? "nba");
     const hit = derived[query.id];
     if (hit != null && Number.isFinite(hit)) return hit;
   }

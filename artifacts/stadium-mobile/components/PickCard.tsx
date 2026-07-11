@@ -13,6 +13,7 @@ import {
 } from "@/lib/mlCushion";
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import { pickHasSimGrade } from "@/lib/simMarketSupport";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -879,7 +880,12 @@ export function PickCard({
       <LineLadder pick={pick} />
 
       {hideReadout ? null : pick.scores ? (
-        <ScoreBreakdown data={pick.scores} variant="compact" simulationPending={pick.simulationPending} />
+        <ScoreBreakdown
+          data={pick.scores}
+          variant="compact"
+          simulationPending={pick.simulationPending}
+          simNotGraded={!pickHasSimGrade(pick, pick.finalAiScore?.simHit ?? null)}
+        />
       ) : (
         <EdgeReadout edge={pick.edge} odds={pick.odds} isProp={pick.isProp} grid />
       )}

@@ -29,6 +29,30 @@ test("coverQueryHits scores spread and total covers", () => {
   assert.equal(coverQueryHits({ id: "t", kind: "total", totalSide: "under", line: 8.5 }, 5, 4), false);
 });
 
+test("coverQueryHits scores team totals and period totals", () => {
+  assert.equal(
+    coverQueryHits({ id: "tt", kind: "teamTotal", teamSide: "home", totalSide: "over", line: 4.5 }, 6, 2),
+    true,
+  );
+  const periodHit = coverQueryHits(
+    { id: "q1", kind: "total", totalSide: "over", line: 50, period: "q1" },
+    110,
+    108,
+    "nba",
+  );
+  assert.equal(typeof periodHit, "boolean");
+});
+
+test("coverQueryHits scores race-to markets", () => {
+  let hits = 0;
+  for (let i = 0; i < 200; i++) {
+    if (coverQueryHits({ id: "rt", kind: "raceTo", teamSide: "home", raceTarget: 20 }, 115, 105, "nba")) {
+      hits += 1;
+    }
+  }
+  assert.ok(hits > 20 && hits < 180);
+});
+
 test("runGameMonteCarlo returns coverHitRates for queries", () => {
   const result = runGameMonteCarlo({
     sport: "mlb",

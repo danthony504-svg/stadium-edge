@@ -26,6 +26,12 @@ test("classifySimAlignment: drop zone when sim low and edge small", () => {
   assert.equal(r.highRiskValuePlay, false);
 });
 
+test("classifySimAlignment: missing sim is not aligned", () => {
+  const r = classifySimAlignment(null, 8);
+  assert.equal(r.simAligned, false);
+  assert.equal(r.highRiskValuePlay, false);
+});
+
 test("FINAL_AI_WEIGHTS sum to 100%", () => {
   const sum = Object.values(FINAL_AI_WEIGHTS).reduce((a, b) => a + b, 0);
   assert.ok(Math.abs(sum - 1) < 0.001);
@@ -85,4 +91,30 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
   assert.ok((score.composite ?? 0) >= 7.5, `expected B+ composite, got ${score.composite}`);
   assert.equal(score.recommends, true);
   assert.equal(score.highRiskValuePlay, false);
+});
+
+test("buildFinalAiScore does not recommend without sim grade", () => {
+  const score = buildFinalAiScore({
+    pick: {
+      game: "Away Team @ Home Team",
+      market: "Both Teams To Score",
+      pick: "Yes",
+      odds: -110,
+      isProp: false,
+      sport: "soccer",
+    },
+    rubricScores: {
+      matchup: 9,
+      trend: 9,
+      lineValue: 9,
+      injury: 9,
+      lineShopping: 9,
+      simulation: 9,
+    },
+    edgePct: 6,
+    propSimHit: null,
+    gameSim: null,
+  });
+  assert.equal(score.recommends, false);
+  assert.equal(score.simHit, null);
 });

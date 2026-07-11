@@ -4,6 +4,7 @@ import { teamPace } from "../lib/statmuse.js";
 import { keyInjuryWeight, simulateProp, type SimPropRequest } from "../lib/monteCarloBuild.js";
 import { DEEP_SIMULATIONS, QUICK_SIMULATIONS } from "../lib/monteCarlo.js";
 import { runGameMonteCarlo, type GameCoverQuery } from "../lib/gameMonteCarlo.js";
+import { parsePeriodScope } from "../lib/gamePeriodMonteCarlo.js";
 import { runTennisMonteCarlo } from "../lib/tennisMonteCarlo.js";
 import { buildFightAnalysis } from "../lib/ufc.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
@@ -26,14 +27,27 @@ function parseCoverQueries(raw: unknown): GameCoverQuery[] | undefined {
     if (!item || typeof item !== "object") continue;
     const id = String((item as { id?: string }).id ?? "").trim();
     const kind = String((item as { kind?: string }).kind ?? "").toLowerCase();
-    if (!id || (kind !== "ml" && kind !== "spread" && kind !== "total")) continue;
-    const q: GameCoverQuery = { id, kind };
+    if (!id) continue;
+    const valid =
+      kind === "ml" ||
+      kind === "spread" ||
+      kind === "total" ||
+      kind === "teamtotal" ||
+      kind === "raceto";
+    if (!valid) continue;
+    const normalizedKind =
+      kind === "teamtotal" ? "teamTotal" : kind === "raceto" ? "raceTo" : kind;
+    const q: GameCoverQuery = { id, kind: normalizedKind as GameCoverQuery["kind"] };
     const teamSide = String((item as { teamSide?: string }).teamSide ?? "").toLowerCase();
     if (teamSide === "home" || teamSide === "away") q.teamSide = teamSide;
     const totalSide = String((item as { totalSide?: string }).totalSide ?? "").toLowerCase();
     if (totalSide === "over" || totalSide === "under") q.totalSide = totalSide;
     const line = (item as { line?: number }).line;
     if (line != null && Number.isFinite(line)) q.line = line;
+    const period = parsePeriodScope((item as { period?: string }).period);
+    if (period) q.period = period;
+    const raceTarget = (item as { raceTarget?: number }).raceTarget;
+    if (raceTarget != null && Number.isFinite(raceTarget)) q.raceTarget = raceTarget;
     out.push(q);
   }
   return out.length ? out : undefined;

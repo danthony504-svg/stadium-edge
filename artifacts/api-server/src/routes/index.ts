@@ -24,6 +24,7 @@ import prebuildRouter from "./prebuild";
 import stealsRouter from "./steals";
 import accountRouter from "./account";
 import simulateRouter from "./simulate";
+import liveOddsRouter from "./liveOdds";
 
 const router: IRouter = Router();
 
@@ -52,5 +53,6 @@ router.use(prebuildRouter);
 router.use(stealsRouter);
 router.use(accountRouter);
 router.use(simulateRouter);
+router.use(liveOddsRouter);
 
 export default router;

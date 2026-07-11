@@ -5,6 +5,7 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 
 // Renders the 6-component pick rubric (Matchup / Trend / Line Value / Injury /
 // Line-Shopping / Model Sim) plus the combined AI Grade, Confidence, and Edge %
@@ -115,10 +116,10 @@ function confidenceBlurb(pct: number | null, composite?: number | null): string 
 // The header row of combined metrics: AI Grade, Confidence, and (when real)
 // Edge %. Edge is omitted rather than shown as "—" when there is no genuine
 // betting edge to report.
-function HeaderTiles({ data }: { data: CombinedPickScore }) {
+function HeaderTiles({ data, simNotGraded }: { data: CombinedPickScore; simNotGraded?: boolean }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
-  const gradeColor = scoreColor(data.composite);
+  const gradeColor = simNotGraded ? colors.mutedForeground : scoreColor(data.composite);
   const edge = data.edgePct;
   const edgeColor =
     edge == null ? colors.mutedForeground : edge >= 0 ? colors.success : colors.destructive;
@@ -127,9 +128,9 @@ function HeaderTiles({ data }: { data: CombinedPickScore }) {
       <MetricTile
         icon="award"
         label="AI Grade"
-        value={data.grade ?? "—"}
+        value={simNotGraded ? NOT_YET_AI_GRADED : (data.grade ?? "—")}
         valueColor={gradeColor}
-        caption={gradeBlurb(data.composite)}
+        caption={simNotGraded ? "Simulation not available for this market yet" : gradeBlurb(data.composite)}
       />
       <MetricTile
         icon="target"
@@ -209,12 +210,14 @@ export function ScoreBreakdown({
   title,
   note,
   simulationPending,
+  simNotGraded,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
   simulationPending?: boolean;
+  simNotGraded?: boolean;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -226,7 +229,7 @@ export function ScoreBreakdown({
     if (data.composite == null) return null;
     return (
       <View style={{ gap: 8 }}>
-        <HeaderTiles data={data} />
+        <HeaderTiles data={data} simNotGraded={simNotGraded} />
         {simulationPending ? (
           <Text
             style={{
@@ -292,7 +295,7 @@ export function ScoreBreakdown({
       >
         {title ?? "Pick Score"}
       </Text>
-      <HeaderTiles data={data} />
+      <HeaderTiles data={data} simNotGraded={simNotGraded} />
       {simulationPending ? (
         <Text
           style={{

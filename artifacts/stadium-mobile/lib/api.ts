@@ -1828,11 +1828,45 @@ export type GameSimulationResult = {
 
 export type GameCoverQueryInput = {
   id: string;
-  kind: "ml" | "spread" | "total" | "teamTotal";
+  kind: "ml" | "spread" | "total" | "teamTotal" | "raceTo";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";
+  period?: string;
+  raceTarget?: number;
 };
+
+export type LiveOddsFeed = {
+  games: Array<{
+    sport: string;
+    game: string;
+    status: string;
+    awayScore: number | null;
+    homeScore: number | null;
+    periodLabel: string | null;
+    clock: string | null;
+    eventId: string;
+  }>;
+  odds: Array<
+    RealOddsEntry & {
+      live: true;
+      awayScore?: number | null;
+      homeScore?: number | null;
+      periodLabel?: string | null;
+      clock?: string | null;
+    }
+  >;
+};
+
+export async function getLiveOdds(sports: string[], signal?: AbortSignal): Promise<LiveOddsFeed> {
+  if (!sports.length) return { games: [], odds: [] };
+  const q = new URLSearchParams({ sport: sports.join(",") });
+  try {
+    return await getJson<LiveOddsFeed>(`/sports/live-odds?${q.toString()}`, signal, 20_000);
+  } catch {
+    return { games: [], odds: [] };
+  }
+}
 
 export async function fetchGameOutcomeSimulation(
   opts: {

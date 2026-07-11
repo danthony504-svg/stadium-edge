@@ -12,6 +12,7 @@ import {
   mergeOddsEntries,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
+import { gameSimHitForPick } from "./gameSimScoring.ts";
 import {
   COACH_SIM_MIN_CONFIDENCE,
   COACH_SIM_MIN_GRADE,
@@ -37,6 +38,7 @@ import { scoreLineShopping } from "./pickScore.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
+import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 
 const PROP_SIM_BATCH = 28;
 const GRADE_RANK: Record<string, number> = {
@@ -99,7 +101,8 @@ function confidenceWithLearning(
   return Math.max(5, Math.min(95, Math.round(base + delta)));
 }
 
-function gameLineQualifies(row: EvaluatedGameLine): boolean {
+function gameLineQualifies(row: EvaluatedGameLine, simHit: number | null): boolean {
+  if (!pickHasSimGrade(row.pick, simHit)) return false;
   if (qualifiesCoachSimEvalLine(row)) return true;
   if (row.finalAiScore.highRiskValuePlay && row.finalAiScore.grade) return true;
   const m = deriveGameSimLineMetrics(row);
@@ -107,6 +110,8 @@ function gameLineQualifies(row: EvaluatedGameLine): boolean {
 }
 
 function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
+  if (!pickHasSimGrade(pick, simHit)) return false;
+  if (!marketSupportsSimulation(pick.market ?? "", pick)) return false;
   const edge = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
   const grade = pick.finalAiScore?.grade ?? pick.scores?.grade ?? null;
   const conf = pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null;
@@ -128,8 +133,10 @@ function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
 function scoredFromEvalRow(
   row: EvaluatedGameLine,
   perfByFamily?: Map<string, MarketPerf>,
+  simHit?: number | null,
 ): BoardScoredLeg | null {
-  if (!gameLineQualifies(row)) return null;
+  const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
+  if (!gameLineQualifies(row, hit)) return null;
   const m = deriveGameSimLineMetrics(row);
   const implied =
     row.pick.odds != null ? Math.round(impliedProb(row.pick.odds) * 1000) / 10 : null;
@@ -145,7 +152,7 @@ function scoredFromEvalRow(
     impliedProbPct: implied,
     lineShoppingScore: lineShoppingFromPick(row.pick, row.entry),
     grade: row.finalAiScore.grade,
-    simHit: row.winProb ?? row.finalAiScore.simHit,
+    simHit: hit,
     composite: row.finalAiScore.composite,
   };
   return { ...leg, rankScore: unifiedRankScore(leg) };
@@ -222,6 +229,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
+  liveOdds?: RealOddsEntry[];
   espnGames?: EspnGame[];
   gameMeta: GameMeta[];
   teamIdMap: Map<string, GameTeamIds>;
@@ -249,14 +257,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     const ladder = buildEvalLinesForAllGames([og]).get(label) ?? [];
     evalLinesByGame.set(label, buildFullEvalLinesForGame(og, ladder));
   }
-  evalLinesByGame = augmentEvalLinesWithPostedOdds(evalLinesByGame, opts.realOdds);
+  evalLinesByGame = augmentEvalLinesWithPostedOdds(evalLinesByGame, [
+    ...opts.realOdds,
+    ...(opts.liveOdds ?? []),
+  ]);
   const gameSimulations = await fetchSlateGameSimulations(
     evalLinesByGame,
     opts.teamIdMap,
     opts.signal,
   );
 
-  const mergedOdds = mergeOddsEntries(opts.realOdds, ...evalLinesByGame.values());
+  const mergedOdds = mergeOddsEntries(opts.realOdds, ...(opts.liveOdds ?? []), ...evalLinesByGame.values());
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
 
@@ -271,7 +282,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     });
     totalScanned += evaluated.length;
     for (const row of evaluated) {
-      const leg = scoredFromEvalRow(row, opts.perfByFamily);
+      const simHit = gameSimHitForPick(row.pick, sim);
+      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit);
       if (leg) scored.push(leg);
     }
   }

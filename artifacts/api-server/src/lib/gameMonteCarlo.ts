@@ -3,6 +3,14 @@
 // One 10k draw set powers every game-line market (ML, spread, alt spread, total).
 
 import { DEFAULT_SIMULATIONS } from "./monteCarlo.js";
+import {
+  periodScoresForDraw,
+  raceToHits,
+  type SimPeriodScope,
+  sportSupportsPeriod,
+} from "./gamePeriodMonteCarlo.js";
+
+export type { SimPeriodScope };
 
 export type GameSimTeamInput = {
   ptsFor: number | null;
@@ -13,10 +21,14 @@ export type GameSimTeamInput = {
 /** Line-aware cover query — same shape the mobile shared scorer builds. */
 export type GameCoverQuery = {
   id: string;
-  kind: "ml" | "spread" | "total" | "teamTotal";
+  kind: "ml" | "spread" | "total" | "teamTotal" | "raceTo";
   teamSide?: "home" | "away";
   line?: number;
   totalSide?: "over" | "under";
+  /** Period scope — fg (default) uses full-game scores; q1/h1/f5/etc. use period draws. */
+  period?: SimPeriodScope;
+  /** Race-to target (e.g. 20 for race-to-20). */
+  raceTarget?: number;
 };
 
 export type GameSimOutcomes = {
@@ -80,17 +92,33 @@ export function coverQueryHits(
   q: GameCoverQuery,
   homeScore: number,
   awayScore: number,
+  sport = "nba",
 ): boolean {
-  const total = homeScore + awayScore;
+  if (q.kind === "raceTo") {
+    const target = q.raceTarget ?? 0;
+    const side = q.teamSide ?? "home";
+    if (target <= 0) return false;
+    return raceToHits(target, side, homeScore, awayScore);
+  }
+
+  const period: SimPeriodScope = q.period ?? "fg";
+  const scoped =
+    period === "fg" || !sportSupportsPeriod(sport, period)
+      ? { home: homeScore, away: awayScore }
+      : periodScoresForDraw(sport, period, homeScore, awayScore);
+  const hs = scoped.home;
+  const as = scoped.away;
+  const total = hs + as;
+
   if (q.kind === "ml") {
-    if (q.teamSide === "home") return homeScore > awayScore;
-    if (q.teamSide === "away") return awayScore > homeScore;
+    if (q.teamSide === "home") return hs > as;
+    if (q.teamSide === "away") return as > hs;
     return false;
   }
   if (q.kind === "spread") {
     const line = q.line ?? 0;
-    if (q.teamSide === "home") return homeScore + line > awayScore;
-    if (q.teamSide === "away") return awayScore + line > homeScore;
+    if (q.teamSide === "home") return hs + line > as;
+    if (q.teamSide === "away") return as + line > hs;
     return false;
   }
   if (q.kind === "total") {
@@ -101,7 +129,7 @@ export function coverQueryHits(
   }
   if (q.kind === "teamTotal") {
     const line = q.line ?? 0;
-    const score = q.teamSide === "home" ? homeScore : awayScore;
+    const score = q.teamSide === "home" ? hs : as;
     if (q.totalSide === "over") return score > line;
     if (q.totalSide === "under") return score < line;
     return false;
@@ -113,6 +141,7 @@ export function coverQueryHits(
 export function deriveCoverHitRates(
   outcomes: GameSimOutcomes,
   queries: GameCoverQuery[],
+  sport = "nba",
 ): Record<string, number> {
   const n = outcomes.homeScores.length;
   if (!n || n !== outcomes.awayScores.length) return {};
@@ -120,7 +149,7 @@ export function deriveCoverHitRates(
   for (const q of queries) {
     let hits = 0;
     for (let i = 0; i < n; i++) {
-      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!)) hits += 1;
+      if (coverQueryHits(q, outcomes.homeScores[i]!, outcomes.awayScores[i]!, sport)) hits += 1;
     }
     rates[q.id] = round3(hits / n);
   }
@@ -201,7 +230,7 @@ export function runGameMonteCarlo(input: GameSimInput): GameSimResult | null {
 
   const outcomes: GameSimOutcomes = { homeScores, awayScores };
   const coverHitRates =
-    coverQueries.length > 0 ? deriveCoverHitRates(outcomes, coverQueries) : undefined;
+    coverQueries.length > 0 ? deriveCoverHitRates(outcomes, coverQueries, input.sport) : undefined;
 
   return {
     simulations: n,

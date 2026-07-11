@@ -140,6 +140,7 @@ import {
   buildPropPickContext,
   gameMatchesFocalText,
   getGames,
+  getLiveOdds,
   getOdds,
   getPlayerHistory,
   getStatmuseGamelog,
@@ -2042,13 +2043,14 @@ export default function CoachScreen() {
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
             (s) => !excludedSports.has(s),
           );
-          const [espnGames, oddsGames] = await Promise.all([
+          const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
               rows.flat(),
             ),
             Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
               rows.flat(),
             ),
+            getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
           fullBoardScanMeta = await buildTopLegsFromFullBoardScan({
@@ -2056,6 +2058,7 @@ export default function CoachScreen() {
             oddsGames,
             propPool: mergedPropPool,
             realOdds: context.realOdds,
+            liveOdds: liveFeed.odds,
             espnGames,
             gameMeta,
             teamIdMap: scanTeamIdMap,

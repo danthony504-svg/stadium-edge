@@ -16,6 +16,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { pickHasSimGrade } from "./simMarketSupport.ts";
 
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
@@ -110,7 +111,7 @@ export function classifySimAlignment(
   simHit: number | null,
   edgePct: number | null,
 ): { simAligned: boolean; highRiskValuePlay: boolean } {
-  if (simHit == null) return { simAligned: true, highRiskValuePlay: false };
+  if (simHit == null) return { simAligned: false, highRiskValuePlay: false };
   if (simHit >= GAME_SIM_MIN_HIT) return { simAligned: true, highRiskValuePlay: false };
   const edge = edgePct ?? 0;
   if (edge >= HIGH_RISK_EDGE_MIN) {
@@ -167,6 +168,7 @@ export function buildFinalAiScore(input: {
   const recommends =
     gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
     (rubric.edgePct ?? 0) > 0 &&
+    pickHasSimGrade(input.pick, simHit) &&
     (simAligned || highRiskValuePlay);
 
   return {
