@@ -169,3 +169,37 @@ export function isQualifyingBackupGameLine(pick: {
   if (isMainLineGameLeg(pick)) return false;
   return isAlternateOrPeriodMarket(pick.market);
 }
+
+/** True for alternate-ladder prop rungs (flagged alt in the prop pool). */
+export function isAltPropPick(pick: {
+  market: string;
+  isProp?: boolean;
+  propIsAlt?: boolean;
+}): boolean {
+  if (!pick.isProp) return false;
+  if (pick.propIsAlt) return true;
+  return /\balt\b/i.test(pick.market);
+}
+
+/** Main full-game or main posted prop line — highest priority when filling a ticket. */
+export function isMainBoardPick(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  propIsAlt?: boolean;
+}): boolean {
+  if (pick.isProp) return !isAltPropPick(pick);
+  return isMainLineGameLeg(pick);
+}
+
+/** Alt spread/total/period rung or alternate prop — second stage when reach-N is short. */
+export function isAltBoardPick(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  propIsAlt?: boolean;
+}): boolean {
+  if (pick.isProp) return isAltPropPick(pick);
+  if (isMainLineGameLeg(pick)) return false;
+  return isQualifyingBackupGameLine(pick) || isAlternateOrPeriodMarket(pick.market);
+}

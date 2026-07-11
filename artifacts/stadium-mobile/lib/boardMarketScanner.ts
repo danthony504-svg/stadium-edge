@@ -19,14 +19,12 @@ import {
 import {
   fullBoardScanShortfallNote,
   fullBoardScanSuccessNote,
+  type TicketStagingBreakdown,
 } from "./fullBoardMarketCopy.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
-import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
-import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
-import { dedupeSameTeamGameLegs } from "./ticketDiversity.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
 import { scoreLineShopping } from "./pickScore.ts";
@@ -34,7 +32,11 @@ import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
-import { pickIsAiRecommended } from "./pickRecommendation.ts";
+import {
+  buildStagedTicketFromScan,
+  type BoardScoredLeg,
+} from "./ticketStaging.ts";
+export { buildStagedTicketFromScan, selectTopBoardLegs, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
@@ -48,18 +50,7 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
-export type BoardScoredLeg = {
-  pick: ParsedPick;
-  evPct: number | null;
-  edgePct: number | null;
-  confidencePct: number | null;
-  impliedProbPct: number | null;
-  lineShoppingScore: number | null;
-  grade: string | null;
-  simHit: number | null;
-  composite: number | null;
-  rankScore: number;
-};
+export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
 export type FullBoardScanResult = {
   picks: ParsedPick[];
@@ -67,6 +58,7 @@ export type FullBoardScanResult = {
   gameSimulations: Map<string, CoachGameSimEntry>;
   totalScanned: number;
   totalQualified: number;
+  staging: TicketStagingBreakdown;
   note: string;
 };
 
@@ -102,16 +94,13 @@ function confidenceWithLearning(
   return Math.max(5, Math.min(95, Math.round(base + delta)));
 }
 
-function gameLineQualifies(row: EvaluatedGameLine, simHit: number | null): boolean {
-  if (!pickHasSimGrade(row.pick, simHit)) return false;
-  if (!pickIsAiRecommended(row.pick, row.finalAiScore)) return false;
-  return true;
+function gameLineHasSimGrade(row: EvaluatedGameLine, simHit: number | null): boolean {
+  return pickHasSimGrade(row.pick, simHit);
 }
 
-function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
+function propHasSimGrade(pick: ParsedPick, simHit: number | null): boolean {
   if (!pickHasSimGrade(pick, simHit)) return false;
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) return false;
-  return pickIsAiRecommended(pick, pick.finalAiScore ?? undefined);
+  return marketSupportsSimulation(pick.market ?? "", pick);
 }
 
 function scoredFromEvalRow(
@@ -121,7 +110,7 @@ function scoredFromEvalRow(
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
   const hit = simHit ?? row.winProb ?? row.finalAiScore.simHit;
-  if (!gameLineQualifies(row, hit)) return null;
+  if (!gameLineHasSimGrade(row, hit)) return null;
   const m = deriveGameSimLineMetrics(row);
   const implied =
     row.pick.odds != null ? Math.round(impliedProb(row.pick.odds) * 1000) / 10 : null;
@@ -149,7 +138,7 @@ function scoredFromPropPick(
   perfByFamily?: Map<string, MarketPerf>,
   calibration?: Map<string, CalibrationBucket>,
 ): BoardScoredLeg | null {
-  if (!propQualifies(pick, simHit)) return null;
+  if (!propHasSimGrade(pick, simHit)) return null;
   const ev =
     simHit != null && pick.odds != null ? simEvPct(simHit, pick.odds) : null;
   const implied =
@@ -171,23 +160,6 @@ function scoredFromPropPick(
     composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
   };
   return { ...leg, rankScore: unifiedRankScore(leg) };
-}
-
-/** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
-export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
-  if (target >= 3) {
-    return dedupeSameTeamGameLegs(selectCorrelationAwareBoardLegs(ranked, target)).picks.slice(0, target);
-  }
-  const seen = new Set<string>();
-  const out: ParsedPick[] = [];
-  for (const row of ranked) {
-    const fp = pickLegFingerprint(row.pick);
-    if (seen.has(fp)) continue;
-    seen.add(fp);
-    out.push(row.pick);
-    if (out.length >= target) break;
-  }
-  return dedupeSameTeamGameLegs(out).picks.slice(0, target);
 }
 
 async function simAllPropPoolRows(
@@ -299,13 +271,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   }
 
   scored.sort((a, b) => b.rankScore - a.rankScore);
-  const totalQualified = scored.length;
-  const picks = selectTopBoardLegs(scored, opts.target);
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, opts.target);
+  const totalQualified = breakdown.mainQualified + breakdown.altQualified;
 
   const note =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(totalScanned, picks.length)
-      : fullBoardScanShortfallNote(totalScanned, totalQualified, picks.length);
+      : fullBoardScanShortfallNote(totalScanned, totalQualified, picks.length, breakdown);
 
   return {
     picks,
@@ -313,6 +285,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     gameSimulations,
     totalScanned,
     totalQualified,
+    staging: breakdown,
     note,
   };
 }

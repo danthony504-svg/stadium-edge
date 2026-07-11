@@ -105,7 +105,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterAiRecommendedPicks, pickIsAiRecommended } from "@/lib/pickRecommendation";
+import { filterTicketPicks, pickIsAiRecommended, qualifiesAltPick } from "@/lib/pickRecommendation";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -2871,7 +2871,7 @@ export default function CoachScreen() {
           );
         }
         const filterQualifyingAltLegs = (alts: ParsedPick[]) =>
-          alts.filter((p) => pickIsAiRecommended(p, p.finalAiScore));
+          alts.filter((p) => qualifiesAltPick(p, p.finalAiScore));
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2987,7 +2987,7 @@ export default function CoachScreen() {
         let aiFilterNote = "";
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = filterAiRecommendedPicks(picks);
+          picks = filterTicketPicks(picks);
           if (picks.length < beforeFilter) {
             aiFilterNote =
               picks.length > 0
@@ -3006,6 +3006,7 @@ export default function CoachScreen() {
                   fullBoardScanMeta.totalQualified,
                   oddsPhrase,
                   excludeSportsList,
+                  fullBoardScanMeta.staging,
                 )
               : requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
                 ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
@@ -3031,6 +3032,7 @@ export default function CoachScreen() {
                   fullBoardScanMeta.totalQualified,
                   oddsPhrase,
                   excludeSportsList,
+                  fullBoardScanMeta.staging,
                 )
             : picks.length > 0 && requestedLegs > picks.length
               ? legNote
@@ -3670,7 +3672,13 @@ export default function CoachScreen() {
                         pick={p}
                         onPress={statsHandlerFor(p)}
                         badge={
-                          p.highRiskValuePlay
+                          p.ticketRole === "alt"
+                            ? {
+                                text: "ALT PICK",
+                                caption: "Alternate rung — positive EV, edge, and sim grade",
+                                tone: "grade" as const,
+                              }
+                            : p.highRiskValuePlay
                             ? {
                                 text: "High-Risk Value Play",
                                 caption: "Simulator disagrees — large line-value edge only",

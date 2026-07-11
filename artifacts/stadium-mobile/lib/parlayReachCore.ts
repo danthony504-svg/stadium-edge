@@ -95,18 +95,34 @@ export function buildFullBoardShortfallNote(
   totalQualified: number,
   oddsPhrase: string,
   excludedSports?: string[],
+  staging?: {
+    mainQualified: number;
+    altQualified: number;
+    mainOnTicket: number;
+    altOnTicket: number;
+  },
 ): string {
   const exclusion =
     excludedSports && excludedSports.length > 0
       ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues were off the board. `
       : "";
+  const mainQ = staging?.mainQualified ?? totalQualified;
+  const altQ = staging?.altQualified ?? 0;
+  const mainOn = staging?.mainOnTicket ?? actual;
+  const altOn = staging?.altOnTicket ?? 0;
+  const fillDetail =
+    altOn > 0
+      ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} and **${altOn}** alt pick${altOn === 1 ? "" : "s"} (each alt labeled ALT PICK) made the ticket.`
+      : mainOn > 0
+        ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} made the ticket.`
+        : "";
   return [
     `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`,
     actual >= requested && totalQualified >= actual
-      ? `**${totalQualified}** lines cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%, sim hit > implied). These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
+      ? `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${fillDetail} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
       : totalQualified > actual
-        ? `**${totalQualified}** cleared quality filters. These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
-        : `Only **${totalQualified}** lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).`,
+        ? `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${fillDetail} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
+        : `Only **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).${fillDetail}`,
   ].join("\n\n");
 }
 

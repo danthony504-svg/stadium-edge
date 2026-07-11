@@ -111,6 +111,10 @@ export type ParsedPick = {
   finalAiScore?: import("@/lib/finalAiScore").FinalAiScore | null;
   /** Sim disagrees but edge ≥ HIGH_RISK_EDGE_MIN — shown with warning badge. */
   highRiskValuePlay?: boolean;
+  /** Main-board leg vs alt rung promoted to fill a reach-N ticket. */
+  ticketRole?: "main" | "alt";
+  /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
+  propIsAlt?: boolean;
 };
 
 if (

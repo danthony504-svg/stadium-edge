@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   gameAltPoolForPick,
+  isAltPropPick,
   isAlternateOrPeriodMarket,
+  isMainBoardPick,
   isMainLineGameLeg,
   isPostablePoolLadderOdds,
   isQualifyingBackupGameLine,
@@ -25,6 +27,14 @@ const evalLines: RealOddsEntry[] = [
   { sport: "mlb", game: pick.game, market: "F5 Run Line", pick: "Yankees -1.5", odds: 120 },
   { sport: "mlb", game: pick.game, market: "Alt Total", pick: "Over 9", odds: 110 },
 ];
+
+test("isAltPropPick and isMainBoardPick classify prop pool rungs", () => {
+  assert.ok(
+    isAltPropPick({ market: "Points", isProp: true, propIsAlt: true }),
+  );
+  assert.ok(!isMainBoardPick({ market: "Points", isProp: true, propIsAlt: true }));
+  assert.ok(isMainBoardPick({ market: "Points", isProp: true }));
+});
 
 test("poolMatchesPickFamily groups spread, alt spread, and period run lines", () => {
   assert.ok(poolMatchesPickFamily(evalLines[0]!, pick));

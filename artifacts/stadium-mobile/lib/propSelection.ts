@@ -49,6 +49,7 @@ export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
     odds: e.odds,
     sport: e.sport,
     isProp: true,
+    propIsAlt: !!e.alt,
     startsAt: e.startsAt,
     headshot: e.headshot,
     teamAbbr: e.teamAbbr,

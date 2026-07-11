@@ -1,0 +1,135 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
+import type { ParsedPick } from "../components/PickCard.tsx";
+
+function leg(
+  pick: Partial<ParsedPick> & Pick<ParsedPick, "game" | "market" | "pick" | "odds">,
+  rankScore: number,
+  finalAiScore?: ParsedPick["finalAiScore"],
+): BoardScoredLeg {
+  const full: ParsedPick = {
+    isProp: false,
+    sport: "mlb",
+    ...pick,
+    finalAiScore: finalAiScore ?? pick.finalAiScore,
+  };
+  return {
+    pick: full,
+    evPct: 2,
+    edgePct: 3,
+    confidencePct: 55,
+    impliedProbPct: 50,
+    lineShoppingScore: 1,
+    grade: "B",
+    simHit: 0.55,
+    composite: 7,
+    rankScore,
+  };
+}
+
+const mainScore = {
+  composite: 8,
+  grade: "B+",
+  confidencePct: 58,
+  edgePct: 4,
+  simHit: 0.56,
+  simAligned: true,
+  highRiskValuePlay: false,
+  recommends: true,
+  factors: [],
+  rubric: { composite: 8, grade: "B+", confidencePct: 58, edgePct: 4, scores: {} as never },
+};
+
+const altScore = {
+  composite: 6,
+  grade: "C+",
+  confidencePct: 52,
+  edgePct: 1.5,
+  simHit: 0.53,
+  simAligned: false,
+  highRiskValuePlay: false,
+  recommends: false,
+  factors: [],
+  rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+};
+
+test("buildStagedTicketFromScan fills mains first then alts to reach target", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -105 }, 95, mainScore),
+    leg({ game: "E @ F", market: "Alt Spread", pick: "E +2.5", odds: 110 }, 90, altScore),
+    leg({ game: "G @ H", market: "Alt Spread", pick: "G -1.5", odds: 105 }, 85, altScore),
+    leg(
+      {
+        game: "I @ J",
+        market: "Stolen Bases",
+        pick: "Player Over 0.5 Stolen Bases",
+        odds: 1000,
+        isProp: true,
+        propIsAlt: true,
+      },
+      80,
+      altScore,
+    ),
+  ];
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 4);
+  assert.equal(picks.length, 4);
+  assert.equal(breakdown.mainOnTicket, 2);
+  assert.equal(breakdown.altOnTicket, 2);
+  assert.ok(picks.slice(0, 2).every((p) => p.ticketRole === "main"));
+  assert.ok(picks.slice(2).every((p) => p.ticketRole === "alt"));
+});
+
+test("buildStagedTicketFromScan stops at available qualifiers without filler", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Alt Spread", pick: "C +1.5", odds: 115 }, 90, altScore),
+  ];
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15);
+  assert.equal(picks.length, 2);
+  assert.equal(breakdown.mainOnTicket, 1);
+  assert.equal(breakdown.altOnTicket, 1);
+  assert.equal(breakdown.mainQualified, 1);
+  assert.equal(breakdown.altQualified, 1);
+});
+
+test("buildStagedTicketFromScan example: 10 main + 5 alt for 15-leg ask", () => {
+  const scored: BoardScoredLeg[] = [];
+  for (let i = 0; i < 10; i++) {
+    scored.push(
+      leg(
+        { game: `M${i} @ N${i}`, market: "Spread", pick: `Team -${i + 1}.5`, odds: -110 },
+        200 - i,
+        mainScore,
+      ),
+    );
+  }
+  for (let i = 0; i < 4; i++) {
+    scored.push(
+      leg(
+        { game: `A${i} @ B${i}`, market: "Alt Spread", pick: `Team +${i + 1}.5`, odds: 110 + i },
+        100 - i,
+        altScore,
+      ),
+    );
+  }
+  scored.push(
+    leg(
+      {
+        game: "X @ Y",
+        market: "Stolen Bases",
+        pick: "Riley Over 0.5 Stolen Bases",
+        odds: 1000,
+        isProp: true,
+        propIsAlt: true,
+      },
+      90,
+      altScore,
+    ),
+  );
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 15);
+  assert.equal(picks.length, 15);
+  assert.equal(breakdown.mainOnTicket, 10);
+  assert.equal(breakdown.altOnTicket, 5);
+});

@@ -1,10 +1,16 @@
 // AI recommendation gate — only markets that pass simulation + edge + EV + confidence.
 
 import type { FinalAiScore } from "./finalAiScore.ts";
-import { COACH_SIM_MIN_CONFIDENCE, COACH_SIM_MIN_GRADE } from "./gameSimQualityGates.ts";
-import { simEvPct } from "./gameSimQualityGates.ts";
+import {
+  COACH_SIM_MIN_CONFIDENCE,
+  COACH_SIM_MIN_GRADE,
+  simEvPct,
+} from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+
+/** Softer confidence floor for alt legs promoted onto a reach-N ticket. */
+export const ALT_PICK_MIN_CONFIDENCE = 50;
 
 export const NOT_AI_RECOMMENDED = "Not AI Recommended";
 
@@ -71,11 +77,44 @@ export function pickGradeDisplayCaption(
   return "Did not pass AI recommendation thresholds";
 }
 
+/** True when an alt rung passes the softer reach-N alt thresholds. */
+export function qualifiesAltPick(
+  pick: RecommendablePick,
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
+  if ((score.confidencePct ?? 0) < ALT_PICK_MIN_CONFIDENCE) return false;
+  if ((score.edgePct ?? 0) <= 0) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  return true;
+}
+
+/** Main legs use the strict gate; staged alt legs use the softer alt gate. */
+export function pickPassesTicketGate(
+  pick: RecommendablePick & { ticketRole?: "main" | "alt" },
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (pick.ticketRole === "alt") return qualifiesAltPick(pick, score);
+  return pickIsAiRecommended(pick, score);
+}
+
 /** Keep only legs that pass every AI recommendation threshold. */
 export function filterAiRecommendedPicks<T extends RecommendablePick & { finalAiScore?: FinalAiScore | null }>(
   picks: T[],
 ): T[] {
   return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore));
+}
+
+/** Keep main legs that pass the strict gate and alt legs that pass the alt gate. */
+export function filterTicketPicks<
+  T extends RecommendablePick & { finalAiScore?: FinalAiScore | null; ticketRole?: "main" | "alt" },
+>(picks: T[]): T[] {
+  return picks.filter((p) => pickPassesTicketGate(p, p.finalAiScore));
 }
 
 export function countAiRecommendedPicks(
