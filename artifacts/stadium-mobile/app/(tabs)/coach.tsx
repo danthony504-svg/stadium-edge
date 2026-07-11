@@ -2224,6 +2224,13 @@ export default function CoachScreen() {
               gameMeta,
               boardBuildOpts,
             );
+            picks = scrubExcludedSportsFromPicks(
+              picks,
+              excludedSports,
+              mergedPropPool,
+              mergedGameOdds,
+              gameMeta,
+            );
           }
         }
         if (slateDay) {
@@ -2656,6 +2663,13 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
+            picks = scrubExcludedSportsFromPicks(
+              picks,
+              excludedSports,
+              mergedPropPool,
+              mergedGameOdds,
+              gameMeta,
+            );
           }
         }
         if (!isAnalyze && picks.some(isGameLinePick)) {

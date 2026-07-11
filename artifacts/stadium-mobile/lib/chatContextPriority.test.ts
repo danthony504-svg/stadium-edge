@@ -6,6 +6,7 @@ import {
   enrichPicksWithSport,
   excludedSportsFromText,
   excludedSportsFromThread,
+  filterForExcludedSports,
   filterPicksForExcludedSports,
   focalSportsFromText,
   inferPropPickSport,
@@ -297,6 +298,40 @@ test("pickMatchesExcludedSport tags Hits+Runs+RBIs as MLB", () => {
     propMarketKey: "batter_hits_runs_rbis",
   };
   assert.ok(pickMatchesExcludedSport(pick as any, "mlb"));
+});
+
+test("scrub removes stolen bases prop when MLB is excluded", () => {
+  const excluded = new Set(["mlb"]);
+  const picks = [
+    {
+      game: "Houston Astros @ Texas Rangers",
+      market: "STOLEN BASES",
+      pick: "Jake Burger Over 0.5 Stolen Bases",
+      odds: 1500,
+      isProp: true,
+      player: "Jake Burger",
+      propLine: 0.5,
+      propSide: "Over",
+    },
+  ];
+  const out = scrubExcludedSportsFromPicks(picks as any, excluded, [], [], []);
+  assert.equal(out.length, 0);
+});
+
+test("filterForExcludedSports drops untagged stolen-bases pool rows when MLB is excluded", () => {
+  const excluded = new Set(["mlb"]);
+  const pool = [
+    {
+      game: "Philadelphia Phillies @ Detroit Tigers",
+      marketLabel: "Stolen Bases",
+      player: "Ben Malgeri",
+      line: 0.5,
+      side: "Over" as const,
+      odds: 1400,
+    },
+  ];
+  const kept = filterForExcludedSports(pool, excluded);
+  assert.equal(kept.length, 0);
 });
 
 test("isNegatedSportKeyword matches common phrasing", () => {

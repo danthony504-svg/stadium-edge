@@ -67,12 +67,19 @@ export function excludedSportsFromText(text: string | null | undefined): Set<str
   return out;
 }
 
-export function filterForExcludedSports<T extends { sport?: string | null }>(
+export function filterForExcludedSports<T extends { sport?: string | null; game?: string }>(
   entries: T[],
   excluded: Set<string>,
 ): T[] {
   if (!excluded.size) return entries;
-  return entries.filter((e) => !e.sport || !excluded.has(e.sport));
+  const sportByGame = new Map<string, string>();
+  for (const e of entries) {
+    if (e.sport && e.game) sportByGame.set(e.game.toLowerCase(), e.sport);
+  }
+  return entries.filter((e) => {
+    const sport = sportForPoolOrOddsEntry(e as Parameters<typeof sportForPoolOrOddsEntry>[0], sportByGame);
+    return !sport || !excluded.has(sport);
+  });
 }
 
 /** Strict pick filter — drops legs tagged or inferred as an excluded league. */
@@ -136,9 +143,42 @@ function sportFromPropMarketKey(key?: string | null): string | undefined {
   return undefined;
 }
 
+/** Infer league from market label / prop key when the feed omitted sport. */
+export function sportFromMarketText(market: string, propMarketKey?: string | null): string | undefined {
+  const fromKey = sportFromPropMarketKey(propMarketKey);
+  if (fromKey) return fromKey;
+  const blob = normPickText(market);
+  for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
+    if (re.test(blob)) return sport;
+  }
+  return undefined;
+}
+
+export function sportForPoolOrOddsEntry(
+  entry: {
+    sport?: string | null;
+    game?: string;
+    marketLabel?: string;
+    market?: string;
+    marketKey?: string;
+  },
+  sportByGame?: Map<string, string>,
+): string | undefined {
+  if (entry.sport) return entry.sport;
+  const fromKey = sportFromPropMarketKey(entry.marketKey);
+  if (fromKey) return fromKey;
+  const market = entry.marketLabel ?? entry.market ?? "";
+  const fromMarket = sportFromMarketText(market, entry.marketKey);
+  if (fromMarket) return fromMarket;
+  if (entry.game && sportByGame) return sportForGameLabel(entry.game, sportByGame);
+  return undefined;
+}
+
 function inferSportFromPickText(pick: ParsedPick): string | undefined {
   const fromKey = sportFromPropMarketKey(pick.propMarketKey);
   if (fromKey) return fromKey;
+  const fromMarket = sportFromMarketText(pick.market, pick.propMarketKey);
+  if (fromMarket) return fromMarket;
   const blob = normPickText(`${pick.market} ${pick.pick}`);
   for (const { sport, re } of PROP_MARKET_SPORT_HINTS) {
     if (re.test(blob)) return sport;
