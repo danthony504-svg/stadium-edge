@@ -99,7 +99,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
+import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -407,6 +407,7 @@ const QUICK_PROMPTS: { label: string; prompt: string }[] = [
 ];
 
 const CHAT_SEEN_KEY = "se_chat_seen";
+const EXCLUDED_SPORTS_KEY = "se_coach_excluded_sports";
 
 const WELCOME_FIRST_TIME =
   "Welcome to Stadium Edge. I’m connected to live odds, live game data, and an AI brain built for sports analysis. Toggle PICK LIVE to load real-time matchups, then ask me anything — I factor in odds value, team form, coaching tendencies, injuries, and weather conditions to give you the sharpest possible take.\n\nParlay builds default to today’s upcoming slate — only games on today’s board that haven’t started yet. Say \"for tomorrow\" if you want the next day’s board instead.\n\nTap 3-Leg, 6-Leg, 9-Leg, or 15-Leg to build a parlay that size, or just type what you want. Heads up: confidence compounds down with each leg — a 15-leg parlay is a true longshot.";
@@ -883,6 +884,8 @@ export default function CoachScreen() {
   );
 
   const [messages, setMessages] = useState<UIMessage[]>([]);
+  const persistedExcludedSportsRef = useRef<Set<string>>(new Set());
+  const excludedSportsHydratedRef = useRef(false);
   const [input, setInput] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -983,6 +986,22 @@ export default function CoachScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    void AsyncStorage.getItem(EXCLUDED_SPORTS_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          persistedExcludedSportsRef.current = new Set(JSON.parse(raw) as string[]);
+        } catch {
+          /* ignore corrupt storage */
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        excludedSportsHydratedRef.current = true;
+      });
+  }, []);
+
   const slipForContext = useMemo(
     () => legs.map((l) => ({ game: l.game, market: l.market, pick: l.pick, odds: l.odds })),
     [legs],
@@ -1064,6 +1083,15 @@ export default function CoachScreen() {
     ) => {
       const replay = opts?.replay ?? null;
       const trimmed = text.trim();
+      if (!excludedSportsHydratedRef.current) {
+        try {
+          const raw = await AsyncStorage.getItem(EXCLUDED_SPORTS_KEY);
+          if (raw) persistedExcludedSportsRef.current = new Set(JSON.parse(raw) as string[]);
+        } catch {
+          /* ignore corrupt storage */
+        }
+        excludedSportsHydratedRef.current = true;
+      }
       // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
@@ -1316,7 +1344,14 @@ export default function CoachScreen() {
             : slateDay === "tonight" && !wantsTodayOnly(trimmed)
               ? `${trimmed} tonight`
               : trimmed;
-        const excludedSports = excludedSportsFromThread(...priorUserTexts, trimmed);
+        const excludedSports = resolveExcludedSports(priorUserTexts, trimmed, persistedExcludedSportsRef.current);
+        try {
+          const nextPersisted = [...excludedSports];
+          persistedExcludedSportsRef.current = excludedSports;
+          await AsyncStorage.setItem(EXCLUDED_SPORTS_KEY, JSON.stringify(nextPersisted));
+        } catch {
+          /* storage unavailable — in-memory exclusion still applies this send */
+        }
         const excludeSportsList = excludedSports.size > 0 ? [...excludedSports] : undefined;
         const sportScopeText = [...priorUserTexts, trimmed].join(" ");
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;

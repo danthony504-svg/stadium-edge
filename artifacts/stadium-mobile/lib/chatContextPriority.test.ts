@@ -12,6 +12,7 @@ import {
   isNegatedSportKeyword,
   parlayPoolHint,
   prioritizePlayerHistoryTargets,
+  resolveExcludedSports,
   scrubExcludedSportsFromPicks,
 } from "./chatContextPriority.ts";
 
@@ -252,6 +253,18 @@ test("scrubExcludedSportsFromPicks enriches then removes excluded leagues", () =
     { game: "Colorado Rockies @ San Francisco Giants", sport: "mlb" },
   ]);
   assert.equal(out.length, 0);
+});
+
+test("resolveExcludedSports keeps persisted no-MLB across a fresh 15-leg ask", () => {
+  const persisted = new Set(["mlb"]);
+  const resolved = resolveExcludedSports([], "15 leg parlay", persisted);
+  assert.ok(resolved.has("mlb"));
+});
+
+test("resolveExcludedSports lifts MLB ban when user asks for an MLB ticket", () => {
+  const persisted = new Set(["mlb"]);
+  const resolved = resolveExcludedSports([], "12 leg MLB parlay", persisted);
+  assert.ok(!resolved.has("mlb"));
 });
 
 test("isNegatedSportKeyword matches common phrasing", () => {

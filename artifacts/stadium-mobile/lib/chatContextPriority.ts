@@ -129,6 +129,25 @@ export function excludedSportsFromThread(
   return excludedSportsFromText(texts.filter(Boolean).join(" "));
 }
 
+/**
+ * Merge persisted exclusions with the current thread, and lift a ban when the
+ * user positively names a league this turn ("15 leg MLB parlay").
+ */
+export function resolveExcludedSports(
+  priorUserTexts: string[],
+  currentText: string,
+  persisted: Set<string>,
+): Set<string> {
+  const out = new Set(persisted);
+  for (const sport of excludedSportsFromThread(...priorUserTexts, currentText)) {
+    out.add(sport);
+  }
+  for (const sport of focalSportsFromText(currentText)) {
+    out.delete(sport);
+  }
+  return out;
+}
+
 /** Fill missing pick.sport from the prop pool or game odds so exclusion filters work. */
 export function enrichPicksWithSport(
   picks: ParsedPick[],

@@ -22,7 +22,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
-import { gameAltPoolForPick } from "./altLinePool.ts";
+import { gameAltPoolForPick, isPostablePoolLadderOdds, ladderTierForSiblingIndex } from "./altLinePool.ts";
 export { gameAltPoolForPick, poolMatchesPickFamily, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
@@ -374,6 +374,7 @@ export function attachPropPoolLadder(
           e.player === pick.player &&
           e.side === side &&
           e.line != null &&
+          isPostablePoolLadderOdds(e.odds) &&
           (marketKey ? e.marketKey === marketKey : norm(e.marketLabel) === norm(pick.market)) &&
           (!pick.game || e.game === pick.game),
       )
@@ -382,20 +383,14 @@ export function attachPropPoolLadder(
     const onLine = pick.propLine;
     const others = siblings.filter((e) => e.line !== onLine);
     if (!others.length) return pick;
-    const tierForIndex = (i: number, n: number): SimAltTierLabel => {
-      if (n === 1) return "Best";
-      if (i === 0) return side === "Under" ? "Safest" : "High Risk";
-      if (i === n - 1) return side === "Under" ? "High Risk" : "Safest";
-      if (i === Math.floor(n / 2)) return "Best Value";
-      return "Best";
-    };
+    const cap = Math.min(others.length, MAX_SIM_ALT_LINES);
     const ranked = others.slice(0, MAX_SIM_ALT_LINES).map((e, i) => ({
       side: e.side,
       line: e.line!,
       odds: e.odds,
       pick: `${e.player} ${e.side} ${e.line} ${e.marketLabel}`,
       market: e.marketLabel,
-      tierLabel: tierForIndex(i, Math.min(others.length, MAX_SIM_ALT_LINES)),
+      tierLabel: ladderTierForSiblingIndex(i, cap),
     }));
     return { ...pick, simAltLines: ranked, altOptions: undefined };
   });
