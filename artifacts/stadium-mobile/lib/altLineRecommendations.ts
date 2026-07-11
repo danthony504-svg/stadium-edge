@@ -77,6 +77,11 @@ function qualifiesAltMetrics(m: GameSimLineMetrics): boolean {
   return qualifiesCoachSimLineMetrics(m);
 }
 
+/** Softer bar for surfacing alt chips — positive edge + EV with full metrics. */
+function qualifiesDisplayAlt(m: GameSimLineMetrics): boolean {
+  return m.edgePct > 0 && m.evPct > 0;
+}
+
 function isHighRiskStyle(r: AltRungMetrics): boolean {
   return r.winProb < 0.52 && r.edgePct >= 5 && r.evPct > 0;
 }
@@ -296,6 +301,100 @@ export function recommendPropAltTiers(
   const baseConf = sim.confidenceScore ?? finalAi?.confidencePct ?? pick.scores?.confidencePct ?? 50;
 
   const rows: AltRungMetrics[] = [];
+  const strictRows: AltRungMetrics[] = [];
+  for (const [lineStr, hit] of Object.entries(sim.lineHitRates)) {
+    const line = parseFloat(lineStr);
+    if (!Number.isFinite(line) || hit == null || !Number.isFinite(hit)) continue;
+    const poolEntry = propPool.find(
+      (e) =>
+        e.player === pick.player &&
+        e.side === side &&
+        e.line === line &&
+        (marketKey ? e.marketKey === marketKey : true) &&
+        (pick.game ? e.game === pick.game : true),
+    );
+    if (!poolEntry || poolEntry.odds == null) continue;
+    const metrics = propMetricsFromSim(hit, poolEntry.odds, baseConf, grade);
+    if (!metrics) continue;
+    const pickStr = formatPropPick(pick.player, side, line, poolEntry.marketLabel);
+    const row: AltRungMetrics = {
+      side,
+      line,
+      odds: poolEntry.odds,
+      pick: pickStr,
+      market: poolEntry.marketLabel,
+      winProb: hit,
+      edgePct: metrics.edgePct,
+      evPct: metrics.evPct,
+      confidencePct: metrics.confidencePct,
+      grade: metrics.grade,
+      composite: overallScore({
+        side,
+        line,
+        odds: poolEntry.odds,
+        pick: pickStr,
+        winProb: hit,
+        edgePct: metrics.edgePct,
+        evPct: metrics.evPct,
+        confidencePct: metrics.confidencePct,
+        grade: metrics.grade,
+      }),
+    };
+    if (qualifiesAltMetrics(metrics)) strictRows.push(row);
+    if (qualifiesDisplayAlt(metrics)) rows.push(row);
+  }
+
+  const displayRows = rows.length ? rows : strictRows;
+  const tiers = pickTiers(displayRows);
+  if (pick.propLine != null && pick.odds != null) {
+    const onTicket = rungKey({
+      market: pick.market,
+      pick: pick.pick,
+      odds: pick.odds,
+    });
+    tiers.ranked = buildRankedSimAltLines(rows, onTicket);
+  }
+  return tiers;
+}
+
+/** Swap a prop leg to the best strict qualifying alt rung from 10k sim. */
+export function optimizePropPickToBestAlt(
+  pick: ParsedPick,
+  propPool: PropPoolEntry[],
+  sim: PropSimulationResult,
+): ParsedPick {
+  if (!pick.isProp || !pick.player || !pick.propSide) return pick;
+  const tiers = recommendPropAltTiers(pick, propPool, sim, pick.finalAiScore);
+  const strict = collectStrictPropAltRows(pick, propPool, sim, pick.finalAiScore);
+  const best = bestQualifyingAltRung(strict);
+  if (!best) return pick;
+  const onTicket = rungKey({ market: pick.market, pick: pick.pick, odds: pick.odds });
+  if (rungKey({ market: best.market, pick: best.pick, odds: best.odds }) === onTicket) {
+    return tiers.ranked.length ? { ...pick, simAltLines: tiers.ranked, altOptions: undefined } : pick;
+  }
+  return {
+    ...pick,
+    pick: best.pick,
+    odds: best.odds,
+    propLine: best.line,
+    market: best.market ?? pick.market,
+    simAltLines: tiers.ranked,
+    altOptions: undefined,
+  };
+}
+
+function collectStrictPropAltRows(
+  pick: ParsedPick,
+  propPool: PropPoolEntry[],
+  sim: PropSimulationResult,
+  finalAi?: FinalAiScore | null,
+): AltRungMetrics[] {
+  if (!pick.isProp || !pick.player || !pick.propSide || sim?.lineHitRates == null) return [];
+  const side = pick.propSide === "Under" ? "Under" : "Over";
+  const marketKey = pick.propMarketKey;
+  const grade = finalAi?.grade ?? pick.finalAiScore?.grade ?? pick.scores?.grade ?? null;
+  const baseConf = sim.confidenceScore ?? finalAi?.confidencePct ?? pick.scores?.confidencePct ?? 50;
+  const rows: AltRungMetrics[] = [];
   for (const [lineStr, hit] of Object.entries(sim.lineHitRates)) {
     const line = parseFloat(lineStr);
     if (!Number.isFinite(line) || hit == null || !Number.isFinite(hit)) continue;
@@ -335,17 +434,27 @@ export function recommendPropAltTiers(
       }),
     });
   }
+  return rows;
+}
 
-  const tiers = pickTiers(rows);
-  if (pick.propLine != null && pick.odds != null) {
-    const onTicket = rungKey({
-      market: pick.market,
-      pick: pick.pick,
-      odds: pick.odds,
-    });
-    tiers.ranked = buildRankedSimAltLines(rows, onTicket);
-  }
-  return tiers;
+/** Attach 10k prop alt tiers after deep sim — does not require game-line sim. */
+export function attachPropSimAltLines(
+  picks: ParsedPick[],
+  propPool: PropPoolEntry[],
+  propSims: Map<string, PropSimulationResult>,
+  opts: { swapToBestAlt?: boolean } = {},
+): ParsedPick[] {
+  return picks.map((pick) => {
+    if (!pick.isProp || !pick.player || pick.propLine == null) return pick;
+    const sim = findPropSimResult(pick, propSims);
+    if (!sim || (sim.simulations ?? 0) < DEEP_SIM_COUNT) return pick;
+    if (opts.swapToBestAlt) {
+      return optimizePropPickToBestAlt(pick, propPool, sim);
+    }
+    const tiers = recommendPropAltTiers(pick, propPool, sim, pick.finalAiScore);
+    if (!tiers.ranked.length) return { ...pick, altOptions: undefined };
+    return { ...pick, simAltLines: tiers.ranked, altOptions: undefined };
+  });
 }
 
 /** Replace heuristic alts with 10k-sim labeled alt lines on each pick card. */

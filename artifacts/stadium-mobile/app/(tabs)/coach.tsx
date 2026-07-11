@@ -98,7 +98,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { coachBuildSports, excludedSportsFromText, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
+import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -1315,8 +1315,9 @@ export default function CoachScreen() {
             : slateDay === "tonight" && !wantsTodayOnly(trimmed)
               ? `${trimmed} tonight`
               : trimmed;
-        const excludedSports = excludedSportsFromText(focalForPools);
+        const excludedSports = excludedSportsFromThread(...priorUserTexts, trimmed);
         const excludeSportsList = excludedSports.size > 0 ? [...excludedSports] : undefined;
+        const sportScopeText = [...priorUserTexts, trimmed].join(" ");
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
@@ -1390,8 +1391,8 @@ export default function CoachScreen() {
             });
           }
         } else {
-          const buildSports = coachBuildSports(focalForPools, buildLegs, DEFAULT_SPORTS);
-          const focalSports = focalSportsFromText(focalForPools);
+          const buildSports = coachBuildSports(sportScopeText, buildLegs, DEFAULT_SPORTS);
+          const focalSports = focalSportsFromText(sportScopeText);
           // Slip-photo verdict ("read this ticket") goes straight to the vision
           // model — skip the 30s+ odds/props/matchup fan-out that was connect-
           // stalling before /chat even opened on cellular.

@@ -5,7 +5,7 @@
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropPoolEntry, RealOddsEntry } from "@/lib/api";
 import { fetchPropSimulations, type PropSimulationResult } from "@/lib/api";
-import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
+import { attachSimAltOptionsToPicks, attachPropSimAltLines } from "@/lib/altLineRecommendations";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
@@ -65,6 +65,12 @@ function scorePicksWithSim(
   );
   if (opts.excludedSports?.size) {
     out = filterForExcludedSports(out, opts.excludedSports);
+  }
+  if (!simulationPending && fullSimRows?.size) {
+    out = attachPropSimAltLines(out, opts.propPool, fullSimRows, { swapToBestAlt: true });
+    if (opts.excludedSports?.size) {
+      out = filterForExcludedSports(out, opts.excludedSports);
+    }
   }
   if (opts.altAttach && !simulationPending) {
     out = attachSimAltOptionsToPicks(out, {

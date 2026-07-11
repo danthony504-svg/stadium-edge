@@ -4,6 +4,7 @@ import {
   contextDepthForLegs,
   coachBuildSports,
   excludedSportsFromText,
+  excludedSportsFromThread,
   focalSportsFromText,
   inferPropPickSport,
   isNegatedSportKeyword,
@@ -178,6 +179,11 @@ test("stable within a tier: original order preserved among equal-rank targets", 
 // ---------- contextDepthForLegs: scale data to ticket size ----------
 
 const FULL_PROPS = 400;
+
+test("excludedSportsFromThread carries no MLB from a prior user turn", () => {
+  assert.ok(excludedSportsFromThread("12 leg no MLB", "give me 15 more legs").has("mlb"));
+  assert.ok(!excludedSportsFromThread("15 leg parlay", "nba only").has("mlb"));
+});
 
 test("excludedSportsFromText recognizes no MLB / without baseball", () => {
   assert.ok(excludedSportsFromText("12 leg no MLB").has("mlb"));

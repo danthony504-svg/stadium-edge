@@ -72,6 +72,13 @@ export function filterForExcludedSports<T extends { sport?: string | null }>(
   return entries.filter((e) => !e.sport || !excluded.has(e.sport));
 }
 
+/** Scan the full Coach thread — exclusions from an earlier turn still apply. */
+export function excludedSportsFromThread(
+  ...texts: (string | null | undefined)[]
+): Set<string> {
+  return excludedSportsFromText(texts.filter(Boolean).join(" "));
+}
+
 /** Drop excluded leagues from per-game eval ladders used for alt-line grading. */
 export function filterEvalLinesByExcludedSports(
   map: Map<string, { sport?: string | null }[]>,
