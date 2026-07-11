@@ -20,6 +20,8 @@ export type PropSimAttachOpts = {
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
   /** Never drop below this many cards after sim scoring (restores as high-risk). */
   minLegs?: number;
+  /** Leagues the user banned — never restored via minLegs padding. */
+  excludedSports?: Set<string>;
 };
 
 function simMapFromResults(
@@ -46,6 +48,7 @@ function scorePicksWithSim(
   });
   const filtered = filterCoachPicksWithPropSim(scored, sims, {
     minLegs: opts.minLegs,
+    excludedSports: opts.excludedSports,
   });
   return filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,

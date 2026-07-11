@@ -2802,24 +2802,29 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
-            minLegs: requestedLegs > 0 ? requestedLegs : undefined,
+            minLegs: excludedSports.size > 0 ? undefined : requestedLegs > 0 ? requestedLegs : undefined,
+            excludedSports: excludedSports.size > 0 ? excludedSports : undefined,
           };
-          const snapshot = picks;
+          const snapshot =
+            excludedSports.size > 0 ? filterForExcludedSports(picks, excludedSports) : picks;
+          const applySimPicks = (scored: ParsedPick[]) => {
+            const next =
+              excludedSports.size > 0 ? filterForExcludedSports(scored, excludedSports) : scored;
+            patchLastAssistantPicks(setMessages, next);
+            setAiPicks(next);
+            captureFromCoach(next);
+          };
           void loadPropSimulationsProgressive(
             snapshot,
             simOpts,
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
-                captureFromCoach(scored);
+                applySimPicks(scored);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
-                captureFromCoach(scored);
+                applySimPicks(scored);
               },
             },
             simController.signal,
