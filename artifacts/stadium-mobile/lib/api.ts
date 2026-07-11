@@ -2104,6 +2104,8 @@ function balancePropsByGame(props: RealPropEntry[], cap: number, focalText?: str
 
 export type ChatContext = {
   selectedSports: string[];
+  /** Leagues the user banned for this ticket (e.g. ["mlb"] after "no MLB"). */
+  excludedSports?: string[];
   currentSlip: { game: string; market: string; pick: string; odds: number }[];
   realGames: RealGameEntry[];
   realOdds: RealOddsEntry[];

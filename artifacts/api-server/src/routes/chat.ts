@@ -1968,6 +1968,18 @@ STILL ENFORCE EVERY HARD BAN: at most ONE leg per (market family × period × ga
 HONESTY REQUIRED: period legs are still PARTLY correlated with the full-game result (a quarter/half total is a slice of the full-game total; a period spread tracks the full-game spread). A long same-game card is therefore NOT a set of fully independent edges — say this plainly in the overall risk note. If you cannot reach the requested leg count with defensible, non-redundant legs, return a SHORTER card and explain why rather than padding with correlated or duplicate legs.`
     : "";
 
+  const excludedSportsRaw = Array.isArray(
+    (lockedContext as { excludedSports?: unknown })?.excludedSports,
+  )
+    ? ((lockedContext as { excludedSports?: string[] }).excludedSports ?? []).filter(
+        (s): s is string => typeof s === "string" && s.length > 0,
+      )
+    : [];
+  const excludedSportsAddendum = excludedSportsRaw.length
+    ? `\n\n*** ACTIVE SPORT EXCLUSIONS FOR THIS REQUEST ***
+The user excluded these leagues: ${excludedSportsRaw.map((s) => s.toUpperCase()).join(", ")}. ZERO PICK lines may come from those sports — they were removed from realOdds/realProps on purpose. If a player, prop market, or game belongs to an excluded league, skip it entirely. Return a shorter honest ticket rather than pad with excluded-sport legs.`
+    : "";
+
   // Optional user-attached photo(s) (bet slip / sportsbook screen / scoreboard).
   // gpt-5.4 supports image inputs, so we attach them to the LATEST user turn as
   // vision content blocks and steer the model to READ them (never fabricate
@@ -2210,7 +2222,7 @@ The user wants ranked scorer picks against weak keeper matchups. This FULLY OVER
   );
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + imageAnalysisAddendum },
+    { role: "system", content: baseSystemPrompt + contextBlock + lockedSystemAddendum + sameGameSystemAddendum + improveSystemAddendum + analyzeSystemAddendum + summerLeagueSystemAddendum + liveOnlySystemAddendum + oddsThresholdSystemAddendum + confidenceThresholdSystemAddendum + valuePropsSystemAddendum + propsOnlySystemAddendum + propHeavyMixedSystemAddendum + soccerScorerGoalkeeperSystemAddendum + excludedSportsAddendum + imageAnalysisAddendum },
     ...parsed.data.messages.map((m, i) => {
       if (imageDataUrls.length && i === lastUserIdx && m.role === "user") {
         return {
