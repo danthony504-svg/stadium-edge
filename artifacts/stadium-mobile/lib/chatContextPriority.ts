@@ -19,17 +19,69 @@ export const FOCAL_SPORT_KEYWORDS: Record<string, string[]> = {
   ncaab: ["ncaab", "cbb", "college basketball"],
 };
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** True when a sport keyword is explicitly negated ("no MLB", "without baseball"). */
+export function isNegatedSportKeyword(text: string, keyword: string): boolean {
+  const kw = escapeRegExp(keyword);
+  return new RegExp(
+    `\\b(?:no|not|without|exclude|excluding|skip|avoid)\\s+(?:any\\s+)?${kw}\\b`,
+    "i",
+  ).test(text);
+}
+
 export function focalSportsFromText(text: string | null | undefined): Set<string> {
   const out = new Set<string>();
   const t = String(text || "");
   if (!t) return out;
   for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
     for (const w of words) {
-      if (new RegExp(`\\b${w}\\b`, "i").test(t)) {
+      if (isNegatedSportKeyword(t, w)) continue;
+      if (new RegExp(`\\b${escapeRegExp(w)}\\b`, "i").test(t)) {
         out.add(id);
         break;
       }
     }
+  }
+  return out;
+}
+
+/** Sports the user explicitly excluded ("no MLB", "without NBA"). */
+export function excludedSportsFromText(text: string | null | undefined): Set<string> {
+  const out = new Set<string>();
+  const t = String(text || "");
+  if (!t) return out;
+  for (const [id, words] of Object.entries(FOCAL_SPORT_KEYWORDS)) {
+    for (const w of words) {
+      if (isNegatedSportKeyword(t, w)) {
+        out.add(id);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+export function filterForExcludedSports<T extends { sport?: string | null }>(
+  entries: T[],
+  excluded: Set<string>,
+): T[] {
+  if (!excluded.size) return entries;
+  return entries.filter((e) => !e.sport || !excluded.has(e.sport));
+}
+
+/** Drop excluded leagues from per-game eval ladders used for alt-line grading. */
+export function filterEvalLinesByExcludedSports(
+  map: Map<string, { sport?: string | null }[]>,
+  excluded: Set<string>,
+): Map<string, { sport?: string | null }[]> {
+  if (!excluded.size) return map;
+  const out = new Map<string, { sport?: string | null }[]>();
+  for (const [game, lines] of map) {
+    const kept = filterForExcludedSports(lines, excluded);
+    if (kept.length) out.set(game, kept);
   }
   return out;
 }
@@ -184,14 +236,22 @@ export function coachBuildSports(
   requestedLegs: number,
   allSports: string[],
 ): string[] {
+  const excluded = excludedSportsFromText(text);
   const named = focalSportsFromText(text);
-  if (named.size > 0) return [...named];
-  const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
-  if (n >= 11) return [...allSports];
-  if (n >= 6) return ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
-    allSports.includes(id),
-  );
-  return ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
+  let sports: string[];
+  if (named.size > 0) sports = [...named];
+  else {
+    const n = requestedLegs > 0 ? requestedLegs : CONTEXT_DEPTH_DEFAULT_LEGS;
+    if (n >= 11) sports = [...allSports];
+    else if (n >= 6) {
+      sports = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"].filter((id) =>
+        allSports.includes(id),
+      );
+    } else {
+      sports = ["mlb", "wnba", "nba", "nhl"].filter((id) => allSports.includes(id));
+    }
+  }
+  return sports.filter((s) => !excluded.has(s));
 }
 
 /** When resolved legs share one sport, focus salvage/top-up pools on that league. */

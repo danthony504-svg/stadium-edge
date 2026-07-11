@@ -48,6 +48,11 @@ test("buildQualifyingAltShortfallNote mentions positive-edge alts", () => {
   assert.match(note, /positive edge/);
 });
 
+test("buildQualifyingAltShortfallNote mentions excluded leagues", () => {
+  const note = buildQualifyingAltShortfallNote(12, 8, 2, "today's real odds", ["mlb"]);
+  assert.match(note, /exclude.*MLB/i);
+});
+
 test("mergeParlayRejects dedupes by leg fingerprint", () => {
   const pick = { game: "A @ B", market: "ML", pick: "B ML", odds: -120, isProp: false };
   const a = { pick, reason: "r1", nearScore: 10 };

@@ -82,6 +82,7 @@ export function collectQualifyingGameLines(
     realOdds: RealOddsEntry[];
     matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
     matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
+    excludedSports?: Set<string>;
   },
 ): ParlayLegReject[] {
   const onTicket = new Set(ticket.map(pickLegFingerprint));
@@ -89,6 +90,7 @@ export function collectQualifyingGameLines(
   const byGame = new Map<string, RealOddsEntry[]>();
   for (const lines of evalLinesByGame.values()) {
     for (const e of lines) {
+      if (opts.excludedSports?.size && e.sport && opts.excludedSports.has(e.sport)) continue;
       const arr = byGame.get(e.game) ?? [];
       arr.push(e);
       byGame.set(e.game, arr);
@@ -109,6 +111,9 @@ export function collectQualifyingGameLines(
     for (const row of ranked) {
       const fp = pickLegFingerprint(row.pick);
       if (onTicket.has(fp)) continue;
+      if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
+        continue;
+      }
       if (!qualifiesCoachSimEvalLine(row)) continue;
       qualified.push({
         pick: row.pick,

@@ -64,6 +64,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/coachGameMonteCarlo";
 import { isGameLinePick } from "@/lib/gameSimScoring";
+import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
@@ -97,7 +98,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { coachBuildSports, focalSportsFromText } from "@/lib/chatContextPriority";
+import { coachBuildSports, excludedSportsFromText, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -1314,6 +1315,8 @@ export default function CoachScreen() {
             : slateDay === "tonight" && !wantsTodayOnly(trimmed)
               ? `${trimmed} tonight`
               : trimmed;
+        const excludedSports = excludedSportsFromText(focalForPools);
+        const excludeSportsList = excludedSports.size > 0 ? [...excludedSports] : undefined;
         const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
@@ -1481,16 +1484,20 @@ export default function CoachScreen() {
                 todayOnly: false,
               }
             : useTinyParlayPath
-            ? await buildTinyParlayContext(controller.signal)
+            ? await buildTinyParlayContext(controller.signal, { excludeSports: excludeSportsList })
             : usePropsOnlyParlayPath
-              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal)
+              ? await buildPropsOnlyParlayContext(buildLegs, controller.signal, {
+                  excludeSports: excludeSportsList,
+                })
             : useFocalSportParlayPath && focalSportId
               ? await buildFocalSportParlayContext(focalSportId, buildLegs, controller.signal, {
                   tonightOnly: slateDay === "tonight" || wantsTonightSlate(trimmed),
                   focalText: trimmed,
                 })
             : useCompactParlayPath
-              ? await buildCompactParlayContext(buildLegs, controller.signal)
+              ? await buildCompactParlayContext(buildLegs, controller.signal, {
+                  excludeSports: excludeSportsList,
+                })
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
                 : usePropPickPath
@@ -1521,6 +1528,15 @@ export default function CoachScreen() {
                 : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
+          if (excludedSports.size > 0) {
+            context = {
+              ...context,
+              realOdds: filterForExcludedSports(context.realOdds, excludedSports),
+              realProps: filterForExcludedSports(context.realProps ?? [], excludedSports),
+              realGames: filterForExcludedSports(context.realGames ?? [], excludedSports),
+            };
+            propPool = filterForExcludedSports(propPool, excludedSports);
+          }
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -1677,12 +1693,15 @@ export default function CoachScreen() {
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
         const mergedPropPool: PropPoolEntry[] = (() => {
-          if (serverPropPool.length === 0) return propPool;
+          const base =
+            excludedSports.size > 0 ? filterForExcludedSports(propPool, excludedSports) : propPool;
+          if (serverPropPool.length === 0) return base;
           const key = (e: PropPoolEntry) =>
             `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
-          const seen = new Set(propPool.map(key));
+          const seen = new Set(base.map(key));
           const extra = serverPropPool.filter((e) => !seen.has(key(e)));
-          return extra.length ? [...propPool, ...extra] : propPool;
+          const merged = extra.length ? [...base, ...extra] : base;
+          return excludedSports.size > 0 ? filterForExcludedSports(merged, excludedSports) : merged;
         })();
         selectionOpts = {
           propPool: mergedPropPool,
@@ -1722,6 +1741,9 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        if (excludedSports.size > 0) {
+          picks = filterForExcludedSports(picks, excludedSports);
+        }
         let soccerScorerGkSalvage = false;
         if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
           const salvaged = buildSoccerScorerGkPicks(mergedPropPool, context.realOdds, gameMeta);
@@ -2018,6 +2040,9 @@ export default function CoachScreen() {
             : reachPool;
           if (lockedSports)
             backfillPool = backfillPool.filter((e) => lockedSports.has(e.sport));
+          if (excludedSports.size > 0) {
+            backfillPool = filterForExcludedSports(backfillPool, excludedSports);
+          }
           if (slateDay && backfillPool === reachPool) {
             backfillPool = filterOddsForSlateDay(backfillPool, slateDay);
           }
@@ -2188,7 +2213,7 @@ export default function CoachScreen() {
                 .map((p) => p.sport)
                 .filter(Boolean),
             ),
-          ] as string[];
+          ].filter((s) => !excludedSports.has(s)) as string[];
           const espnGames = (
             await Promise.all(
               gameSports.map((s) => getGames(s).catch(() => [])),
@@ -2466,6 +2491,9 @@ export default function CoachScreen() {
           playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
           gameSimulations,
         });
+        if (excludedSports.size > 0) {
+          picks = filterForExcludedSports(picks, excludedSports);
+        }
         if (
           forceBoardBuild &&
           !isAnalyze &&
@@ -2482,7 +2510,7 @@ export default function CoachScreen() {
                   Boolean,
                 ),
               ),
-            ] as string[];
+            ].filter((s) => !excludedSports.has(s)) as string[];
             const reachOdds = (
               await Promise.all(reachSports.map((s) => getOdds(s).catch(() => [])))
             ).flat();
@@ -2630,6 +2658,16 @@ export default function CoachScreen() {
           });
         }
         picks = picksWithSimPending(picks);
+        if (excludedSports.size > 0) {
+          picks = filterForExcludedSports(picks, excludedSports);
+          mergedGameOdds = filterForExcludedSports(mergedGameOdds, excludedSports);
+          if (coachEvalLinesByGame) {
+            coachEvalLinesByGame = filterEvalLinesByExcludedSports(
+              coachEvalLinesByGame,
+              excludedSports,
+            ) as Map<string, import("@/lib/api").RealOddsEntry[]>;
+          }
+        }
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2647,6 +2685,7 @@ export default function CoachScreen() {
                 realOdds: mergedGameOdds,
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
+                excludedSports,
               })
             : [];
           const backupTarget = Math.min(4, requestedLegs - picks.length);
@@ -2661,11 +2700,24 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
+            backupPicks = backupPicks.filter((p) => {
+              if (!isGameLinePick(p)) return true;
+              const sim = gameSimulations.get(p.game);
+              return passesCoachSimQualityGate(p, sim, {
+                edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
+                finalAi: p.finalAiScore,
+                odds: p.odds,
+              });
+            });
+            if (excludedSports.size > 0) {
+              backupPicks = filterForExcludedSports(backupPicks, excludedSports);
+            }
             backupNote = buildQualifyingAltShortfallNote(
               requestedLegs,
               picks.length,
               backupPicks.length,
               oddsPhrase,
+              excludeSportsList,
             );
           }
         }
@@ -2783,7 +2835,8 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
-            minLegs: requestedLegs > 0 ? requestedLegs : undefined,
+            minLegs: excludedSports.size > 0 ? undefined : requestedLegs > 0 ? requestedLegs : undefined,
+            excludedSports: excludedSports.size > 0 ? excludedSports : undefined,
             altAttach:
               coachEvalLinesByGame && gameSimulations.size > 0
                 ? {
@@ -2793,22 +2846,26 @@ export default function CoachScreen() {
                   }
                 : undefined,
           };
-          const snapshot = picks;
+          const snapshot =
+            excludedSports.size > 0 ? filterForExcludedSports(picks, excludedSports) : picks;
+          const applySimPicks = (scored: ParsedPick[]) => {
+            const next =
+              excludedSports.size > 0 ? filterForExcludedSports(scored, excludedSports) : scored;
+            patchLastAssistantPicks(setMessages, next);
+            setAiPicks(next);
+            captureFromCoach(next);
+          };
           void loadPropSimulationsProgressive(
             snapshot,
             simOpts,
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
-                captureFromCoach(scored);
+                applySimPicks(scored);
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                patchLastAssistantPicks(setMessages, scored);
-                setAiPicks(scored);
-                captureFromCoach(scored);
+                applySimPicks(scored);
               },
             },
             simController.signal,

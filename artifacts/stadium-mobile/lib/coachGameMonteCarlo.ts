@@ -410,7 +410,7 @@ export { gamePickCoverQueryId, isGameLinePick };
 export function filterCoachPicksWithPropSim(
   picks: ParsedPick[],
   propSims: Map<string, { hitProbability: number | null }>,
-  opts: { minLegs?: number } = {},
+  opts: { minLegs?: number; excludedSports?: Set<string> } = {},
 ): GameSimFilterResult {
   const minLegs = opts.minLegs ?? 0;
   const kept: ParsedPick[] = [];
@@ -451,6 +451,7 @@ export function filterCoachPicksWithPropSim(
   if (minLegs > 0 && kept.length < minLegs) {
     for (const p of dropped) {
       if (kept.length >= minLegs) break;
+      if (opts.excludedSports?.size && p.sport && opts.excludedSports.has(p.sport)) continue;
       kept.push({ ...p, highRiskValuePlay: true });
       warnings.push(
         `Kept **${p.pick}** despite a sub-threshold sim read — your ticket asked for ${minLegs} legs and every card is still a real posted line.`,

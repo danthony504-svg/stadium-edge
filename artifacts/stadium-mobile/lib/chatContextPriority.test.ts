@@ -2,11 +2,16 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   contextDepthForLegs,
+  coachBuildSports,
+  excludedSportsFromText,
   focalSportsFromText,
   inferPropPickSport,
+  isNegatedSportKeyword,
   parlayPoolHint,
   prioritizePlayerHistoryTargets,
 } from "./chatContextPriority.ts";
+
+const ALL_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl", "ncaaf", "ncaab"];
 
 type Target = { sport: string; game: string; player: string };
 
@@ -174,8 +179,41 @@ test("stable within a tier: original order preserved among equal-rank targets", 
 
 const FULL_PROPS = 400;
 
-test("small tickets (2-5 legs) get the focused, leanest pool", () => {
-  for (const n of [2, 3, 4, 5]) {
+test("excludedSportsFromText recognizes no MLB / without baseball", () => {
+  assert.ok(excludedSportsFromText("12 leg no MLB").has("mlb"));
+  assert.ok(excludedSportsFromText("9 leg parlay without baseball").has("mlb"));
+  assert.ok(excludedSportsFromText("build me a ticket, not NHL").has("nhl"));
+  assert.ok(!excludedSportsFromText("12 leg MLB parlay").has("mlb"));
+});
+
+test("focalSportsFromText ignores negated leagues", () => {
+  assert.ok(!focalSportsFromText("12 leg no MLB").has("mlb"));
+  assert.ok(focalSportsFromText("12 leg NBA no MLB").has("nba"));
+  assert.ok(!focalSportsFromText("12 leg NBA no MLB").has("mlb"));
+});
+
+test("coachBuildSports drops excluded leagues from default pool", () => {
+  const all = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis"];
+  const sports = coachBuildSports("12 leg no MLB", 12, all);
+  assert.ok(!sports.includes("mlb"));
+  assert.ok(sports.includes("nba"));
+});
+
+test("isNegatedSportKeyword matches common phrasing", () => {
+  assert.ok(isNegatedSportKeyword("12 leg no MLB", "mlb"));
+  assert.ok(isNegatedSportKeyword("parlay without hockey", "hockey"));
+  assert.ok(!isNegatedSportKeyword("mlb only", "mlb"));
+});
+
+test("tiny tickets (2-3 legs) get the smallest pool for cellular uploads", () => {
+  for (const n of [2, 3]) {
+    const d = contextDepthForLegs(n, FULL_PROPS);
+    assert.deepEqual(d, { props: 45, odds: 28, history: 6, matchup: 2 });
+  }
+});
+
+test("small tickets (4-5 legs) get the focused, leanest pool", () => {
+  for (const n of [4, 5]) {
     const d = contextDepthForLegs(n, FULL_PROPS);
     assert.deepEqual(d, { props: 80, odds: 45, history: 10, matchup: 3 });
   }

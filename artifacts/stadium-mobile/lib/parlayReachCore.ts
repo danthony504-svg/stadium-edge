@@ -67,9 +67,14 @@ export function buildQualifyingAltShortfallNote(
   actual: number,
   altCount: number,
   oddsPhrase: string,
+  excludedSports?: string[],
 ): string {
+  const exclusion =
+    excludedSports && excludedSports.length > 0
+      ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues are off the board. `
+      : "";
   return [
-    `You asked for ${requested} legs. I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, but only **${actual}** cleared the quality filters for your ticket — I won't pad with weak filler.`,
+    `${exclusion}You asked for ${requested} legs. I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, but only **${actual}** cleared the quality filters for your ticket — I won't pad with weak filler.`,
     altCount > 0
       ? `_The main line failed on some games, but **${altCount}** alternate line${altCount === 1 ? "" : "s"} below passed 10k sim grading with positive edge — each is graded separately._`
       : `_No alternate rungs cleared the quality bar on this slate — the honest ticket is the ${actual} leg${actual === 1 ? "" : "s"} above._`,

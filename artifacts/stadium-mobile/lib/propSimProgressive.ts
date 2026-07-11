@@ -9,6 +9,7 @@ import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
 import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
 import { filterCoachPicksWithPropSim } from "@/lib/coachGameMonteCarlo";
 import type { CoachGameSimEntry } from "@/lib/coachGameMonteCarlo";
+import { filterForExcludedSports } from "@/lib/chatContextPriority";
 import type { GameInjuryReport } from "@/lib/injuries";
 import type { MatchupHistoryEntry } from "@/lib/api";
 import type { InjuryTeam } from "@/lib/api";
@@ -22,6 +23,8 @@ export type PropSimAttachOpts = {
   perfByFamily?: Parameters<typeof attachPickScores>[1]["perfByFamily"];
   /** Never drop below this many cards after sim scoring (restores as high-risk). */
   minLegs?: number;
+  /** Leagues the user banned — never restored via minLegs padding. */
+  excludedSports?: Set<string>;
   /** When set, attach 10k-sim alt tiers (safest / value / high confidence). */
   altAttach?: {
     evalLinesByGame: Map<string, RealOddsEntry[]>;
@@ -55,10 +58,14 @@ function scorePicksWithSim(
   });
   const filtered = filterCoachPicksWithPropSim(scored, sims, {
     minLegs: opts.minLegs,
+    excludedSports: opts.excludedSports,
   });
   let out = filtered.picks.map((p) =>
     p.isProp ? { ...p, simulationPending: simulationPending && p.scores?.scores.simulation == null } : p,
   );
+  if (opts.excludedSports?.size) {
+    out = filterForExcludedSports(out, opts.excludedSports);
+  }
   if (opts.altAttach && !simulationPending) {
     out = attachSimAltOptionsToPicks(out, {
       ...opts.altAttach,
