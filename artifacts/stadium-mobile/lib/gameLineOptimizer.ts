@@ -2,6 +2,7 @@
 // swap each Coach game-line leg to the best win-probability + value combination.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { marketFamily } from "../components/PickCard.tsx";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry, OddsGame, RealOddsEntry } from "./api.ts";
 import { buildAllEvalGameLines } from "./api.ts";
@@ -106,7 +107,12 @@ export type EvaluatedGameLine = {
   edgePct: number | null;
 };
 
-const FULL_GAME_MARKET = /^(moneyline|spread|alt spread|total|alt total|team total)$/i;
+/** Game-level markets eligible for 10k sim ranking (full game, periods, alts, team totals). */
+function isEvaluableGameMarket(market: string): boolean {
+  const m = market.trim().toLowerCase();
+  if (!m) return false;
+  return /moneyline|spread|run line|puck line|game handicap|total|team total|alt/.test(m);
+}
 
 const oddsEntryKey = (e: RealOddsEntry) =>
   `${e.game}|${e.market.toLowerCase()}|${e.pick}`;
@@ -168,8 +174,9 @@ function candidatesForPick(
   excludeMoneyline = false,
   simFavoredTeam?: string | null,
 ): RealOddsEntry[] {
+  const pickFam = marketFamily(pick.market);
   let lines = allLines.filter(
-    (e) => e.game === pick.game && FULL_GAME_MARKET.test(e.market.trim()),
+    (e) => e.game === pick.game && isEvaluableGameMarket(e.market) && marketFamily(e.market) === pickFam,
   );
   if (excludeMoneyline) {
     lines = lines.filter((e) => !/^moneyline$/i.test(e.market.trim()));

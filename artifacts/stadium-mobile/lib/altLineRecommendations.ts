@@ -1,6 +1,7 @@
-// Sim-driven alternate-line recommendations for AI Coach pick cards.
-// Every posted alt rung is scored against the same 10k draw; only lines that
-// pass quality filters (positive EV, edge, confidence floor) are surfaced.
+// Sim-driven line recommendations for AI Coach pick cards.
+// Every posted game-line rung (full game, periods, alts, team totals) and every
+// prop alt ladder rung is scored on the same 10k draw; only lines that pass
+// quality filters are surfaced as Safest / Best Value / Highest Confidence / Best Overall.
 
 import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
@@ -23,6 +24,7 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
+import { marketFamily } from "../components/PickCard.tsx";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import type { PropSimulationResult } from "./api.ts";
@@ -59,10 +61,6 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
-function isAltGameMarket(market: string): boolean {
-  return /\balt\b/i.test(market);
-}
-
 function norm(s: string): string {
   return String(s ?? "")
     .toLowerCase()
@@ -81,6 +79,11 @@ function teamsMatch(a: string, b: string): boolean {
     return t[t.length - 1] ?? "";
   };
   return nick(a).length > 2 && nick(a) === nick(b);
+}
+
+/** Same period window + stat family (Spread, Total, ML, …) as the leg on the card. */
+function sameMarketFamily(a: string, b: string): boolean {
+  return marketFamily(a) === marketFamily(b);
 }
 
 function pickTeamName(pick: string): string | null {
@@ -249,7 +252,7 @@ export function recommendGameAltTiers(
   const pool = evalLines.filter(
     (e) =>
       e.game === pick.game &&
-      isAltGameMarket(e.market) &&
+      sameMarketFamily(e.market, pick.market) &&
       sameSideAsPick(e, pick) &&
       !(e.market === pick.market && e.pick === pick.pick && e.odds === pick.odds),
   );
@@ -410,7 +413,7 @@ export function altLinesForPropPick(
     if (e.player !== pick.player || e.side !== side) continue;
     if (pick.propMarketKey && e.marketKey !== pick.propMarketKey) continue;
     if (pick.game && e.game !== pick.game) continue;
-    if (e.line == null || e.line === pick.propLine || !e.alt) continue;
+    if (e.line == null || e.line === pick.propLine) continue;
     lines.add(e.line);
   }
   return [...lines].sort((a, b) => a - b);

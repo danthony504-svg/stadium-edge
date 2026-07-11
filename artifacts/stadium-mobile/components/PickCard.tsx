@@ -338,7 +338,7 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
             textTransform: "uppercase",
           }}
         >
-          Alternate lines · 10k sim
+          Alternate lines · 10k sim · all posted rungs
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "stretch" }}>
           {simAlts.map((alt) => (

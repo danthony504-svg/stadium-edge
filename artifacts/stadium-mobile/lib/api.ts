@@ -1469,6 +1469,61 @@ export function buildRealOdds(
 
 const EVAL_ALT_MAX_JUICE = -1000;
 
+function evalPriceOk(price: number | null | undefined): boolean {
+  return price != null && price > EVAL_ALT_MAX_JUICE;
+}
+
+/** Period + innings markets for the 10k eval ladder (every posted rung, not one-per-side). */
+function appendPeriodEvalGameLines(
+  g: OddsGame,
+  out: RealOddsEntry[],
+  base: { sport: string; game: string; startsAt: string },
+  teamLabel: (name: string) => string,
+): void {
+  const PERIOD_LABEL: Record<string, string> = {
+    h1: "1H",
+    h2: "2H",
+    q1: "Q1",
+    q2: "Q2",
+    q3: "Q3",
+    q4: "Q4",
+  };
+  const pushSpread = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (!evalPriceOk(o.price)) continue;
+      const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
+      out.push({ ...base, market, pick: `${teamLabel(o.name)}${pt}`, odds: o.price! });
+    }
+  };
+  const pushTotal = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (!evalPriceOk(o.price)) continue;
+      const pt = o.point == null ? "" : ` ${o.point}`;
+      out.push({ ...base, market, pick: `${o.name}${pt}`.trim(), odds: o.price! });
+    }
+  };
+  const pushMl = (market: string, outcomes: OddsOutcome[] | undefined) => {
+    for (const o of outcomes ?? []) {
+      if (!evalPriceOk(o.price)) continue;
+      out.push({ ...base, market, pick: `${teamLabel(o.name)} ML`, odds: o.price! });
+    }
+  };
+
+  for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
+    pushMl(`${plabel} Moneyline`, g.markets.find((m) => m.key === `h2h_${suffix}`)?.outcomes);
+    pushSpread(`${plabel} Spread`, g.markets.find((m) => m.key === `spreads_${suffix}`)?.outcomes);
+    pushTotal(`${plabel} Total`, g.markets.find((m) => m.key === `totals_${suffix}`)?.outcomes);
+  }
+
+  pushSpread("1H Alt Spread", g.markets.find((m) => m.key === "alternate_spreads_h1")?.outcomes);
+  pushTotal("1H Alt Total", g.markets.find((m) => m.key === "alternate_totals_h1")?.outcomes);
+
+  pushMl("F5 Moneyline", g.markets.find((m) => m.key === "h2h_1st_5_innings")?.outcomes);
+  pushSpread("F5 Run Line", g.markets.find((m) => m.key === "spreads_1st_5_innings")?.outcomes);
+  pushTotal("F5 Total", g.markets.find((m) => m.key === "totals_1st_5_innings")?.outcomes);
+  pushTotal("1st Inning Total", g.markets.find((m) => m.key === "totals_1st_1_innings")?.outcomes);
+}
+
 /** Every full-game ML / spread / total / alt rung for post-sim Final AI Score ranking. */
 export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
   if (!g?.markets) return [];
@@ -1538,6 +1593,8 @@ export function buildAllEvalGameLines(g: OddsGame): RealOddsEntry[] {
       }
     }
   }
+
+  appendPeriodEvalGameLines(g, out, base, teamLabel);
 
   return out;
 }
@@ -1612,6 +1669,8 @@ export type PropPoolEntry = {
   // Both are render-only — NEVER sent to the AI.
   athleteId?: string | null;
   marketKey?: string;
+  /** True for alternate-ladder rungs (5+/10+/15+ points, alt total bases, etc.). */
+  alt?: boolean;
 };
 
 export type PropSimulationResult = {
@@ -1694,7 +1753,7 @@ export async function fetchPropSimulations(
       if (e.player !== p.player || e.side !== side) continue;
       if (market && e.marketKey !== market) continue;
       if (p.game && e.game !== p.game) continue;
-      if (e.line == null || e.line === p.propLine || !e.alt) continue;
+      if (e.line == null || e.line === p.propLine) continue;
       if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
     }
     additionalLines.sort((a, b) => a - b);
@@ -3255,6 +3314,7 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             marketKey: p.market,
+            alt: !!p.alt,
             edge: p.evSide === "Over" ? (p.edge ?? null) : null,
             bookSpread: p.overSpread ?? null,
           });
@@ -3272,6 +3332,7 @@ async function buildLightParlayContext(
             teamAbbr,
             athleteId,
             marketKey: p.market,
+            alt: !!p.alt,
             edge: p.evSide === "Under" ? (p.edge ?? null) : null,
             bookSpread: p.underSpread ?? null,
           });
@@ -3944,10 +4005,10 @@ export async function buildChatContext(
             const marketLabel = propMarketLabel(p.market);
             const athleteId = p.athleteId ?? null;
             if (overQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.overPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Over" ? (p.edge ?? null) : null, bookSpread: p.overSpread ?? null });
             }
             if (p.line != null && underQ) {
-              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
+              propPool.push({ sport, game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.underPrice!, headshot, teamAbbr, athleteId, marketKey: p.market, alt: !!p.alt, edge: p.evSide === "Under" ? (p.edge ?? null) : null, bookSpread: p.underSpread ?? null });
             }
           }
         }
@@ -4301,10 +4362,10 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
     const marketLabel = propMarketLabel(p.market);
     const athleteId = p.athleteId ?? null;
     if (p.over != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market, startsAt: p.startsAt });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Over", odds: p.over, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
     }
     if (p.line != null && p.under != null) {
-      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt });
+      out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
     }
   }
   return out;
