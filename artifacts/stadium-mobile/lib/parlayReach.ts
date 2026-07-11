@@ -16,8 +16,9 @@ import {
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
-import { pickIsAiRecommended } from "./pickRecommendation.ts";
-import { isQualifyingBackupGameLine, isMainLineGameLeg } from "./altLinePool.ts";
+import { qualifiesAltPick } from "./pickRecommendation.ts";
+import { parsedPickFromPoolEntry } from "./propSelection.ts";
+import { isAltPropPick, isQualifyingBackupGameLine, isMainLineGameLeg } from "./altLinePool.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -119,7 +120,7 @@ export function collectQualifyingGameLines(
       if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
         continue;
       }
-      if (!pickIsAiRecommended(row.pick, row.finalAiScore)) continue;
+      if (!qualifiesAltPick(row.pick, row.finalAiScore)) continue;
       qualified.push({
         pick: row.pick,
         reason: reasonForQualifyingLine(row),
@@ -128,6 +129,56 @@ export function collectQualifyingGameLines(
     }
   }
   return qualified.sort((a, b) => b.nearScore - a.nearScore);
+}
+
+/** Alt-ladder prop rows that pass the softer reach-N alt gate. */
+export function collectQualifyingAltProps(
+  ticket: ParsedPick[],
+  propPool: PropPoolEntry[],
+  scoredAltProps: ParsedPick[],
+): ParlayLegReject[] {
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const qualified: ParlayLegReject[] = [];
+  const scoredByFp = new Map(scoredAltProps.map((p) => [pickLegFingerprint(p), p]));
+  for (const entry of propPool) {
+    if (!entry.alt) continue;
+    const scored = scoredByFp.get(
+      pickLegFingerprint(parsedPickFromPoolEntry(entry)),
+    );
+    if (!scored) continue;
+    const fp = pickLegFingerprint(scored);
+    if (onTicket.has(fp)) continue;
+    if (!isAltPropPick(scored)) continue;
+    if (!qualifiesAltPick(scored, scored.finalAiScore)) continue;
+    qualified.push({
+      pick: scored,
+      reason: reasonForQualifyingAltProp(scored),
+      nearScore:
+        (scored.finalAiScore?.composite ?? 0) * 0.5 +
+        (scored.finalAiScore?.simHit ?? 0) * 40 +
+        Math.max(0, scored.finalAiScore?.edgePct ?? 0) * 2,
+    });
+  }
+  return qualified.sort((a, b) => b.nearScore - a.nearScore);
+}
+
+function reasonForQualifyingAltProp(pick: ParsedPick): string {
+  const edge = pick.finalAiScore?.edgePct;
+  const hit = pick.finalAiScore?.simHit;
+  const grade = pick.finalAiScore?.grade ?? "?";
+  const edgeStr =
+    edge == null ? "?" : edge >= 0 ? `+${edge.toFixed(1)}` : edge.toFixed(1);
+  const hitStr = hit != null ? `${Math.round(hit * 100)}%` : "?";
+  return `${edgeStr}% edge · ${hitStr} sim hit · grade ${grade}`;
+}
+
+/** Promote qualifying alt game lines + alt props onto the main ticket. */
+export function fillReachTicketWithQualifyingAlts(
+  ticket: ParsedPick[],
+  target: number,
+  qualifying: ParlayLegReject[],
+): { picks: ParsedPick[]; promoted: ParsedPick[] } {
+  return promoteQualifyingAltsToTicket(ticket, qualifying, target);
 }
 
 /** Rank eval-ladder rungs that almost made the ticket (not already on it). */

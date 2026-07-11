@@ -1,7 +1,7 @@
 // Pure helpers for explicit N-leg parlay reach (no React / PickCard imports).
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isQualifyingBackupGameLine } from "./altLinePool.ts";
+import { isAltPropPick, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
@@ -44,9 +44,17 @@ export function selectParlayBackupPicks(
   for (const r of rejects) {
     const fp = pickLegFingerprint(r.pick);
     if (onTicket.has(fp) || seen.has(fp)) continue;
-    if (!r.pick.isProp && !isQualifyingBackupGameLine(r.pick)) continue;
+    if (r.pick.isProp) {
+      if (!isAltPropPick(r.pick)) continue;
+    } else if (!isQualifyingBackupGameLine(r.pick)) {
+      continue;
+    }
     seen.add(fp);
-    out.push({ ...r.pick, backupReason: r.reason } as ParsedPick & { backupReason?: string });
+    out.push({
+      ...r.pick,
+      ticketRole: "alt" as const,
+      backupReason: r.reason,
+    } as ParsedPick & { backupReason?: string });
     if (out.length >= limit) break;
   }
   return out;
@@ -66,13 +74,15 @@ export function promoteQualifyingAltsToTicket(
   if (!promoted.length) return { picks: ticket, promoted: [] };
   const onTicket = new Set(ticket.map(pickLegFingerprint));
   const merged: ParsedPick[] = [...ticket];
+  const added: ParsedPick[] = [];
   for (const p of promoted) {
     const fp = pickLegFingerprint(p);
     if (onTicket.has(fp)) continue;
     onTicket.add(fp);
     merged.push(p);
+    added.push(p);
   }
-  return { picks: merged, promoted };
+  return { picks: merged, promoted: added };
 }
 
 export function buildParlayShortfallNote(
@@ -140,7 +150,7 @@ export function buildQualifyingAltShortfallNote(
   return [
     `${exclusion}You asked for ${requested} legs. I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, but only **${actual}** cleared the quality filters for your ticket — I won't pad with weak filler.`,
     altCount > 0
-      ? `_The main line failed on some games, but **${altCount}** alternate line${altCount === 1 ? "" : "s"} below passed 10k sim grading with positive edge — each is graded separately._`
+      ? `_**${altCount}** alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled **ALT PICK** and graded separately._`
       : `_No alternate rungs cleared the quality bar on this slate — the honest ticket is the ${actual} leg${actual === 1 ? "" : "s"} above._`,
   ].join("\n\n");
 }

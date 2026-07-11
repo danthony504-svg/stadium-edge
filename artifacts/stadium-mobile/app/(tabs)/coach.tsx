@@ -78,12 +78,17 @@ import {
 } from "@/lib/parlayVarietyMemory";
 import {
   collectQualifyingGameLines,
+  collectQualifyingAltProps,
+  fillReachTicketWithQualifyingAlts,
+  mergeParlayRejects,
   replenishParlayToTarget,
   selectParlayBackupPicks,
   buildQualifyingAltShortfallNote,
   buildFullBoardShortfallNote,
   type ParlayLegReject,
 } from "@/lib/parlayReach";
+import { tagTicketRoles } from "@/lib/boardMarketScanner";
+import { parsedPickFromPoolEntry } from "@/lib/propSelection";
 import {
   buildTopLegsFromFullBoardScan,
   shouldUseFullBoardScan,
@@ -2041,6 +2046,7 @@ export default function CoachScreen() {
             oddsThreshold,
             confidenceThreshold,
             requestedLegs,
+            reachFull,
           });
         if (useFullBoardScan) {
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
@@ -2892,56 +2898,6 @@ export default function CoachScreen() {
             excludedSports,
           });
         }
-        if (
-          reachFull &&
-          requestedLegs > picks.length &&
-          picks.length > 0 &&
-          qualifyingAlts.length > 0 &&
-          !fullBoardScanned
-        ) {
-          const promoteGap = Math.min(reachTarget, MAX_LEGS) - picks.length;
-          let promoted = selectParlayBackupPicks(picks, qualifyingAlts, promoteGap);
-          if (promoted.length > 0) {
-            promoted = attachPickScores(promoted, {
-              realOdds: mergedGameOdds,
-              propPool: mergedPropPool,
-              matchupHistory: context.matchupHistory,
-              matchupInjuries: context.matchupInjuries,
-              perfByFamily: marketPerf,
-              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-              gameSimulations,
-            });
-            promoted = filterQualifyingAltLegs(promoted);
-            if (excludedSports.size > 0) {
-              promoted = scrubExcludedSportsFromPicks(
-                promoted,
-                excludedSports,
-                mergedPropPool,
-                mergedGameOdds,
-                gameMeta,
-              );
-            }
-            if (promoted.length > 0) {
-              picks = dedupeSameTeamGameLegs([...picks, ...promoted]).picks;
-              picks = attachPickScores(picks, {
-                realOdds: mergedGameOdds,
-                propPool: mergedPropPool,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                perfByFamily: marketPerf,
-                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-                gameSimulations,
-              });
-              picks = scrubExcludedSportsFromPicks(
-                picks,
-                excludedSports,
-                mergedPropPool,
-                mergedGameOdds,
-                gameMeta,
-              );
-            }
-          }
-        }
         if (reachFull && requestedLegs > picks.length && picks.length > 0) {
           if (!qualifyingAlts.length && coachEvalLinesByGame) {
             qualifyingAlts = collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
@@ -2984,6 +2940,69 @@ export default function CoachScreen() {
             }
           }
         }
+        let reachAltPromoted = 0;
+        if (
+          !isAnalyze &&
+          reachFull &&
+          picks.length < reachTarget &&
+          coachEvalLinesByGame &&
+          gameSimulations.size > 0
+        ) {
+          const scoredAltProps = mergedPropPool.some((e) => e.alt)
+            ? attachPickScores(
+                mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                {
+                  realOdds: mergedGameOdds,
+                  propPool: mergedPropPool,
+                  matchupHistory: context.matchupHistory,
+                  matchupInjuries: context.matchupInjuries,
+                  perfByFamily: marketPerf,
+                  playerHistory: context.playerHistory as
+                    | Record<string, PlayerHistorySlice>
+                    | undefined,
+                  gameSimulations,
+                },
+              )
+            : [];
+          const qualifyingReach = mergeParlayRejects(
+            collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+              realOdds: mergedGameOdds,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              excludedSports,
+            }),
+            collectQualifyingAltProps(picks, mergedPropPool, scoredAltProps),
+          );
+          if (qualifyingReach.length > 0) {
+            const filled = fillReachTicketWithQualifyingAlts(
+              picks,
+              reachTarget,
+              qualifyingReach,
+            );
+            if (filled.promoted.length > 0) {
+              reachAltPromoted = filled.promoted.length;
+              picks = attachPickScores(filled.picks, {
+                realOdds: mergedGameOdds,
+                propPool: mergedPropPool,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                perfByFamily: marketPerf,
+                playerHistory: context.playerHistory as
+                  | Record<string, PlayerHistorySlice>
+                  | undefined,
+                gameSimulations,
+              });
+              picks = scrubExcludedSportsFromPicks(
+                picks,
+                excludedSports,
+                mergedPropPool,
+                mergedGameOdds,
+                gameMeta,
+              );
+            }
+          }
+        }
+        picks = tagTicketRoles(picks);
         let aiFilterNote = "";
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
@@ -2996,6 +3015,7 @@ export default function CoachScreen() {
           }
         }
         if (picks.length > 0 && requestedLegs > picks.length) {
+          const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
           legNote =
             backupNote ||
             (fullBoardScanned && fullBoardScanMeta
@@ -3013,7 +3033,7 @@ export default function CoachScreen() {
                 : buildQualifyingAltShortfallNote(
                     requestedLegs,
                     picks.length,
-                    0,
+                    reachAltPromoted > 0 ? altOnTicket : backupPicks.length,
                     oddsPhrase,
                     excludeSportsList,
                   ));

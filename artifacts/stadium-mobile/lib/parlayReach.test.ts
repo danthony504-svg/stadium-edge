@@ -41,13 +41,14 @@ test("selectParlayBackupPicks skips main moneylines", () => {
   const backups = selectParlayBackupPicks(ticket, rejects, 2);
   assert.equal(backups.length, 1);
   assert.equal(backups[0]!.market, "Alt Spread");
+  assert.equal(backups[0]!.ticketRole, "alt");
 });
 
 test("buildQualifyingAltShortfallNote mentions positive-edge alts", () => {
   const note = buildQualifyingAltShortfallNote(15, 11, 3, "today's real odds");
   assert.match(note, /11/);
   assert.match(note, /alternate line/);
-  assert.match(note, /positive edge/);
+  assert.match(note, /ALT PICK/);
 });
 
 test("buildQualifyingAltShortfallNote mentions excluded leagues", () => {

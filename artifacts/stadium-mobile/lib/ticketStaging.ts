@@ -1,7 +1,7 @@
 // Step 2: fill with highest-rated mains. Step 3: qualifying alts to reach N.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isAltBoardPick, isMainBoardPick } from "./altLinePool.ts";
+import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
@@ -59,6 +59,16 @@ export function boardLegPoolRole(
   if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
   if (qualifiesAltPick(pick, score ?? undefined)) return "alt";
   return null;
+}
+
+/** Label each leg main vs alt for ticket gating and ALT PICK badges. */
+export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
+  return picks.map((p) => ({
+    ...p,
+    ticketRole:
+      p.ticketRole ??
+      (isAltBoardPick(p) || isAltPropPick(p) ? ("alt" as const) : ("main" as const)),
+  }));
 }
 
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */

@@ -36,7 +36,7 @@ import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
-export { buildStagedTicketFromScan, selectTopBoardLegs, type BoardScoredLeg } from "./ticketStaging.ts";
+export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
@@ -298,11 +298,13 @@ export function shouldUseFullBoardScan(
     oddsThreshold?: unknown;
     confidenceThreshold?: unknown;
     requestedLegs?: number;
+    reachFull?: boolean;
   },
 ): boolean {
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
   }
   const asked = opts.requestedLegs ?? 0;
+  if (opts.reachFull && asked > 0) return true;
   return asked > 0 && legTarget >= 3;
 }
