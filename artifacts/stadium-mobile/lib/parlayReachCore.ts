@@ -61,3 +61,17 @@ export function buildParlayShortfallNote(
     `_Every other candidate failed sim cover, edge, or one-side-per-matchup rules. The **${backupCount}** backup card${backupCount === 1 ? "" : "s"} below almost qualified._`,
   ].join("\n\n");
 }
+
+export function buildQualifyingAltShortfallNote(
+  requested: number,
+  actual: number,
+  altCount: number,
+  oddsPhrase: string,
+): string {
+  return [
+    `You asked for ${requested} legs. I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, but only **${actual}** cleared the quality filters for your ticket — I won't pad with weak filler.`,
+    altCount > 0
+      ? `_The main line failed on some games, but **${altCount}** alternate line${altCount === 1 ? "" : "s"} below passed 10k sim grading with positive edge — each is graded separately._`
+      : `_No alternate rungs cleared the quality bar on this slate — the honest ticket is the ${actual} leg${actual === 1 ? "" : "s"} above._`,
+  ].join("\n\n");
+}

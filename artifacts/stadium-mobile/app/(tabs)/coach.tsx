@@ -75,11 +75,10 @@ import {
   rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
 import {
-  buildParlayShortfallNote,
-  collectNearMissGameLines,
-  mergeParlayRejects,
+  collectQualifyingGameLines,
   replenishParlayToTarget,
   selectParlayBackupPicks,
+  buildQualifyingAltShortfallNote,
   type ParlayLegReject,
 } from "@/lib/parlayReach";
 import {
@@ -2643,16 +2642,15 @@ export default function CoachScreen() {
         let backupPicks: ParsedPick[] = [];
         let backupNote = "";
         if (reachFull && requestedLegs > picks.length && picks.length > 0) {
-          const nearMisses = coachEvalLinesByGame
-            ? collectNearMissGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+          const qualifyingAlts = coachEvalLinesByGame
+            ? collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
                 realOdds: mergedGameOdds,
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
               })
             : [];
-          const mergedRejects = mergeParlayRejects(parlayRejections, nearMisses);
           const backupTarget = Math.min(4, requestedLegs - picks.length);
-          backupPicks = selectParlayBackupPicks(picks, mergedRejects, backupTarget);
+          backupPicks = selectParlayBackupPicks(picks, qualifyingAlts, backupTarget);
           if (backupPicks.length > 0) {
             backupPicks = attachPickScores(backupPicks, {
               realOdds: mergedGameOdds,
@@ -2663,10 +2661,9 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
-            backupNote = buildParlayShortfallNote(
+            backupNote = buildQualifyingAltShortfallNote(
               requestedLegs,
               picks.length,
-              mergedRejects,
               backupPicks.length,
               oddsPhrase,
             );
@@ -3324,7 +3321,7 @@ export default function CoachScreen() {
                             fontSize: 13,
                           }}
                         >
-                          Backup picks — almost qualified
+                          Alt lines — positive edge
                         </Text>
                         {m.backupPicks.map((p, j) => (
                           <PickCard
@@ -3332,11 +3329,11 @@ export default function CoachScreen() {
                             pick={p}
                             onPress={statsHandlerFor(p)}
                             badge={{
-                              text: "Near miss",
+                              text: "Alt line",
                               caption:
                                 (p as ParsedPick & { backupReason?: string }).backupReason ??
-                                "Didn't clear sim / edge filters",
-                              tone: "value" as const,
+                                "Passed 10k sim grading",
+                              tone: "grade" as const,
                             }}
                           />
                         ))}

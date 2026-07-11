@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildParlayShortfallNote,
+  buildQualifyingAltShortfallNote,
   mergeParlayRejects,
   reachParlayMix,
   selectParlayBackupPicks,
@@ -40,10 +41,11 @@ test("selectParlayBackupPicks returns near-miss legs not on ticket", () => {
   assert.notEqual(backups[0]!.game, ticket[0]!.game);
 });
 
-test("buildParlayShortfallNote mentions backup cards", () => {
-  const note = buildParlayShortfallNote(15, 11, [], 4, "today's real odds");
+test("buildQualifyingAltShortfallNote mentions positive-edge alts", () => {
+  const note = buildQualifyingAltShortfallNote(15, 11, 3, "today's real odds");
   assert.match(note, /11/);
-  assert.match(note, /backup card/);
+  assert.match(note, /alternate line/);
+  assert.match(note, /positive edge/);
 });
 
 test("mergeParlayRejects dedupes by leg fingerprint", () => {

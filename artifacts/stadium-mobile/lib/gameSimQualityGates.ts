@@ -100,6 +100,22 @@ export function deriveGameSimLineMetrics(row: EvaluatedGameLine): GameSimLineMet
   return { simHit, fairOdds, bookOdds, evPct, edgePct, grade, confidencePct };
 }
 
+/** Full AI Coach quality gate — positive EV/edge, grade ≥ C+, conf ≥ 52%, sim above implied. */
+export function qualifiesCoachSimLineMetrics(m: GameSimLineMetrics): boolean {
+  if (m.evPct <= 0) return false;
+  if (m.edgePct <= 0) return false;
+  if (m.confidencePct < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (gradeRank(m.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
+  const implied = impliedProb(m.bookOdds);
+  if (m.simHit <= implied) return false;
+  return true;
+}
+
+export function qualifiesCoachSimEvalLine(row: EvaluatedGameLine): boolean {
+  const m = deriveGameSimLineMetrics(row);
+  return m != null && qualifiesCoachSimLineMetrics(m);
+}
+
 /** Every Best Lines metric is present — never show "—" placeholders. */
 export function hasCompleteEvaluatedLine(row: EvaluatedLineMetrics | EvaluatedGameLine): boolean {
   if ("entry" in row) {

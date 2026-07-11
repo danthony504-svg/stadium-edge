@@ -5,7 +5,6 @@
 
 import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
-import { impliedProb } from "./format.ts";
 import type { FinalAiScore } from "./finalAiScore.ts";
 import {
   evaluateGameLines,
@@ -13,9 +12,8 @@ import {
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
 import {
-  COACH_SIM_MIN_CONFIDENCE,
-  COACH_SIM_MIN_GRADE,
   deriveGameSimLineMetrics,
+  qualifiesCoachSimLineMetrics,
   simEdgeFromHit,
   simEvPct,
   type GameSimLineMetrics,
@@ -52,21 +50,17 @@ export type SimAltRecommendations = {
   bestOverall: AltRungMetrics | null;
 };
 
-const GRADE_RANK: Record<string, number> = {
-  F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
-};
-
-function gradeRank(g: string | null | undefined): number {
-  if (!g) return -1;
-  return GRADE_RANK[g] ?? -1;
-}
-
 function norm(s: string): string {
   return String(s ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function overallScore(r: AltRungMetrics): number {
+  if (r.composite != null && Number.isFinite(r.composite)) return r.composite;
+  return r.winProb * 35 + r.edgePct * 2.5 + r.confidencePct * 0.25;
 }
 
 function teamsMatch(a: string, b: string): boolean {
@@ -109,13 +103,7 @@ function sameSideAsPick(entry: RealOddsEntry, pick: ParsedPick): boolean {
 }
 
 function qualifiesAltMetrics(m: GameSimLineMetrics): boolean {
-  if (m.evPct <= 0) return false;
-  if (m.edgePct <= 0) return false;
-  if (m.confidencePct < COACH_SIM_MIN_CONFIDENCE) return false;
-  if (gradeRank(m.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  const implied = impliedProb(m.bookOdds);
-  if (m.simHit <= implied) return false;
-  return true;
+  return qualifiesCoachSimLineMetrics(m);
 }
 
 function findPropSimResult(
@@ -169,11 +157,6 @@ function evaluatedToAltRung(row: EvaluatedGameLine): AltRungMetrics | null {
     grade: m.grade,
     composite: row.finalAiScore.composite ?? null,
   };
-}
-
-function overallScore(r: AltRungMetrics): number {
-  if (r.composite != null && Number.isFinite(r.composite)) return r.composite;
-  return r.winProb * 35 + r.edgePct * 2.5 + r.confidencePct * 0.25;
 }
 
 function pickTiers(rows: AltRungMetrics[]): SimAltRecommendations {

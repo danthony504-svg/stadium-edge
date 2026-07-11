@@ -15,6 +15,7 @@ import {
 } from "./gameLineOptimizer.ts";
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
+import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
@@ -30,6 +31,7 @@ export {
   mergeParlayRejects,
   selectParlayBackupPicks,
   buildParlayShortfallNote,
+  buildQualifyingAltShortfallNote,
 } from "./parlayReachCore.ts";
 
 function nearScoreFromEval(row: EvaluatedGameLine): number {
@@ -50,6 +52,72 @@ function reasonForEvalReject(row: EvaluatedGameLine): string {
     return `${edge}% edge after Final AI Score`;
   }
   return "quality bar not met";
+}
+
+function qualifyScoreFromEval(row: EvaluatedGameLine): number {
+  const sim = row.finalAiScore.simHit ?? 0;
+  const edge = row.edgePct ?? row.finalAiScore.edgePct ?? 0;
+  const composite = row.finalAiScore.composite ?? 0;
+  const m = deriveGameSimLineMetrics(row);
+  const evBoost = m?.evPct ?? 0;
+  const altBoost = /\balt\b/i.test(row.entry.market) ? 8 : 0;
+  const nonMlBoost = /^moneyline$/i.test(row.entry.market.trim()) ? 0 : 4;
+  return composite * 0.5 + sim * 40 + Math.max(0, edge) * 2 + evBoost * 0.5 + altBoost + nonMlBoost;
+}
+
+function reasonForQualifyingLine(row: EvaluatedGameLine): string {
+  const m = deriveGameSimLineMetrics(row);
+  if (!m) return "10k sim graded";
+  const hit = Math.round(m.simHit * 100);
+  const edgeStr = m.edgePct >= 0 ? `+${m.edgePct.toFixed(1)}` : m.edgePct.toFixed(1);
+  return `${edgeStr}% edge · ${hit}% sim hit · grade ${m.grade}`;
+}
+
+/** Every eval-ladder rung that passes 10k sim quality filters (not already on ticket). */
+export function collectQualifyingGameLines(
+  ticket: ParsedPick[],
+  evalLinesByGame: Map<string, RealOddsEntry[]>,
+  simByGame: Map<string, CoachGameSimEntry>,
+  opts: {
+    realOdds: RealOddsEntry[];
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
+  },
+): ParlayLegReject[] {
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const qualified: ParlayLegReject[] = [];
+  const byGame = new Map<string, RealOddsEntry[]>();
+  for (const lines of evalLinesByGame.values()) {
+    for (const e of lines) {
+      const arr = byGame.get(e.game) ?? [];
+      arr.push(e);
+      byGame.set(e.game, arr);
+    }
+  }
+  for (const [game, lines] of byGame) {
+    const sim =
+      simByGame.get(game) ??
+      [...simByGame.entries()].find(([k]) => k.toLowerCase() === game.toLowerCase())?.[1];
+    const merged = mergeOddsEntries(opts.realOdds, lines);
+    const ranked = evaluateGameLines({
+      lines,
+      gameSim: sim,
+      realOdds: merged,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+    for (const row of ranked) {
+      const fp = pickLegFingerprint(row.pick);
+      if (onTicket.has(fp)) continue;
+      if (!qualifiesCoachSimEvalLine(row)) continue;
+      qualified.push({
+        pick: row.pick,
+        reason: reasonForQualifyingLine(row),
+        nearScore: qualifyScoreFromEval(row),
+      });
+    }
+  }
+  return qualified.sort((a, b) => b.nearScore - a.nearScore);
 }
 
 /** Rank eval-ladder rungs that almost made the ticket (not already on it). */
