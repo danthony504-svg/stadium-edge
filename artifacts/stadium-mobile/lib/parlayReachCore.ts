@@ -51,6 +51,29 @@ export function selectParlayBackupPicks(
   return out;
 }
 
+/** Pull sim-graded alt rungs onto the main ticket when a reach-N ask is short. */
+export function promoteQualifyingAltsToTicket(
+  ticket: ParsedPick[],
+  qualifying: ParlayLegReject[],
+  target: number,
+): { picks: ParsedPick[]; promoted: ParsedPick[] } {
+  if (ticket.length >= target || qualifying.length === 0) {
+    return { picks: ticket, promoted: [] };
+  }
+  const gap = target - ticket.length;
+  const promoted = selectParlayBackupPicks(ticket, qualifying, gap);
+  if (!promoted.length) return { picks: ticket, promoted: [] };
+  const onTicket = new Set(ticket.map(pickLegFingerprint));
+  const merged: ParsedPick[] = [...ticket];
+  for (const p of promoted) {
+    const fp = pickLegFingerprint(p);
+    if (onTicket.has(fp)) continue;
+    onTicket.add(fp);
+    merged.push(p);
+  }
+  return { picks: merged, promoted };
+}
+
 export function buildParlayShortfallNote(
   requested: number,
   actual: number,

@@ -2749,6 +2749,72 @@ export default function CoachScreen() {
             ) as Map<string, import("@/lib/api").RealOddsEntry[]>;
           }
         }
+        // Last reach pass — dedupe / side filters can leave 12+ leg asks short after sim.
+        if (
+          !isAnalyze &&
+          reachFull &&
+          picks.length < reachTarget &&
+          !oddsThreshold &&
+          !confidenceThreshold
+        ) {
+          if (coachEvalLinesByGame && gameSimulations.size > 0) {
+            picks = replenishParlayToTarget(picks, reachTarget, {
+              longshotAsk,
+              plusMoneyBias: propBackfillOpts.plusMoneyBias,
+              diversify: propBackfillOpts.diversify,
+              varietySeed,
+              avoidLegKeys,
+              selectionOpts,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              mergedGameOdds,
+              gameMeta,
+              evalLinesByGame: coachEvalLinesByGame,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+            });
+          } else {
+            let lateReachPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-reach`);
+            if (slateDay) lateReachPool = filterOddsForSlateDay(lateReachPool, slateDay);
+            picks = topUpDeepParlayToTarget(
+              picks,
+              reachTarget,
+              mergedPropPool,
+              lateReachPool,
+              gameMeta,
+              boardBuildOpts,
+            );
+          }
+          picks = dedupeSameTeamGameLegs(picks).picks;
+          picks = attachPickScores(picks, {
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            perfByFamily: marketPerf,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            gameSimulations,
+          });
+          picks = scrubExcludedSportsFromPicks(
+            picks,
+            excludedSports,
+            mergedPropPool,
+            mergedGameOdds,
+            gameMeta,
+          );
+        }
+        const filterQualifyingAltLegs = (alts: ParsedPick[]) =>
+          alts.filter((p) => {
+            if (p.isProp) return false;
+            if (!isQualifyingBackupGameLine(p)) return false;
+            const sim = gameSimulations.get(p.game);
+            return passesCoachSimQualityGate(p, sim, {
+              edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
+              finalAi: p.finalAiScore,
+              odds: p.odds,
+            });
+          });
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2760,15 +2826,68 @@ export default function CoachScreen() {
         const oddsPhrase = slateDay ? `${slateLabel} real odds` : "the real odds";
         let backupPicks: ParsedPick[] = [];
         let backupNote = "";
-        if (reachFull && requestedLegs > picks.length && picks.length > 0) {
-          const qualifyingAlts = coachEvalLinesByGame
-            ? collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+        let qualifyingAlts: ParlayLegReject[] = [];
+        if (reachFull && picks.length > 0 && coachEvalLinesByGame) {
+          qualifyingAlts = collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            excludedSports,
+          });
+        }
+        if (reachFull && requestedLegs > picks.length && picks.length > 0 && qualifyingAlts.length > 0) {
+          const promoteGap = Math.min(reachTarget, MAX_LEGS) - picks.length;
+          let promoted = selectParlayBackupPicks(picks, qualifyingAlts, promoteGap);
+          if (promoted.length > 0) {
+            promoted = attachPickScores(promoted, {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            });
+            promoted = filterQualifyingAltLegs(promoted);
+            if (excludedSports.size > 0) {
+              promoted = scrubExcludedSportsFromPicks(
+                promoted,
+                excludedSports,
+                mergedPropPool,
+                mergedGameOdds,
+                gameMeta,
+              );
+            }
+            if (promoted.length > 0) {
+              picks = dedupeSameTeamGameLegs([...picks, ...promoted]).picks;
+              picks = attachPickScores(picks, {
                 realOdds: mergedGameOdds,
+                propPool: mergedPropPool,
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
+                perfByFamily: marketPerf,
+                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+                gameSimulations,
+              });
+              picks = scrubExcludedSportsFromPicks(
+                picks,
                 excludedSports,
-              })
-            : [];
+                mergedPropPool,
+                mergedGameOdds,
+                gameMeta,
+              );
+            }
+          }
+        }
+        if (reachFull && requestedLegs > picks.length && picks.length > 0) {
+          if (!qualifyingAlts.length && coachEvalLinesByGame) {
+            qualifyingAlts = collectQualifyingGameLines(picks, coachEvalLinesByGame, gameSimulations, {
+              realOdds: mergedGameOdds,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              excludedSports,
+            });
+          }
           const backupTarget = Math.min(4, requestedLegs - picks.length);
           backupPicks = selectParlayBackupPicks(picks, qualifyingAlts, backupTarget);
           if (backupPicks.length > 0) {
@@ -2781,16 +2900,7 @@ export default function CoachScreen() {
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
               gameSimulations,
             });
-            backupPicks = backupPicks.filter((p) => {
-              if (p.isProp) return false;
-              if (!isQualifyingBackupGameLine(p)) return false;
-              const sim = gameSimulations.get(p.game);
-              return passesCoachSimQualityGate(p, sim, {
-                edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
-                finalAi: p.finalAiScore,
-                odds: p.odds,
-              });
-            });
+            backupPicks = filterQualifyingAltLegs(backupPicks);
             if (excludedSports.size > 0) {
               backupPicks = scrubExcludedSportsFromPicks(
                 backupPicks,

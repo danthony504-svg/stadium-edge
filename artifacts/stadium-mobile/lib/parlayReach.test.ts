@@ -4,6 +4,7 @@ import {
   buildParlayShortfallNote,
   buildQualifyingAltShortfallNote,
   mergeParlayRejects,
+  promoteQualifyingAltsToTicket,
   reachParlayMix,
   selectParlayBackupPicks,
 } from "./parlayReachCore.ts";
@@ -51,6 +52,27 @@ test("buildQualifyingAltShortfallNote mentions positive-edge alts", () => {
 test("buildQualifyingAltShortfallNote mentions excluded leagues", () => {
   const note = buildQualifyingAltShortfallNote(12, 8, 2, "today's real odds", ["mlb"]);
   assert.match(note, /exclude.*MLB/i);
+});
+
+test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () => {
+  const ticket = [
+    { game: "A @ B", market: "Points", pick: "Player A Over 10.5 Points", odds: -110, isProp: true },
+  ];
+  const qualifying = [
+    {
+      pick: { game: "C @ D", market: "Alt Spread", pick: "D +3.5", odds: -105, isProp: false },
+      reason: "+2% edge",
+      nearScore: 40,
+    },
+    {
+      pick: { game: "E @ F", market: "Alt Total", pick: "Over 8.5", odds: 110, isProp: false },
+      reason: "+1.5% edge",
+      nearScore: 35,
+    },
+  ];
+  const { picks, promoted } = promoteQualifyingAltsToTicket(ticket as any, qualifying as any, 3);
+  assert.equal(promoted.length, 2);
+  assert.equal(picks.length, 3);
 });
 
 test("mergeParlayRejects dedupes by leg fingerprint", () => {

@@ -33,6 +33,7 @@ export {
   selectParlayBackupPicks,
   buildParlayShortfallNote,
   buildQualifyingAltShortfallNote,
+  promoteQualifyingAltsToTicket,
 } from "./parlayReachCore.ts";
 
 function nearScoreFromEval(row: EvaluatedGameLine): number {
