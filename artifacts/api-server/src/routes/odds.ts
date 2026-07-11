@@ -191,7 +191,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
     const upcoming = skipAltPeriod ? [] : games.filter((g) => {
       const t = new Date(g.commence_time).getTime();
       return !isNaN(t) && t > now - 30 * 60 * 1000 && t < now + WINDOW_MS;
-    }).slice(0, 12); // cap credit spend
+    }).slice(0, 20); // cap credit spend — raised for full-board period/alt coverage
     // Per-event extra markets: alternate ladders PLUS period markets
     // (game-level halves/quarters: h2h/spreads/totals for h1, h2, q1-q4,
     // plus alternate_spreads_h1 and alternate_totals_h1 — the "half lines"
@@ -217,6 +217,12 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
       "spreads_q3", "totals_q3", "h2h_q3",
       "spreads_q4", "totals_q4", "h2h_q4",
       "alternate_spreads_h1", "alternate_totals_h1",
+      "alternate_spreads_h2", "alternate_totals_h2",
+      "alternate_spreads_q1", "alternate_totals_q1",
+      "alternate_spreads_q2", "alternate_totals_q2",
+      "alternate_spreads_q3", "alternate_totals_q3",
+      "alternate_spreads_q4", "alternate_totals_q4",
+      "team_totals",
     ];
     const PERIOD_MARKETS_BASEBALL = [
       "alternate_spreads", "alternate_totals",
@@ -237,7 +243,7 @@ router.get("/sports/odds", async (req, res): Promise<void> => {
             // the correct endpoint and cache bucket. v3: baseball now requests
             // innings markets instead of the (empty) quarter/half set, so the
             // cache bucket is bumped to avoid serving stale empty v2 entries.
-            `odds:${g.sport_key}:alt:${g.id}:v3`,
+            `odds:${g.sport_key}:alt:${g.id}:v4`,
             10 * 60 * 1000,
             async () => {
               const url = `https://api.the-odds-api.com/v4/sports/${g.sport_key}/events/${g.id}/odds/?apiKey=${apiKey}&regions=us&markets=${gamePeriodMarkets.join(",")}&oddsFormat=american`;

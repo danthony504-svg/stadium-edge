@@ -28,7 +28,12 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
+import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
+import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
 import { dedupeSameTeamGameLegs } from "./ticketDiversity.ts";
+import type { MarketPerf } from "./marketWeighting.ts";
+import { marketConfidenceDelta } from "./marketWeighting.ts";
+import { scoreLineShopping } from "./pickScore.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
@@ -49,6 +54,7 @@ export type BoardScoredLeg = {
   edgePct: number | null;
   confidencePct: number | null;
   impliedProbPct: number | null;
+  lineShoppingScore: number | null;
   grade: string | null;
   simHit: number | null;
   composite: number | null;
@@ -71,7 +77,26 @@ function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
   const composite = leg.composite ?? 0;
   const sim = (leg.simHit ?? 0) * 100;
   const grade = gradeRank(leg.grade) * 4;
-  return ev * 1.5 + edge * 3 + conf * 0.4 + composite * 0.5 + sim * 0.35 + grade;
+  const shop = (leg.lineShoppingScore ?? 0) * 1.2;
+  return ev * 1.5 + edge * 3 + conf * 0.4 + composite * 0.5 + sim * 0.35 + grade + shop;
+}
+
+function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
+  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  if (rubric != null) return rubric;
+  if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
+  return null;
+}
+
+function confidenceWithLearning(
+  pick: ParsedPick,
+  base: number | null | undefined,
+  perfByFamily?: Map<string, MarketPerf>,
+): number | null {
+  if (base == null) return null;
+  const delta = perfByFamily ? marketConfidenceDelta(pick, perfByFamily) : 0;
+  if (!delta) return base;
+  return Math.max(5, Math.min(95, Math.round(base + delta)));
 }
 
 function gameLineQualifies(row: EvaluatedGameLine): boolean {
@@ -100,7 +125,10 @@ function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
   return true;
 }
 
-function scoredFromEvalRow(row: EvaluatedGameLine): BoardScoredLeg | null {
+function scoredFromEvalRow(
+  row: EvaluatedGameLine,
+  perfByFamily?: Map<string, MarketPerf>,
+): BoardScoredLeg | null {
   if (!gameLineQualifies(row)) return null;
   const m = deriveGameSimLineMetrics(row);
   const implied =
@@ -113,8 +141,9 @@ function scoredFromEvalRow(row: EvaluatedGameLine): BoardScoredLeg | null {
     },
     evPct: m?.evPct ?? null,
     edgePct: row.edgePct ?? row.finalAiScore.edgePct,
-    confidencePct: row.finalAiScore.confidencePct,
+    confidencePct: confidenceWithLearning(row.pick, row.finalAiScore.confidencePct, perfByFamily),
     impliedProbPct: implied,
+    lineShoppingScore: lineShoppingFromPick(row.pick, row.entry),
     grade: row.finalAiScore.grade,
     simHit: row.winProb ?? row.finalAiScore.simHit,
     composite: row.finalAiScore.composite,
@@ -122,7 +151,11 @@ function scoredFromEvalRow(row: EvaluatedGameLine): BoardScoredLeg | null {
   return { ...leg, rankScore: unifiedRankScore(leg) };
 }
 
-function scoredFromPropPick(pick: ParsedPick, simHit: number | null): BoardScoredLeg | null {
+function scoredFromPropPick(
+  pick: ParsedPick,
+  simHit: number | null,
+  perfByFamily?: Map<string, MarketPerf>,
+): BoardScoredLeg | null {
   if (!propQualifies(pick, simHit)) return null;
   const ev =
     simHit != null && pick.odds != null ? simEvPct(simHit, pick.odds) : null;
@@ -132,8 +165,13 @@ function scoredFromPropPick(pick: ParsedPick, simHit: number | null): BoardScore
     pick,
     evPct: ev,
     edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-    confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+    confidencePct: confidenceWithLearning(
+      pick,
+      pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct,
+      perfByFamily,
+    ),
     impliedProbPct: implied,
+    lineShoppingScore: lineShoppingFromPick(pick),
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit,
     composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
@@ -141,8 +179,11 @@ function scoredFromPropPick(pick: ParsedPick, simHit: number | null): BoardScore
   return { ...leg, rankScore: unifiedRankScore(leg) };
 }
 
-/** Greedy top-N by rank — one leg per fingerprint, then same-team dedupe. */
+/** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
 export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
+  if (target >= 3) {
+    return dedupeSameTeamGameLegs(selectCorrelationAwareBoardLegs(ranked, target)).picks.slice(0, target);
+  }
   const seen = new Set<string>();
   const out: ParsedPick[] = [];
   for (const row of ranked) {
@@ -188,6 +229,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  perfByFamily?: Map<string, MarketPerf>;
   signal?: AbortSignal;
 }): Promise<FullBoardScanResult> {
   const poolBase =
@@ -201,7 +243,12 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ? await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
       : poolBase;
 
-  let evalLinesByGame = buildEvalLinesForAllGames(oddsGames);
+  let evalLinesByGame = new Map<string, RealOddsEntry[]>();
+  for (const og of oddsGames) {
+    const label = `${og.awayTeam} @ ${og.homeTeam}`;
+    const ladder = buildEvalLinesForAllGames([og]).get(label) ?? [];
+    evalLinesByGame.set(label, buildFullEvalLinesForGame(og, ladder));
+  }
   evalLinesByGame = augmentEvalLinesWithPostedOdds(evalLinesByGame, opts.realOdds);
   const gameSimulations = await fetchSlateGameSimulations(
     evalLinesByGame,
@@ -224,7 +271,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     });
     totalScanned += evaluated.length;
     for (const row of evaluated) {
-      const leg = scoredFromEvalRow(row);
+      const leg = scoredFromEvalRow(row, opts.perfByFamily);
       if (leg) scored.push(leg);
     }
   }
@@ -241,12 +288,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       matchupInjuries: opts.matchupInjuries,
       playerHistory: opts.playerHistory,
       propSimulations: propHits,
+      perfByFamily: opts.perfByFamily,
     },
   );
 
   for (const pick of propPicks) {
     const simHit = pick.finalAiScore?.simHit ?? null;
-    const leg = scoredFromPropPick(pick, simHit);
+    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily);
     if (leg) scored.push(leg);
   }
 

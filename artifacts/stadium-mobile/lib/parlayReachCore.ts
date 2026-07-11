@@ -101,11 +101,11 @@ export function buildFullBoardShortfallNote(
       ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues were off the board. `
       : "";
   return [
-    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each.`,
+    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`,
     actual >= requested && totalQualified >= actual
-      ? `**${totalQualified}** lines cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%, sim hit > implied). These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade.`
+      ? `**${totalQualified}** lines cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%, sim hit > implied). These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
       : totalQualified > actual
-        ? `**${totalQualified}** cleared quality filters. These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade.`
+        ? `**${totalQualified}** cleared quality filters. These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
         : `Only **${totalQualified}** lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).`,
   ].join("\n\n");
 }

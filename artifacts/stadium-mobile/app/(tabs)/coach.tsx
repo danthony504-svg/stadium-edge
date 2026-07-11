@@ -2063,6 +2063,7 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            perfByFamily: marketPerf,
             signal: abortRef.current?.signal,
           });
           picks = fullBoardScanMeta.picks;

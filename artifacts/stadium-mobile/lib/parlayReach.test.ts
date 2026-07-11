@@ -81,7 +81,7 @@ test("buildFullBoardShortfallNote explains entire-board scan when short", () => 
   assert.match(note, /840/);
   assert.match(note, /second half/i);
   assert.match(note, /combo props/i);
-  assert.match(note, /second half/i);
+  assert.match(note, /correlation scoring/i);
 });
 
 test("buildFullBoardShortfallNote confirms top 15 when board has more qualifiers", () => {

@@ -4,6 +4,8 @@ import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 test("FULL_BOARD_MARKET_FAMILIES lists every period and combo market", () => {
+  assert.match(FULL_BOARD_MARKET_FAMILIES, /live markets/i);
+  assert.match(FULL_BOARD_MARKET_FAMILIES, /race-to/i);
   assert.match(FULL_BOARD_MARKET_FAMILIES, /second half/i);
   assert.match(FULL_BOARD_MARKET_FAMILIES, /second quarter/i);
   assert.match(FULL_BOARD_MARKET_FAMILIES, /third quarter/i);
