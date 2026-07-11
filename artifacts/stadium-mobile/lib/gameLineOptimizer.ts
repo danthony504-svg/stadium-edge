@@ -6,6 +6,7 @@ import { marketFamily } from "../components/PickCard.tsx";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry, OddsGame, RealOddsEntry } from "./api.ts";
 import { buildAllEvalGameLines } from "./api.ts";
+import { poolMatchesPickFamily } from "./altLinePool.ts";
 import { buildFinalAiScore, type FinalAiScore } from "./finalAiScore.ts";
 import {
   buildGameCoverQuery,
@@ -168,7 +169,7 @@ function simFavoredTeamForGame(
   return (side === "home" ? parts[1] : parts[0])!.trim() || null;
 }
 
-import { poolMatchesPickFamily } from "./altLinePool.ts";
+function candidatesForPick(
   pick: ParsedPick,
   allLines: RealOddsEntry[],
   matchupHistory?: Record<string, MatchupHistoryEntry>,
