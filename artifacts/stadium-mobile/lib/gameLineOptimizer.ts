@@ -19,6 +19,7 @@ import { scoreGameLinePick, findBackingOddsRow } from "./pickScoreContext.ts";
 import {
   filterEvalLinesForProjectedMargin,
   hasCompleteEvaluatedLine,
+  qualifiesCoachSimEvalLine,
 } from "./gameSimQualityGates.ts";
 
 const norm = (s: string) =>
@@ -167,7 +168,7 @@ function simFavoredTeamForGame(
   return (side === "home" ? parts[1] : parts[0])!.trim() || null;
 }
 
-function candidatesForPick(
+import { poolMatchesPickFamily } from "./altLinePool.ts";
   pick: ParsedPick,
   allLines: RealOddsEntry[],
   matchupHistory?: Record<string, MatchupHistoryEntry>,
@@ -176,7 +177,10 @@ function candidatesForPick(
 ): RealOddsEntry[] {
   const pickFam = marketFamily(pick.market);
   let lines = allLines.filter(
-    (e) => e.game === pick.game && isEvaluableGameMarket(e.market) && marketFamily(e.market) === pickFam,
+    (e) =>
+      e.game === pick.game &&
+      isEvaluableGameMarket(e.market) &&
+      (poolMatchesPickFamily(e, pick) || marketFamily(e.market) === pickFam),
   );
   if (excludeMoneyline) {
     lines = lines.filter((e) => !/^moneyline$/i.test(e.market.trim()));
@@ -250,20 +254,25 @@ function simForGame(
   return undefined;
 }
 
-/** Prefer sim-aligned lines with non-negative edge; high-risk value if sim-opposed. */
+/** Prefer lines that pass full 10k quality gates; fall back to high-risk value. */
 function selectBestEvaluated(ranked: EvaluatedGameLine[]): EvaluatedGameLine | null {
   if (!ranked.length) return null;
+  const qualifying = ranked.filter(qualifiesCoachSimEvalLine);
+  if (qualifying.length) return qualifying[0]!;
+
+  const highRisk = ranked.filter(
+    (r) => r.finalAiScore.highRiskValuePlay && hasCompleteEvaluatedLine(r),
+  );
+  if (highRisk.length) return highRisk[0]!;
+
   const complete = ranked.filter(hasCompleteEvaluatedLine);
   if (!complete.length) return null;
   const eligible = complete.filter((r) => {
-    if (r.finalAiScore.highRiskValuePlay) return true;
     if (!r.finalAiScore.simAligned) return false;
     const edge = r.edgePct;
     return edge == null || edge >= 0;
   });
-  if (eligible.length) return bestGameLine(eligible);
-  const highRisk = complete.filter((r) => r.finalAiScore.highRiskValuePlay);
-  if (highRisk.length) return bestGameLine(highRisk);
+  if (eligible.length) return eligible[0]!;
   return null;
 }
 
@@ -735,7 +744,7 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!row.finalAiScore.simAligned && !row.finalAiScore.highRiskValuePlay) continue;
+    if (!qualifiesCoachSimEvalLine(row) && !row.finalAiScore.highRiskValuePlay) continue;
     if ((row.edgePct ?? 0) < 0 && !row.finalAiScore.highRiskValuePlay) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);

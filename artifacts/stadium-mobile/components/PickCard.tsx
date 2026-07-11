@@ -39,7 +39,7 @@ export type AltRungOption = {
   };
 };
 
-export type SimAltTierLabel = "Safest" | "Best Value" | "Highest Confidence" | "Best Overall";
+export type SimAltTierLabel = "Safest" | "Best" | "Best Value" | "High Risk";
 
 /** A quality-filtered alt rung labeled after the 10k sim completes. */
 export type SimAltLine = AltRungOption & {
@@ -221,7 +221,7 @@ function LineTierChip({
   parent,
   simMetrics,
 }: {
-  tone: "safe" | "best" | "value" | "confidence" | "overall";
+  tone: "safe" | "best" | "value" | "confidence" | "overall" | "risk";
   label: string;
   game: string;
   market: string;
@@ -255,11 +255,13 @@ function LineTierChip({
       ? "shield"
       : tone === "value"
         ? "trending-up"
-        : tone === "confidence"
-          ? "target"
-          : tone === "overall"
-            ? "star"
-            : "star";
+        : tone === "risk"
+          ? "zap"
+          : tone === "confidence"
+            ? "target"
+            : tone === "overall"
+              ? "star"
+              : "star";
   const fg = added ? colors.primaryForeground : undefined;
   // BEST reads as the emphasized tier (primary outline) even before it's added.
   const idleBorder = isBest ? colors.primary : colors.border;
@@ -314,10 +316,11 @@ function LineTierChip({
   );
 }
 
-function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confidence" | "overall" {
+function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confidence" | "overall" | "risk" {
   if (label === "Safest") return "safe";
   if (label === "Best Value") return "value";
-  if (label === "Highest Confidence") return "confidence";
+  if (label === "High Risk") return "risk";
+  if (label === "Best") return "best";
   return "overall";
 }
 
@@ -338,7 +341,7 @@ function LineLadder({ pick }: { pick: ParsedPick }) {
             textTransform: "uppercase",
           }}
         >
-          Alternate lines · 10k sim · all posted rungs
+          Alternate lines · 10k sim · Safest → Best → Value → High Risk
         </Text>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "stretch" }}>
           {simAlts.map((alt) => (

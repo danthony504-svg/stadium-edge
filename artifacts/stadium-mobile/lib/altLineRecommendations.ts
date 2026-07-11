@@ -1,7 +1,7 @@
 // Sim-driven line recommendations for AI Coach pick cards.
 // Every posted game-line rung (full game, periods, alts, team totals) and every
-// prop alt ladder rung is scored on the same 10k draw; only lines that pass
-// quality filters are surfaced as Safest / Best Value / Highest Confidence / Best Overall.
+// prop alt ladder rung is scored on the same 10k draw; qualifying lines are
+// labeled Safest / Best / Best Value / High Risk and ranked for display.
 
 import type { ParsedPick, SimAltLine, SimAltTierLabel } from "../components/PickCard.tsx";
 import type { PropPoolEntry, RealOddsEntry } from "./api.ts";
@@ -22,7 +22,8 @@ import {
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
-import { marketFamily } from "../components/PickCard.tsx";
+import { gameAltPoolForPick } from "./altLinePool.ts";
+export { gameAltPoolForPick, poolMatchesPickFamily } from "./altLinePool.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import type { PropSimulationResult } from "./api.ts";
@@ -42,13 +43,18 @@ export type AltRungMetrics = {
 };
 
 export const DEEP_SIM_COUNT = 10_000;
+export const MAX_SIM_ALT_LINES = 12;
 
 export type SimAltRecommendations = {
   safest: AltRungMetrics | null;
+  best: AltRungMetrics | null;
   bestValue: AltRungMetrics | null;
-  highestConfidence: AltRungMetrics | null;
-  bestOverall: AltRungMetrics | null;
+  highRisk: AltRungMetrics | null;
+  /** Every qualifying rung, labeled and sorted Safest → Best → Best Value → High Risk. */
+  ranked: SimAltLine[];
 };
+
+const TIER_ORDER: SimAltTierLabel[] = ["Safest", "Best", "Best Value", "High Risk"];
 
 function norm(s: string): string {
   return String(s ?? "")
@@ -58,52 +64,21 @@ function norm(s: string): string {
     .trim();
 }
 
+function rungKey(r: Pick<AltRungMetrics, "market" | "pick" | "odds">): string {
+  return `${r.market ?? ""}|${r.pick}|${r.odds}`.toLowerCase();
+}
+
 function overallScore(r: AltRungMetrics): number {
   if (r.composite != null && Number.isFinite(r.composite)) return r.composite;
   return r.winProb * 35 + r.edgePct * 2.5 + r.confidencePct * 0.25;
 }
 
-function teamsMatch(a: string, b: string): boolean {
-  const x = norm(a);
-  const y = norm(b);
-  if (!x || !y) return false;
-  if (x.includes(y) || y.includes(x)) return true;
-  const nick = (s: string) => {
-    const t = norm(s).split(" ").filter(Boolean);
-    return t[t.length - 1] ?? "";
-  };
-  return nick(a).length > 2 && nick(a) === nick(b);
-}
-
-/** Same period window + stat family (Spread, Total, ML, …) as the leg on the card. */
-function sameMarketFamily(a: string, b: string): boolean {
-  return marketFamily(a) === marketFamily(b);
-}
-
-function pickTeamName(pick: string): string | null {
-  const p = String(pick ?? "");
-  if (/\b(over|under)\b/i.test(p)) return null;
-  return (
-    p
-      .replace(/\s*(ml|moneyline)\s*$/i, "")
-      .replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "")
-      .trim() || null
-  );
-}
-
-function sameSideAsPick(entry: RealOddsEntry, pick: ParsedPick): boolean {
-  const ep = entry.pick;
-  const pp = pick.pick;
-  if (/\bover\b/i.test(pp)) return /\bover\b/i.test(ep);
-  if (/\bunder\b/i.test(pp)) return /\bunder\b/i.test(ep);
-  const pt = pickTeamName(pp);
-  const et = pickTeamName(ep);
-  if (pt && et) return teamsMatch(pt, et);
-  return norm(ep) === norm(pp);
-}
-
 function qualifiesAltMetrics(m: GameSimLineMetrics): boolean {
   return qualifiesCoachSimLineMetrics(m);
+}
+
+function isHighRiskStyle(r: AltRungMetrics): boolean {
+  return r.winProb < 0.52 && r.edgePct >= 5 && r.evPct > 0;
 }
 
 function findPropSimResult(
@@ -159,41 +134,52 @@ function evaluatedToAltRung(row: EvaluatedGameLine): AltRungMetrics | null {
   };
 }
 
-function pickTiers(rows: AltRungMetrics[]): SimAltRecommendations {
-  if (!rows.length) {
-    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
-  }
+function assignTierLabel(r: AltRungMetrics, champions: {
+  safest: AltRungMetrics;
+  best: AltRungMetrics;
+  bestValue: AltRungMetrics;
+  highRisk: AltRungMetrics;
+}): SimAltTierLabel {
+  const k = rungKey(r);
+  if (rungKey(champions.safest) === k) return "Safest";
+  if (rungKey(champions.best) === k) return "Best";
+  if (rungKey(champions.bestValue) === k) return "Best Value";
+  if (rungKey(champions.highRisk) === k) return "High Risk";
+  if (r.winProb >= 0.58) return "Safest";
+  if (isHighRiskStyle(r)) return "High Risk";
+  if (r.evPct >= champions.bestValue.evPct * 0.85) return "Best Value";
+  return "Best";
+}
+
+function pickChampions(rows: AltRungMetrics[]): {
+  safest: AltRungMetrics;
+  best: AltRungMetrics;
+  bestValue: AltRungMetrics;
+  highRisk: AltRungMetrics;
+} {
   const safest = [...rows].sort((a, b) => b.winProb - a.winProb)[0]!;
+  const best = [...rows].sort((a, b) => overallScore(b) - overallScore(a))[0]!;
   const bestValue = [...rows].sort((a, b) => b.evPct - a.evPct)[0]!;
-  const highestConfidence = [...rows].sort((a, b) => b.confidencePct - a.confidencePct)[0]!;
-  const bestOverall = [...rows].sort((a, b) => overallScore(b) - overallScore(a))[0]!;
-  return { safest, bestValue, highestConfidence, bestOverall };
+  const highRiskCandidates = rows.filter(isHighRiskStyle);
+  const highRisk =
+    highRiskCandidates.length > 0
+      ? [...highRiskCandidates].sort((a, b) => b.evPct - a.evPct)[0]!
+      : [...rows].sort((a, b) => a.winProb - b.winProb || b.edgePct - a.edgePct)[0]!;
+  return { safest, best, bestValue, highRisk };
 }
 
-const TIER_ORDER: SimAltTierLabel[] = [
-  "Best Overall",
-  "Safest",
-  "Best Value",
-  "Highest Confidence",
-];
-
-function formatPropPick(player: string, side: string, line: number, marketLabel: string): string {
-  const lineTxt = Number.isInteger(line) ? ` ${line}` : ` ${line}`;
-  return `${player} ${side}${lineTxt} ${marketLabel}`;
-}
-
-function buildLabeledSimAltLines(tiers: SimAltRecommendations): SimAltLine[] {
-  const entries: Array<{ label: SimAltTierLabel; rung: AltRungMetrics | null }> = [
-    { label: "Best Overall", rung: tiers.bestOverall },
-    { label: "Safest", rung: tiers.safest },
-    { label: "Best Value", rung: tiers.bestValue },
-    { label: "Highest Confidence", rung: tiers.highestConfidence },
-  ];
+function buildRankedSimAltLines(
+  rows: AltRungMetrics[],
+  excludeKey?: string,
+): SimAltLine[] {
+  if (!rows.length) return [];
+  const champions = pickChampions(rows);
   const seen = new Set<string>();
   const lines: SimAltLine[] = [];
-  for (const { label, rung } of entries) {
-    if (!rung) continue;
-    const key = `${rung.market ?? ""}|${rung.pick}|${rung.odds}`;
+
+  for (const rung of rows) {
+    const key = rungKey(rung);
+    if (excludeKey && key === excludeKey) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     lines.push({
@@ -202,7 +188,7 @@ function buildLabeledSimAltLines(tiers: SimAltRecommendations): SimAltLine[] {
       odds: rung.odds,
       pick: rung.pick,
       market: rung.market,
-      tierLabel: label,
+      tierLabel: assignTierLabel(rung, champions),
       simMetrics: {
         winProb: rung.winProb,
         edgePct: rung.edgePct,
@@ -212,12 +198,45 @@ function buildLabeledSimAltLines(tiers: SimAltRecommendations): SimAltLine[] {
       },
     });
   }
-  return lines.sort(
-    (a, b) => TIER_ORDER.indexOf(a.tierLabel) - TIER_ORDER.indexOf(b.tierLabel),
-  );
+
+  return lines
+    .sort((a, b) => {
+      const tierDiff = TIER_ORDER.indexOf(a.tierLabel) - TIER_ORDER.indexOf(b.tierLabel);
+      if (tierDiff !== 0) return tierDiff;
+      const aScore =
+        (a.simMetrics?.winProb ?? 0) * 35 +
+        (a.simMetrics?.edgePct ?? 0) * 2.5 +
+        (a.simMetrics?.evPct ?? 0);
+      const bScore =
+        (b.simMetrics?.winProb ?? 0) * 35 +
+        (b.simMetrics?.edgePct ?? 0) * 2.5 +
+        (b.simMetrics?.evPct ?? 0);
+      return bScore - aScore;
+    })
+    .slice(0, MAX_SIM_ALT_LINES);
 }
 
-/** Rank alt game-line rungs from a 10k-evaluated ladder. */
+function pickTiers(rows: AltRungMetrics[]): SimAltRecommendations {
+  if (!rows.length) {
+    return { safest: null, best: null, bestValue: null, highRisk: null, ranked: [] };
+  }
+  const champions = pickChampions(rows);
+  const ranked = buildRankedSimAltLines(rows);
+  return {
+    safest: champions.safest,
+    best: champions.best,
+    bestValue: champions.bestValue,
+    highRisk: champions.highRisk,
+    ranked,
+  };
+}
+
+function formatPropPick(player: string, side: string, line: number, marketLabel: string): string {
+  const lineTxt = Number.isInteger(line) ? ` ${line}` : ` ${line}`;
+  return `${player} ${side}${lineTxt} ${marketLabel}`;
+}
+
+/** Rank every qualifying alt game-line rung from the 10k-evaluated ladder. */
 export function recommendGameAltTiers(
   pick: ParsedPick,
   evalLines: RealOddsEntry[],
@@ -229,17 +248,11 @@ export function recommendGameAltTiers(
   },
 ): SimAltRecommendations {
   if (!isGameLinePick(pick) || pick.isProp || !sim) {
-    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+    return { safest: null, best: null, bestValue: null, highRisk: null, ranked: [] };
   }
 
-  const pool = evalLines.filter(
-    (e) =>
-      e.game === pick.game &&
-      sameMarketFamily(e.market, pick.market) &&
-      sameSideAsPick(e, pick) &&
-      !(e.market === pick.market && e.pick === pick.pick && e.odds === pick.odds),
-  );
-  if (!pool.length) return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+  const pool = gameAltPoolForPick(pick, evalLines);
+  if (!pool.length) return { safest: null, best: null, bestValue: null, highRisk: null, ranked: [] };
 
   const ranked = evaluateGameLines({
     lines: pool,
@@ -253,10 +266,17 @@ export function recommendGameAltTiers(
     .map(evaluatedToAltRung)
     .filter((r): r is AltRungMetrics => r != null);
 
-  return pickTiers(qualified);
+  const tiers = pickTiers(qualified);
+  const onTicket = rungKey({
+    market: pick.market,
+    pick: pick.pick,
+    odds: pick.odds,
+  });
+  tiers.ranked = buildRankedSimAltLines(qualified, onTicket);
+  return tiers;
 }
 
-/** Rank alt prop rungs using lineHitRates from a 10k prop sim. */
+/** Rank every qualifying alt prop rung using lineHitRates from a 10k prop sim. */
 export function recommendPropAltTiers(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
@@ -264,10 +284,10 @@ export function recommendPropAltTiers(
   finalAi?: FinalAiScore | null,
 ): SimAltRecommendations {
   if (!pick.isProp || !pick.player || !pick.propSide || sim?.lineHitRates == null) {
-    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+    return { safest: null, best: null, bestValue: null, highRisk: null, ranked: [] };
   }
   if ((sim.simulations ?? 0) < DEEP_SIM_COUNT) {
-    return { safest: null, bestValue: null, highestConfidence: null, bestOverall: null };
+    return { safest: null, best: null, bestValue: null, highRisk: null, ranked: [] };
   }
 
   const side = pick.propSide === "Under" ? "Under" : "Over";
@@ -316,7 +336,16 @@ export function recommendPropAltTiers(
     });
   }
 
-  return pickTiers(rows);
+  const tiers = pickTiers(rows);
+  if (pick.propLine != null && pick.odds != null) {
+    const onTicket = rungKey({
+      market: pick.market,
+      pick: pick.pick,
+      odds: pick.odds,
+    });
+    tiers.ranked = buildRankedSimAltLines(rows, onTicket);
+  }
+  return tiers;
 }
 
 /** Replace heuristic alts with 10k-sim labeled alt lines on each pick card. */
@@ -330,16 +359,16 @@ export function attachSimAltOptionsToPicks(
     propSimulations?: Map<string, PropSimulationResult>;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
-    /** When true, prop alts require a completed 10k sim (deep tier). */
     requireDeepPropSim?: boolean;
   },
 ): ParsedPick[] {
   return picks.map((pick) => {
     let tiers: SimAltRecommendations = {
       safest: null,
+      best: null,
       bestValue: null,
-      highestConfidence: null,
-      bestOverall: null,
+      highRisk: null,
+      ranked: [],
     };
     let evaluated = false;
 
@@ -374,13 +403,11 @@ export function attachSimAltOptionsToPicks(
       tiers = recommendPropAltTiers(pick, opts.propPool, sim, pick.finalAiScore);
     }
 
-    const simAltLines = buildLabeledSimAltLines(tiers);
-    if (!simAltLines.length) {
-      // 10k sim finished but no alt cleared quality filters — hide heuristic ladder.
+    if (!tiers.ranked.length) {
       return evaluated ? { ...pick, altOptions: undefined } : pick;
     }
 
-    return { ...pick, simAltLines, altOptions: undefined };
+    return { ...pick, simAltLines: tiers.ranked, altOptions: undefined };
   });
 }
 
@@ -400,4 +427,10 @@ export function altLinesForPropPick(
     lines.add(e.line);
   }
   return [...lines].sort((a, b) => a - b);
+}
+
+/** Best qualifying alt rung for ticket optimization (highest composite score). */
+export function bestQualifyingAltRung(rows: AltRungMetrics[]): AltRungMetrics | null {
+  if (!rows.length) return null;
+  return [...rows].sort((a, b) => overallScore(b) - overallScore(a))[0]!;
 }

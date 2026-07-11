@@ -3946,7 +3946,7 @@ export async function buildChatContext(
         // values for the SAME player+stat — added as cushion/value options but
         // capped per player+market so one star's deep ladder can't crowd the pool.
         const altRungs = new Map<string, number>();
-        const ALT_RUNGS_PER_PROP = 8;
+        const ALT_RUNGS_PER_PROP = 16;
         for (const altPass of [false, true]) {
           for (const p of usable) {
             if (!!p.alt !== altPass) continue;
