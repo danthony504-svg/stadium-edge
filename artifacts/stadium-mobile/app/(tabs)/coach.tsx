@@ -67,6 +67,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
+import { isAlternateOrPeriodMarket } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -98,7 +99,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
-import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
+import { coachBuildSports, enrichPicksWithSport, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
 import {
   isUnsupportedSoccerDisciplineAsk,
@@ -1742,7 +1743,8 @@ export default function CoachScreen() {
         let picks = isAnalyze
           ? []
           : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
-        if (excludedSports.size > 0) {
+        picks = enrichPicksWithSport(picks, mergedPropPool, context.realOdds);
+        if (excludedSports.size > 0) { {
           picks = filterForExcludedSports(picks, excludedSports);
         }
         let soccerScorerGkSalvage = false;
@@ -2661,6 +2663,10 @@ export default function CoachScreen() {
         picks = picksWithSimPending(picks);
         if (excludedSports.size > 0) {
           picks = filterForExcludedSports(picks, excludedSports);
+        }
+        picks = enrichPicksWithSport(picks, mergedPropPool, mergedGameOdds);
+        if (excludedSports.size > 0) {
+          picks = filterForExcludedSports(picks, excludedSports);
           mergedGameOdds = filterForExcludedSports(mergedGameOdds, excludedSports);
           if (coachEvalLinesByGame) {
             coachEvalLinesByGame = filterEvalLinesByExcludedSports(
@@ -2702,7 +2708,9 @@ export default function CoachScreen() {
               gameSimulations,
             });
             backupPicks = backupPicks.filter((p) => {
+              if (p.isProp) return true;
               if (!isGameLinePick(p)) return true;
+              if (!isAlternateOrPeriodMarket(p.market)) return false;
               const sim = gameSimulations.get(p.game);
               return passesCoachSimQualityGate(p, sim, {
                 edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
@@ -2850,8 +2858,10 @@ export default function CoachScreen() {
           const snapshot =
             excludedSports.size > 0 ? filterForExcludedSports(picks, excludedSports) : picks;
           const applySimPicks = (scored: ParsedPick[]) => {
-            const next =
-              excludedSports.size > 0 ? filterForExcludedSports(scored, excludedSports) : scored;
+            let next = enrichPicksWithSport(scored, mergedPropPool, mergedGameOdds);
+            if (excludedSports.size > 0) {
+              next = filterForExcludedSports(next, excludedSports);
+            }
             patchLastAssistantPicks(setMessages, next);
             setAiPicks(next);
             captureFromCoach(next);

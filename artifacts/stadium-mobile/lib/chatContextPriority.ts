@@ -79,6 +79,29 @@ export function excludedSportsFromThread(
   return excludedSportsFromText(texts.filter(Boolean).join(" "));
 }
 
+/** Fill missing pick.sport from the prop pool or game odds so exclusion filters work. */
+export function enrichPicksWithSport(
+  picks: ParsedPick[],
+  propPool: PropPoolEntry[],
+  realOdds: { game: string; sport?: string }[],
+): ParsedPick[] {
+  const sportByGame = new Map<string, string>();
+  for (const e of realOdds) {
+    if (e.sport && e.game) sportByGame.set(e.game.toLowerCase(), e.sport);
+  }
+  return picks.map((p) => {
+    if (p.sport) return p;
+    if (p.isProp && p.player) {
+      const pool = propPool.find(
+        (e) => e.player === p.player && (!p.game || e.game === p.game),
+      );
+      if (pool?.sport) return { ...p, sport: pool.sport };
+    }
+    const fromGame = p.game ? sportByGame.get(p.game.toLowerCase()) : undefined;
+    return fromGame ? { ...p, sport: fromGame } : p;
+  });
+}
+
 /** Drop excluded leagues from per-game eval ladders used for alt-line grading. */
 export function filterEvalLinesByExcludedSports(
   map: Map<string, { sport?: string | null }[]>,

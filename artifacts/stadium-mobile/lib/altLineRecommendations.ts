@@ -341,10 +341,10 @@ export function recommendPropAltTiers(
       }),
     };
     if (qualifiesAltMetrics(metrics)) strictRows.push(row);
-    if (qualifiesDisplayAlt(metrics)) rows.push(row);
+    rows.push(row);
   }
 
-  const displayRows = rows.length ? rows : strictRows;
+  const displayRows = rows;
   const tiers = pickTiers(displayRows);
   if (pick.propLine != null && pick.odds != null) {
     const onTicket = rungKey({
@@ -452,7 +452,7 @@ export function attachPropSimAltLines(
       return optimizePropPickToBestAlt(pick, propPool, sim);
     }
     const tiers = recommendPropAltTiers(pick, propPool, sim, pick.finalAiScore);
-    if (!tiers.ranked.length) return { ...pick, altOptions: undefined };
+    if (!tiers.ranked.length) return pick;
     return { ...pick, simAltLines: tiers.ranked, altOptions: undefined };
   });
 }
@@ -513,7 +513,7 @@ export function attachSimAltOptionsToPicks(
     }
 
     if (!tiers.ranked.length) {
-      return evaluated ? { ...pick, altOptions: undefined } : pick;
+      return pick;
     }
 
     return { ...pick, simAltLines: tiers.ranked, altOptions: undefined };
