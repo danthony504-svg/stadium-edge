@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import {
   contextDepthForLegs,
   coachBuildSports,
+  enrichPicksWithSport,
   excludedSportsFromText,
   excludedSportsFromThread,
+  filterPicksForExcludedSports,
   focalSportsFromText,
   inferPropPickSport,
   isNegatedSportKeyword,
   parlayPoolHint,
   prioritizePlayerHistoryTargets,
+  scrubExcludedSportsFromPicks,
 } from "./chatContextPriority.ts";
 
 const ALL_SPORTS = ["mlb", "wnba", "nba", "nhl", "soccer", "ufc", "tennis", "nfl", "ncaaf", "ncaab"];
@@ -203,6 +206,52 @@ test("coachBuildSports drops excluded leagues from default pool", () => {
   const sports = coachBuildSports("12 leg no MLB", 12, all);
   assert.ok(!sports.includes("mlb"));
   assert.ok(sports.includes("nba"));
+});
+
+test("filterPicksForExcludedSports drops MLB hits props even without sport tag", () => {
+  const excluded = new Set(["mlb"]);
+  const picks = [
+    {
+      game: "Colorado Rockies @ San Francisco Giants",
+      market: "Hits",
+      pick: "Hunter Goodman Under 0.5 Hits",
+      odds: 169,
+      isProp: true,
+      player: "Hunter Goodman",
+    },
+    {
+      game: "Knicks @ Celtics",
+      market: "Points",
+      pick: "Jayson Tatum Over 27.5 Points",
+      odds: -110,
+      isProp: true,
+      player: "Jayson Tatum",
+      sport: "nba",
+    },
+  ];
+  const enriched = enrichPicksWithSport(picks as any, [], []);
+  assert.equal(enriched[0]!.sport, "mlb");
+  const kept = filterPicksForExcludedSports(enriched as any, excluded);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]!.sport, "nba");
+});
+
+test("scrubExcludedSportsFromPicks enriches then removes excluded leagues", () => {
+  const excluded = new Set(["mlb"]);
+  const picks = [
+    {
+      game: "Rockies @ Giants",
+      market: "Hits",
+      pick: "Hunter Goodman Under 0.5 Hits",
+      odds: 169,
+      isProp: true,
+      player: "Hunter Goodman",
+    },
+  ];
+  const out = scrubExcludedSportsFromPicks(picks as any, excluded, [], [], [
+    { game: "Colorado Rockies @ San Francisco Giants", sport: "mlb" },
+  ]);
+  assert.equal(out.length, 0);
 });
 
 test("isNegatedSportKeyword matches common phrasing", () => {
