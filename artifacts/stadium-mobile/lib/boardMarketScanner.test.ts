@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
+import { reachBoardScanEligible, shouldUseFullBoardScan } from "./boardMarketScanner.ts";
 
 test("FULL_BOARD_MARKET_FAMILIES lists every period and combo market", () => {
   assert.match(FULL_BOARD_MARKET_FAMILIES, /live markets/i);

@@ -24,6 +24,7 @@ import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
+import { isAltBoardPick, isAltPropPick } from "@/lib/altLinePool";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
@@ -704,6 +705,14 @@ export function PickCard({
   const { addLeg, removeLeg, hasLeg } = useBetSlip();
   const added = hasLeg(pick.game, pick.market, pick.pick);
   const [edgeOpen, setEdgeOpen] = useState(false);
+  const altPickBadge = {
+    text: "ALT PICK",
+    caption: "Alternate rung — positive EV, edge, and sim grade",
+    tone: "grade" as const,
+  };
+  const isAltLeg =
+    pick.ticketRole === "alt" || isAltBoardPick(pick) || isAltPropPick(pick);
+  const cardBadge = isAltLeg ? altPickBadge : badge;
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the
   // FULL team name (multi-word national teams) on a 3-way line, so "Canada -0.5"
@@ -757,7 +766,7 @@ export function PickCard({
         gap: 8,
       }}
     >
-      {badge ? (
+      {cardBadge ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <View
             style={{
@@ -765,9 +774,9 @@ export function PickCard({
               paddingHorizontal: 8,
               borderRadius: 999,
               backgroundColor:
-                badge.tone === "grade"
+                cardBadge.tone === "grade"
                   ? colors.success
-                  : badge.tone === "value"
+                  : cardBadge.tone === "value"
                     ? colors.primary
                     : colors.accent,
             }}
@@ -780,15 +789,15 @@ export function PickCard({
                 letterSpacing: 0.4,
               }}
             >
-              {badge.text}
+              {cardBadge.text}
             </Text>
           </View>
-          {badge.caption ? (
+          {cardBadge.caption ? (
             <Text
               style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 10, flex: 1 }}
               numberOfLines={1}
             >
-              {badge.caption}
+              {cardBadge.caption}
             </Text>
           ) : null}
         </View>

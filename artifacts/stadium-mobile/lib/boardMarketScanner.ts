@@ -301,11 +301,37 @@ export function shouldUseFullBoardScan(
     reachFull?: boolean;
   },
 ): boolean {
+  if (reachBoardScanEligible(opts)) return true;
+  const asked = opts.requestedLegs ?? 0;
+  if (opts.reachFull && asked > 0) return true;
+  return asked > 0 && legTarget >= 3;
+}
+
+/** True for explicit 12+ leg parlay asks that should always full-board scan. */
+export function reachBoardScanEligible(opts: {
+  isAnalyze?: boolean;
+  requestedLegs?: number;
+  propsOnly?: boolean;
+  explicitSingleGame?: boolean;
+  oddsThreshold?: unknown;
+  confidenceThreshold?: unknown;
+}): boolean {
+  if (opts.isAnalyze) return false;
+  const asked = opts.requestedLegs ?? 0;
+  if (asked < 12) return false;
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
   }
-  const asked = opts.requestedLegs ?? 0;
-  if (asked >= 12) return true;
-  if (opts.reachFull && asked > 0) return true;
-  return asked > 0 && legTarget >= 3;
+  return true;
+}
+
+/** Full-board scan wrapper — never throws through to the coach render path. */
+export async function tryReachFullBoardScan(
+  opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
+): Promise<FullBoardScanResult | null> {
+  try {
+    return await buildTopLegsFromFullBoardScan(opts);
+  } catch {
+    return null;
+  }
 }

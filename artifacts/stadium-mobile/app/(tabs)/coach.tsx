@@ -92,6 +92,8 @@ import { parsedPickFromPoolEntry } from "@/lib/propSelection";
 import {
   buildTopLegsFromFullBoardScan,
   shouldUseFullBoardScan,
+  tryReachFullBoardScan,
+  reachBoardScanEligible,
   type FullBoardScanResult,
 } from "@/lib/boardMarketScanner";
 import {
@@ -1619,7 +1621,7 @@ export default function CoachScreen() {
                 })),
               ]);
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-              preBoardScan = await buildTopLegsFromFullBoardScan({
+              preBoardScan = await tryReachFullBoardScan({
                 target: reachTargetPreScan,
                 oddsGames,
                 propPool,
@@ -1823,6 +1825,46 @@ export default function CoachScreen() {
           propSimulations,
           varietySeed,
         };
+        let reachBoardScan: FullBoardScanResult | null = null;
+        const reachBoardEligible = reachBoardScanEligible({
+          isAnalyze: wantsAnalyzeSlip(trimmed),
+          requestedLegs,
+          propsOnly: wantsPropsOnly(trimmed),
+          explicitSingleGame,
+          oddsThreshold,
+          confidenceThreshold,
+        });
+        if (reachBoardEligible) {
+          const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+            (s) => !excludedSports.has(s),
+          );
+          const [espnGames, oddsGames, liveFeed] = await Promise.all([
+            Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+              rows.flat(),
+            ),
+            Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+              rows.flat(),
+            ),
+            getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
+          ]);
+          reachBoardScan = await tryReachFullBoardScan({
+            target: Math.min(legTarget, MAX_LEGS),
+            oddsGames,
+            propPool: mergedPropPool,
+            realOdds: context.realOdds,
+            liveOdds: liveFeed.odds,
+            espnGames,
+            gameMeta,
+            teamIdMap: buildGameTeamIdMap(espnGames),
+            excludedSports,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            perfByFamily: marketPerf,
+            calibration: modelCalibration,
+            signal: abortRef.current?.signal,
+          });
+        }
 
         // Explicit "alt picks" ask: mobile sends no per-player game-log data, so
         // the model can't reason about which alt rung to take. Snap resolved props
@@ -2107,12 +2149,13 @@ export default function CoachScreen() {
             requestedLegs,
             reachFull,
           });
-        if (preBoardScan) {
-          picks = preBoardScan.picks;
-          fullBoardScanMeta = preBoardScan;
+        if (preBoardScan || reachBoardScan) {
+          const boardScanResult = reachBoardScan ?? preBoardScan!;
+          picks = boardScanResult.picks;
+          fullBoardScanMeta = boardScanResult;
           fullBoardScanned = true;
           boardBuilt = true;
-          diversityNote = preBoardScan.note;
+          diversityNote = boardScanResult.note;
         } else if (useFullBoardScan) {
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
             (s) => !excludedSports.has(s),
@@ -2127,7 +2170,7 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-          fullBoardScanMeta = await buildTopLegsFromFullBoardScan({
+          const inlineScan = await tryReachFullBoardScan({
             target: reachTarget,
             oddsGames,
             propPool: mergedPropPool,
@@ -2144,10 +2187,13 @@ export default function CoachScreen() {
             calibration: modelCalibration,
             signal: abortRef.current?.signal,
           });
-          picks = fullBoardScanMeta.picks;
-          fullBoardScanned = true;
-          boardBuilt = true;
-          diversityNote = fullBoardScanMeta.note;
+          if (inlineScan) {
+            fullBoardScanMeta = inlineScan;
+            picks = inlineScan.picks;
+            fullBoardScanned = true;
+            boardBuilt = true;
+            diversityNote = inlineScan.note;
+          }
         } else if (forceBoardBuild) {
           picks = assembleDeepParlayFromBoard(
             reachTarget,

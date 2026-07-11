@@ -118,7 +118,12 @@ export function filterAiRecommendedPicks<T extends RecommendablePick & { finalAi
 export function filterTicketPicks<
   T extends RecommendablePick & { finalAiScore?: FinalAiScore | null; ticketRole?: "main" | "alt" },
 >(picks: T[]): T[] {
-  return picks.filter((p) => pickPassesTicketGate(p, p.finalAiScore));
+  return picks.filter((p) => {
+    if (!pickPassesTicketGate(p, p.finalAiScore)) return false;
+    const edge = p.finalAiScore?.edgePct;
+    if (edge != null && edge <= 0) return false;
+    return true;
+  });
 }
 
 export function countAiRecommendedPicks(
