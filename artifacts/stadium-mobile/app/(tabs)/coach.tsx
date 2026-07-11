@@ -105,6 +105,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
+import { filterAiRecommendedPicks, pickIsAiRecommended } from "@/lib/pickRecommendation";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -2870,16 +2871,7 @@ export default function CoachScreen() {
           );
         }
         const filterQualifyingAltLegs = (alts: ParsedPick[]) =>
-          alts.filter((p) => {
-            if (p.isProp) return false;
-            if (!isQualifyingBackupGameLine(p)) return false;
-            const sim = gameSimulations.get(p.game);
-            return passesCoachSimQualityGate(p, sim, {
-              edge: p.scores?.edgePct ?? p.finalAiScore?.edgePct,
-              finalAi: p.finalAiScore,
-              odds: p.odds,
-            });
-          });
+          alts.filter((p) => pickIsAiRecommended(p, p.finalAiScore));
         // Transparency note. When the user asked for a specific leg count and we
         // delivered fewer (even after the alt backstop above), say why — the
         // lead-in prose is hidden once cards render (assistantBubbleText returns
@@ -2900,7 +2892,13 @@ export default function CoachScreen() {
             excludedSports,
           });
         }
-        if (reachFull && requestedLegs > picks.length && picks.length > 0 && qualifyingAlts.length > 0) {
+        if (
+          reachFull &&
+          requestedLegs > picks.length &&
+          picks.length > 0 &&
+          qualifyingAlts.length > 0 &&
+          !fullBoardScanned
+        ) {
           const promoteGap = Math.min(reachTarget, MAX_LEGS) - picks.length;
           let promoted = selectParlayBackupPicks(picks, qualifyingAlts, promoteGap);
           if (promoted.length > 0) {
@@ -2986,6 +2984,17 @@ export default function CoachScreen() {
             }
           }
         }
+        let aiFilterNote = "";
+        if (!isAnalyze && isParlayBuild && picks.length > 0) {
+          const beforeFilter = picks.length;
+          picks = filterAiRecommendedPicks(picks);
+          if (picks.length < beforeFilter) {
+            aiFilterNote =
+              picks.length > 0
+                ? `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`
+                : `_No legs cleared every sim, edge, EV, and confidence threshold after rescoring — try a smaller parlay or a different slate._`;
+          }
+        }
         if (picks.length > 0 && requestedLegs > picks.length) {
           legNote =
             backupNote ||
@@ -3031,7 +3040,7 @@ export default function CoachScreen() {
             ? `_Leagues excluded on this ticket: **${[...excludedSports].map((s) => s.toUpperCase()).join(", ")}** — say an league name to include it again (e.g. "15 leg MLB parlay")._`
             : "";
         const coachDetailNote = dedupeLegNoteParagraphs(
-          [exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote]
+          [exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote, aiFilterNote]
             .filter(Boolean)
             .join("\n\n"),
         );

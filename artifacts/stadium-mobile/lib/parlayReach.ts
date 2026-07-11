@@ -16,6 +16,7 @@ import {
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
+import { pickIsAiRecommended } from "./pickRecommendation.ts";
 import { isQualifyingBackupGameLine, isMainLineGameLeg } from "./altLinePool.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
@@ -118,7 +119,7 @@ export function collectQualifyingGameLines(
       if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
         continue;
       }
-      if (!qualifiesCoachSimEvalLine(row)) continue;
+      if (!pickIsAiRecommended(row.pick, row.finalAiScore)) continue;
       qualified.push({
         pick: row.pick,
         reason: reasonForQualifyingLine(row),

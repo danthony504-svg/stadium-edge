@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
+  filterAiRecommendedPicks,
   pickGradeDisplayLabel,
   pickIsAiRecommended,
 } from "./pickRecommendation.ts";
@@ -61,6 +62,41 @@ test("pickGradeDisplayLabel shows Not AI Recommended when sim exists but thresho
     pickGradeDisplayLabel({ market: "Spread", sport: "nba", odds: -110 }, score),
     NOT_AI_RECOMMENDED,
   );
+});
+
+test("filterAiRecommendedPicks removes sub-threshold legs", () => {
+  const good = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B -3.5",
+    odds: -110,
+    isProp: false,
+    sport: "nba",
+    finalAiScore: {
+      composite: 8,
+      grade: "A",
+      confidencePct: 65,
+      edgePct: 4,
+      simHit: 0.58,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: { composite: 8, grade: "A", confidencePct: 65, edgePct: 4, scores: {} as never },
+    },
+  };
+  const weak = {
+    ...good,
+    finalAiScore: {
+      ...good.finalAiScore,
+      edgePct: -2,
+      recommends: false,
+      simHit: 0.44,
+    },
+  };
+  const out = filterAiRecommendedPicks([good, weak]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.pick, good.pick);
 });
 
 test("unsupported market uses not-yet-graded path via pickHasSimGrade", () => {

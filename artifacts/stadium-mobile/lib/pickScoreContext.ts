@@ -44,6 +44,7 @@ import {
   type CoachGameSimEntry,
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
+import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
@@ -182,8 +183,6 @@ export function scoreGameLinePick(
   // Line Value + Line-Shopping come straight off the backing odds row, which
   // parsePicks copied verbatim — so an exact game/market/pick match is the row.
   const ro = findBackingOddsRow(pick, realOdds);
-  const edgePct = ro?.edge ?? null;
-  const lineValue = scoreLineValue(edgePct);
   const lineShopping = scoreLineShopping(ro?.bookSpread ?? null);
 
   const { away, home } = splitLabel(pick.game);
@@ -234,13 +233,23 @@ export function scoreGameLinePick(
         : tennis.simulation.homeWinProbability
       : null;
 
+  const simHit = gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? tennisSimHit;
+  // Prefer sim-derived edge over the book feed's pre-computed edge so Coach gates
+  // stay aligned with the 10k Monte Carlo that qualified the leg.
+  let edgePct = ro?.edge ?? null;
+  if (simHit != null && pick.odds != null) {
+    const simEdge = simEdgeFromHit(simHit, pick.odds);
+    if (simEdge != null) edgePct = simEdge;
+  }
+  const lineValue = scoreLineValue(edgePct);
+
   const scores: PickSubScores = {
     matchup,
     trend,
     lineValue,
     injury,
     lineShopping,
-    simulation: scoreSimulation(gameSimHitForPick(pick, gameSim) ?? fightSimHit ?? tennisSimHit),
+    simulation: scoreSimulation(simHit),
   };
   // Pass the leg's real price AND the picked side's no-vig fair win probability so
   // Confidence reads its de-vigged win chance. noVigFair is present on BOTH sides
@@ -438,7 +447,6 @@ function scorePropPick(
     propPool.find((e) => same(e) && e.line === pick.propLine) ??
     propPool.find(same);
   if (!entry) return null;
-  const edgePct = entry.edge ?? null;
   const marketKey = pick.propMarketKey ?? entry.marketKey ?? pick.market;
   const ph = playerHistoryFor(pick.player, entry.athleteId ?? pick.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
@@ -447,6 +455,11 @@ function scorePropPick(
       ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
       : null;
   const sim = simKey ? simulationByKey?.get(simKey) : undefined;
+  let edgePct = entry.edge ?? null;
+  if (sim?.hitProbability != null && pick.odds != null) {
+    const simEdge = simEdgeFromHit(sim.hitProbability, pick.odds);
+    if (simEdge != null) edgePct = simEdge;
+  }
   const scores: PickSubScores = {
     matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
     trend: propTrendScore(ph, marketKey, pick.propLine, pick.propSide),

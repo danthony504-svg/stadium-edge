@@ -70,3 +70,16 @@ export function pickGradeDisplayCaption(
   }
   return "Did not pass AI recommendation thresholds";
 }
+
+/** Keep only legs that pass every AI recommendation threshold. */
+export function filterAiRecommendedPicks<T extends RecommendablePick & { finalAiScore?: FinalAiScore | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore));
+}
+
+export function countAiRecommendedPicks(
+  picks: Array<RecommendablePick & { finalAiScore?: FinalAiScore | null }>,
+): number {
+  return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore)).length;
+}
