@@ -61,6 +61,26 @@ export type SimAltRecommendations = {
 
 const TIER_ORDER: SimAltTierLabel[] = ["Safest", "Best", "Best Value", "High Risk"];
 
+function capSimAltLines(lines: SimAltLine[]): SimAltLine[] {
+  if (lines.length <= MAX_SIM_ALT_LINES) return lines;
+  const byTier = new Map<SimAltTierLabel, SimAltLine>();
+  for (const line of lines) {
+    if (!byTier.has(line.tierLabel)) byTier.set(line.tierLabel, line);
+  }
+  const tiered = TIER_ORDER.map((t) => byTier.get(t)).filter((l): l is SimAltLine => l != null);
+  if (tiered.length >= MAX_SIM_ALT_LINES) return tiered.slice(0, MAX_SIM_ALT_LINES);
+  const seen = new Set(tiered.map((l) => rungKey(l)));
+  const out = [...tiered];
+  for (const line of lines) {
+    if (out.length >= MAX_SIM_ALT_LINES) break;
+    const key = rungKey(line);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out.slice(0, MAX_SIM_ALT_LINES);
+}
+
 function norm(s: string): string {
   return String(s ?? "")
     .toLowerCase()
@@ -203,8 +223,10 @@ function buildRankedSimAltLines(
     lines.push(rungToSimAltLine(rung, tierLabel));
   }
 
-  return lines.sort(
-    (a, b) => TIER_ORDER.indexOf(a.tierLabel) - TIER_ORDER.indexOf(b.tierLabel),
+  return capSimAltLines(
+    lines.sort(
+      (a, b) => TIER_ORDER.indexOf(a.tierLabel) - TIER_ORDER.indexOf(b.tierLabel),
+    ),
   );
 }
 
@@ -331,7 +353,15 @@ export function recommendPropAltTiers(
     rows.push(row);
   }
 
-  const displayRows = rows;
+  const displayRows = strictRows.length > 0 ? strictRows : rows.filter((r) => qualifiesDisplayAlt({
+    simHit: r.winProb,
+    fairOdds: 0,
+    bookOdds: r.odds,
+    evPct: r.evPct,
+    edgePct: r.edgePct,
+    grade: r.grade,
+    confidencePct: r.confidencePct,
+  }));
   const tiers = pickTiers(displayRows);
   if (pick.propLine != null && pick.odds != null) {
     const onTicket = rungKey({
@@ -339,7 +369,7 @@ export function recommendPropAltTiers(
       pick: pick.pick,
       odds: pick.odds,
     });
-    tiers.ranked = buildRankedSimAltLines(rows, onTicket);
+    tiers.ranked = buildRankedSimAltLines(displayRows, onTicket);
   }
   return tiers;
 }
@@ -381,7 +411,7 @@ export function attachPropPoolLadder(
         tierLabel,
       };
     });
-    return { ...pick, simAltLines: ranked, altOptions: undefined };
+    return { ...pick, simAltLines: capSimAltLines(ranked), altOptions: undefined };
   });
 }
 

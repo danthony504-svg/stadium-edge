@@ -3163,7 +3163,7 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             perfByFamily: marketPerf,
-            minLegs: excludedSports.size > 0 ? undefined : requestedLegs > 0 ? requestedLegs : undefined,
+            minLegs: undefined,
             excludedSports: excludedSports.size > 0 ? excludedSports : undefined,
             altAttach:
               coachEvalLinesByGame && gameSimulations.size > 0
@@ -3182,7 +3182,64 @@ export default function CoachScreen() {
             gameMeta,
           );
           const applySimPicks = (scored: ParsedPick[]) => {
-            let next = attachPropPoolLadder(scored, mergedPropPool);
+            let next = scored.map((p) => {
+              if ((p.simAltLines?.length ?? 0) > 0) return p;
+              return attachPropPoolLadder([p], mergedPropPool)[0] ?? p;
+            });
+            next = tagTicketRoles(next);
+            if (
+              reachFull &&
+              next.length < reachTarget &&
+              coachEvalLinesByGame &&
+              gameSimulations.size > 0
+            ) {
+              const scoredAltProps = mergedPropPool.some((e) => e.alt)
+                ? attachPickScores(
+                    mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                    {
+                      realOdds: mergedGameOdds,
+                      propPool: mergedPropPool,
+                      matchupHistory: context.matchupHistory,
+                      matchupInjuries: context.matchupInjuries,
+                      perfByFamily: marketPerf,
+                      playerHistory: context.playerHistory as
+                        | Record<string, PlayerHistorySlice>
+                        | undefined,
+                      gameSimulations,
+                    },
+                  )
+                : [];
+              const qualifyingReach = mergeParlayRejects(
+                collectQualifyingGameLines(next, coachEvalLinesByGame, gameSimulations, {
+                  realOdds: mergedGameOdds,
+                  matchupHistory: context.matchupHistory,
+                  matchupInjuries: context.matchupInjuries,
+                  excludedSports,
+                }),
+                collectQualifyingAltProps(next, mergedPropPool, scoredAltProps),
+              );
+              if (qualifyingReach.length > 0) {
+                const filled = fillReachTicketWithQualifyingAlts(
+                  next,
+                  reachTarget,
+                  qualifyingReach,
+                );
+                if (filled.promoted.length > 0) {
+                  next = attachPickScores(filled.picks, {
+                    realOdds: mergedGameOdds,
+                    propPool: mergedPropPool,
+                    matchupHistory: context.matchupHistory,
+                    matchupInjuries: context.matchupInjuries,
+                    perfByFamily: marketPerf,
+                    playerHistory: context.playerHistory as
+                      | Record<string, PlayerHistorySlice>
+                      | undefined,
+                    gameSimulations,
+                  });
+                }
+              }
+            }
+            next = filterTicketPicks(next);
             next = scrubExcludedSportsFromPicks(
               next,
               excludedSports,

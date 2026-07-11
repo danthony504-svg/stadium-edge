@@ -67,7 +67,7 @@ function scorePicksWithSim(
     out = filterPicksForExcludedSports(out, opts.excludedSports);
   }
   if (!simulationPending && fullSimRows?.size) {
-    out = attachPropSimAltLines(out, opts.propPool, fullSimRows, { swapToBestAlt: true });
+    out = attachPropSimAltLines(out, opts.propPool, fullSimRows, { swapToBestAlt: false });
     if (opts.excludedSports?.size) {
       out = filterPicksForExcludedSports(out, opts.excludedSports);
     }

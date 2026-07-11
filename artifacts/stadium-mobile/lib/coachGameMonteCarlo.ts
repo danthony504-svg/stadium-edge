@@ -501,18 +501,6 @@ export function filterCoachPicksWithPropSim(
     });
   }
 
-  if (minLegs > 0 && kept.length < minLegs) {
-    for (const p of dropped) {
-      if (kept.length >= minLegs) break;
-      if (opts.excludedSports?.size && p.sport && opts.excludedSports.has(p.sport)) continue;
-      kept.push({ ...p, highRiskValuePlay: true });
-      warnings.push(
-        `Kept **${p.pick}** despite a sub-threshold sim read — your ticket asked for ${minLegs} legs and every card is still a real posted line.`,
-      );
-      removed = Math.max(0, removed - 1);
-    }
-  }
-
   const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
   if (removed > 0) {
