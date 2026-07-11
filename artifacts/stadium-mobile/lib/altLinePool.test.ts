@@ -7,6 +7,7 @@ import {
   isPostablePoolLadderOdds,
   isQualifyingBackupGameLine,
   ladderTierForSiblingIndex,
+  poolLadderChampionIndices,
   poolMatchesPickFamily,
 } from "./altLinePool.ts";
 import type { RealOddsEntry } from "./api.ts";
@@ -96,6 +97,28 @@ test("isQualifyingBackupGameLine accepts alt spread but rejects main ML", () => 
 test("ladderTierForSiblingIndex labels lowest line Safest and highest High Risk", () => {
   assert.equal(ladderTierForSiblingIndex(0, 3), "Safest");
   assert.equal(ladderTierForSiblingIndex(2, 3), "High Risk");
+});
+
+test("poolLadderChampionIndices matches eight-rung Ayayi-style ladder with one chip per tier", () => {
+  const eight = poolLadderChampionIndices(8);
+  assert.equal(eight.length, 4);
+  assert.deepEqual(
+    eight.map((c) => c.tierLabel),
+    ["Safest", "Best", "Best Value", "High Risk"],
+  );
+  assert.deepEqual(
+    eight.map((c) => c.index),
+    [0, 2, 4, 7],
+  );
+});
+
+test("poolLadderChampionIndices collapses small ladders without duplicate tiers", () => {
+  const two = poolLadderChampionIndices(2);
+  assert.equal(two.length, 2);
+  assert.deepEqual(
+    two.map((c) => c.tierLabel),
+    ["Safest", "High Risk"],
+  );
 });
 
 test("isPostablePoolLadderOdds rejects junk +40000 alt rungs", () => {

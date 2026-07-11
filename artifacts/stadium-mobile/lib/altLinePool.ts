@@ -20,6 +20,31 @@ export function ladderTierForSiblingIndex(i: number, n: number): AltLadderTierLa
   return "Best";
 }
 
+export type PoolLadderChampion = { index: number; tierLabel: AltLadderTierLabel };
+
+/** Up to four representative rung indices from a sorted sibling ladder (Safest → High Risk). */
+export function poolLadderChampionIndices(n: number): PoolLadderChampion[] {
+  if (n <= 0) return [];
+  if (n === 1) return [{ index: 0, tierLabel: "Best" }];
+
+  const byIndex = new Map<number, AltLadderTierLabel>();
+  const assign = (index: number, tierLabel: AltLadderTierLabel) => {
+    if (!byIndex.has(index)) byIndex.set(index, tierLabel);
+  };
+
+  assign(0, "Safest");
+  assign(n - 1, "High Risk");
+  assign(Math.floor(n / 2), "Best Value");
+
+  let bestIdx = Math.max(1, Math.min(n - 2, Math.floor(n * 0.25)));
+  while (byIndex.has(bestIdx) && bestIdx < n - 1) bestIdx++;
+  if (!byIndex.has(bestIdx)) assign(bestIdx, "Best");
+
+  return [...byIndex.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([index, tierLabel]) => ({ index, tierLabel }));
+}
+
 export type AltPoolPick = {
   game: string;
   market: string;
