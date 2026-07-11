@@ -563,7 +563,7 @@ router.get("/sports/props", async (req, res): Promise<void> => {
       list.push(r);
       altByPM.set(pm, list);
     }
-    const ALT_CAP_PER_PM = 6;
+    const ALT_CAP_PER_PM = 12;
     const trimmedAlts: PropRow[] = [];
     for (const [pm, list] of altByPM) {
       const mainLine = mainLineByPM.get(pm);

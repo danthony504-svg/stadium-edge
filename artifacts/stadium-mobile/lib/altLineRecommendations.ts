@@ -188,15 +188,20 @@ const TIER_ORDER: SimAltTierLabel[] = [
   "Best Overall",
   "Safest",
   "Best Value",
-  "High Confidence",
+  "Highest Confidence",
 ];
+
+function formatPropPick(player: string, side: string, line: number, marketLabel: string): string {
+  const lineTxt = Number.isInteger(line) ? ` ${line}` : ` ${line}`;
+  return `${player} ${side}${lineTxt} ${marketLabel}`;
+}
 
 function buildLabeledSimAltLines(tiers: SimAltRecommendations): SimAltLine[] {
   const entries: Array<{ label: SimAltTierLabel; rung: AltRungMetrics | null }> = [
     { label: "Best Overall", rung: tiers.bestOverall },
     { label: "Safest", rung: tiers.safest },
     { label: "Best Value", rung: tiers.bestValue },
-    { label: "High Confidence", rung: tiers.highestConfidence },
+    { label: "Highest Confidence", rung: tiers.highestConfidence },
   ];
   const seen = new Set<string>();
   const lines: SimAltLine[] = [];
@@ -299,11 +304,12 @@ export function recommendPropAltTiers(
     if (!poolEntry || poolEntry.odds == null) continue;
     const metrics = propMetricsFromSim(hit, poolEntry.odds, baseConf, grade);
     if (!metrics || !qualifiesAltMetrics(metrics)) continue;
+    const pickStr = formatPropPick(pick.player, side, line, poolEntry.marketLabel);
     rows.push({
       side,
       line,
       odds: poolEntry.odds,
-      pick: `${pick.player} ${side} ${line}`,
+      pick: pickStr,
       market: poolEntry.marketLabel,
       winProb: hit,
       edgePct: metrics.edgePct,
@@ -314,7 +320,7 @@ export function recommendPropAltTiers(
         side,
         line,
         odds: poolEntry.odds,
-        pick: `${pick.player} ${side} ${line}`,
+        pick: pickStr,
         winProb: hit,
         edgePct: metrics.edgePct,
         evPct: metrics.evPct,
@@ -349,6 +355,7 @@ export function attachSimAltOptionsToPicks(
       highestConfidence: null,
       bestOverall: null,
     };
+    let evaluated = false;
 
     if (isGameLinePick(pick) && !pick.isProp) {
       const evalLines = evalLinesForGame(pick.game, opts.evalLinesByGame);
@@ -361,7 +368,8 @@ export function attachSimAltOptionsToPicks(
           }
         }
       }
-      if ((sim?.simulations ?? DEEP_SIM_COUNT) >= DEEP_SIM_COUNT) {
+      if ((sim?.simulations ?? 0) >= DEEP_SIM_COUNT) {
+        evaluated = true;
         tiers = recommendGameAltTiers(pick, evalLines, sim, {
           realOdds: opts.realOdds,
           matchupHistory: opts.matchupHistory,
@@ -373,12 +381,17 @@ export function attachSimAltOptionsToPicks(
         return pick;
       }
       const sim = findPropSimResult(pick, opts.propSimulations);
+      if (!sim || (sim.simulations ?? 0) < DEEP_SIM_COUNT) {
+        return pick;
+      }
+      evaluated = true;
       tiers = recommendPropAltTiers(pick, opts.propPool, sim, pick.finalAiScore);
     }
 
     const simAltLines = buildLabeledSimAltLines(tiers);
     if (!simAltLines.length) {
-      return pick;
+      // 10k sim finished but no alt cleared quality filters — hide heuristic ladder.
+      return evaluated ? { ...pick, altOptions: undefined } : pick;
     }
 
     return { ...pick, simAltLines, altOptions: undefined };

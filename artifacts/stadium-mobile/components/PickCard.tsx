@@ -39,7 +39,7 @@ export type AltRungOption = {
   };
 };
 
-export type SimAltTierLabel = "Safest" | "Best Value" | "High Confidence" | "Best Overall";
+export type SimAltTierLabel = "Safest" | "Best Value" | "Highest Confidence" | "Best Overall";
 
 /** A quality-filtered alt rung labeled after the 10k sim completes. */
 export type SimAltLine = AltRungOption & {
@@ -306,7 +306,8 @@ function LineTierChip({
         <Text style={{ color: fg ?? colors.mutedForeground, fontFamily: FONT.body, fontSize: 9, lineHeight: 12 }}>
           {Math.round(simMetrics.winProb * 100)}% win · {simMetrics.confidencePct}% conf ·{" "}
           {simMetrics.edgePct >= 0 ? "+" : ""}
-          {simMetrics.edgePct.toFixed(1)}% edge
+          {simMetrics.edgePct.toFixed(1)}% edge · {simMetrics.evPct >= 0 ? "+" : ""}
+          {simMetrics.evPct.toFixed(1)}% EV
         </Text>
       ) : null}
     </Pressable>
@@ -316,7 +317,7 @@ function LineTierChip({
 function simAltTone(label: SimAltTierLabel): "safe" | "best" | "value" | "confidence" | "overall" {
   if (label === "Safest") return "safe";
   if (label === "Best Value") return "value";
-  if (label === "High Confidence") return "confidence";
+  if (label === "Highest Confidence") return "confidence";
   return "overall";
 }
 

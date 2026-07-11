@@ -2468,20 +2468,6 @@ export default function CoachScreen() {
           gameSimulations,
         });
         if (
-          coachEvalLinesByGame &&
-          gameSimulations.size > 0 &&
-          !picks.some((p) => p.isProp)
-        ) {
-          picks = attachSimAltOptionsToPicks(picks, {
-            evalLinesByGame: coachEvalLinesByGame,
-            gameSimulations,
-            realOdds: mergedGameOdds,
-            propPool: mergedPropPool,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-          });
-        }
-        if (
           forceBoardBuild &&
           !isAnalyze &&
           picks.length < reachTarget &&
@@ -2633,6 +2619,16 @@ export default function CoachScreen() {
               gameSimNote = antiFlip.note;
             }
           }
+        }
+        if (coachEvalLinesByGame && gameSimulations.size > 0) {
+          picks = attachSimAltOptionsToPicks(picks, {
+            evalLinesByGame: coachEvalLinesByGame,
+            gameSimulations,
+            realOdds: mergedGameOdds,
+            propPool: mergedPropPool,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          });
         }
         picks = picksWithSimPending(picks);
         // Transparency note. When the user asked for a specific leg count and we
