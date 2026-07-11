@@ -2,6 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isQualifyingBackupGameLine } from "./altLinePool.ts";
+import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
   pick: ParsedPick;
@@ -100,11 +101,11 @@ export function buildFullBoardShortfallNote(
       ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues were off the board. `
       : "";
   return [
-    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — moneylines, spreads, alternate spreads, totals, alternate totals, team totals, first 5 innings, innings, first half, first quarter, first period, player props, and alternate player props — with a 10k sim on each.`,
+    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each.`,
     actual >= requested && totalQualified >= actual
-      ? `**${totalQualified}** lines cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%). These **${actual}** are the highest-rated by EV, edge, confidence, and AI grade.`
+      ? `**${totalQualified}** lines cleared quality filters (positive EV/edge, grade ≥ C+, confidence ≥ 52%, sim hit > implied). These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade.`
       : totalQualified > actual
-        ? `**${totalQualified}** cleared quality filters. These **${actual}** are the highest-rated by EV, edge, confidence, and AI grade.`
+        ? `**${totalQualified}** cleared quality filters. These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade.`
         : `Only **${totalQualified}** lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).`,
   ].join("\n\n");
 }

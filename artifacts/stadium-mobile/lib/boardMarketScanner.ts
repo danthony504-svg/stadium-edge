@@ -1,8 +1,8 @@
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by EV/edge/grade, top N.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
-import { fetchPropSimulations } from "./api.ts";
+import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
+import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
@@ -20,9 +20,14 @@ import {
   qualifiesCoachSimLineMetrics,
   simEvPct,
 } from "./gameSimQualityGates.ts";
+import {
+  fullBoardScanShortfallNote,
+  fullBoardScanSuccessNote,
+} from "./fullBoardMarketCopy.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { dedupeSameTeamGameLegs } from "./ticketDiversity.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
@@ -43,6 +48,7 @@ export type BoardScoredLeg = {
   evPct: number | null;
   edgePct: number | null;
   confidencePct: number | null;
+  impliedProbPct: number | null;
   grade: string | null;
   simHit: number | null;
   composite: number | null;
@@ -97,6 +103,8 @@ function propQualifies(pick: ParsedPick, simHit: number | null): boolean {
 function scoredFromEvalRow(row: EvaluatedGameLine): BoardScoredLeg | null {
   if (!gameLineQualifies(row)) return null;
   const m = deriveGameSimLineMetrics(row);
+  const implied =
+    row.pick.odds != null ? Math.round(impliedProb(row.pick.odds) * 1000) / 10 : null;
   const leg: Omit<BoardScoredLeg, "rankScore"> = {
     pick: {
       ...row.pick,
@@ -106,6 +114,7 @@ function scoredFromEvalRow(row: EvaluatedGameLine): BoardScoredLeg | null {
     evPct: m?.evPct ?? null,
     edgePct: row.edgePct ?? row.finalAiScore.edgePct,
     confidencePct: row.finalAiScore.confidencePct,
+    impliedProbPct: implied,
     grade: row.finalAiScore.grade,
     simHit: row.winProb ?? row.finalAiScore.simHit,
     composite: row.finalAiScore.composite,
@@ -117,11 +126,14 @@ function scoredFromPropPick(pick: ParsedPick, simHit: number | null): BoardScore
   if (!propQualifies(pick, simHit)) return null;
   const ev =
     simHit != null && pick.odds != null ? simEvPct(simHit, pick.odds) : null;
+  const implied =
+    pick.odds != null ? Math.round(impliedProb(pick.odds) * 1000) / 10 : null;
   const leg: Omit<BoardScoredLeg, "rankScore"> = {
     pick,
     evPct: ev,
     edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
     confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+    impliedProbPct: implied,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit,
     composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
@@ -169,6 +181,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   oddsGames: OddsGame[];
   propPool: PropPoolEntry[];
   realOdds: RealOddsEntry[];
+  espnGames?: EspnGame[];
   gameMeta: GameMeta[];
   teamIdMap: Map<string, GameTeamIds>;
   excludedSports?: Set<string>;
@@ -177,13 +190,19 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   playerHistory?: Record<string, PlayerHistorySlice>;
   signal?: AbortSignal;
 }): Promise<FullBoardScanResult> {
-  const pool =
+  const poolBase =
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool;
   const oddsGames = opts.excludedSports?.size
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
 
-  const evalLinesByGame = buildEvalLinesForAllGames(oddsGames);
+  const pool =
+    opts.espnGames?.length
+      ? await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
+      : poolBase;
+
+  let evalLinesByGame = buildEvalLinesForAllGames(oddsGames);
+  evalLinesByGame = augmentEvalLinesWithPostedOdds(evalLinesByGame, opts.realOdds);
   const gameSimulations = await fetchSlateGameSimulations(
     evalLinesByGame,
     opts.teamIdMap,
@@ -237,8 +256,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const note =
     picks.length >= opts.target
-      ? `_Scanned every posted moneyline, spread, alt spread, total, alt total, team total, period, and player prop on the board (${totalScanned} lines, 10k sim each). These **${picks.length}** are the highest-rated by EV, edge, confidence, and AI grade._`
-      : `_Scanned the entire board — **${totalScanned}** posted lines across moneylines, spreads, alternate spreads, totals, alternate totals, team totals, first 5 innings, innings, first half, first quarter, first period, player props, and alternate player props (10k sim each). Only **${totalQualified}** met quality standards (positive EV/edge, grade ≥ C+, confidence ≥ 52%). Here are the top **${picks.length}** by EV, edge, confidence, and AI grade._`;
+      ? fullBoardScanSuccessNote(totalScanned, picks.length)
+      : fullBoardScanShortfallNote(totalScanned, totalQualified, picks.length);
 
   return {
     picks,

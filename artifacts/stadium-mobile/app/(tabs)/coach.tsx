@@ -2056,6 +2056,7 @@ export default function CoachScreen() {
             oddsGames,
             propPool: mergedPropPool,
             realOdds: context.realOdds,
+            espnGames,
             gameMeta,
             teamIdMap: scanTeamIdMap,
             excludedSports,

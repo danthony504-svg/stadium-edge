@@ -1515,8 +1515,10 @@ function appendPeriodEvalGameLines(
     pushTotal(`${plabel} Total`, g.markets.find((m) => m.key === `totals_${suffix}`)?.outcomes);
   }
 
-  pushSpread("1H Alt Spread", g.markets.find((m) => m.key === "alternate_spreads_h1")?.outcomes);
-  pushTotal("1H Alt Total", g.markets.find((m) => m.key === "alternate_totals_h1")?.outcomes);
+  for (const [suffix, plabel] of Object.entries(PERIOD_LABEL)) {
+    pushSpread(`${plabel} Alt Spread`, g.markets.find((m) => m.key === `alternate_spreads_${suffix}`)?.outcomes);
+    pushTotal(`${plabel} Alt Total`, g.markets.find((m) => m.key === `alternate_totals_${suffix}`)?.outcomes);
+  }
 
   pushMl("F5 Moneyline", g.markets.find((m) => m.key === "h2h_1st_5_innings")?.outcomes);
   pushSpread("F5 Run Line", g.markets.find((m) => m.key === "spreads_1st_5_innings")?.outcomes);
@@ -4381,6 +4383,113 @@ export function propPoolFromRealProps(props: RealPropEntry[]): PropPoolEntry[] {
       out.push({ sport: p.sport, game: p.game, marketLabel, player: p.player, line: p.line, side: "Under", odds: p.under, athleteId, marketKey: p.market, startsAt: p.startsAt, alt: p.alt });
     }
   }
+  return out;
+}
+
+const FULL_BOARD_PROP_BATCH = 6;
+
+/** Fetch every posted prop side (main + all alt + combo rungs) for full-board scan. */
+export async function fetchFullBoardPropPool(
+  oddsGames: OddsGame[],
+  espnGames: EspnGame[],
+  basePool: PropPoolEntry[],
+  signal?: AbortSignal,
+): Promise<PropPoolEntry[]> {
+  const poolKey = (e: PropPoolEntry) =>
+    `${e.game}|${e.player}|${e.line}|${e.side}|${e.marketLabel}`.toLowerCase();
+  const seen = new Set(basePool.map(poolKey));
+  const out = [...basePool];
+
+  const gamesBySport = new Map<string, EspnGame[]>();
+  for (const g of espnGames) {
+    const arr = gamesBySport.get(g.sport) ?? [];
+    arr.push(g);
+    gamesBySport.set(g.sport, arr);
+  }
+
+  const candidates = oddsGames.filter(
+    (g) => PROPS_SPORTS.includes(g.sport) && g.homeTeam && g.awayTeam,
+  );
+
+  for (let i = 0; i < candidates.length; i += FULL_BOARD_PROP_BATCH) {
+    if (signal?.aborted) break;
+    const batch = candidates.slice(i, i + FULL_BOARD_PROP_BATCH);
+    const responses = await Promise.all(
+      batch.map(async (g) => {
+        const idMap = buildPropIdMap(gamesBySport.get(g.sport) ?? []);
+        const ids =
+          idMap.get(`${nickname(g.awayTeam!)}|${nickname(g.homeTeam!)}`.toLowerCase()) ?? null;
+        const args = {
+          sport: g.sport,
+          eventId: g.id,
+          home: g.homeTeam!,
+          away: g.awayTeam!,
+          homeTeamId: ids?.homeTeamId,
+          awayTeamId: ids?.awayTeamId,
+          startsAt: g.commenceTime,
+        };
+        try {
+          return g.sport === "soccer"
+            ? await getPropsWithPrizePicksFallback(args, signal)
+            : await getProps(args, signal);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    for (let j = 0; j < batch.length; j++) {
+      const g = batch[j]!;
+      const r = responses[j];
+      if (!r) continue;
+      const game = `${g.awayTeam} @ ${g.homeTeam}`;
+      const usable = (r.props ?? []).filter((p) => p.overPrice != null || p.underPrice != null);
+      for (const p of usable) {
+        const marketLabel = propMarketLabel(p.market);
+        const athleteId = p.athleteId ?? null;
+        const base = {
+          sport: g.sport,
+          game,
+          marketLabel,
+          player: p.player,
+          line: p.line,
+          athleteId,
+          marketKey: p.market,
+          startsAt: g.commenceTime,
+          alt: !!p.alt,
+        };
+        if (p.overPrice != null) {
+          const row: PropPoolEntry = {
+            ...base,
+            side: "Over",
+            odds: p.overPrice,
+            edge: p.evSide === "Over" ? (p.edge ?? null) : null,
+            bookSpread: p.overSpread ?? null,
+          };
+          const k = poolKey(row);
+          if (!seen.has(k)) {
+            seen.add(k);
+            out.push(row);
+          }
+        }
+        if (p.line != null && p.underPrice != null) {
+          const row: PropPoolEntry = {
+            ...base,
+            side: "Under",
+            odds: p.underPrice,
+            edge: p.evSide === "Under" ? (p.edge ?? null) : null,
+            bookSpread: p.underSpread ?? null,
+          };
+          const k = poolKey(row);
+          if (!seen.has(k)) {
+            seen.add(k);
+            out.push(row);
+          }
+        }
+      }
+    }
+  }
+
   return out;
 }
 

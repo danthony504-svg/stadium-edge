@@ -79,8 +79,9 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
 test("buildFullBoardShortfallNote explains entire-board scan when short", () => {
   const note = buildFullBoardShortfallNote(15, 11, 840, 11, "today's real odds");
   assert.match(note, /840/);
-  assert.match(note, /first 5 innings/i);
-  assert.match(note, /alternate player props/i);
+  assert.match(note, /second half/i);
+  assert.match(note, /combo props/i);
+  assert.match(note, /second half/i);
 });
 
 test("buildFullBoardShortfallNote confirms top 15 when board has more qualifiers", () => {
