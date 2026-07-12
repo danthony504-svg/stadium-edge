@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
   coachBoardScanTicketPicks,
+  coachDeliverBoardScanPicks,
   coachFlashTicketPicks,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
@@ -231,6 +232,39 @@ test("prepareBoardScanDelivery omits legs that fail AI recommendation gates", ()
   };
   assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
   assert.equal(prepareBoardScanDelivery([leg], {}).length, 0);
+});
+
+test("coachDeliverBoardScanPicks salvages sim-aligned legs when strict gates zero out", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B -1.5",
+    odds: -110,
+    isProp: false,
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C",
+      confidencePct: 52,
+      edgePct: 1.4,
+      simHit: 0.55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C", confidencePct: 52, edgePct: 1.4, scores: {} as never },
+    },
+  };
+  const enrich = {
+    realOdds: [{ game: "A @ B", market: "Spread", pick: "B -1.5", odds: -110, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: kickoff, homeTeam: "B", awayTeam: "A", homeAbbr: "B", awayAbbr: "A", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
+  assert.equal(coachDeliverBoardScanPicks([leg], enrich).length, 1);
 });
 
 test("prepareBoardScanDelivery returns empty when no leg passes AI recommendation gates", () => {
