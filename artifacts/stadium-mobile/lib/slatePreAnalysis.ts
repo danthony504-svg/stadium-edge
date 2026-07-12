@@ -27,8 +27,8 @@ import {
 } from "./slatePreAnalysisCache.ts";
 import { fetchCoachServerSlate } from "./coachSlateApi.ts";
 
-/** Default reach target — seeds 6/9/15-leg asks via reach fill. */
-export const SLATE_PRE_ANALYSIS_TARGET = 9;
+/** Default reach target — seeds 6/9/15-leg asks instantly from server slate. */
+export const SLATE_PRE_ANALYSIS_TARGET = 15;
 
 let activeAbort: AbortController | null = null;
 let running = false;
@@ -188,7 +188,8 @@ export async function runSlatePreAnalysis(opts?: {
 export async function syncServerSlatePreAnalysis(): Promise<boolean> {
   try {
     const resp = await fetchCoachServerSlate();
-    if (!resp?.fresh || !resp.snapshot) return false;
+    const usable = resp?.snapshot && (resp.fresh || resp.instantServe);
+    if (!usable || !resp.snapshot) return false;
     return applyServerSlateSnapshot(resp.snapshot);
   } catch {
     return false;

@@ -115,7 +115,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -133,6 +133,7 @@ import {
   setCoachBuildBusy,
   startSlatePreAnalysis,
   hydrateCoachSlateFromServer,
+  SLATE_PRE_ANALYSIS_TARGET,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
@@ -242,6 +243,8 @@ type UIMessage = {
   apiContent?: string;
   /** Parlay build in flight — survives even if the user bubble is hidden. */
   parlayBuild?: boolean;
+  /** Server-precomputed today's slate — shown on Coach open before any user ask. */
+  precomputedSlate?: boolean;
 };
 
 type StatCardResult = {
@@ -267,6 +270,28 @@ const PENDING_BUILD_KEY = "coach.pendingBuild";
 // the stash at PENDING_POLL_MS while we wait.
 const PENDING_BUILD_MAX_WAIT_MS = 120_000;
 const PENDING_POLL_MS = 5_000;
+/** 5-leg parlays use the same server slate + board-scan path as deep builds. */
+const INSTANT_SLATE_SEED_MIN_LEGS = 3;
+
+function boardScanForLegTarget(scan: FullBoardScanResult, legTarget: number): FullBoardScanResult {
+  const requested = Math.min(legTarget, MAX_LEGS);
+  if (scan.picks.length <= requested) {
+    if (scan.picks.length >= requested || requested < INSTANT_SLATE_SEED_MIN_LEGS) return scan;
+    return {
+      ...scan,
+      note: buildFullBoardShortfallNote(
+        requested,
+        scan.picks.length,
+        scan.totalScanned,
+        scan.totalQualified,
+        "today's real odds",
+        undefined,
+        scan.staging,
+      ),
+    };
+  }
+  return { ...scan, picks: scan.picks.slice(0, requested), note: scan.note };
+}
 
 type PendingBuild = {
   buildId: string;
@@ -1178,7 +1203,15 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      return prepareBoardScanDelivery(tagged, enrich);
+      const delivered = coachDeliverBoardScanPicks(tagged, enrich);
+      if (delivered.length > 0) return delivered;
+      const board = coachBoardScanTicketPicks(tagged, enrich);
+      if (board.length > 0) return board;
+      const flash = coachFlashTicketPicks(tagged, enrich);
+      if (flash.length > 0) return flash;
+      const finalized = finalizeCoachTicketPicks(tagged, enrich);
+      if (finalized.picks.length > 0) return finalized.picks;
+      return filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
     },
     [],
   );
@@ -1193,6 +1226,7 @@ export default function CoachScreen() {
       patchLastAssistantPicks(setMessages, ticket, partial.note);
       setAiPicks(ticket);
       captureFromCoach(ticket);
+      if (buildFinishingRef.current) setParlayBuildPhase("stream");
       scrollToEnd(false);
       return true;
     },
@@ -1201,7 +1235,7 @@ export default function CoachScreen() {
 
   const tryInstantSlateSeedDelivery = useCallback(
     (legTarget: number) => {
-      if (legTarget < 6) return false;
+      if (legTarget < INSTANT_SLATE_SEED_MIN_LEGS) return false;
       const seed = readSlatePreAnalysisSeed();
       if (!seed?.boardScan?.picks?.length) return false;
       const enrich = {
@@ -1211,7 +1245,7 @@ export default function CoachScreen() {
         realGames: seed.built.context.realGames,
       };
       flashEnrichRef.current = enrich;
-      return patchInstantBoardScanTicket(seed.boardScan, enrich);
+      return patchInstantBoardScanTicket(boardScanForLegTarget(seed.boardScan, legTarget), enrich);
     },
     [patchInstantBoardScanTicket],
   );
@@ -1434,9 +1468,13 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
+      const precomputedOnScreen = messages.find((m) => m.precomputedSlate && m.picks?.length);
+
       const thread = pruneDeadParlayPlaceholders(
         scrubDeadBuildProseFromMessages(
-          opts?.freshThread ? [] : messages.filter((m) => !isWelcomeMessage(m)),
+          opts?.freshThread
+            ? []
+            : messages.filter((m) => !isWelcomeMessage(m) && !m.precomputedSlate),
         ),
       );
       const history: UIMessage[] = [
@@ -1457,6 +1495,57 @@ export default function CoachScreen() {
           ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
           : undefined;
       const openingParlayBuild = isParlayBuildAsk(trimmed) && !analyzeSlipSnapshot;
+      const earlyLegTarget = openingParlayBuild
+        ? requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed)
+        : 0;
+      if (openingParlayBuild) {
+        if (sendGenerationRef.current !== sendGen) return;
+        setMessages([...history]);
+        scrollToEnd();
+        await hydrateSlatePreAnalysisCache();
+        await hydrateCoachSlateFromServer();
+      }
+      const cachedSeedTicket = (() => {
+        if (!openingParlayBuild || earlyLegTarget < INSTANT_SLATE_SEED_MIN_LEGS) return null;
+        const seed = readSlatePreAnalysisSeed();
+        if (!seed?.boardScan?.picks?.length) return null;
+        const enrich = {
+          realOdds: seed.built.context.realOdds,
+          propPool: seed.built.propPool,
+          gameMeta: seed.built.gameMeta,
+          realGames: seed.built.context.realGames,
+        };
+        const sliced = boardScanForLegTarget(seed.boardScan, earlyLegTarget);
+        const tagged = tagTicketRoles([...sliced.picks]);
+        let picks = coachDeliverBoardScanPicks(tagged, enrich);
+        if (!picks.length) picks = coachBoardScanTicketPicks(tagged, enrich);
+        if (!picks.length) picks = coachFlashTicketPicks(tagged, enrich);
+        if (!picks.length) picks = finalizeCoachTicketPicks(tagged, enrich).picks;
+        if (!picks.length) picks = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
+        if (!picks.length) return null;
+        return { picks, legNote: sliced.note, enrich };
+      })();
+      const openingPicks = cachedSeedTicket?.picks ?? precomputedOnScreen?.picks;
+      const openingLegNote = (() => {
+        if (cachedSeedTicket?.legNote) return cachedSeedTicket.legNote;
+        if (precomputedOnScreen?.legNote) return precomputedOnScreen.legNote;
+        const seed = readSlatePreAnalysisSeed();
+        const scan = seed?.boardScan;
+        if (!openingPicks?.length || !scan) return undefined;
+        const requested =
+          earlyLegTarget >= INSTANT_SLATE_SEED_MIN_LEGS ? earlyLegTarget : SLATE_PRE_ANALYSIS_TARGET;
+        if (openingPicks.length >= requested) return scan.note;
+        return buildFullBoardShortfallNote(
+          requested,
+          openingPicks.length,
+          scan.totalScanned,
+          scan.totalQualified,
+          "today's real odds",
+          undefined,
+          scan.staging,
+        );
+      })();
+      if (cachedSeedTicket?.enrich) flashEnrichRef.current = cachedSeedTicket.enrich;
       if (sendGenerationRef.current !== sendGen) return;
       setMessages([
         ...history,
@@ -1465,8 +1554,15 @@ export default function CoachScreen() {
           content: "",
           ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}),
           ...(openingParlayBuild ? { parlayBuild: true } : {}),
+          ...(openingPicks?.length ? { picks: openingPicks, legNote: openingLegNote } : {}),
         },
       ]);
+      if (openingPicks?.length) {
+        boardTicketSnapshotRef.current = openingPicks;
+        setAiPicks(openingPicks);
+        captureFromCoach(openingPicks);
+        setParlayBuildPhase("stream");
+      }
       setWaiting(true);
       setStreaming(true);
       if (openingParlayBuild) {
@@ -1474,7 +1570,6 @@ export default function CoachScreen() {
         setCoachBuildBusy(true);
         setBuildFinishing(true);
         setParlayBuildPhase("context");
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
         armBuildProgressWatchdog(earlyLegTarget);
         armBuildStallWatchdog(sendGen, trimmed);
       }
@@ -1507,14 +1602,10 @@ export default function CoachScreen() {
       abortRef.current = controller;
 
       if (openingParlayBuild) {
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
         if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
-          await hydrateSlatePreAnalysisCache();
-          if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
-            startSlatePreAnalysis("coach-send");
-            await awaitWarmSlateSeed({ signal: controller.signal, maxMs: 8000 });
-            tryInstantSlateSeedDelivery(earlyLegTarget);
-          }
+          startSlatePreAnalysis("coach-send");
+          await awaitWarmSlateSeed({ signal: controller.signal, maxMs: 12_000 });
+          tryInstantSlateSeedDelivery(earlyLegTarget);
         }
       }
 
@@ -1903,7 +1994,7 @@ export default function CoachScreen() {
             confidenceThreshold,
           });
           const reachFullPreScanEligible =
-            boardScanPreEligible && legTarget >= 6 && !slipImageVerdictOnly;
+            boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
           type ScanFeeds = {
             espnGames: import("@/lib/api").EspnGame[];
             oddsGames: import("@/lib/api").OddsGame[];
@@ -1934,18 +2025,18 @@ export default function CoachScreen() {
             !useFocalSportParlayPath &&
             !useTinyParlayPath &&
             !slipImageVerdictOnly &&
-            legTarget >= 6
+            legTarget >= INSTANT_SLATE_SEED_MIN_LEGS
               ? readSlatePreAnalysisSeed()
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
-            preBoardScan = preAnalysisSeed.boardScan;
+            preBoardScan = boardScanForLegTarget(preAnalysisSeed.boardScan, legTarget);
             flashEnrichRef.current = {
               realOdds: preAnalysisSeed.built.context.realOdds,
               propPool: preAnalysisSeed.built.propPool,
               gameMeta: preAnalysisSeed.built.gameMeta,
               realGames: preAnalysisSeed.built.context.realGames,
             };
-            patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
+            patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current);
           }
           const rawBuilt = slipImageVerdictOnly
             ? {
@@ -2384,7 +2475,11 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
-          setParlayBuildPhase("score");
+          if (boardTicketSnapshotRef.current?.length) {
+            setParlayBuildPhase("score");
+          } else if (!fullBoardScanned) {
+            setParlayBuildPhase("board-scan");
+          }
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
@@ -4515,6 +4610,53 @@ export default function CoachScreen() {
     void resumePendingBackgroundBuild();
   }, [resumePendingBackgroundBuild]);
 
+  const mountPrecomputedSlatePreview = useCallback(() => {
+    if (streamingRef.current || buildFinishingRef.current || waiting) return;
+    const seed = readSlatePreAnalysisSeed();
+    if (!seed?.boardScan?.picks?.length) return;
+    const enrich = {
+      realOdds: seed.built.context.realOdds,
+      propPool: seed.built.propPool,
+      gameMeta: seed.built.gameMeta,
+      realGames: seed.built.context.realGames,
+    };
+    const tagged = tagTicketRoles([...seed.boardScan.picks]);
+    const picks = coachDeliverBoardScanPicks(tagged, enrich);
+    if (!picks.length) return;
+    setMessages((prev) => {
+      if (prev.some((m) => m.role === "user")) return prev;
+      if (prev.some((m) => m.precomputedSlate && m.picks?.length)) return prev;
+      if (prev.some((m) => m.parlayBuild || (m.picks?.length && !m.precomputedSlate))) return prev;
+      const welcome = prev.filter((m) => isWelcomeMessage(m));
+      const legNote =
+        seed.boardScan?.note ??
+        (picks.length < SLATE_PRE_ANALYSIS_TARGET && seed.boardScan
+          ? buildFullBoardShortfallNote(
+              SLATE_PRE_ANALYSIS_TARGET,
+              picks.length,
+              seed.boardScan.totalScanned,
+              seed.boardScan.totalQualified,
+              "today's real odds",
+              undefined,
+              seed.boardScan.staging,
+            )
+          : `Today's ranked slate — ${picks.length} AI-simulated legs from the live board (refreshed in the background).`);
+      return [
+        ...welcome,
+        {
+          role: "assistant" as const,
+          content: "",
+          picks,
+          legNote,
+          precomputedSlate: true,
+          hideBubble: true,
+        },
+      ];
+    });
+    setAiPicks(picks);
+    captureFromCoach(picks);
+  }, []);
+
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
@@ -4523,6 +4665,7 @@ export default function CoachScreen() {
         await hydrateSlatePreAnalysisCache();
         await hydrateCoachSlateFromServer();
         startSlatePreAnalysis("coach-focus");
+        mountPrecomputedSlatePreview();
       })();
       if (!streamingRef.current && !buildFinishingRef.current) {
         void prefetchAndMaybeApplyOta(true);
@@ -4532,7 +4675,7 @@ export default function CoachScreen() {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
         return recoverOrphanCoachThread();
       });
-    }, [resumePendingBackgroundBuild]),
+    }, [resumePendingBackgroundBuild, mountPrecomputedSlatePreview]),
   );
 
   // While a build is handed off, poll the server stash on a timer so the result
@@ -4840,15 +4983,8 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
-            // Progress finalizes once pick cards are on the message — or when a
-            // board-scan partial has scored legs waiting for delivery gates.
-            const progressLegCount = hasPicks
-              ? (m.picks?.length ?? 0)
-              : Math.max(
-                  boardScanPartialLegs,
-                  boardTicketSnapshotRef.current?.length ?? 0,
-                  latestBoardScanRef.current?.picks?.length ?? 0,
-                );
+            // Progress finalizes only once pick cards are on the message.
+            const progressLegCount = m.picks?.length ?? 0;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a

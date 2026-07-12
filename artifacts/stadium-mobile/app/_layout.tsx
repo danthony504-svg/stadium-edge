@@ -263,6 +263,7 @@ function SlatePreAnalysisBridge() {
       if (state !== "active" || !isSignedIn) return;
       if (foregroundTimer.current) clearTimeout(foregroundTimer.current);
       foregroundTimer.current = setTimeout(() => {
+        void hydrateCoachSlateFromServer();
         startSlatePreAnalysis("foreground");
       }, 2000);
     });

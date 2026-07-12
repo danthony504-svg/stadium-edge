@@ -63,7 +63,36 @@ function pickFromOdds(o: RealOddsEntry): ParsedPick {
   };
 }
 
-function legFingerprint(p: ParsedPick): string {
+function americanImplied(odds: number): number {
+  if (odds > 0) return 100 / (odds + 100);
+  return Math.abs(odds) / (Math.abs(odds) + 100);
+}
+
+function serverPickFinalAiScore(
+  simHit: number | null,
+  odds: number,
+  edge: number | null | undefined,
+): ParsedPick["finalAiScore"] {
+  if (simHit == null || !Number.isFinite(simHit)) return undefined;
+  const implied = americanImplied(odds);
+  const simAligned = simHit > implied;
+  const edgePct = edge ?? Math.round((simHit - implied) * 1000) / 10;
+  const grade = simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+";
+  const confidencePct = Math.round(simHit * 100);
+  const recommends = simAligned && edgePct > 0 && simHit >= 0.52;
+  return {
+    composite: Math.round((simHit * 100 + edgePct) * 10) / 10,
+    grade,
+    confidencePct,
+    edgePct,
+    simHit,
+    simAligned,
+    highRiskValuePlay: false,
+    recommends,
+    factors: [],
+    rubric: { composite: Math.round(simHit * 100), grade, confidencePct, edgePct, scores: {} as never },
+  };
+}
   if (p.isProp) {
     return `prop|${p.game}|${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`;
   }
@@ -224,7 +253,7 @@ function stageTicket(
 /** Server board scan — 10k game + prop sims, AI Recommended gates, no filler. */
 export async function runServerBoardScan(
   built: BuiltChatContext,
-  opts?: { deepSim?: boolean },
+  opts?: { deepSim?: boolean; onPartial?: (partial: FullBoardScanResult) => void | Promise<void> },
 ): Promise<FullBoardScanResult> {
   const target = TARGET;
   const { context, propPool } = built;
@@ -237,16 +266,41 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const quickSims = await fetchQuickPropSims(propPool, 64);
+  const quickSims = await fetchQuickPropSims(propPool, 96);
   let propSims = quickSims;
   if (opts?.deepSim !== false) {
-    const deepSims = await fetchPropSimulationsDeep(propPool, 96);
+    const deepSims = await fetchPropSimulationsDeep(propPool, 128);
     for (const [k, v] of deepSims) propSims.set(k, v);
   }
 
   const gameSimulations = await fetchServerGameSimulations(realOdds);
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
   let totalScanned = 0;
+  let lastPartialAt = 0;
+
+  const maybeEmitPartial = async () => {
+    if (!opts?.onPartial || ranked.length === 0) return;
+    const now = Date.now();
+    if (now - lastPartialAt < 3000) return;
+    lastPartialAt = now;
+    const partialRanked = [...ranked].sort((a, b) => b.rankScore - a.rankScore);
+    const { picks } = stageTicket(partialRanked, target);
+    if (!picks.length) return;
+    await opts.onPartial({
+      picks,
+      evalLinesByGame,
+      gameSimulations,
+      totalScanned,
+      totalQualified: ranked.length,
+      staging: {
+        mainQualified: partialRanked.filter((r) => !r.isAlt).length,
+        altQualified: partialRanked.filter((r) => r.isAlt).length,
+        mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+        altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      },
+      note: `Server precomputing ${picks.length} legs (${totalScanned} markets scanned so far)…`,
+    });
+  };
 
   for (const o of realOdds) {
     totalScanned++;
@@ -256,14 +310,11 @@ export async function runServerBoardScan(
     const pick = pickFromOdds(o);
     if (o.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge;
     if (simHit != null) {
-      pick.finalAiScore = {
-        composite: Math.round((simHit * 100 + (o.edge ?? 0)) * 10) / 10,
-        grade: simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+",
-        simHit,
-      };
+      pick.finalAiScore = serverPickFinalAiScore(simHit, o.odds, o.edge);
     }
     const score = rankScoreForPick(pick, propSims, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
+    if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   for (const e of propPool) {
@@ -275,14 +326,11 @@ export async function runServerBoardScan(
     if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
     if (minHit != null && minHit < 0.52 && edge <= 0) continue;
     if (minHit != null) {
-      pick.finalAiScore = {
-        composite: Math.round(minHit * 1000) / 10,
-        grade: minHit >= 0.58 ? "B" : minHit >= 0.54 ? "B-" : "C+",
-        simHit: minHit,
-      };
+      pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }
     const score = rankScoreForPick(pick, propSims, minHit ?? null);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
+    if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   ranked.sort((a, b) => b.rankScore - a.rankScore);

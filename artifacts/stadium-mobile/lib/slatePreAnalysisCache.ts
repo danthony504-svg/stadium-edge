@@ -13,6 +13,8 @@ const GEN_KEY = `${PREFIX}ota-generation`;
 
 /** Hero-quality window — board scan older than this still seeds context but not cards. */
 export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
+/** Instant Coach load — accept slightly stale server slate while refresh runs. */
+export const SLATE_INSTANT_LOAD_MAX_MS = 30 * 60_000;
 
 export type SerializedBoardScan = {
   picks: ParsedPick[];
@@ -43,20 +45,33 @@ function currentOtaGeneration(): string {
   return Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
 }
 
-export function computeSlateFingerprint(built: BuiltChatContext): string {
+export function computeSlateFingerprint(
+  built: BuiltChatContext,
+  opts?: { injuryDigest?: string; gameStatusDigest?: string },
+): string {
   const { context, propPool } = built;
   const odds = context.realOdds ?? [];
   const kickoffs = odds
     .map((o) => o.startsAt ?? "")
     .filter(Boolean)
     .sort()
-    .slice(0, 24)
+    .slice(0, 32)
     .join("|");
   const prices = odds
-    .slice(0, 40)
-    .map((o) => `${o.game}:${o.market}:${o.odds}`)
+    .slice(0, 80)
+    .map((o) => `${o.game}:${o.market}:${o.pick}:${o.odds}`)
     .join(";");
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}`;
+  const inj = opts?.injuryDigest ?? "";
+  const status = opts?.gameStatusDigest ?? "";
+  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+}
+
+export function isSlatePreAnalysisInstantLoad(
+  snapshot: SlatePreAnalysisSnapshot | null = memorySnapshot,
+  maxMs = SLATE_INSTANT_LOAD_MAX_MS,
+): boolean {
+  if (!snapshot) return false;
+  return Date.now() - snapshot.at <= maxMs;
 }
 
 export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardScan {
@@ -113,7 +128,14 @@ export function isSlatePreAnalysisFresh(
 
 export function getSlatePreAnalysisSnapshot(): SlatePreAnalysisSnapshot | null {
   if (!memorySnapshot) return null;
-  if (!isSlatePreAnalysisFresh(memorySnapshot)) return null;
+  if (!isSlatePreAnalysisInstantLoad(memorySnapshot)) return null;
+  return memorySnapshot;
+}
+
+/** Read snapshot for instant Coach seed even when past hero-fresh TTL. */
+export function getSlatePreAnalysisSeedSnapshot(): SlatePreAnalysisSnapshot | null {
+  if (!memorySnapshot) return null;
+  if (!isSlatePreAnalysisInstantLoad(memorySnapshot)) return null;
   return memorySnapshot;
 }
 
@@ -177,7 +199,7 @@ export async function hydrateSlatePreAnalysisCache(): Promise<boolean> {
       if (!raw) return false;
       const parsed = JSON.parse(raw) as SlatePreAnalysisSnapshot;
       if (!parsed?.at || !parsed.built?.context) return false;
-      if (!isSlatePreAnalysisFresh(parsed)) return false;
+      if (!isSlatePreAnalysisInstantLoad(parsed)) return false;
       memorySnapshot = parsed;
       return true;
     } catch {
@@ -192,12 +214,17 @@ export async function applyServerSlateSnapshot(
   server: SlatePreAnalysisSnapshot | null | undefined,
 ): Promise<boolean> {
   if (!server?.at || !server.built?.context) return false;
-  if (!isSlatePreAnalysisFresh(server)) return false;
+  if (!isSlatePreAnalysisInstantLoad(server)) return false;
   const local = memorySnapshot;
   if (local && local.fingerprint === server.fingerprint && local.at >= server.at) {
     return false;
   }
-  if (local && local.at > server.at && isSlatePreAnalysisFresh(local)) {
+  if (
+    local &&
+    local.at > server.at &&
+    isSlatePreAnalysisFresh(local) &&
+    (local.boardScan?.picks?.length ?? 0) >= (server.boardScan?.picks?.length ?? 0)
+  ) {
     return false;
   }
   await rememberSlatePreAnalysis(server);

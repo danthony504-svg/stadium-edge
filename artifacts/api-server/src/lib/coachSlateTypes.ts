@@ -1,7 +1,10 @@
 /** Types mirroring stadium-mobile/lib/slatePreAnalysisCache.ts for cross-client snapshots. */
 
-export const SLATE_PRE_ANALYSIS_TARGET = 9;
+/** Precompute enough legs for instant 15-leg longshot asks — no filler. */
+export const SLATE_PRE_ANALYSIS_TARGET = 15;
 export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
+/** Serve slightly stale snapshots for instant Coach load while a refresh runs. */
+export const SLATE_INSTANT_SERVE_MAX_MS = 30 * 60_000;
 export const COACH_SLATE_ROW_ID = "global";
 
 export type ParsedPick = {
@@ -151,20 +154,33 @@ export type FullBoardScanResult = {
   note: string;
 };
 
-export function computeSlateFingerprint(built: BuiltChatContext): string {
+export function computeSlateFingerprint(
+  built: BuiltChatContext,
+  opts?: { injuryDigest?: string; gameStatusDigest?: string },
+): string {
   const { context, propPool } = built;
   const odds = context.realOdds ?? [];
   const kickoffs = odds
     .map((o) => o.startsAt ?? "")
     .filter(Boolean)
     .sort()
-    .slice(0, 24)
+    .slice(0, 32)
     .join("|");
   const prices = odds
-    .slice(0, 40)
-    .map((o) => `${o.game}:${o.market}:${o.odds}`)
+    .slice(0, 80)
+    .map((o) => `${o.game}:${o.market}:${o.pick}:${o.odds}`)
     .join(";");
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}`;
+  const inj = opts?.injuryDigest ?? "";
+  const status = opts?.gameStatusDigest ?? "";
+  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+}
+
+export function isSlateSnapshotInstantServe(
+  snapshot: SlatePreAnalysisSnapshot | null,
+  maxMs = SLATE_INSTANT_SERVE_MAX_MS,
+): boolean {
+  if (!snapshot) return false;
+  return Date.now() - snapshot.at <= maxMs;
 }
 
 export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardScan {
