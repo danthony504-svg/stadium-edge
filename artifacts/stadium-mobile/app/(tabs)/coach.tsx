@@ -124,6 +124,8 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
+import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
+import { readSlatePreAnalysisSeed, setCoachBuildBusy } from "@/lib/slatePreAnalysis";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
@@ -1404,6 +1406,7 @@ export default function CoachScreen() {
       setStreaming(true);
       if (openingParlayBuild) {
         activeParlayAskRef.current = trimmed;
+        setCoachBuildBusy(true);
         setBuildFinishing(true);
         setParlayBuildPhase("context");
         armBuildProgressWatchdog();
@@ -1423,6 +1426,7 @@ export default function CoachScreen() {
       }
       if (sendGenerationRef.current !== sendGen) {
         releaseOtaBlock();
+        setCoachBuildBusy(false);
         return;
       }
 
@@ -1832,6 +1836,18 @@ export default function CoachScreen() {
               })),
             ]).then(([espnGames, oddsGames, liveFeed]) => ({ espnGames, oddsGames, liveFeed }));
           }
+          const preAnalysisSeed =
+            genericParlayPath &&
+            !usePropsOnlyParlayPath &&
+            !useFocalSportParlayPath &&
+            !useTinyParlayPath &&
+            !slipImageVerdictOnly &&
+            legTarget >= 6
+              ? readSlatePreAnalysisSeed()
+              : null;
+          if (preAnalysisSeed?.boardScan?.picks?.length) {
+            preBoardScan = preAnalysisSeed.boardScan;
+          }
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -1857,9 +1873,10 @@ export default function CoachScreen() {
                   focalText: trimmed,
                 })
             : useCompactParlayPath
-              ? await buildCompactParlayContext(buildLegs, controller.signal, {
+              ? (preAnalysisSeed?.built ??
+                (await buildCompactParlayContext(buildLegs, controller.signal, {
                   excludeSports: excludeSportsList,
-                })
+                })))
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
                 : usePropPickPath
@@ -1876,7 +1893,9 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            slipImageVerdictOnly || usePropPickPath
+            preAnalysisSeed
+              ? { built: preAnalysisSeed.built, propSimulations: preAnalysisSeed.propSimulations }
+              : slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
               : boardScanPreEligible
                 ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
@@ -1912,6 +1931,15 @@ export default function CoachScreen() {
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
             try {
+              if (preBoardScan?.picks?.length) {
+                deliverBoardScanTicket(preBoardScan, {
+                  ...flashEnrichRef.current,
+                  realOdds: [
+                    ...flashEnrichRef.current.realOdds,
+                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                  ],
+                });
+              } else {
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
                 : await (async () => {
@@ -1968,6 +1996,7 @@ export default function CoachScreen() {
                     ...[...preBoardScan.evalLinesByGame.values()].flat(),
                   ],
                 });
+              }
               }
             } catch {
               preBoardScan = null;
@@ -3937,7 +3966,7 @@ export default function CoachScreen() {
             mergedGameOdds,
             gameMeta,
           );
-          const applySimPicks = (scored: ParsedPick[]) => {
+          const applySimPicks = (scored: ParsedPick[], tier: "quick" | "deep") => {
             let next = scored.map((p) => {
               if ((p.simAltLines?.length ?? 0) > 0) return p;
               return attachPropPoolLadder([p], mergedPropPool)[0] ?? p;
@@ -4033,6 +4062,14 @@ export default function CoachScreen() {
             // Progressive rescoring must never wipe pick cards already on screen.
             if (next.length === 0 && (boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
             let simLegNote: string | undefined;
+            if (tier === "deep" && next.length > 0) {
+              const upgraded = coachTicketUpgraded(snapshot, next);
+              void notifyCoachTicketOptimized(next.length, upgraded);
+              if (upgraded) {
+                simLegNote =
+                  "_Full 10k simulation found a stronger main or alt line — pick cards updated._";
+              }
+            }
             if (ticketTarget > 0 && next.length < ticketTarget) {
               const altOnTicket = next.filter((p) => p.ticketRole === "alt").length;
               const mainOnTicket = next.length - altOnTicket;
@@ -4040,7 +4077,7 @@ export default function CoachScreen() {
               const stagingForSim = fullBoardScanMeta?.staging
                 ? { ...fullBoardScanMeta.staging, mainOnTicket, altOnTicket }
                 : { mainQualified: mainOnTicket, altQualified: altOnTicket, mainOnTicket, altOnTicket };
-              simLegNote =
+              const shortfall =
                 fullBoardScanned && fullBoardScanMeta
                   ? buildFullBoardShortfallNote(
                       ticketTarget,
@@ -4058,6 +4095,7 @@ export default function CoachScreen() {
                       oddsPhraseSim,
                       excludeSportsList,
                     );
+              simLegNote = simLegNote ? `${simLegNote}\n\n${shortfall}` : shortfall;
             }
             patchLastAssistantPicks(setMessages, next, simLegNote);
             setAiPicks(next);
@@ -4069,11 +4107,11 @@ export default function CoachScreen() {
             {
               onQuick: (scored) => {
                 if (simController.signal.aborted) return;
-                applySimPicks(scored);
+                applySimPicks(scored, "quick");
               },
               onDeep: (scored) => {
                 if (simController.signal.aborted) return;
-                applySimPicks(scored);
+                applySimPicks(scored, "deep");
               },
             },
             simController.signal,
@@ -4129,6 +4167,7 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setCoachBuildBusy(false);
         abortRef.current = null;
         scrollToEnd();
       }

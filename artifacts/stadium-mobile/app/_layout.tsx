@@ -18,8 +18,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import * as Updates from "expo-updates";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -28,6 +28,11 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
+import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
+import {
+  startSlatePreAnalysis,
+  stopSlatePreAnalysis,
+} from "@/lib/slatePreAnalysis";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
@@ -216,10 +221,49 @@ function RootLayoutNav() {
 function DiscoverHydrateBridge() {
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
+    void hydrateSlatePreAnalysisCache();
     if (typeof warmApiForCoachBuild === "function") {
       void warmApiForCoachBuild();
     }
   }, []);
+  return null;
+}
+
+/** Pre-analyze today's slate in the background so Coach parlay builds start warm. */
+function SlatePreAnalysisBridge() {
+  const { isSignedIn } = useAuth();
+  const foregroundTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      stopSlatePreAnalysis();
+      return;
+    }
+    const cold = setTimeout(() => startSlatePreAnalysis("cold-start"), 3000);
+    return () => {
+      clearTimeout(cold);
+      stopSlatePreAnalysis();
+    };
+  }, [isSignedIn]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        stopSlatePreAnalysis();
+        return;
+      }
+      if (state !== "active" || !isSignedIn) return;
+      if (foregroundTimer.current) clearTimeout(foregroundTimer.current);
+      foregroundTimer.current = setTimeout(() => {
+        startSlatePreAnalysis("foreground");
+      }, 2000);
+    });
+    return () => {
+      sub.remove();
+      if (foregroundTimer.current) clearTimeout(foregroundTimer.current);
+    };
+  }, [isSignedIn]);
+
   return null;
 }
 
@@ -275,6 +319,7 @@ export default function RootLayout() {
             <QueryClientProvider client={queryClient}>
               <AuthTokenBridge />
               <PushNotificationsBridge />
+              <SlatePreAnalysisBridge />
               <BetSlipProvider>
                 <PickTrackerProvider>
                   <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
