@@ -4,11 +4,13 @@ import {
   COACH_SLATE_ROW_ID,
   type SlatePreAnalysisSnapshot,
   isSlateSnapshotFresh,
+  isSlateSnapshotInstantServe,
 } from "./coachSlateTypes.js";
 
 export async function getCoachPrecomputedSlate(): Promise<{
   snapshot: SlatePreAnalysisSnapshot | null;
   fresh: boolean;
+  instantServe: boolean;
   computedAt: string | null;
   deepSimComplete: boolean;
 }> {
@@ -19,13 +21,14 @@ export async function getCoachPrecomputedSlate(): Promise<{
     .limit(1);
   const row = rows[0];
   if (!row) {
-    return { snapshot: null, fresh: false, computedAt: null, deepSimComplete: false };
+    return { snapshot: null, fresh: false, instantServe: false, computedAt: null, deepSimComplete: false };
   }
   const snapshot = row.data as SlatePreAnalysisSnapshot;
   return {
     snapshot,
     fresh: isSlateSnapshotFresh(snapshot),
-    computedAt: row.computedAt.toISOString(),
+    instantServe: isSlateSnapshotInstantServe(snapshot),
+    computedAt: row.updatedAt.toISOString(),
     deepSimComplete: row.deepSimComplete,
   };
 }

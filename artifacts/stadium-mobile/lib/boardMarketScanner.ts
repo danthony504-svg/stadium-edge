@@ -1,4 +1,5 @@
-// Full-board scan: sim every posted game-line rung + prop pool row, rank by EV/edge/grade, top N.
+// Full-board scan: sim every posted game-line rung + prop pool row, rank by composite
+// score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -26,6 +27,7 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
+import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
 import { scoreLineShopping } from "./pickScore.ts";
@@ -36,11 +38,14 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildStagedTicketFromScan,
+  selectGreedyBoardLegs,
+  selectTopBoardLegs,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
+import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -70,14 +75,6 @@ function propPickHasSimHit(
   const key = propSimKeyForPick(pick);
   return key != null && hits.has(key);
 }
-const GRADE_RANK: Record<string, number> = {
-  F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
-};
-
-function gradeRank(g: string | null | undefined): number {
-  if (!g) return -1;
-  return GRADE_RANK[g] ?? -1;
-}
 
 export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
@@ -89,17 +86,12 @@ export type FullBoardScanResult = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
+  scanComplete?: boolean;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
-  const ev = leg.evPct ?? 0;
-  const edge = leg.edgePct ?? 0;
-  const conf = leg.confidencePct ?? 0;
-  const composite = leg.composite ?? 0;
-  const sim = (leg.simHit ?? 0) * 100;
-  const grade = gradeRank(leg.grade) * 4;
-  const shop = (leg.lineShoppingScore ?? 0) * 1.2;
-  return ev * 1.5 + edge * 3 + conf * 0.4 + composite * 0.5 + sim * 0.35 + grade + shop;
+  return coachCompositeRankScore(leg as BoardScoredLeg);
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
@@ -225,6 +217,8 @@ function appendPropScoredLegs(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
   },
@@ -241,6 +235,8 @@ function appendPropScoredLegs(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     propSimulations: propHits,
     perfByFamily: opts.perfByFamily,
   });
@@ -256,6 +252,30 @@ function appendPropScoredLegs(
   }
 }
 
+function prescorePropRank(pick: ParsedPick): number {
+  const leg: BoardScoredLeg = {
+    pick,
+    evPct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+    impliedProbPct: null,
+    lineShoppingScore:
+      pick.finalAiScore?.rubric?.scores?.lineShopping ??
+      pick.scores?.lineShopping ??
+      null,
+    grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+    simHit: pick.finalAiScore?.simHit ?? null,
+    composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
+    rankScore: 0,
+  };
+  return (
+    coachCompositeRankScore(leg) ??
+    pick.finalAiScore?.composite ??
+    pick.scores?.composite ??
+    0
+  );
+}
+
 /** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
 async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
@@ -266,6 +286,8 @@ async function simPropPoolUntilQualified(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
@@ -282,15 +304,13 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort(
-      (a, b) =>
-        (b.scores?.composite ?? b.finalAiScore?.composite ?? 0) -
-        (a.scores?.composite ?? a.finalAiScore?.composite ?? 0),
-    );
+    .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
 
   const scoreOpts = {
     pool,
@@ -298,6 +318,8 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
   };
@@ -332,6 +354,27 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
+/** Top evaluated game lines before sim gates qualify — early partial flash. */
+function bootstrapPicksFromEvalRows(
+  rows: EvaluatedGameLine[],
+  target: number,
+): ParsedPick[] {
+  const ranked = [...rows]
+    .filter((r) => r.pick.odds != null && Number.isFinite(r.pick.odds))
+    .sort((a, b) => (b.finalAiScore.composite ?? 0) - (a.finalAiScore.composite ?? 0));
+  const seen = new Set<string>();
+  const out: ParsedPick[] = [];
+  const want = Math.min(target, Math.max(2, ranked.length));
+  for (const row of ranked) {
+    const fp = pickLegFingerprint(row.pick);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push({ ...row.pick, finalAiScore: row.finalAiScore });
+    if (out.length >= want) break;
+  }
+  return out;
+}
+
 function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
@@ -339,14 +382,48 @@ function buildScanResult(
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
+    preview?: boolean;
+    bootstrapEvalRows?: EvaluatedGameLine[];
+    boardExhausted?: boolean;
   },
 ): FullBoardScanResult {
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, opts.target);
+  const staged = buildStagedTicketFromScan(scored, opts.target);
+  let picks = staged.picks;
+  let breakdown = staged.breakdown;
+
+  // During in-flight scans, flash top-ranked scored legs before strict AI gates fill the ticket.
+  if (opts.preview && picks.length === 0 && scored.length > 0) {
+    const ranked = [...scored].sort((a, b) => b.rankScore - a.rankScore);
+    const previewCount = Math.min(opts.target, Math.max(2, ranked.length));
+    picks = selectTopBoardLegs(ranked, previewCount);
+    breakdown = {
+      mainQualified: ranked.length,
+      altQualified: 0,
+      mainOnTicket: picks.length,
+      altOnTicket: 0,
+    };
+  }
+
+  // Before sim grades land, flash top composite game lines so progress/cards don't stall at 84%.
+  if (opts.preview && picks.length === 0 && opts.bootstrapEvalRows?.length) {
+    picks = bootstrapPicksFromEvalRows(opts.bootstrapEvalRows, opts.target);
+    if (picks.length > 0) {
+      breakdown = {
+        mainQualified: opts.bootstrapEvalRows.length,
+        altQualified: 0,
+        mainOnTicket: picks.length,
+        altOnTicket: 0,
+      };
+    }
+  }
+
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const note =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
-      : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+      : picks.length > 0 && opts.preview
+        ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
+        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
   return {
     picks,
     evalLinesByGame: opts.evalLinesByGame,
@@ -355,6 +432,7 @@ function buildScanResult(
     totalQualified,
     staging: breakdown,
     note,
+    scanComplete: !opts.preview && (picks.length >= opts.target || opts.boardExhausted === true),
   };
 }
 
@@ -371,6 +449,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  mlbPlatoon?: Record<string, unknown>;
+  mlbGameEnv?: Record<string, unknown>;
   perfByFamily?: Map<string, MarketPerf>;
   calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
@@ -383,13 +463,6 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
-
-  const pool =
-    opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
-      ? filterBettablePropPool(
-          await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal),
-        )
-      : filterBettablePropPool(poolBase);
 
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
@@ -406,11 +479,50 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...(opts.liveOdds ?? []),
     ...evalLinesByGame.values(),
   );
+
+  // Expand prop pool in parallel — never block the first partial on a slow fetch.
+  let pool = filterBettablePropPool(poolBase);
+  const poolExpandP =
+    opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
+      ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
+          .then((rows) => filterBettablePropPool(rows))
+          .catch(() => null)
+      : null;
+
   const scored: BoardScoredLeg[] = [];
+  const bootstrapEvalRows: EvaluatedGameLine[] = [];
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
-  const SLATE_SIM_BATCH = 4;
+  const SLATE_SIM_BATCH = 2;
+
+  const emitBoardScanPartial = () => {
+    if (!opts.onPartial) return;
+    const partial = buildScanResult(scored, {
+      target: opts.target,
+      evalLinesByGame,
+      gameSimulations,
+      totalScanned,
+      preview: true,
+      bootstrapEvalRows,
+    });
+    if (partial.picks.length > 0) opts.onPartial(partial);
+  };
+
+  // Flash top posted game lines immediately — before the first sim batch returns.
+  for (const [, lines] of gameEntries) {
+    if (!lines?.length) continue;
+    const evaluated = evaluateGameLines({
+      lines,
+      gameSim: undefined,
+      realOdds: mergedOdds,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+    totalScanned += evaluated.length;
+    bootstrapEvalRows.push(...evaluated);
+  }
+  emitBoardScanPartial();
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
@@ -425,21 +537,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         matchupInjuries: opts.matchupInjuries,
       });
       totalScanned += evaluated.length;
+      bootstrapEvalRows.push(...evaluated);
       for (const row of evaluated) {
         const simHit = gameSimHitForPick(row.pick, sim);
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) scored.push(leg);
       }
     }
-    if (scored.length > 0 && opts.onPartial) {
-      const partial = buildScanResult(scored, {
-        target: opts.target,
-        evalLinesByGame,
-        gameSimulations,
-        totalScanned,
-      });
-      if (partial.picks.length > 0) opts.onPartial(partial);
-    }
+    emitBoardScanPartial();
   };
 
   for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
@@ -454,12 +559,17 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
 
+  const expandedPool = await poolExpandP;
+  if (expandedPool?.length) pool = expandedPool;
+
   const propScoreOpts = {
     pool,
     mergedOdds,
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
   };
@@ -471,15 +581,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     {
       target: opts.target,
       ...propScoreOpts,
-      onWave: (waveScored) => {
-        if (!opts.onPartial) return;
-        const partial = buildScanResult([...waveScored], {
-          target: opts.target,
-          evalLinesByGame,
-          gameSimulations,
-          totalScanned,
-        });
-        if (partial.picks.length > 0) opts.onPartial(partial);
+      onWave: () => {
+        emitBoardScanPartial();
       },
     },
     opts.signal,
@@ -488,12 +591,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
-  scored.sort((a, b) => b.rankScore - a.rankScore);
-  const result = buildScanResult(scored, {
+  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  collapsed.sort((a, b) => b.rankScore - a.rankScore);
+  const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
     totalScanned,
+    boardExhausted: true,
   });
   if (opts.onPartial && result.picks.length > 0) opts.onPartial(result);
   return result;
@@ -516,7 +621,7 @@ export function shouldUseFullBoardScan(
   return asked > 0 && legTarget >= 3;
 }
 
-/** True for explicit 12+ leg parlay asks that should always full-board scan. */
+/** True for explicit 3+ leg parlay asks that should always full-board scan. */
 export function reachBoardScanEligible(opts: {
   isAnalyze?: boolean;
   requestedLegs?: number;
@@ -527,7 +632,7 @@ export function reachBoardScanEligible(opts: {
 }): boolean {
   if (opts.isAnalyze) return false;
   const asked = opts.requestedLegs ?? 0;
-  if (asked < 6) return false;
+  if (asked < 3) return false;
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
   }

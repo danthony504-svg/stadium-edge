@@ -31,6 +31,7 @@ import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessi
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import {
   startSlatePreAnalysis,
+  startSlatePreAnalysisOpenWarm,
   stopSlatePreAnalysis,
   syncServerSlatePreAnalysis,
   hydrateCoachSlateFromServer,
@@ -247,6 +248,7 @@ function SlatePreAnalysisBridge() {
     const cold = setTimeout(() => {
       void hydrateCoachSlateFromServer();
       startSlatePreAnalysis("cold-start");
+      startSlatePreAnalysisOpenWarm();
     }, 500);
     return () => {
       clearTimeout(cold);
@@ -256,7 +258,7 @@ function SlatePreAnalysisBridge() {
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "background" || state === "inactive") {
+      if (state === "background") {
         stopSlatePreAnalysis();
         return;
       }
@@ -264,6 +266,7 @@ function SlatePreAnalysisBridge() {
       if (foregroundTimer.current) clearTimeout(foregroundTimer.current);
       foregroundTimer.current = setTimeout(() => {
         startSlatePreAnalysis("foreground");
+        startSlatePreAnalysisOpenWarm();
       }, 2000);
     });
     return () => {

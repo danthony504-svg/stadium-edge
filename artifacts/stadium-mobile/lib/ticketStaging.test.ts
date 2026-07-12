@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStagedTicketFromScan, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+import { buildStagedTicketFromScan, capThinStatMarketsOnTicket, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -140,6 +140,85 @@ test("buildStagedTicketFromScan stops at available qualifiers without filler", (
   assert.equal(breakdown.altOnTicket, 1);
   assert.equal(breakdown.mainQualified, 1);
   assert.equal(breakdown.altQualified, 1);
+});
+
+test("capThinStatMarketsOnTicket limits stolen bases on 6+ leg tickets", () => {
+  const sb = (player: string, game: string) => ({
+    game,
+    market: "Stolen Bases",
+    pick: `${player} Over 0.5 Stolen Bases`,
+    odds: 300,
+    isProp: true,
+    player,
+  });
+  const picks = [
+    sb("A", "G1"),
+    sb("B", "G2"),
+    sb("C", "G3"),
+    sb("D", "G4"),
+    { game: "G5", market: "Strikeouts", pick: "E Over 5.5 Strikeouts", odds: 105, isProp: true, player: "E" },
+    { game: "G6", market: "Hits", pick: "F Over 1.5 Hits", odds: -110, isProp: true, player: "F" },
+  ];
+  const capped = capThinStatMarketsOnTicket(picks, 6);
+  assert.equal(capped.filter((p) => p.market === "Stolen Bases").length, 2);
+  assert.equal(capped.length, 4);
+});
+
+test("buildStagedTicketFromScan backfills after thin-market cap drops a leg", () => {
+  const scored: BoardScoredLeg[] = [];
+  for (let i = 0; i < 3; i++) {
+    scored.push(
+      leg(
+        {
+          game: `SB${i} @ Opp${i}`,
+          market: "Stolen Bases",
+          pick: `Runner${i} Over 0.5 Stolen Bases`,
+          odds: 280 + i * 10,
+          isProp: true,
+          player: `Runner${i}`,
+        },
+        120 - i,
+        mainScore,
+      ),
+    );
+  }
+  for (let i = 0; i < 8; i++) {
+    scored.push(
+      leg(
+        {
+          game: `P${i} @ Q${i}`,
+          market: "Strikeouts",
+          pick: `Pitcher${i} Over ${4 + i}.5 Strikeouts`,
+          odds: 105 + i,
+          isProp: true,
+          player: `Pitcher${i}`,
+        },
+        110 - i,
+        mainScore,
+      ),
+    );
+  }
+  const { picks } = buildStagedTicketFromScan(scored, 9);
+  assert.equal(picks.length, 9);
+  assert.equal(picks.filter((p) => p.market === "Stolen Bases").length, 2);
+});
+
+test("buildStagedTicketFromScan backfills when same-team game-line dedupe shrinks selection", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Moneyline", pick: "A ML", odds: 120 }, 100, mainScore),
+    leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 99, mainScore),
+  ];
+  for (let i = 0; i < 10; i++) {
+    scored.push(
+      leg(
+        { game: `M${i} @ N${i}`, market: "Total", pick: `Over ${8 + i}.5`, odds: -105 },
+        95 - i,
+        mainScore,
+      ),
+    );
+  }
+  const { picks } = buildStagedTicketFromScan(scored, 9);
+  assert.equal(picks.length, 9);
 });
 
 test("buildStagedTicketFromScan greedy-fills alts without correlation throttle", () => {

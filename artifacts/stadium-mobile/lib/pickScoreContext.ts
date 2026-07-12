@@ -8,6 +8,8 @@
 
 import type { ParsedPick } from "@/components/PickCard";
 import type {
+  ChatContext,
+  GameMeta,
   InjuryTeam,
   FightAnalysis,
   TennisAnalysis,
@@ -45,11 +47,23 @@ import {
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
+import {
+  type MlbGameEnvSlice,
+  type MlbPlatoonSlice,
+  resolveMlbPitcherTendency,
+} from "@/lib/propHolisticRecommendation";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
   player?: string;
   recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
+  vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
+  minutesTrend?: {
+    l5?: number | null;
+    l10?: number | null;
+    season?: number | null;
+    direction?: string | null;
+  } | null;
 };
 
 // Words that never identify a team and would create false token overlaps when
@@ -423,6 +437,99 @@ export function propPoolFromPlayerProps(
 
 // Score one PROP pick from the full real context: EV/line-shopping, recent form,
 // matchup lean, injuries, and Monte Carlo (one rubric input — never the sole driver).
+function mlbPlatoonFor(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, unknown>,
+): MlbPlatoonSlice | null {
+  if (!map) return null;
+  const raw =
+    (athleteId
+      ? (map[`${player}#${athleteId}`] ??
+        Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1])
+      : null) ??
+    (player ? Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1] : null);
+  return (raw as MlbPlatoonSlice) ?? null;
+}
+
+function mlbGameEnvFor(game: string, map?: Record<string, unknown>): MlbGameEnvSlice | null {
+  if (!map) return null;
+  return (map[game] as MlbGameEnvSlice) ?? null;
+}
+
+function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
+  if (!playerTeam) return null;
+  const { away, home } = splitLabel(game);
+  if (teamNameMatches(playerTeam, home)) return true;
+  if (teamNameMatches(playerTeam, away)) return false;
+  return null;
+}
+
+function edgePctFromPick(
+  pick: ParsedPick,
+  entryEdge: number | null | undefined,
+  simHit: number | null | undefined,
+): number | null {
+  if (entryEdge != null && Number.isFinite(entryEdge)) return entryEdge;
+  const edgeNum = (pick as { edgeNum?: number }).edgeNum;
+  if (typeof edgeNum === "number" && Number.isFinite(edgeNum)) return edgeNum;
+  if (pick.finalAiScore?.edgePct != null) return pick.finalAiScore.edgePct;
+  if (pick.scores?.edgePct != null) return pick.scores.edgePct;
+  const m = String(pick.edge ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+  if (m && Number.isFinite(Number(m[1]))) return Number(m[1]);
+  if (simHit != null && pick.odds != null) {
+    const simEdge = simEdgeFromHit(simHit, pick.odds);
+    if (simEdge != null) return simEdge;
+  }
+  return null;
+}
+
+function scorePropPickFromContext(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  simulationByKey?: Map<string, { hitProbability: number | null }>,
+  ctx?: {
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    playerHistory?: Record<string, PlayerHistorySlice>;
+    injuryTeams?: InjuryTeam[];
+  },
+): CombinedPickScore | null {
+  const marketKey = pick.propMarketKey ?? entry?.marketKey ?? pick.market ?? "";
+  const ph = playerHistoryFor(pick.player, entry?.athleteId ?? pick.athleteId, ctx?.playerHistory);
+  const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
+  const simKey =
+    pick.player && pick.propLine != null && pick.propSide
+      ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
+      : null;
+  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
+  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const edgePct = edgePctFromPick(pick, entry?.edge, simHit);
+  const matchup = propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory);
+  const trend = propTrendScore(ph, marketKey, pick.propLine, pick.propSide);
+  const injury = propInjuryScore(
+    pick.sport ?? entry?.sport,
+    pick.game,
+    playerTeam,
+    pick.propSide,
+    ctx?.matchupInjuries,
+    ctx?.injuryTeams,
+  );
+  if (edgePct == null && simHit == null && matchup == null && trend == null && injury == null) {
+    return null;
+  }
+  const scores: PickSubScores = {
+    matchup,
+    trend,
+    lineValue: scoreLineValue(edgePct),
+    injury,
+    lineShopping: scoreLineShopping(entry?.bookSpread ?? null),
+    simulation: scoreSimulation(simHit),
+  };
+  const combined = combinePickScore(scores, edgePct, pick.odds);
+  return combined.composite == null ? null : combined;
+}
+
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
@@ -434,6 +541,8 @@ function scorePropPick(
     tennisAnalysis?: Record<string, TennisAnalysis>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     injuryTeams?: InjuryTeam[];
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
   },
 ): CombinedPickScore | null {
   // The resolved prop ParsedPick was built from a real pool entry, so match on
@@ -446,7 +555,9 @@ function scorePropPick(
   const entry =
     propPool.find((e) => same(e) && e.line === pick.propLine) ??
     propPool.find(same);
-  if (!entry) return null;
+  if (!entry) {
+    return scorePropPickFromContext(pick, undefined, simulationByKey, ctx);
+  }
   const marketKey = pick.propMarketKey ?? entry.marketKey ?? pick.market;
   const ph = playerHistoryFor(pick.player, entry.athleteId ?? pick.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
@@ -455,11 +566,8 @@ function scorePropPick(
       ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
       : null;
   const sim = simKey ? simulationByKey?.get(simKey) : undefined;
-  let edgePct = entry.edge ?? null;
-  if (sim?.hitProbability != null && pick.odds != null) {
-    const simEdge = simEdgeFromHit(sim.hitProbability, pick.odds);
-    if (simEdge != null) edgePct = simEdge;
-  }
+  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const edgePct = edgePctFromPick(pick, entry.edge, simHit);
   const scores: PickSubScores = {
     matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
     trend: propTrendScore(ph, marketKey, pick.propLine, pick.propSide),
@@ -473,13 +581,12 @@ function scorePropPick(
       ctx?.injuryTeams,
     ),
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
-    simulation: scoreSimulation(sim?.hitProbability ?? null),
+    simulation: scoreSimulation(simHit),
   };
   const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
 }
 
-// The win-chance inputs for a leg, resolved from its REAL backing entry — the
 // SAME entry scoreGamePick / scorePropPick read, so the Coach confidence filter
 // scores the identical de-vigged win chance the card shows. A game pick gets the
 // picked side's no-vig fair prob (both sides of a two-sided main market) plus the
@@ -526,11 +633,10 @@ export function attachPickScores(
     gameSimulations?: Map<string, CoachGameSimEntry>;
     /** Real per-player game logs keyed Player#athleteId (grounds prop trend). */
     playerHistory?: Record<string, PlayerHistorySlice>;
-    /** UFC fight analysis keyed by "Away @ Home". */
-    fightAnalysis?: Record<string, FightAnalysis>;
-    tennisAnalysis?: Record<string, TennisAnalysis>;
     /** Raw league injury teams when matchupInjuries report is absent. */
     injuryTeams?: InjuryTeam[];
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
@@ -542,10 +648,22 @@ export function attachPickScores(
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
     injuryTeams: opts.injuryTeams,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
   };
   return picks.map((p) => {
-    const gameSim = lookupGameSim(p.game, gameSims);
-    const raw = p.isProp
+    const gameSim = gameSims?.get(p.game) ?? null;
+    const propEntryEarly =
+      p.isProp && propPool.length
+        ? propPool.find(
+            (e) =>
+              e.game === p.game &&
+              e.player === p.player &&
+              e.side === p.propSide &&
+              (e.line === p.propLine || e.line == null),
+          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
+        : undefined;
+    let raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGameLinePick(
           p,
@@ -556,7 +674,13 @@ export function attachPickScores(
           opts.fightAnalysis,
           opts.tennisAnalysis,
         );
-    const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
+    if (!raw && p.isProp) {
+      raw = scorePropPickFromContext(p, propEntryEarly, sims, propCtx);
+    }
+    let scores = applyMarketWeighting(raw, p, opts.perfByFamily);
+    if (!scores && p.finalAiScore?.rubric) {
+      scores = p.finalAiScore.rubric;
+    }
     if (!scores) return { ...p, scores: null };
 
     const propKey =
@@ -568,6 +692,20 @@ export function attachPickScores(
         ? (sims.get(propKey)!.hitProbability as number)
         : null;
 
+    const propPh =
+      p.isProp && p.player
+        ? playerHistoryFor(p.player, p.athleteId, opts.playerHistory)
+        : undefined;
+    const propEntry = propEntryEarly;
+    const propPlayerTeam =
+      p.isProp && propEntry
+        ? resolvePropPlayerTeam(p.game, propEntry, propPh)
+        : null;
+    const mlbPlatoon =
+      p.isProp && p.player
+        ? mlbPlatoonFor(p.player, propEntry?.athleteId ?? p.athleteId, opts.mlbPlatoon)
+        : null;
+    const mlbGameEnv = p.isProp ? mlbGameEnvFor(p.game, opts.mlbGameEnv) : null;
     const finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -575,6 +713,29 @@ export function attachPickScores(
       odds: p.odds,
       gameSim,
       propSimHit,
+      propHolisticContext: p.isProp
+        ? {
+            sport: p.sport ?? propEntry?.sport,
+            marketKey: p.propMarketKey ?? p.market,
+            propSide: p.propSide,
+            minutesTrend: propPh?.minutesTrend ?? null,
+            vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
+            mlbPlatoon: mlbPlatoon
+              ? {
+                  ...mlbPlatoon,
+                  opposingPitcherTendency:
+                    mlbPlatoon.opposingPitcherTendency ??
+                    resolveMlbPitcherTendency(
+                      mlbGameEnv,
+                      mlbPlatoon,
+                      playerTeamIsHome(p.game, propPlayerTeam),
+                    ),
+                }
+              : null,
+            mlbGameEnv,
+            playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
+          }
+        : undefined,
     });
 
     return {
@@ -583,5 +744,91 @@ export function attachPickScores(
       finalAiScore,
       highRiskValuePlay: finalAiScore.highRiskValuePlay || p.highRiskValuePlay,
     };
+  });
+}
+
+/** Enrichment + scoring context carried on Coach flash/board-scan delivery paths. */
+export type CoachFlashEnrich = {
+  realOdds: RealOddsEntry[];
+  propPool: PropPoolEntry[];
+  gameMeta: GameMeta[];
+  realGames?: ChatContext["realGames"];
+  matchupHistory?: Record<string, MatchupHistoryEntry>;
+  matchupInjuries?: Record<string, GameInjuryReport>;
+  playerHistory?: Record<string, PlayerHistorySlice>;
+  mlbPlatoon?: Record<string, unknown>;
+  mlbGameEnv?: Record<string, unknown>;
+  propSimulations?: Map<string, { hitProbability: number | null }>;
+  gameSimulations?: Map<string, CoachGameSimEntry>;
+  perfByFamily?: Map<string, MarketPerf>;
+  fightAnalysis?: Record<string, FightAnalysis>;
+  tennisAnalysis?: Record<string, TennisAnalysis>;
+  injuryTeams?: InjuryTeam[];
+};
+
+export function coachFlashEnrichFromBuilt(
+  built: { context: ChatContext; propPool: PropPoolEntry[]; gameMeta: GameMeta[] },
+  extras?: {
+    propSimulations?: Map<string, { hitProbability: number | null }>;
+    gameSimulations?: Map<string, CoachGameSimEntry>;
+    perfByFamily?: Map<string, MarketPerf>;
+  },
+): CoachFlashEnrich {
+  const { context, propPool, gameMeta } = built;
+  return {
+    realOdds: context.realOdds,
+    propPool,
+    gameMeta,
+    realGames: context.realGames,
+    matchupHistory: context.matchupHistory,
+    matchupInjuries: context.matchupInjuries,
+    playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+    mlbPlatoon: context.mlbPlatoon,
+    mlbGameEnv: context.mlbGameEnv,
+    fightAnalysis: context.fightAnalysis,
+    tennisAnalysis: context.tennisAnalysis,
+    injuryTeams: context.injuryTeams,
+    propSimulations: extras?.propSimulations,
+    gameSimulations: extras?.gameSimulations,
+    perfByFamily: extras?.perfByFamily,
+  };
+}
+
+/** Preserve sim hits already on visible legs when re-scoring after context hydrates. */
+export function propSimMapFromPicks(
+  picks: ParsedPick[],
+  base?: Map<string, { hitProbability: number | null }>,
+): Map<string, { hitProbability: number | null }> {
+  const m = new Map(base ?? []);
+  for (const p of picks) {
+    if (!p.isProp || !p.player || p.propLine == null || !p.propSide) continue;
+    const key = `${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`;
+    const hit = p.finalAiScore?.simHit;
+    if (hit != null && !m.has(key)) m.set(key, { hitProbability: hit });
+  }
+  return m;
+}
+
+/** Re-attach holistic prop scores when playerHistory / MLB context lands after a fast scan. */
+export function rescoreCoachTicketPicks(
+  picks: ParsedPick[],
+  enrich: CoachFlashEnrich,
+): ParsedPick[] {
+  if (!picks.length) return picks;
+  const propSimulations = propSimMapFromPicks(picks, enrich.propSimulations);
+  return attachPickScores(picks, {
+    realOdds: enrich.realOdds,
+    propPool: enrich.propPool,
+    matchupHistory: enrich.matchupHistory,
+    matchupInjuries: enrich.matchupInjuries,
+    playerHistory: enrich.playerHistory,
+    mlbPlatoon: enrich.mlbPlatoon,
+    mlbGameEnv: enrich.mlbGameEnv,
+    propSimulations,
+    gameSimulations: enrich.gameSimulations,
+    perfByFamily: enrich.perfByFamily,
+    fightAnalysis: enrich.fightAnalysis,
+    tennisAnalysis: enrich.tennisAnalysis,
+    injuryTeams: enrich.injuryTeams,
   });
 }

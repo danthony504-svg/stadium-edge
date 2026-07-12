@@ -7,6 +7,7 @@ import { FONT } from "@/components/ui";
 import { usePickTracker } from "@/context/PickTrackerContext";
 import { useColors } from "@/hooks/useColors";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
+import { buildFixedLegCountShortfallLead } from "@/lib/coachScanPolicy";
 import { gradeTierColor } from "@/lib/coachLearningDisplay";
 import { summarizeCoachTicket, type GameLineSummary } from "@/lib/coachTicketSummary";
 import type { ParsedPick } from "@/components/PickCard";
@@ -17,6 +18,10 @@ type Props = {
   picks: ParsedPick[];
   legNote?: string;
   coachDetailNote?: string;
+  /** When set and greater than pick count, shows a prominent shortfall banner. */
+  requestedLegs?: number;
+  /** True while the board scan is still running — shows in-progress copy, not final shortfall. */
+  scanInProgress?: boolean;
 };
 
 function SummaryStat({
@@ -171,7 +176,13 @@ function GameLineDetailCard({ row }: { row: GameLineSummary }) {
   );
 }
 
-export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
+export function CoachTicketHeader({
+  picks,
+  legNote,
+  coachDetailNote,
+  requestedLegs,
+  scanInProgress,
+}: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
   const { picks: trackedPicks } = usePickTracker();
@@ -180,6 +191,15 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
     [legNote, coachDetailNote],
   );
   const summary = useMemo(() => summarizeCoachTicket(picks), [picks]);
+  const shortfallLead = useMemo(() => {
+    if (requestedLegs != null && requestedLegs > summary.pickCount) {
+      if (scanInProgress) {
+        return `You asked for **${requestedLegs}** legs — showing **${summary.pickCount}** while the full-board scan continues.`;
+      }
+      return buildFixedLegCountShortfallLead(requestedLegs, summary.pickCount);
+    }
+    return notes.shortfall?.trim() ?? "";
+  }, [requestedLegs, scanInProgress, summary.pickCount, notes.shortfall]);
   const similar = useMemo(
     () => similarPickRecord(picks, trackedPicks),
     [picks, trackedPicks],
@@ -278,6 +298,24 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         ) : null}
       </View>
 
+      {shortfallLead ? (
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <ChatMarkdown
+            text={shortfallLead}
+            color={colors.foreground}
+            mutedColor={colors.mutedForeground}
+          />
+        </View>
+      ) : null}
+
       {expanded && summary.gameLines.length > 0 ? (
         <View style={{ gap: 8 }}>
           <Text
@@ -295,7 +333,7 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote }: Props) {
         </View>
       ) : null}
 
-      {notes.shortfall?.trim() ? (
+      {!shortfallLead && notes.shortfall?.trim() ? (
         <ChatMarkdown
           text={notes.shortfall.trim()}
           color={colors.foreground}

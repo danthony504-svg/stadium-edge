@@ -14,14 +14,11 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, pickHasSimGrade } from "@/lib/simMarketSupport";
-import {
-  NOT_AI_RECOMMENDED,
-  pickGradeDisplayCaption,
-  pickGradeDisplayLabel,
-} from "@/lib/pickRecommendation";
+import { buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
+import { FILLER_BACKFILL_EDGE_NOTE } from "@/lib/coachScanPolicy";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { pickShowsAltBadge } from "@/lib/altLinePool";
@@ -896,10 +893,36 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.scores ? (
+      {hideReadout ? null : pick.scores ||
+      pick.finalAiScore?.rubric ||
+      ((pick.isProp || pick.player) &&
+        (pick.finalAiScore?.simHit != null || pick.finalAiScore?.propHolistic)) ? (
         <ScoreBreakdown
-          data={pick.scores}
+          data={{
+            ...(pick.finalAiScore?.rubric ?? pick.scores ?? {
+              scores: {
+                matchup: null,
+                trend: null,
+                lineValue: null,
+                injury: null,
+                lineShopping: null,
+                simulation: null,
+              },
+              composite: pick.finalAiScore?.composite ?? null,
+              grade: pick.finalAiScore?.grade ?? null,
+              confidencePct: pick.finalAiScore?.confidencePct ?? null,
+              edgePct: pick.finalAiScore?.edgePct ?? null,
+            }),
+            composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
+            grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+            confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+            edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+          }}
           variant="compact"
+          pick={pick}
+          propHolistic={
+            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
+          }
           simulationPending={pick.simulationPending}
           simGradePending={
             marketSupportsSimulation(pick.market ?? "", pick) &&
@@ -1967,8 +1990,7 @@ export function backfillPicks(
             // Honest note: a backfilled leg is a real posted line added to reach
             // the requested ticket size — NOT a model read. We never fabricate an
             // analytical edge it doesn't have; we just say why it's on the slip.
-            edge:
-              "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
+            edge: FILLER_BACKFILL_EDGE_NOTE,
           },
           gameMeta,
         ),
@@ -2166,8 +2188,7 @@ export function backfillProps(
           propMarketKey: e.marketKey,
           propLine: e.line,
           propSide: e.side,
-          edge:
-            "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
+          edge: FILLER_BACKFILL_EDGE_NOTE,
         },
         gameMeta,
       ),

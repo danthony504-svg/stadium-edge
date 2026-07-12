@@ -17,6 +17,12 @@ import {
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
+import {
+  buildPropHolisticScore,
+  propHolisticRecommends,
+  type PropHolisticContext,
+  type PropHolisticScore,
+} from "./propHolisticRecommendation.ts";
 
 /** Minimum no-vig edge (pct pts) to keep a sim-opposed leg as High-Risk Value Play. */
 export const HIGH_RISK_EDGE_MIN = 4.5;
@@ -58,6 +64,8 @@ export type FinalAiScore = {
   recommends: boolean;
   factors: FinalAiFactor[];
   rubric: CombinedPickScore;
+  /** Holistic prop score when pick.isProp — all contextual factors blended. */
+  propHolistic?: PropHolisticScore | null;
 };
 
 function gradeRank(g: string | null | undefined): number {
@@ -128,6 +136,7 @@ export function buildFinalAiScore(input: {
   fairProb?: number | null;
   gameSim?: CoachGameSimEntry | null;
   propSimHit?: number | null;
+  propHolisticContext?: Omit<PropHolisticContext, "rubricScores" | "edgePct" | "simHit">;
 }): FinalAiScore {
   const simHit = simHitForPick(input.pick, input.gameSim, input.propSimHit);
   const rubric = combinePickScore(
@@ -162,14 +171,68 @@ export function buildFinalAiScore(input: {
     { key: "lineShopping", label: "Line Shopping", score: input.rubricScores.lineShopping },
   ];
 
-  const composite = combineFinalAiFactors(factors);
-  const grade = gradeFromComposite(composite);
-  const confidencePct = confidenceFromFinalAiFactors(factors);
-  const recommends =
-    gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
-    (rubric.edgePct ?? 0) > 0 &&
-    pickHasSimGrade(input.pick, simHit) &&
-    (simAligned || highRiskValuePlay);
+  let propHolistic: PropHolisticScore | null = null;
+  if (input.pick.isProp) {
+    propHolistic = buildPropHolisticScore({
+      ...input.propHolisticContext,
+      rubricScores: input.rubricScores,
+      edgePct: rubric.edgePct,
+      simHit,
+    });
+    for (const hf of propHolistic.factors) {
+      if (!hf.applicable) continue;
+      const existing = factors.find((f) => {
+        if (hf.key === "recentForm") return f.key === "trend";
+        if (hf.key === "sportsbookValue") return f.key === "lineValue";
+        if (hf.key === "playingTime") return f.key === "trend";
+        return f.key === hf.key;
+      });
+      if (existing && hf.present && hf.score != null) {
+        existing.score = hf.score;
+        if (hf.display) existing.display = hf.display;
+      }
+      if (hf.key === "lineMovement" && hf.present && hf.score != null) {
+        const lm = factors.find((f) => f.key === "lineMovement");
+        if (lm) {
+          lm.score = hf.score;
+          lm.display = hf.display;
+        }
+      }
+      if (hf.key === "opponentTendency" && hf.present && hf.score != null) {
+        const mu = factors.find((f) => f.key === "matchup");
+        if (mu && (input.rubricScores.matchup == null || hf.score > (mu.score ?? 0))) {
+          mu.score = hf.score;
+          mu.display = hf.display;
+          mu.label = "Opponent Tendency";
+        }
+      }
+    }
+  }
+
+  const composite = input.pick.isProp && propHolistic?.composite != null
+    ? propHolistic.composite
+    : combineFinalAiFactors(factors);
+  const grade = input.pick.isProp && propHolistic?.grade
+    ? propHolistic.grade
+    : gradeFromComposite(composite);
+  const confidencePct = input.pick.isProp && propHolistic?.confidencePct != null
+    ? propHolistic.confidencePct
+    : confidenceFromFinalAiFactors(factors);
+
+  const recommends = input.pick.isProp && propHolistic
+    ? propHolisticRecommends(input.pick, propHolistic, {
+        edgePct: rubric.edgePct,
+        simHit,
+        odds: input.odds,
+      })
+    : gradeRank(grade) >= gradeRank(FINAL_AI_MIN_GRADE) &&
+      (rubric.edgePct ?? 0) > 0 &&
+      pickHasSimGrade(input.pick, simHit) &&
+      (simAligned || highRiskValuePlay);
+
+  if (input.pick.isProp && propHolistic) {
+    propHolistic = { ...propHolistic, recommends };
+  }
 
   return {
     composite,
@@ -182,6 +245,7 @@ export function buildFinalAiScore(input: {
     recommends,
     factors,
     rubric,
+    propHolistic,
   };
 }
 

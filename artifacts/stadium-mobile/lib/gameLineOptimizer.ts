@@ -6,7 +6,7 @@ import { marketFamily } from "../components/PickCard.tsx";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry, OddsGame, RealOddsEntry } from "./api.ts";
 import { buildAllEvalGameLines } from "./api.ts";
-import { poolMatchesPickFamily } from "./altLinePool.ts";
+import { isQualifyingBackupGameLine, poolMatchesPickFamily } from "./altLinePool.ts";
 import { buildFinalAiScore, type FinalAiScore } from "./finalAiScore.ts";
 import {
   buildGameCoverQuery,
@@ -754,7 +754,10 @@ export function backfillGameLinesFromEvalScores(
     if ((row.edgePct ?? 0) < 0) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
-    out.push(row.pick);
+    out.push({
+      ...row.pick,
+      ticketRole: isQualifyingBackupGameLine(row.pick) ? ("alt" as const) : ("main" as const),
+    });
   }
   return out;
 }

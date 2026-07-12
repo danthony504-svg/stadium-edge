@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
   coachBoardScanTicketPicks,
+  coachFlashBoardScanPreviewPicks,
   coachFlashTicketPicks,
+  coachPreserveStagedBoardPicks,
+  finalizeBoardBuiltCoachTicket,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
   filterAiRecommendedPicks,
@@ -12,8 +15,12 @@ import {
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
   pickIsAiRecommended,
+  propSimEdgeStagingQualifies,
+  propBoardFillQualifies,
+  boardScanStagedLegQualifies,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
+  topUpBoardBuiltTicket,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
@@ -147,7 +154,7 @@ test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends f
   assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
   const { picks, usedRescoringFallback } = finalizeCoachTicketPicks([leg], enrich);
   assert.equal(picks.length, 1);
-  assert.equal(usedRescoringFallback, true);
+  assert.equal(usedRescoringFallback, false);
 });
 
 test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {
@@ -203,7 +210,7 @@ test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt
       rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
     },
   };
-  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 1);
   assert.equal(coachBoardScanTicketPicks([leg], {}).length, 1);
 });
 
@@ -526,4 +533,244 @@ test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML",
     pickGradeDisplayCaption(pick, score),
     "Passes sim, edge, EV, and confidence thresholds",
   );
+});
+
+test("coachFlashBoardScanPreviewPicks shows odds-backed legs before startsAt resolves", () => {
+  const picks = [
+    {
+      game: "Pirates @ Reds",
+      market: "Moneyline",
+      pick: "Pirates ML",
+      sport: "mlb",
+      odds: 145,
+      finalAiScore: null,
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.odds, 145);
+});
+
+test("coachFlashBoardScanPreviewPicks keeps minus-money legs with sim and positive edge", () => {
+  const picks = [
+    {
+      game: "E @ F",
+      market: "Spread",
+      pick: "F -3.5",
+      sport: "nba",
+      odds: -108,
+      finalAiScore: {
+        composite: 6.4,
+        grade: "C+",
+        confidencePct: 54,
+        edgePct: 2.1,
+        simHit: 0.56,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { composite: 6.4, grade: "C+", confidencePct: 54, edgePct: 2.1, scores: {} as never },
+      },
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.odds, -108);
+});
+
+test("coachFlashBoardScanPreviewPicks drops scored legs without positive edge", () => {
+  const picks = [
+    {
+      game: "Athletics @ White Sox",
+      market: "Alt Spread",
+      pick: "Athletics -1",
+      sport: "mlb",
+      odds: 169,
+      finalAiScore: {
+        composite: 5.8,
+        grade: "C",
+        confidencePct: 50,
+        edgePct: 0,
+        simHit: 0.41,
+        simAligned: false,
+        highRiskValuePlay: false,
+        recommends: false,
+        factors: [],
+        rubric: { composite: 5.8, grade: "C", confidencePct: 50, edgePct: 0, scores: {} as never },
+      },
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 0);
+});
+
+test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic context", () => {
+  const pick = {
+    isProp: true,
+    market: "Strikeouts",
+    odds: 130,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C+",
+      confidencePct: 54,
+      edgePct: 1.2,
+      simHit: 0.54,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C+", confidencePct: 54, edgePct: 1.2, scores: {} as never },
+      propHolistic: {
+        composite: 6,
+        grade: "C+",
+        confidencePct: 48,
+        coveragePct: 22,
+        missingCount: 5,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
+});
+
+test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
+  const staged = {
+    game: "Toronto Blue Jays @ San Diego Padres",
+    market: "Stolen Bases",
+    pick: "Fernando Tatis Jr. Over 0.5 Stolen Bases",
+    odds: 325,
+    isProp: true,
+    player: "Fernando Tatis Jr.",
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 54,
+      edgePct: 1.4,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 54, edgePct: 1.4, scores: {} as never },
+      propHolistic: {
+        composite: 5.8,
+        grade: "C+",
+        confidencePct: 48,
+        coveragePct: 25,
+        missingCount: 5,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  const out = coachPreserveStagedBoardPicks([staged], { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
+});
+
+test("sanitizeCoachTicketPicks keeps all qualified legs when only some have startsAt", () => {
+  const future = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+  const baseScore = {
+    composite: 6.2,
+    grade: "B-",
+    confidencePct: 56,
+    edgePct: 2.1,
+    simHit: 0.56,
+    simAligned: true,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { composite: 6.2, grade: "B-", confidencePct: 56, edgePct: 2.1, scores: {} as never },
+  };
+  const withKick = {
+    game: "A @ B",
+    market: "Moneyline",
+    pick: "A ML",
+    sport: "mlb",
+    startsAt: future,
+    odds: -110,
+    finalAiScore: baseScore,
+  };
+  const missingKick = {
+    game: "C @ D",
+    market: "Moneyline",
+    pick: "C ML",
+    sport: "mlb",
+    startsAt: undefined,
+    odds: -105,
+    finalAiScore: baseScore,
+  };
+  const out = sanitizeCoachTicketPicks([withKick, missingKick], {
+    realOdds: [],
+    propPool: [],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: future }],
+  });
+  assert.equal(out.length, 2);
+});
+
+test("propBoardFillQualifies accepts borderline confidence props for fixed-leg fill", () => {
+  const pick = {
+    isProp: true,
+    market: "Hits",
+    odds: 134,
+    finalAiScore: {
+      composite: 5.9,
+      grade: "C+",
+      confidencePct: 50,
+      edgePct: 1.1,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5.9, grade: "C+", confidencePct: 50, edgePct: 1.1, scores: {} as never },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
+  assert.equal(propBoardFillQualifies(pick, pick.finalAiScore), true);
+  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), true);
+});
+
+test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "Arizona Diamondbacks @ Los Angeles Dodgers",
+    market: "Hits",
+    pick: "Miguel Rojas Under 0.5 Hits",
+    odds: 134,
+    isProp: true,
+    player: "Miguel Rojas",
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5.9,
+      grade: "C+",
+      confidencePct: 50,
+      edgePct: 1.1,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5.9, grade: "C+", confidencePct: 50, edgePct: 1.1, scores: {} as never },
+      propHolistic: {
+        composite: 5.7,
+        grade: "C+",
+        confidencePct: 46,
+        coveragePct: 20,
+        missingCount: 6,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
+  assert.equal(finalizeBoardBuiltCoachTicket([leg], enrich).picks.length, 1);
+  const topped = topUpBoardBuiltTicket([], 2, [leg, leg], enrich);
+  assert.equal(topped.length, 1);
 });

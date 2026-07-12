@@ -107,8 +107,8 @@ export function AnalysisProgress({
 
   // In build mode the auto-timer holds below the penultimate stage during the
   // long context/board-scan fetch, then advances through grading while the scan
-  // runs. During board-scan with no pick cards yet, cap at stage 7 (~84%) so we
-  // never show 93% / "Final ticket ready" while sims are still running.
+  // runs. During board-scan with no pick cards yet, cap below 100% until cards land.
+  // Allow progress through 93% so the bar doesn't look frozen at 84% while sims run.
   const boardScanWaiting =
     mode === "build" && buildPhase === "board-scan" && legCount === 0;
   const maxAuto =
@@ -116,7 +116,7 @@ export function AnalysisProgress({
       ? legCount > 0
         ? stageList.length - 1
         : boardScanWaiting
-          ? 7
+          ? 8
           : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
             ? 8
             : 6
