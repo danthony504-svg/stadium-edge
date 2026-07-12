@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
   FILLER_BACKFILL_EDGE_NOTE,
   isFillerBackfillPick,
@@ -82,6 +83,12 @@ test("shouldPromoteQualifyingAltsForFixedLegTicket gates fixed-leg parlay builds
     }),
     false,
   );
+});
+
+test("COACH_EXHAUSTIVE_MARKET_LADDER_POLICY documents alt ladder exhaustion", () => {
+  assert.match(COACH_EXHAUSTIVE_MARKET_LADDER_POLICY, /every posted alternate spread/i);
+  assert.match(COACH_EXHAUSTIVE_MARKET_LADDER_POLICY, /combo prop/i);
+  assert.match(COACH_EXHAUSTIVE_MARKET_LADDER_POLICY, /primary line fails/i);
 });
 
 test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {

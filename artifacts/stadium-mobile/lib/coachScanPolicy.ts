@@ -14,6 +14,10 @@ export const COACH_NO_FILLER_SHORTFALL =
 export const COACH_FIXED_LEG_SHORTFALL_LEAD =
   "Every qualifying market was evaluated across the live board — only this many AI-backed picks met the quality bar.";
 
+/** Exhaustive alt-ladder policy — every posted rung scored; mains then alts per market. */
+export const COACH_EXHAUSTIVE_MARKET_LADDER_POLICY =
+  "For every game, evaluate every posted alternate spread, alternate total, alternate team total, alternate player prop, combo prop, and ladder prop. Score every line independently in the background before the app opens and while the app is open. If the primary line fails, automatically continue evaluating alternate versions until a qualifying line is found or every posted line in that ladder has been exhausted.";
+
 /** Visible one-liner when a fixed-leg ask returns fewer than requested. */
 export function buildFixedLegCountShortfallLead(requested: number, actual: number): string {
   if (actual >= requested) return "";

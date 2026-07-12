@@ -34,6 +34,9 @@ let activeAbort: AbortController | null = null;
 let running = false;
 let coachBuildBusy = false;
 let lastForegroundRunAt = 0;
+let openWarmInterval: ReturnType<typeof setInterval> | null = null;
+
+const OPEN_WARM_INTERVAL_MS = 120_000;
 
 export function setCoachBuildBusy(busy: boolean): void {
   coachBuildBusy = busy;
@@ -47,6 +50,21 @@ export function stopSlatePreAnalysis(): void {
   activeAbort?.abort();
   activeAbort = null;
   running = false;
+  if (openWarmInterval) {
+    clearInterval(openWarmInterval);
+    openWarmInterval = null;
+  }
+}
+
+/** Keep pulling server-precomputed scores while the app stays open. */
+export function startSlatePreAnalysisOpenWarm(): void {
+  if (openWarmInterval) return;
+  openWarmInterval = setInterval(() => {
+    void syncServerSlatePreAnalysis().catch(() => false);
+    if (!coachBuildBusy && !running) {
+      startSlatePreAnalysis("open-warm");
+    }
+  }, OPEN_WARM_INTERVAL_MS);
 }
 
 export type SlatePreAnalysisSeed = {

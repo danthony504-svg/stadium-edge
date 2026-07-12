@@ -26,6 +26,7 @@ import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
+import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
 import { scoreLineShopping } from "./pickScore.ts";
@@ -564,8 +565,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   scored.push(...propScored);
 
   totalScanned += pool.length;
-  scored.sort((a, b) => b.rankScore - a.rankScore);
-  const result = buildScanResult(scored, {
+  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  collapsed.sort((a, b) => b.rankScore - a.rankScore);
+  const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,

@@ -124,26 +124,19 @@ function rankScoreForPick(
 }
 
 async function fetchPropSimulationsDeep(
-  propPool: PropPoolEntry[],
-  limit: number,
+  entries: PropPoolEntry[],
+  tier: "quick" | "deep" = "deep",
 ): Promise<Map<string, number | null>> {
   const out = new Map<string, number | null>();
-  const seen = new Set<string>();
   const bySport = new Map<string, PropPoolEntry[]>();
-
-  for (const e of propPool) {
+  for (const e of entries) {
     if (e.line == null) continue;
-    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
-    if (seen.has(k)) continue;
-    seen.add(k);
     const rows = bySport.get(e.sport) ?? [];
     rows.push(e);
     bySport.set(e.sport, rows);
-    if (seen.size >= limit) break;
   }
-
-  for (const [sport, entries] of bySport) {
-    const props = entries.slice(0, 24).map((e) => ({
+  for (const [sport, sportEntries] of bySport) {
+    const props = sportEntries.map((e) => ({
       player: e.player,
       market: e.marketKey ?? e.marketLabel,
       line: e.line!,
@@ -151,22 +144,44 @@ async function fetchPropSimulationsDeep(
       athleteId: e.athleteId ?? null,
     }));
     if (!props.length) continue;
-    const parts = entries[0]!.game.split(" @ ");
+    const parts = sportEntries[0]!.game.split(" @ ");
     const resp = await slateLoopbackPost<{ props?: PropSimRow[] }>(
       "/sports/simulate/props",
       {
         sport,
-        tier: "deep",
+        tier,
         homeTeam: parts[1]?.trim(),
         awayTeam: parts[0]?.trim(),
         props,
       },
-      180_000,
+      tier === "deep" ? 180_000 : 45_000,
     );
     for (const row of resp?.props ?? []) {
-      const k = propSimKey(row.player, row.market, row.line, row.side);
-      out.set(k, row.hitProbability ?? null);
+      out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
     }
+  }
+  return out;
+}
+
+async function fetchAllPropSimulations(
+  propPool: PropPoolEntry[],
+  batchSize = 24,
+): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  const seen = new Set<string>();
+  const entries: PropPoolEntry[] = [];
+  for (const e of propPool) {
+    if (e.line == null) continue;
+    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line, e.side);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    entries.push(e);
+  }
+
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const slice = entries.slice(i, i + batchSize);
+    const wave = await fetchPropSimulationsDeep(slice, "deep");
+    for (const [k, v] of wave) out.set(k, v);
   }
   return out;
 }
@@ -225,6 +240,42 @@ async function fetchQuickPropSims(
       out.set(propSimKey(row.player, row.market, row.line, row.side), row.hitProbability ?? null);
     }
   });
+  return out;
+}
+
+function propLadderKey(p: ParsedPick): string {
+  return `${p.game}|${p.player}|${p.propMarketKey ?? p.market}|${p.propSide}`.toLowerCase();
+}
+
+function gameLadderKeyFromPick(p: ParsedPick): string {
+  const side = /\bover\b/i.test(p.pick)
+    ? "over"
+    : /\bunder\b/i.test(p.pick)
+      ? "under"
+      : p.pick.replace(/\s*[+-]?\d+(?:\.\d+)?\s*$/, "").trim().toLowerCase();
+  const fam = p.market.replace(/^alt\s+/i, "").toLowerCase();
+  return `${p.game}|${fam}|${side}`.toLowerCase();
+}
+
+function collapseServerRankedByLadder(
+  rows: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }>,
+): Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> {
+  const byLadder = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = row.pick.isProp ? propLadderKey(row.pick) : gameLadderKeyFromPick(row.pick);
+    const arr = byLadder.get(key) ?? [];
+    arr.push(row);
+    byLadder.set(key, arr);
+  }
+  const out: typeof rows = [];
+  for (const ladder of byLadder.values()) {
+    ladder.sort((a, b) => {
+      if (a.isAlt !== b.isAlt) return a.isAlt ? 1 : -1;
+      return b.rankScore - a.rankScore;
+    });
+    const qualifying = ladder.find((r) => r.pick.finalAiScore?.recommends || (r.pick.finalAiScore?.simAligned && (r.pick.finalAiScore.edgePct ?? 0) > 0));
+    if (qualifying) out.push(qualifying);
+  }
   return out;
 }
 
@@ -290,7 +341,7 @@ export async function runServerBoardScan(
   const quickSims = await fetchQuickPropSims(propPool, 96);
   let propSims = quickSims;
   if (opts?.deepSim !== false) {
-    const deepSims = await fetchPropSimulationsDeep(propPool, 128);
+    const deepSims = await fetchAllPropSimulations(propPool);
     for (const [k, v] of deepSims) propSims.set(k, v);
   }
 
@@ -349,9 +400,11 @@ export async function runServerBoardScan(
   }
 
   ranked.sort((a, b) => b.rankScore - a.rankScore);
+  const collapsed = collapseServerRankedByLadder(ranked);
+  collapsed.sort((a, b) => b.rankScore - a.rankScore);
   const ctx = scanCtx();
-  const tickets = buildSlateTicketsIndex(ranked, ctx, stageTicket);
-  const scan = primaryBoardScanFromRanked(ranked, ctx, stageTicket);
+  const tickets = buildSlateTicketsIndex(collapsed, ctx, stageTicket);
+  const scan = primaryBoardScanFromRanked(collapsed, ctx, stageTicket);
 
   return { scan, tickets };
 }

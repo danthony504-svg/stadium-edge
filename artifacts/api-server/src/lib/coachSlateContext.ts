@@ -1,4 +1,5 @@
 import { MARKETS_BY_SPORT } from "../routes/props.js";
+import { discoverAllPostedGameLines } from "./coachSlateMarketDiscovery.js";
 import { pooled, slateLoopbackGet } from "./coachSlateLoopback.js";
 import type {
   BuiltChatContext,
@@ -13,11 +14,10 @@ const PROPS_SPORTS = [
   "tennis",
   "ufc",
 ];
-const MAX_SPORTS = 10;
-const MAX_ODDS_GAMES = 36;
-const MAX_PROP_GAMES = 22;
-const PROPS_CONCURRENCY = 3;
-const ALT_RUNGS_PER_PROP = 8;
+const MAX_SPORTS = 12;
+const MAX_ODDS_GAMES = 48;
+const MAX_PROP_GAMES = 36;
+const PROPS_CONCURRENCY = 4;
 
 type OddsGame = {
   sport: string;
@@ -95,57 +95,7 @@ function isUpcomingGame(g: EspnGame): boolean {
 }
 
 function buildRealOddsFromGame(g: OddsGame): RealOddsEntry[] {
-  if (!g.markets?.length) return [];
-  const out: RealOddsEntry[] = [];
-  const game = `${g.awayTeam} @ ${g.homeTeam}`;
-  const base = { sport: g.sport, game, startsAt: g.commenceTime };
-  const isSoccer = g.sport === "soccer";
-  const teamLabel = (name: string) => (isSoccer ? name : nickname(name));
-
-  const pushOutcome = (
-    market: string,
-    pick: string,
-    odds: number,
-    score?: { noVigFair?: number | null; edge?: number | null; bookSpread?: number | null },
-  ) => {
-    out.push({
-      ...base,
-      market,
-      pick,
-      odds,
-      noVigFair: score?.noVigFair ?? null,
-      edge: score?.edge ?? null,
-      bookSpread: score?.bookSpread ?? null,
-    });
-  };
-
-  const h2h = g.markets.find((m) => m.key === "h2h");
-  const spreads = g.markets.find((m) => m.key === "spreads");
-  const totals = g.markets.find((m) => m.key === "totals");
-  const altSpreads = g.markets.find((m) => m.key === "alternate_spreads");
-  const altTotals = g.markets.find((m) => m.key === "alternate_totals");
-
-  for (const o of h2h?.outcomes ?? []) {
-    pushOutcome("Moneyline", `${teamLabel(o.name)} ML`, o.price, o);
-  }
-  for (const o of spreads?.outcomes ?? []) {
-    const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-    pushOutcome("Spread", `${teamLabel(o.name)}${pt}`, o.price, o);
-  }
-  for (const o of totals?.outcomes ?? []) {
-    const pt = o.point == null ? "" : ` ${o.point}`;
-    pushOutcome("Total", `${o.name}${pt}`.trim(), o.price, o);
-  }
-  for (const o of (altSpreads?.outcomes ?? []).slice(0, 4)) {
-    const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
-    pushOutcome("Alt Spread", `${nickname(o.name)}${pt}`, o.price);
-  }
-  for (const o of (altTotals?.outcomes ?? []).slice(0, 4)) {
-    const pt = o.point == null ? "" : ` ${o.point}`;
-    pushOutcome("Alt Total", `${o.name}${pt}`.trim(), o.price);
-  }
-
-  return out;
+  return discoverAllPostedGameLines(g);
 }
 
 function buildGameMeta(games: EspnGame[]): GameMeta[] {
@@ -262,17 +212,10 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
 
     const game = `${g.awayTeam} @ ${g.homeTeam}`;
     const usable = r.props.filter((p) => p.overPrice != null || p.underPrice != null);
-    const altRungs = new Map<string, number>();
 
     for (const altPass of [false, true]) {
       for (const p of usable) {
         if (!!p.alt !== altPass) continue;
-        if (p.alt) {
-          const k = `${p.player}|${p.market}`.toLowerCase();
-          const n = altRungs.get(k) ?? 0;
-          if (n >= ALT_RUNGS_PER_PROP) continue;
-          altRungs.set(k, n + 1);
-        }
         realProps.push({
           sport,
           game,
