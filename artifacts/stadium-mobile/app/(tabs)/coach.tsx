@@ -1263,8 +1263,8 @@ export default function CoachScreen() {
       }
       const target =
         legTarget ??
-        requestedLegCount(activeParlayAskRef.current) ||
-        effectiveBuildLegCount(activeParlayAskRef.current);
+        (requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
       if (target >= 3 && ticket.length < target && partial.picks.length > ticket.length) {
         ticket = topUpCoachTicketToTarget(
           ticket,
@@ -1308,8 +1308,8 @@ export default function CoachScreen() {
       setBoardScanPartialLegs(ticket.length);
       const legTarget =
         opts?.ticketLegTarget ??
-        requestedLegCount(activeParlayAskRef.current) ||
-        effectiveBuildLegCount(activeParlayAskRef.current);
+        (requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
       let legNote = opts?.legNote ?? partial.note;
       if (legTarget > ticket.length) {
         legNote = boardScanIsComplete(partial)
