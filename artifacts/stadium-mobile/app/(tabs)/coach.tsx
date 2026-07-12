@@ -225,6 +225,8 @@ type UIMessage = {
   hideBubble?: boolean;
   /** Full prompt sent to the model when the bubble shows shorter chip copy. */
   apiContent?: string;
+  /** Parlay build in flight — survives even if the user bubble is hidden. */
+  parlayBuild?: boolean;
 };
 
 type StatCardResult = {
@@ -1074,18 +1076,6 @@ export default function CoachScreen() {
     setBuildProgressExpired(false);
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
-      setMessages((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last?.role === "assistant" && !(last.picks?.length)) {
-          copy[copy.length - 1] = {
-            ...last,
-            content:
-              "_Still scoring every market on the live board — your pick cards will appear in a moment._",
-          };
-        }
-        return copy;
-      });
       scrollToEnd(false);
     }, 25_000);
   }, [scrollToEnd]);
@@ -1239,10 +1229,16 @@ export default function CoachScreen() {
         wantsAnalyzeSlip(trimmed) && legs.length
           ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
           : undefined;
+      const openingParlayBuild = isParlayBuildAsk(trimmed) && !analyzeSlipSnapshot;
       if (sendGenerationRef.current !== sendGen) return;
       setMessages([
         ...history,
-        { role: "assistant", content: "", ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}) },
+        {
+          role: "assistant",
+          content: "",
+          ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}),
+          ...(openingParlayBuild ? { parlayBuild: true } : {}),
+        },
       ]);
       setWaiting(true);
       setStreaming(true);
@@ -1634,6 +1630,40 @@ export default function CoachScreen() {
             // the first heavy hit after a 20s parallel props fetch.
             await warmP;
           }
+          const boardScanPreEligible = reachBoardScanEligible({
+            isAnalyze: wantsAnalyzeSlip(trimmed),
+            requestedLegs,
+            propsOnly: wantsPropsOnly(trimmed),
+            explicitSingleGame,
+            oddsThreshold,
+            confidenceThreshold,
+          });
+          const reachFullPreScanEligible =
+            boardScanPreEligible && legTarget >= 6 && !slipImageVerdictOnly;
+          type ScanFeeds = {
+            espnGames: import("@/lib/api").EspnGame[];
+            oddsGames: import("@/lib/api").OddsGame[];
+            liveFeed: { games: unknown[]; odds: import("@/lib/api").RealOddsEntry[] };
+          };
+          let scanFeedsPromise: Promise<ScanFeeds> | null = null;
+          if (reachFullPreScanEligible) {
+            setParlayBuildPhase("board-scan");
+            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+              (s) => !excludedSports.has(s),
+            );
+            scanFeedsPromise = Promise.all([
+              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
+                games: [],
+                odds: [],
+              })),
+            ]).then(([espnGames, oddsGames, liveFeed]) => ({ espnGames, oddsGames, liveFeed }));
+          }
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -1677,14 +1707,6 @@ export default function CoachScreen() {
                 buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
-          const boardScanPreEligible = reachBoardScanEligible({
-            isAnalyze: wantsAnalyzeSlip(trimmed),
-            requestedLegs,
-            propsOnly: wantsPropsOnly(trimmed),
-            explicitSingleGame,
-            oddsThreshold,
-            confidenceThreshold,
-          });
           const enriched =
             slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
@@ -1713,26 +1735,29 @@ export default function CoachScreen() {
             propPool = filterForExcludedSports(propPool, excludedSports);
           }
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const reachFullPreScan =
-            boardScanPreEligible && legTarget >= 6;
+          const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
-            setParlayBuildPhase("board-scan");
             try {
-              const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-                (s) => !excludedSports.has(s),
-              );
-              const [espnGames, oddsGames, liveFeed] = await Promise.all([
-                Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-                  rows.flat(),
-                ),
-                Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                  rows.flat(),
-                ),
-                getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
-                  games: [],
-                  odds: [],
-                })),
-              ]);
+              const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
+                ? await scanFeedsPromise
+                : await (async () => {
+                    const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+                      (s) => !excludedSports.has(s),
+                    );
+                    const [eg, og, lf] = await Promise.all([
+                      Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                        rows.flat(),
+                      ),
+                      Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                        rows.flat(),
+                      ),
+                      getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
+                        games: [],
+                        odds: [],
+                      })),
+                    ]);
+                    return { espnGames: eg, oddsGames: og, liveFeed: lf };
+                  })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
@@ -4008,7 +4033,7 @@ export default function CoachScreen() {
               messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ??
               "";
             const parlayBuildIntent =
-              m.role === "assistant" && isParlayBuildAsk(priorUserText);
+              m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
@@ -4021,7 +4046,7 @@ export default function CoachScreen() {
               m.role === "assistant" &&
               i === messages.length - 1 &&
               !hasPicks &&
-              (buildFinishing || streaming) &&
+              (buildFinishing || streaming || buildProgressExpired) &&
               parlayBuildIntent;
             // Live progress for the build indicator: a full-context parlay can take
             // ~15s of model time, and since the lead-in prose is hidden the user
