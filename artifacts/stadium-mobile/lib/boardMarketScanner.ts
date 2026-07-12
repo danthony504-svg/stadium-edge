@@ -384,7 +384,7 @@ export function reachBoardScanEligible(opts: {
 }): boolean {
   if (opts.isAnalyze) return false;
   const asked = opts.requestedLegs ?? 0;
-  if (asked < 12) return false;
+  if (asked < 6) return false;
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
   }

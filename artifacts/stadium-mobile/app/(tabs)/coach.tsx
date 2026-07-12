@@ -1072,9 +1072,6 @@ export default function CoachScreen() {
     setBuildProgressExpired(false);
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
-      setStreaming(false);
-      setBuildFinishing(false);
-      setWaiting(false);
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
@@ -1669,9 +1666,19 @@ export default function CoachScreen() {
                 buildLegs,
                 wantsAnalyzeSlip(trimmed),
               );
+          const boardScanPreEligible = reachBoardScanEligible({
+            isAnalyze: wantsAnalyzeSlip(trimmed),
+            requestedLegs,
+            propsOnly: wantsPropsOnly(trimmed),
+            explicitSingleGame,
+            oddsThreshold,
+            confidenceThreshold,
+          });
           const enriched =
             slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
+              : boardScanPreEligible
+                ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
               : isParlayBuild &&
             !usePropsOnlyParlayPath &&
             rawBuilt.propPool.length > 0 &&
@@ -1696,14 +1703,7 @@ export default function CoachScreen() {
           }
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const reachFullPreScan =
-            isParlayBuild &&
-            !wantsAnalyzeSlip(trimmed) &&
-            requestedLegs >= 12 &&
-            legTarget >= 6 &&
-            !wantsPropsOnly(trimmed) &&
-            !explicitSingleGame &&
-            !oddsThreshold &&
-            !confidenceThreshold;
+            boardScanPreEligible && legTarget >= 6;
           if (reachFullPreScan) {
             setParlayBuildPhase("board-scan");
             try {
@@ -2033,7 +2033,7 @@ export default function CoachScreen() {
           gameMeta,
         );
         if (!isAnalyze && picks.length > 0) {
-          const minEarlyFlash = requestedLegs >= 12 ? 3 : 2;
+          const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {
             flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
           }
@@ -2069,7 +2069,7 @@ export default function CoachScreen() {
         const deepMultiLegParlay = legTarget >= 6 && !explicitSingleGame;
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
-          requestedLegs >= 12 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
+          requestedLegs >= 6 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
         const parlayRejections: ParlayLegReject[] = [];
         const composeFromBoard =
           !isAnalyze &&
@@ -4000,6 +4000,12 @@ export default function CoachScreen() {
               !hasPicks &&
               (parlayBuildIntent ||
                 m.content.split("\n").some((l) => PICK_SCAFFOLD_RE.test(l.trim())));
+            const parlayStillBuilding =
+              m.role === "assistant" &&
+              i === messages.length - 1 &&
+              !hasPicks &&
+              (buildFinishing || streaming) &&
+              parlayBuildIntent;
             // Live progress for the build indicator: a full-context parlay can take
             // ~15s of model time, and since the lead-in prose is hidden the user
             // would otherwise stare at a static spinner. Counting completed PICK
@@ -4143,7 +4149,7 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {isBuildingParlay ? (
+                {isBuildingParlay || parlayStillBuilding ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={buildingLegCount}
