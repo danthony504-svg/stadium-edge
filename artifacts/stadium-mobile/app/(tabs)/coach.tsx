@@ -567,6 +567,7 @@ function dedupeLegNoteParagraphs(note: string): string {
 // sign-off (see lib/reminderStrip) so it doesn't render as a dangling line.
 function assistantBubbleText(content: string, hasPicks: boolean): string {
   if (hasPicks) return "";
+  if (DEAD_BUILD_PROSE_RE.test(content)) return "";
   const lines = content.split("\n");
   const idx = lines.findIndex((l) => PICK_SCAFFOLD_RE.test(l.trim()));
   const kept = idx === -1 ? lines : lines.slice(0, idx);
@@ -4082,6 +4083,14 @@ export default function CoachScreen() {
     setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
   }, []);
 
+  // Legacy OTA watchdog prose can survive in React state — scrub once build is idle.
+  useEffect(() => {
+    if (streaming || buildFinishing || waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || !DEAD_BUILD_PROSE_RE.test(last.content ?? "")) return;
+    setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
+  }, [messages, streaming, buildFinishing, waiting]);
+
   const footerParlayProgress = useMemo(() => {
     if (!(buildFinishing || streaming || buildProgressExpired)) return false;
     const last = messages[messages.length - 1];
@@ -4169,6 +4178,14 @@ export default function CoachScreen() {
               !buildFinishing &&
               !waiting &&
               !m.content.trim();
+            const parlayStuckDeadProse =
+              m.role === "assistant" &&
+              i === messages.length - 1 &&
+              !hasPicks &&
+              deadBuildProse &&
+              !streaming &&
+              !buildFinishing &&
+              !waiting;
             // Live progress for the build indicator: a full-context parlay can take
             // ~15s of model time, and since the lead-in prose is hidden the user
             // would otherwise stare at a static spinner. Counting completed PICK
@@ -4327,9 +4344,11 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {parlayStalledEmpty ? (
+                {parlayStalledEmpty || parlayStuckDeadProse ? (
                   <Pressable
-                    onPress={() => send(priorUserText || "Build me a parlay")}
+                    onPress={() =>
+                      send(priorUserText || "Build me a 9-leg parlay", { freshThread: true })
+                    }
                     disabled={streaming || buildFinishing}
                     style={({ pressed }) => ({
                       flexDirection: "row",
