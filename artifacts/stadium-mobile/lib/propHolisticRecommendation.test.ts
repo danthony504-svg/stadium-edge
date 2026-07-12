@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildPropHolisticScore,
+  buildCoachCardHolistic,
   combinePropHolisticFactors,
   CONFIDENCE_PENALTY_PER_MISSING,
   propHolisticRecommends,
@@ -371,4 +372,72 @@ test("minimalPropHolisticForPick always returns holistic for sim-graded props", 
   assert.equal(new Set(labels).size, labels.length, "holistic factor keys must be unique");
   assert.ok(holistic!.factors.some((f) => f.key === "sportsbookValue" && f.present));
   assert.ok(holistic!.factors.some((f) => f.key === "simulation" && f.present));
+});
+
+test("buildCoachCardHolistic exposes EV/sim/match/form/injury/market strip without Line labels", () => {
+  const holistic = buildCoachCardHolistic({
+    game: "Fever @ Aces",
+    market: "Assists",
+    pick: "Aliyah Boston Under 2.5 Assists",
+    odds: 134,
+    isProp: true,
+    player: "Aliyah Boston",
+    propSide: "Under",
+    propLine: 2.5,
+    sport: "wnba",
+    finalAiScore: {
+      composite: 7.2,
+      grade: "B+",
+      confidencePct: 62,
+      edgePct: 3.1,
+      simHit: 0.56,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: {
+        composite: 7.2,
+        grade: "B+",
+        confidencePct: 62,
+        edgePct: 3.1,
+        scores: {
+          matchup: 7.4,
+          trend: 6.8,
+          lineValue: 7.1,
+          injury: 6.5,
+          lineShopping: 6.9,
+          simulation: 7.3,
+        },
+      },
+      propHolistic: buildPropHolisticScore({
+        sport: "wnba",
+        marketKey: "player_assists",
+        propSide: "Under",
+        rubricScores: {
+          matchup: 7.4,
+          trend: 6.8,
+          lineValue: 7.1,
+          injury: 6.5,
+          lineShopping: 6.9,
+          simulation: 7.3,
+        },
+        edgePct: 3.1,
+        simHit: 0.56,
+        vsOpponentGames: 2,
+      }),
+    },
+  });
+  assert.ok(holistic);
+  const keys = holistic!.factors.map((f) => f.key);
+  assert.deepEqual(keys, [
+    "sportsbookValue",
+    "simulation",
+    "matchup",
+    "recentForm",
+    "injury",
+    "lineMovement",
+  ]);
+  assert.ok(!holistic!.factors.some((f) => /line/i.test(f.label) && f.label !== "Market Efficiency"));
+  assert.ok(holistic!.factors.some((f) => f.key === "matchup" && f.present));
+  assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
 });

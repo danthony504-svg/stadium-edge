@@ -465,6 +465,71 @@ function playerTeamIsHome(game: string, playerTeam: string | null): boolean | nu
   return null;
 }
 
+function edgePctFromPick(
+  pick: ParsedPick,
+  entryEdge: number | null | undefined,
+  simHit: number | null | undefined,
+): number | null {
+  if (entryEdge != null && Number.isFinite(entryEdge)) return entryEdge;
+  const edgeNum = (pick as { edgeNum?: number }).edgeNum;
+  if (typeof edgeNum === "number" && Number.isFinite(edgeNum)) return edgeNum;
+  if (pick.finalAiScore?.edgePct != null) return pick.finalAiScore.edgePct;
+  if (pick.scores?.edgePct != null) return pick.scores.edgePct;
+  const m = String(pick.edge ?? "").match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+  if (m && Number.isFinite(Number(m[1]))) return Number(m[1]);
+  if (simHit != null && pick.odds != null) {
+    const simEdge = simEdgeFromHit(simHit, pick.odds);
+    if (simEdge != null) return simEdge;
+  }
+  return null;
+}
+
+function scorePropPickFromContext(
+  pick: ParsedPick,
+  entry: PropPoolEntry | undefined,
+  simulationByKey?: Map<string, { hitProbability: number | null }>,
+  ctx?: {
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    playerHistory?: Record<string, PlayerHistorySlice>;
+    injuryTeams?: InjuryTeam[];
+  },
+): CombinedPickScore | null {
+  const marketKey = pick.propMarketKey ?? entry?.marketKey ?? pick.market ?? "";
+  const ph = playerHistoryFor(pick.player, entry?.athleteId ?? pick.athleteId, ctx?.playerHistory);
+  const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
+  const simKey =
+    pick.player && pick.propLine != null && pick.propSide
+      ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
+      : null;
+  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
+  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const edgePct = edgePctFromPick(pick, entry?.edge, simHit);
+  const matchup = propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory);
+  const trend = propTrendScore(ph, marketKey, pick.propLine, pick.propSide);
+  const injury = propInjuryScore(
+    pick.sport ?? entry?.sport,
+    pick.game,
+    playerTeam,
+    pick.propSide,
+    ctx?.matchupInjuries,
+    ctx?.injuryTeams,
+  );
+  if (edgePct == null && simHit == null && matchup == null && trend == null && injury == null) {
+    return null;
+  }
+  const scores: PickSubScores = {
+    matchup,
+    trend,
+    lineValue: scoreLineValue(edgePct),
+    injury,
+    lineShopping: scoreLineShopping(entry?.bookSpread ?? null),
+    simulation: scoreSimulation(simHit),
+  };
+  const combined = combinePickScore(scores, edgePct, pick.odds);
+  return combined.composite == null ? null : combined;
+}
+
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
@@ -490,7 +555,9 @@ function scorePropPick(
   const entry =
     propPool.find((e) => same(e) && e.line === pick.propLine) ??
     propPool.find(same);
-  if (!entry) return null;
+  if (!entry) {
+    return scorePropPickFromContext(pick, undefined, simulationByKey, ctx);
+  }
   const marketKey = pick.propMarketKey ?? entry.marketKey ?? pick.market;
   const ph = playerHistoryFor(pick.player, entry.athleteId ?? pick.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
@@ -499,11 +566,8 @@ function scorePropPick(
       ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
       : null;
   const sim = simKey ? simulationByKey?.get(simKey) : undefined;
-  let edgePct = entry.edge ?? null;
-  if (sim?.hitProbability != null && pick.odds != null) {
-    const simEdge = simEdgeFromHit(sim.hitProbability, pick.odds);
-    if (simEdge != null) edgePct = simEdge;
-  }
+  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const edgePct = edgePctFromPick(pick, entry.edge, simHit);
   const scores: PickSubScores = {
     matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
     trend: propTrendScore(ph, marketKey, pick.propLine, pick.propSide),
@@ -517,13 +581,12 @@ function scorePropPick(
       ctx?.injuryTeams,
     ),
     lineShopping: scoreLineShopping(entry.bookSpread ?? null),
-    simulation: scoreSimulation(sim?.hitProbability ?? null),
+    simulation: scoreSimulation(simHit),
   };
   const combined = combinePickScore(scores, edgePct, pick.odds);
   return combined.composite == null ? null : combined;
 }
 
-// The win-chance inputs for a leg, resolved from its REAL backing entry — the
 // SAME entry scoreGamePick / scorePropPick read, so the Coach confidence filter
 // scores the identical de-vigged win chance the card shows. A game pick gets the
 // picked side's no-vig fair prob (both sides of a two-sided main market) plus the
@@ -590,7 +653,17 @@ export function attachPickScores(
   };
   return picks.map((p) => {
     const gameSim = gameSims?.get(p.game) ?? null;
-    const raw = p.isProp
+    const propEntryEarly =
+      p.isProp && propPool.length
+        ? propPool.find(
+            (e) =>
+              e.game === p.game &&
+              e.player === p.player &&
+              e.side === p.propSide &&
+              (e.line === p.propLine || e.line == null),
+          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
+        : undefined;
+    let raw = p.isProp
       ? scorePropPick(p, propPool, sims, propCtx)
       : scoreGameLinePick(
           p,
@@ -601,7 +674,13 @@ export function attachPickScores(
           opts.fightAnalysis,
           opts.tennisAnalysis,
         );
-    const scores = applyMarketWeighting(raw, p, opts.perfByFamily);
+    if (!raw && p.isProp) {
+      raw = scorePropPickFromContext(p, propEntryEarly, sims, propCtx);
+    }
+    let scores = applyMarketWeighting(raw, p, opts.perfByFamily);
+    if (!scores && p.finalAiScore?.rubric) {
+      scores = p.finalAiScore.rubric;
+    }
     if (!scores) return { ...p, scores: null };
 
     const propKey =
@@ -617,16 +696,7 @@ export function attachPickScores(
       p.isProp && p.player
         ? playerHistoryFor(p.player, p.athleteId, opts.playerHistory)
         : undefined;
-    const propEntry =
-      p.isProp && propPool.length
-        ? propPool.find(
-            (e) =>
-              e.game === p.game &&
-              e.player === p.player &&
-              e.side === p.propSide &&
-              (e.line === p.propLine || e.line == null),
-          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
-        : undefined;
+    const propEntry = propEntryEarly;
     const propPlayerTeam =
       p.isProp && propEntry
         ? resolvePropPlayerTeam(p.game, propEntry, propPh)

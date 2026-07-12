@@ -252,6 +252,30 @@ function appendPropScoredLegs(
   }
 }
 
+function prescorePropRank(pick: ParsedPick): number {
+  const leg: BoardScoredLeg = {
+    pick,
+    evPct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+    impliedProbPct: null,
+    lineShoppingScore:
+      pick.finalAiScore?.rubric?.scores?.lineShopping ??
+      pick.scores?.lineShopping ??
+      null,
+    grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+    simHit: pick.finalAiScore?.simHit ?? null,
+    composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
+    rankScore: 0,
+  };
+  return (
+    coachCompositeRankScore(leg) ??
+    pick.finalAiScore?.composite ??
+    pick.scores?.composite ??
+    0
+  );
+}
+
 /** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
 async function simPropPoolUntilQualified(
   pool: PropPoolEntry[],
@@ -286,11 +310,7 @@ async function simPropPoolUntilQualified(
   });
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
-    .sort(
-      (a, b) =>
-        (b.scores?.composite ?? b.finalAiScore?.composite ?? 0) -
-        (a.scores?.composite ?? a.finalAiScore?.composite ?? 0),
-    );
+    .sort((a, b) => prescorePropRank(b) - prescorePropRank(a));
 
   const scoreOpts = {
     pool,

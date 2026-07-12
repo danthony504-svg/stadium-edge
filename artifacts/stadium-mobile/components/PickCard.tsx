@@ -14,7 +14,7 @@ import {
 import { formatAmerican, formatGameTime } from "@/lib/format";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import { marketSupportsSimulation, pickHasSimGrade } from "@/lib/simMarketSupport";
-import { resolvePropHolisticForDisplay } from "@/lib/propHolisticRecommendation";
+import { buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
@@ -921,11 +921,7 @@ export function PickCard({
           variant="compact"
           pick={pick}
           propHolistic={
-            pick.isProp || pick.player
-              ? minimalPropHolisticForPick(pick) ??
-                resolvePropHolisticForDisplay(pick) ??
-                pick.finalAiScore?.propHolistic
-              : undefined
+            pick.isProp || pick.player ? buildCoachCardHolistic(pick) : undefined
           }
           simulationPending={pick.simulationPending}
           simGradePending={

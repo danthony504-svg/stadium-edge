@@ -7,14 +7,13 @@ import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
-import { propHolisticTopDrivers, resolvePropHolisticForDisplay, minimalPropHolisticForPick } from "@/lib/propHolisticRecommendation";
+import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
 // Renders the pick rubric plus combined AI Grade, Confidence, and Edge %.
-// For player props with a holistic score, the compact strip shows all nine
-// contextual factors (form, matchup, opponent, injury, minutes, weather, line
-// move, value, sim) — missing signals render dim rather than disappearing.
+// For player props, the compact strip shows EV / sim / matchup / form / injury /
+// market efficiency — missing signals render dim rather than disappearing.
 
 function useScoreColor() {
   const colors = useColors();
@@ -28,28 +27,48 @@ function useScoreColor() {
           : colors.mutedForeground;
 }
 
-const HOLISTIC_STRIP: Array<{ key: string; label: string }> = [
-  { key: "recentForm", label: "Form" },
-  { key: "matchup", label: "Match" },
-  { key: "opponentTendency", label: "Opp" },
-  { key: "injury", label: "Inj" },
-  { key: "playingTime", label: "Min" },
-  { key: "weather", label: "Wx" },
-  { key: "lineMovement", label: "Move" },
-  { key: "sportsbookValue", label: "Value" },
+const COACH_CARD_STRIP: Array<{ key: string; label: string; altKeys?: string[] }> = [
+  { key: "sportsbookValue", label: "EV" },
   { key: "simulation", label: "Sim" },
+  { key: "matchup", label: "Match", altKeys: ["opponentTendency"] },
+  { key: "recentForm", label: "Form", altKeys: ["playingTime"] },
+  { key: "injury", label: "Inj" },
+  { key: "lineMovement", label: "Mkt" },
 ];
+
+function stripSlotFactor(
+  factors: PropHolisticScore["factors"],
+  slot: { key: string; altKeys?: string[] },
+): { score: number | null; present: boolean; applicable: boolean } {
+  const keys = [slot.key, ...(slot.altKeys ?? [])];
+  const matched = keys.map((k) => factors.find((x) => x.key === k)).filter(Boolean);
+  if (!matched.length) return { score: null, present: false, applicable: true };
+  const applicable = matched.some((f) => f!.applicable);
+  if (!applicable) return { score: null, present: false, applicable: false };
+  const scores = matched
+    .filter((f) => f!.applicable && f!.present && f!.score != null)
+    .map((f) => f!.score as number);
+  if (!scores.length) return { score: null, present: false, applicable: true };
+  return {
+    score: Math.max(...scores),
+    present: true,
+    applicable: true,
+  };
+}
 
 function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const factors = holistic.factors;
   const topKeys = new Set(
-    factors
-      .filter((f) => f.applicable && f.present && f.score != null)
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    COACH_CARD_STRIP.map((slot) => {
+      const { score, present } = stripSlotFactor(factors, slot);
+      return present && score != null ? { key: slot.key, score } : null;
+    })
+      .filter((x): x is { key: string; score: number } => x != null)
+      .sort((a, b) => b.score - a.score)
       .slice(0, 3)
-      .map((f) => f.key),
+      .map((x) => x.key),
   );
   const drivers = propHolisticTopDrivers(holistic);
   return (
@@ -58,14 +77,13 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
         {drivers}
       </Text>
       <View style={{ flexDirection: "row", gap: 3 }}>
-        {HOLISTIC_STRIP.map((slot) => {
-          const f = factors.find((x) => x.key === slot.key);
-          const applicable = f?.applicable ?? true;
-          if (!applicable) {
+        {COACH_CARD_STRIP.map((slot) => {
+          const slotScore = stripSlotFactor(factors, slot);
+          if (!slotScore.applicable) {
             return <View key={slot.key} style={{ flex: 1 }} />;
           }
-          const present = f?.present && f.score != null;
-          const s = f?.score ?? null;
+          const present = slotScore.present && slotScore.score != null;
+          const s = slotScore.score;
           const isTop = present && topKeys.has(slot.key);
           return (
             <View key={slot.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
@@ -105,66 +123,15 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
   );
 }
 
+/** Five full-detail bars for prop/game detail pages (not coach cards). */
 const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof typeof Feather.glyphMap }> = [
   { key: "matchup", label: "Matchup", icon: "users" },
   { key: "trend", label: "Trend", icon: "trending-up" },
-  { key: "lineValue", label: "Line Value", icon: "tag" },
+  { key: "lineValue", label: "Expected Value", icon: "tag" },
   { key: "injury", label: "Injury Impact", icon: "activity" },
-  { key: "lineShopping", label: "Line Shopping", icon: "shopping-cart" },
+  { key: "lineShopping", label: "Market Efficiency", icon: "shopping-cart" },
   { key: "simulation", label: "Model Sim", icon: "cpu" },
 ];
-
-/** Five compact slots — line value + line shopping merge into one Value bar (no duplicate Line). */
-const LEGACY_COMPACT_STRIP: Array<{
-  key: string;
-  label: string;
-  scoreKeys: (keyof PickSubScores)[];
-}> = [
-  { key: "matchup", label: "Match", scoreKeys: ["matchup"] },
-  { key: "trend", label: "Trend", scoreKeys: ["trend"] },
-  { key: "value", label: "Value", scoreKeys: ["lineValue", "lineShopping"] },
-  { key: "injury", label: "Inj", scoreKeys: ["injury"] },
-  { key: "simulation", label: "Sim", scoreKeys: ["simulation"] },
-];
-
-function mergedStripScore(scores: PickSubScores, keys: (keyof PickSubScores)[]): number | null {
-  const vals = keys.map((k) => scores[k]).filter((v): v is number => v != null);
-  if (!vals.length) return null;
-  return Math.max(...vals);
-}
-
-function LegacyCompactFactorStrip({ scores }: { scores: PickSubScores }) {
-  const colors = useColors();
-  const scoreColor = useScoreColor();
-  return (
-    <View style={{ flexDirection: "row", gap: 4 }}>
-      {LEGACY_COMPACT_STRIP.map((slot) => {
-        const s = mergedStripScore(scores, slot.scoreKeys);
-        return (
-          <View key={slot.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
-            <View
-              style={{
-                width: "100%",
-                height: 4,
-                borderRadius: 999,
-                backgroundColor: s == null ? colors.border : scoreColor(s),
-                opacity: s == null ? 0.5 : 1,
-              }}
-            />
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
-            >
-              {slot.label}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
 
 function MetricTile({
   icon,
@@ -373,11 +340,11 @@ export function ScoreBreakdown({
   const colors = useColors();
   const scoreColor = useScoreColor();
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
-  const holisticDisplay =
-    pick?.isProp || pick?.player
-      ? propHolistic ?? resolvePropHolisticForDisplay(pick) ?? (pick ? minimalPropHolisticForPick(pick) : null)
-      : propHolistic ?? null;
   const isPropCard = !!(pick?.isProp || pick?.player);
+  const holisticDisplay =
+    isPropCard && pick
+      ? buildCoachCardHolistic(pick) ?? propHolistic ?? null
+      : propHolistic ?? null;
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
   // card never carries an empty rubric.
@@ -404,13 +371,7 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        {isPropCard && holisticDisplay ? (
-          <HolisticFactorStrip holistic={holisticDisplay} />
-        ) : holisticDisplay ? (
-          <HolisticFactorStrip holistic={holisticDisplay} />
-        ) : (
-          <LegacyCompactFactorStrip scores={data.scores} />
-        )}
+        {holisticDisplay ? <HolisticFactorStrip holistic={holisticDisplay} /> : null}
       </View>
     );
   }

@@ -365,22 +365,27 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
   const rubric = ctx.rubricScores;
   const marketKey = (ctx.marketKey ?? "").toLowerCase();
 
-  const sportsbook = scoreSportsbookValue(rubric?.lineValue, rubric?.lineShopping);
+  const sportsbook =
+    scoreSportsbookValue(rubric?.lineValue, rubric?.lineShopping) ??
+    (ctx.edgePct != null ? scoreLineValue(ctx.edgePct) : null);
   const playing = scorePlayingTime(ctx.minutesTrend, ctx.propSide);
   const weather = weatherApplicable(sport)
     ? scoreWeather(ctx.mlbGameEnv, marketKey, ctx.propSide)
     : { score: null as number | null };
   const opponent = scoreOpponentTendency(ctx);
   const matchup = scoreMatchupHistory(rubric?.matchup, ctx.vsOpponentGames);
-  const movement = scoreLineMovement(ctx.lineMovementPct);
+  const movement =
+    scoreLineMovement(ctx.lineMovementPct) ?? rubric?.lineShopping ?? null;
+  const recentFormScore = rubric?.trend ?? playing.score;
 
   const factors: PropHolisticFactor[] = [
     {
       key: "recentForm",
       label: "Recent Form",
-      score: rubric?.trend ?? null,
+      score: recentFormScore,
+      display: playing.display,
       applicable: true,
-      present: rubric?.trend != null,
+      present: recentFormScore != null,
     },
     {
       key: "matchup",
@@ -423,14 +428,14 @@ export function buildPropHolisticScore(ctx: PropHolisticContext): PropHolisticSc
     },
     {
       key: "lineMovement",
-      label: "Line Movement",
+      label: "Market Efficiency",
       score: movement,
       applicable: true,
       present: movement != null,
     },
     {
       key: "sportsbookValue",
-      label: "Sportsbook Value",
+      label: "Expected Value",
       score: sportsbook,
       applicable: true,
       present: sportsbook != null,
@@ -635,12 +640,82 @@ export function minimalPropHolisticForPick(pick: ParsedPick): PropHolisticScore 
   });
 }
 
+/** Coach card factor strip — EV / sim / matchup / form / injury / market eff (never legacy Line). */
+export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | null {
+  const base = minimalPropHolisticForPick(pick);
+  if (!base) return null;
+
+  const factor = (key: PropHolisticFactorKey) => base.factors.find((f) => f.key === key);
+  const matchup = factor("matchup");
+  const opponent = factor("opponentTendency");
+  const matchParts = [matchup?.score, opponent?.score].filter((s): s is number => s != null);
+  const matchScore = matchParts.length
+    ? round1(matchParts.reduce((a, b) => a + b, 0) / matchParts.length)
+    : null;
+  const matchDisplay = [matchup?.display, opponent?.display].filter(Boolean).join(" · ") || undefined;
+
+  const form = factor("recentForm");
+  const minutes = factor("playingTime");
+  const formScore = form?.score ?? minutes?.score ?? null;
+  const formPresent = form?.present || minutes?.present;
+  const formDisplay = form?.display ?? minutes?.display;
+
+  const coachFactors: PropHolisticFactor[] = [
+    factor("sportsbookValue") ?? {
+      key: "sportsbookValue",
+      label: "Expected Value",
+      score: null,
+      applicable: true,
+      present: false,
+    },
+    factor("simulation") ?? {
+      key: "simulation",
+      label: "10k Simulation",
+      score: null,
+      applicable: true,
+      present: false,
+    },
+    {
+      key: "matchup",
+      label: "Matchup",
+      score: matchScore,
+      display: matchDisplay,
+      applicable: true,
+      present: matchScore != null,
+    },
+    {
+      key: "recentForm",
+      label: "Recent Form",
+      score: formScore,
+      display: formDisplay,
+      applicable: true,
+      present: formPresent && formScore != null,
+    },
+    factor("injury") ?? {
+      key: "injury",
+      label: "Injuries",
+      score: null,
+      applicable: true,
+      present: false,
+    },
+    factor("lineMovement") ?? {
+      key: "lineMovement",
+      label: "Market Efficiency",
+      score: null,
+      applicable: true,
+      present: false,
+    },
+  ];
+
+  return { ...base, factors: coachFactors };
+}
+
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {
   const ranked = holistic.factors
     .filter((f) => f.applicable && f.present && f.score != null)
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, max);
-  if (!ranked.length) return "Waiting on matchup, form, and injury context…";
+  if (!ranked.length) return "Waiting on matchup, form, injury, and simulation context…";
   return ranked
     .map((f) => {
       const val = f.score != null ? f.score.toFixed(1) : "—";
