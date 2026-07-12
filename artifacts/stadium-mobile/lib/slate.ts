@@ -237,6 +237,19 @@ export function filterBettablePicks<T extends { sport?: string; startsAt?: strin
   return picks.filter((p) => isPregameBettableForSport(p.startsAt, p.sport ?? ""));
 }
 
+/**
+ * Prefer bettable legs but never shrink a qualified ticket when only some legs
+ * lack kickoff metadata — fixed-leg parlays must not drop from 9 → 7 mid-delivery.
+ */
+export function preferBettableQualifiedPicks<T extends { sport?: string; startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  if (!picks.length) return picks;
+  const bettable = filterBettablePicks(picks);
+  if (bettable.length === 0 || bettable.length < picks.length) return picks;
+  return bettable;
+}
+
 /** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */
 export function enrichPicksWithStartsAt<
   T extends {

@@ -266,3 +266,64 @@ test("resolvePropHolisticForDisplay synthesizes holistic strip from rubric score
   assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
   assert.ok(holistic!.factors.some((f) => f.key === "sportsbookValue" && f.present));
 });
+
+test("resolvePropHolisticForDisplay merges rubric factors into thin propHolistic", () => {
+  const holistic = resolvePropHolisticForDisplay({
+    game: "Storm @ Mystics",
+    market: "Rebounds",
+    pick: "Dominique Malonga Under 8.5 Rebounds",
+    odds: -127,
+    isProp: true,
+    player: "Dominique Malonga",
+    propSide: "Under",
+    propLine: 8.5,
+    sport: "wnba",
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 50,
+      edgePct: 1.2,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: {
+        composite: 6,
+        grade: "C+",
+        confidencePct: 50,
+        edgePct: 1.2,
+        scores: {
+          matchup: 6.1,
+          trend: 6.4,
+          lineValue: 6.2,
+          injury: 5.9,
+          lineShopping: 6,
+          simulation: 6.3,
+        },
+      },
+      propHolistic: {
+        composite: 6,
+        grade: "C+",
+        confidencePct: 48,
+        coveragePct: 12,
+        missingCount: 7,
+        applicableCount: 8,
+        recommends: false,
+        factors: [
+          {
+            key: "sportsbookValue",
+            label: "Sportsbook Value",
+            score: 6.1,
+            applicable: true,
+            present: true,
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(holistic);
+  assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
+  assert.ok(holistic!.factors.some((f) => f.key === "matchup" && f.present));
+  assert.ok(holistic!.factors.some((f) => f.key === "simulation" && f.present));
+});

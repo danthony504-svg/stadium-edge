@@ -9,7 +9,7 @@ import {
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
-import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
+import { filterBettablePicks, enrichPicksWithStartsAt, preferBettableQualifiedPicks } from "./slate.ts";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
 import {
   PROP_HOLISTIC_MIN_GRADE,
@@ -421,7 +421,7 @@ export function sanitizeCoachTicketPicks<
   const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const gated = filterTicketPicks(enriched);
   const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
-  return filterBettablePicks(kept.map(stripHrvpFromPick));
+  return preferBettableQualifiedPicks(kept.map(stripHrvpFromPick));
 }
 
 export function stripCoachTicketHrvp<
@@ -485,10 +485,8 @@ export function coachPreserveStagedBoardPicks<
   const normalized = normalizeBoardScanPicks(picks);
   const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
   const qualified = enriched.filter((p) => pickPassesTicketGate(p, p.finalAiScore));
-  const bettable = filterBettablePicks(qualified);
-  if (bettable.length > 0) return bettable;
-  if (qualified.length > 0) return qualified;
-  return filterBettablePicks(enriched);
+  if (qualified.length > 0) return preferBettableQualifiedPicks(qualified);
+  return [];
 }
 
 /** Board-scan → ticket: strict AI gates first, then flash/finalize salvage (no filler). */
@@ -534,6 +532,8 @@ export function prepareBoardScanDelivery<
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!picks.length) return [];
+  const preserved = coachPreserveStagedBoardPicks(picks, enrich);
+  if (preserved.length > 0) return preserved;
   const gated = coachBoardScanTicketPicks(picks, enrich);
   if (gated.length > 0) return gated;
   return filterTicketPicks(enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick));
@@ -558,9 +558,7 @@ export function coachBoardScanTicketPicks<
   if (!picks.length) return [];
   const normalized = normalizeBoardScanPicks(picks);
   const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
-  const bettable = filterBettablePicks(enriched);
-  if (bettable.length > 0) return bettable;
-  return enriched.filter((p) => {
+  const qualified = enriched.filter((p) => {
     const score = p.finalAiScore;
     if (score?.highRiskValuePlay) return false;
     if (!score?.simAligned) return false;
@@ -569,6 +567,8 @@ export function coachBoardScanTicketPicks<
     if (!pickHasSimGrade(p, score.simHit)) return false;
     return pickPassesTicketGate(p, score) || qualifiesAltPick(p, score);
   });
+  if (qualified.length > 0) return preferBettableQualifiedPicks(qualified);
+  return [];
 }
 
 /** Flash partial board scans — strict gate first, then sim-aligned legs with metadata filled in. */
@@ -590,7 +590,7 @@ export function coachFlashTicketPicks<
   const strict = sanitizeCoachTicketPicks(picks, enrich);
   if (strict.length > 0) return strict;
   const enriched = enrichCoachPicksForGate(picks, enrich);
-  const preserved = filterBettablePicks(
+  const preserved = preferBettableQualifiedPicks(
     filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
   );
   if (preserved.length > 0) return preserved;
@@ -618,17 +618,26 @@ export function finalizeCoachTicketPicks<
 ): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
   if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
   const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const staged = coachPreserveStagedBoardPicks(noFiller, enrich);
+  if (staged.length > 0) {
+    return {
+      picks: staged,
+      removed: noFiller.length - staged.length,
+      usedRescoringFallback: staged.length < noFiller.length,
+    };
+  }
   const strict = sanitizeCoachTicketPicks(noFiller, enrich);
   if (strict.length > 0) {
     return { picks: strict, removed: noFiller.length - strict.length, usedRescoringFallback: false };
   }
   const enriched = enrichCoachPicksForGate(noFiller, enrich);
-  const preserved = filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick);
-  const bettablePreserved = filterBettablePicks(preserved);
-  if (bettablePreserved.length > 0) {
+  const preserved = preferBettableQualifiedPicks(
+    filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
+  );
+  if (preserved.length > 0) {
     return {
-      picks: bettablePreserved,
-      removed: noFiller.length - bettablePreserved.length,
+      picks: preserved,
+      removed: noFiller.length - preserved.length,
       usedRescoringFallback: true,
     };
   }

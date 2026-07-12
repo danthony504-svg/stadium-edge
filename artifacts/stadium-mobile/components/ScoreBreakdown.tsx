@@ -114,6 +114,15 @@ const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof type
   { key: "simulation", label: "Model Sim", icon: "cpu" },
 ];
 
+const FACTOR_COMPACT_LABEL: Record<keyof PickSubScores, string> = {
+  matchup: "Match",
+  trend: "Trend",
+  lineValue: "Value",
+  injury: "Inj",
+  lineShopping: "Shop",
+  simulation: "Sim",
+};
+
 function MetricTile({
   icon,
   label,
@@ -325,11 +334,13 @@ export function ScoreBreakdown({
     pick?.isProp || pick?.player
       ? propHolistic ?? resolvePropHolisticForDisplay(pick) ?? null
       : propHolistic ?? null;
+  const isPropCard = !!(pick?.isProp || pick?.player);
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
   // card never carries an empty rubric.
   if (variant === "compact") {
-    if (data.composite == null) return null;
+    if (data.composite == null && !isPropCard) return null;
+    if (data.composite == null && isPropCard && !holisticDisplay) return null;
     return (
       <View style={{ gap: 8 }}>
         <HeaderTiles
@@ -373,7 +384,7 @@ export function ScoreBreakdown({
                     minimumFontScale={0.7}
                     style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
                   >
-                    {f.label.split(" ")[0]}
+                    {FACTOR_COMPACT_LABEL[f.key]}
                   </Text>
                 </View>
               );

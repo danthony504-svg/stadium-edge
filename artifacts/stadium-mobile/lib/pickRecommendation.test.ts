@@ -206,7 +206,7 @@ test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt
       rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
     },
   };
-  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 1);
   assert.equal(coachBoardScanTicketPicks([leg], {}).length, 1);
 });
 
@@ -665,4 +665,44 @@ test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holis
   };
   const out = coachPreserveStagedBoardPicks([staged], { realOdds: [], propPool: [], gameMeta: [] });
   assert.equal(out.length, 1);
+});
+
+test("sanitizeCoachTicketPicks keeps all qualified legs when only some have startsAt", () => {
+  const future = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+  const baseScore = {
+    composite: 6.2,
+    grade: "B-",
+    confidencePct: 56,
+    edgePct: 2.1,
+    simHit: 0.56,
+    simAligned: true,
+    highRiskValuePlay: false,
+    recommends: true,
+    factors: [],
+    rubric: { composite: 6.2, grade: "B-", confidencePct: 56, edgePct: 2.1, scores: {} as never },
+  };
+  const withKick = {
+    game: "A @ B",
+    market: "Moneyline",
+    pick: "A ML",
+    sport: "mlb",
+    startsAt: future,
+    odds: -110,
+    finalAiScore: baseScore,
+  };
+  const missingKick = {
+    game: "C @ D",
+    market: "Moneyline",
+    pick: "C ML",
+    sport: "mlb",
+    startsAt: undefined,
+    odds: -105,
+    finalAiScore: baseScore,
+  };
+  const out = sanitizeCoachTicketPicks([withKick, missingKick], {
+    realOdds: [],
+    propPool: [],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: future }],
+  });
+  assert.equal(out.length, 2);
 });

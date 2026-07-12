@@ -539,11 +539,43 @@ export function propQualifiesForTicketFill(
   return (simFactor?.score ?? 0) >= simMin && (valueFactor?.score ?? 0) >= valueMin;
 }
 
+function mergePropHolisticScores(a: PropHolisticScore, b: PropHolisticScore): PropHolisticScore {
+  const keys = new Set<PropHolisticFactorKey>([
+    ...a.factors.map((f) => f.key),
+    ...b.factors.map((f) => f.key),
+  ]);
+  const mergedFactors: PropHolisticFactor[] = [...keys].map((key) => {
+    const fa = a.factors.find((f) => f.key === key);
+    const fb = b.factors.find((f) => f.key === key);
+    if (!fa) return fb!;
+    if (!fb) return fa;
+    if (fb.present && (!fa.present || (fb.score ?? 0) > (fa.score ?? 0))) {
+      return { ...fb, applicable: fa.applicable || fb.applicable };
+    }
+    return fa;
+  });
+  const composite = combinePropHolisticFactors(mergedFactors);
+  const grade = gradeFromComposite(composite);
+  const confidencePct = confidenceFromHolisticFactors(mergedFactors);
+  const applicable = mergedFactors.filter((f) => f.applicable);
+  const presentCount = applicable.filter((f) => f.present).length;
+  const applicableCount = applicable.length;
+  return {
+    composite,
+    grade,
+    confidencePct,
+    coveragePct: applicableCount > 0 ? Math.round((presentCount / applicableCount) * 100) : 0,
+    missingCount: applicableCount - presentCount,
+    applicableCount,
+    factors: mergedFactors,
+    recommends: a.recommends || b.recommends,
+  };
+}
+
 /** Build holistic breakdown for prop cards when only rubric/sim data is attached. */
 export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticScore | null {
   if (!pick.isProp && !pick.player) return null;
   const existing = pick.finalAiScore?.propHolistic;
-  if (existing?.factors?.some((f) => f.present)) return existing;
   const rubric =
     pick.finalAiScore?.rubric?.scores ??
     pick.scores?.scores ??
@@ -575,9 +607,7 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
     simHit,
   });
   if (!existing) return synthesized;
-  const existingPresent = existing.factors.filter((f) => f.present).length;
-  const synthPresent = synthesized.factors.filter((f) => f.present).length;
-  return synthPresent > existingPresent ? synthesized : existing;
+  return mergePropHolisticScores(existing, synthesized);
 }
 
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {

@@ -2785,10 +2785,7 @@ export default function CoachScreen() {
             realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
           };
           latestBoardScanRef.current = fullBoardScanMeta;
-          const boardTicket = prepareBoardScanDelivery(
-            tagTicketRoles([...fullBoardScanMeta.picks]),
-            scanEnrich,
-          );
+          const boardTicket = boardScanPartialToTicket(fullBoardScanMeta, scanEnrich);
           if (boardTicket.length > 0) {
             picks = boardTicket;
           } else {
@@ -4469,10 +4466,16 @@ export default function CoachScreen() {
                 : []),
             ],
           };
-          picks = coachBoardScanTicketPicks(
-            tagTicketRoles([...fullBoardScanMeta.picks]),
+          picks = boardScanPartialToTicket(
+            { ...fullBoardScanMeta, picks: tagTicketRoles([...fullBoardScanMeta.picks]) },
             scanEnrich,
           );
+          if (picks.length === 0) {
+            picks = coachBoardScanTicketPicks(
+              tagTicketRoles([...fullBoardScanMeta.picks]),
+              scanEnrich,
+            );
+          }
           if (picks.length === 0) {
             picks = prepareBoardScanDelivery(
               tagTicketRoles([...fullBoardScanMeta.picks]),
