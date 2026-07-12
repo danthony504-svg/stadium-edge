@@ -397,7 +397,7 @@ export function filterCoachPicksWithGameSim(
     const sim = coachGameSimForPick(p, simByGame);
     const hit = simHitForPick(p, sim, null);
     const edge = edgeForPick(p);
-    const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+    const { simAligned } = classifySimAlignment(hit, edge);
 
     if (!sim) {
       coverRemoved += 1;
@@ -406,6 +406,21 @@ export function filterCoachPicksWithGameSim(
         pick: p,
         reason: "No 10k game simulation data",
         nearScore: Math.max(0, edge ?? 0) * 2,
+      });
+      continue;
+    }
+    if (hit != null && !simAligned) {
+      coverRemoved += 1;
+      const pct = Math.round(hit * 100);
+      const grade = p.finalAiScore?.grade ?? "—";
+      const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
+      warnings.push(
+        `Dropped **${p.pick}** (${p.game}): 10k sim ${pct}% hit — needs ≥52% cover (edge ${edgeStr}, grade ${grade}).`,
+      );
+      opts.rejectsOut?.push({
+        pick: p,
+        reason: `10k sim ${pct}% hit — needs ≥52% cover`,
+        nearScore: (hit ?? 0) * 50 + Math.max(0, edge ?? 0) * 2,
       });
       continue;
     }
@@ -432,23 +447,14 @@ export function filterCoachPicksWithGameSim(
       continue;
     }
 
-    kept.push({
-      ...p,
-      highRiskValuePlay: highRiskValuePlay || undefined,
-    });
+    kept.push(p);
   }
 
-  const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
   if (sideAligned.note) noteParts.push(sideAligned.note);
   if (coverRemoved > 0) {
     noteParts.push(
       `_Removed ${coverRemoved} game line${coverRemoved === 1 ? "" : "s"} that failed the four-question sim check (win, cover, cover rate, or price vs the 10,000-run draw)._`,
-    );
-  }
-  if (highRiskCount > 0) {
-    noteParts.push(
-      `_⚠️ ${highRiskCount} leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — the simulator disagrees but the line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%)._`,
     );
   }
   const note = noteParts.join("\n\n");
@@ -487,34 +493,25 @@ export function filterCoachPicksWithPropSim(
         : null;
     const hit = key ? (propSims.get(key)?.hitProbability ?? null) : null;
     const edge = p.scores?.edgePct ?? p.finalAiScore?.edgePct ?? null;
-    const { simAligned, highRiskValuePlay } = classifySimAlignment(hit, edge);
+    const { simAligned } = classifySimAlignment(hit, edge);
 
-    if (hit != null && !simAligned && !highRiskValuePlay) {
+    if (hit != null && !simAligned) {
       removed += 1;
       const pct = Math.round(hit * 100);
       warnings.push(
-        `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% or +${HIGH_RISK_EDGE_MIN}% edge for a High-Risk Value Play.`,
+        `Dropped **${p.pick}**: prop simulator ${pct}% hit — needs ≥52% cover.`,
       );
       dropped.push(p);
       continue;
     }
 
-    kept.push({
-      ...p,
-      highRiskValuePlay: highRiskValuePlay || p.highRiskValuePlay,
-    });
+    kept.push(p);
   }
 
-  const highRiskCount = kept.filter((p) => p.highRiskValuePlay).length;
   const noteParts: string[] = [];
   if (removed > 0) {
     noteParts.push(
       `_Removed ${removed} prop leg${removed === 1 ? "" : "s"} that conflicted with the 10,000-run prop simulator._`,
-    );
-  }
-  if (highRiskCount > 0) {
-    noteParts.push(
-      `_⚠️ ${highRiskCount} leg${highRiskCount === 1 ? "" : "s"} labeled **High-Risk Value Play** — simulator disagrees but line-value edge is large (≥+${HIGH_RISK_EDGE_MIN}%) or needed to honor your leg count._`,
     );
   }
 

@@ -22,6 +22,7 @@ import {
   hasCompleteEvaluatedLine,
   qualifiesCoachSimEvalLine,
 } from "./gameSimQualityGates.ts";
+import { pickIsAiRecommended } from "./pickRecommendation.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -749,8 +750,8 @@ export function backfillGameLinesFromEvalScores(
     if (bucket && seenBuckets.has(bucket)) continue;
     const leg = pickLegKey(row.pick);
     if (seenLegs.has(leg)) continue;
-    if (!qualifiesCoachSimEvalLine(row) && !row.finalAiScore.highRiskValuePlay) continue;
-    if ((row.edgePct ?? 0) < 0 && !row.finalAiScore.highRiskValuePlay) continue;
+    if (!pickIsAiRecommended(row.pick, row.finalAiScore)) continue;
+    if ((row.edgePct ?? 0) < 0) continue;
     seenLegs.add(leg);
     if (bucket) seenBuckets.add(bucket);
     out.push(row.pick);

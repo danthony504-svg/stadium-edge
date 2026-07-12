@@ -8,6 +8,7 @@ import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 import {
   gameSimHasValidRun,
   gameSimHitForPick,
+  GAME_SIM_MIN_HIT,
   isGameLinePick,
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
@@ -316,6 +317,7 @@ export function passesCoachSimQualityGate(
   if (edge <= 0) return false;
   if (gradeRank(grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if (conf < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (hit < GAME_SIM_MIN_HIT) return false;
 
   if (odds != null && Number.isFinite(odds)) {
     const implied = impliedProb(odds);

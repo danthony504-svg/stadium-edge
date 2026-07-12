@@ -8,6 +8,7 @@ import {
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+import { filterBettablePicks } from "./slate.ts";
 
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
@@ -184,4 +185,17 @@ export function countAiRecommendedPicks(
   picks: Array<RecommendablePick & { finalAiScore?: FinalAiScore | null }>,
 ): number {
   return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore)).length;
+}
+
+/** Final coach ticket gate — sim-aligned legs within the bettable window only. */
+export function sanitizeCoachTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+  },
+>(picks: T[]): T[] {
+  return filterBettablePicks(filterTicketPicksPreservingTicket(picks));
 }

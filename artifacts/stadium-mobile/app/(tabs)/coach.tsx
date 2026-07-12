@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick } from "@/lib/pickRecommendation";
+import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -2801,18 +2801,20 @@ export default function CoachScreen() {
           // Salvage tickets are honest posted lines from the live board — skip the
           // optimizer/sim gates that run before attachPickScores and would drop every
           // leg (no grade/edge yet) or swap them off the named slate (common on WC).
-          if (!salvageBuilt && !fullBoardScanned) {
-            const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
-              evalLinesByGame,
-              realOdds: context.realOdds,
-              matchupHistory: context.matchupHistory,
-              matchupInjuries: context.matchupInjuries,
-              excludeMoneyline: composeFromBoard,
-            });
-            picks = optimized.picks;
-            {
-              const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
-              picks = dedupedAfterOpt.picks;
+          if (!salvageBuilt) {
+            if (!fullBoardScanned) {
+              const optimized = optimizeGameLinePicksToBestFinalAi(picks, gameSimulations, {
+                evalLinesByGame,
+                realOdds: context.realOdds,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                excludeMoneyline: composeFromBoard,
+              });
+              picks = optimized.picks;
+              {
+                const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
+                picks = dedupedAfterOpt.picks;
+              }
             }
             const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
               matchupHistory: context.matchupHistory,
@@ -3505,9 +3507,9 @@ export default function CoachScreen() {
         }
         picks = tagTicketRoles(picks);
         let aiFilterNote = "";
-        if (!isAnalyze && isParlayBuild && picks.length > 0 && !fullBoardScanned) {
+        if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = filterTicketPicksPreservingTicket(picks);
+          picks = sanitizeCoachTicketPicks(picks);
           if (picks.length < beforeFilter) {
             aiFilterNote =
               picks.length > 0
@@ -3765,9 +3767,10 @@ export default function CoachScreen() {
                 }
               }
             }
-            next = filterTicketPicksPreservingTicket(next);
+            next = sanitizeCoachTicketPicks(next);
             if (next.length === 0 && snapshot.length > 0) {
-              next = snapshot;
+              const salvaged = sanitizeCoachTicketPicks(snapshot);
+              if (salvaged.length > 0) next = salvaged;
             }
             next = scrubExcludedSportsFromPicks(
               next,
