@@ -257,6 +257,30 @@ export function stripCoachTicketHrvp<
   return stripHrvpFromPick(p);
 }
 
+/** Board-scan → ticket: strict AI gates first, then flash/finalize salvage (no filler). */
+export function coachDeliverBoardScanPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const board = prepareBoardScanDelivery(picks, enrich);
+  if (board.length > 0) return board;
+  const flash = coachFlashTicketPicks(picks, enrich);
+  if (flash.length > 0) return flash;
+  return finalizeCoachTicketPicks(picks, enrich).picks;
+}
+
 /** Deliver board-scan legs — only AI Recommended / qualifying alt picks; never filler. */
 export function prepareBoardScanDelivery<
   T extends RecommendablePick & {

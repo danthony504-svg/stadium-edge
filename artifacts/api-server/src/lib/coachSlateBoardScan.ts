@@ -224,7 +224,7 @@ function stageTicket(
 /** Server board scan — 10k game + prop sims, AI Recommended gates, no filler. */
 export async function runServerBoardScan(
   built: BuiltChatContext,
-  opts?: { deepSim?: boolean },
+  opts?: { deepSim?: boolean; onPartial?: (partial: FullBoardScanResult) => void | Promise<void> },
 ): Promise<FullBoardScanResult> {
   const target = TARGET;
   const { context, propPool } = built;
@@ -237,16 +237,41 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const quickSims = await fetchQuickPropSims(propPool, 64);
+  const quickSims = await fetchQuickPropSims(propPool, 96);
   let propSims = quickSims;
   if (opts?.deepSim !== false) {
-    const deepSims = await fetchPropSimulationsDeep(propPool, 96);
+    const deepSims = await fetchPropSimulationsDeep(propPool, 128);
     for (const [k, v] of deepSims) propSims.set(k, v);
   }
 
   const gameSimulations = await fetchServerGameSimulations(realOdds);
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
   let totalScanned = 0;
+  let lastPartialAt = 0;
+
+  const maybeEmitPartial = async () => {
+    if (!opts?.onPartial || ranked.length === 0) return;
+    const now = Date.now();
+    if (now - lastPartialAt < 3000) return;
+    lastPartialAt = now;
+    const partialRanked = [...ranked].sort((a, b) => b.rankScore - a.rankScore);
+    const { picks } = stageTicket(partialRanked, target);
+    if (!picks.length) return;
+    await opts.onPartial({
+      picks,
+      evalLinesByGame,
+      gameSimulations,
+      totalScanned,
+      totalQualified: ranked.length,
+      staging: {
+        mainQualified: partialRanked.filter((r) => !r.isAlt).length,
+        altQualified: partialRanked.filter((r) => r.isAlt).length,
+        mainOnTicket: picks.filter((p) => p.ticketRole === "main").length,
+        altOnTicket: picks.filter((p) => p.ticketRole === "alt").length,
+      },
+      note: `Server precomputing ${picks.length} legs (${totalScanned} markets scanned so far)…`,
+    });
+  };
 
   for (const o of realOdds) {
     totalScanned++;
@@ -264,6 +289,7 @@ export async function runServerBoardScan(
     }
     const score = rankScoreForPick(pick, propSims, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
+    if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   for (const e of propPool) {
@@ -283,6 +309,7 @@ export async function runServerBoardScan(
     }
     const score = rankScoreForPick(pick, propSims, minHit ?? null);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
+    if (ranked.length % 12 === 0) await maybeEmitPartial();
   }
 
   ranked.sort((a, b) => b.rankScore - a.rankScore);

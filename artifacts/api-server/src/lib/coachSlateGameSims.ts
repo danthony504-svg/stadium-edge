@@ -83,7 +83,7 @@ export async function fetchServerGameSimulations(
     byGame.set(o.game, rows);
   }
 
-  const entries = [...byGame.entries()].slice(0, 28);
+  const entries = [...byGame.entries()].slice(0, 40);
   await pooled(entries, 3, async ([game, lines]) => {
     const label = parseGameLabel(game);
     if (!label) return;

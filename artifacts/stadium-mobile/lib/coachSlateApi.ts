@@ -4,9 +4,11 @@ import type { SlatePreAnalysisSnapshot } from "./slatePreAnalysisCache.ts";
 export type CoachServerSlateResponse = {
   snapshot: SlatePreAnalysisSnapshot | null;
   fresh: boolean;
+  instantServe: boolean;
   computedAt: string | null;
   deepSimComplete: boolean;
   maxAgeMs: number;
+  instantServeMaxMs: number;
 };
 
 /** Fetch the latest server-precomputed Coach slate (24/7 background job). */

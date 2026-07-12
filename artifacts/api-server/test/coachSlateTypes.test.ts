@@ -40,6 +40,13 @@ describe("coachSlateTypes", () => {
     assert.equal(computeSlateFingerprint(built), computeSlateFingerprint(built));
   });
 
+  it("computeSlateFingerprint changes when injury digest changes", () => {
+    const built = minimalBuilt();
+    const a = computeSlateFingerprint(built, { injuryDigest: "mlb:nyy=[Judge:Out]" });
+    const b = computeSlateFingerprint(built, { injuryDigest: "mlb:nyy=[Judge:Probable]" });
+    assert.notEqual(a, b);
+  });
+
   it("computeSlateFingerprint changes when odds change", () => {
     const a = minimalBuilt();
     const b = minimalBuilt({
