@@ -12,6 +12,10 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 /** Softer confidence floor for alt legs promoted onto a reach-N ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = 50;
 
+/** Reach-tier board fill when strict mains + alts cannot reach N. */
+export const REACH_BOARD_MIN_CONFIDENCE = 48;
+export const REACH_BOARD_MIN_GRADE = "C";
+
 export const NOT_AI_RECOMMENDED = "Not AI Recommended";
 
 export type RecommendablePick = {
@@ -58,7 +62,11 @@ export function pickGradeDisplayLabel(
 ): string | null {
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
   if (!pickHasSimGrade(pick, score?.simHit)) return null;
-  if (pick.ticketRole === "alt" && qualifiesAltPick(pick, score ?? undefined)) {
+  if (
+    pick.ticketRole === "alt" &&
+    (qualifiesAltPick(pick, score ?? undefined) ||
+      qualifiesReachBoardPick(pick, score ?? undefined))
+  ) {
     return score?.grade ?? null;
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) return score?.grade ?? null;
@@ -78,10 +86,38 @@ export function pickGradeDisplayCaption(
   if (!pickHasSimGrade(pick, score?.simHit)) {
     return "Waiting for simulation result…";
   }
+  if (
+    pick.ticketRole === "alt" ||
+    (pick as { propIsAlt?: boolean }).propIsAlt
+  ) {
+    if (qualifiesAltPick(pick, score ?? undefined)) {
+      return "Alternate pick — positive EV, edge, and sim grade";
+    }
+    if (qualifiesReachBoardPick(pick, score ?? undefined)) {
+      return "Reach fill — positive EV and edge on a sim-graded line";
+    }
+  }
   if (pickIsAiRecommended(pick, score ?? undefined)) {
     return "Passes sim, edge, EV, and confidence thresholds";
   }
   return "Did not pass AI recommendation thresholds";
+}
+
+/** Step-4 reach fill on a full-board scan — softer than main, honest vs junk. */
+export function qualifiesReachBoardPick(
+  pick: RecommendablePick,
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (gradeRank(score.grade) < gradeRank(REACH_BOARD_MIN_GRADE)) return false;
+  if ((score.confidencePct ?? 0) < REACH_BOARD_MIN_CONFIDENCE) return false;
+  if ((score.edgePct ?? 0) <= 0) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  return true;
 }
 
 /** True when an alt rung passes the softer reach-N alt thresholds. */
@@ -106,7 +142,9 @@ export function pickPassesTicketGate(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
 ): boolean {
-  if (pick.ticketRole === "alt") return qualifiesAltPick(pick, score);
+  if (pick.ticketRole === "alt") {
+    return qualifiesAltPick(pick, score) || qualifiesReachBoardPick(pick, score);
+  }
   return pickIsAiRecommended(pick, score);
 }
 

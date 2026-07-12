@@ -41,7 +41,7 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
 const PROP_SIM_BATCH = 21;
-const MAX_BOARD_PROP_SIM = 84;
+const MAX_BOARD_PROP_SIM = 126;
 const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
 const MIN_PROP_POOL_FOR_SKIP_FETCH = 80;
 const GRADE_RANK: Record<string, number> = {

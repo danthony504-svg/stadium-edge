@@ -5,9 +5,11 @@ import {
   filterAiRecommendedPicks,
   filterTicketPicks,
   filterTicketPicksPreservingTicket,
+  pickGradeDisplayCaption,
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   qualifiesAltPick,
+  qualifiesReachBoardPick,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
@@ -225,5 +227,27 @@ test("unsupported market uses not-yet-graded path via pickHasSimGrade", () => {
   assert.equal(
     pickGradeDisplayLabel({ market: "Both Teams To Score", sport: "soccer" }, null),
     null,
+  );
+});
+
+test("qualifiesReachBoardPick accepts C-grade sim lines below alt bar", () => {
+  const score = {
+    composite: 5,
+    grade: "C",
+    confidencePct: 49,
+    edgePct: 0.8,
+    simHit: 0.51,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: false,
+    factors: [],
+    rubric: { composite: 5, grade: "C", confidencePct: 49, edgePct: 0.8, scores: {} as never },
+  };
+  const pick = { market: "Spread", sport: "mlb", odds: 120, ticketRole: "alt" as const };
+  assert.equal(qualifiesReachBoardPick(pick, score), true);
+  assert.equal(qualifiesAltPick(pick, score), false);
+  assert.equal(
+    pickGradeDisplayCaption(pick, score),
+    "Reach fill — positive EV and edge on a sim-graded line",
   );
 });

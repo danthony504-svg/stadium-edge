@@ -16,7 +16,7 @@ import {
 import type { CoachGameSimEntry } from "./gameSimScoring.ts";
 import { classifySimAlignment } from "./finalAiScore.ts";
 import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQualityGates.ts";
-import { qualifiesAltPick, pickIsAiRecommended } from "./pickRecommendation.ts";
+import { qualifiesAltPick, qualifiesReachBoardPick, pickIsAiRecommended } from "./pickRecommendation.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { isAltPropPick, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
 import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
@@ -122,7 +122,9 @@ export function collectQualifyingGameLines(
       if (opts.excludedSports?.size && row.pick.sport && opts.excludedSports.has(row.pick.sport)) {
         continue;
       }
-      if (!qualifiesAltPick(row.pick, row.finalAiScore)) continue;
+      if (!qualifiesAltPick(row.pick, row.finalAiScore) && !qualifiesReachBoardPick(row.pick, row.finalAiScore)) {
+        continue;
+      }
       qualified.push({
         pick: row.pick,
         reason: reasonForQualifyingLine(row),
@@ -233,7 +235,12 @@ export function collectQualifyingAltProps(
     const fp = pickLegFingerprint(scored);
     if (onTicket.has(fp)) continue;
     if (!isAltPropPick(scored)) continue;
-    if (!qualifiesAltPick(scored, scored.finalAiScore)) continue;
+    if (
+      !qualifiesAltPick(scored, scored.finalAiScore) &&
+      !qualifiesReachBoardPick(scored, scored.finalAiScore)
+    ) {
+      continue;
+    }
     qualified.push({
       pick: scored,
       reason: reasonForQualifyingAltProp(scored),

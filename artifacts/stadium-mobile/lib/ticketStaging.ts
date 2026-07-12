@@ -6,7 +6,7 @@ import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { pickIsAiRecommended, qualifiesAltPick } from "./pickRecommendation.ts";
+import { pickIsAiRecommended, qualifiesAltPick, qualifiesReachBoardPick } from "./pickRecommendation.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -96,15 +96,18 @@ export function buildStagedTicketFromScan(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const mains: BoardScoredLeg[] = [];
   const alts: BoardScoredLeg[] = [];
+  const reach: BoardScoredLeg[] = [];
 
   for (const leg of scored) {
     const role = boardLegPoolRole(leg.pick, leg.pick.finalAiScore);
     if (role === "main") mains.push(leg);
     else if (role === "alt") alts.push(leg);
+    else if (qualifiesReachBoardPick(leg.pick, leg.pick.finalAiScore)) reach.push(leg);
   }
 
   mains.sort((a, b) => b.rankScore - a.rankScore);
   alts.sort((a, b) => b.rankScore - a.rankScore);
+  reach.sort((a, b) => b.rankScore - a.rankScore);
 
   const mainPicks = selectTopBoardLegs(mains, target).map((p) => ({
     ...p,
@@ -117,14 +120,21 @@ export function buildStagedTicketFromScan(
     ...p,
     ticketRole: "alt" as const,
   }));
+  const gapReach = Math.max(0, target - mainPicks.length - altPicks.length);
+  const usedAll = new Set([...mainPicks, ...altPicks].map(pickLegFingerprint));
+  const reachPool = reach.filter((l) => !usedAll.has(pickLegFingerprint(l.pick)));
+  const reachPicks = selectTopBoardLegs(reachPool, gapReach).map((p) => ({
+    ...p,
+    ticketRole: "alt" as const,
+  }));
 
   return {
-    picks: [...mainPicks, ...altPicks],
+    picks: [...mainPicks, ...altPicks, ...reachPicks],
     breakdown: {
       mainQualified: mains.length,
-      altQualified: alts.length,
+      altQualified: alts.length + reach.length,
       mainOnTicket: mainPicks.length,
-      altOnTicket: altPicks.length,
+      altOnTicket: altPicks.length + reachPicks.length,
     },
   };
 }
