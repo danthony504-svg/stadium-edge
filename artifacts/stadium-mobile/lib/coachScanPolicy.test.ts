@@ -100,6 +100,7 @@ test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
 });
 
 test("boardScanMeetsLegTarget requires picks length >= requested legs", () => {
+  assert.equal(boardScanMeetsLegTarget({ picks: { length: 6 } }, 9), false);
   assert.equal(boardScanMeetsLegTarget({ picks: { length: 7 } }, 15), false);
   assert.equal(boardScanMeetsLegTarget({ picks: { length: 15 } }, 15), true);
   assert.equal(boardScanMeetsLegTarget(null, 8), false);
