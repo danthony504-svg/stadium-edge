@@ -22,6 +22,7 @@ import {
 import type { GameMeta, PropPoolEntry } from "@/lib/api";
 import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
+import { FILLER_BACKFILL_EDGE_NOTE } from "@/lib/coachScanPolicy";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
 import { pickShowsAltBadge } from "@/lib/altLinePool";
@@ -1967,8 +1968,7 @@ export function backfillPicks(
             // Honest note: a backfilled leg is a real posted line added to reach
             // the requested ticket size — NOT a model read. We never fabricate an
             // analytical edge it doesn't have; we just say why it's on the slip.
-            edge:
-              "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
+            edge: FILLER_BACKFILL_EDGE_NOTE,
           },
           gameMeta,
         ),
@@ -2166,8 +2166,7 @@ export function backfillProps(
           propMarketKey: e.marketKey,
           propLine: e.line,
           propSide: e.side,
-          edge:
-            "Added to round out your requested ticket size — this is a real posted line from tonight's board, not a separate model edge.",
+          edge: FILLER_BACKFILL_EDGE_NOTE,
         },
         gameMeta,
       ),

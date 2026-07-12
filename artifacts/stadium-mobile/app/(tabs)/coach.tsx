@@ -117,6 +117,7 @@ import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
 import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
+import { shouldAllowReachCountBackfill, stripFillerBackfillPicks } from "@/lib/coachScanPolicy";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -1150,9 +1151,10 @@ export default function CoachScreen() {
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string) => {
-      if (!ticket.length) return;
-      boardTicketSnapshotRef.current = ticket;
-      patchLastAssistantPicks(setMessages, ticket, legNote);
+      const cleaned = stripFillerBackfillPicks(ticket);
+      if (!cleaned.length) return;
+      boardTicketSnapshotRef.current = cleaned;
+      patchLastAssistantPicks(setMessages, cleaned, legNote);
       setStreaming(false);
       setWaiting(false);
       setBuildFinishing(false);
@@ -1163,8 +1165,8 @@ export default function CoachScreen() {
         buildProgressTimerRef.current = null;
       }
       clearBuildStallWatchdog();
-      setAiPicks(ticket);
-      captureFromCoach(ticket);
+      setAiPicks(cleaned);
+      captureFromCoach(cleaned);
       scrollToEnd(false);
     },
     [clearBuildStallWatchdog, scrollToEnd],
@@ -1181,16 +1183,16 @@ export default function CoachScreen() {
       };
       const tagged = tagTicketRoles([...partial.picks]);
       const delivered = coachDeliverBoardScanPicks(tagged, enrich);
-      if (delivered.length > 0) return delivered;
+      if (delivered.length > 0) return stripFillerBackfillPicks(delivered);
       const board = coachBoardScanTicketPicks(tagged, enrich);
-      if (board.length > 0) return board;
+      if (board.length > 0) return stripFillerBackfillPicks(board);
       const flash = coachFlashTicketPicks(tagged, enrich);
-      if (flash.length > 0) return flash;
+      if (flash.length > 0) return stripFillerBackfillPicks(flash);
       const finalized = finalizeCoachTicketPicks(tagged, enrich);
-      if (finalized.picks.length > 0) return finalized.picks;
+      if (finalized.picks.length > 0) return stripFillerBackfillPicks(finalized.picks);
       const bettable = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
-      if (bettable.length > 0) return bettable;
-      return coachFlashBoardScanPreviewPicks(tagged, enrich);
+      if (bettable.length > 0) return stripFillerBackfillPicks(bettable);
+      return stripFillerBackfillPicks(coachFlashBoardScanPreviewPicks(tagged, enrich));
     },
     [],
   );
@@ -2853,8 +2855,12 @@ export default function CoachScreen() {
               : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
           }
         } else if (
-          false &&
-          !fullBoardScanned &&
+          shouldAllowReachCountBackfill({
+            fullBoardScanned,
+            reachBoardEligible,
+            legTarget,
+            isParlayBuild,
+          }) &&
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
           (picks.length > 0 ||
             mentionsProps ||
@@ -3188,6 +3194,7 @@ export default function CoachScreen() {
             }
             if (
               !fullBoardScanned &&
+              !reachBoardEligible &&
               deepMultiLegParlay &&
               propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
               picks.length < Math.min(legTarget, MAX_LEGS)
@@ -4101,6 +4108,9 @@ export default function CoachScreen() {
           finalContent =
             "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
+        if (isParlayBuild && legTarget >= 3) {
+          picks = stripFillerBackfillPicks(picks);
+        }
         if (isParlayBuild && picks.length > 1) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
@@ -4130,14 +4140,17 @@ export default function CoachScreen() {
           }
         }
         const boardSnapshot = boardTicketSnapshotRef.current;
-        const resolveOutPicks = (existingPicks?: ParsedPick[]) =>
-          picks.length > 0
-            ? picks
-            : boardSnapshot?.length
-              ? boardSnapshot
-              : existingPicks?.length
-                ? existingPicks
-                : picks;
+        const resolveOutPicks = (existingPicks?: ParsedPick[]) => {
+          const raw =
+            picks.length > 0
+              ? picks
+              : boardSnapshot?.length
+                ? boardSnapshot
+                : existingPicks?.length
+                  ? existingPicks
+                  : picks;
+          return isParlayBuild && legTarget >= 3 ? stripFillerBackfillPicks(raw) : raw;
+        };
         let outPicks: ParsedPick[] = [];
         setMessages((prev) => {
           const copy = [...prev];
