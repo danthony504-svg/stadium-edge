@@ -177,6 +177,7 @@ import {
   warmApiForCoachBuild,
   chatStreamFailureMessage,
   ChatStreamError,
+  isAbortLikeError,
   type AltSign,
   type ChatContext,
   type ChatMessage,
@@ -1131,6 +1132,7 @@ export default function CoachScreen() {
 
   const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
+  const activeParlayAskRef = useRef("");
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string) => {
@@ -1191,14 +1193,15 @@ export default function CoachScreen() {
     }, 25_000);
   }, [scrollToEnd]);
 
-  /** Hard stop when a parlay build hangs with no pick cards for 2 minutes. */
+  /** Board scans for reach-N parlays can run 90s+ — never abort mid-scan. */
   const armBuildStallWatchdog = useCallback(
     (sendGen: number, userText: string) => {
       clearBuildStallWatchdog();
+      const legs = requestedLegCount(userText);
+      const stallMs =
+        legs >= 15 ? 150_000 : legs >= 9 ? 120_000 : legs >= 6 ? 90_000 : 60_000;
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
-        abortRef.current?.abort();
-        simAbortRef.current?.abort();
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
@@ -1206,7 +1209,7 @@ export default function CoachScreen() {
             copy[copy.length - 1] = {
               ...last,
               content:
-                "This build took too long — the live board scan may have stalled. Tap below to try again.",
+                "This build is taking longer than usual — the live board scan is still running. Tap below to try again, or wait a moment for pick cards to appear.",
               retry: userText,
             };
           }
@@ -1222,7 +1225,7 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         scrollToEnd(false);
-      }, 45_000);
+      }, stallMs);
     },
     [clearBuildStallWatchdog, scrollToEnd],
   );
@@ -1230,8 +1233,12 @@ export default function CoachScreen() {
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
       deliverBoardScanTicket(partial);
+      const ask = activeParlayAskRef.current;
+      if (ask && sendGenerationRef.current > 0) {
+        armBuildStallWatchdog(sendGenerationRef.current, ask);
+      }
     },
-    [deliverBoardScanTicket],
+    [deliverBoardScanTicket, armBuildStallWatchdog],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1315,11 +1322,13 @@ export default function CoachScreen() {
 
       const sendGen = ++sendGenerationRef.current;
       boardTicketSnapshotRef.current = null;
+      latestBoardScanRef.current = null;
 
       const resetInFlightBuild = () => {
         abortRef.current?.abort();
         simAbortRef.current?.abort();
         boardTicketSnapshotRef.current = null;
+        latestBoardScanRef.current = null;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1394,6 +1403,7 @@ export default function CoachScreen() {
       setWaiting(true);
       setStreaming(true);
       if (openingParlayBuild) {
+        activeParlayAskRef.current = trimmed;
         setBuildFinishing(true);
         setParlayBuildPhase("context");
         armBuildProgressWatchdog();
@@ -1923,6 +1933,12 @@ export default function CoachScreen() {
                     return { espnGames: eg, oddsGames: og, liveFeed: lf };
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
+              const boardScanMs =
+                reachTargetPreScan >= 15
+                  ? 180_000
+                  : reachTargetPreScan >= 9
+                    ? 150_000
+                    : 120_000;
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
                   target: reachTargetPreScan,
@@ -1940,8 +1956,9 @@ export default function CoachScreen() {
                   perfByFamily: marketPerf,
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
+                  signal: abortRef.current?.signal,
                 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
               if (preBoardScan?.picks?.length) {
                 deliverBoardScanTicket(preBoardScan, {
@@ -4084,7 +4101,7 @@ export default function CoachScreen() {
             };
             return copy;
           });
-        } else if (e?.name !== "AbortError") {
+        } else if (!isAbortLikeError(e)) {
           const failMsg =
             hasOutgoingImages && !(e instanceof ChatStreamError)
               ? "Sorry — I couldn't finish reading your slip photo. Check your connection and try again."

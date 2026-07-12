@@ -4633,6 +4633,14 @@ function abortError(): Error {
   return e;
 }
 
+/** True for AbortError and expo/fetch abort strings ("operation was aborted"). */
+export function isAbortLikeError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Error;
+  if (e.name === "AbortError") return true;
+  return /aborted/i.test(e.message ?? "");
+}
+
 /** Thrown when /api/chat returns a non-retryable HTTP error (e.g. 502 config). */
 export class ChatStreamError extends Error {
   readonly retryable: boolean;
@@ -4662,6 +4670,9 @@ async function readChatHttpError(res: Response): Promise<ChatStreamError> {
 
 /** User-facing coach copy for a streamChat failure. */
 export function chatStreamFailureMessage(err: unknown): string {
+  if (isAbortLikeError(err)) {
+    return "This build was interrupted before pick cards could render. Tap below to try again.";
+  }
   if (err instanceof ChatStreamError) return err.message;
   if (err instanceof Error) {
     const m = err.message;
