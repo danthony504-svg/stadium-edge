@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
-import { reachBoardScanEligible, shouldUseFullBoardScan, maxBoardPropSimForTarget } from "./boardMarketScanner.ts";
+import { reachBoardScanEligible, shouldUseFullBoardScan } from "./boardMarketScanner.ts";
 
 test("FULL_BOARD_MARKET_FAMILIES lists every period and combo market", () => {
   assert.match(FULL_BOARD_MARKET_FAMILIES, /live markets/i);
@@ -33,11 +33,6 @@ test("augmentEvalLinesWithPostedOdds merges posted game lines missing from eval 
   assert.ok(!lines.some((e) => e.market === "Points"));
 });
 
-test("maxBoardPropSimForTarget scales prop sim depth with leg target", () => {
-  assert.equal(maxBoardPropSimForTarget(6, 500), 168);
-  assert.equal(maxBoardPropSimForTarget(15, 500), 420);
-  assert.equal(maxBoardPropSimForTarget(15, 200), 200);
-});
 
 test("reachBoardScanEligible requires 6+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 15 }), true);

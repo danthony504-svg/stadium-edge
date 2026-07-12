@@ -32,6 +32,7 @@ import type { GameInjuryReport } from "./injuries.ts";
 import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
@@ -40,15 +41,33 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
-const PROP_SIM_BATCH = 21;
-const BASE_BOARD_PROP_SIM = 126;
+import {
+  boardPropSimExpansionBatchSize,
+  boardPropSimInitialBatchSize,
+  countQualifiedBoardLegs,
+  isRealisticBoardPropCandidate,
+} from "./boardPropSimExpansion.ts";
+export {
+  boardPropSimExpansionBatchSize,
+  boardPropSimInitialBatchSize,
+  countQualifiedBoardLegs,
+  isRealisticBoardPropCandidate,
+} from "./boardPropSimExpansion.ts";
+
 const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
 const MIN_PROP_POOL_FOR_SKIP_FETCH = 80;
 
-/** Scale prop quick-sim depth with leg target — search more markets, never lower the bar. */
-export function maxBoardPropSimForTarget(target: number, poolSize: number): number {
-  const scaled = Math.max(BASE_BOARD_PROP_SIM, target * 28);
-  return Math.min(poolSize, scaled);
+function propSimKeyForPick(pick: ParsedPick): string | null {
+  if (!pick.isProp || !pick.player || pick.propLine == null || !pick.propSide) return null;
+  return `${pick.player}|${pick.propMarketKey ?? pick.market}|${pick.propLine}|${pick.propSide}`;
+}
+
+function propPickHasSimHit(
+  pick: ParsedPick,
+  hits: Map<string, { hitProbability: number | null }>,
+): boolean {
+  const key = propSimKeyForPick(pick);
+  return key != null && hits.has(key);
 }
 const GRADE_RANK: Record<string, number> = {
   F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
@@ -171,19 +190,91 @@ function scoredFromPropPick(
   return { ...leg, rankScore: unifiedRankScore(leg) };
 }
 
-async function simPropPoolForBoardScan(
+async function simPropBatch(
+  batch: ParsedPick[],
   pool: PropPoolEntry[],
-  mergedOdds: RealOddsEntry[],
+  signal?: AbortSignal,
+): Promise<Map<string, { hitProbability: number | null }>> {
+  const out = new Map<string, { hitProbability: number | null }>();
+  if (!batch.length) return out;
+  try {
+    const rows = await Promise.race([
+      fetchPropSimulations(batch, pool, { tier: "quick" }, signal),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
+      ),
+    ]);
+    for (const [k, v] of rows) {
+      out.set(k, { hitProbability: v.hitProbability });
+    }
+  } catch {
+    /* rubric-only for this batch */
+  }
+  return out;
+}
+
+function appendPropScoredLegs(
+  rankedProps: ParsedPick[],
+  propHits: Map<string, { hitProbability: number | null }>,
+  propScored: BoardScoredLeg[],
+  seenFp: Set<string>,
   opts: {
-    target?: number;
+    pool: PropPoolEntry[];
+    mergedOdds: RealOddsEntry[];
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     perfByFamily?: Map<string, MarketPerf>;
+    calibration?: Map<string, CalibrationBucket>;
+  },
+): void {
+  const pending = rankedProps.filter((p) => {
+    if (!propPickHasSimHit(p, propHits)) return false;
+    return !seenFp.has(pickLegFingerprint(p));
+  });
+  if (!pending.length) return;
+
+  const scoredPicks = attachPickScores(pending, {
+    realOdds: opts.mergedOdds,
+    propPool: opts.pool,
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+    playerHistory: opts.playerHistory,
+    propSimulations: propHits,
+    perfByFamily: opts.perfByFamily,
+  });
+
+  for (const pick of scoredPicks) {
+    const fp = pickLegFingerprint(pick);
+    if (seenFp.has(fp)) continue;
+    const simHit = pick.finalAiScore?.simHit ?? null;
+    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
+    if (!leg) continue;
+    seenFp.add(fp);
+    propScored.push(leg);
+  }
+}
+
+/** Fast-rank every prop, then expand MC in batches until enough qualify or pool is exhausted. */
+async function simPropPoolUntilQualified(
+  pool: PropPoolEntry[],
+  mergedOdds: RealOddsEntry[],
+  gameScored: BoardScoredLeg[],
+  opts: {
+    target: number;
+    matchupHistory?: Record<string, MatchupHistoryEntry>;
+    matchupInjuries?: Record<string, GameInjuryReport>;
+    playerHistory?: Record<string, PlayerHistorySlice>;
+    perfByFamily?: Map<string, MarketPerf>;
+    calibration?: Map<string, CalibrationBucket>;
+    onWave?: (scored: BoardScoredLeg[]) => void;
   },
   signal?: AbortSignal,
-): Promise<Map<string, { hitProbability: number | null }>> {
-  const hits = new Map<string, { hitProbability: number | null }>();
+): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
+  const propHits = new Map<string, { hitProbability: number | null }>();
+  const propScored: BoardScoredLeg[] = [];
+  const seenFp = new Set<string>();
+
   const prescorePool = attachPickScores(pool.map(parsedPickFromPoolEntry), {
     realOdds: mergedOdds,
     propPool: pool,
@@ -192,32 +283,52 @@ async function simPropPoolForBoardScan(
     playerHistory: opts.playerHistory,
     perfByFamily: opts.perfByFamily,
   });
-  const candidates = [...prescorePool]
+  const rankedProps = [...prescorePool]
+    .filter(isRealisticBoardPropCandidate)
     .sort(
       (a, b) =>
         (b.scores?.composite ?? b.finalAiScore?.composite ?? 0) -
         (a.scores?.composite ?? a.finalAiScore?.composite ?? 0),
-    )
-    .slice(0, maxBoardPropSimForTarget(opts.target ?? 6, candidates.length));
+    );
 
-  for (let i = 0; i < candidates.length; i += PROP_SIM_BATCH) {
-    const batch = candidates.slice(i, i + PROP_SIM_BATCH);
-    try {
-      const rows = await Promise.race([
-        fetchPropSimulations(batch, pool, { tier: "quick" }, signal),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
-        ),
-      ]);
-      for (const [k, v] of rows) {
-        hits.set(k, { hitProbability: v.hitProbability });
-      }
-    } catch {
-      /* rubric-only for this batch */
-    }
-    if (signal?.aborted) break;
+  const scoreOpts = {
+    pool,
+    mergedOdds,
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+    playerHistory: opts.playerHistory,
+    perfByFamily: opts.perfByFamily,
+    calibration: opts.calibration,
+  };
+
+  const combinedScored = () => [...gameScored, ...propScored];
+
+  if (countQualifiedBoardLegs(combinedScored(), opts.target) >= opts.target || rankedProps.length === 0) {
+    return { propScored, propHits, simEvaluated: 0 };
   }
-  return hits;
+
+  let simIndex = 0;
+  let batchSize = boardPropSimInitialBatchSize(opts.target);
+
+  while (simIndex < rankedProps.length) {
+    if (signal?.aborted) break;
+
+    const batch = rankedProps.slice(simIndex, simIndex + batchSize);
+    simIndex += batch.length;
+    const wave = await simPropBatch(batch, pool, signal);
+    for (const [k, v] of wave) propHits.set(k, v);
+
+    appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
+    const scored = combinedScored();
+    opts.onWave?.(scored);
+
+    if (countQualifiedBoardLegs(scored, opts.target) >= opts.target) break;
+    if (simIndex >= rankedProps.length) break;
+
+    batchSize = boardPropSimExpansionBatchSize(opts.target);
+  }
+
+  return { propScored, propHits, simEvaluated: simIndex };
 }
 
 function buildScanResult(
@@ -322,37 +433,38 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     if (partial.picks.length > 0) opts.onPartial(partial);
   }
 
-  const propHits = await simPropPoolForBoardScan(
+  const propScoreOpts = {
     pool,
     mergedOdds,
+    matchupHistory: opts.matchupHistory,
+    matchupInjuries: opts.matchupInjuries,
+    playerHistory: opts.playerHistory,
+    perfByFamily: opts.perfByFamily,
+    calibration: opts.calibration,
+  };
+
+  const { propScored } = await simPropPoolUntilQualified(
+    pool,
+    mergedOdds,
+    scored,
     {
       target: opts.target,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-      playerHistory: opts.playerHistory,
-      perfByFamily: opts.perfByFamily,
+      ...propScoreOpts,
+      onWave: (waveScored) => {
+        if (!opts.onPartial) return;
+        const partial = buildScanResult([...waveScored], {
+          target: opts.target,
+          evalLinesByGame,
+          gameSimulations,
+          totalScanned,
+        });
+        if (partial.picks.length > 0) opts.onPartial(partial);
+      },
     },
     opts.signal,
   );
 
-  const propPicks = attachPickScores(
-    pool.map(parsedPickFromPoolEntry),
-    {
-      realOdds: mergedOdds,
-      propPool: pool,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-      playerHistory: opts.playerHistory,
-      propSimulations: propHits,
-      perfByFamily: opts.perfByFamily,
-    },
-  );
-
-  for (const pick of propPicks) {
-    const simHit = pick.finalAiScore?.simHit ?? null;
-    const leg = scoredFromPropPick(pick, simHit, opts.perfByFamily, opts.calibration);
-    if (leg) scored.push(leg);
-  }
+  scored.push(...propScored);
 
   totalScanned += pool.length;
   scored.sort((a, b) => b.rankScore - a.rankScore);
