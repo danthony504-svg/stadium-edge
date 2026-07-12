@@ -66,6 +66,26 @@ export function readSlatePreAnalysisSeed(): SlatePreAnalysisSeed | null {
   };
 }
 
+/** Poll until background pre-analysis lands board-scan legs (or time out). */
+export async function awaitWarmSlateSeed(opts?: {
+  signal?: AbortSignal;
+  maxMs?: number;
+  pollMs?: number;
+}): Promise<SlatePreAnalysisSeed | null> {
+  const maxMs = opts?.maxMs ?? 8000;
+  const pollMs = opts?.pollMs ?? 300;
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    if (opts?.signal?.aborted) return null;
+    const seed = readSlatePreAnalysisSeed();
+    if (seed?.boardScan?.picks?.length) return seed;
+    if (!isSlatePreAnalysisRunning()) break;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  const last = readSlatePreAnalysisSeed();
+  return last?.boardScan?.picks?.length ? last : null;
+}
+
 async function fetchScanFeeds(signal?: AbortSignal) {
   const scanSports = DEFAULT_SPORTS;
   const [espnGames, oddsGames, liveFeed] = await Promise.all([

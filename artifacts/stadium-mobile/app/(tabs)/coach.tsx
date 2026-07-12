@@ -125,7 +125,13 @@ import {
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
-import { readSlatePreAnalysisSeed, setCoachBuildBusy } from "@/lib/slatePreAnalysis";
+import {
+  awaitWarmSlateSeed,
+  readSlatePreAnalysisSeed,
+  setCoachBuildBusy,
+  startSlatePreAnalysis,
+} from "@/lib/slatePreAnalysis";
+import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
@@ -1462,8 +1468,6 @@ export default function CoachScreen() {
         setParlayBuildPhase("context");
         armBuildProgressWatchdog();
         armBuildStallWatchdog(sendGen, trimmed);
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
-        tryInstantSlateSeedDelivery(earlyLegTarget);
       }
       const releaseOtaBlock = blockOtaReload();
       scrollToEnd();
@@ -1480,6 +1484,9 @@ export default function CoachScreen() {
       if (sendGenerationRef.current !== sendGen) {
         releaseOtaBlock();
         setCoachBuildBusy(false);
+        setWaiting(false);
+        setStreaming(false);
+        setBuildFinishing(false);
         return;
       }
 
@@ -1489,6 +1496,18 @@ export default function CoachScreen() {
 
       const controller = new AbortController();
       abortRef.current = controller;
+
+      if (openingParlayBuild) {
+        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
+          await hydrateSlatePreAnalysisCache();
+          if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
+            startSlatePreAnalysis("coach-send");
+            await awaitWarmSlateSeed({ signal: controller.signal, maxMs: 8000 });
+            tryInstantSlateSeedDelivery(earlyLegTarget);
+          }
+        }
+      }
 
       // Card/booking asks have no feed — answer instantly instead of streaming guesses.
       if (!replay && !hasOutgoingImages && isUnsupportedSoccerDisciplineAsk(trimmed)) {
@@ -1618,8 +1637,18 @@ export default function CoachScreen() {
           return;
         }
       } catch (e: any) {
-        if (e?.name === "AbortError") {
+        if (e?.name === "AbortError" || isAbortLikeError(e)) {
           if (sendGenerationRef.current !== sendGen) return;
+          if (openingParlayBuild) {
+            const partial = latestBoardScanRef.current;
+            if (partial?.picks?.length) {
+              deliverBoardScanTicket(partial);
+            } else {
+              tryInstantSlateSeedDelivery(
+                requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
+              );
+            }
+          }
           setWaiting(false);
           setStreaming(false);
           setBuildFinishing(false);
@@ -3989,11 +4018,19 @@ export default function CoachScreen() {
           }
         }
         const boardSnapshot = boardTicketSnapshotRef.current;
-        const outPicks =
-          picks.length > 0 ? picks : boardSnapshot?.length ? boardSnapshot : picks;
+        const resolveOutPicks = (existingPicks?: ParsedPick[]) =>
+          picks.length > 0
+            ? picks
+            : boardSnapshot?.length
+              ? boardSnapshot
+              : existingPicks?.length
+                ? existingPicks
+                : picks;
+        let outPicks: ParsedPick[] = [];
         setMessages((prev) => {
           const copy = [...prev];
           const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
+          outPicks = resolveOutPicks(prevAssistant.picks);
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
@@ -4215,6 +4252,17 @@ export default function CoachScreen() {
             };
             return copy;
           });
+        } else if (e?.name === "AbortError" || isAbortLikeError(e)) {
+          if (isParlayBuildAsk(trimmed)) {
+            const partial = latestBoardScanRef.current;
+            if (partial?.picks?.length) {
+              deliverBoardScanTicket(partial);
+            } else {
+              tryInstantSlateSeedDelivery(
+                requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
+              );
+            }
+          }
         } else {
           const failMsg =
             hasOutgoingImages && !(e instanceof ChatStreamError)
@@ -4427,6 +4475,8 @@ export default function CoachScreen() {
   useFocusEffect(
     useCallback(() => {
       void resumePendingBackgroundBuild();
+      void hydrateSlatePreAnalysisCache();
+      startSlatePreAnalysis("coach-focus");
       if (streamingRef.current || buildFinishingRef.current) return;
       setMessages((prev) => {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
