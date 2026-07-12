@@ -1,5 +1,10 @@
 import { MARKETS_BY_SPORT } from "../routes/props.js";
 import { pooled, slateLoopbackGet } from "./coachSlateLoopback.js";
+import {
+  buildServerMatchupInjuries,
+  fetchInjuriesBySport,
+  injuryDigestForSports,
+} from "./coachSlateInjuries.js";
 import type {
   BuiltChatContext,
   GameMeta,
@@ -14,10 +19,11 @@ const PROPS_SPORTS = [
   "ufc",
 ];
 const MAX_SPORTS = 10;
-const MAX_ODDS_GAMES = 36;
-const MAX_PROP_GAMES = 22;
+const MAX_ODDS_GAMES = 48;
+const MAX_PROP_GAMES = 28;
 const PROPS_CONCURRENCY = 3;
 const ALT_RUNGS_PER_PROP = 8;
+const ALT_LINES_PER_GAME = 8;
 
 type OddsGame = {
   sport: string;
@@ -136,11 +142,11 @@ function buildRealOddsFromGame(g: OddsGame): RealOddsEntry[] {
     const pt = o.point == null ? "" : ` ${o.point}`;
     pushOutcome("Total", `${o.name}${pt}`.trim(), o.price, o);
   }
-  for (const o of (altSpreads?.outcomes ?? []).slice(0, 4)) {
+  for (const o of (altSpreads?.outcomes ?? []).slice(0, ALT_LINES_PER_GAME)) {
     const pt = o.point == null ? "" : ` ${o.point > 0 ? "+" : ""}${o.point}`;
     pushOutcome("Alt Spread", `${nickname(o.name)}${pt}`, o.price);
   }
-  for (const o of (altTotals?.outcomes ?? []).slice(0, 4)) {
+  for (const o of (altTotals?.outcomes ?? []).slice(0, ALT_LINES_PER_GAME)) {
     const pt = o.point == null ? "" : ` ${o.point}`;
     pushOutcome("Alt Total", `${o.name}${pt}`.trim(), o.price);
   }
@@ -168,7 +174,11 @@ function buildGameMeta(games: EspnGame[]): GameMeta[] {
 }
 
 /** Build compact parlay context via loopback — mirrors mobile buildCompactParlayContext. */
-export async function buildServerCompactParlayContext(): Promise<BuiltChatContext> {
+export async function buildServerCompactParlayContext(): Promise<{
+  built: BuiltChatContext;
+  injuryDigest: string;
+  gameStatusDigest: string;
+}> {
   const empty: BuiltChatContext = {
     context: {
       selectedSports: [],
@@ -205,7 +215,9 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
     }
   }
 
-  if (!allOdds.length) return empty;
+  if (!allOdds.length) {
+    return { built: empty, injuryDigest: "", gameStatusDigest: "" };
+  }
 
   allOdds.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
 
@@ -332,13 +344,35 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
     }
   });
 
-  return {
+  const injuriesBySport = await fetchInjuriesBySport(activeSports);
+  const injuryDigest = injuryDigestForSports(injuriesBySport);
+  const gameRefs = [...gamesBySport.values()]
+    .flat()
+    .filter(isUpcomingGame)
+    .map((g) => ({
+      sport: g.sport,
+      awayTeam: g.awayTeam,
+      awayAbbr: g.awayAbbr,
+      homeTeam: g.homeTeam,
+      homeAbbr: g.homeAbbr,
+    }));
+  const matchupInjuries = buildServerMatchupInjuries(gameRefs, injuriesBySport);
+  const gameStatusDigest = [...gamesBySport.values()]
+    .flat()
+    .filter(isUpcomingGame)
+    .map((g) => `${g.sport}:${g.awayTeam}@${g.homeTeam}:${g.status ?? g.state ?? ""}`)
+    .sort()
+    .slice(0, 40)
+    .join("|");
+
+  const built: BuiltChatContext = {
     context: {
       selectedSports: activeSports.length ? activeSports : ["mlb"],
       currentSlip: [],
       realGames,
       realOdds,
       realProps,
+      ...(Object.keys(matchupInjuries).length ? { matchupInjuries } : {}),
     },
     propPool,
     gameMeta: buildGameMeta([...gamesBySport.values()].flat()),
@@ -346,4 +380,5 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
     todayOnly: false,
     tomorrowOnly: false,
   };
+  return { built, injuryDigest, gameStatusDigest };
 }

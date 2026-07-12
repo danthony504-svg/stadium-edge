@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { runCoachSlateJob, SLATE_PRE_ANALYSIS_MAX_MS } from "../lib/coachSlateJobs.js";
 import { getCoachPrecomputedSlate } from "../lib/coachSlateStore.js";
+import { SLATE_INSTANT_SERVE_MAX_MS } from "../lib/coachSlateTypes.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
@@ -12,9 +13,11 @@ router.get("/coach/slate", async (_req, res): Promise<void> => {
     res.json({
       snapshot: row.snapshot,
       fresh: row.fresh,
+      instantServe: row.instantServe,
       computedAt: row.computedAt,
       deepSimComplete: row.deepSimComplete,
       maxAgeMs: SLATE_PRE_ANALYSIS_MAX_MS,
+      instantServeMaxMs: SLATE_INSTANT_SERVE_MAX_MS,
     });
   } catch (err) {
     logger.error({ err }, "coach slate GET failed");

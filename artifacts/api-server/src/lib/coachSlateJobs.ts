@@ -8,6 +8,7 @@ import {
   isSlateSnapshotFresh,
   serializeBoardScan,
   SLATE_PRE_ANALYSIS_MAX_MS,
+  SLATE_PRE_ANALYSIS_TARGET,
   type SlatePreAnalysisSnapshot,
 } from "./coachSlateTypes.js";
 
@@ -39,14 +40,18 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
       logger.warn({ err }, "coach slate: prebuild warm failed (continuing)");
     });
 
-    const built = await buildServerCompactParlayContext();
-    const fingerprint = computeSlateFingerprint(built);
+    const { built, injuryDigest, gameStatusDigest } = await buildServerCompactParlayContext();
+    const fingerprint = computeSlateFingerprint(built, { injuryDigest, gameStatusDigest });
+
+    const ageMs = existing.snapshot ? Date.now() - existing.snapshot.at : Infinity;
+    const halfTtl = SLATE_PRE_ANALYSIS_MAX_MS / 2;
 
     if (
       existing.snapshot &&
       existing.snapshot.fingerprint === fingerprint &&
       isSlateSnapshotFresh(existing.snapshot) &&
-      (existing.snapshot.boardScan?.picks?.length ?? 0) > 0 &&
+      ageMs < halfTtl &&
+      (existing.snapshot.boardScan?.picks?.length ?? 0) >= SLATE_PRE_ANALYSIS_TARGET &&
       existing.deepSimComplete
     ) {
       return {
@@ -63,11 +68,32 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     }
 
     const propSimulations = await enrichServerPropSims(built);
-    const boardScan = await runServerBoardScan(built, { deepSim: true });
+
+    let lastPartialAt = 0;
+    const boardScan = await runServerBoardScan(built, {
+      deepSim: true,
+      onPartial: async (partial) => {
+        if (!partial.picks.length) return;
+        const now = Date.now();
+        if (now - lastPartialAt < 4000) return;
+        lastPartialAt = now;
+        const partialSnapshot: SlatePreAnalysisSnapshot = {
+          at: now,
+          fingerprint,
+          built,
+          propSimulations: [...propSimulations.entries()],
+          boardScan: serializeBoardScan(partial),
+          deepSimComplete: false,
+        };
+        await persistCoachPrecomputedSlate(partialSnapshot).catch((err) => {
+          logger.warn({ err }, "coach slate partial persist failed");
+        });
+      },
+    });
 
     const snapshot: SlatePreAnalysisSnapshot = {
       at: Date.now(),
-      fingerprint: computeSlateFingerprint(built),
+      fingerprint: computeSlateFingerprint(built, { injuryDigest, gameStatusDigest }),
       built,
       propSimulations: [...propSimulations.entries()],
       boardScan: boardScan.picks.length ? serializeBoardScan(boardScan) : null,

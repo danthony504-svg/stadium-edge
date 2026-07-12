@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { runPrebuildJobs } from "../lib/prebuildJobs";
+import { runCoachSlateJob } from "../lib/coachSlateJobs.js";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -20,6 +21,11 @@ router.post("/prebuild/cron", async (req, res) => {
   }
   try {
     const result = await runPrebuildJobs();
+    // Odds/props caches are warm — immediately refresh the 24/7 Coach slate so
+    // mobile always loads picks that reflect the latest posted board.
+    void runCoachSlateJob().catch((err) => {
+      logger.warn({ err }, "coach slate refresh after prebuild failed");
+    });
     res.json(result);
   } catch (err) {
     logger.error({ err }, "prebuild cron failed");

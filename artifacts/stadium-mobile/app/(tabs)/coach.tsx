@@ -115,7 +115,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -242,6 +242,8 @@ type UIMessage = {
   apiContent?: string;
   /** Parlay build in flight — survives even if the user bubble is hidden. */
   parlayBuild?: boolean;
+  /** Server-precomputed today's slate — shown on Coach open before any user ask. */
+  precomputedSlate?: boolean;
 };
 
 type StatCardResult = {
@@ -1436,7 +1438,9 @@ export default function CoachScreen() {
 
       const thread = pruneDeadParlayPlaceholders(
         scrubDeadBuildProseFromMessages(
-          opts?.freshThread ? [] : messages.filter((m) => !isWelcomeMessage(m)),
+          opts?.freshThread
+            ? []
+            : messages.filter((m) => !isWelcomeMessage(m) && !m.precomputedSlate),
         ),
       );
       const history: UIMessage[] = [
@@ -4515,6 +4519,43 @@ export default function CoachScreen() {
     void resumePendingBackgroundBuild();
   }, [resumePendingBackgroundBuild]);
 
+  const mountPrecomputedSlatePreview = useCallback(() => {
+    if (streamingRef.current || buildFinishingRef.current || waiting) return;
+    const seed = readSlatePreAnalysisSeed();
+    if (!seed?.boardScan?.picks?.length) return;
+    const enrich = {
+      realOdds: seed.built.context.realOdds,
+      propPool: seed.built.propPool,
+      gameMeta: seed.built.gameMeta,
+      realGames: seed.built.context.realGames,
+    };
+    const tagged = tagTicketRoles([...seed.boardScan.picks]);
+    const picks = coachDeliverBoardScanPicks(tagged, enrich);
+    if (!picks.length) return;
+    setMessages((prev) => {
+      if (prev.some((m) => m.role === "user")) return prev;
+      if (prev.some((m) => m.precomputedSlate && m.picks?.length)) return prev;
+      if (prev.some((m) => m.parlayBuild || (m.picks?.length && !m.precomputedSlate))) return prev;
+      const welcome = prev.filter((m) => isWelcomeMessage(m));
+      const legNote =
+        seed.boardScan?.note ??
+        `Today's ranked slate — ${picks.length} AI-simulated legs from the live board (refreshed in the background).`;
+      return [
+        ...welcome,
+        {
+          role: "assistant" as const,
+          content: "",
+          picks,
+          legNote,
+          precomputedSlate: true,
+          hideBubble: true,
+        },
+      ];
+    });
+    setAiPicks(picks);
+    captureFromCoach(picks);
+  }, []);
+
   // Tab refocus: same hydration path when Coach was already mounted in the tab bar.
   useFocusEffect(
     useCallback(() => {
@@ -4523,6 +4564,7 @@ export default function CoachScreen() {
         await hydrateSlatePreAnalysisCache();
         await hydrateCoachSlateFromServer();
         startSlatePreAnalysis("coach-focus");
+        mountPrecomputedSlatePreview();
       })();
       if (!streamingRef.current && !buildFinishingRef.current) {
         void prefetchAndMaybeApplyOta(true);
@@ -4532,7 +4574,7 @@ export default function CoachScreen() {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
         return recoverOrphanCoachThread();
       });
-    }, [resumePendingBackgroundBuild]),
+    }, [resumePendingBackgroundBuild, mountPrecomputedSlatePreview]),
   );
 
   // While a build is handed off, poll the server stash on a timer so the result
