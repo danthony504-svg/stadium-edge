@@ -30,6 +30,13 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     try {
       await clearDiscoverCache();
       if (Updates.isEnabled) {
+        // Re-fetch from Expo — may receive a server rollback directive after a bad OTA.
+        try {
+          await Updates.checkForUpdateAsync();
+          await Updates.fetchUpdateAsync();
+        } catch {
+          // ignore — still attempt reload
+        }
         await Updates.reloadAsync();
       } else {
         resetError();

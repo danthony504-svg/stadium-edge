@@ -1,0 +1,41 @@
+name: Rollback production OTA (embedded)
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Rollback message
+        required: false
+        default: "Emergency rollback to embedded bundle"
+      runtime_version:
+        description: Runtime version (must match installed app)
+        required: false
+        default: "1.0.0"
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Roll back production to embedded bundle
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          RUNTIME_VERSION: ${{ github.event.inputs.runtime_version }}
+        run: bash scripts/rollback-production-ota.sh "${{ github.event.inputs.message }}"
