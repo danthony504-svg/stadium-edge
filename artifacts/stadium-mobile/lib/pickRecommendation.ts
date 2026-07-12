@@ -8,7 +8,7 @@ import {
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
-import { filterBettablePicks } from "./slate.ts";
+import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
 
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
@@ -187,6 +187,8 @@ export function countAiRecommendedPicks(
   return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore)).length;
 }
 
+export { enrichPicksWithStartsAt } from "./slate.ts";
+
 /** Final coach ticket gate — sim-aligned legs within the bettable window only. */
 export function sanitizeCoachTicketPicks<
   T extends RecommendablePick & {
@@ -196,10 +198,19 @@ export function sanitizeCoachTicketPicks<
     startsAt?: string | null;
     sport?: string;
     highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
   },
->(picks: T[]): T[] {
-  const gated = filterTicketPicks(picks);
-  const kept = gated.length > 0 ? gated : picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+>(
+  picks: T[],
+  enrich?: Parameters<typeof enrichPicksWithStartsAt<T>>[1],
+): T[] {
+  const enriched = enrich ? enrichPicksWithStartsAt(picks, enrich) : picks;
+  const gated = filterTicketPicks(enriched);
+  const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
   return filterBettablePicks(
     kept.map((p) => ({
       ...p,

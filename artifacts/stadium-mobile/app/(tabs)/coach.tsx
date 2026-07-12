@@ -129,6 +129,7 @@ import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
   filterBettableOddsGames,
   filterBettablePicks,
+  enrichPicksWithStartsAt,
   filterOddsForSlateDay,
   filterPicksForSlateDay,
   mentionsPropIntent,
@@ -1025,6 +1026,12 @@ export default function CoachScreen() {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
   const sendGenerationRef = useRef(0);
+  const flashEnrichRef = useRef<{
+    realOdds: RealOddsEntry[];
+    propPool: PropPoolEntry[];
+    gameMeta: GameMeta[];
+    realGames?: Array<{ game?: string; startsAt?: string | null; commenceTime?: string }>;
+  }>({ realOdds: [], propPool: [], gameMeta: [] });
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -1125,11 +1132,12 @@ export default function CoachScreen() {
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
       const tagged = tagTicketRoles(picks);
-      const toShow = sanitizeCoachTicketPicks(tagged);
+      const toShow = sanitizeCoachTicketPicks(tagged, flashEnrichRef.current);
       if (!toShow.length) return;
       patchLastAssistantPicks(setMessages, toShow, legNote);
       setStreaming(false);
       setWaiting(false);
+      setBuildFinishing(false);
       setParlayBuildPhase("score");
       setBuildProgressExpired(false);
       if (buildProgressTimerRef.current) {
@@ -1649,6 +1657,12 @@ export default function CoachScreen() {
           todayOnly = replay.todayOnly;
           full = replay.full;
           serverPropPool.push(...propPoolFromRealProps(replay.props));
+          flashEnrichRef.current = {
+            realOdds: context.realOdds,
+            propPool,
+            gameMeta,
+            realGames: context.realGames,
+          };
           setWaiting(false);
           if (!wantsAnalyzeSlip(trimmed)) {
             setMessages((prev) => {
@@ -1846,6 +1860,12 @@ export default function CoachScreen() {
             };
             propPool = filterForExcludedSports(propPool, excludedSports);
           }
+          flashEnrichRef.current = {
+            realOdds: context.realOdds,
+            propPool,
+            gameMeta,
+            realGames: context.realGames,
+          };
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -2077,6 +2097,13 @@ export default function CoachScreen() {
           const merged = extra.length ? [...base, ...extra] : base;
           return excludedSports.size > 0 ? filterForExcludedSports(merged, excludedSports) : merged;
         })();
+        let pickEnrich = {
+          realOdds: context.realOdds,
+          propPool: mergedPropPool,
+          gameMeta,
+          realGames: context.realGames,
+        };
+        flashEnrichRef.current = pickEnrich;
         selectionOpts = {
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
@@ -2180,7 +2207,9 @@ export default function CoachScreen() {
           context.realOdds,
           gameMeta,
         );
-        picks = filterBettablePicks(picks);
+        picks = filterBettablePicks(
+          enrichPicksWithStartsAt(picks, flashEnrichRef.current),
+        );
         if (!isAnalyze && picks.length > 0) {
           const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {
@@ -3505,7 +3534,10 @@ export default function CoachScreen() {
         let aiFilterNote = "";
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = sanitizeCoachTicketPicks(picks);
+          picks = sanitizeCoachTicketPicks(picks, {
+            ...pickEnrich,
+            realOdds: mergedGameOdds,
+          });
           if (picks.length < beforeFilter) {
             aiFilterNote =
               picks.length > 0
@@ -3780,9 +3812,15 @@ export default function CoachScreen() {
                 }
               }
             }
-            next = sanitizeCoachTicketPicks(next);
+            next = sanitizeCoachTicketPicks(next, {
+              ...pickEnrich,
+              realOdds: mergedGameOdds,
+            });
             if (next.length === 0 && snapshot.length > 0) {
-              const salvaged = sanitizeCoachTicketPicks(snapshot);
+              const salvaged = sanitizeCoachTicketPicks(snapshot, {
+                ...pickEnrich,
+                realOdds: mergedGameOdds,
+              });
               if (salvaged.length > 0) next = salvaged;
             }
             next = scrubExcludedSportsFromPicks(

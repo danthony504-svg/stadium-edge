@@ -157,7 +157,10 @@ test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs"
       rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
     },
   };
-  const out = sanitizeCoachTicketPicks([alt]);
+  const out = sanitizeCoachTicketPicks([alt], {
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: alt.startsAt }],
+    gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: alt.startsAt, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
+  });
   assert.equal(out.length, 1);
   assert.equal(out[0]!.highRiskValuePlay, false);
   assert.equal(out[0]!.finalAiScore?.highRiskValuePlay, false);

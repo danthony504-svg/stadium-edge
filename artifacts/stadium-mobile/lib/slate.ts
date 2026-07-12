@@ -237,6 +237,60 @@ export function filterBettablePicks<T extends { sport?: string; startsAt?: strin
   return picks.filter((p) => isPregameBettableForSport(p.startsAt, p.sport ?? ""));
 }
 
+/** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */
+export function enrichPicksWithStartsAt<
+  T extends {
+    game?: string;
+    market?: string;
+    pick?: string;
+    startsAt?: string | null;
+    isProp?: boolean;
+    player?: string;
+  },
+>(
+  picks: T[],
+  sources: {
+    realOdds?: Array<{ game: string; market?: string; pick?: string; startsAt?: string | null }>;
+    propPool?: Array<{ game: string; player?: string; startsAt?: string | null }>;
+    gameMeta?: Array<{ game: string; startsAt?: string | null }>;
+    realGames?: Array<{ game?: string; startsAt?: string | null; commenceTime?: string }>;
+  },
+): T[] {
+  const byGame = new Map<string, string>();
+  for (const g of sources.realGames ?? []) {
+    const label = g.game;
+    const ts = g.startsAt ?? g.commenceTime;
+    if (label && ts) byGame.set(label.toLowerCase(), ts);
+  }
+  for (const g of sources.gameMeta ?? []) {
+    if (g.game && g.startsAt) byGame.set(g.game.toLowerCase(), g.startsAt);
+  }
+  for (const e of sources.realOdds ?? []) {
+    if (e.game && e.startsAt) byGame.set(e.game.toLowerCase(), e.startsAt);
+  }
+  for (const e of sources.propPool ?? []) {
+    if (e.game && e.startsAt) byGame.set(e.game.toLowerCase(), e.startsAt);
+  }
+  return picks.map((p) => {
+    if (p.startsAt) return p;
+    const fromGame = p.game ? byGame.get(p.game.toLowerCase()) : undefined;
+    if (fromGame) return { ...p, startsAt: fromGame };
+    if (!p.isProp) {
+      const ro = sources.realOdds?.find(
+        (r) => r.game === p.game && r.market === p.market && r.pick === p.pick && r.startsAt,
+      );
+      if (ro?.startsAt) return { ...p, startsAt: ro.startsAt };
+    }
+    if (p.isProp && p.player) {
+      const pe = sources.propPool?.find(
+        (e) => e.game === p.game && e.player === p.player && e.startsAt,
+      );
+      if (pe?.startsAt) return { ...p, startsAt: pe.startsAt };
+    }
+    return p;
+  });
+}
+
 /** Sport-focused odds pool for parlay salvage (World Cup → soccer only, etc.). */
 export function filterSalvageOddsPool<T extends { sport?: string; startsAt?: string | null }>(
   odds: T[],
