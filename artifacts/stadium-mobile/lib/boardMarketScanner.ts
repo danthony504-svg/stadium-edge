@@ -61,7 +61,6 @@ export {
 } from "./boardPropSimExpansion.ts";
 
 const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
-const MIN_PROP_POOL_FOR_SKIP_FETCH = 80;
 
 function propSimKeyForPick(pick: ParsedPick): string | null {
   if (!pick.isProp || !pick.player || pick.propLine == null || !pick.propSide) return null;
@@ -326,7 +325,7 @@ async function simPropPoolUntilQualified(
 
   const combinedScored = () => [...gameScored, ...propScored];
 
-  if (countQualifiedBoardLegs(combinedScored(), opts.target) >= opts.target || rankedProps.length === 0) {
+  if (rankedProps.length === 0) {
     return { propScored, propHits, simEvaluated: 0 };
   }
 
@@ -342,10 +341,8 @@ async function simPropPoolUntilQualified(
     for (const [k, v] of wave) propHits.set(k, v);
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
-    const scored = combinedScored();
-    opts.onWave?.(scored);
+    opts.onWave?.(combinedScored());
 
-    if (countQualifiedBoardLegs(scored, opts.target) >= opts.target) break;
     if (simIndex >= rankedProps.length) break;
 
     batchSize = boardPropSimExpansionBatchSize(opts.target);
@@ -480,14 +477,13 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...evalLinesByGame.values(),
   );
 
-  // Expand prop pool in parallel — never block the first partial on a slow fetch.
+  // Always expand to the full posted prop board when ESPN games are available.
   let pool = filterBettablePropPool(poolBase);
-  const poolExpandP =
-    opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
-      ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
-          .then((rows) => filterBettablePropPool(rows))
-          .catch(() => null)
-      : null;
+  const poolExpandP = opts.espnGames?.length
+    ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
+        .then((rows) => filterBettablePropPool(rows))
+        .catch(() => null)
+    : null;
 
   const scored: BoardScoredLeg[] = [];
   const bootstrapEvalRows: EvaluatedGameLine[] = [];

@@ -3,6 +3,15 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
+import {
+  type PartitionedBoardPools,
+  partitionScoredLegsByCategory,
+} from "./boardMarketPools.ts";
+import {
+  BALANCED_BACKFILL_ORDER,
+  balancedMixSlots,
+  type BoardMarketCategory,
+} from "./balancedTicketMix.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -227,11 +236,105 @@ function applyCapAndBackfillToTarget(
   return current;
 }
 
+function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
+  return scored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
+}
+
+function appendPicksFromPool(
+  out: ParsedPick[],
+  used: Set<string>,
+  pool: BoardScoredLeg[],
+  want: number,
+  target: number,
+): number {
+  if (want <= 0) return 0;
+  const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
+  const picks = target >= 3 ? selectTopBoardLegs(remaining, want) : selectGreedyBoardLegs(remaining, want);
+  let added = 0;
+  for (const p of picks) {
+    const fp = pickLegFingerprint(p);
+    if (used.has(fp)) continue;
+    const role = boardLegPoolRole(p, p.finalAiScore);
+    if (!role) continue;
+    used.add(fp);
+    out.push({ ...p, ticketRole: role, highRiskValuePlay: false });
+    added += 1;
+  }
+  return added;
+}
+
+/** Props-first backfill — never relaxes AI gates; may return fewer than target legs. */
+function applyBalancedCapAndBackfill(
+  picks: ParsedPick[],
+  target: number,
+  pools: PartitionedBoardPools,
+): ParsedPick[] {
+  let current = capThinStatMarketsOnTicket(picks, target);
+  if (current.length >= target) return current.slice(0, target);
+
+  const used = new Set(current.map(pickLegFingerprint));
+  for (const cat of BALANCED_BACKFILL_ORDER) {
+    if (current.length >= target) break;
+    const ranked = [...pools[cat]].sort((a, b) => b.rankScore - a.rankScore);
+    for (const row of ranked) {
+      if (current.length >= target) break;
+      const fp = pickLegFingerprint(row.pick);
+      if (used.has(fp)) continue;
+      const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+      if (!role) continue;
+      const trial = capThinStatMarketsOnTicket(
+        [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
+        target,
+      );
+      if (trial.length > current.length) {
+        current = trial;
+        used.add(fp);
+      }
+    }
+  }
+  return current;
+}
+
+/** Balanced ticket: ~50% props, ~25% game lines, ~15% team totals, ~10% alts. */
+export function buildBalancedStagedTicketFromScan(
+  scored: BoardScoredLeg[],
+  target: number,
+): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  const qualifying = qualifyingScoredLegs(scored);
+  const pools = partitionScoredLegsByCategory(qualifying);
+  const slots = balancedMixSlots(target);
+  const used = new Set<string>();
+  const out: ParsedPick[] = [];
+
+  appendPicksFromPool(out, used, pools.props, slots.props, target);
+  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target);
+  appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target);
+  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target);
+
+  const finalPicks = applyBalancedCapAndBackfill(out, target, pools).slice(0, target);
+  const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
+  const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
+
+  return {
+    picks: finalPicks,
+    breakdown: {
+      mainQualified: mains.length,
+      altQualified: alts.length,
+      mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
+      altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
+    },
+  };
+}
+
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
 export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  if (target >= 3) {
+    return buildBalancedStagedTicketFromScan(scored, target);
+  }
+
   const mains: BoardScoredLeg[] = [];
   const alts: BoardScoredLeg[] = [];
 

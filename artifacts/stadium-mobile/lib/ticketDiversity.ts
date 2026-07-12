@@ -227,11 +227,11 @@ export function needsParlayBackfill(
   if (legTarget > picks.length) return true;
   if (!deep) return false;
   if (countDuplicateTeamLegs(picks) > 0) return true;
-  const minPropShare = opts.longshotAsk ? 0.55 : 0.35;
+  const minPropShare = opts.longshotAsk ? 0.55 : 0.45;
   if (propShare(picks) < minPropShare) return true;
   const maxGameLegs = opts.longshotAsk
-    ? 3
-    : Math.max(3, Math.floor(legTarget * 0.35));
+    ? Math.ceil(legTarget * 0.25)
+    : Math.ceil(legTarget * 0.3);
   const gameLegs = picks.filter((p) => !p.isProp && isGameLinePick(p)).length;
   if (gameLegs > maxGameLegs) return true;
   return false;
@@ -255,15 +255,11 @@ export function isChalkHeavyParlay(picks: ParsedPick[], legTarget: number): bool
 }
 
 function deepParlayMix(legTarget: number, longshotAsk?: boolean, reachFull?: boolean) {
-  if (reachFull || legTarget >= 12) {
-    return {
-      minProps: Math.max(4, Math.floor(legTarget * 0.35)),
-      maxGameLegs: Math.max(5, Math.min(Math.ceil(legTarget * 0.5), legTarget - 3)),
-    };
-  }
-  const minPropFraction = longshotAsk ? 0.65 : 0.5;
-  const minProps = Math.max(1, Math.ceil(legTarget * minPropFraction));
-  const maxGameLegs = Math.max(1, Math.min(longshotAsk ? 2 : 3, legTarget - minProps));
+  void reachFull;
+  const props = Math.max(1, Math.round(legTarget * 0.5));
+  const gameLines = Math.max(0, Math.round(legTarget * 0.25));
+  const minProps = longshotAsk ? Math.max(props, Math.ceil(legTarget * 0.65)) : props;
+  const maxGameLegs = Math.max(gameLines, legTarget - minProps - Math.round(legTarget * 0.1));
   return { minProps, maxGameLegs };
 }
 
