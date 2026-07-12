@@ -10,6 +10,12 @@
       "path": "./lib/coach-data"
     },
     {
+      "path": "./lib/coach-sim-cache"
+    },
+    {
+      "path": "./lib/coach-sim"
+    },
+    {
       "path": "./lib/db"
     },
     {

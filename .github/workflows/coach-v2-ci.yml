@@ -6,6 +6,8 @@ on:
     paths:
       - "lib/coach-types/**"
       - "lib/coach-data/**"
+      - "lib/coach-sim-cache/**"
+      - "lib/coach-sim/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -13,6 +15,8 @@ on:
     paths:
       - "lib/coach-types/**"
       - "lib/coach-data/**"
+      - "lib/coach-sim-cache/**"
+      - "lib/coach-sim/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -22,41 +26,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck coach-types
-        run: pnpm --filter @workspace/coach-types run typecheck
-
-      - name: Test coach-types
-        run: pnpm --filter @workspace/coach-types run test
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-types run typecheck
+      - run: pnpm --filter @workspace/coach-types run test
 
   coach-data:
     runs-on: ubuntu-latest
     needs: coach-types
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-data run typecheck
+      - run: pnpm --filter @workspace/coach-data run test
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+  coach-sim-cache:
+    runs-on: ubuntu-latest
+    needs: coach-types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-sim-cache run typecheck
+      - run: pnpm --filter @workspace/coach-sim-cache run test
 
-      - name: Typecheck coach-data
-        run: pnpm --filter @workspace/coach-data run typecheck
-
-      - name: Test coach-data
-        run: pnpm --filter @workspace/coach-data run test
+  coach-sim:
+    runs-on: ubuntu-latest
+    needs: [coach-data, coach-sim-cache]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-sim run typecheck
+      - run: pnpm --filter @workspace/coach-sim run test
