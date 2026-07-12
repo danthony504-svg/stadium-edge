@@ -6,6 +6,7 @@ import {
   CONFIDENCE_PENALTY_PER_MISSING,
   propHolisticRecommends,
   propHolisticTopDrivers,
+  resolvePropHolisticForDisplay,
   PROP_HOLISTIC_WEIGHTS,
 } from "./propHolisticRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
@@ -233,4 +234,35 @@ test("propHolisticTopDrivers lists strongest grounded factors", () => {
   const drivers = propHolisticTopDrivers(holistic);
   assert.match(drivers, /Recent Form|Simulation|Matchup/);
   assert.doesNotMatch(drivers, /Waiting on matchup/);
+});
+
+test("resolvePropHolisticForDisplay synthesizes holistic strip from rubric scores", () => {
+  const holistic = resolvePropHolisticForDisplay({
+    game: "Sky @ Wings",
+    market: "Assists",
+    pick: "Paige Bueckers Over 6.5 Assists",
+    odds: 132,
+    isProp: true,
+    player: "Paige Bueckers",
+    propSide: "Over",
+    propLine: 6.5,
+    sport: "wnba",
+    scores: {
+      composite: 6.1,
+      grade: "B-",
+      confidencePct: 56,
+      edgePct: 1.1,
+      scores: {
+        matchup: 6.2,
+        trend: 6.5,
+        lineValue: 6.8,
+        injury: 5.8,
+        lineShopping: 6,
+        simulation: 6.4,
+      },
+    },
+  });
+  assert.ok(holistic);
+  assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
+  assert.ok(holistic!.factors.some((f) => f.key === "sportsbookValue" && f.present));
 });

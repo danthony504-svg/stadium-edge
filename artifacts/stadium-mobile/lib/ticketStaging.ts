@@ -6,7 +6,11 @@ import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { pickIsAiRecommended, qualifiesAltPick } from "./pickRecommendation.ts";
+import {
+  pickIsAiRecommended,
+  propSimEdgeStagingQualifies,
+  qualifiesAltPick,
+} from "./pickRecommendation.ts";
 import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 
 function pickRank(p: ParsedPick): number {
@@ -73,6 +77,9 @@ export function boardLegPoolRole(
   if (pick.isProp && qualifiesAltPick(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
   }
+  if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
+    return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
+  }
   return null;
 }
 
@@ -128,11 +135,24 @@ export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): Pa
     if (!next.length) break;
 
     const pick = next[0]!;
-    usedFp.add(pickLegFingerprint(pick));
+    const fp = pickLegFingerprint(pick);
     const deduped = dedupeSameTeamGameLegsLite([...out, pick]);
-    if (deduped.length <= out.length) continue;
+    if (deduped.length <= out.length) {
+      usedFp.add(fp);
+      continue;
+    }
+    usedFp.add(fp);
     out.length = 0;
     out.push(...deduped);
+  }
+
+  if (out.length < target) {
+    const usedFpFinal = new Set(out.map(pickLegFingerprint));
+    const remaining = sorted.filter((r) => !usedFpFinal.has(pickLegFingerprint(r.pick)));
+    const greedy = selectGreedyBoardLegs(remaining, target - out.length);
+    if (greedy.length) {
+      return dedupeSameTeamGameLegsLite([...out, ...greedy]).slice(0, target);
+    }
   }
 
   return out.slice(0, target);

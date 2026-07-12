@@ -364,6 +364,7 @@ function buildScanResult(
     totalScanned: number;
     preview?: boolean;
     bootstrapEvalRows?: EvaluatedGameLine[];
+    boardExhausted?: boolean;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(scored, opts.target);
@@ -411,7 +412,7 @@ function buildScanResult(
     totalQualified,
     staging: breakdown,
     note,
-    scanComplete: !opts.preview,
+    scanComplete: !opts.preview && (picks.length >= opts.target || opts.boardExhausted === true),
   };
 }
 
@@ -577,6 +578,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     evalLinesByGame,
     gameSimulations,
     totalScanned,
+    boardExhausted: true,
   });
   if (opts.onPartial && result.picks.length > 0) opts.onPartial(result);
   return result;

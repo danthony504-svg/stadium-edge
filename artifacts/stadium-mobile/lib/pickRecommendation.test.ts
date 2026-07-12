@@ -13,6 +13,7 @@ import {
   pickGradeDisplayCaption,
   pickGradeDisplayLabel,
   pickIsAiRecommended,
+  propSimEdgeStagingQualifies,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
 } from "./pickRecommendation.ts";
@@ -545,32 +546,6 @@ test("coachFlashBoardScanPreviewPicks shows odds-backed legs before startsAt res
   assert.equal(out[0]?.odds, 145);
 });
 
-test("coachFlashBoardScanPreviewPicks drops scored plus legs without positive edge", () => {
-  const picks = [
-    {
-      game: "Athletics @ White Sox",
-      market: "Alt Spread",
-      pick: "Athletics -1",
-      sport: "mlb",
-      odds: 169,
-      finalAiScore: {
-        composite: 5.8,
-        grade: "C",
-        confidencePct: 50,
-        edgePct: 0,
-        simHit: 0.41,
-        simAligned: false,
-        highRiskValuePlay: false,
-        recommends: false,
-        factors: [],
-        rubric: { composite: 5.8, grade: "C", confidencePct: 50, edgePct: 0, scores: {} as never },
-      },
-    },
-  ];
-  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
-  assert.equal(out.length, 0);
-});
-
 test("coachFlashBoardScanPreviewPicks keeps minus-money legs with sim and positive edge", () => {
   const picks = [
     {
@@ -596,4 +571,61 @@ test("coachFlashBoardScanPreviewPicks keeps minus-money legs with sim and positi
   const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
   assert.equal(out.length, 1);
   assert.equal(out[0]?.odds, -108);
+});
+
+test("coachFlashBoardScanPreviewPicks drops scored legs without positive edge", () => {
+  const picks = [
+    {
+      game: "Athletics @ White Sox",
+      market: "Alt Spread",
+      pick: "Athletics -1",
+      sport: "mlb",
+      odds: 169,
+      finalAiScore: {
+        composite: 5.8,
+        grade: "C",
+        confidencePct: 50,
+        edgePct: 0,
+        simHit: 0.41,
+        simAligned: false,
+        highRiskValuePlay: false,
+        recommends: false,
+        factors: [],
+        rubric: { composite: 5.8, grade: "C", confidencePct: 50, edgePct: 0, scores: {} as never },
+      },
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 0);
+});
+
+test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic context", () => {
+  const pick = {
+    isProp: true,
+    market: "Strikeouts",
+    odds: 130,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C+",
+      confidencePct: 54,
+      edgePct: 1.2,
+      simHit: 0.54,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C+", confidencePct: 54, edgePct: 1.2, scores: {} as never },
+      propHolistic: {
+        composite: 6,
+        grade: "C+",
+        confidencePct: 48,
+        coveragePct: 22,
+        missingCount: 5,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });

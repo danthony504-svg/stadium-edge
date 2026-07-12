@@ -195,6 +195,25 @@ function propHolisticGatePassed(
   return true;
 }
 
+/** Sim + edge staging bar for filling fixed-leg tickets when holistic context is thin. */
+export function propSimEdgeStagingQualifies(
+  pick: RecommendablePick,
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score || !pick.isProp) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if ((score.edgePct ?? 0) <= 0) return false;
+  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
+  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const implied = impliedProb(pick.odds);
+    if (score.simHit <= implied) return false;
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  return true;
+}
+
 /** True when a pick passes all AI recommendation thresholds (sim must agree). */
 export function pickIsAiRecommended(
   pick: RecommendablePick,

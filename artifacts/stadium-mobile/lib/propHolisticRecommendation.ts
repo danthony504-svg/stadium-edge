@@ -533,7 +533,37 @@ export function propQualifiesForTicketFill(
 
   const simFactor = holistic.factors.find((f) => f.key === "simulation");
   const valueFactor = holistic.factors.find((f) => f.key === "sportsbookValue");
-  return (simFactor?.score ?? 0) >= 5.5 && (valueFactor?.score ?? 0) >= 5.2;
+  const thinContext = holistic.missingCount >= 4;
+  const simMin = thinContext ? 5.0 : 5.5;
+  const valueMin = thinContext ? 5.0 : 5.2;
+  return (simFactor?.score ?? 0) >= simMin && (valueFactor?.score ?? 0) >= valueMin;
+}
+
+/** Build holistic breakdown for prop cards when only rubric/sim data is attached. */
+export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticScore | null {
+  if (!pick.isProp && !pick.player) return null;
+  const existing = pick.finalAiScore?.propHolistic;
+  if (existing) return existing;
+  const rubric =
+    pick.finalAiScore?.rubric?.scores ??
+    pick.scores?.scores ??
+    undefined;
+  if (!rubric && pick.finalAiScore?.simHit == null) return null;
+  return buildPropHolisticScore({
+    sport: pick.sport,
+    marketKey: pick.propMarketKey ?? pick.market,
+    propSide: pick.propSide,
+    rubricScores: rubric ?? {
+      matchup: null,
+      trend: null,
+      lineValue: null,
+      injury: null,
+      lineShopping: null,
+      simulation: null,
+    },
+    edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+    simHit: pick.finalAiScore?.simHit ?? null,
+  });
 }
 
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {
