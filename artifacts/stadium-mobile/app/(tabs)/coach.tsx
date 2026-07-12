@@ -281,6 +281,21 @@ const PENDING_BUILD_MAX_WAIT_MS = 120_000;
 const PENDING_POLL_MS = 5_000;
 const INSTANT_SLATE_SEED_MIN_LEGS = 3;
 
+/** Board-scan wall clock — props + game sims for deep fixed-leg asks. */
+function boardScanBudgetMs(targetLegs: number): number {
+  if (targetLegs >= 15) return 180_000;
+  if (targetLegs >= 9) return 150_000;
+  return 120_000;
+}
+
+/** Stall copy only when nothing has appeared — must exceed context fetch + board scan. */
+function buildStallBudgetMs(requestedLegs: number): number {
+  if (requestedLegs >= 15) return 300_000;
+  if (requestedLegs >= 9) return 240_000;
+  if (requestedLegs >= 6) return 180_000;
+  return 90_000;
+}
+
 type PendingBuild = {
   buildId: string;
   userText: string;
@@ -1322,7 +1337,7 @@ export default function CoachScreen() {
     if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
     setBuildProgressExpired(false);
     const progressMs =
-      legTarget >= 15 ? 150_000 : legTarget >= 9 ? 120_000 : legTarget >= 6 ? 90_000 : 25_000;
+      legTarget >= 15 ? 180_000 : legTarget >= 9 ? 150_000 : legTarget >= 6 ? 120_000 : 25_000;
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
       setMessages((prev) => scrubDeadBuildProseFromMessages(prev));
@@ -1335,8 +1350,7 @@ export default function CoachScreen() {
     (sendGen: number, userText: string) => {
       clearBuildStallWatchdog();
       const legs = requestedLegCount(userText);
-      const stallMs =
-        legs >= 15 ? 150_000 : legs >= 9 ? 120_000 : legs >= 6 ? 90_000 : 60_000;
+      const stallMs = buildStallBudgetMs(legs);
       buildStallTimerRef.current = setTimeout(() => {
         if (sendGenerationRef.current !== sendGen) return;
         setMessages((prev) => {
@@ -1346,17 +1360,14 @@ export default function CoachScreen() {
             copy[copy.length - 1] = {
               ...last,
               content:
-                "This build is taking longer than usual — the live board scan is still running. Tap below to try again, or wait a moment for pick cards to appear.",
+                "This build is taking longer than usual — the live board scan is still running. Pick cards should appear shortly; tap below only if nothing shows up after a few more minutes.",
               retry: userText,
+              parlayBuild: true,
             };
           }
           return copy;
         });
-        setBuildFinishing(false);
-        setStreaming(false);
-        setWaiting(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
+        setBuildProgressExpired(true);
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -2090,6 +2101,52 @@ export default function CoachScreen() {
             };
             patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
           }
+          let earlyReachBoardScanPromise: Promise<FullBoardScanResult | null> | null = null;
+          if (reachFullPreScanEligible && scanFeedsPromise) {
+            const reachTargetEarly = Math.min(legTarget, MAX_LEGS);
+            const seedBuilt = preAnalysisSeed?.built;
+            earlyReachBoardScanPromise = (async (): Promise<FullBoardScanResult | null> => {
+              try {
+                const { espnGames, oddsGames, liveFeed } = await scanFeedsPromise!;
+                if (seedBuilt) {
+                  flashEnrichRef.current = {
+                    realOdds: seedBuilt.context.realOdds,
+                    propPool: seedBuilt.propPool,
+                    gameMeta: seedBuilt.gameMeta,
+                    realGames: seedBuilt.context.realGames,
+                  };
+                }
+                setParlayBuildPhase("board-scan");
+                return await Promise.race([
+                  tryReachFullBoardScan({
+                    target: reachTargetEarly,
+                    oddsGames,
+                    propPool: seedBuilt?.propPool ?? [],
+                    realOdds: seedBuilt?.context.realOdds ?? [],
+                    liveOdds: liveFeed.odds,
+                    espnGames,
+                    gameMeta: seedBuilt?.gameMeta ?? [],
+                    teamIdMap: buildGameTeamIdMap(espnGames),
+                    excludedSports,
+                    matchupHistory: seedBuilt?.context.matchupHistory,
+                    matchupInjuries: seedBuilt?.context.matchupInjuries,
+                    playerHistory: seedBuilt?.context.playerHistory as
+                      | Record<string, PlayerHistorySlice>
+                      | undefined,
+                    perfByFamily: marketPerf,
+                    calibration: modelCalibration,
+                    onPartial: onBoardScanPartial,
+                    signal: abortRef.current?.signal,
+                  }),
+                  new Promise<null>((resolve) =>
+                    setTimeout(() => resolve(null), boardScanBudgetMs(reachTargetEarly)),
+                  ),
+                ]);
+              } catch {
+                return null;
+              }
+            })();
+          }
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -2189,6 +2246,26 @@ export default function CoachScreen() {
                 });
               }
               if (!seedMeetsTarget) {
+              if (earlyReachBoardScanPromise) {
+                const earlyScan = await earlyReachBoardScanPromise;
+                if (earlyScan?.picks?.length) {
+                  preBoardScan = latestBoardScanRef.current?.picks?.length
+                    ? latestBoardScanRef.current
+                    : earlyScan;
+                  flashBoardScanResult(preBoardScan, {
+                    ...flashEnrichRef.current,
+                    realOdds: [
+                      ...flashEnrichRef.current.realOdds,
+                      ...[...(preBoardScan.evalLinesByGame?.values() ?? [])].flat(),
+                    ],
+                  });
+                }
+              }
+              const scanSettled =
+                !!preBoardScan?.picks?.length &&
+                boardScanIsComplete(preBoardScan) &&
+                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan);
+              if (!scanSettled) {
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
                 : await (async () => {
@@ -2210,12 +2287,7 @@ export default function CoachScreen() {
                     return { espnGames: eg, oddsGames: og, liveFeed: lf };
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-              const boardScanMs =
-                reachTargetPreScan >= 15
-                  ? 180_000
-                  : reachTargetPreScan >= 9
-                    ? 150_000
-                    : 120_000;
+              const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
                   target: reachTargetPreScan,
@@ -2255,6 +2327,7 @@ export default function CoachScreen() {
                     ticketLegTarget: reachTargetPreScan,
                   });
                 }
+              }
               }
               }
             } catch {
@@ -2514,12 +2587,7 @@ export default function CoachScreen() {
                 odds: [],
               })),
             ]);
-            const reachBoardScanMs =
-              Math.min(legTarget, MAX_LEGS) >= 15
-                ? 180_000
-                : Math.min(legTarget, MAX_LEGS) >= 9
-                  ? 150_000
-                  : 120_000;
+            const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
             reachBoardScan = await Promise.race([
               tryReachFullBoardScan({
                 target: Math.min(legTarget, MAX_LEGS),
@@ -2940,8 +3008,7 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-          const inlineBoardScanMs =
-            reachTarget >= 15 ? 180_000 : reachTarget >= 9 ? 150_000 : 120_000;
+          const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
           const inlineScan = await Promise.race([
             tryReachFullBoardScan({
               target: reachTarget,
