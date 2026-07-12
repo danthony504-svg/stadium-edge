@@ -121,10 +121,12 @@ function HeaderTiles({
   data,
   gradeLabel,
   gradeCaption,
+  simGradePending,
 }: {
   data: CombinedPickScore;
   gradeLabel?: string | null;
   gradeCaption?: string | null;
+  simGradePending?: boolean;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -136,13 +138,15 @@ function HeaderTiles({
     edge == null ? colors.mutedForeground : edge >= 0 ? colors.success : colors.destructive;
   return (
     <View style={{ flexDirection: "row", gap: 8 }}>
-      <MetricTile
-        icon="award"
-        label="AI Grade"
-        value={displayGrade}
-        valueColor={gradeColor}
-        caption={gradeCaption ?? gradeBlurb(data.composite)}
-      />
+      {simGradePending ? null : (
+        <MetricTile
+          icon="award"
+          label="AI Grade"
+          value={displayGrade}
+          valueColor={gradeColor}
+          caption={gradeCaption ?? gradeBlurb(data.composite)}
+        />
+      )}
       <MetricTile
         icon="target"
         label="Confidence"
@@ -221,6 +225,7 @@ export function ScoreBreakdown({
   title,
   note,
   simulationPending,
+  simGradePending,
   gradeLabel,
   gradeCaption,
 }: {
@@ -229,6 +234,8 @@ export function ScoreBreakdown({
   title?: string;
   note?: string;
   simulationPending?: boolean;
+  /** Hide AI Grade tile until 10k sim lands — no "Not yet AI graded" placeholder. */
+  simGradePending?: boolean;
   gradeLabel?: string | null;
   gradeCaption?: string | null;
 }) {
@@ -242,8 +249,13 @@ export function ScoreBreakdown({
     if (data.composite == null) return null;
     return (
       <View style={{ gap: 8 }}>
-        <HeaderTiles data={data} gradeLabel={gradeLabel} gradeCaption={gradeCaption} />
-        {simulationPending ? (
+        <HeaderTiles
+          data={data}
+          gradeLabel={gradeLabel}
+          gradeCaption={gradeCaption}
+          simGradePending={simGradePending}
+        />
+        {simulationPending && !simGradePending ? (
           <Text
             style={{
               color: colors.mutedForeground,
@@ -308,8 +320,13 @@ export function ScoreBreakdown({
       >
         {title ?? "Pick Score"}
       </Text>
-      <HeaderTiles data={data} gradeLabel={gradeLabel} gradeCaption={gradeCaption} />
-      {simulationPending ? (
+      <HeaderTiles
+        data={data}
+        gradeLabel={gradeLabel}
+        gradeCaption={gradeCaption}
+        simGradePending={simGradePending}
+      />
+      {simulationPending && !simGradePending ? (
         <Text
           style={{
             color: colors.mutedForeground,
