@@ -106,6 +106,7 @@ import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "
 import { FONT } from "@/components/ui";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import * as Updates from "expo-updates";
+import Constants from "expo-constants";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
@@ -1078,6 +1079,13 @@ export default function CoachScreen() {
     }, 25_000);
   }, [scrollToEnd]);
 
+  const onBoardScanPartial = useCallback(
+    (partial: FullBoardScanResult) => {
+      flashCoachTicketPicks(partial.picks, partial.note);
+    },
+    [flashCoachTicketPicks],
+  );
+
   // Open the photo library and stash the chosen image as a pending attachment.
   // We downscale to <=1280px wide and JPEG-compress it so a phone screenshot
   // (often a multi-MB PNG) becomes a small base64 payload, well under the API's
@@ -1688,8 +1696,9 @@ export default function CoachScreen() {
                   playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
                   perfByFamily: marketPerf,
                   calibration: modelCalibration,
+                  onPartial: onBoardScanPartial,
                 }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), 120_000)),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
               ]);
               if (preBoardScan?.picks?.length) {
                 flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
@@ -1913,22 +1922,26 @@ export default function CoachScreen() {
                 odds: [],
               })),
             ]);
-            reachBoardScan = await tryReachFullBoardScan({
-              target: Math.min(legTarget, MAX_LEGS),
-              oddsGames,
-              propPool: mergedPropPool,
-              realOdds: context.realOdds,
-              liveOdds: liveFeed.odds,
-              espnGames,
-              gameMeta,
-              teamIdMap: buildGameTeamIdMap(espnGames),
-              excludedSports,
-              matchupHistory: context.matchupHistory,
-              matchupInjuries: context.matchupInjuries,
-              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-              perfByFamily: marketPerf,
-              calibration: modelCalibration,
-            });
+            reachBoardScan = await Promise.race([
+              tryReachFullBoardScan({
+                target: Math.min(legTarget, MAX_LEGS),
+                oddsGames,
+                propPool: mergedPropPool,
+                realOdds: context.realOdds,
+                liveOdds: liveFeed.odds,
+                espnGames,
+                gameMeta,
+                teamIdMap: buildGameTeamIdMap(espnGames),
+                excludedSports,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+                perfByFamily: marketPerf,
+                calibration: modelCalibration,
+                onPartial: onBoardScanPartial,
+              }),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
+            ]);
           }
         }
         let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
@@ -2245,23 +2258,27 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-          const inlineScan = await tryReachFullBoardScan({
-            target: reachTarget,
-            oddsGames,
-            propPool: mergedPropPool,
-            realOdds: context.realOdds,
-            liveOdds: liveFeed.odds,
-            espnGames,
-            gameMeta,
-            teamIdMap: scanTeamIdMap,
-            excludedSports,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            perfByFamily: marketPerf,
-            calibration: modelCalibration,
-            signal: abortRef.current?.signal,
-          });
+          const inlineScan = await Promise.race([
+            tryReachFullBoardScan({
+              target: reachTarget,
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta,
+              teamIdMap: scanTeamIdMap,
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              perfByFamily: marketPerf,
+              calibration: modelCalibration,
+              signal: abortRef.current?.signal,
+              onPartial: onBoardScanPartial,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
+          ]);
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
             picks = inlineScan.picks;
@@ -3666,6 +3683,7 @@ export default function CoachScreen() {
       scrollToEnd,
       flashCoachTicketPicks,
       armBuildProgressWatchdog,
+      onBoardScanPartial,
       attachedImages,
       isSignedIn,
       modelStrengths,
@@ -3885,8 +3903,12 @@ export default function CoachScreen() {
   }, []);
 
   const coachBundleStamp = useMemo(() => {
-    const id = Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
-    return id.length > 10 ? id.slice(0, 8) : id;
+    if (Updates.updateId) return Updates.updateId.slice(0, 8);
+    if (Updates.createdAt) {
+      const d = new Date(Updates.createdAt);
+      return `ota-${d.getUTCMonth() + 1}${String(d.getUTCDate()).padStart(2, "0")}`;
+    }
+    return `v${Constants.expoConfig?.version ?? "dev"}`;
   }, []);
 
   return (

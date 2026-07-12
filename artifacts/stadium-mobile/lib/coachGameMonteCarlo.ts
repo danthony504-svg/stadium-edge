@@ -194,47 +194,51 @@ export async function fetchSlateGameSimulations(
 ): Promise<Map<string, CoachGameSimEntry>> {
   const out = new Map<string, CoachGameSimEntry>();
   const entries = [...evalLinesByGame.entries()];
+  const SLATE_SIM_CONCURRENCY = 4;
 
-  await Promise.all(
-    entries.map(async ([gameLabel, lines]) => {
-      if (!lines.length) return;
-      const sport = lines[0]?.sport;
-      const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
-      if (!ids) return;
+  async function simGame([gameLabel, lines]: [string, RealOddsEntry[]]) {
+    if (!lines.length) return;
+    const sport = lines[0]?.sport;
+    const ids = resolveTeamIds(gameLabel, sport, teamIdsByGame);
+    if (!ids) return;
 
-      const seen = new Set<string>();
-      const coverQueries: GameCoverQuery[] = [];
-      for (const e of lines) {
-        const q = buildGameCoverQuery({
-          game: e.game,
-          market: e.market,
-          pick: e.pick,
-          odds: e.odds,
-          isProp: false,
-          sport: e.sport,
-        });
-        if (!q || seen.has(q.id)) continue;
-        seen.add(q.id);
-        coverQueries.push(q);
-      }
-      if (!coverQueries.length) return;
+    const seen = new Set<string>();
+    const coverQueries: GameCoverQuery[] = [];
+    for (const e of lines) {
+      const q = buildGameCoverQuery({
+        game: e.game,
+        market: e.market,
+        pick: e.pick,
+        odds: e.odds,
+        isProp: false,
+        sport: e.sport,
+      });
+      if (!q || seen.has(q.id)) continue;
+      seen.add(q.id);
+      coverQueries.push(q);
+    }
+    if (!coverQueries.length) return;
 
-      const result = await fetchGameOutcomeSimulation(
-        {
-          sport: ids.sport || sport || "mlb",
-          homeTeamId: ids.homeTeamId,
-          awayTeamId: ids.awayTeamId,
-          homeTeam: ids.homeTeam,
-          awayTeam: ids.awayTeam,
-          simulations: COACH_GAME_SIMS,
-          coverQueries,
-          retainOutcomes: true,
-        },
-        signal,
-      );
-      if (result) out.set(gameLabel, result as CoachGameSimEntry);
-    }),
-  );
+    const result = await fetchGameOutcomeSimulation(
+      {
+        sport: ids.sport || sport || "mlb",
+        homeTeamId: ids.homeTeamId,
+        awayTeamId: ids.awayTeamId,
+        homeTeam: ids.homeTeam,
+        awayTeam: ids.awayTeam,
+        simulations: COACH_GAME_SIMS,
+        coverQueries,
+        retainOutcomes: true,
+      },
+      signal,
+    );
+    if (result) out.set(gameLabel, result as CoachGameSimEntry);
+  }
+
+  for (let i = 0; i < entries.length; i += SLATE_SIM_CONCURRENCY) {
+    if (signal?.aborted) break;
+    await Promise.all(entries.slice(i, i + SLATE_SIM_CONCURRENCY).map(simGame));
+  }
 
   return out;
 }
