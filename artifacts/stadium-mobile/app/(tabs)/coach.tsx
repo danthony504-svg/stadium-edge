@@ -4527,7 +4527,7 @@ export default function CoachScreen() {
             />
           ) : null}
 
-          {!showQuickPrompts ? null : (
+          {showQuickPrompts ? (
             <View style={{ gap: 8, marginTop: 4 }}>
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
