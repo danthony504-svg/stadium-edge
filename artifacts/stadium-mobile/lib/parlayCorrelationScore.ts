@@ -30,6 +30,15 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
   let penalty = 0;
   const candGame = normGame(candidate.game);
 
+  // Thin stat markets (stolen bases, etc.) should not stack across a deep ticket.
+  if (candidate.isProp && candidate.market) {
+    const candMkt = candidate.market.toLowerCase();
+    const sameMkt = ticket.filter(
+      (l) => l.isProp && l.market.toLowerCase() === candMkt,
+    ).length;
+    if (sameMkt > 0) penalty += 10 * sameMkt;
+  }
+
   for (const leg of ticket) {
     const legGame = normGame(leg.game);
     if (legGame !== candGame) {

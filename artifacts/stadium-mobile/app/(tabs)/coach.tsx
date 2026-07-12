@@ -119,6 +119,7 @@ import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardS
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   shouldAllowReachCountBackfill,
+  shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
@@ -2595,6 +2596,11 @@ export default function CoachScreen() {
         });
         const boardScanReachFill = promoteQualifyingAlts && fullBoardScanned;
         const reachFillEligible = reachFull || boardScanReachFill;
+        const blockUngradedTopUp = shouldBlockUngradedParlayTopUp({
+          promoteQualifyingAlts,
+          fullBoardScanned,
+          reachBoardEligible,
+        });
         const parlayRejections: ParlayLegReject[] = [];
         const composeFromBoard =
           !isAnalyze &&
@@ -2860,7 +2866,7 @@ export default function CoachScreen() {
             boardBuilt = true;
             diversityNote = inlineScan.note;
           }
-        } else if (forceBoardBuild) {
+        } else if (forceBoardBuild && !blockUngradedTopUp) {
           picks = assembleDeepParlayFromBoard(
             reachTarget,
             mergedPropPool,
@@ -3242,7 +3248,7 @@ export default function CoachScreen() {
           picks = await buildParlaySalvagePicks({ ...salvageBuildOpts, target: tgt });
           if (picks.length > 0) salvageBuilt = true;
         }
-        if (forceBoardBuild) {
+        if (forceBoardBuild && !blockUngradedTopUp) {
           let finalPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-final`);
           if (slateDay) finalPool = filterOddsForSlateDay(finalPool, slateDay);
           picks = finalizeDeepParlayTicket(
@@ -3502,6 +3508,7 @@ export default function CoachScreen() {
         }
         if (
           forceBoardBuild &&
+          !blockUngradedTopUp &&
           !isAnalyze &&
           picks.length < reachTarget &&
           !oddsThreshold &&
@@ -4169,7 +4176,9 @@ export default function CoachScreen() {
                 : existingPicks?.length
                   ? existingPicks
                   : picks;
-          return isParlayBuild && legTarget >= 3 ? stripFillerBackfillPicks(raw) : raw;
+          return isParlayBuild && legTarget >= 3
+            ? tagTicketRoles(stripFillerBackfillPicks(raw))
+            : raw;
         };
         let outPicks: ParsedPick[] = [];
         setMessages((prev) => {

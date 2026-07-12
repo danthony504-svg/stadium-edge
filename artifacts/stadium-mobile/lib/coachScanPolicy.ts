@@ -49,6 +49,18 @@ export function stripFillerBackfillPicks<T extends { edge?: string | null }>(pic
   return picks.filter((p) => !isFillerBackfillPick(p));
 }
 
+/** Block assembleDeepParlay / finalizeDeepParlay / ungraded replenish on fixed-leg asks. */
+export function shouldBlockUngradedParlayTopUp(opts: {
+  promoteQualifyingAlts?: boolean;
+  fullBoardScanned?: boolean;
+  reachBoardEligible?: boolean;
+}): boolean {
+  if (opts.promoteQualifyingAlts) return true;
+  if (opts.fullBoardScanned) return true;
+  if (opts.reachBoardEligible) return true;
+  return false;
+}
+
 /** Never pad 3+ leg parlays with ungraded posted lines when a board scan applies. */
 export function shouldAllowReachCountBackfill(opts: {
   fullBoardScanned?: boolean;

@@ -10,6 +10,7 @@ import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
 import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
+import { isFillerBackfillPick } from "./coachScanPolicy.ts";
 
 export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
   propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
@@ -304,7 +305,8 @@ export function sanitizeCoachTicketPicks<
     player?: string;
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
-  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const gated = filterTicketPicks(enriched);
   const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
   return filterBettablePicks(kept.map(stripHrvpFromPick));
@@ -358,7 +360,8 @@ export function coachDeliverBoardScanPicks<
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!picks.length) return [];
-  const normalized = normalizeBoardScanPicks(picks);
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const normalized = normalizeBoardScanPicks(noFiller);
   const board = prepareBoardScanDelivery(normalized, enrich);
   if (board.length > 0) return board;
   const flash = coachFlashTicketPicks(normalized, enrich);
@@ -466,17 +469,18 @@ export function finalizeCoachTicketPicks<
   enrich?: CoachPickEnrichSources,
 ): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
   if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
-  const strict = sanitizeCoachTicketPicks(picks, enrich);
+  const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
+  const strict = sanitizeCoachTicketPicks(noFiller, enrich);
   if (strict.length > 0) {
-    return { picks: strict, removed: picks.length - strict.length, usedRescoringFallback: false };
+    return { picks: strict, removed: noFiller.length - strict.length, usedRescoringFallback: false };
   }
-  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const preserved = filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick);
   const bettablePreserved = filterBettablePicks(preserved);
   if (bettablePreserved.length > 0) {
     return {
       picks: bettablePreserved,
-      removed: picks.length - bettablePreserved.length,
+      removed: noFiller.length - bettablePreserved.length,
       usedRescoringFallback: true,
     };
   }
@@ -484,7 +488,7 @@ export function finalizeCoachTicketPicks<
   const board = flash.length > 0 ? flash : prepareBoardScanDelivery(enriched, enrich);
   return {
     picks: board,
-    removed: picks.length - board.length,
+    removed: noFiller.length - board.length,
     usedRescoringFallback: board.length > 0,
   };
 }

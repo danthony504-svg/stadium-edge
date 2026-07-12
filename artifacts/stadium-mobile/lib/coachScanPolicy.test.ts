@@ -6,6 +6,7 @@ import {
   isFillerBackfillPick,
   isFixedLegCountParlay,
   shouldAllowReachCountBackfill,
+  shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "./coachScanPolicy.ts";
@@ -86,6 +87,28 @@ test("shouldPromoteQualifyingAltsForFixedLegTicket gates fixed-leg parlay builds
 test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /Every qualifying market/i);
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /AI-backed picks/i);
+});
+
+test("shouldBlockUngradedParlayTopUp blocks fixed-leg and board-scan parlays", () => {
+  assert.equal(
+    shouldBlockUngradedParlayTopUp({
+      promoteQualifyingAlts: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockUngradedParlayTopUp({
+      fullBoardScanned: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockUngradedParlayTopUp({
+      reachBoardEligible: true,
+    }),
+    true,
+  );
+  assert.equal(shouldBlockUngradedParlayTopUp({}), false);
 });
 
 test("stripFillerBackfillPicks removes round-out posted lines", () => {
