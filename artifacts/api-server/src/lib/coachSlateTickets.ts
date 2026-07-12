@@ -8,6 +8,7 @@ import {
   type RealOddsEntry,
   type SlateTicketsIndex,
 } from "./coachSlateTypes.js";
+import { dedupeServerCoachGameLinePicks } from "./coachSlateGameSideConsistency.js";
 
 type RankedLeg = { pick: ParsedPick; rankScore: number; isAlt: boolean };
 
@@ -29,18 +30,25 @@ function scanFromRanked(
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
+    matchupHistory?: Record<string, unknown>;
   },
   stageTicket: StageTicketFn,
 ): FullBoardScanResult {
   const sorted = [...ranked].sort((a, b) => b.rankScore - a.rankScore);
-  const { picks, breakdown } = stageTicket(sorted, target);
+  const staged = stageTicket(sorted, target);
+  const picks = dedupeServerCoachGameLinePicks(staged.picks, {
+    simByGame: ctx.gameSimulations,
+    matchupHistory: ctx.matchupHistory as
+      | Record<string, { mlLean?: { side?: string } }>
+      | undefined,
+  });
   return {
     picks,
     evalLinesByGame: ctx.evalLinesByGame,
     gameSimulations: ctx.gameSimulations,
     totalScanned: ctx.totalScanned,
     totalQualified: sorted.length,
-    staging: breakdown,
+    staging: staged.breakdown,
     note: scanNote(target, picks.length, ctx.totalScanned, sorted.length),
   };
 }
@@ -53,6 +61,7 @@ export function buildSlateTicketsIndex(
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
     sports: string[];
+    matchupHistory?: Record<string, unknown>;
   },
   stageTicket: StageTicketFn,
 ): SlateTicketsIndex {
@@ -93,6 +102,7 @@ export function primaryBoardScanFromRanked(
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
+    matchupHistory?: Record<string, unknown>;
   },
   stageTicket: StageTicketFn,
 ): FullBoardScanResult {

@@ -69,8 +69,15 @@ export function isFillerBackfillPick(pick: { edge?: string | null }): boolean {
   return pick.edge === FILLER_BACKFILL_EDGE_NOTE;
 }
 
-export function stripFillerBackfillPicks<T extends { edge?: string | null }>(picks: T[]): T[] {
-  return picks.filter((p) => !isFillerBackfillPick(p));
+export function stripFillerBackfillPicks<
+  T extends { edge?: string | null; isProp?: boolean },
+>(picks: T[]): T[] {
+  const hasBoardProps = picks.some((p) => p.isProp && !isFillerBackfillPick(p));
+  return picks.filter((p) => {
+    if (!isFillerBackfillPick(p)) return true;
+    if (p.isProp && !hasBoardProps) return true;
+    return false;
+  });
 }
 
 /** Block assembleDeepParlay / finalizeDeepParlay / ungraded replenish on fixed-leg asks. */
