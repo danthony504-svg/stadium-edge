@@ -71,6 +71,21 @@ export function shouldBlockUngradedParlayTopUp(opts: {
   return false;
 }
 
+/** True when a board-scan result filled the requested fixed leg count. */
+export function boardScanMeetsLegTarget(
+  scan: { picks?: { length: number } } | null | undefined,
+  requestedLegs: number,
+): boolean {
+  return (scan?.picks?.length ?? 0) >= requestedLegs;
+}
+
+/** True when a board-scan finished evaluating the live board (not a partial preview). */
+export function boardScanIsComplete(
+  scan: { scanComplete?: boolean } | null | undefined,
+): boolean {
+  return scan?.scanComplete === true;
+}
+
 /** Never pad 3+ leg parlays with ungraded posted lines when a board scan applies. */
 export function shouldAllowReachCountBackfill(opts: {
   fullBoardScanned?: boolean;

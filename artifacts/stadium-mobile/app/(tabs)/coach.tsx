@@ -118,6 +118,8 @@ import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
 import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
+  boardScanIsComplete,
+  boardScanMeetsLegTarget,
   shouldAllowReachCountBackfill,
   shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
@@ -1521,7 +1523,11 @@ export default function CoachScreen() {
           const ticket = boardScanPartialToTicket(seed.boardScan, enrich);
           if (ticket.length) {
             openingPicks = ticket;
-            openingLegNote = seed.boardScan.note;
+            openingLegNote =
+              earlyLegTarget > 0 && ticket.length < earlyLegTarget
+                ? seed.boardScan.note ||
+                  `You asked for **${earlyLegTarget}** legs — showing **${ticket.length}** from the precomputed slate while the full-board scan continues.`
+                : seed.boardScan.note;
           }
         }
       }
@@ -2110,6 +2116,11 @@ export default function CoachScreen() {
           if (reachFullPreScan) {
             didReachFullPreScan = true;
             try {
+              const seedScanComplete =
+                !!preBoardScan?.picks?.length && boardScanIsComplete(preBoardScan);
+              const seedMeetsTarget =
+                seedScanComplete &&
+                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan);
               if (preBoardScan?.picks?.length) {
                 flashBoardScanResult(preBoardScan, {
                   ...flashEnrichRef.current,
@@ -2118,7 +2129,8 @@ export default function CoachScreen() {
                     ...[...preBoardScan.evalLinesByGame.values()].flat(),
                   ],
                 });
-              } else {
+              }
+              if (!seedMeetsTarget) {
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
                 : await (async () => {
@@ -2189,9 +2201,19 @@ export default function CoachScreen() {
                     : null;
             }
           }
-          const skipModelStreamForBoardScan =
-            !!(preBoardScan?.picks?.length || latestBoardScanRef.current?.picks?.length) &&
-            reachFullPreScan;
+          const skipModelStreamForBoardScan = (() => {
+            const seedScan = preBoardScan?.picks?.length
+              ? preBoardScan
+              : latestBoardScanRef.current?.picks?.length
+                ? latestBoardScanRef.current
+                : null;
+            return (
+              !!seedScan?.picks?.length &&
+              reachFullPreScan &&
+              boardScanIsComplete(seedScan) &&
+              boardScanMeetsLegTarget(seedScan, reachTargetPreScan)
+            );
+          })();
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -2404,11 +2426,14 @@ export default function CoachScreen() {
           confidenceThreshold,
         });
         if (reachBoardEligible) {
-          if (preBoardScan?.picks?.length) {
-            reachBoardScan = preBoardScan;
-          } else if (latestBoardScanRef.current?.picks?.length) {
-            reachBoardScan = latestBoardScanRef.current;
-          } else if (!didReachFullPreScan) {
+          const cachedBoardScan = preBoardScan?.picks?.length
+            ? preBoardScan
+            : latestBoardScanRef.current?.picks?.length
+              ? latestBoardScanRef.current
+              : null;
+          if (cachedBoardScan && boardScanIsComplete(cachedBoardScan)) {
+            reachBoardScan = cachedBoardScan;
+          } else if (!didReachFullPreScan || !boardScanIsComplete(cachedBoardScan)) {
             const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
               (s) => !excludedSports.has(s),
             );
@@ -2424,6 +2449,12 @@ export default function CoachScreen() {
                 odds: [],
               })),
             ]);
+            const reachBoardScanMs =
+              Math.min(legTarget, MAX_LEGS) >= 15
+                ? 180_000
+                : Math.min(legTarget, MAX_LEGS) >= 9
+                  ? 150_000
+                  : 120_000;
             reachBoardScan = await Promise.race([
               tryReachFullBoardScan({
                 target: Math.min(legTarget, MAX_LEGS),
@@ -2442,16 +2473,21 @@ export default function CoachScreen() {
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
               }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
             if (!reachBoardScan?.picks?.length && latestBoardScanRef.current?.picks?.length) {
               reachBoardScan = latestBoardScanRef.current;
             }
           }
         }
-        let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
+        let fullBoardScanned =
+          boardScanIsComplete(reachBoardScan) || boardScanIsComplete(preBoardScan);
         let fullBoardScanMeta: FullBoardScanResult | null =
-          reachBoardScan?.picks?.length ? reachBoardScan : preBoardScan?.picks?.length ? preBoardScan : null;
+          reachBoardScan?.picks?.length
+            ? reachBoardScan
+            : preBoardScan?.picks?.length
+              ? preBoardScan
+              : null;
         if (fullBoardScanMeta?.picks?.length) {
           const scanOdds = fullBoardScanMeta.evalLinesByGame
             ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
@@ -2816,7 +2852,7 @@ export default function CoachScreen() {
           });
         if (!fullBoardScanned && (preBoardScan || reachBoardScan)) {
           const boardScanResult = reachBoardScan ?? preBoardScan!;
-          if (boardScanResult.picks.length > 0) {
+          if (boardScanIsComplete(boardScanResult)) {
             picks = boardScanResult.picks;
             fullBoardScanMeta = boardScanResult;
             fullBoardScanned = true;
@@ -2838,6 +2874,8 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
+          const inlineBoardScanMs =
+            reachTarget >= 15 ? 180_000 : reachTarget >= 9 ? 150_000 : 120_000;
           const inlineScan = await Promise.race([
             tryReachFullBoardScan({
               target: reachTarget,
@@ -2857,12 +2895,14 @@ export default function CoachScreen() {
               signal: abortRef.current?.signal,
               onPartial: onBoardScanPartial,
             }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
           ]);
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
             picks = inlineScan.picks;
-            fullBoardScanned = true;
+            if (boardScanIsComplete(inlineScan)) {
+              fullBoardScanned = true;
+            }
             boardBuilt = true;
             diversityNote = inlineScan.note;
           }

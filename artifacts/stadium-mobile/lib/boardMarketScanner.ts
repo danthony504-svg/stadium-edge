@@ -91,6 +91,8 @@ export type FullBoardScanResult = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
+  scanComplete?: boolean;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -411,6 +413,7 @@ function buildScanResult(
     totalQualified,
     staging: breakdown,
     note,
+    scanComplete: !opts.preview,
   };
 }
 

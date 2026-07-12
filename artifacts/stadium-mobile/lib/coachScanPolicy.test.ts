@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  boardScanIsComplete,
+  boardScanMeetsLegTarget,
   COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
   FILLER_BACKFILL_EDGE_NOTE,
@@ -94,6 +96,19 @@ test("COACH_EXHAUSTIVE_MARKET_LADDER_POLICY documents alt ladder exhaustion", ()
 test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /Every qualifying market/i);
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /AI-backed picks/i);
+});
+
+test("boardScanMeetsLegTarget requires picks length >= requested legs", () => {
+  assert.equal(boardScanMeetsLegTarget({ picks: { length: 7 } }, 15), false);
+  assert.equal(boardScanMeetsLegTarget({ picks: { length: 15 } }, 15), true);
+  assert.equal(boardScanMeetsLegTarget(null, 8), false);
+});
+
+test("boardScanIsComplete distinguishes partial previews from settled scans", () => {
+  assert.equal(boardScanIsComplete({ scanComplete: true }), true);
+  assert.equal(boardScanIsComplete({ scanComplete: false }), false);
+  assert.equal(boardScanIsComplete({}), false);
+  assert.equal(boardScanIsComplete(null), false);
 });
 
 test("shouldBlockUngradedParlayTopUp blocks fixed-leg and board-scan parlays", () => {

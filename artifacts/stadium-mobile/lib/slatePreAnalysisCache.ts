@@ -28,6 +28,7 @@ export type SerializedBoardScan = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  scanComplete?: boolean;
 };
 
 export type SlateTicketsIndex = {
@@ -149,6 +150,7 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
     totalQualified: scan.totalQualified,
     staging: scan.staging,
     note: scan.note,
+    scanComplete: scan.scanComplete ?? true,
   };
 }
 
@@ -161,6 +163,7 @@ export function deserializeBoardScan(raw: SerializedBoardScan): FullBoardScanRes
     totalQualified: raw.totalQualified,
     staging: raw.staging,
     note: raw.note,
+    scanComplete: raw.scanComplete ?? true,
   };
 }
 
