@@ -1,5 +1,4 @@
 import { AppState, Platform } from "react-native";
-import * as Notifications from "expo-notifications";
 
 export { coachTicketUpgraded } from "./coachTicketUpgrade.ts";
 
@@ -11,6 +10,7 @@ export async function notifyCoachTicketOptimized(
   if (AppState.currentState === "active") return;
   if (Platform.OS === "web") return;
   try {
+    const Notifications = await import("expo-notifications");
     await Notifications.scheduleNotificationAsync({
       content: {
         title: upgraded ? "Ticket upgraded" : "Ticket optimized",
