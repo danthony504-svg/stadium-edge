@@ -47,7 +47,7 @@ const altScore = {
   confidencePct: 52,
   edgePct: 1.5,
   simHit: 0.53,
-  simAligned: false,
+  simAligned: true,
   highRiskValuePlay: false,
   recommends: false,
   factors: [],

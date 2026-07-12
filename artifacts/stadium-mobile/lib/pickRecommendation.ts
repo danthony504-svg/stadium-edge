@@ -31,22 +31,22 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
-/** True when a pick passes all AI recommendation thresholds. */
+/** True when a pick passes all AI recommendation thresholds (sim must agree). */
 export function pickIsAiRecommended(
   pick: RecommendablePick,
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
-  if (!score.simAligned && !score.highRiskValuePlay) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);
-    if (score.simHit <= implied && !score.highRiskValuePlay) return false;
+    if (score.simHit <= implied) return false;
     const ev = simEvPct(score.simHit, pick.odds);
-    if (ev != null && ev <= 0 && !score.highRiskValuePlay) return false;
+    if (ev != null && ev <= 0) return false;
   }
   return score.recommends;
 }
@@ -66,10 +66,13 @@ export function qualifiesAltPick(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if ((score.confidencePct ?? 0) < ALT_PICK_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
+    const implied = impliedProb(pick.odds);
+    if (score.simHit <= implied) return false;
     const ev = simEvPct(score.simHit, pick.odds);
     if (ev != null && ev <= 0) return false;
   }
@@ -165,6 +168,7 @@ export function filterTicketPicksPreservingTicket<
   const rescoringFallback = [...picks]
     .filter((p) => {
       if (!pickHasSimGrade(p, p.finalAiScore?.simHit)) return false;
+      if (!p.finalAiScore?.simAligned) return false;
       const edge = p.finalAiScore?.edgePct;
       return edge != null && edge > 0;
     })

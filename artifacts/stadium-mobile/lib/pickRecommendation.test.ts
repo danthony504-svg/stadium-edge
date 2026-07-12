@@ -20,7 +20,7 @@ test("qualifiesAltPick accepts alt ladder legs at the main confidence bar", () =
     confidencePct: 52,
     edgePct: 1.2,
     simHit: 0.52,
-    simAligned: false,
+    simAligned: true,
     highRiskValuePlay: false,
     recommends: false,
     factors: [],
@@ -78,8 +78,8 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
       grade: "C+",
       confidencePct: 52,
       edgePct: 1.1,
-      simHit: 0.51,
-      simAligned: false,
+      simHit: 0.55,
+      simAligned: true,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
@@ -91,8 +91,27 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
   assert.equal(out[0]?.ticketRole, "alt");
 });
 
-test("filterTicketPicksPreservingTicket keeps sim-graded positive-edge legs after rescoring", () => {
-  const reachLeg = {
+test("pickIsAiRecommended rejects High-Risk Value Play when sim disagrees", () => {
+  const hrVp = {
+    composite: 7,
+    grade: "B",
+    confidencePct: 58,
+    edgePct: 12,
+    simHit: 0.32,
+    simAligned: false,
+    highRiskValuePlay: true,
+    recommends: true,
+    factors: [],
+    rubric: { composite: 7, grade: "B", confidencePct: 58, edgePct: 12, scores: {} as never },
+  };
+  assert.equal(
+    pickIsAiRecommended({ market: "Moneyline", sport: "mlb", odds: 135 }, hrVp),
+    false,
+  );
+});
+
+test("filterTicketPicksPreservingTicket drops sim-opposed legs from rescoring fallback", () => {
+  const simOpposed = {
     game: "MIL @ STL",
     market: "Moneyline",
     pick: "Brewers ML",
@@ -105,13 +124,36 @@ test("filterTicketPicksPreservingTicket keeps sim-graded positive-edge legs afte
       edgePct: 1.4,
       simHit: 0.48,
       simAligned: false,
+      highRiskValuePlay: true,
+      recommends: true,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C+", confidencePct: 52, edgePct: 1.4, scores: {} as never },
+    },
+  };
+  assert.equal(filterTicketPicksPreservingTicket([simOpposed]).length, 0);
+});
+
+test("filterTicketPicksPreservingTicket keeps sim-aligned positive-edge legs after rescoring", () => {
+  const aligned = {
+    game: "MIL @ STL",
+    market: "Moneyline",
+    pick: "Brewers ML",
+    odds: 130,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.4,
+      simHit: 0.55,
+      simAligned: true,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
       rubric: { composite: 6.2, grade: "C+", confidencePct: 52, edgePct: 1.4, scores: {} as never },
     },
   };
-  const out = filterTicketPicksPreservingTicket([reachLeg]);
+  const out = filterTicketPicksPreservingTicket([aligned]);
   assert.equal(out.length, 1);
   assert.equal(out[0].pick, "Brewers ML");
 });
@@ -153,8 +195,8 @@ test("filterTicketPicks keeps staged alt legs that fail strict main gate", () =>
       grade: "C+",
       confidencePct: 52,
       edgePct: 1.1,
-      simHit: 0.51,
-      simAligned: false,
+      simHit: 0.55,
+      simAligned: true,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
@@ -268,10 +310,10 @@ test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML",
     grade: "B-",
     confidencePct: 58,
     edgePct: 2.5,
-    simHit: 0.52,
-    simAligned: false,
+    simHit: 0.55,
+    simAligned: true,
     highRiskValuePlay: false,
-    recommends: false,
+    recommends: true,
     factors: [],
     rubric: { composite: 6, grade: "B-", confidencePct: 58, edgePct: 2.5, scores: {} as never },
   };
@@ -279,6 +321,6 @@ test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML",
   assert.equal(pickGradeDisplayLabel(pick, score), "B-");
   assert.equal(
     pickGradeDisplayCaption(pick, score),
-    "Alternate pick — positive EV, edge, and sim grade",
+    "Passes sim, edge, EV, and confidence thresholds",
   );
 });
