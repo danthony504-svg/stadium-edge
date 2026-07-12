@@ -26,6 +26,10 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
         const check = await Updates.checkForUpdateAsync();
         if (check.isAvailable) {
           await Updates.fetchUpdateAsync();
+          // Always reload after a fresh download so users never run a mixed
+          // embedded + OTA chunk tree (causes phantom "Property X doesn't exist").
+          await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+          return;
         }
         const pending = pendingBefore || !!latestContext?.isUpdatePending;
         if (pending) {

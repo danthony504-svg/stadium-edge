@@ -117,8 +117,9 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
               marginTop: 4,
             }}
           >
-            A bad app update may be cached on this device. Delete Stadium Edge, reinstall
-            from TestFlight, then reopen.
+            A mixed app update is cached on this device (not a Coach or Home bug).
+            Delete Stadium Edge, reinstall from TestFlight, then reopen once. Do not
+            tap Try Again repeatedly — that can download another partial bundle.
           </Text>
         ) : null}
 

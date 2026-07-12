@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import type * as ExpoNotifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import {
@@ -21,17 +21,40 @@ export {
   unregisterPushToken as unregister,
 };
 
-// Foreground behavior: still show the banner + play a sound when a push lands
-// while the app is open (otherwise iOS suppresses in-app notifications). Set at
-// module load so it's registered before any notification can arrive.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+type NotificationsModule = typeof ExpoNotifications;
+
+let notificationsMod: NotificationsModule | null = null;
+let handlerReady: Promise<void> | null = null;
+
+async function loadNotifications(): Promise<NotificationsModule | null> {
+  if (notificationsMod) return notificationsMod;
+  try {
+    notificationsMod = await import("expo-notifications");
+    return notificationsMod;
+  } catch {
+    return null;
+  }
+}
+
+/** Install foreground handler after OTA gate — avoids import-time native crashes. */
+export async function ensureNotificationsReady(): Promise<boolean> {
+  if (!handlerReady) {
+    handlerReady = (async () => {
+      const Notifications = await loadNotifications();
+      if (!Notifications) return;
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        }),
+      });
+    })();
+  }
+  await handlerReady;
+  return notificationsMod != null;
+}
 
 // EAS project id is required to mint an Expo push token. Read from the static
 // app.json (extra.eas.projectId); fall back to the known id as a safety net.
@@ -44,6 +67,10 @@ const PROJECT_ID =
 // push isn't available (simulator/web, denied permission, or a token failure).
 // Safe to call repeatedly — the server upserts by token.
 export async function registerForPushAsync(): Promise<string | null> {
+  if (!(await ensureNotificationsReady())) return null;
+
+  const Notifications = notificationsMod!;
+
   // Push tokens only exist on real hardware (also false on web).
   if (!Device.isDevice) return null;
 
@@ -82,8 +109,9 @@ export async function registerForPushAsync(): Promise<string | null> {
 
 // Current OS-level permission status (granted / denied / undetermined). Used by
 // the settings screen to surface a "denied — open Settings" hint.
-export async function getPermissionStatus(): Promise<Notifications.PermissionStatus> {
-  const { status } = await Notifications.getPermissionsAsync();
+export async function getPermissionStatus(): Promise<ExpoNotifications.PermissionStatus> {
+  if (!(await ensureNotificationsReady())) return "undetermined" as ExpoNotifications.PermissionStatus;
+  const { status } = await notificationsMod!.getPermissionsAsync();
   return status;
 }
 
@@ -92,10 +120,12 @@ type NavFn = (path: string) => void;
 // Deep-link a notification tap to the right screen based on data.type. Falls
 // back to home for unknown/absent types. Returns the subscription so the caller
 // can clean it up.
-export function addNotificationResponseListener(
+export async function addNotificationResponseListener(
   navigate: NavFn,
-): ReturnType<typeof Notifications.addNotificationResponseReceivedListener> {
-  return Notifications.addNotificationResponseReceivedListener((response) => {
+): Promise<{ remove: () => void } | null> {
+  if (!(await ensureNotificationsReady())) return null;
+
+  return notificationsMod!.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data as
       | { type?: string; buildId?: string }
       | undefined;

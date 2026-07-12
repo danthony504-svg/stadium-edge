@@ -82,8 +82,13 @@ function PushNotificationsBridge() {
   }, [isSignedIn]);
 
   useEffect(() => {
-    const sub = addNotificationResponseListener((path) => router.navigate(path as never));
-    return () => sub.remove();
+    let sub: { remove: () => void } | null = null;
+    void addNotificationResponseListener((path) => router.navigate(path as never)).then(
+      (listener) => {
+        sub = listener;
+      },
+    );
+    return () => sub?.remove();
   }, [router]);
 
   return null;
