@@ -7,17 +7,34 @@ import {
   computeSlateFingerprint,
   isSlateSnapshotFresh,
   serializeBoardScan,
+  SLATE_PARLAY_SIZES,
   SLATE_PRE_ANALYSIS_MAX_MS,
+  SLATE_PRE_ANALYSIS_TARGET,
   type SlatePreAnalysisSnapshot,
+  type SlateTicketsIndex,
 } from "./coachSlateTypes.js";
 
 let jobRunning = false;
+
+export function isCoachSlateJobRunning(): boolean {
+  return jobRunning;
+}
+
+/** Fire-and-forget refresh when GET serves a stale snapshot — keeps slate warm 24/7. */
+export function scheduleCoachSlateRefresh(reason = "stale-serve"): void {
+  if (jobRunning) return;
+  void runCoachSlateJob()
+    .then((r) => logger.info({ reason, summary: r.summary }, "coach slate background refresh"))
+    .catch((err) => logger.warn({ err, reason }, "coach slate background refresh failed"));
+}
 
 export type CoachSlateJobSummary = {
   skipped: boolean;
   reason?: string;
   fingerprint?: string;
   boardScanPicks?: number;
+  ticketSizes?: number;
+  sports?: number;
   propSimCount?: number;
   oddsCount?: number;
   propPoolCount?: number;
@@ -25,7 +42,17 @@ export type CoachSlateJobSummary = {
   deepSimComplete?: boolean;
 };
 
-/** 24/7 AI Coach slate pre-analysis — warms caches, scans board, persists snapshot. */
+function ticketsHaveMinCoverage(tickets: SlateTicketsIndex | null | undefined): boolean {
+  if (!tickets?.global) return false;
+  return (
+    (tickets.global[15]?.picks.length ??
+      tickets.global[10]?.picks.length ??
+      tickets.global[3]?.picks.length ??
+      0) > 0
+  );
+}
+
+/** 24/7 AI Coach slate pre-analysis — warms caches, scans board, persists all ticket sizes. */
 export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlateJobSummary }> {
   if (jobRunning) {
     return { ok: true, summary: { skipped: true, reason: "already-running" } };
@@ -41,12 +68,18 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
 
     const built = await buildServerCompactParlayContext();
     const fingerprint = computeSlateFingerprint(built);
+    const activeSports = built.context.selectedSports ?? [];
+
+    const ageMs = existing.snapshot ? Date.now() - existing.snapshot.at : Infinity;
+    const halfTtl = SLATE_PRE_ANALYSIS_MAX_MS / 2;
 
     if (
       existing.snapshot &&
       existing.snapshot.fingerprint === fingerprint &&
       isSlateSnapshotFresh(existing.snapshot) &&
-      (existing.snapshot.boardScan?.picks?.length ?? 0) > 0 &&
+      ageMs < halfTtl &&
+      (existing.snapshot.boardScan?.picks?.length ?? 0) >= SLATE_PRE_ANALYSIS_TARGET &&
+      ticketsHaveMinCoverage(existing.snapshot.tickets) &&
       existing.deepSimComplete
     ) {
       return {
@@ -56,6 +89,8 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
           reason: "unchanged-fresh",
           fingerprint,
           boardScanPicks: existing.snapshot.boardScan?.picks?.length ?? 0,
+          ticketSizes: Object.keys(existing.snapshot.tickets?.global ?? {}).length,
+          sports: activeSports.length,
           durationMs: Date.now() - started,
           deepSimComplete: existing.deepSimComplete,
         },
@@ -63,7 +98,30 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     }
 
     const propSimulations = await enrichServerPropSims(built);
-    const boardScan = await runServerBoardScan(built, { deepSim: true });
+
+    let lastPartialAt = 0;
+    const { scan: boardScan, tickets } = await runServerBoardScan(built, {
+      deepSim: true,
+      onPartial: async (partial, partialTickets) => {
+        if (!partial.picks.length) return;
+        const now = Date.now();
+        if (now - lastPartialAt < 4000) return;
+        lastPartialAt = now;
+        const partialSnapshot: SlatePreAnalysisSnapshot = {
+          at: now,
+          fingerprint,
+          built,
+          propSimulations: [...propSimulations.entries()],
+          boardScan: serializeBoardScan(partial),
+          tickets: partialTickets,
+          activeSports,
+          deepSimComplete: false,
+        };
+        await persistCoachPrecomputedSlate(partialSnapshot).catch((err) => {
+          logger.warn({ err }, "coach slate partial persist failed");
+        });
+      },
+    });
 
     const snapshot: SlatePreAnalysisSnapshot = {
       at: Date.now(),
@@ -71,6 +129,8 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
       built,
       propSimulations: [...propSimulations.entries()],
       boardScan: boardScan.picks.length ? serializeBoardScan(boardScan) : null,
+      tickets,
+      activeSports,
       deepSimComplete: true,
     };
 
@@ -80,6 +140,8 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
       skipped: false,
       fingerprint: snapshot.fingerprint,
       boardScanPicks: boardScan.picks.length,
+      ticketSizes: Object.keys(tickets.global).length,
+      sports: activeSports.length,
       propSimCount: propSimulations.size,
       oddsCount: built.context.realOdds.length,
       propPoolCount: built.propPool.length,

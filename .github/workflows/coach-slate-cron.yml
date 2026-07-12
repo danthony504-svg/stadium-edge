@@ -2,8 +2,8 @@ name: Coach slate cron
 
 on:
   schedule:
-    # Every 5 minutes — keeps AI Coach precomputed slate warm 24/7.
-    - cron: "*/5 * * * *"
+    # Every 2 minutes — keeps AI Coach precomputed slate warm 24/7.
+    - cron: "*/2 * * * *"
   workflow_dispatch:
 
 jobs:

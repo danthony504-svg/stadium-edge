@@ -1,7 +1,13 @@
 /** Types mirroring stadium-mobile/lib/slatePreAnalysisCache.ts for cross-client snapshots. */
 
-export const SLATE_PRE_ANALYSIS_TARGET = 9;
+/** Precompute enough legs for instant 15-leg longshot asks — no filler. */
+export const SLATE_PRE_ANALYSIS_TARGET = 15;
+/** Supported parlay sizes precomputed 24/7 — global + per-sport. */
+export const SLATE_PARLAY_SIZES = [3, 5, 6, 9, 10, 15] as const;
+export type SlateParlayLegCount = (typeof SLATE_PARLAY_SIZES)[number];
 export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
+/** Serve slightly stale snapshots for instant Coach load while a refresh runs. */
+export const SLATE_INSTANT_SERVE_MAX_MS = 30 * 60_000;
 export const COACH_SLATE_ROW_ID = "global";
 
 export type ParsedPick = {
@@ -132,12 +138,23 @@ export type SerializedBoardScan = {
   note: string;
 };
 
+export type SlateTicketsIndex = {
+  /** Cross-sport combined tickets keyed by leg count. */
+  global: Partial<Record<SlateParlayLegCount, SerializedBoardScan>>;
+  /** Per-sport tickets keyed by leg count. */
+  bySport: Partial<Record<string, Partial<Record<SlateParlayLegCount, SerializedBoardScan>>>>;
+};
+
 export type SlatePreAnalysisSnapshot = {
   at: number;
   fingerprint: string;
   built: BuiltChatContext;
   propSimulations: Array<[string, { hitProbability: number | null }]>;
   boardScan: SerializedBoardScan | null;
+  /** Pre-staged tickets for every supported parlay size (global + per sport). */
+  tickets?: SlateTicketsIndex | null;
+  /** Sports included in this snapshot (for client sport routing). */
+  activeSports?: string[];
   deepSimComplete: boolean;
 };
 
@@ -151,20 +168,33 @@ export type FullBoardScanResult = {
   note: string;
 };
 
-export function computeSlateFingerprint(built: BuiltChatContext): string {
+export function computeSlateFingerprint(
+  built: BuiltChatContext,
+  opts?: { injuryDigest?: string; gameStatusDigest?: string },
+): string {
   const { context, propPool } = built;
   const odds = context.realOdds ?? [];
   const kickoffs = odds
     .map((o) => o.startsAt ?? "")
     .filter(Boolean)
     .sort()
-    .slice(0, 24)
+    .slice(0, 32)
     .join("|");
   const prices = odds
-    .slice(0, 40)
-    .map((o) => `${o.game}:${o.market}:${o.odds}`)
+    .slice(0, 80)
+    .map((o) => `${o.game}:${o.market}:${o.pick}:${o.odds}`)
     .join(";");
-  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}`;
+  const inj = opts?.injuryDigest ?? "";
+  const status = opts?.gameStatusDigest ?? "";
+  return `${odds.length}:${propPool.length}:${kickoffs}:${prices}:${inj}:${status}`;
+}
+
+export function isSlateSnapshotInstantServe(
+  snapshot: SlatePreAnalysisSnapshot | null,
+  maxMs = SLATE_INSTANT_SERVE_MAX_MS,
+): boolean {
+  if (!snapshot) return false;
+  return Date.now() - snapshot.at <= maxMs;
 }
 
 export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardScan {
@@ -193,4 +223,72 @@ export function isSlateSnapshotFresh(
 ): boolean {
   if (!snapshot) return false;
   return Date.now() - snapshot.at <= maxMs;
+}
+
+/** Pick the nearest precomputed ticket size at or below the requested leg count. */
+export function nearestSlateParlaySize(requested: number): SlateParlayLegCount {
+  const capped = Math.min(Math.max(3, Math.round(requested)), SLATE_PRE_ANALYSIS_TARGET);
+  let best: SlateParlayLegCount = SLATE_PARLAY_SIZES[0];
+  for (const size of SLATE_PARLAY_SIZES) {
+    if (size <= capped) best = size;
+    else break;
+  }
+  return best;
+}
+
+/** Resolve the best precomputed board scan for a leg count and optional sport filter. */
+export function resolveSlateBoardScan(
+  snapshot: SlatePreAnalysisSnapshot,
+  opts?: { legs?: number; sport?: string | null },
+): SerializedBoardScan | null {
+  const legs = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
+  const size = nearestSlateParlaySize(legs);
+  const sport = opts?.sport?.toLowerCase().trim() || null;
+
+  const tickets = snapshot.tickets;
+  if (tickets) {
+    if (sport && tickets.bySport?.[sport]?.[size]) {
+      return tickets.bySport[sport]![size]!;
+    }
+    if (tickets.global?.[size]) {
+      return tickets.global[size]!;
+    }
+    if (sport && tickets.bySport?.[sport]) {
+      const sportSizes = Object.keys(tickets.bySport[sport]!)
+        .map(Number)
+        .filter((n) => n <= size)
+        .sort((a, b) => b - a);
+      const fallback = sportSizes[0];
+      if (fallback && tickets.bySport[sport]![fallback as SlateParlayLegCount]) {
+        return tickets.bySport[sport]![fallback as SlateParlayLegCount]!;
+      }
+    }
+    const globalSizes = Object.keys(tickets.global ?? {})
+      .map(Number)
+      .filter((n) => n <= size)
+      .sort((a, b) => b - a);
+    const globalFallback = globalSizes[0];
+    if (globalFallback && tickets.global?.[globalFallback as SlateParlayLegCount]) {
+      return tickets.global[globalFallback as SlateParlayLegCount]!;
+    }
+  }
+
+  if (snapshot.boardScan?.picks?.length) {
+    if (snapshot.boardScan.picks.length <= legs) return snapshot.boardScan;
+    return {
+      ...snapshot.boardScan,
+      picks: snapshot.boardScan.picks.slice(0, legs),
+      note: snapshot.boardScan.note,
+    };
+  }
+  return null;
+}
+
+/** Client-facing snapshot with boardScan resolved to the requested ticket. */
+export function snapshotForClient(
+  snapshot: SlatePreAnalysisSnapshot,
+  opts?: { legs?: number; sport?: string | null },
+): SlatePreAnalysisSnapshot {
+  const boardScan = resolveSlateBoardScan(snapshot, opts);
+  return { ...snapshot, boardScan };
 }
