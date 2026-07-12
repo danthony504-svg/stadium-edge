@@ -89,6 +89,18 @@ export function dedupeExactGameLineLegs(picks: ParsedPick[]): {
   return { picks: out, dropped };
 }
 
+/** Last-mile dedupe on flash/board-scan/server-slate delivery — one team per game. */
+export function finalizeCoachDeliveryPicks(
+  picks: ParsedPick[],
+  opts: {
+    simByGame?: Map<string, import("./gameSimScoring.ts").CoachGameSimEntry>;
+    matchupHistory?: Record<string, import("./api.ts").MatchupHistoryEntry>;
+  } = {},
+): ParsedPick[] {
+  if (!picks.some((p) => isGameLinePick(p) && !p.isProp)) return picks;
+  return dedupeCoachGameLinePicks(picks, opts).picks;
+}
+
 /** Team-bucket + exact-leg + one-side-per-game dedupe — run before rendering Coach cards. */
 export function dedupeCoachGameLinePicks(
   picks: ParsedPick[],

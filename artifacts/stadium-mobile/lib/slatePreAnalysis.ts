@@ -12,6 +12,8 @@ import { boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { enrichChatContextProps } from "./propSelection.ts";
 import { filterBettableOddsGames, filterBettablePropPool, filterCoachHorizonPicksAfterEnrich, isPregameBettableForSport } from "./slate.ts";
+import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
+import type { MatchupHistoryEntry } from "./api.ts";
 import { DEFAULT_SPORTS } from "./sports.ts";
 import {
   computeSlateFingerprint,
@@ -112,7 +114,15 @@ function sanitizeSerializedBoardScan(
   built: BuiltChatContext,
 ): SerializedBoardScan | null {
   if (!raw?.picks?.length) return raw;
-  const picks = filterCoachHorizonPicksAfterEnrich(raw.picks, coachEnrichSourcesFromBuilt(built));
+  const horizon = filterCoachHorizonPicksAfterEnrich(
+    raw.picks,
+    coachEnrichSourcesFromBuilt(built),
+  );
+  const picks = finalizeCoachDeliveryPicks(horizon, {
+    matchupHistory: built.context.matchupHistory as
+      | Record<string, MatchupHistoryEntry>
+      | undefined,
+  });
   return { ...raw, picks };
 }
 

@@ -78,7 +78,7 @@ import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineR
 import { isQualifyingBackupGameLine, pickShowsAltBadge } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
@@ -127,6 +127,11 @@ import {
   rescoreCoachTicketPreservingLegs,
   topUpCoachTicketToTarget,
 } from "@/lib/coachTicketRescore";
+import { applyCoachTicketKernel, boardScanToCoachTicket } from "@/lib/coachTicketKernel";
+import {
+  coachParlayKernelSkipStream,
+  resolveCoachParlayKernelTicket,
+} from "@/lib/coachParlayEngine";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
@@ -1211,20 +1216,11 @@ export default function CoachScreen() {
           effectiveBuildLegCount(activeParlayAskRef.current),
         MAX_LEGS,
       );
-      let rescored = rescoreCoachTicketPreservingLegs(tagTicketRoles(ticket), enrich);
-      const meta = latestBoardScanRef.current;
-      if (legTarget >= 3 && meta?.picks?.length && rescored.length < legTarget) {
-        rescored = topUpCoachTicketToTarget(
-          rescored,
-          legTarget,
-          tagTicketRoles([...meta.picks]),
-          enrich,
-        );
-      }
-      const cleaned = filterCoachHorizonPicksAfterEnrich(
-        stripFillerBackfillPicks(rescored),
+      const cleaned = applyCoachTicketKernel(ticket, {
         enrich,
-      );
+        legTarget,
+        boardMeta: latestBoardScanRef.current,
+      });
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -1255,47 +1251,11 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
         perfByFamily: base.perfByFamily ?? marketPerf,
       };
-      const tagged = tagTicketRoles([...partial.picks]);
-      const rescored = rescoreCoachTicketPreservingLegs(tagged, enrich);
-      const preserved = coachPreserveStagedBoardPicks(rescored, enrich);
-      let ticket: ParsedPick[] = [];
-      if (preserved.length > 0) ticket = preserved;
-      else {
-        const delivered = coachDeliverBoardScanPicks(rescored, enrich);
-        if (delivered.length > 0) ticket = delivered;
-        else {
-          const board = coachBoardScanTicketPicks(rescored, enrich);
-          if (board.length > 0) ticket = board;
-          else {
-            const flash = coachFlashTicketPicks(rescored, enrich);
-            if (flash.length > 0) ticket = flash;
-            else {
-              const finalized = finalizeCoachTicketPicks(rescored, enrich);
-              if (finalized.picks.length > 0) ticket = finalized.picks;
-              else {
-                const bettable = filterBettablePicks(enrichPicksWithStartsAt(rescored, enrich));
-                if (bettable.length > 0) ticket = bettable;
-                else ticket = coachFlashBoardScanPreviewPicks(rescored, enrich);
-              }
-            }
-          }
-        }
-      }
       const target =
         legTarget ??
         (requestedLegCount(activeParlayAskRef.current) ||
           effectiveBuildLegCount(activeParlayAskRef.current));
-      if (target >= 3 && ticket.length < target && partial.picks.length > ticket.length) {
-        ticket = topUpCoachTicketToTarget(
-          ticket,
-          Math.min(target, MAX_LEGS),
-          tagTicketRoles([...partial.picks]),
-          enrich,
-        );
-      }
-      return stripFillerBackfillPicks(
-        filterCoachHorizonPicksAfterEnrich(ticket, enrich),
-      );
+      return boardScanToCoachTicket(partial, enrich, target);
     },
     [marketPerf],
   );
@@ -1314,14 +1274,19 @@ export default function CoachScreen() {
         ...enrich,
         realOdds: [...enrich.realOdds, ...scanOdds],
       };
-      let ticket = boardScanPartialToTicket(partial, enrichWithScan, opts?.ticketLegTarget);
+      let         ticket = boardScanPartialToTicket(partial, enrichWithScan, opts?.ticketLegTarget);
       if (!ticket.length) {
         const rescoredPartial = rescoreCoachTicketPreservingLegs(
           tagTicketRoles([...partial.picks]),
           enrichWithScan,
         );
-        ticket = stripFillerBackfillPicks(
+        ticket = applyCoachTicketKernel(
           coachFlashBoardScanPreviewPicks(rescoredPartial, enrichWithScan),
+          {
+            enrich: enrichWithScan,
+            legTarget: opts?.ticketLegTarget,
+            boardMeta: partial,
+          },
         );
       }
       if (!ticket.length) return false;
@@ -2113,6 +2078,13 @@ export default function CoachScreen() {
         // correlation" only once the data is actually in (below), and the render
         // promotes to "Finalizing parlay" once real PICK lines stream.
         const isParlayBuild = isParlayBuildAsk(trimmed);
+        const useParlayKernel = coachParlayKernelSkipStream({
+          isParlayBuild,
+          isAnalyze: wantsAnalyzeSlip(trimmed),
+          hasOutgoingImages: !!hasOutgoingImages,
+          oddsThreshold: !!oddsThreshold,
+          confidenceThreshold: !!confidenceThreshold,
+        });
 
         // These are the same four pieces buildChatContext returns; in replay mode
         // we read them from the locally-saved PendingBuild instead of fetching.
@@ -2505,7 +2477,9 @@ export default function CoachScreen() {
                     : null;
             }
           }
-          const skipModelStreamForBoardScan = (() => {
+          const skipModelStreamForBoardScan = useParlayKernel
+            ? true
+            : (() => {
             const seedScan = preBoardScan?.picks?.length
               ? preBoardScan
               : latestBoardScanRef.current?.picks?.length
@@ -2616,14 +2590,34 @@ export default function CoachScreen() {
               setWaiting(false);
               const scanForDelivery =
                 preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
-              if (scanForDelivery?.picks?.length) {
-                deliverBoardScanTicket(scanForDelivery, {
-                  ...flashEnrichRef.current,
-                  realOdds: [
-                    ...flashEnrichRef.current.realOdds,
-                    ...[...scanForDelivery.evalLinesByGame.values()].flat(),
-                  ],
+              const scanEnrich = {
+                ...flashEnrichRef.current,
+                realOdds: scanForDelivery
+                  ? [
+                      ...flashEnrichRef.current.realOdds,
+                      ...[...scanForDelivery.evalLinesByGame.values()].flat(),
+                    ]
+                  : flashEnrichRef.current.realOdds,
+              };
+              if (useParlayKernel) {
+                const kernelLegTarget = Math.min(
+                  reachTargetPreScan || legTarget,
+                  MAX_LEGS,
+                );
+                const { ticket, legNote } = resolveCoachParlayKernelTicket({
+                  scan: scanForDelivery,
+                  enrich: scanEnrich,
+                  legTarget: kernelLegTarget,
                 });
+                if (ticket.length) {
+                  deliverCoachTicket(ticket, legNote);
+                } else if (scanForDelivery?.picks?.length) {
+                  deliverBoardScanTicket(scanForDelivery, scanEnrich);
+                } else {
+                  tryInstantSlateSeedDelivery(legTarget);
+                }
+              } else if (scanForDelivery?.picks?.length) {
+                deliverBoardScanTicket(scanForDelivery, scanEnrich);
               } else {
                 tryInstantSlateSeedDelivery(legTarget);
               }
@@ -2643,6 +2637,7 @@ export default function CoachScreen() {
               });
             }
           } catch (streamErr: any) {
+            if (useParlayKernel) throw streamErr;
             const retryable =
               (isParlayBuild || useMlbSlatePath || usePropPickPath) &&
               streamErr?.name !== "AbortError" &&
@@ -2691,6 +2686,9 @@ export default function CoachScreen() {
             pendingBgRef.current = null;
             await clearPendingBuild();
           }
+        }
+        if (useParlayKernel) {
+          return;
         }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
@@ -3937,7 +3935,7 @@ export default function CoachScreen() {
             gameMeta,
           );
         }
-        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+        if (picks.some(isGameLinePick)) {
           const finalDeduped = dedupeCoachGameLinePicks(picks, {
             simByGame: gameSimulations,
             matchupHistory: context.matchupHistory,
