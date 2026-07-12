@@ -4,7 +4,11 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete, boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import { boardScanToCoachTicket } from "./coachTicketKernel.ts";
+import {
+  applyCoachTicketInvariants,
+  boardScanToCoachTicket,
+} from "./coachTicketKernel.ts";
+import { tagTicketRoles } from "./ticketStaging.ts";
 
 export const COACH_PARLAY_KERNEL_ONLY = true;
 
@@ -39,6 +43,13 @@ export function resolveCoachParlayKernelTicket(opts: {
   }
 
   const ticket = boardScanToCoachTicket(scan, enrich, legTarget);
+  if (!ticket.length && scan.picks.length) {
+    return {
+      ticket: applyCoachTicketInvariants(tagTicketRoles([...scan.picks]), enrich),
+      legNote: scan.note,
+      source: "board-scan",
+    };
+  }
   if (!ticket.length) {
     return { ticket: [], source: "none" };
   }

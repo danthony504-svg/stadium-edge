@@ -1,21 +1,16 @@
-// Single Coach ticket pipeline — every delivery path must pass through here.
-// Parlay builds use board-scan / server slate only (see coachParlayEngine.ts).
+// Coach ticket kernel v2 — invariants only (horizon + dedupe). No re-gating staged legs.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import {
-  rescoreCoachTicketPreservingLegs,
-  topUpCoachTicketToTarget,
-} from "./coachTicketRescore.ts";
 import { stripFillerBackfillPicks } from "./coachScanPolicy.ts";
-import { filterCoachHorizonPicksAfterEnrich } from "./slate.ts";
+import {
+  enrichPicksWithStartsAt,
+  filterCoachHorizonPicksAfterEnrich,
+  preferBettableQualifiedPicks,
+} from "./slate.ts";
 import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
 import { enforceConsistentPropSides } from "./propSideConsistency.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import {
-  coachBoardScanTicketPicks,
-  coachPreserveStagedBoardPicks,
-} from "./pickRecommendation.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 
 export type CoachTicketKernelOpts = {
@@ -24,67 +19,67 @@ export type CoachTicketKernelOpts = {
   boardMeta?: FullBoardScanResult | null;
 };
 
-/** Hard invariants: horizon, one side per game, prop sides, rescoring. */
-export function applyCoachTicketKernel(
-  ticket: ParsedPick[],
-  opts: CoachTicketKernelOpts,
-): ParsedPick[] {
-  const { enrich, legTarget = 0, boardMeta } = opts;
-  if (!ticket.length) return [];
-
-  let rescored = rescoreCoachTicketPreservingLegs(tagTicketRoles(ticket), enrich);
-  rescored = finalizeCoachDeliveryPicks(rescored, {
+function dedupeOpts(enrich: CoachFlashEnrich) {
+  return {
     simByGame: enrich.gameSimulations,
     matchupHistory: enrich.matchupHistory,
-  });
-
-  const rawPool = boardMeta?.picks?.length ? tagTicketRoles([...boardMeta.picks]) : [];
-  const pool =
-    rawPool.length > 0
-      ? finalizeCoachDeliveryPicks(rawPool, {
-          simByGame: enrich.gameSimulations,
-          matchupHistory: enrich.matchupHistory,
-        })
-      : [];
-  if (legTarget >= 3 && pool.length && rescored.length < legTarget) {
-    rescored = topUpCoachTicketToTarget(rescored, legTarget, pool, enrich);
-  }
-
-  let cleaned = stripFillerBackfillPicks(rescored);
-  cleaned = filterCoachHorizonPicksAfterEnrich(cleaned, enrich);
-  cleaned = finalizeCoachDeliveryPicks(cleaned, {
-    simByGame: enrich.gameSimulations,
-    matchupHistory: enrich.matchupHistory,
-  });
-  return enforceConsistentPropSides(cleaned).picks;
+  };
 }
 
-/** Last-line display guard — never render opposing ML/spread on the same game. */
+/**
+ * Apply only hard invariants: horizon, one team per game, prop-side consistency.
+ * Does NOT re-run staging / holistic / AI recommendation gates.
+ */
+export function applyCoachTicketInvariants(
+  picks: ParsedPick[],
+  enrich: CoachFlashEnrich,
+): ParsedPick[] {
+  if (!picks.length) return [];
+
+  let out = stripFillerBackfillPicks(picks);
+  const enriched = enrichPicksWithStartsAt(out, enrich);
+  out = filterCoachHorizonPicksAfterEnrich(enriched, enrich);
+  if (!out.length && enriched.length) {
+    out = preferBettableQualifiedPicks(enriched);
+  }
+  if (!out.length && picks.length) {
+    out = stripFillerBackfillPicks(picks);
+  }
+
+  out = finalizeCoachDeliveryPicks(out, dedupeOpts(enrich));
+  if (!out.length && picks.length) {
+    out = finalizeCoachDeliveryPicks(stripFillerBackfillPicks(picks), dedupeOpts(enrich));
+  }
+  return enforceConsistentPropSides(out).picks;
+}
+
+/** Display guard — lightweight dedupe only; never rescore or re-gate. */
 export function coerceCoachDisplayPicks(
   picks: ParsedPick[],
   enrich?: CoachTicketKernelOpts["enrich"],
 ): ParsedPick[] {
   if (!picks.length) return picks;
   const base = enrich ?? { realOdds: [], propPool: [], gameMeta: [] };
-  return applyCoachTicketKernel(picks, { enrich: base });
+  const cleaned = applyCoachTicketInvariants(picks, base);
+  return cleaned.length ? cleaned : picks;
 }
 
-/** Board-scan partial → display-ready ticket (staging gates + kernel). */
+/** Board scan → ticket: trust staged scan picks, apply invariants, fail-soft. */
 export function boardScanToCoachTicket(
   partial: FullBoardScanResult,
   enrich: CoachFlashEnrich,
-  legTarget?: number,
+  _legTarget?: number,
 ): ParsedPick[] {
   if (!partial.picks.length) return [];
-
   const tagged = tagTicketRoles([...partial.picks]);
-  const preserved = coachPreserveStagedBoardPicks(tagged, enrich);
-  const staged = preserved.length > 0 ? preserved : coachBoardScanTicketPicks(tagged, enrich);
-  if (!staged.length) return [];
+  const ticket = applyCoachTicketInvariants(tagged, enrich);
+  return ticket.length ? ticket : coerceCoachDisplayPicks(tagged, enrich);
+}
 
-  return applyCoachTicketKernel(staged, {
-    enrich,
-    legTarget,
-    boardMeta: partial,
-  });
+/** @deprecated Use applyCoachTicketInvariants — kept for deliverCoachTicket rescore path. */
+export function applyCoachTicketKernel(
+  ticket: ParsedPick[],
+  opts: CoachTicketKernelOpts,
+): ParsedPick[] {
+  return applyCoachTicketInvariants(ticket, opts.enrich);
 }
