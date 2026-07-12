@@ -1,0 +1,38 @@
+name: Coach v2 CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lib/coach-types/**"
+      - "tsconfig.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/coach-v2-ci.yml"
+  pull_request:
+    paths:
+      - "lib/coach-types/**"
+      - "tsconfig.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/coach-v2-ci.yml"
+
+jobs:
+  coach-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck coach-types
+        run: pnpm --filter @workspace/coach-types run typecheck
+
+      - name: Test coach-types
+        run: pnpm --filter @workspace/coach-types run test

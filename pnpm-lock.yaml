@@ -818,6 +818,16 @@ importers:
         specifier: 'catalog:'
         version: 3.25.76
 
+  lib/coach-types:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
   lib/db:
     dependencies:
       drizzle-orm:
