@@ -8,7 +8,47 @@ import {
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
-import { filterBettablePicks } from "./slate.ts";
+import { enrichPicksWithSport } from "./chatContextPriority.ts";
+import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
+
+export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
+  propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
+  gameMeta?: Array<{ game: string; sport: string; startsAt?: string | null }>;
+};
+
+function stripHrvpFromPick<
+  T extends { highRiskValuePlay?: boolean; finalAiScore?: FinalAiScore | null },
+>(p: T): T {
+  return {
+    ...p,
+    highRiskValuePlay: false,
+    finalAiScore: p.finalAiScore
+      ? { ...p.finalAiScore, highRiskValuePlay: false }
+      : p.finalAiScore,
+  };
+}
+
+function enrichCoachPicksForGate<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+    startsAt?: string | null;
+    sport?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!enrich) return picks;
+  const withSport = enrichPicksWithSport(
+    picks,
+    enrich.propPool ?? [],
+    enrich.realOdds ?? [],
+    enrich.gameMeta,
+  );
+  return enrichPicksWithStartsAt(withSport, enrich);
+}
 
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
@@ -187,6 +227,8 @@ export function countAiRecommendedPicks(
   return picks.filter((p) => pickIsAiRecommended(p, p.finalAiScore)).length;
 }
 
+export { enrichPicksWithStartsAt } from "./slate.ts";
+
 /** Final coach ticket gate — sim-aligned legs within the bettable window only. */
 export function sanitizeCoachTicketPicks<
   T extends RecommendablePick & {
@@ -195,7 +237,151 @@ export function sanitizeCoachTicketPicks<
     scores?: { composite?: number | null } | null;
     startsAt?: string | null;
     sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
   },
->(picks: T[]): T[] {
-  return filterBettablePicks(filterTicketPicksPreservingTicket(picks));
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const gated = filterTicketPicks(enriched);
+  const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  return filterBettablePicks(kept.map(stripHrvpFromPick));
+}
+
+export function stripCoachTicketHrvp<
+  T extends { highRiskValuePlay?: boolean; finalAiScore?: FinalAiScore | null },
+>(p: T): T {
+  return stripHrvpFromPick(p);
+}
+
+/** Deliver board-scan legs — gate when possible, never return empty if scan produced qualifiers. */
+export function prepareBoardScanDelivery<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const gated = coachBoardScanTicketPicks(picks, enrich);
+  if (gated.length > 0) return gated;
+  return enrichCoachPicksForGate(picks, enrich)
+    .map(stripHrvpFromPick)
+    .filter((p) => {
+      const score = p.finalAiScore;
+      if (score?.highRiskValuePlay) return false;
+      if (score && !score.simAligned) return false;
+      return true;
+    });
+}
+
+/** Board-scan legs already cleared sim/edge gates — enrich metadata and deliver without re-zeroing. */
+export function coachBoardScanTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const enriched = enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick);
+  const bettable = filterBettablePicks(enriched);
+  if (bettable.length > 0) return bettable;
+  return enriched.filter((p) => {
+    const score = p.finalAiScore;
+    if (score?.highRiskValuePlay) return false;
+    if (!score?.simAligned) return false;
+    const edge = score.edgePct;
+    if (edge == null || edge <= 0) return false;
+    if (!pickHasSimGrade(p, score.simHit)) return false;
+    return pickPassesTicketGate(p, score) || qualifiesAltPick(p, score);
+  });
+}
+
+/** Flash partial board scans — strict gate first, then sim-aligned legs with metadata filled in. */
+export function coachFlashTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  const strict = sanitizeCoachTicketPicks(picks, enrich);
+  if (strict.length > 0) return strict;
+  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const preserved = filterBettablePicks(
+    filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
+  );
+  if (preserved.length > 0) return preserved;
+  return coachBoardScanTicketPicks(enriched, enrich);
+}
+
+/** Final ticket gate — strict sanitize, then rescoring/flash salvage so board builds don't zero. */
+export function finalizeCoachTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(
+  picks: T[],
+  enrich?: CoachPickEnrichSources,
+): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
+  if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
+  const strict = sanitizeCoachTicketPicks(picks, enrich);
+  if (strict.length > 0) {
+    return { picks: strict, removed: picks.length - strict.length, usedRescoringFallback: false };
+  }
+  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const preserved = filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick);
+  const bettablePreserved = filterBettablePicks(preserved);
+  if (bettablePreserved.length > 0) {
+    return {
+      picks: bettablePreserved,
+      removed: picks.length - bettablePreserved.length,
+      usedRescoringFallback: true,
+    };
+  }
+  const flash = coachFlashTicketPicks(enriched, enrich);
+  const board = flash.length > 0 ? flash : prepareBoardScanDelivery(enriched, enrich);
+  return {
+    picks: board,
+    removed: picks.length - board.length,
+    usedRescoringFallback: board.length > 0,
+  };
 }

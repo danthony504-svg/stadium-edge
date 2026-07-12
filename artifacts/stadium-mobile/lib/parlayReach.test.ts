@@ -79,7 +79,7 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   assert.equal(picks.length, 3);
 });
 
-test("promoteQualifyingStagedToTicket fills mains before alts", () => {
+test("promoteQualifyingStagedToTicket fills alts before extra mains on reach-N shortfall", () => {
   const ticket = [
     { game: "A @ B", market: "Points", pick: "Player A Over 10.5 Points", odds: -110, isProp: true },
   ];
@@ -103,11 +103,11 @@ test("promoteQualifyingStagedToTicket fills mains before alts", () => {
     alts as any,
     3,
   );
-  assert.equal(promotedMains.length, 1);
   assert.equal(promotedAlts.length, 1);
+  assert.equal(promotedMains.length, 1);
   assert.equal(picks.length, 3);
-  assert.equal(picks[1]!.ticketRole, "main");
-  assert.equal(picks[2]!.ticketRole, "alt");
+  assert.equal(picks[1]!.ticketRole, "alt");
+  assert.equal(picks[2]!.ticketRole, "main");
 });
 
 test("selectParlayMainBackupPicks skips alt rungs", () => {

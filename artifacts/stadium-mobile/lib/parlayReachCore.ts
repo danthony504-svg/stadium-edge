@@ -93,7 +93,7 @@ export function selectParlayBackupPicks(
   return out;
 }
 
-/** Step 2 then 3: mains first, then qualifying alts to reach target. */
+/** Step 2 then 3: mains first on empty tickets; alt rungs fill any reach-N gap. */
 export function promoteQualifyingStagedToTicket(
   ticket: ParsedPick[],
   qualifyingMains: ParlayLegReject[],
@@ -105,17 +105,7 @@ export function promoteQualifyingStagedToTicket(
   const promotedAlts: ParsedPick[] = [];
   const onTicket = new Set(merged.map(pickLegFingerprint));
 
-  const mainGap = Math.max(0, target - merged.length);
-  if (mainGap > 0 && qualifyingMains.length > 0) {
-    for (const p of selectParlayMainBackupPicks(merged, qualifyingMains, mainGap)) {
-      const fp = pickLegFingerprint(p);
-      if (onTicket.has(fp)) continue;
-      onTicket.add(fp);
-      merged.push(p);
-      promotedMains.push(p);
-    }
-  }
-
+  // Alt rungs fill reach-N shortfalls first — user expects ALT PICK cards, not more mains.
   const altGap = Math.max(0, target - merged.length);
   if (altGap > 0 && qualifyingAlts.length > 0) {
     for (const p of selectParlayBackupPicks(merged, qualifyingAlts, altGap)) {
@@ -124,6 +114,17 @@ export function promoteQualifyingStagedToTicket(
       onTicket.add(fp);
       merged.push(p);
       promotedAlts.push(p);
+    }
+  }
+
+  const mainGap = Math.max(0, target - merged.length);
+  if (mainGap > 0 && qualifyingMains.length > 0) {
+    for (const p of selectParlayMainBackupPicks(merged, qualifyingMains, mainGap)) {
+      const fp = pickLegFingerprint(p);
+      if (onTicket.has(fp)) continue;
+      onTicket.add(fp);
+      merged.push(p);
+      promotedMains.push(p);
     }
   }
 
@@ -209,19 +210,28 @@ export function buildFullBoardShortfallNote(
   const altQ = staging?.altQualified ?? 0;
   const mainOn = staging?.mainOnTicket ?? actual;
   const altOn = staging?.altOnTicket ?? 0;
-  const fillDetail =
+  const altFill =
     altOn > 0
-      ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} and **${altOn}** alt pick${altOn === 1 ? "" : "s"} (each alt labeled ALT PICK) made the ticket.`
+      ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} and **${altOn}** alt pick${altOn === 1 ? "" : "s"} (each alt labeled **ALT PICK** on the card).`
       : mainOn > 0
-        ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"} made the ticket.`
+        ? ` **${mainOn}** main pick${mainOn === 1 ? "" : "s"}.`
         : "";
+  const scanLead = `${exclusion}I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`;
+  if (actual >= requested) {
+    return [
+      scanLead,
+      `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${altFill} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`,
+    ].join("\n\n");
+  }
+  if (altOn > 0 || altQ > 0) {
+    return [
+      scanLead,
+      `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters — I filled the ticket with every qualifying main, then stepped to alternate rungs where mains ran out.${altFill} These **${actual}** are the highest-rated sim-aligned legs on today's board.`,
+    ].join("\n\n");
+  }
   return [
-    `${exclusion}You asked for ${requested} legs. I scanned **${totalScanned}** posted lines across every market on ${oddsPhrase} — ${FULL_BOARD_MARKET_FAMILIES} — with a 10k sim on each, cross-book line shopping, correlation scoring, and historical learning from your graded results.`,
-    actual >= requested && totalQualified >= actual
-      ? `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${fillDetail} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
-      : totalQualified > actual
-        ? `**${mainQ}** main lines and **${altQ}** alt lines cleared quality filters.${fillDetail} These **${actual}** are the highest-rated by win probability, implied probability, EV, edge, confidence, and AI grade with low correlation across games.`
-        : `Only **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan — here's every qualifying pick (no weak filler).${fillDetail}`,
+    scanLead,
+    `Only **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan.${altFill} These **${actual}** are every qualifying pick — I won't pad with weak filler.`,
   ].join("\n\n");
 }
 
@@ -236,10 +246,11 @@ export function buildQualifyingAltShortfallNote(
     excludedSports && excludedSports.length > 0
       ? `You asked to exclude **${excludedSports.map((s) => s.toUpperCase()).join(", ")}** — those leagues are off the board. `
       : "";
-  return [
-    `${exclusion}You asked for ${requested} legs. I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, but only **${actual}** cleared the quality filters for your ticket — I won't pad with weak filler.`,
+  const altDetail =
     altCount > 0
-      ? `_**${altCount}** alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled **ALT PICK** and graded separately._`
-      : `_No alternate rungs cleared the quality bar on this slate — the honest ticket is the ${actual} leg${actual === 1 ? "" : "s"} above._`,
+      ? ` **${altCount}** alternate line${altCount === 1 ? "" : "s"} on the ticket passed 10k sim grading with positive edge — each is labeled **ALT PICK** and graded separately.`
+      : "";
+  return [
+    `${exclusion}I simulated every posted spread, total, alt rung, and prop on ${oddsPhrase}, then filled with mains first and alternate rungs where needed.${altDetail} These **${actual}** are every sim-aligned leg that cleared the quality bar.`,
   ].join("\n\n");
 }

@@ -142,6 +142,27 @@ test("buildStagedTicketFromScan stops at available qualifiers without filler", (
   assert.equal(breakdown.altQualified, 1);
 });
 
+test("buildStagedTicketFromScan greedy-fills alts without correlation throttle", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
+    leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -105 }, 95, mainScore),
+  ];
+  for (let i = 0; i < 8; i++) {
+    scored.push(
+      leg(
+        { game: `Alt${i} @ Game${i}`, market: "Alt Spread", pick: `Team +${i + 1}.5`, odds: 110 + i },
+        90 - i,
+        altScore,
+      ),
+    );
+  }
+  const { picks, breakdown } = buildStagedTicketFromScan(scored, 6);
+  assert.equal(picks.length, 6);
+  assert.equal(breakdown.mainOnTicket, 2);
+  assert.equal(breakdown.altOnTicket, 4);
+  assert.ok(picks.slice(2).every((p) => p.ticketRole === "alt"));
+});
+
 test("buildStagedTicketFromScan example: 10 main + 5 alt for 15-leg ask", () => {
   const scored: BoardScoredLeg[] = [];
   for (let i = 0; i < 10; i++) {

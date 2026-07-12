@@ -110,14 +110,19 @@ export function AnalysisProgress({
   // clock. In analyze + ask modes there is no leg signal, so it walks all the way
   // to the finalize stage on its own.
   const maxAuto = mode === "build" ? 8 : stageList.length - 1;
-  const effectiveIndex = mode === "build" && legCount > 0 ? stageList.length - 1 : autoIndex;
-  const target = targetList[effectiveIndex];
+  const effectiveIndex =
+    mode === "build" && legCount > 0
+      ? stageList.length - 1
+      : mode === "build"
+        ? Math.min(autoIndex, maxAuto)
+        : autoIndex;
+  const target = legCount > 0 && mode === "build" ? 100 : targetList[effectiveIndex];
   const phaseStage =
     mode === "build" && buildPhase === "board-scan"
       ? "Scanning every posted market on the live board…"
       : mode === "build" && buildPhase === "context"
         ? "Pulling live odds and props…"
-        : mode === "build" && buildPhase === "score"
+        : mode === "build" && buildPhase === "score" && legCount > 0
           ? "Finalizing your ticket…"
           : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];
@@ -130,19 +135,18 @@ export function AnalysisProgress({
     return () => clearInterval(id);
   }, [maxAuto]);
 
-  // Full-board scans can take a minute with no streamed PICK lines — never leave
-  // the bar frozen at 93% if cards are still being scored off-screen.
-  useEffect(() => {
-    if (mode !== "build" || legCount > 0) return;
-    if (autoIndex < 8) return;
-    const id = setTimeout(() => {
-      setAutoIndex(stageList.length - 1);
-    }, 12_000);
-    return () => clearTimeout(id);
-  }, [mode, legCount, autoIndex, stageList.length]);
+  // Full-board scans can take a minute with no streamed PICK lines — hold on the
+  // penultimate stage until real pick cards land so we never show a false 100%.
+  // (The bar still eases to 93%; finalize only when legCount > 0.)
 
   // Ease the displayed percentage toward the current stage's target so the bar
   // glides instead of jumping, and never looks frozen or goes backwards.
+  useEffect(() => {
+    if (mode === "build" && legCount === 0) {
+      setPct((p) => Math.min(p, targetList[Math.min(autoIndex, maxAuto)]));
+    }
+  }, [mode, legCount, autoIndex, maxAuto, targetList]);
+
   useEffect(() => {
     const id = setInterval(() => {
       setPct((p) => {
@@ -278,7 +282,10 @@ export function AnalysisProgress({
         }}
       >
         {checklist.map((item, idx) => {
-          const done = effectiveIndex >= item.doneAt;
+          const done =
+            item.label === "Final ticket ready"
+              ? legCount > 0
+              : effectiveIndex >= item.doneAt;
           const active = idx === activeChecklist;
           return (
             <View

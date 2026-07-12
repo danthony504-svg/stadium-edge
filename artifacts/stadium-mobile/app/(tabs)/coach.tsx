@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -129,6 +129,7 @@ import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
   filterBettableOddsGames,
   filterBettablePicks,
+  enrichPicksWithStartsAt,
   filterOddsForSlateDay,
   filterPicksForSlateDay,
   mentionsPropIntent,
@@ -1025,6 +1026,12 @@ export default function CoachScreen() {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
   const sendGenerationRef = useRef(0);
+  const flashEnrichRef = useRef<{
+    realOdds: RealOddsEntry[];
+    propPool: PropPoolEntry[];
+    gameMeta: GameMeta[];
+    realGames?: Array<{ game?: string; startsAt?: string | null; commenceTime?: string }>;
+  }>({ realOdds: [], propPool: [], gameMeta: [] });
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -1122,28 +1129,56 @@ export default function CoachScreen() {
     }
   }, []);
 
-  const flashCoachTicketPicks = useCallback(
-    (picks: ParsedPick[], legNote?: string) => {
-      const tagged = tagTicketRoles(picks);
-      const gated = filterTicketPicksPreservingTicket(tagged);
-      const toShow =
-        gated.length > 0
-          ? gated
-          : tagged.filter((p) => pickQualifiesForTicketGrade(p, p.finalAiScore));
-      if (!toShow.length) return;
-      patchLastAssistantPicks(setMessages, toShow, legNote);
+  const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
+  const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
+
+  const deliverCoachTicket = useCallback(
+    (ticket: ParsedPick[], legNote?: string) => {
+      if (!ticket.length) return;
+      boardTicketSnapshotRef.current = ticket;
+      patchLastAssistantPicks(setMessages, ticket, legNote);
       setStreaming(false);
       setWaiting(false);
-      setParlayBuildPhase("score");
+      setBuildFinishing(false);
       setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
       if (buildProgressTimerRef.current) {
         clearTimeout(buildProgressTimerRef.current);
         buildProgressTimerRef.current = null;
       }
       clearBuildStallWatchdog();
+      setAiPicks(ticket);
+      captureFromCoach(ticket);
       scrollToEnd(false);
     },
     [clearBuildStallWatchdog, scrollToEnd],
+  );
+
+  const deliverBoardScanTicket = useCallback(
+    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+      if (!partial.picks.length) return;
+      latestBoardScanRef.current = partial;
+      const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      const enrich = {
+        ...(enrichOverride ?? flashEnrichRef.current),
+        realOdds: [...(enrichOverride ?? flashEnrichRef.current).realOdds, ...scanOdds],
+      };
+      const toShow = prepareBoardScanDelivery(tagTicketRoles([...partial.picks]), enrich);
+      if (!toShow.length) return;
+      deliverCoachTicket(toShow, partial.note);
+    },
+    [deliverCoachTicket],
+  );
+
+  const flashCoachTicketPicks = useCallback(
+    (picks: ParsedPick[], legNote?: string, enrichOverride?: typeof flashEnrichRef.current) => {
+      const tagged = tagTicketRoles(picks);
+      const enrich = enrichOverride ?? flashEnrichRef.current;
+      const toShow = coachFlashTicketPicks(tagged, enrich);
+      if (!toShow.length) return;
+      deliverCoachTicket(toShow, legNote);
+    },
+    [deliverCoachTicket],
   );
 
   const armBuildProgressWatchdog = useCallback(() => {
@@ -1187,17 +1222,16 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         scrollToEnd(false);
-      }, 120_000);
+      }, 45_000);
     },
     [clearBuildStallWatchdog, scrollToEnd],
   );
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      if (partial.picks.length < 1) return;
-      flashCoachTicketPicks(partial.picks, partial.note);
+      deliverBoardScanTicket(partial);
     },
-    [flashCoachTicketPicks],
+    [deliverBoardScanTicket],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1280,10 +1314,12 @@ export default function CoachScreen() {
       }
 
       const sendGen = ++sendGenerationRef.current;
+      boardTicketSnapshotRef.current = null;
 
       const resetInFlightBuild = () => {
         abortRef.current?.abort();
         simAbortRef.current?.abort();
+        boardTicketSnapshotRef.current = null;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1653,6 +1689,12 @@ export default function CoachScreen() {
           todayOnly = replay.todayOnly;
           full = replay.full;
           serverPropPool.push(...propPoolFromRealProps(replay.props));
+          flashEnrichRef.current = {
+            realOdds: context.realOdds,
+            propPool,
+            gameMeta,
+            realGames: context.realGames,
+          };
           setWaiting(false);
           if (!wantsAnalyzeSlip(trimmed)) {
             setMessages((prev) => {
@@ -1850,6 +1892,12 @@ export default function CoachScreen() {
             };
             propPool = filterForExcludedSports(propPool, excludedSports);
           }
+          flashEnrichRef.current = {
+            realOdds: context.realOdds,
+            propPool,
+            gameMeta,
+            realGames: context.realGames,
+          };
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -1896,7 +1944,13 @@ export default function CoachScreen() {
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
               ]);
               if (preBoardScan?.picks?.length) {
-                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
+                deliverBoardScanTicket(preBoardScan, {
+                  ...flashEnrichRef.current,
+                  realOdds: [
+                    ...flashEnrichRef.current.realOdds,
+                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                  ],
+                });
               }
             } catch {
               preBoardScan = null;
@@ -2001,7 +2055,13 @@ export default function CoachScreen() {
               full = "";
               setWaiting(false);
               if (preBoardScan?.picks?.length) {
-                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
+                deliverBoardScanTicket(preBoardScan, {
+                  ...flashEnrichRef.current,
+                  realOdds: [
+                    ...flashEnrichRef.current.realOdds,
+                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                  ],
+                });
               }
             } else {
               setParlayBuildPhase("stream");
@@ -2068,6 +2128,9 @@ export default function CoachScreen() {
             await clearPendingBuild();
           }
         }
+        if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
+          setParlayBuildPhase("score");
+        }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
         const mergedPropPool: PropPoolEntry[] = (() => {
@@ -2081,6 +2144,13 @@ export default function CoachScreen() {
           const merged = extra.length ? [...base, ...extra] : base;
           return excludedSports.size > 0 ? filterForExcludedSports(merged, excludedSports) : merged;
         })();
+        let pickEnrich = {
+          realOdds: context.realOdds,
+          propPool: mergedPropPool,
+          gameMeta,
+          realGames: context.realGames,
+        };
+        flashEnrichRef.current = pickEnrich;
         selectionOpts = {
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,
@@ -2177,6 +2247,25 @@ export default function CoachScreen() {
             : fullBoardScanMeta?.picks?.length
               ? [...fullBoardScanMeta.picks]
               : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        if (!isAnalyze && fullBoardScanMeta?.picks?.length) {
+          const scanOdds = fullBoardScanMeta.evalLinesByGame
+            ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+            : [];
+          const scanEnrich = {
+            ...flashEnrichRef.current,
+            propPool: mergedPropPool,
+            realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+          };
+          latestBoardScanRef.current = fullBoardScanMeta;
+          const boardTicket = prepareBoardScanDelivery(
+            tagTicketRoles([...fullBoardScanMeta.picks]),
+            scanEnrich,
+          );
+          if (boardTicket.length > 0) {
+            picks = boardTicket;
+            deliverCoachTicket(boardTicket, fullBoardScanMeta.note);
+          }
+        }
         picks = scrubExcludedSportsFromPicks(
           picks,
           excludedSports,
@@ -2184,11 +2273,27 @@ export default function CoachScreen() {
           context.realOdds,
           gameMeta,
         );
-        picks = filterBettablePicks(picks);
-        if (!isAnalyze && picks.length > 0) {
+        if (!fullBoardScanMeta?.picks?.length) {
+          picks = filterBettablePicks(
+            enrichPicksWithStartsAt(picks, flashEnrichRef.current),
+          );
+        } else if (picks.length === 0) {
+          const scanOdds = fullBoardScanMeta.evalLinesByGame
+            ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+            : [];
+          picks = finalizeCoachTicketPicks(
+            tagTicketRoles([...fullBoardScanMeta.picks]),
+            {
+              ...flashEnrichRef.current,
+              propPool: mergedPropPool,
+              realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+            },
+          ).picks;
+        }
+        if (!isAnalyze && picks.length > 0 && !fullBoardScanMeta?.picks?.length) {
           const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {
-            flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
+            flashCoachTicketPicks(picks);
           }
         }
         let soccerScorerGkSalvage = false;
@@ -2815,25 +2920,26 @@ export default function CoachScreen() {
                 const dedupedAfterOpt = dedupeSameTeamGameLegs(picks);
                 picks = dedupedAfterOpt.picks;
               }
-            }
-            const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
-              matchupHistory: context.matchupHistory,
-              oddsForEdge: mergedGameOdds,
-              rejectsOut: reachFull ? parlayRejections : undefined,
-            });
-            picks = filtered.picks;
-            const edgeFiltered = filterNegativeEdgeGameLines(
-              picks,
-              mergedGameOdds,
-              reachFull ? parlayRejections : undefined,
-            );
-            picks = edgeFiltered.picks;
-            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
-            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
-            if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
-              gameSimSupplementNote = filtered.warnings.join("\n");
+              const filtered = filterCoachPicksWithGameSim(picks, gameSimulations, {
+                matchupHistory: context.matchupHistory,
+                oddsForEdge: mergedGameOdds,
+                rejectsOut: reachFull ? parlayRejections : undefined,
+              });
+              picks = filtered.picks;
+              const edgeFiltered = filterNegativeEdgeGameLines(
+                picks,
+                mergedGameOdds,
+                reachFull ? parlayRejections : undefined,
+              );
+              picks = edgeFiltered.picks;
+              gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, edgeFiltered.note);
+              gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, filtered.note);
+              if (filtered.warnings.length > 0 && !gameSimSupplementNote) {
+                gameSimSupplementNote = filtered.warnings.join("\n");
+              }
             }
             if (
+              !fullBoardScanned &&
               deepMultiLegParlay &&
               propShare(picks) < (longshotAsk ? 0.5 : 0.35) &&
               picks.length < Math.min(legTarget, MAX_LEGS)
@@ -3507,14 +3613,68 @@ export default function CoachScreen() {
         }
         picks = tagTicketRoles(picks);
         let aiFilterNote = "";
+        const ticketEnrich = { ...pickEnrich, realOdds: mergedGameOdds };
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = sanitizeCoachTicketPicks(picks);
-          if (picks.length < beforeFilter) {
-            aiFilterNote =
-              picks.length > 0
-                ? `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`
-                : `_No legs cleared every sim, edge, EV, and confidence threshold after rescoring — try a smaller parlay or a different slate._`;
+          let finalized = finalizeCoachTicketPicks(picks, ticketEnrich);
+          if (finalized.picks.length === 0 && fullBoardScanned && fullBoardScanMeta?.picks?.length) {
+            finalized = finalizeCoachTicketPicks(
+              tagTicketRoles([...fullBoardScanMeta.picks]),
+              ticketEnrich,
+            );
+          }
+          if (
+            finalized.picks.length === 0 &&
+            fullBoardScanned &&
+            coachEvalLinesByGame &&
+            gameSimulations.size > 0
+          ) {
+            const reachScoreOpts = {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            };
+            const scoredMainProps = attachPickScores(
+              mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+              reachScoreOpts,
+            );
+            const scoredAltProps = mergedPropPool.some((e) => e.alt)
+              ? attachPickScores(
+                  mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                  reachScoreOpts,
+                )
+              : [];
+            const { mains, alts } = collectReachStagedQualifiers(
+              [],
+              coachEvalLinesByGame,
+              gameSimulations,
+              mergedPropPool,
+              scoredMainProps,
+              scoredAltProps,
+              {
+                realOdds: mergedGameOdds,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                excludedSports,
+              },
+            );
+            if (mains.length > 0 || alts.length > 0) {
+              const filled = fillReachTicketStaged([], reachTarget, mains, alts);
+              finalized = finalizeCoachTicketPicks(
+                tagTicketRoles(attachPickScores(filled.picks, reachScoreOpts)),
+                ticketEnrich,
+              );
+            }
+          }
+          picks = finalized.picks;
+          if (picks.length < beforeFilter && picks.length > 0) {
+            aiFilterNote = finalized.usedRescoringFallback
+              ? `_Rescoring adjusted grades on ${beforeFilter - picks.length} line(s) — kept sim-aligned legs with positive edge on your ticket._`
+              : `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`;
           }
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
@@ -3568,12 +3728,27 @@ export default function CoachScreen() {
                     oddsPhrase,
                     excludeSportsList,
                   );
+        } else if (picks.length > 0 && fullBoardScanned && fullBoardScanMeta) {
+          const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
+          const mainOnTicket = picks.length - altOnTicket;
+          legNote = buildFullBoardShortfallNote(
+            ticketTarget,
+            picks.length,
+            fullBoardScanMeta.totalScanned,
+            fullBoardScanMeta.totalQualified,
+            oddsPhrase,
+            excludeSportsList,
+            {
+              ...fullBoardScanMeta.staging,
+              mainOnTicket,
+              altOnTicket,
+            },
+          );
         }
         // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
-        // failures only — never above rendered pick cards. Shortfall copy is the only
-        // legNote we surface when cards are on screen.
+        // failures only — never above rendered pick cards.
         const legNoteForCards =
-          picks.length > 0 && ticketTarget > picks.length
+          picks.length > 0
             ? fullBoardScanned && fullBoardScanMeta
               ? buildFullBoardShortfallNote(
                   ticketTarget,
@@ -3590,7 +3765,9 @@ export default function CoachScreen() {
                       }
                     : undefined,
                 )
-              : legNote
+              : ticketTarget > picks.length
+                ? legNote
+                : ""
             : "";
         const exclusionNote =
           excludedSports.size > 0
@@ -3664,14 +3841,42 @@ export default function CoachScreen() {
         if (isParlayBuild && picks.length > 1) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
+        if (
+          picks.length === 0 &&
+          fullBoardScanned &&
+          fullBoardScanMeta?.picks?.length
+        ) {
+          const scanEnrich = {
+            ...ticketEnrich,
+            realOdds: [
+              ...mergedGameOdds,
+              ...(fullBoardScanMeta.evalLinesByGame
+                ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+                : []),
+            ],
+          };
+          picks = coachBoardScanTicketPicks(
+            tagTicketRoles([...fullBoardScanMeta.picks]),
+            scanEnrich,
+          );
+          if (picks.length === 0) {
+            picks = prepareBoardScanDelivery(
+              tagTicketRoles([...fullBoardScanMeta.picks]),
+              scanEnrich,
+            );
+          }
+        }
+        const boardSnapshot = boardTicketSnapshotRef.current;
+        const outPicks =
+          picks.length > 0 ? picks : boardSnapshot?.length ? boardSnapshot : picks;
         setMessages((prev) => {
           const copy = [...prev];
           const { legNote: _dropLegNote, ...prevAssistant } = copy[copy.length - 1];
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: picks.length > 0 ? "" : finalContent,
-            picks,
+            content: outPicks.length > 0 ? "" : finalContent,
+            picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(picks.length > 0 && coachDetailNote.trim()
               ? { coachDetailNote: coachDetailNote.trim() }
@@ -3680,11 +3885,11 @@ export default function CoachScreen() {
           };
           return copy;
         });
-        if (picks.length > 0) {
-          setAiPicks(picks);
-          captureFromCoach(picks);
+        if (outPicks.length > 0) {
+          setAiPicks(outPicks);
+          captureFromCoach(outPicks);
         }
-        if (isParlayBuild && picks.length > 0) rememberParlayBuild(picks);
+        if (isParlayBuild && outPicks.length > 0) rememberParlayBuild(outPicks);
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
         if (picks.some((p) => p.isProp)) {
@@ -3767,10 +3972,39 @@ export default function CoachScreen() {
                 }
               }
             }
-            next = sanitizeCoachTicketPicks(next);
+            next = finalizeCoachTicketPicks(next, {
+              ...pickEnrich,
+              realOdds: mergedGameOdds,
+            }).picks;
             if (next.length === 0 && snapshot.length > 0) {
-              const salvaged = sanitizeCoachTicketPicks(snapshot);
+              const salvaged = finalizeCoachTicketPicks(snapshot, {
+                ...pickEnrich,
+                realOdds: mergedGameOdds,
+              }).picks;
               if (salvaged.length > 0) next = salvaged;
+            }
+            if (
+              next.length === 0 &&
+              fullBoardScanned &&
+              fullBoardScanMeta?.picks?.length
+            ) {
+              const scanEnrich = {
+                ...pickEnrich,
+                realOdds: [
+                  ...mergedGameOdds,
+                  ...(fullBoardScanMeta.evalLinesByGame
+                    ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+                    : []),
+                ],
+              };
+              next = finalizeCoachTicketPicks(tagTicketRoles([...fullBoardScanMeta.picks]), scanEnrich)
+                .picks;
+              if (next.length === 0) {
+                next = coachBoardScanTicketPicks(
+                  tagTicketRoles([...fullBoardScanMeta.picks]),
+                  scanEnrich,
+                );
+              }
             }
             next = scrubExcludedSportsFromPicks(
               next,
@@ -3779,6 +4013,8 @@ export default function CoachScreen() {
               mergedGameOdds,
               gameMeta,
             );
+            // Progressive rescoring must never wipe pick cards already on screen.
+            if (next.length === 0 && (boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
             let simLegNote: string | undefined;
             if (ticketTarget > 0 && next.length < ticketTarget) {
               const altOnTicket = next.filter((p) => p.ticketRole === "alt").length;
@@ -3886,6 +4122,8 @@ export default function CoachScreen() {
       streaming,
       buildFinishing,
       scrollToEnd,
+      deliverCoachTicket,
+      deliverBoardScanTicket,
       flashCoachTicketPicks,
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
@@ -4164,6 +4402,40 @@ export default function CoachScreen() {
   /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
   const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
 
+  // Parlay build hung with progress visible but zero pick cards — clear stale flags
+  // and offer retry instead of an endless finalize screen.
+  useEffect(() => {
+    if (!buildFinishing && !streaming && !waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    const ask = priorUser?.apiContent ?? priorUser?.content ?? "";
+    if (!last.parlayBuild && !isParlayBuildAsk(ask)) return;
+    const timer = setTimeout(() => {
+      if (!buildFinishingRef.current && !streamingRef.current) return;
+      setBuildFinishing(false);
+      setStreaming(false);
+      setWaiting(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      clearBuildStallWatchdog();
+      setMessages((prev) => {
+        const copy = [...prev];
+        const tail = copy[copy.length - 1];
+        if (tail?.role !== "assistant" || (tail.picks?.length ?? 0) > 0) return prev;
+        if (tail.content?.trim()) return prev;
+        copy[copy.length - 1] = {
+          ...tail,
+          content:
+            "This build stalled before pick cards could render — the board scan may still be scoring. Tap below to try again.",
+          retry: ask,
+        };
+        return copy;
+      });
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [buildFinishing, streaming, waiting, messages, clearBuildStallWatchdog]);
+
   // Recover stale busy flags left after a superseded send or OTA reload — welcome
   // with spinners on every quick prompt means streaming stuck true with no thread.
   useEffect(() => {
@@ -4176,6 +4448,21 @@ export default function CoachScreen() {
     setParlayBuildPhase("idle");
     clearBuildStallWatchdog();
   }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
+
+  // Board scan finished but delivery gates zeroed the ticket — replay from stash.
+  useEffect(() => {
+    if (!buildFinishing && !streaming && !waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    const partial = latestBoardScanRef.current;
+    if (!partial?.picks?.length) return;
+    const timer = setTimeout(() => {
+      const tail = messages[messages.length - 1];
+      if (tail?.role !== "assistant" || (tail.picks?.length ?? 0) > 0) return;
+      deliverBoardScanTicket(partial);
+    }, 12_000);
+    return () => clearTimeout(timer);
+  }, [buildFinishing, streaming, waiting, messages, deliverBoardScanTicket]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -4244,6 +4531,12 @@ export default function CoachScreen() {
               !buildFinishing &&
               !waiting &&
               !m.content.trim();
+            const parlayBuildHung =
+              m.role === "assistant" &&
+              i === messages.length - 1 &&
+              !hasPicks &&
+              parlayBuildIntent &&
+              buildProgressExpired;
             const parlayStuckDeadProse =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -4252,21 +4545,9 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
-            // Live progress for the build indicator: a full-context parlay can take
-            // ~15s of model time, and since the lead-in prose is hidden the user
-            // would otherwise stare at a static spinner. Counting completed PICK
-            // lines as they stream in gives real "it's working" feedback.
-            const buildingLegCount = isBuildingParlay
-              ? Math.max(
-                  m.picks?.length ?? 0,
-                  m.content
-                    .split("\n")
-                    // Require 3 pipes (4 fields) so only fully-streamed PICK lines
-                    // count — mirrors parsePicks' parts.length >= 4 so the running
-                    // total never transiently overshoots a half-emitted line.
-                    .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length,
-                )
-              : 0;
+            // Progress finalizes only once pick cards are on the message — never
+            // from raw streamed PICK lines that failed to parse into cards.
+            const progressLegCount = hasPicks ? (m.picks?.length ?? 0) : 0;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
@@ -4398,10 +4679,10 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {isBuildingParlay || parlayStillBuilding ? (
+                {isBuildingParlay || (parlayStillBuilding && !parlayBuildHung) ? (
                   <AnalysisProgress
                     mode="build"
-                    legCount={buildingLegCount}
+                    legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
                   />
                 ) : analyzeWaiting ? (
@@ -4410,12 +4691,19 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {parlayStalledEmpty || parlayStuckDeadProse ? (
+                {parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung ? (
                   <Pressable
-                    onPress={() =>
-                      send(priorUserText || "Build me a 9-leg parlay", { freshThread: true })
-                    }
-                    disabled={streaming || buildFinishing}
+                    onPress={() => {
+                      abortRef.current?.abort();
+                      simAbortRef.current?.abort();
+                      setBuildFinishing(false);
+                      setStreaming(false);
+                      setWaiting(false);
+                      setBuildProgressExpired(false);
+                      setParlayBuildPhase("idle");
+                      send(priorUserText || "Build me a 9-leg parlay", { freshThread: true });
+                    }}
+                    disabled={false}
                     style={({ pressed }) => ({
                       flexDirection: "row",
                       alignItems: "center",
@@ -4428,7 +4716,7 @@ export default function CoachScreen() {
                       borderRadius: colors.radius,
                       paddingVertical: 12,
                       paddingHorizontal: 14,
-                      opacity: streaming || buildFinishing ? 0.5 : pressed ? 0.85 : 1,
+                      opacity: pressed ? 0.85 : 1,
                     })}
                   >
                     <Feather name="refresh-cw" size={16} color={colors.foreground} />
@@ -4468,13 +4756,8 @@ export default function CoachScreen() {
                                 caption: "Alternate rung — positive EV, edge, and sim grade",
                                 tone: "grade" as const,
                               }
-                            : p.highRiskValuePlay
-                            ? {
-                                text: "High-Risk Value Play",
-                                caption: "Simulator disagrees — large line-value edge only",
-                                tone: "value" as const,
-                              }
-                            : p.finalAiScore?.simAligned && p.finalAiScore.recommends
+                            : p.finalAiScore?.simAligned &&
+                                (p.finalAiScore.recommends || p.ticketRole === "alt")
                               ? {
                                   text: "Sim-Aligned",
                                   caption: `10k sim ${p.finalAiScore.simHit != null ? `${Math.round(p.finalAiScore.simHit * 100)}%` : ""} hit`,

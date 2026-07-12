@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
+  coachBoardScanTicketPicks,
+  coachFlashTicketPicks,
+  finalizeCoachTicketPicks,
+  prepareBoardScanDelivery,
   filterAiRecommendedPicks,
   filterTicketPicks,
   filterTicketPicksPreservingTicket,
@@ -9,6 +13,7 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   qualifiesAltPick,
+  sanitizeCoachTicketPicks,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
@@ -108,6 +113,179 @@ test("pickIsAiRecommended rejects High-Risk Value Play when sim disagrees", () =
     pickIsAiRecommended({ market: "Moneyline", sport: "mlb", odds: 135 }, hrVp),
     false,
   );
+});
+
+test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends flips off", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B -1.5",
+    odds: -110,
+    isProp: false,
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C",
+      confidencePct: 52,
+      edgePct: 1.4,
+      simHit: 0.55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C", confidencePct: 52, edgePct: 1.4, scores: {} as never },
+    },
+  };
+  const enrich = {
+    realOdds: [{ game: "A @ B", market: "Spread", pick: "B -1.5", odds: -110, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: kickoff, homeTeam: "B", awayTeam: "A", homeAbbr: "B", awayAbbr: "A", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
+  const { picks, usedRescoringFallback } = finalizeCoachTicketPicks([leg], enrich);
+  assert.equal(picks.length, 1);
+  assert.equal(usedRescoringFallback, true);
+});
+
+test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const alt = {
+    game: "E @ F",
+    market: "Alt Spread",
+    pick: "F +3.5",
+    odds: -105,
+    isProp: false,
+    ticketRole: "alt" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  const out = coachFlashTicketPicks([alt], {
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: kickoff, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.startsAt, kickoff);
+  assert.equal(out[0]!.sport, "mlb");
+});
+
+test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt metadata", () => {
+  const leg = {
+    game: "A @ B",
+    market: "Alt Spread",
+    pick: "B +3.5",
+    odds: -105,
+    isProp: false,
+    ticketRole: "alt" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(coachBoardScanTicketPicks([leg], {}).length, 1);
+});
+
+test("prepareBoardScanDelivery keeps sim-aligned board legs when every gate fails", () => {
+  const leg = {
+    game: "A @ B",
+    market: "Player Points",
+    pick: "Over 18.5",
+    odds: -110,
+    isProp: true,
+    player: "Star",
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5.8,
+      grade: "C",
+      confidencePct: 49,
+      edgePct: 0.8,
+      simHit: 0.51,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5.8, grade: "C", confidencePct: 49, edgePct: 0.8, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(prepareBoardScanDelivery([leg], {}).length, 1);
+});
+
+test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {
+  const hrVp = {
+    game: "KC @ BAL",
+    market: "Moneyline",
+    pick: "Royals ML",
+    odds: 135,
+    highRiskValuePlay: true,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 7,
+      grade: "B",
+      confidencePct: 58,
+      edgePct: 12,
+      simHit: 0.32,
+      simAligned: false,
+      highRiskValuePlay: true,
+      recommends: true,
+      factors: [],
+      rubric: { composite: 7, grade: "B", confidencePct: 58, edgePct: 12, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([hrVp]).length, 0);
+
+  const alt = {
+    game: "E @ F",
+    market: "Alt Spread",
+    pick: "F +3.5",
+    odds: -105,
+    isProp: false,
+    sport: "mlb",
+    startsAt: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    ticketRole: "alt" as const,
+    highRiskValuePlay: true,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  const out = sanitizeCoachTicketPicks([alt], {
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: alt.startsAt }],
+    gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: alt.startsAt, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.highRiskValuePlay, false);
+  assert.equal(out[0]!.finalAiScore?.highRiskValuePlay, false);
 });
 
 test("filterTicketPicksPreservingTicket drops sim-opposed legs from rescoring fallback", () => {
