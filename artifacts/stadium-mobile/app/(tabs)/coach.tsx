@@ -4154,6 +4154,23 @@ export default function CoachScreen() {
     !messages.some((m) => m.role === "user") ||
     isOrphanCoachThread(messages, { streaming, buildFinishing });
 
+  const hasUserTurn = messages.some((m) => m.role === "user");
+  /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
+  const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
+
+  // Recover stale busy flags left after a superseded send or OTA reload — welcome
+  // with spinners on every quick prompt means streaming stuck true with no thread.
+  useEffect(() => {
+    if (hasUserTurn) return;
+    if (!streaming && !buildFinishing && !waiting) return;
+    setStreaming(false);
+    setBuildFinishing(false);
+    setWaiting(false);
+    setBuildProgressExpired(false);
+    setParlayBuildPhase("idle");
+    clearBuildStallWatchdog();
+  }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
@@ -4542,14 +4559,14 @@ export default function CoachScreen() {
                     borderColor: colors.border,
                     borderRadius: colors.radius,
                     padding: 14,
-                    opacity: streaming || buildFinishing ? 0.7 : pressed ? 0.85 : 1,
+                    opacity: coachBuildInFlight ? 0.7 : pressed ? 0.85 : 1,
                   })}
                 >
                   <Feather name="zap" size={16} color={colors.accent} />
                   <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}>
                     {q.label}
                   </Text>
-                  {streaming || buildFinishing ? (
+                  {coachBuildInFlight ? (
                     <ActivityIndicator color={colors.mutedForeground} size="small" />
                   ) : null}
                 </Pressable>
@@ -4667,7 +4684,7 @@ export default function CoachScreen() {
       >
         <Pressable
           onPress={pickImage}
-          disabled={streaming || buildFinishing || pickingImage || attachedImages.length >= MAX_IMAGES}
+          disabled={coachBuildInFlight || pickingImage || attachedImages.length >= MAX_IMAGES}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
@@ -4678,7 +4695,7 @@ export default function CoachScreen() {
             alignItems: "center",
             justifyContent: "center",
             opacity:
-              pressed || streaming || buildFinishing || attachedImages.length >= MAX_IMAGES ? 0.6 : 1,
+              pressed || coachBuildInFlight || attachedImages.length >= MAX_IMAGES ? 0.6 : 1,
           })}
         >
           {pickingImage ? (
@@ -4714,7 +4731,7 @@ export default function CoachScreen() {
           onPress={() => send(input)}
           disabled={
             (!input.trim() && !attachedImages.length) ||
-            ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
+            (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
           }
           style={({ pressed }) => ({
             width: 44,
@@ -4722,12 +4739,12 @@ export default function CoachScreen() {
             borderRadius: 22,
             backgroundColor:
               (!input.trim() && !attachedImages.length) ||
-              ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
+              (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
                 ? colors.card
                 : colors.primary,
             borderWidth:
               (!input.trim() && !attachedImages.length) ||
-              ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
+              (coachBuildInFlight && !isParlayBuildAsk(input.trim()))
                 ? 1
                 : 0,
             borderColor: colors.border,
@@ -4736,7 +4753,7 @@ export default function CoachScreen() {
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          {(streaming || buildFinishing) && !isParlayBuildAsk(input.trim()) ? (
+          {coachBuildInFlight && !isParlayBuildAsk(input.trim()) ? (
             <ActivityIndicator color={colors.mutedForeground} size="small" />
           ) : (
             <Feather
