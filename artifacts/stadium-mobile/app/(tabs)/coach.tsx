@@ -989,6 +989,7 @@ export default function CoachScreen() {
   const [waiting, setWaiting] = useState(false);
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
+  const [boardScanPartialLegs, setBoardScanPartialLegs] = useState(0);
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1244,14 +1245,16 @@ export default function CoachScreen() {
     [deliverCoachTicket],
   );
 
-  const armBuildProgressWatchdog = useCallback(() => {
+  const armBuildProgressWatchdog = useCallback((legTarget = 0) => {
     if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
     setBuildProgressExpired(false);
+    const progressMs =
+      legTarget >= 15 ? 150_000 : legTarget >= 9 ? 120_000 : legTarget >= 6 ? 90_000 : 25_000;
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
       setMessages((prev) => scrubDeadBuildProseFromMessages(prev));
       scrollToEnd(false);
-    }, 25_000);
+    }, progressMs);
   }, [scrollToEnd]);
 
   /** Board scans for reach-N parlays can run 90s+ — never abort mid-scan. */
@@ -1293,13 +1296,14 @@ export default function CoachScreen() {
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      deliverBoardScanTicket(partial);
+      if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
+      patchInstantBoardScanTicket(partial);
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [deliverBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1384,6 +1388,7 @@ export default function CoachScreen() {
       const sendGen = ++sendGenerationRef.current;
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
+      setBoardScanPartialLegs(0);
 
       const resetInFlightBuild = () => {
         abortRef.current?.abort();
@@ -1468,7 +1473,8 @@ export default function CoachScreen() {
         setCoachBuildBusy(true);
         setBuildFinishing(true);
         setParlayBuildPhase("context");
-        armBuildProgressWatchdog();
+        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        armBuildProgressWatchdog(earlyLegTarget);
         armBuildStallWatchdog(sendGen, trimmed);
       }
       const releaseOtaBlock = blockOtaReload();
@@ -4303,6 +4309,7 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setBoardScanPartialLegs(0);
         setCoachBuildBusy(false);
         abortRef.current = null;
         scrollToEnd();
@@ -4622,7 +4629,8 @@ export default function CoachScreen() {
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const partial = latestBoardScanRef.current;
     if (!partial?.picks?.length) return;
-    deliverBoardScanTicket(partial);
+    setBoardScanPartialLegs(partial.picks.length);
+    patchInstantBoardScanTicket(partial);
     const interval = setInterval(() => {
       if (!buildFinishingRef.current && !streamingRef.current && !waiting) {
         clearInterval(interval);
@@ -4630,10 +4638,11 @@ export default function CoachScreen() {
       }
       const partialRetry = latestBoardScanRef.current;
       if (!partialRetry?.picks?.length) return;
-      deliverBoardScanTicket(partialRetry);
-    }, 4000);
+      setBoardScanPartialLegs(partialRetry.picks.length);
+      patchInstantBoardScanTicket(partialRetry);
+    }, 1000);
     return () => clearInterval(interval);
-  }, [buildFinishing, streaming, waiting, messages, deliverBoardScanTicket]);
+  }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
 
   // Silent dead-end: parlay build finished with no prose and no pick cards.
   useEffect(() => {
@@ -4755,7 +4764,12 @@ export default function CoachScreen() {
               m.role === "assistant" &&
               i === messages.length - 1 &&
               !hasPicks &&
-              (buildFinishing || streaming || buildProgressExpired || deadBuildProse) &&
+              (buildFinishing ||
+                streaming ||
+                (buildProgressExpired &&
+                  parlayBuildPhase !== "board-scan" &&
+                  parlayBuildPhase !== "stream") ||
+                deadBuildProse) &&
               (parlayBuildIntent || deadBuildProse);
             const parlayStalledEmpty =
               m.role === "assistant" &&
@@ -4788,9 +4802,15 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
-            // Progress finalizes only once pick cards are on the message — never
-            // from raw streamed PICK lines that failed to parse into cards.
-            const progressLegCount = hasPicks ? (m.picks?.length ?? 0) : 0;
+            // Progress finalizes once pick cards are on the message — or when a
+            // board-scan partial has scored legs waiting for delivery gates.
+            const progressLegCount = hasPicks
+              ? (m.picks?.length ?? 0)
+              : Math.max(
+                  boardScanPartialLegs,
+                  boardTicketSnapshotRef.current?.length ?? 0,
+                  latestBoardScanRef.current?.picks?.length ?? 0,
+                );
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
