@@ -19,6 +19,9 @@
       "path": "./lib/coach-gates"
     },
     {
+      "path": "./lib/coach-grade"
+    },
+    {
       "path": "./lib/db"
     },
     {
