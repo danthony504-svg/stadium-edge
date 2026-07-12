@@ -518,7 +518,7 @@ export function shouldUseFullBoardScan(
   return asked > 0 && legTarget >= 3;
 }
 
-/** True for explicit 12+ leg parlay asks that should always full-board scan. */
+/** True for explicit 3+ leg parlay asks that should always full-board scan. */
 export function reachBoardScanEligible(opts: {
   isAnalyze?: boolean;
   requestedLegs?: number;
@@ -529,7 +529,7 @@ export function reachBoardScanEligible(opts: {
 }): boolean {
   if (opts.isAnalyze) return false;
   const asked = opts.requestedLegs ?? 0;
-  if (asked < 6) return false;
+  if (asked < 3) return false;
   if (opts.propsOnly || opts.explicitSingleGame || opts.oddsThreshold || opts.confidenceThreshold) {
     return false;
   }
