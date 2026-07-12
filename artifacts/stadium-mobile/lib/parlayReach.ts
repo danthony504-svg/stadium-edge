@@ -2,12 +2,6 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
-  backfillPicks,
-  backfillProps,
-  FULL_REACH_GAME_ORDER,
-} from "../components/PickCard.tsx";
-import type { GameMeta, PropPoolEntry, RealOddsEntry } from "./api.ts";
-import {
   backfillGameLinesFromEvalScores,
   evaluateGameLines,
   mergeOddsEntries,
@@ -19,7 +13,7 @@ import { qualifiesCoachSimEvalLine, deriveGameSimLineMetrics } from "./gameSimQu
 import { qualifiesAltPick, pickIsAiRecommended } from "./pickRecommendation.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { isAltPropPick, isMainLineGameLeg, isQualifyingBackupGameLine } from "./altLinePool.ts";
-import { dedupeSameTeamGameLegs, topUpDeepParlayToTarget } from "./ticketDiversity.ts";
+import { dedupeSameTeamGameLegs } from "./ticketDiversity.ts";
 import type { PropSelectionOpts } from "./propSelection.ts";
 import {
   pickLegFingerprint,
@@ -362,7 +356,7 @@ export type ReplenishParlayOpts = {
   matchupInjuries?: Record<string, import("./injuries.ts").GameInjuryReport>;
 };
 
-/** Expand search across the full board before accepting a short ticket. */
+/** Expand search across the full board before accepting a short ticket — qualifying picks only. */
 export function replenishParlayToTarget(
   picks: ParsedPick[],
   target: number,
@@ -370,35 +364,8 @@ export function replenishParlayToTarget(
 ): ParsedPick[] {
   if (picks.length >= target) return picks;
   const { maxGameLegs } = reachParlayMix(target);
-  const boardOpts = {
-    longshotAsk: opts.longshotAsk,
-    plusMoneyBias: opts.plusMoneyBias,
-    diversify: opts.diversify ?? true,
-    varietySeed: opts.varietySeed,
-    avoidLegKeys: opts.avoidLegKeys,
-    selectionOpts: opts.selectionOpts,
-    reachFull: true,
-  };
-  const propOpts = {
-    target,
-    plusMoneyBias: opts.plusMoneyBias ?? !!opts.longshotAsk,
-    diversify: opts.diversify ?? true,
-    varietySeed: opts.varietySeed,
-    avoidLegKeys: opts.avoidLegKeys,
-    selectionOpts: opts.selectionOpts,
-    maxPerGame: target >= 12 ? 4 : undefined,
-    maxPerMarket: target >= 12 ? 4 : undefined,
-  };
 
   let out = dedupeSameTeamGameLegs(picks).picks;
-  out = topUpDeepParlayToTarget(
-    out,
-    target,
-    opts.propPool,
-    opts.mergedGameOdds.length ? opts.mergedGameOdds : opts.realOdds,
-    opts.gameMeta,
-    boardOpts,
-  );
 
   if (opts.evalLinesByGame && opts.gameSimulations && out.length < target) {
     out = backfillGameLinesFromEvalScores(
@@ -407,26 +374,12 @@ export function replenishParlayToTarget(
       opts.evalLinesByGame,
       opts.gameSimulations,
       {
-        realOdds: opts.mergedGameOdds,
+        realOdds: opts.mergedGameOdds.length ? opts.mergedGameOdds : opts.realOdds,
         matchupHistory: opts.matchupHistory,
         matchupInjuries: opts.matchupInjuries,
         maxGameLegs,
       },
     );
-  }
-
-  const pool = opts.mergedGameOdds.length ? opts.mergedGameOdds : opts.realOdds;
-  if (out.length < target) {
-    out = backfillPicks(out, pool, opts.gameMeta, {
-      target,
-      order: FULL_REACH_GAME_ORDER,
-    });
-  }
-  if (out.length < target) {
-    out = backfillProps(out, opts.propPool, pool, opts.gameMeta, propOpts);
-  }
-  if (out.length < target) {
-    out = backfillPicks(out, pool, opts.gameMeta, { target, order: FULL_REACH_GAME_ORDER });
   }
 
   return dedupeSameTeamGameLegs(out).picks;

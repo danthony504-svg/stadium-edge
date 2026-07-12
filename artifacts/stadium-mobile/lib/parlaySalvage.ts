@@ -133,28 +133,16 @@ function fillParlayFromPool(
 }
 
 /** Build the best honest ticket from real posted prices when the model failed. */
-export async function buildParlaySalvagePicks(opts: ParlaySalvageOpts): Promise<ParsedPick[]> {
-  const salvagePool = await resolveSalvageOddsPool(
-    opts.trimmed,
-    opts.slateDay,
-    opts.contextOdds,
-    { minEntries: Math.min(2, opts.target), signal: opts.signal },
-  );
-  if (salvagePool.length === 0) return [];
-  return fillParlayFromPool([], salvagePool, opts);
+export async function buildParlaySalvagePicks(_opts: ParlaySalvageOpts): Promise<ParsedPick[]> {
+  // Full-board scan delivers only AI Recommended / qualifying alt legs — never
+  // backfill posted lines to reach a leg count. Salvage filler is disabled.
+  return [];
 }
 
 /** Reach-N top-up when the model (or sim gates) left the ticket short of the ask. */
 export async function topUpParlayPicks(
   existing: ParsedPick[],
-  opts: ParlaySalvageOpts,
+  _opts: ParlaySalvageOpts,
 ): Promise<ParsedPick[]> {
-  if (existing.length >= opts.target) return existing;
-  const hint = parlayPoolHint(opts.trimmed, existing);
-  const salvagePool = await resolveSalvageOddsPool(hint, opts.slateDay, opts.contextOdds, {
-    minEntries: opts.target,
-    signal: opts.signal,
-  });
-  if (salvagePool.length === 0) return existing;
-  return fillParlayFromPool(existing, salvagePool, { ...opts, trimmed: hint });
+  return existing;
 }

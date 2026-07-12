@@ -105,11 +105,22 @@ export function AnalysisProgress({
   const targetList = isAsk ? ASK_TARGETS : TARGETS;
   const checklist = isAsk ? ASK_CHECKLIST : CHECKLIST;
 
-  // In build mode the auto-timer holds on "Building final AI grade…" (index 8)
-  // until real picks stream — the finalize stage is driven by `legCount`, not a
-  // clock. In analyze + ask modes there is no leg signal, so it walks all the way
-  // to the finalize stage on its own.
-  const maxAuto = mode === "build" ? 8 : stageList.length - 1;
+  // In build mode the auto-timer holds below the penultimate stage during the
+  // long context/board-scan fetch, then advances through grading while the scan
+  // runs. During board-scan with no pick cards yet, cap at stage 7 (~84%) so we
+  // never show 93% / "Final ticket ready" while sims are still running.
+  const boardScanWaiting =
+    mode === "build" && buildPhase === "board-scan" && legCount === 0;
+  const maxAuto =
+    mode === "build"
+      ? legCount > 0
+        ? stageList.length - 1
+        : boardScanWaiting
+          ? 7
+          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
+            ? 8
+            : 6
+      : stageList.length - 1;
   const effectiveIndex =
     mode === "build" && legCount > 0
       ? stageList.length - 1
@@ -185,7 +196,10 @@ export function AnalysisProgress({
 
   const displayPct = Math.round(pct);
   // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = checklist.findIndex((c) => effectiveIndex < c.doneAt);
+  const activeChecklist = checklist.findIndex((c) => {
+    if (boardScanWaiting && c.label === "Final ticket ready") return false;
+    return effectiveIndex < c.doneAt;
+  });
 
   return (
     <View

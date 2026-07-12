@@ -257,7 +257,7 @@ export function stripCoachTicketHrvp<
   return stripHrvpFromPick(p);
 }
 
-/** Deliver board-scan legs — gate when possible, never return empty if scan produced qualifiers. */
+/** Deliver board-scan legs — only AI Recommended / qualifying alt picks; never filler. */
 export function prepareBoardScanDelivery<
   T extends RecommendablePick & {
     finalAiScore?: FinalAiScore | null;
@@ -276,14 +276,7 @@ export function prepareBoardScanDelivery<
   if (!picks.length) return [];
   const gated = coachBoardScanTicketPicks(picks, enrich);
   if (gated.length > 0) return gated;
-  return enrichCoachPicksForGate(picks, enrich)
-    .map(stripHrvpFromPick)
-    .filter((p) => {
-      const score = p.finalAiScore;
-      if (score?.highRiskValuePlay) return false;
-      if (score && !score.simAligned) return false;
-      return true;
-    });
+  return filterTicketPicks(enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick));
 }
 
 /** Board-scan legs already cleared sim/edge gates — enrich metadata and deliver without re-zeroing. */

@@ -207,7 +207,7 @@ test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt
   assert.equal(coachBoardScanTicketPicks([leg], {}).length, 1);
 });
 
-test("prepareBoardScanDelivery keeps sim-aligned board legs when every gate fails", () => {
+test("prepareBoardScanDelivery omits legs that fail AI recommendation gates", () => {
   const leg = {
     game: "A @ B",
     market: "Player Points",
@@ -230,7 +230,32 @@ test("prepareBoardScanDelivery keeps sim-aligned board legs when every gate fail
     },
   };
   assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
-  assert.equal(prepareBoardScanDelivery([leg], {}).length, 1);
+  assert.equal(prepareBoardScanDelivery([leg], {}).length, 0);
+});
+
+test("prepareBoardScanDelivery returns empty when no leg passes AI recommendation gates", () => {
+  const leg = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "A -3.5",
+    odds: -108,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 4.2,
+      grade: "C-",
+      confidencePct: 44,
+      edgePct: 0.2,
+      simHit: 0.46,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 4.2, grade: "C-", confidencePct: 44, edgePct: 0.2, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(coachBoardScanTicketPicks([leg], {}).length, 0);
+  assert.equal(prepareBoardScanDelivery([leg], {}).length, 0);
 });
 
 test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {

@@ -1,4 +1,5 @@
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by EV/edge/grade, top N.
+// Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
@@ -400,41 +401,57 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
-  const gameSimulations = await fetchSlateGameSimulations(
-    evalLinesByGame,
-    opts.teamIdMap,
-    opts.signal,
+  const mergedOdds = mergeOddsEntries(
+    opts.realOdds,
+    ...(opts.liveOdds ?? []),
+    ...evalLinesByGame.values(),
   );
-
-  const mergedOdds = mergeOddsEntries(opts.realOdds, ...(opts.liveOdds ?? []), ...evalLinesByGame.values());
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
+  const gameSimulations = new Map<string, CoachGameSimEntry>();
+  const gameEntries = [...evalLinesByGame.entries()];
+  const SLATE_SIM_BATCH = 4;
 
-  for (const [game, lines] of evalLinesByGame) {
-    const sim = gameSimulations.get(game);
-    const evaluated = evaluateGameLines({
-      lines,
-      gameSim: sim,
-      realOdds: mergedOdds,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-    });
-    totalScanned += evaluated.length;
-    for (const row of evaluated) {
-      const simHit = gameSimHitForPick(row.pick, sim);
-      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
-      if (leg) scored.push(leg);
+  const scoreGamesAndMaybePartial = (games: string[]) => {
+    for (const game of games) {
+      const lines = evalLinesByGame.get(game);
+      if (!lines?.length) continue;
+      const sim = gameSimulations.get(game);
+      const evaluated = evaluateGameLines({
+        lines,
+        gameSim: sim,
+        realOdds: mergedOdds,
+        matchupHistory: opts.matchupHistory,
+        matchupInjuries: opts.matchupInjuries,
+      });
+      totalScanned += evaluated.length;
+      for (const row of evaluated) {
+        const simHit = gameSimHitForPick(row.pick, sim);
+        const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
+        if (leg) scored.push(leg);
+      }
     }
-  }
+    if (scored.length > 0 && opts.onPartial) {
+      const partial = buildScanResult(scored, {
+        target: opts.target,
+        evalLinesByGame,
+        gameSimulations,
+        totalScanned,
+      });
+      if (partial.picks.length > 0) opts.onPartial(partial);
+    }
+  };
 
-  if (scored.length > 0 && opts.onPartial) {
-    const partial = buildScanResult(scored, {
-      target: opts.target,
-      evalLinesByGame,
-      gameSimulations,
-      totalScanned,
-    });
-    if (partial.picks.length > 0) opts.onPartial(partial);
+  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+    if (opts.signal?.aborted) break;
+    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+    const batchSims = await fetchSlateGameSimulations(
+      new Map(batch),
+      opts.teamIdMap,
+      opts.signal,
+    );
+    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+    scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
 
   const propScoreOpts = {
