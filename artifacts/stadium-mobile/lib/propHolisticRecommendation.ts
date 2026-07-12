@@ -536,6 +536,21 @@ export function propQualifiesForTicketFill(
   return (simFactor?.score ?? 0) >= 5.5 && (valueFactor?.score ?? 0) >= 5.2;
 }
 
+export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {
+  const ranked = holistic.factors
+    .filter((f) => f.applicable && f.present && f.score != null)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, max);
+  if (!ranked.length) return "Waiting on matchup, form, and injury context…";
+  return ranked
+    .map((f) => {
+      const val = f.score != null ? f.score.toFixed(1) : "—";
+      const detail = f.display ? ` (${f.display})` : "";
+      return `${f.label} ${val}${detail}`;
+    })
+    .join(" · ");
+}
+
 export function propHolisticRankScore(holistic: PropHolisticScore, edgePct?: number | null): number {
   const composite = holistic.composite ?? 0;
   const conf = holistic.confidencePct ?? 0;

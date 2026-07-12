@@ -46,7 +46,13 @@ import {
 import { PlayerStatCard, type PlayerStatCardData } from "@/components/PlayerStatCard";
 import { TeamStatCard, type TeamStatCardData } from "@/components/TeamStatCard";
 import { TicketScanSummary, type TicketScanLeg } from "@/components/TicketScanSummary";
-import { attachPickScores, type PlayerHistorySlice } from "@/lib/pickScoreContext";
+import {
+  attachPickScores,
+  coachFlashEnrichFromBuilt,
+  rescoreCoachTicketPicks,
+  type CoachFlashEnrich,
+  type PlayerHistorySlice,
+} from "@/lib/pickScoreContext";
 import {
   loadPropSimulationsProgressive,
   patchLastAssistantPicks,
@@ -1067,12 +1073,14 @@ export default function CoachScreen() {
     buildFinishingRef.current = buildFinishing;
   }, [buildFinishing]);
   const sendGenerationRef = useRef(0);
-  const flashEnrichRef = useRef<{
-    realOdds: RealOddsEntry[];
-    propPool: PropPoolEntry[];
-    gameMeta: GameMeta[];
-    realGames?: Array<{ game?: string; startsAt?: string | null; commenceTime?: string }>;
-  }>({ realOdds: [], propPool: [], gameMeta: [] });
+  const flashEnrichRef = useRef<CoachFlashEnrich>({
+    realOdds: [],
+    propPool: [],
+    gameMeta: [],
+  });
+  useEffect(() => {
+    flashEnrichRef.current = { ...flashEnrichRef.current, perfByFamily: marketPerf };
+  }, [marketPerf]);
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -1199,35 +1207,37 @@ export default function CoachScreen() {
   );
 
   const boardScanPartialToTicket = useCallback(
-    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+    (partial: FullBoardScanResult, enrichOverride?: CoachFlashEnrich) => {
       if (!partial.picks.length) return [] as ParsedPick[];
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
       const base = enrichOverride ?? flashEnrichRef.current;
-      const enrich = {
+      const enrich: CoachFlashEnrich = {
         ...base,
         realOdds: [...base.realOdds, ...scanOdds],
+        perfByFamily: base.perfByFamily ?? marketPerf,
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      const delivered = coachDeliverBoardScanPicks(tagged, enrich);
+      const rescored = rescoreCoachTicketPicks(tagged, enrich);
+      const delivered = coachDeliverBoardScanPicks(rescored, enrich);
       if (delivered.length > 0) return stripFillerBackfillPicks(delivered);
-      const board = coachBoardScanTicketPicks(tagged, enrich);
+      const board = coachBoardScanTicketPicks(rescored, enrich);
       if (board.length > 0) return stripFillerBackfillPicks(board);
-      const flash = coachFlashTicketPicks(tagged, enrich);
+      const flash = coachFlashTicketPicks(rescored, enrich);
       if (flash.length > 0) return stripFillerBackfillPicks(flash);
-      const finalized = finalizeCoachTicketPicks(tagged, enrich);
+      const finalized = finalizeCoachTicketPicks(rescored, enrich);
       if (finalized.picks.length > 0) return stripFillerBackfillPicks(finalized.picks);
-      const bettable = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
+      const bettable = filterBettablePicks(enrichPicksWithStartsAt(rescored, enrich));
       if (bettable.length > 0) return stripFillerBackfillPicks(bettable);
-      return stripFillerBackfillPicks(coachFlashBoardScanPreviewPicks(tagged, enrich));
+      return stripFillerBackfillPicks(coachFlashBoardScanPreviewPicks(rescored, enrich));
     },
-    [],
+    [marketPerf],
   );
 
   /** Flash board-scan legs onto the bubble without ending the in-flight build. */
   const patchInstantBoardScanTicket = useCallback(
     (
       partial: FullBoardScanResult,
-      enrichOverride?: typeof flashEnrichRef.current,
+      enrichOverride?: CoachFlashEnrich,
       opts?: { legNote?: string; ticketLegTarget?: number },
     ) => {
       if (!partial.picks.length) return false;
@@ -1288,25 +1298,54 @@ export default function CoachScreen() {
     [boardScanPartialToTicket, scrollToEnd],
   );
 
+  const rehydrateVisibleBoardTicket = useCallback(() => {
+    const enrich = flashEnrichRef.current;
+    if (
+      !enrich.playerHistory &&
+      !enrich.mlbPlatoon &&
+      !enrich.mlbGameEnv &&
+      !enrich.matchupHistory
+    ) {
+      return false;
+    }
+    const partial = latestBoardScanRef.current;
+    if (partial?.picks?.length) {
+      return patchInstantBoardScanTicket(partial, enrich);
+    }
+    const snapshot = boardTicketSnapshotRef.current;
+    if (!snapshot?.length) return false;
+    const rescored = rescoreCoachTicketPicks(snapshot, enrich);
+    boardTicketSnapshotRef.current = rescored;
+    setMessages((prev) => {
+      const copy = [...prev];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        if (copy[i].role === "assistant" && copy[i].picks?.length) {
+          copy[i] = { ...copy[i], picks: rescored };
+          return copy;
+        }
+      }
+      return prev;
+    });
+    setAiPicks(rescored);
+    captureFromCoach(rescored);
+    scrollToEnd(false);
+    return true;
+  }, [captureFromCoach, patchInstantBoardScanTicket, scrollToEnd]);
+
   const tryInstantSlateSeedDelivery = useCallback(
     (legTarget: number, sport?: string | null) => {
       if (legTarget < 3) return false;
       const seed = readSlatePreAnalysisSeed({ legs: legTarget, sport });
       if (!seed?.boardScan?.picks?.length) return false;
-      const enrich = {
-        realOdds: seed.built.context.realOdds,
-        propPool: seed.built.propPool,
-        gameMeta: seed.built.gameMeta,
-        realGames: seed.built.context.realGames,
-      };
+      const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
       return patchInstantBoardScanTicket(seed.boardScan, enrich);
     },
-    [patchInstantBoardScanTicket],
+    [patchInstantBoardScanTicket, marketPerf],
   );
 
   const deliverBoardScanTicket = useCallback(
-    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+    (partial: FullBoardScanResult, enrichOverride?: CoachFlashEnrich) => {
       const ticket = boardScanPartialToTicket(partial, enrichOverride);
       if (!ticket.length) return;
       latestBoardScanRef.current = partial;
@@ -1329,7 +1368,7 @@ export default function CoachScreen() {
   );
 
   const flashCoachTicketPicks = useCallback(
-    (picks: ParsedPick[], legNote?: string, enrichOverride?: typeof flashEnrichRef.current) => {
+    (picks: ParsedPick[], legNote?: string, enrichOverride?: CoachFlashEnrich) => {
       const tagged = tagTicketRoles(picks);
       const enrich = enrichOverride ?? flashEnrichRef.current;
       const toShow = coachFlashTicketPicks(tagged, enrich);
@@ -1387,7 +1426,7 @@ export default function CoachScreen() {
   );
 
   const flashBoardScanResult = useCallback(
-    (scan: FullBoardScanResult | null | undefined, enrichOverride?: typeof flashEnrichRef.current) => {
+    (scan: FullBoardScanResult | null | undefined, enrichOverride?: CoachFlashEnrich) => {
       if (!scan?.picks?.length) return false;
       setBoardScanPartialLegs(scan.picks.length);
       return patchInstantBoardScanTicket(scan, enrichOverride);
@@ -1439,12 +1478,14 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, signal).catch(() => ({ games: [], odds: [] })),
           ]);
           if (seedBuilt) {
-            flashEnrichRef.current = {
-              realOdds: seedBuilt.context.realOdds,
-              propPool: seedBuilt.propPool,
-              gameMeta: seedBuilt.gameMeta,
-              realGames: seedBuilt.context.realGames,
-            };
+            flashEnrichRef.current = coachFlashEnrichFromBuilt(
+              {
+                context: seedBuilt.context,
+                propPool: seedBuilt.propPool,
+                gameMeta: seedBuilt.gameMeta,
+              },
+              { perfByFamily: marketPerf },
+            );
           }
           const reachTarget = Math.min(target, MAX_LEGS);
           return await Promise.race([
@@ -1463,6 +1504,8 @@ export default function CoachScreen() {
               playerHistory: seedBuilt?.context.playerHistory as
                 | Record<string, PlayerHistorySlice>
                 | undefined,
+              mlbPlatoon: seedBuilt?.context.mlbPlatoon,
+              mlbGameEnv: seedBuilt?.context.mlbGameEnv,
               perfByFamily: marketPerf,
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
@@ -1650,12 +1693,7 @@ export default function CoachScreen() {
         void hydrateCoachSlateFromServer(slateSeedOpts);
         const seed = readSlatePreAnalysisSeed(slateSeedOpts);
         if (seed?.boardScan?.picks?.length) {
-          const enrich = {
-            realOdds: seed.built.context.realOdds,
-            propPool: seed.built.propPool,
-            gameMeta: seed.built.gameMeta,
-            realGames: seed.built.context.realGames,
-          };
+          const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
           flashEnrichRef.current = enrich;
           const ticket = boardScanPartialToTicket(seed.boardScan, enrich);
           if (ticket.length) {
@@ -2038,12 +2076,10 @@ export default function CoachScreen() {
           todayOnly = replay.todayOnly;
           full = replay.full;
           serverPropPool.push(...propPoolFromRealProps(replay.props));
-          flashEnrichRef.current = {
-            realOdds: context.realOdds,
-            propPool,
-            gameMeta,
-            realGames: context.realGames,
-          };
+          flashEnrichRef.current = coachFlashEnrichFromBuilt(
+            { context, propPool, gameMeta },
+            { perfByFamily: marketPerf },
+          );
           setWaiting(false);
           if (!wantsAnalyzeSlip(trimmed)) {
             setMessages((prev) => {
@@ -2192,12 +2228,10 @@ export default function CoachScreen() {
                 ? (preAnalysisSeed.boardScan.scanComplete ?? true)
                 : false,
             };
-            flashEnrichRef.current = {
-              realOdds: preAnalysisSeed.built.context.realOdds,
-              propPool: preAnalysisSeed.built.propPool,
-              gameMeta: preAnalysisSeed.built.gameMeta,
-              realGames: preAnalysisSeed.built.context.realGames,
-            };
+            flashEnrichRef.current = coachFlashEnrichFromBuilt(preAnalysisSeed.built, {
+              propSimulations: preAnalysisSeed.propSimulations,
+              perfByFamily: marketPerf,
+            });
             patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
           }
           let earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
@@ -2286,12 +2320,11 @@ export default function CoachScreen() {
             };
             propPool = filterForExcludedSports(propPool, excludedSports);
           }
-          flashEnrichRef.current = {
-            realOdds: context.realOdds,
-            propPool,
-            gameMeta,
-            realGames: context.realGames,
-          };
+          flashEnrichRef.current = coachFlashEnrichFromBuilt(
+            { context, propPool, gameMeta },
+            { propSimulations, perfByFamily: marketPerf },
+          );
+          rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -2607,13 +2640,12 @@ export default function CoachScreen() {
           const merged = extra.length ? [...base, ...extra] : base;
           return excludedSports.size > 0 ? filterForExcludedSports(merged, excludedSports) : merged;
         })();
-        let pickEnrich = {
-          realOdds: context.realOdds,
-          propPool: mergedPropPool,
-          gameMeta,
-          realGames: context.realGames,
-        };
+        let pickEnrich = coachFlashEnrichFromBuilt(
+          { context, propPool: mergedPropPool, gameMeta },
+          { propSimulations, perfByFamily: marketPerf },
+        );
         flashEnrichRef.current = pickEnrich;
+        rehydrateVisibleBoardTicket();
         selectionOpts = {
           propPool: mergedPropPool,
           matchupHistory: context.matchupHistory,

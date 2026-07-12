@@ -5,6 +5,7 @@ import {
   combinePropHolisticFactors,
   CONFIDENCE_PENALTY_PER_MISSING,
   propHolisticRecommends,
+  propHolisticTopDrivers,
   PROP_HOLISTIC_WEIGHTS,
 } from "./propHolisticRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
@@ -209,4 +210,27 @@ test("buildFinalAiScore uses holistic composite for props", () => {
   assert.ok(score.propHolistic);
   assert.equal(score.composite, score.propHolistic?.composite);
   assert.equal(score.grade, score.propHolistic?.grade);
+});
+
+test("propHolisticTopDrivers lists strongest grounded factors", () => {
+  const holistic = buildPropHolisticScore({
+    sport: "mlb",
+    marketKey: "player_home_runs",
+    propSide: "Over",
+    rubricScores: {
+      trend: 6.5,
+      matchup: 7,
+      lineValue: 5.5,
+      injury: null,
+      lineShopping: null,
+      simulation: 7.2,
+    },
+    edgePct: 3.1,
+    simHit: 0.54,
+    minutesTrend: { l5: 4, season: 3.5, direction: "up" },
+    vsOpponentGames: 6,
+  });
+  const drivers = propHolisticTopDrivers(holistic);
+  assert.match(drivers, /Recent Form|Simulation|Matchup/);
+  assert.doesNotMatch(drivers, /Waiting on matchup/);
 });

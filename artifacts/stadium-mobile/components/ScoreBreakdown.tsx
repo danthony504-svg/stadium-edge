@@ -6,6 +6,7 @@ import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
+import { propHolisticTopDrivers } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
@@ -42,8 +43,19 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const factors = holistic.factors;
+  const topKeys = new Set(
+    factors
+      .filter((f) => f.applicable && f.present && f.score != null)
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, 3)
+      .map((f) => f.key),
+  );
+  const drivers = propHolisticTopDrivers(holistic);
   return (
     <View style={{ gap: 5 }}>
+      <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 10.5, lineHeight: 15 }}>
+        {drivers}
+      </Text>
       <View style={{ flexDirection: "row", gap: 3 }}>
         {HOLISTIC_STRIP.map((slot) => {
           const f = factors.find((x) => x.key === slot.key);
@@ -53,12 +65,13 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
           }
           const present = f?.present && f.score != null;
           const s = f?.score ?? null;
+          const isTop = present && topKeys.has(slot.key);
           return (
             <View key={slot.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
               <View
                 style={{
                   width: "100%",
-                  height: 4,
+                  height: isTop ? 6 : 4,
                   borderRadius: 999,
                   backgroundColor: present ? scoreColor(s) : colors.border,
                   opacity: present ? 1 : 0.35,
@@ -69,8 +82,8 @@ function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
                 adjustsFontSizeToFit
                 minimumFontScale={0.65}
                 style={{
-                  color: present ? colors.foreground : colors.mutedForeground,
-                  fontFamily: FONT.medium,
+                  color: present ? (isTop ? colors.foreground : colors.mutedForeground) : colors.mutedForeground,
+                  fontFamily: isTop ? FONT.bold : FONT.medium,
                   fontSize: 8,
                   opacity: present ? 1 : 0.55,
                 }}
