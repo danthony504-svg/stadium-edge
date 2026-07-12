@@ -195,7 +195,18 @@ export function sanitizeCoachTicketPicks<
     scores?: { composite?: number | null } | null;
     startsAt?: string | null;
     sport?: string;
+    highRiskValuePlay?: boolean;
   },
 >(picks: T[]): T[] {
-  return filterBettablePicks(filterTicketPicksPreservingTicket(picks));
+  const gated = filterTicketPicks(picks);
+  const kept = gated.length > 0 ? gated : picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  return filterBettablePicks(
+    kept.map((p) => ({
+      ...p,
+      highRiskValuePlay: false,
+      finalAiScore: p.finalAiScore
+        ? { ...p.finalAiScore, highRiskValuePlay: false, simAligned: p.finalAiScore.simAligned }
+        : p.finalAiScore,
+    })),
+  );
 }

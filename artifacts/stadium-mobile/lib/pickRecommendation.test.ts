@@ -9,6 +9,7 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   qualifiesAltPick,
+  sanitizeCoachTicketPicks,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
@@ -108,6 +109,58 @@ test("pickIsAiRecommended rejects High-Risk Value Play when sim disagrees", () =
     pickIsAiRecommended({ market: "Moneyline", sport: "mlb", odds: 135 }, hrVp),
     false,
   );
+});
+
+test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {
+  const hrVp = {
+    game: "KC @ BAL",
+    market: "Moneyline",
+    pick: "Royals ML",
+    odds: 135,
+    highRiskValuePlay: true,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 7,
+      grade: "B",
+      confidencePct: 58,
+      edgePct: 12,
+      simHit: 0.32,
+      simAligned: false,
+      highRiskValuePlay: true,
+      recommends: true,
+      factors: [],
+      rubric: { composite: 7, grade: "B", confidencePct: 58, edgePct: 12, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([hrVp]).length, 0);
+
+  const alt = {
+    game: "E @ F",
+    market: "Alt Spread",
+    pick: "F +3.5",
+    odds: -105,
+    isProp: false,
+    sport: "mlb",
+    startsAt: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+    ticketRole: "alt" as const,
+    highRiskValuePlay: true,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  const out = sanitizeCoachTicketPicks([alt]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.highRiskValuePlay, false);
+  assert.equal(out[0]!.finalAiScore?.highRiskValuePlay, false);
 });
 
 test("filterTicketPicksPreservingTicket drops sim-opposed legs from rescoring fallback", () => {

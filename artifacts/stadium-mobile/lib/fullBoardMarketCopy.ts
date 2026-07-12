@@ -22,7 +22,14 @@ export function fullBoardScanShortfallNote(
 ): string {
   const staged =
     staging && (staging.mainOnTicket > 0 || staging.altOnTicket > 0)
-      ? ` Filled with **${staging.mainOnTicket}** main pick${staging.mainOnTicket === 1 ? "" : "s"}${staging.altOnTicket > 0 ? ` and **${staging.altOnTicket}** alt pick${staging.altOnTicket === 1 ? "" : "s"} (labeled ALT PICK)` : ""}.`
+      ? staging.altOnTicket > 0
+        ? ` Filled with **${staging.mainOnTicket}** main pick${staging.mainOnTicket === 1 ? "" : "s"} and **${staging.altOnTicket}** alt pick${staging.altOnTicket === 1 ? "" : "s"} (labeled **ALT PICK**).`
+        : ` **${staging.mainOnTicket}** main pick${staging.mainOnTicket === 1 ? "" : "s"} on the ticket.`
       : "";
-  return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${staging?.mainQualified ?? totalQualified}** main lines and **${staging?.altQualified ?? 0}** alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} Here are the top **${pickCount}** by EV, edge, confidence, and AI grade — I won't pad with lower-grade or lower-confidence legs._`;
+  const altPool = staging?.altQualified ?? 0;
+  const mainPool = staging?.mainQualified ?? totalQualified;
+  if (staging && staging.altOnTicket > 0) {
+    return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar — stepped to alternate rungs where mains ran out.${staged} These **${pickCount}** are the highest-rated sim-aligned legs by EV, edge, confidence, and AI grade._`;
+  }
+  return `_Scanned the entire board — **${totalScanned}** posted lines across ${FULL_BOARD_MARKET_FAMILIES} (10k sim each, cross-book line shopping, correlation scoring, and historical learning applied). **${mainPool}** main lines and **${altPool}** alt lines cleared the quality bar (sim + positive edge + positive EV + grade ≥ C+ + confidence ≥ 52%).${staged} These **${pickCount}** are the top sim-aligned legs by EV, edge, confidence, and AI grade._`;
 }

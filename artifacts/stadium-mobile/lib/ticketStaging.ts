@@ -66,11 +66,8 @@ export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
   return picks.map((p) => ({ ...p, ticketRole: ticketRoleForPick(p) }));
 }
 
-/** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
-export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
-  if (target >= 3) {
-    return dedupeSameTeamGameLegsLite(selectCorrelationAwareBoardLegs(ranked, target)).slice(0, target);
-  }
+/** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N). */
+export function selectGreedyBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
   const seen = new Set<string>();
   const out: ParsedPick[] = [];
   for (const row of ranked) {
@@ -81,6 +78,14 @@ export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): Pa
     if (out.length >= target) break;
   }
   return dedupeSameTeamGameLegsLite(out).slice(0, target);
+}
+
+/** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
+export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
+  if (target >= 3) {
+    return dedupeSameTeamGameLegsLite(selectCorrelationAwareBoardLegs(ranked, target)).slice(0, target);
+  }
+  return selectGreedyBoardLegs(ranked, target);
 }
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
@@ -104,21 +109,41 @@ export function buildStagedTicketFromScan(
     ...p,
     ticketRole: "main" as const,
   }));
-  const gap = Math.max(0, target - mainPicks.length);
-  const used = new Set(mainPicks.map(pickLegFingerprint));
+  let allPicks = [...mainPicks];
+  const used = new Set(allPicks.map(pickLegFingerprint));
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
-  const altPicks = selectTopBoardLegs(altPool, gap).map((p) => ({
-    ...p,
-    ticketRole: ticketRoleForPick(p),
-  }));
-  const allPicks = [...mainPicks, ...altPicks];
+
+  // Alt gap fill: greedy rank order — never leave qualifying alts behind because
+  // correlation scoring throttled a reach-N ticket.
+  const gap = Math.max(0, target - allPicks.length);
+  if (gap > 0 && altPool.length > 0) {
+    const altPicks = selectGreedyBoardLegs(altPool, gap).map((p) => ({
+      ...p,
+      ticketRole: ticketRoleForPick(p),
+      highRiskValuePlay: false,
+    }));
+    allPicks = [...allPicks, ...altPicks];
+  }
+
+  // Last resort: any remaining qualifying mains if alts exhausted but mains remain.
+  const mainGap = Math.max(0, target - allPicks.length);
+  if (mainGap > 0) {
+    const usedFp = new Set(allPicks.map(pickLegFingerprint));
+    const extraMains = mains
+      .filter((l) => !usedFp.has(pickLegFingerprint(l.pick)))
+      .slice(0, mainGap)
+      .map((l) => ({ ...l.pick, ticketRole: "main" as const, highRiskValuePlay: false }));
+    allPicks = [...allPicks, ...extraMains];
+  }
+
+  const finalPicks = allPicks.slice(0, target);
   return {
-    picks: allPicks,
+    picks: finalPicks,
     breakdown: {
       mainQualified: mains.length,
       altQualified: alts.length,
-      mainOnTicket: allPicks.filter((p) => p.ticketRole === "main").length,
-      altOnTicket: allPicks.filter((p) => p.ticketRole === "alt").length,
+      mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
+      altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
     },
   };
 }

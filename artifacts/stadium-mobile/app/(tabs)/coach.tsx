@@ -1125,11 +1125,7 @@ export default function CoachScreen() {
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
       const tagged = tagTicketRoles(picks);
-      const gated = filterTicketPicksPreservingTicket(tagged);
-      const toShow =
-        gated.length > 0
-          ? gated
-          : tagged.filter((p) => pickQualifiesForTicketGrade(p, p.finalAiScore));
+      const toShow = sanitizeCoachTicketPicks(tagged);
       if (!toShow.length) return;
       patchLastAssistantPicks(setMessages, toShow, legNote);
       setStreaming(false);
@@ -3568,12 +3564,27 @@ export default function CoachScreen() {
                     oddsPhrase,
                     excludeSportsList,
                   );
+        } else if (picks.length > 0 && fullBoardScanned && fullBoardScanMeta) {
+          const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
+          const mainOnTicket = picks.length - altOnTicket;
+          legNote = buildFullBoardShortfallNote(
+            ticketTarget,
+            picks.length,
+            fullBoardScanMeta.totalScanned,
+            fullBoardScanMeta.totalQualified,
+            oddsPhrase,
+            excludeSportsList,
+            {
+              ...fullBoardScanMeta.staging,
+              mainOnTicket,
+              altOnTicket,
+            },
+          );
         }
         // Transparency notes (diversity, sim optimizer, ml lean) belong in zero-card
-        // failures only — never above rendered pick cards. Shortfall copy is the only
-        // legNote we surface when cards are on screen.
+        // failures only — never above rendered pick cards.
         const legNoteForCards =
-          picks.length > 0 && ticketTarget > picks.length
+          picks.length > 0
             ? fullBoardScanned && fullBoardScanMeta
               ? buildFullBoardShortfallNote(
                   ticketTarget,
@@ -3590,7 +3601,9 @@ export default function CoachScreen() {
                       }
                     : undefined,
                 )
-              : legNote
+              : ticketTarget > picks.length
+                ? legNote
+                : ""
             : "";
         const exclusionNote =
           excludedSports.size > 0
@@ -4468,13 +4481,8 @@ export default function CoachScreen() {
                                 caption: "Alternate rung — positive EV, edge, and sim grade",
                                 tone: "grade" as const,
                               }
-                            : p.highRiskValuePlay
-                            ? {
-                                text: "High-Risk Value Play",
-                                caption: "Simulator disagrees — large line-value edge only",
-                                tone: "value" as const,
-                              }
-                            : p.finalAiScore?.simAligned && p.finalAiScore.recommends
+                            : p.finalAiScore?.simAligned &&
+                                (p.finalAiScore.recommends || p.ticketRole === "alt")
                               ? {
                                   text: "Sim-Aligned",
                                   caption: `10k sim ${p.finalAiScore.simHit != null ? `${Math.round(p.finalAiScore.simHit * 100)}%` : ""} hit`,
