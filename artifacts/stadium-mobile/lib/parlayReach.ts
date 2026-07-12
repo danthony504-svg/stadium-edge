@@ -25,6 +25,8 @@ import {
   pickLegFingerprint,
   reachParlayMix,
   mergeParlayRejects,
+  promoteQualifyingAltsToTicket,
+  promoteQualifyingStagedToTicket,
   type ParlayLegReject,
 } from "./parlayReachCore.ts";
 
