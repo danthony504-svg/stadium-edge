@@ -1,4 +1,5 @@
-// Full-board scan: sim every posted game-line rung + prop pool row, rank by EV/edge/grade, top N.
+// Full-board scan: sim every posted game-line rung + prop pool row, rank by composite
+// score (EV/sim/matchup/form/injury/line-move/market-efficiency), top N.
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
@@ -44,7 +45,7 @@ import {
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
-import { propHolisticRankScore } from "./propHolisticRecommendation.ts";
+import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -74,14 +75,6 @@ function propPickHasSimHit(
   const key = propSimKeyForPick(pick);
   return key != null && hits.has(key);
 }
-const GRADE_RANK: Record<string, number> = {
-  F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
-};
-
-function gradeRank(g: string | null | undefined): number {
-  if (!g) return -1;
-  return GRADE_RANK[g] ?? -1;
-}
 
 export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
@@ -98,18 +91,7 @@ export type FullBoardScanResult = {
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
-  const holistic = leg.pick.finalAiScore?.propHolistic;
-  if (leg.pick.isProp && holistic) {
-    return propHolisticRankScore(holistic, leg.edgePct ?? undefined);
-  }
-  const ev = leg.evPct ?? 0;
-  const edge = leg.edgePct ?? 0;
-  const conf = leg.confidencePct ?? 0;
-  const composite = leg.composite ?? 0;
-  const sim = (leg.simHit ?? 0) * 100;
-  const grade = gradeRank(leg.grade) * 4;
-  const shop = (leg.lineShoppingScore ?? 0) * 1.2;
-  return ev * 1.5 + edge * 3 + conf * 0.4 + composite * 0.5 + sim * 0.35 + grade + shop;
+  return coachCompositeRankScore(leg as BoardScoredLeg);
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {

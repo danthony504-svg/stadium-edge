@@ -551,6 +551,7 @@ export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): st
     .join(" · ");
 }
 
+/** @deprecated Use coachCompositeRankScore from coachCompositeRank.ts for board ranking. */
 export function propHolisticRankScore(holistic: PropHolisticScore, edgePct?: number | null): number {
   const composite = holistic.composite ?? 0;
   const conf = holistic.confidencePct ?? 0;
