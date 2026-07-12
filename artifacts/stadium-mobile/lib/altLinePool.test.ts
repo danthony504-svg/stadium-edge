@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   gameAltPoolForPick,
+  isAltBoardPick,
   isAltPropPick,
   isAlternateOrPeriodMarket,
   isMainBoardPick,
   isMainLineGameLeg,
+  isPeriodMainMarket,
   isPostablePoolLadderOdds,
   isQualifyingBackupGameLine,
   ladderTierForSiblingIndex,
@@ -51,6 +53,39 @@ test("isAlternateOrPeriodMarket rejects main ML but accepts alt spread and F5", 
   assert.ok(isAlternateOrPeriodMarket("1H Alt Total"));
 });
 
+test("isPeriodMainMarket accepts posted period mains but not alt ladder rungs", () => {
+  assert.ok(isPeriodMainMarket("1H Moneyline"));
+  assert.ok(isPeriodMainMarket("1st Half Moneyline"));
+  assert.ok(isPeriodMainMarket("Q1 Spread"));
+  assert.ok(isPeriodMainMarket("F5 Total"));
+  assert.ok(isPeriodMainMarket("F5 Run Line"));
+  assert.ok(!isPeriodMainMarket("1H Alt Total"));
+  assert.ok(!isPeriodMainMarket("Alt Spread"));
+  assert.ok(!isPeriodMainMarket("Moneyline"));
+});
+
+test("period moneylines are main board picks — never ALT PICK badges", () => {
+  const periodMl = {
+    market: "1st Half Moneyline",
+    pick: "Mercury ML",
+    isProp: false,
+  };
+  assert.ok(isPeriodMainMarket(periodMl.market));
+  assert.ok(isMainLineGameLeg(periodMl));
+  assert.ok(isMainBoardPick(periodMl));
+  assert.ok(!isAltBoardPick(periodMl));
+  assert.ok(!isQualifyingBackupGameLine(periodMl));
+});
+
+test("true alt rungs still classify as alt board picks", () => {
+  const altSpread = { market: "Alt Spread", pick: "Pirates +2.5", isProp: false };
+  assert.ok(isAltBoardPick(altSpread));
+  assert.ok(!isMainBoardPick(altSpread));
+  const periodAlt = { market: "1H Alt Total", pick: "Over 111.5", isProp: false };
+  assert.ok(isAltBoardPick(periodAlt));
+  assert.ok(!isMainBoardPick(periodAlt));
+});
+
 test("gameAltPoolForPick returns every same-side spread-family rung", () => {
   const pool = gameAltPoolForPick(pick, evalLines);
   assert.equal(pool.length, 4);
@@ -76,9 +111,15 @@ test("isMainLineGameLeg rejects main ML even when market label is empty", () => 
     }),
   );
   assert.ok(
-    !isMainLineGameLeg({
+    isMainLineGameLeg({
       market: "F5 Run Line",
       pick: "Pirates +1.5",
+    }),
+  );
+  assert.ok(
+    !isMainLineGameLeg({
+      market: "1H Alt Total",
+      pick: "Over 111.5",
     }),
   );
 });

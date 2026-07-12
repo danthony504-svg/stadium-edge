@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
+import { buildStagedTicketFromScan, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -53,6 +53,28 @@ const altScore = {
   factors: [],
   rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
 };
+
+test("tagTicketRoles labels period moneylines as main — not alt", () => {
+  const tagged = tagTicketRoles([
+    {
+      game: "Phoenix Mercury @ Minnesota Lynx",
+      market: "1st Half Moneyline",
+      pick: "Mercury ML",
+      odds: 265,
+      isProp: false,
+      sport: "wnba",
+    },
+    {
+      game: "Chicago Sky @ Dallas Wings",
+      market: "1H Moneyline",
+      pick: "Sky ML",
+      odds: 235,
+      isProp: false,
+      sport: "wnba",
+    },
+  ]);
+  assert.ok(tagged.every((p) => p.ticketRole === "main"));
+});
 
 test("buildStagedTicketFromScan fills mains first then alts to reach target", () => {
   const scored: BoardScoredLeg[] = [

@@ -130,6 +130,16 @@ export function gameAltPoolForPick(pick: AltPoolPick, evalLines: RealOddsEntry[]
   );
 }
 
+function hasPeriodSegment(market: string): boolean {
+  const m = market.trim().toLowerCase();
+  if (/\b(1h|2h|h1|h2|q1|q2|q3|q4|f5)\b/i.test(m)) return true;
+  if (/\b(1st|first)\s+(half|quarter|inning)\b/i.test(m)) return true;
+  if (/\b(2nd|second)\s+half\b/i.test(m)) return true;
+  if (/\b(3rd|third|4th|fourth)\s+quarter\b/i.test(m)) return true;
+  if (/\bfirst\s+five\s+innings\b/i.test(m)) return true;
+  return false;
+}
+
 /** True for alt spreads/totals, period markets, team totals, F5 run lines — not main ML/spread/total. */
 export function isAlternateOrPeriodMarket(market: string): boolean {
   const m = market.trim().toLowerCase();
@@ -138,8 +148,20 @@ export function isAlternateOrPeriodMarket(market: string): boolean {
   if (/^total$/i.test(m)) return false;
   if (/\balt\b/i.test(m)) return true;
   if (/team total/i.test(m)) return true;
-  if (/\b(1h|2h|q1|q2|q3|q4|f5|1st inning)\b/i.test(m)) return true;
+  if (hasPeriodSegment(m)) return true;
   if (/run line|puck line/i.test(m)) return true;
+  return false;
+}
+
+/** Posted main line for a period segment (1H ML, F5 Total, etc.) — not an alt ladder rung. */
+export function isPeriodMainMarket(market: string): boolean {
+  const m = market.trim().toLowerCase();
+  if (/\balt\b/i.test(m)) return false;
+  if (/team total/i.test(m)) return false;
+  if (!hasPeriodSegment(m)) return false;
+  if (/money|h2h|\bml\b|money line/.test(m)) return true;
+  if (/spread|run ?line|puck ?line/.test(m)) return true;
+  if (/total|over|under|o\/u/.test(m)) return true;
   return false;
 }
 
@@ -150,6 +172,7 @@ export function isMainLineGameLeg(pick: {
   isProp?: boolean;
 }): boolean {
   if (pick.isProp) return false;
+  if (isPeriodMainMarket(pick.market)) return true;
   if (isAlternateOrPeriodMarket(pick.market)) return false;
   const m = pick.market.trim().toLowerCase();
   if (/^moneyline$|^ml$|^h2h$|money line/.test(m)) return true;
@@ -201,5 +224,5 @@ export function isAltBoardPick(pick: {
 }): boolean {
   if (pick.isProp) return isAltPropPick(pick);
   if (isMainLineGameLeg(pick)) return false;
-  return isQualifyingBackupGameLine(pick) || isAlternateOrPeriodMarket(pick.market);
+  return isQualifyingBackupGameLine(pick);
 }
