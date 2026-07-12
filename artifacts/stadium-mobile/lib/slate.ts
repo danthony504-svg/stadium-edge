@@ -232,20 +232,47 @@ export function filterBettablePicks<T extends { sport?: string; startsAt?: strin
   return picks.filter((p) => isPregameBettableForSport(p.startsAt, p.sport ?? ""));
 }
 
+/** Strict coach delivery gate — requires kickoff metadata and 48h pregame window. */
+export function filterCoachHorizonPicks<T extends { sport?: string; startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => {
+    if (!p.startsAt) return false;
+    return isPregameBettableForSport(p.startsAt, p.sport ?? "");
+  });
+}
+
+export function filterCoachHorizonPicksAfterEnrich<
+  T extends {
+    game?: string;
+    market?: string;
+    pick?: string;
+    startsAt?: string | null;
+    isProp?: boolean;
+    player?: string;
+    sport?: string;
+  },
+>(
+  picks: T[],
+  sources: Parameters<typeof enrichPicksWithStartsAt>[1],
+): T[] {
+  return filterCoachHorizonPicks(enrichPicksWithStartsAt(picks, sources));
+}
+
 /**
- * Drop legs with kickoff outside 48h; keep legs missing startsAt until metadata
- * attaches (fixed-leg tickets must not shrink from missing timestamps alone).
+ * Drop legs with kickoff outside 48h. If every leg has a timestamp and none qualify,
+ * return [] — never pass through an all-far-future ticket.
  */
 export function preferBettableQualifiedPicks<T extends { sport?: string; startsAt?: string | null }>(
   picks: T[],
 ): T[] {
   if (!picks.length) return picks;
-  const horizonFiltered = picks.filter((p) => {
-    if (!p.startsAt) return true;
-    return isPregameBettableForSport(p.startsAt, p.sport ?? "");
-  });
-  if (horizonFiltered.length > 0) return horizonFiltered;
-  return picks;
+  const timestamped = picks.filter((p) => p.startsAt);
+  if (!timestamped.length) return picks;
+  const inWindow = timestamped.filter((p) =>
+    isPregameBettableForSport(p.startsAt, p.sport ?? ""),
+  );
+  return inWindow;
 }
 
 /** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */

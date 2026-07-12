@@ -7,7 +7,7 @@ import type { CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 
-const PREFIX = "slate-preanalysis:v1:";
+const PREFIX = "slate-preanalysis:v2:horizon48:";
 const STORAGE_KEY = `${PREFIX}snapshot`;
 const GEN_KEY = `${PREFIX}ota-generation`;
 

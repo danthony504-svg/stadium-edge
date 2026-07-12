@@ -191,6 +191,15 @@ test("preferBettableQualifiedPicks drops far-future legs with known kickoff", ()
   assert.equal(kept[0]?.startsAt, soon);
 });
 
+test("preferBettableQualifiedPicks returns empty when every leg is outside 48h", () => {
+  const inNineDays = new Date(Date.now() + 9 * 24 * 3600_000).toISOString();
+  const kept = preferBettableQualifiedPicks([
+    { sport: "soccer", startsAt: inNineDays },
+    { sport: "mlb", startsAt: inNineDays },
+  ]);
+  assert.equal(kept.length, 0);
+});
+
 test("filterBettablePicks drops far-future legs from a mixed ticket", () => {
   const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
   const september = new Date(Date.now() + 54 * 24 * 3600_000).toISOString();

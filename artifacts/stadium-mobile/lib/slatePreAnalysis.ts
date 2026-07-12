@@ -11,7 +11,7 @@ import { tryReachFullBoardScan, type FullBoardScanResult } from "./boardMarketSc
 import { boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { enrichChatContextProps } from "./propSelection.ts";
-import { filterBettableOddsGames } from "./slate.ts";
+import { filterBettableOddsGames, filterBettablePropPool, filterCoachHorizonPicksAfterEnrich, isPregameBettableForSport } from "./slate.ts";
 import { DEFAULT_SPORTS } from "./sports.ts";
 import {
   computeSlateFingerprint,
@@ -25,7 +25,10 @@ import {
   resolveSlateBoardScan,
   serializeBoardScan,
   SLATE_PRE_ANALYSIS_TARGET,
+  type SlateParlayLegCount,
+  type SerializedBoardScan,
   type SlatePreAnalysisSnapshot,
+  type SlateTicketsIndex,
 } from "./slatePreAnalysisCache.ts";
 import { fetchCoachServerSlate } from "./coachSlateApi.ts";
 
@@ -80,15 +83,77 @@ export type SlateSeedOpts = {
   sport?: string | null;
 };
 
+function coachEnrichSourcesFromBuilt(built: BuiltChatContext) {
+  return {
+    realOdds: built.context.realOdds,
+    propPool: built.propPool,
+    gameMeta: built.gameMeta,
+    realGames: built.context.realGames,
+  };
+}
+
+function sanitizeBuiltForCoach(built: BuiltChatContext): BuiltChatContext {
+  return {
+    ...built,
+    context: {
+      ...built.context,
+      realOdds: filterBettableOddsGames(built.context.realOdds ?? []),
+      realProps: filterBettablePropPool(built.context.realProps ?? []),
+      realGames: (built.context.realGames ?? []).filter((g) =>
+        isPregameBettableForSport(g.startsAt, g.sport ?? ""),
+      ),
+    },
+    propPool: filterBettablePropPool(built.propPool),
+  };
+}
+
+function sanitizeSerializedBoardScan(
+  raw: SerializedBoardScan | null,
+  built: BuiltChatContext,
+): SerializedBoardScan | null {
+  if (!raw?.picks?.length) return raw;
+  const picks = filterCoachHorizonPicksAfterEnrich(raw.picks, coachEnrichSourcesFromBuilt(built));
+  return { ...raw, picks };
+}
+
+function sanitizeSlateSnapshot(snap: SlatePreAnalysisSnapshot): SlatePreAnalysisSnapshot {
+  const built = sanitizeBuiltForCoach(snap.built);
+  const boardScan = sanitizeSerializedBoardScan(snap.boardScan, built);
+  let tickets: SlateTicketsIndex | null | undefined = snap.tickets;
+  if (tickets) {
+    const global: SlateTicketsIndex["global"] = {};
+    for (const [size, scan] of Object.entries(tickets.global ?? {})) {
+      const cleaned = sanitizeSerializedBoardScan(scan ?? null, built);
+      if (cleaned?.picks?.length) {
+        global[Number(size) as SlateParlayLegCount] = cleaned;
+      }
+    }
+    const bySport: SlateTicketsIndex["bySport"] = {};
+    for (const [sport, sizes] of Object.entries(tickets.bySport ?? {})) {
+      const sportTickets: Partial<Record<SlateParlayLegCount, SerializedBoardScan>> = {};
+      for (const [size, scan] of Object.entries(sizes ?? {})) {
+        const cleaned = sanitizeSerializedBoardScan(scan ?? null, built);
+        if (cleaned?.picks?.length) {
+          sportTickets[Number(size) as SlateParlayLegCount] = cleaned;
+        }
+      }
+      if (Object.keys(sportTickets).length) bySport[sport] = sportTickets;
+    }
+    tickets = { global, bySport };
+  }
+  return { ...snap, built, boardScan, tickets };
+}
+
 function seedFromSnapshot(
   snap: SlatePreAnalysisSnapshot,
   opts?: SlateSeedOpts,
 ): SlatePreAnalysisSeed {
+  const clean = sanitizeSlateSnapshot(snap);
   const requested = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
-  const boardRaw = resolveSlateBoardScan(snap, opts);
+  const boardRaw = resolveSlateBoardScan(clean, opts);
   return {
-    built: snap.built,
-    propSimulations: new Map(snap.propSimulations),
+    built: clean.built,
+    propSimulations: new Map(clean.propSimulations),
     boardScan: boardRaw
       ? deserializeBoardScan({
           ...boardRaw,
@@ -96,7 +161,7 @@ function seedFromSnapshot(
             (boardRaw.scanComplete ?? true) && boardScanMeetsLegTarget(boardRaw, requested),
         })
       : null,
-    fingerprint: snap.fingerprint,
+    fingerprint: clean.fingerprint,
   };
 }
 
@@ -228,14 +293,14 @@ export async function runSlatePreAnalysis(opts?: {
     const boardScan = await runBoardScan(enrichedBuilt, signal, opts?.onPartialBoard);
     if (signal?.aborted) return null;
 
-    const snapshot: SlatePreAnalysisSnapshot = {
+    const snapshot: SlatePreAnalysisSnapshot = sanitizeSlateSnapshot({
       at: Date.now(),
       fingerprint: computeSlateFingerprint(enrichedBuilt),
       built: enrichedBuilt,
       propSimulations: propSimMapToSnapshot(propSimulations),
       boardScan: boardScan ? serializeBoardScan(boardScan) : null,
       deepSimComplete: false,
-    };
+    });
     await rememberSlatePreAnalysis(snapshot);
     return snapshot;
   } catch {
@@ -249,7 +314,7 @@ export async function syncServerSlatePreAnalysis(opts?: SlateSeedOpts): Promise<
     const resp = await fetchCoachServerSlate(opts);
     const usable = resp?.snapshot && (resp.fresh || resp.instantServe);
     if (!usable || !resp.snapshot) return false;
-    return applyServerSlateSnapshot(resp.snapshot);
+    return applyServerSlateSnapshot(sanitizeSlateSnapshot(resp.snapshot));
   } catch {
     return false;
   }

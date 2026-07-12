@@ -162,6 +162,7 @@ import {
   filterBettableOddsGames,
   filterBettablePicks,
   enrichPicksWithStartsAt,
+  filterCoachHorizonPicksAfterEnrich,
   preferBettableQualifiedPicks,
   filterOddsForSlateDay,
   filterPicksForSlateDay,
@@ -1220,7 +1221,10 @@ export default function CoachScreen() {
           enrich,
         );
       }
-      const cleaned = stripFillerBackfillPicks(rescored);
+      const cleaned = filterCoachHorizonPicksAfterEnrich(
+        stripFillerBackfillPicks(rescored),
+        enrich,
+      );
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -1290,7 +1294,7 @@ export default function CoachScreen() {
         );
       }
       return stripFillerBackfillPicks(
-        preferBettableQualifiedPicks(enrichPicksWithStartsAt(ticket, enrich)),
+        filterCoachHorizonPicksAfterEnrich(ticket, enrich),
       );
     },
     [marketPerf],
