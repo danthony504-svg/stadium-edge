@@ -76,6 +76,16 @@ function legFingerprint(p: ParsedPick): string {
   return `game|${p.game}|${p.market}|${p.pick}`;
 }
 
+const COACH_HORIZON_MS = 48 * 60 * 60 * 1000;
+
+function isCoachBettableStartsAt(startsAt?: string | null): boolean {
+  if (!startsAt) return true;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return true;
+  const now = Date.now();
+  return t > now && t < now + COACH_HORIZON_MS;
+}
+
 function americanImplied(odds: number): number {
   if (odds > 0) return 100 / (odds + 100);
   return Math.abs(odds) / (Math.abs(odds) + 100);
@@ -330,6 +340,7 @@ export async function runServerBoardScan(
   };
 
   for (const o of realOdds) {
+    if (!isCoachBettableStartsAt(o.startsAt)) continue;
     totalScanned++;
     const isAlt = /^alt /i.test(o.market) || /alt/i.test(o.market);
     const simHit = simHitForGameLine(o, gameSimulations.get(o.game));
@@ -345,6 +356,7 @@ export async function runServerBoardScan(
   }
 
   for (const e of propPool) {
+    if (!isCoachBettableStartsAt(e.startsAt)) continue;
     totalScanned++;
     const pick = pickFromPoolEntry(e);
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);

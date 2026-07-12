@@ -162,6 +162,7 @@ import {
   filterBettableOddsGames,
   filterBettablePicks,
   enrichPicksWithStartsAt,
+  preferBettableQualifiedPicks,
   filterOddsForSlateDay,
   filterPicksForSlateDay,
   mentionsPropIntent,
@@ -1288,7 +1289,9 @@ export default function CoachScreen() {
           enrich,
         );
       }
-      return stripFillerBackfillPicks(ticket);
+      return stripFillerBackfillPicks(
+        preferBettableQualifiedPicks(enrichPicksWithStartsAt(ticket, enrich)),
+      );
     },
     [marketPerf],
   );
@@ -2874,6 +2877,9 @@ export default function CoachScreen() {
             },
           ).picks;
         }
+        picks = preferBettableQualifiedPicks(
+          enrichPicksWithStartsAt(picks, flashEnrichRef.current),
+        );
         if (!isAnalyze && picks.length > 0 && !fullBoardScanMeta?.picks?.length) {
           const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {

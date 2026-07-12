@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks, preferBettableQualifiedPicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -88,10 +88,12 @@ test("wantsMlbPitcherSlateAsk detects pitcher/bullpen slate targeting", () => {
   assert.equal(wantsMlbPitcherSlateAsk("Build me a 6-leg parlay"), false);
 });
 
-test("isPregameBettableForSport: soccer uses 14-day WC horizon", () => {
+test("isPregameBettableForSport: coach uses 48h for all sports including soccer", () => {
   const inSixDays = new Date(Date.now() + 6 * 24 * 3600_000);
-  assert.equal(isPregameBettableForSport(inSixDays.toISOString(), "soccer"), true);
+  assert.equal(isPregameBettableForSport(inSixDays.toISOString(), "soccer"), false);
   assert.equal(isPregameBettableForSport(inSixDays.toISOString(), "mlb"), false);
+  const in36h = new Date(Date.now() + 36 * 3600_000);
+  assert.equal(isPregameBettableForSport(in36h.toISOString(), "soccer"), true);
 });
 
 test("wantsSoccerScorerGoalkeeperPicks: ranked scorer vs keeper matchup ask", () => {
@@ -176,6 +178,17 @@ test("filterBettableOddsGames drops games outside the 48h coach window", () => {
   ]);
   assert.equal(kept.length, 1);
   assert.equal(kept[0]?.commenceTime, soon);
+});
+
+test("preferBettableQualifiedPicks drops far-future legs with known kickoff", () => {
+  const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const inNineDays = new Date(Date.now() + 9 * 24 * 3600_000).toISOString();
+  const kept = preferBettableQualifiedPicks([
+    { sport: "soccer", startsAt: soon },
+    { sport: "soccer", startsAt: inNineDays },
+  ]);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]?.startsAt, soon);
 });
 
 test("filterBettablePicks drops far-future legs from a mixed ticket", () => {

@@ -34,17 +34,12 @@ export function isPregameBettable(startsAt?: string | null): boolean {
   return t > now && t < now + 48 * 3600_000;
 }
 
-/** World Cup soccer props post days ahead — match the Props tab's 14-day window. */
+/** Coach bettable horizon — pregame only, within the next 48h (all sports). */
 export function isPregameBettableForSport(
   startsAt: string | null | undefined,
-  sport: string,
+  _sport?: string,
 ): boolean {
-  if (!startsAt) return false;
-  const t = Date.parse(startsAt);
-  if (!Number.isFinite(t)) return false;
-  const now = Date.now();
-  const horizonMs = sport === "soccer" ? 14 * 24 * 3600_000 : 48 * 3600_000;
-  return t > now && t < now + horizonMs;
+  return isPregameBettable(startsAt);
 }
 
 /** Game Simulator pool: pregame only — no in-progress or final games. */
@@ -216,7 +211,7 @@ export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
   return entries;
 }
 
-/** Odds API games within each sport's coach bettable horizon (48h, 14d soccer). */
+/** Odds API games within the coach 48h pregame window. */
 export function filterBettableOddsGames<T extends { sport?: string; commenceTime?: string }>(
   games: T[],
 ): T[] {
@@ -238,16 +233,19 @@ export function filterBettablePicks<T extends { sport?: string; startsAt?: strin
 }
 
 /**
- * Prefer bettable legs but never shrink a qualified ticket when only some legs
- * lack kickoff metadata — fixed-leg parlays must not drop from 9 → 7 mid-delivery.
+ * Drop legs with kickoff outside 48h; keep legs missing startsAt until metadata
+ * attaches (fixed-leg tickets must not shrink from missing timestamps alone).
  */
 export function preferBettableQualifiedPicks<T extends { sport?: string; startsAt?: string | null }>(
   picks: T[],
 ): T[] {
   if (!picks.length) return picks;
-  const bettable = filterBettablePicks(picks);
-  if (bettable.length === 0 || bettable.length < picks.length) return picks;
-  return bettable;
+  const horizonFiltered = picks.filter((p) => {
+    if (!p.startsAt) return true;
+    return isPregameBettableForSport(p.startsAt, p.sport ?? "");
+  });
+  if (horizonFiltered.length > 0) return horizonFiltered;
+  return picks;
 }
 
 /** Attach game kickoff times from odds/props/meta when board-built picks omit startsAt. */

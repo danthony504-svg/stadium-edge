@@ -18,6 +18,14 @@ const MAX_SPORTS = 12;
 const MAX_ODDS_GAMES = 48;
 const MAX_PROP_GAMES = 36;
 const PROPS_CONCURRENCY = 4;
+const COACH_HORIZON_MS = 48 * 60 * 60 * 1000;
+
+function isCoachBettableCommence(commenceTime: string): boolean {
+  const t = Date.parse(commenceTime);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now && t < now + COACH_HORIZON_MS;
+}
 
 type OddsGame = {
   sport: string;
@@ -144,10 +152,7 @@ export async function buildServerCompactParlayContext(): Promise<BuiltChatContex
       slateLoopbackGet<OddsGame[]>(`/sports/odds?sport=${sport}`),
       slateLoopbackGet<EspnGame[]>(`/sports/games?sport=${sport}`),
     ]);
-    const pickable = (odds ?? []).filter((g) => {
-      const t = Date.parse(g.commenceTime);
-      return Number.isFinite(t) && t > Date.now();
-    });
+    const pickable = (odds ?? []).filter((g) => isCoachBettableCommence(g.commenceTime));
     if (pickable.length > 0) {
       activeSports.push(sport);
       allOdds.push(...pickable.map((g) => ({ ...g, sport })));
