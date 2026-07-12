@@ -1180,7 +1180,9 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      return prepareBoardScanDelivery(tagged, enrich);
+      const delivered = coachDeliverBoardScanPicks(tagged, enrich);
+      if (delivered.length > 0) return delivered;
+      return coachBoardScanTicketPicks(tagged, enrich);
     },
     [],
   );
@@ -1436,6 +1438,8 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
+      const precomputedOnScreen = messages.find((m) => m.precomputedSlate && m.picks?.length);
+
       const thread = pruneDeadParlayPlaceholders(
         scrubDeadBuildProseFromMessages(
           opts?.freshThread
@@ -1461,6 +1465,27 @@ export default function CoachScreen() {
           ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
           : undefined;
       const openingParlayBuild = isParlayBuildAsk(trimmed) && !analyzeSlipSnapshot;
+      const earlyLegTarget = openingParlayBuild
+        ? requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed)
+        : 0;
+      const cachedSeedTicket = (() => {
+        if (!openingParlayBuild || earlyLegTarget < 6) return null;
+        const seed = readSlatePreAnalysisSeed();
+        if (!seed?.boardScan?.picks?.length) return null;
+        const enrich = {
+          realOdds: seed.built.context.realOdds,
+          propPool: seed.built.propPool,
+          gameMeta: seed.built.gameMeta,
+          realGames: seed.built.context.realGames,
+        };
+        const tagged = tagTicketRoles([...seed.boardScan.picks]);
+        const picks = coachDeliverBoardScanPicks(tagged, enrich);
+        if (!picks.length) return null;
+        return { picks, legNote: seed.boardScan.note, enrich };
+      })();
+      const openingPicks = cachedSeedTicket?.picks ?? precomputedOnScreen?.picks;
+      const openingLegNote = cachedSeedTicket?.legNote ?? precomputedOnScreen?.legNote;
+      if (cachedSeedTicket?.enrich) flashEnrichRef.current = cachedSeedTicket.enrich;
       if (sendGenerationRef.current !== sendGen) return;
       setMessages([
         ...history,
@@ -1469,8 +1494,14 @@ export default function CoachScreen() {
           content: "",
           ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}),
           ...(openingParlayBuild ? { parlayBuild: true } : {}),
+          ...(openingPicks?.length ? { picks: openingPicks, legNote: openingLegNote } : {}),
         },
       ]);
+      if (openingPicks?.length) {
+        boardTicketSnapshotRef.current = openingPicks;
+        setAiPicks(openingPicks);
+        captureFromCoach(openingPicks);
+      }
       setWaiting(true);
       setStreaming(true);
       if (openingParlayBuild) {
@@ -1478,7 +1509,6 @@ export default function CoachScreen() {
         setCoachBuildBusy(true);
         setBuildFinishing(true);
         setParlayBuildPhase("context");
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
         armBuildProgressWatchdog(earlyLegTarget);
         armBuildStallWatchdog(sendGen, trimmed);
       }
@@ -1511,7 +1541,7 @@ export default function CoachScreen() {
       abortRef.current = controller;
 
       if (openingParlayBuild) {
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        await hydrateCoachSlateFromServer();
         if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
           await hydrateSlatePreAnalysisCache();
           if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
@@ -2388,7 +2418,11 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
-          setParlayBuildPhase("score");
+          if (boardTicketSnapshotRef.current?.length) {
+            setParlayBuildPhase("score");
+          } else if (!fullBoardScanned) {
+            setParlayBuildPhase("board-scan");
+          }
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
@@ -4882,15 +4916,8 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
-            // Progress finalizes once pick cards are on the message — or when a
-            // board-scan partial has scored legs waiting for delivery gates.
-            const progressLegCount = hasPicks
-              ? (m.picks?.length ?? 0)
-              : Math.max(
-                  boardScanPartialLegs,
-                  boardTicketSnapshotRef.current?.length ?? 0,
-                  latestBoardScanRef.current?.picks?.length ?? 0,
-                );
+            // Progress finalizes only once pick cards are on the message.
+            const progressLegCount = m.picks?.length ?? 0;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
