@@ -28,24 +28,27 @@ const EMPTY_SCAN_META = {
 
 router.get("/sports/live-steals", async (req, res): Promise<void> => {
   try {
-    const [record, history] = await Promise.all([getRecord(), getGradedHistory()]);
+    const [record, history, scan] = await Promise.all([
+      getRecord(),
+      getGradedHistory(),
+      fetchStealsWithMeta().catch((scanErr) => {
+        req.log.warn({ err: scanErr }, "live-steals scan failed — returning empty pool");
+        return null;
+      }),
+    ]);
     const seasonStats = seasonStatsFromGraded(history);
 
     let steals: Awaited<ReturnType<typeof fetchStealsWithMeta>>["steals"] = [];
     let meta = EMPTY_SCAN_META;
     let almostQualified: Awaited<ReturnType<typeof fetchStealsWithMeta>>["almostQualified"] = [];
+    let feedDegraded = scan == null;
 
-    let feedDegraded = false;
-
-    try {
-      const scan = await fetchStealsWithMeta();
+    if (scan) {
       steals = scan.steals;
       meta = scan.meta;
       almostQualified = scan.almostQualified;
+      feedDegraded = meta.marketsChecked <= 0;
       await persistSteals(steals);
-    } catch (scanErr) {
-      feedDegraded = true;
-      req.log.warn({ err: scanErr }, "live-steals scan failed — returning empty pool");
     }
 
     if (Date.now() - lastGradeAt > GRADE_THROTTLE_MS) {
