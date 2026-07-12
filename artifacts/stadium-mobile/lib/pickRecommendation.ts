@@ -9,12 +9,8 @@ import {
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 
-/** Softer confidence floor for alt legs promoted onto a reach-N ticket. */
-export const ALT_PICK_MIN_CONFIDENCE = 50;
-
-/** Reach-tier board fill when strict mains + alts cannot reach N. */
-export const REACH_BOARD_MIN_CONFIDENCE = 48;
-export const REACH_BOARD_MIN_GRADE = "C";
+/** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
+export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
 
 export const NOT_AI_RECOMMENDED = "Not AI Recommended";
 
@@ -55,36 +51,15 @@ export function pickIsAiRecommended(
   return score.recommends;
 }
 
-/** Letter grade for a sim-graded leg on a ticket (main, alt, or reach fill). */
+/** Letter grade for a sim-graded leg on a ticket (main or alt). */
 export function pickQualifiesForTicketGrade(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
 ): boolean {
-  return (
-    pickIsAiRecommended(pick, score) ||
-    qualifiesAltPick(pick, score) ||
-    qualifiesReachBoardPick(pick, score)
-  );
+  return pickIsAiRecommended(pick, score) || qualifiesAltPick(pick, score);
 }
 
-/** Step-4 reach fill on a full-board scan — softer than main, honest vs junk. */
-export function qualifiesReachBoardPick(
-  pick: RecommendablePick,
-  score: FinalAiScore | null | undefined,
-): boolean {
-  if (!score) return false;
-  if (!pickHasSimGrade(pick, score.simHit)) return false;
-  if (gradeRank(score.grade) < gradeRank(REACH_BOARD_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < REACH_BOARD_MIN_CONFIDENCE) return false;
-  if ((score.edgePct ?? 0) <= 0) return false;
-  if (score.simHit != null && pick.odds != null) {
-    const ev = simEvPct(score.simHit, pick.odds);
-    if (ev != null && ev <= 0) return false;
-  }
-  return true;
-}
-
-/** True when an alt rung passes the softer reach-N alt thresholds. */
+/** True when an alt rung passes grade/confidence/EV/edge gates (same bar as mains). */
 export function qualifiesAltPick(
   pick: RecommendablePick,
   score: FinalAiScore | null | undefined,
@@ -140,25 +115,18 @@ export function pickGradeDisplayCaption(
   if (qualifiesAltPick(pick, score ?? undefined)) {
     return "Alternate pick — positive EV, edge, and sim grade";
   }
-  if (qualifiesReachBoardPick(pick, score ?? undefined)) {
-    return "Reach fill — positive EV and edge on a sim-graded line";
-  }
   return "Did not pass AI recommendation thresholds";
 }
 
-/** Main legs use the strict gate; staged alt legs use the softer alt gate. */
+/** Main legs use the strict gate; staged alt legs use the alt ladder gate (same grade/confidence bar). */
 export function pickPassesTicketGate(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (pick.ticketRole === "alt") {
-    return qualifiesAltPick(pick, score) || qualifiesReachBoardPick(pick, score);
+    return qualifiesAltPick(pick, score);
   }
-  return (
-    pickIsAiRecommended(pick, score) ||
-    qualifiesAltPick(pick, score) ||
-    qualifiesReachBoardPick(pick, score)
-  );
+  return pickIsAiRecommended(pick, score) || qualifiesAltPick(pick, score);
 }
 
 /** Keep only legs that pass every AI recommendation threshold. */
@@ -180,7 +148,7 @@ export function filterTicketPicks<
   });
 }
 
-/** Never zero a grounded ticket — keep qualifying alts/reach or strongest sim-graded edge. */
+/** Never zero a grounded ticket — keep qualifying alts or strongest sim-graded edge. */
 export function filterTicketPicksPreservingTicket<
   T extends RecommendablePick & {
     finalAiScore?: FinalAiScore | null;
@@ -190,9 +158,7 @@ export function filterTicketPicksPreservingTicket<
 >(picks: T[]): T[] {
   const filtered = filterTicketPicks(picks);
   if (filtered.length > 0 || picks.length === 0) return filtered;
-  const altFallback = picks.filter(
-    (p) => qualifiesAltPick(p, p.finalAiScore) || qualifiesReachBoardPick(p, p.finalAiScore),
-  );
+  const altFallback = picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
   if (altFallback.length > 0) return altFallback;
   // Progressive rescoring can flip recommends off while edge + sim stay positive —
   // keep the strongest sim-graded legs rather than wiping a board-built ticket.

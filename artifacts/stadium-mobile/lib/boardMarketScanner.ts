@@ -41,9 +41,15 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 
 const PROP_SIM_BATCH = 21;
-const MAX_BOARD_PROP_SIM = 126;
+const BASE_BOARD_PROP_SIM = 126;
 const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
 const MIN_PROP_POOL_FOR_SKIP_FETCH = 80;
+
+/** Scale prop quick-sim depth with leg target — search more markets, never lower the bar. */
+export function maxBoardPropSimForTarget(target: number, poolSize: number): number {
+  const scaled = Math.max(BASE_BOARD_PROP_SIM, target * 28);
+  return Math.min(poolSize, scaled);
+}
 const GRADE_RANK: Record<string, number> = {
   F: 0, D: 1, "C-": 2, C: 3, "C+": 4, "B-": 5, B: 6, "B+": 7, "A-": 8, A: 9, "A+": 10,
 };
@@ -169,6 +175,7 @@ async function simPropPoolForBoardScan(
   pool: PropPoolEntry[],
   mergedOdds: RealOddsEntry[],
   opts: {
+    target?: number;
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
@@ -191,7 +198,7 @@ async function simPropPoolForBoardScan(
         (b.scores?.composite ?? b.finalAiScore?.composite ?? 0) -
         (a.scores?.composite ?? a.finalAiScore?.composite ?? 0),
     )
-    .slice(0, MAX_BOARD_PROP_SIM);
+    .slice(0, maxBoardPropSimForTarget(opts.target ?? 6, candidates.length));
 
   for (let i = 0; i < candidates.length; i += PROP_SIM_BATCH) {
     const batch = candidates.slice(i, i + PROP_SIM_BATCH);
@@ -319,6 +326,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     pool,
     mergedOdds,
     {
+      target: opts.target,
       matchupHistory: opts.matchupHistory,
       matchupInjuries: opts.matchupInjuries,
       playerHistory: opts.playerHistory,

@@ -9,27 +9,34 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   qualifiesAltPick,
-  qualifiesReachBoardPick,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
 
-test("qualifiesAltPick accepts softer thresholds without recommends flag", () => {
+test("qualifiesAltPick accepts alt ladder legs at the main confidence bar", () => {
   const score = {
     composite: 6,
     grade: "C+",
-    confidencePct: 50,
+    confidencePct: 52,
     edgePct: 1.2,
     simHit: 0.52,
     simAligned: false,
     highRiskValuePlay: false,
     recommends: false,
     factors: [],
-    rubric: { composite: 6, grade: "C+", confidencePct: 50, edgePct: 1.2, scores: {} as never },
+    rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.2, scores: {} as never },
   };
   assert.equal(
     qualifiesAltPick({ market: "Alt Spread", sport: "mlb", odds: 110 }, score),
     true,
+  );
+  assert.equal(
+    qualifiesAltPick(
+      { market: "Alt Spread", sport: "mlb", odds: 110 },
+      { ...score, confidencePct: 51 },
+    ),
+    false,
+    "confidence below 52% must not qualify",
   );
   assert.equal(
     qualifiesAltPick(
@@ -69,14 +76,14 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
     finalAiScore: {
       composite: 6,
       grade: "C+",
-      confidencePct: 51,
+      confidencePct: 52,
       edgePct: 1.1,
       simHit: 0.51,
       simAligned: false,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
-      rubric: { composite: 6, grade: "C+", confidencePct: 51, edgePct: 1.1, scores: {} as never },
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.1, scores: {} as never },
     },
   };
   const out = filterTicketPicksPreservingTicket([weakMain, altLeg]);
@@ -144,14 +151,14 @@ test("filterTicketPicks keeps staged alt legs that fail strict main gate", () =>
     finalAiScore: {
       composite: 6,
       grade: "C+",
-      confidencePct: 51,
+      confidencePct: 52,
       edgePct: 1.1,
       simHit: 0.51,
       simAligned: false,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
-      rubric: { composite: 6, grade: "C+", confidencePct: 51, edgePct: 1.1, scores: {} as never },
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.1, scores: {} as never },
     },
   };
   const out = filterTicketPicks([altLeg]);
@@ -255,29 +262,7 @@ test("unsupported market uses not-yet-graded path via pickHasSimGrade", () => {
   );
 });
 
-test("qualifiesReachBoardPick accepts C-grade sim lines below alt bar", () => {
-  const score = {
-    composite: 5,
-    grade: "C",
-    confidencePct: 49,
-    edgePct: 0.8,
-    simHit: 0.51,
-    simAligned: false,
-    highRiskValuePlay: false,
-    recommends: false,
-    factors: [],
-    rubric: { composite: 5, grade: "C", confidencePct: 49, edgePct: 0.8, scores: {} as never },
-  };
-  const pick = { market: "Spread", sport: "mlb", odds: 120, ticketRole: "alt" as const };
-  assert.equal(qualifiesReachBoardPick(pick, score), true);
-  assert.equal(qualifiesAltPick(pick, score), false);
-  assert.equal(
-    pickGradeDisplayCaption(pick, score),
-    "Reach fill — positive EV and edge on a sim-graded line",
-  );
-});
-
-test("pickGradeDisplayLabel shows letter grade for reach-qualified plus-money ML", () => {
+test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML", () => {
   const score = {
     composite: 6,
     grade: "B-",
