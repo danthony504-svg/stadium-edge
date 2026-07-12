@@ -133,6 +133,7 @@ import {
   setCoachBuildBusy,
   startSlatePreAnalysis,
   hydrateCoachSlateFromServer,
+  SLATE_PRE_ANALYSIS_TARGET,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
@@ -1484,7 +1485,24 @@ export default function CoachScreen() {
         return { picks, legNote: seed.boardScan.note, enrich };
       })();
       const openingPicks = cachedSeedTicket?.picks ?? precomputedOnScreen?.picks;
-      const openingLegNote = cachedSeedTicket?.legNote ?? precomputedOnScreen?.legNote;
+      const openingLegNote = (() => {
+        if (cachedSeedTicket?.legNote) return cachedSeedTicket.legNote;
+        if (precomputedOnScreen?.legNote) return precomputedOnScreen.legNote;
+        const seed = readSlatePreAnalysisSeed();
+        const scan = seed?.boardScan;
+        if (!openingPicks?.length || !scan) return undefined;
+        const requested = earlyLegTarget >= 6 ? earlyLegTarget : SLATE_PRE_ANALYSIS_TARGET;
+        if (openingPicks.length >= requested) return scan.note;
+        return buildFullBoardShortfallNote(
+          requested,
+          openingPicks.length,
+          scan.totalScanned,
+          scan.totalQualified,
+          "today's real odds",
+          undefined,
+          scan.staging,
+        );
+      })();
       if (cachedSeedTicket?.enrich) flashEnrichRef.current = cachedSeedTicket.enrich;
       if (sendGenerationRef.current !== sendGen) return;
       setMessages([
@@ -4573,7 +4591,17 @@ export default function CoachScreen() {
       const welcome = prev.filter((m) => isWelcomeMessage(m));
       const legNote =
         seed.boardScan?.note ??
-        `Today's ranked slate — ${picks.length} AI-simulated legs from the live board (refreshed in the background).`;
+        (picks.length < SLATE_PRE_ANALYSIS_TARGET && seed.boardScan
+          ? buildFullBoardShortfallNote(
+              SLATE_PRE_ANALYSIS_TARGET,
+              picks.length,
+              seed.boardScan.totalScanned,
+              seed.boardScan.totalQualified,
+              "today's real odds",
+              undefined,
+              seed.boardScan.staging,
+            )
+          : `Today's ranked slate — ${picks.length} AI-simulated legs from the live board (refreshed in the background).`);
       return [
         ...welcome,
         {

@@ -63,7 +63,36 @@ function pickFromOdds(o: RealOddsEntry): ParsedPick {
   };
 }
 
-function legFingerprint(p: ParsedPick): string {
+function americanImplied(odds: number): number {
+  if (odds > 0) return 100 / (odds + 100);
+  return Math.abs(odds) / (Math.abs(odds) + 100);
+}
+
+function serverPickFinalAiScore(
+  simHit: number | null,
+  odds: number,
+  edge: number | null | undefined,
+): ParsedPick["finalAiScore"] {
+  if (simHit == null || !Number.isFinite(simHit)) return undefined;
+  const implied = americanImplied(odds);
+  const simAligned = simHit > implied;
+  const edgePct = edge ?? Math.round((simHit - implied) * 1000) / 10;
+  const grade = simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+";
+  const confidencePct = Math.round(simHit * 100);
+  const recommends = simAligned && edgePct > 0 && simHit >= 0.52;
+  return {
+    composite: Math.round((simHit * 100 + edgePct) * 10) / 10,
+    grade,
+    confidencePct,
+    edgePct,
+    simHit,
+    simAligned,
+    highRiskValuePlay: false,
+    recommends,
+    factors: [],
+    rubric: { composite: Math.round(simHit * 100), grade, confidencePct, edgePct, scores: {} as never },
+  };
+}
   if (p.isProp) {
     return `prop|${p.game}|${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`;
   }
@@ -281,11 +310,7 @@ export async function runServerBoardScan(
     const pick = pickFromOdds(o);
     if (o.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge;
     if (simHit != null) {
-      pick.finalAiScore = {
-        composite: Math.round((simHit * 100 + (o.edge ?? 0)) * 10) / 10,
-        grade: simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+",
-        simHit,
-      };
+      pick.finalAiScore = serverPickFinalAiScore(simHit, o.odds, o.edge);
     }
     const score = rankScoreForPick(pick, propSims, simHit);
     ranked.push({ pick, rankScore: score, isAlt });
@@ -301,11 +326,7 @@ export async function runServerBoardScan(
     if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
     if (minHit != null && minHit < 0.52 && edge <= 0) continue;
     if (minHit != null) {
-      pick.finalAiScore = {
-        composite: Math.round(minHit * 1000) / 10,
-        grade: minHit >= 0.58 ? "B" : minHit >= 0.54 ? "B-" : "C+",
-        simHit: minHit,
-      };
+      pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }
     const score = rankScoreForPick(pick, propSims, minHit ?? null);
     ranked.push({ pick, rankScore: score, isAlt: !!e.alt });

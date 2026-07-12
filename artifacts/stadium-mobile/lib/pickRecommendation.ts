@@ -28,6 +28,65 @@ function stripHrvpFromPick<
   };
 }
 
+function normalizeBoardScanPickScore<
+  T extends RecommendablePick & {
+    odds?: number | null;
+    finalAiScore?: FinalAiScore | null;
+    edge?: string;
+  },
+>(pick: T): T {
+  const score = pick.finalAiScore;
+  if (!score || score.simHit == null) return pick;
+  const simHit = score.simHit!;
+  const implied = pick.odds != null ? impliedProb(pick.odds) : null;
+  const simAligned = score.simAligned ?? (implied != null ? simHit > implied : simHit >= 0.52);
+  const edgeFromOdds =
+    typeof (pick as { edgeNum?: number }).edgeNum === "number"
+      ? (pick as { edgeNum?: number }).edgeNum!
+      : null;
+  const edgePct =
+    score.edgePct ??
+    edgeFromOdds ??
+    (implied != null ? Math.round((simHit - implied) * 1000) / 10 : null);
+  const confidencePct = score.confidencePct ?? Math.round(simHit * 100);
+  const grade = score.grade ?? (simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+");
+  const recommends =
+    score.recommends ??
+    (simAligned &&
+      (edgePct ?? 0) > 0 &&
+      pickHasSimGrade(pick, simHit) &&
+      gradeRank(grade) >= gradeRank(COACH_SIM_MIN_GRADE));
+  return {
+    ...pick,
+    finalAiScore: {
+      ...score,
+      grade,
+      simAligned,
+      recommends,
+      confidencePct,
+      edgePct: edgePct ?? score.edgePct,
+      highRiskValuePlay: score.highRiskValuePlay ?? false,
+      factors: score.factors ?? [],
+      rubric: score.rubric ?? {
+        composite: score.composite ?? 0,
+        grade,
+        confidencePct,
+        edgePct: edgePct ?? 0,
+        scores: {} as never,
+      },
+    },
+  };
+}
+
+function normalizeBoardScanPicks<
+  T extends RecommendablePick & {
+    odds?: number | null;
+    finalAiScore?: FinalAiScore | null;
+  },
+>(picks: T[]): T[] {
+  return picks.map((p) => normalizeBoardScanPickScore(p));
+}
+
 function enrichCoachPicksForGate<
   T extends RecommendablePick & {
     finalAiScore?: FinalAiScore | null;
@@ -274,11 +333,12 @@ export function coachDeliverBoardScanPicks<
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!picks.length) return [];
-  const board = prepareBoardScanDelivery(picks, enrich);
+  const normalized = normalizeBoardScanPicks(picks);
+  const board = prepareBoardScanDelivery(normalized, enrich);
   if (board.length > 0) return board;
-  const flash = coachFlashTicketPicks(picks, enrich);
+  const flash = coachFlashTicketPicks(normalized, enrich);
   if (flash.length > 0) return flash;
-  return finalizeCoachTicketPicks(picks, enrich).picks;
+  return finalizeCoachTicketPicks(normalized, enrich).picks;
 }
 
 /** Deliver board-scan legs — only AI Recommended / qualifying alt picks; never filler. */
@@ -320,7 +380,8 @@ export function coachBoardScanTicketPicks<
   },
 >(picks: T[], enrich?: CoachPickEnrichSources): T[] {
   if (!picks.length) return [];
-  const enriched = enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick);
+  const normalized = normalizeBoardScanPicks(picks);
+  const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
   const bettable = filterBettablePicks(enriched);
   if (bettable.length > 0) return bettable;
   return enriched.filter((p) => {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
   coachBoardScanTicketPicks,
+  coachDeliverBoardScanPicks,
   coachFlashTicketPicks,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
@@ -505,6 +506,30 @@ test("unsupported market uses not-yet-graded path via pickHasSimGrade", () => {
     pickGradeDisplayLabel({ market: "Both Teams To Score", sport: "soccer" }, null),
     null,
   );
+});
+
+test("normalizeBoardScanPickScores unlocks server slate legs missing simAligned", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "A @ B",
+    market: "Moneyline",
+    pick: "B ML",
+    odds: -118,
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 55,
+      grade: "B-",
+      simHit: 0.55,
+    },
+  };
+  const enrich = {
+    realOdds: [{ game: "A @ B", market: "Moneyline", pick: "B ML", odds: -118, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: kickoff, homeAbbr: "B", awayAbbr: "A", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  };
+  assert.equal(coachDeliverBoardScanPicks([leg], enrich).length, 1);
 });
 
 test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML", () => {
