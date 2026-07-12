@@ -267,6 +267,7 @@ const PENDING_BUILD_KEY = "coach.pendingBuild";
 // the stash at PENDING_POLL_MS while we wait.
 const PENDING_BUILD_MAX_WAIT_MS = 120_000;
 const PENDING_POLL_MS = 5_000;
+const INSTANT_SLATE_SEED_MIN_LEGS = 3;
 
 type PendingBuild = {
   buildId: string;
@@ -438,6 +439,7 @@ async function tryStatCard(text: string, signal: AbortSignal): Promise<StatCardR
 
 const QUICK_PROMPTS: { label: string; prompt: string }[] = [
   { label: "3-Leg parlay", prompt: "Build me a 3-leg parlay" },
+  { label: "5-Leg parlay", prompt: "Build me a 5-leg parlay" },
   { label: "6-Leg parlay", prompt: "Build me a 6-leg parlay" },
   { label: "9-Leg parlay", prompt: "Build me a 9-leg parlay" },
   { label: "15-Leg longshot", prompt: "Build me a 15-leg longshot parlay" },
@@ -1178,7 +1180,15 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      return prepareBoardScanDelivery(tagged, enrich);
+      const delivered = coachDeliverBoardScanPicks(tagged, enrich);
+      if (delivered.length > 0) return delivered;
+      const board = coachBoardScanTicketPicks(tagged, enrich);
+      if (board.length > 0) return board;
+      const flash = coachFlashTicketPicks(tagged, enrich);
+      if (flash.length > 0) return flash;
+      const finalized = finalizeCoachTicketPicks(tagged, enrich);
+      if (finalized.picks.length > 0) return finalized.picks;
+      return filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
     },
     [],
   );
@@ -1193,6 +1203,7 @@ export default function CoachScreen() {
       patchLastAssistantPicks(setMessages, ticket, partial.note);
       setAiPicks(ticket);
       captureFromCoach(ticket);
+      if (buildFinishingRef.current) setParlayBuildPhase("stream");
       scrollToEnd(false);
       return true;
     },
@@ -1298,7 +1309,9 @@ export default function CoachScreen() {
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
       if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
-      patchInstantBoardScanTicket(partial);
+      if (patchInstantBoardScanTicket(partial)) {
+        setParlayBuildPhase("stream");
+      }
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
@@ -1490,6 +1503,13 @@ export default function CoachScreen() {
             openingPicks = delivered;
             openingLegNote = seed.boardScan.note;
             flashEnrichRef.current = enrich;
+          } else {
+            const bettable = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
+            if (bettable.length) {
+              openingPicks = bettable;
+              openingLegNote = seed.boardScan.note;
+              flashEnrichRef.current = enrich;
+            }
           }
         }
       }
@@ -1516,8 +1536,7 @@ export default function CoachScreen() {
         activeParlayAskRef.current = trimmed;
         setCoachBuildBusy(true);
         setBuildFinishing(true);
-        setParlayBuildPhase("context");
-        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        setParlayBuildPhase(openingPicks?.length ? "stream" : "context");
         armBuildProgressWatchdog(earlyLegTarget);
         armBuildStallWatchdog(sendGen, trimmed);
       }
@@ -1947,7 +1966,10 @@ export default function CoachScreen() {
             confidenceThreshold,
           });
           const reachFullPreScanEligible =
-            boardScanPreEligible && legTarget >= 6 && !slipImageVerdictOnly;
+            boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS && !slipImageVerdictOnly;
+          if (reachFullPreScanEligible || (boardScanPreEligible && legTarget >= INSTANT_SLATE_SEED_MIN_LEGS)) {
+            setParlayBuildPhase("board-scan");
+          }
           type ScanFeeds = {
             espnGames: import("@/lib/api").EspnGame[];
             oddsGames: import("@/lib/api").OddsGame[];
@@ -1972,14 +1994,15 @@ export default function CoachScreen() {
               })),
             ]).then(([espnGames, oddsGames, liveFeed]) => ({ espnGames, oddsGames, liveFeed }));
           }
+          const streamSlateSport = focalSports.size === 1 ? [...focalSports][0]! : null;
           const preAnalysisSeed =
             genericParlayPath &&
             !usePropsOnlyParlayPath &&
             !useFocalSportParlayPath &&
             !useTinyParlayPath &&
             !slipImageVerdictOnly &&
-            legTarget >= 6
-              ? readSlatePreAnalysisSeed()
+            legTarget >= INSTANT_SLATE_SEED_MIN_LEGS
+              ? readSlatePreAnalysisSeed({ legs: legTarget, sport: streamSlateSport })
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
             preBoardScan = preAnalysisSeed.boardScan;
@@ -2771,6 +2794,7 @@ export default function CoachScreen() {
             diversityNote = boardScanResult.note;
           }
         } else if (!fullBoardScanned && useFullBoardScan) {
+          setParlayBuildPhase("board-scan");
           const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
             (s) => !excludedSports.has(s),
           );
