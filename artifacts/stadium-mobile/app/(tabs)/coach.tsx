@@ -1210,7 +1210,11 @@ export default function CoachScreen() {
 
   /** Flash board-scan legs onto the bubble without ending the in-flight build. */
   const patchInstantBoardScanTicket = useCallback(
-    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+    (
+      partial: FullBoardScanResult,
+      enrichOverride?: typeof flashEnrichRef.current,
+      opts?: { legNote?: string; ticketLegTarget?: number },
+    ) => {
       if (!partial.picks.length) return false;
       const enrich = enrichOverride ?? flashEnrichRef.current;
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
@@ -1228,7 +1232,32 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
       setBoardScanPartialLegs(ticket.length);
-      patchLastAssistantPicks(setMessages, ticket, partial.note);
+      const legTarget =
+        opts?.ticketLegTarget ??
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+      let legNote = opts?.legNote ?? partial.note;
+      if (legTarget > ticket.length) {
+        legNote = boardScanIsComplete(partial)
+          ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
+          : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
+      }
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              picks: ticket,
+              content: "",
+              ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
+              ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+            };
+            return copy;
+          }
+        }
+        return prev;
+      });
       setAiPicks(ticket);
       captureFromCoach(ticket);
       if (buildFinishingRef.current) setParlayBuildPhase("stream");
@@ -1267,12 +1296,15 @@ export default function CoachScreen() {
       if (legTarget > ticket.length) {
         legNote = boardScanIsComplete(partial)
           ? ensureFixedLegShortfallLegNote(partial.note, legTarget, ticket.length)
-          : buildFixedLegCountShortfallLead(legTarget, ticket.length) ||
-            `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
+          : `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
       }
-      deliverCoachTicket(ticket, legNote);
+      if (boardScanIsComplete(partial)) {
+        deliverCoachTicket(ticket, legNote);
+      } else {
+        patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
+      }
     },
-    [boardScanPartialToTicket, deliverCoachTicket],
+    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
   );
 
   const flashCoachTicketPicks = useCallback(
@@ -2209,13 +2241,20 @@ export default function CoachScreen() {
                 preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
               if (scanForDelivery?.picks?.length) {
                 preBoardScan = scanForDelivery;
-                deliverBoardScanTicket(scanForDelivery, {
+                const scanEnrich = {
                   ...flashEnrichRef.current,
                   realOdds: [
                     ...flashEnrichRef.current.realOdds,
                     ...[...scanForDelivery.evalLinesByGame.values()].flat(),
                   ],
-                });
+                };
+                if (boardScanIsComplete(scanForDelivery)) {
+                  deliverBoardScanTicket(scanForDelivery, scanEnrich);
+                } else {
+                  patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
+                    ticketLegTarget: reachTargetPreScan,
+                  });
+                }
               }
               }
             } catch {
@@ -2561,7 +2600,9 @@ export default function CoachScreen() {
             ? []
             : fullBoardScanMeta?.picks?.length
               ? [...fullBoardScanMeta.picks]
-              : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+              : reachBoardEligible
+                ? []
+                : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
         if (!isAnalyze && fullBoardScanMeta?.picks?.length) {
           const scanOdds = fullBoardScanMeta.evalLinesByGame
             ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
@@ -2578,7 +2619,6 @@ export default function CoachScreen() {
           );
           if (boardTicket.length > 0) {
             picks = boardTicket;
-            deliverCoachTicket(boardTicket, fullBoardScanMeta.note);
           } else {
             flashBoardScanResult(fullBoardScanMeta, scanEnrich);
           }
@@ -4161,6 +4201,10 @@ export default function CoachScreen() {
         legNote = dedupeLegNoteParagraphs(picks.length > 0 ? legNoteForCards : legNote);
         if (picks.length > 0 && ticketTarget > picks.length) {
           legNote = ensureFixedLegShortfallLegNote(legNote, ticketTarget, picks.length);
+          if (!fullBoardScanned) {
+            const progressLead = `Full-board scan did not finish — showing the **${picks.length}** highest-rated picks found so far.`;
+            legNote = legNote.includes(progressLead) ? legNote : `${progressLead}\n\n${legNote}`;
+          }
         }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
@@ -4507,7 +4551,14 @@ export default function CoachScreen() {
         if (isParlayBuildAsk(trimmed)) {
           const partial = latestBoardScanRef.current;
           if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
-            deliverBoardScanTicket(partial);
+            if (boardScanIsComplete(partial)) {
+              deliverBoardScanTicket(partial);
+            } else {
+              patchInstantBoardScanTicket(partial, undefined, {
+                ticketLegTarget:
+                  requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
+              });
+            }
           } else if (!boardTicketSnapshotRef.current?.length) {
             tryInstantSlateSeedDelivery(
               requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
