@@ -40,6 +40,9 @@
       "path": "./lib/coach-cache"
     },
     {
+      "path": "./lib/coach-background"
+    },
+    {
       "path": "./lib/db"
     },
     {

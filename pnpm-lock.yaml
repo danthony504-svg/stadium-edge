@@ -831,6 +831,37 @@ importers:
         specifier: 'catalog:'
         version: 25.6.2
 
+  lib/coach-background:
+    dependencies:
+      '@workspace/coach-cache':
+        specifier: workspace:*
+        version: link:../coach-cache
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-scan':
+        specifier: workspace:*
+        version: link:../coach-scan
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-sim-cache':
+        specifier: workspace:*
+        version: link:../coach-sim-cache
+
   lib/coach-cache:
     dependencies:
       '@workspace/coach-rank':
