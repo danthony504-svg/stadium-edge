@@ -16,6 +16,9 @@
       "path": "./lib/coach-sim"
     },
     {
+      "path": "./lib/coach-gates"
+    },
+    {
       "path": "./lib/db"
     },
     {
