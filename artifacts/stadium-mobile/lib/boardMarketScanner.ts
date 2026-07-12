@@ -410,8 +410,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
-  const SLATE_SIM_BATCH = 4;
+  const SLATE_SIM_BATCH = 2;
 
+  // Flash sim-scored partials as soon as the first game batch returns — don't leave
+  // the UI at 84% with zero cards while the remaining games sim.
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
       const lines = evalLinesByGame.get(game);

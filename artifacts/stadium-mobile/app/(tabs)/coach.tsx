@@ -1469,6 +1469,13 @@ export default function CoachScreen() {
       const earlyLegTarget = openingParlayBuild
         ? requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed)
         : 0;
+      if (openingParlayBuild) {
+        if (sendGenerationRef.current !== sendGen) return;
+        setMessages([...history]);
+        scrollToEnd();
+        await hydrateSlatePreAnalysisCache();
+        await hydrateCoachSlateFromServer();
+      }
       const cachedSeedTicket = (() => {
         if (!openingParlayBuild || earlyLegTarget < 6) return null;
         const seed = readSlatePreAnalysisSeed();
@@ -1519,6 +1526,7 @@ export default function CoachScreen() {
         boardTicketSnapshotRef.current = openingPicks;
         setAiPicks(openingPicks);
         captureFromCoach(openingPicks);
+        setParlayBuildPhase("stream");
       }
       setWaiting(true);
       setStreaming(true);
@@ -1559,14 +1567,10 @@ export default function CoachScreen() {
       abortRef.current = controller;
 
       if (openingParlayBuild) {
-        await hydrateCoachSlateFromServer();
         if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
-          await hydrateSlatePreAnalysisCache();
-          if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
-            startSlatePreAnalysis("coach-send");
-            await awaitWarmSlateSeed({ signal: controller.signal, maxMs: 8000 });
-            tryInstantSlateSeedDelivery(earlyLegTarget);
-          }
+          startSlatePreAnalysis("coach-send");
+          await awaitWarmSlateSeed({ signal: controller.signal, maxMs: 12_000 });
+          tryInstantSlateSeedDelivery(earlyLegTarget);
         }
       }
 
