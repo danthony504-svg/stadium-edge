@@ -187,6 +187,8 @@ async function runBoardScan(
     matchupHistory: context.matchupHistory,
     matchupInjuries: context.matchupInjuries,
     playerHistory: context.playerHistory as Record<string, import("./pickScoreContext.ts").PlayerHistorySlice> | undefined,
+    mlbPlatoon: context.mlbPlatoon,
+    mlbGameEnv: context.mlbGameEnv,
     signal,
     onPartial: (partial) => {
       void patchSlatePreAnalysisBoardScan(partial);

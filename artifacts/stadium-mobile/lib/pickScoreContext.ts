@@ -45,11 +45,23 @@ import {
 } from "@/lib/gameSimScoring";
 import { buildFinalAiScore } from "@/lib/finalAiScore";
 import { simEdgeFromHit } from "@/lib/gameSimQualityGates";
+import {
+  type MlbGameEnvSlice,
+  type MlbPlatoonSlice,
+  resolveMlbPitcherTendency,
+} from "@/lib/propHolisticRecommendation";
 
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
   player?: string;
   recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
+  vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
+  minutesTrend?: {
+    l5?: number | null;
+    l10?: number | null;
+    season?: number | null;
+    direction?: string | null;
+  } | null;
 };
 
 // Words that never identify a team and would create false token overlaps when
@@ -423,6 +435,34 @@ export function propPoolFromPlayerProps(
 
 // Score one PROP pick from the full real context: EV/line-shopping, recent form,
 // matchup lean, injuries, and Monte Carlo (one rubric input — never the sole driver).
+function mlbPlatoonFor(
+  player: string | undefined,
+  athleteId: string | null | undefined,
+  map?: Record<string, unknown>,
+): MlbPlatoonSlice | null {
+  if (!map) return null;
+  const raw =
+    (athleteId
+      ? (map[`${player}#${athleteId}`] ??
+        Object.entries(map).find(([k]) => k.endsWith(`#${athleteId}`))?.[1])
+      : null) ??
+    (player ? Object.entries(map).find(([k]) => k.startsWith(`${player}#`))?.[1] : null);
+  return (raw as MlbPlatoonSlice) ?? null;
+}
+
+function mlbGameEnvFor(game: string, map?: Record<string, unknown>): MlbGameEnvSlice | null {
+  if (!map) return null;
+  return (map[game] as MlbGameEnvSlice) ?? null;
+}
+
+function playerTeamIsHome(game: string, playerTeam: string | null): boolean | null {
+  if (!playerTeam) return null;
+  const { away, home } = splitLabel(game);
+  if (teamNameMatches(playerTeam, home)) return true;
+  if (teamNameMatches(playerTeam, away)) return false;
+  return null;
+}
+
 function scorePropPick(
   pick: ParsedPick,
   propPool: PropPoolEntry[],
@@ -434,6 +474,8 @@ function scorePropPick(
     tennisAnalysis?: Record<string, TennisAnalysis>;
     playerHistory?: Record<string, PlayerHistorySlice>;
     injuryTeams?: InjuryTeam[];
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
   },
 ): CombinedPickScore | null {
   // The resolved prop ParsedPick was built from a real pool entry, so match on
@@ -531,6 +573,8 @@ export function attachPickScores(
     tennisAnalysis?: Record<string, TennisAnalysis>;
     /** Raw league injury teams when matchupInjuries report is absent. */
     injuryTeams?: InjuryTeam[];
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
   },
 ): ParsedPick[] {
   const realOdds = opts.realOdds ?? [];
@@ -542,6 +586,8 @@ export function attachPickScores(
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
     injuryTeams: opts.injuryTeams,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
   };
   return picks.map((p) => {
     const gameSim = lookupGameSim(p.game, gameSims);
@@ -568,6 +614,29 @@ export function attachPickScores(
         ? (sims.get(propKey)!.hitProbability as number)
         : null;
 
+    const propPh =
+      p.isProp && p.player
+        ? playerHistoryFor(p.player, p.athleteId, opts.playerHistory)
+        : undefined;
+    const propEntry =
+      p.isProp && propPool.length
+        ? propPool.find(
+            (e) =>
+              e.game === p.game &&
+              e.player === p.player &&
+              e.side === p.propSide &&
+              (e.line === p.propLine || e.line == null),
+          ) ?? propPool.find((e) => e.game === p.game && e.player === p.player && e.side === p.propSide)
+        : undefined;
+    const propPlayerTeam =
+      p.isProp && propEntry
+        ? resolvePropPlayerTeam(p.game, propEntry, propPh)
+        : null;
+    const mlbPlatoon =
+      p.isProp && p.player
+        ? mlbPlatoonFor(p.player, propEntry?.athleteId ?? p.athleteId, opts.mlbPlatoon)
+        : null;
+    const mlbGameEnv = p.isProp ? mlbGameEnvFor(p.game, opts.mlbGameEnv) : null;
     const finalAiScore = buildFinalAiScore({
       pick: p,
       rubricScores: scores.scores,
@@ -575,6 +644,29 @@ export function attachPickScores(
       odds: p.odds,
       gameSim,
       propSimHit,
+      propHolisticContext: p.isProp
+        ? {
+            sport: p.sport ?? propEntry?.sport,
+            marketKey: p.propMarketKey ?? p.market,
+            propSide: p.propSide,
+            minutesTrend: propPh?.minutesTrend ?? null,
+            vsOpponentGames: propPh?.vsOpponent?.length ?? 0,
+            mlbPlatoon: mlbPlatoon
+              ? {
+                  ...mlbPlatoon,
+                  opposingPitcherTendency:
+                    mlbPlatoon.opposingPitcherTendency ??
+                    resolveMlbPitcherTendency(
+                      mlbGameEnv,
+                      mlbPlatoon,
+                      playerTeamIsHome(p.game, propPlayerTeam),
+                    ),
+                }
+              : null,
+            mlbGameEnv,
+            playerTeamIsHome: playerTeamIsHome(p.game, propPlayerTeam),
+          }
+        : undefined,
     });
 
     return {

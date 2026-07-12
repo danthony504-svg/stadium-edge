@@ -11,6 +11,10 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
 import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
+import {
+  PROP_HOLISTIC_MIN_COVERAGE,
+  PROP_HOLISTIC_MIN_GRADE,
+} from "./propHolisticRecommendation.ts";
 
 export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
   propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
@@ -38,6 +42,23 @@ function normalizeBoardScanPickScore<
 >(pick: T): T {
   const score = pick.finalAiScore;
   if (!score || score.simHit == null) return pick;
+
+  if (pick.isProp && score.propHolistic) {
+    const holistic = score.propHolistic;
+    const recommends = propHolisticGatePassed(pick, score);
+    return {
+      ...pick,
+      finalAiScore: {
+        ...score,
+        composite: holistic.composite ?? score.composite,
+        grade: holistic.grade ?? score.grade,
+        confidencePct: holistic.confidencePct ?? score.confidencePct,
+        recommends,
+        propHolistic: { ...holistic, recommends },
+      },
+    };
+  }
+
   const simHit = score.simHit!;
   const implied = pick.odds != null ? impliedProb(pick.odds) : null;
   const simAligned = score.simAligned ?? (implied != null ? simHit > implied : simHit >= 0.52);
@@ -132,6 +153,30 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
+function propUsesHolisticGate(pick: RecommendablePick): boolean {
+  return !!pick.isProp;
+}
+
+function propHolisticGatePassed(
+  pick: RecommendablePick,
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score || !pick.isProp) return false;
+  const holistic = score.propHolistic;
+  if (!holistic) return false;
+  if (!score.recommends) return false;
+  if (gradeRank(holistic.grade ?? score.grade) < gradeRank(PROP_HOLISTIC_MIN_GRADE)) return false;
+  if ((holistic.confidencePct ?? score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (holistic.coveragePct < PROP_HOLISTIC_MIN_COVERAGE * 100) return false;
+  if ((score.edgePct ?? 0) <= 0) return false;
+  if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+  return true;
+}
+
 /** True when a pick passes all AI recommendation thresholds (sim must agree). */
 export function pickIsAiRecommended(
   pick: RecommendablePick,
@@ -139,6 +184,9 @@ export function pickIsAiRecommended(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (propUsesHolisticGate(pick)) {
+    return propHolisticGatePassed(pick, score);
+  }
   if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
@@ -167,6 +215,9 @@ export function qualifiesAltPick(
 ): boolean {
   if (!score) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
+  if (propUsesHolisticGate(pick)) {
+    return propHolisticGatePassed(pick, score);
+  }
   if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
   if ((score.confidencePct ?? 0) < ALT_PICK_MIN_CONFIDENCE) return false;
@@ -214,7 +265,9 @@ export function pickGradeDisplayCaption(
     return "Waiting for simulation result…";
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) {
-    return "Passes sim, edge, EV, and confidence thresholds";
+    return pick.isProp
+      ? "Passes holistic form, matchup, value, and simulation thresholds"
+      : "Passes sim, edge, EV, and confidence thresholds";
   }
   if (qualifiesAltPick(pick, score ?? undefined)) {
     return "Alternate pick — positive EV, edge, and sim grade";

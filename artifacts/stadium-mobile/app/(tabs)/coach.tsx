@@ -2368,6 +2368,8 @@ export default function CoachScreen() {
                   matchupHistory: context.matchupHistory,
                   matchupInjuries: context.matchupInjuries,
                   playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
                   perfByFamily: marketPerf,
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
@@ -2668,6 +2670,10 @@ export default function CoachScreen() {
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+                mlbPlatoon: context.mlbPlatoon,
+                mlbGameEnv: context.mlbGameEnv,
                 perfByFamily: marketPerf,
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
@@ -2922,6 +2928,8 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
           });
           picks = scored.filter((p) =>
             confidenceSatisfiesThreshold(
@@ -3089,6 +3097,8 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
               perfByFamily: marketPerf,
               calibration: modelCalibration,
               signal: abortRef.current?.signal,
@@ -3704,6 +3714,10 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -3814,6 +3828,8 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
             gameSimulations,
           });
           picks = scrubExcludedSportsFromPicks(
@@ -3864,6 +3880,10 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             picks = scrubExcludedSportsFromPicks(
@@ -3941,6 +3961,10 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4016,6 +4040,8 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
             gameSimulations,
           });
           picks = scrubExcludedSportsFromPicks(
@@ -4067,6 +4093,10 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             });
             backupPicks = filterQualifyingAltLegs(backupPicks);
@@ -4105,6 +4135,8 @@ export default function CoachScreen() {
             matchupInjuries: context.matchupInjuries,
             perfByFamily: marketPerf,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
             gameSimulations,
           };
           const scoredMainProps = attachPickScores(
@@ -4172,6 +4204,10 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
             };
             const scoredMainProps = attachPickScores(
@@ -4461,6 +4497,8 @@ export default function CoachScreen() {
             matchupHistory: context.matchupHistory,
             matchupInjuries: context.matchupInjuries,
             playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
             perfByFamily: marketPerf,
             minLegs: undefined,
             excludedSports: excludedSports.size > 0 ? excludedSports : undefined,
@@ -4499,6 +4537,8 @@ export default function CoachScreen() {
                 matchupInjuries: context.matchupInjuries,
                 perfByFamily: marketPerf,
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+            mlbPlatoon: context.mlbPlatoon,
+            mlbGameEnv: context.mlbGameEnv,
                 gameSimulations,
               };
               const scoredMainProps = attachPickScores(

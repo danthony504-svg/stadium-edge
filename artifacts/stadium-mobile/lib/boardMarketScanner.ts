@@ -44,6 +44,7 @@ import {
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
+import { propHolisticRankScore } from "./propHolisticRecommendation.ts";
 
 import {
   boardPropSimExpansionBatchSize,
@@ -97,6 +98,10 @@ export type FullBoardScanResult = {
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
+  const holistic = leg.pick.finalAiScore?.propHolistic;
+  if (leg.pick.isProp && holistic) {
+    return propHolisticRankScore(holistic, leg.edgePct ?? undefined);
+  }
   const ev = leg.evPct ?? 0;
   const edge = leg.edgePct ?? 0;
   const conf = leg.confidencePct ?? 0;
@@ -230,6 +235,8 @@ function appendPropScoredLegs(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
   },
@@ -246,6 +253,8 @@ function appendPropScoredLegs(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     propSimulations: propHits,
     perfByFamily: opts.perfByFamily,
   });
@@ -271,6 +280,8 @@ async function simPropPoolUntilQualified(
     matchupHistory?: Record<string, MatchupHistoryEntry>;
     matchupInjuries?: Record<string, GameInjuryReport>;
     playerHistory?: Record<string, PlayerHistorySlice>;
+    mlbPlatoon?: Record<string, unknown>;
+    mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
@@ -287,6 +298,8 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
   });
   const rankedProps = [...prescorePool]
@@ -303,6 +316,8 @@ async function simPropPoolUntilQualified(
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
   };
@@ -431,6 +446,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   matchupHistory?: Record<string, MatchupHistoryEntry>;
   matchupInjuries?: Record<string, GameInjuryReport>;
   playerHistory?: Record<string, PlayerHistorySlice>;
+  mlbPlatoon?: Record<string, unknown>;
+  mlbGameEnv?: Record<string, unknown>;
   perfByFamily?: Map<string, MarketPerf>;
   calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
@@ -548,6 +565,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
     playerHistory: opts.playerHistory,
+    mlbPlatoon: opts.mlbPlatoon,
+    mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
   };
