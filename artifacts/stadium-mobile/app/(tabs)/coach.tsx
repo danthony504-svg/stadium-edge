@@ -223,6 +223,8 @@ type UIMessage = {
   analyzeSlip?: TicketScanLeg[];
   /** Home hero / one-tap shortcuts — still sent to the model, not shown as a bubble. */
   hideBubble?: boolean;
+  /** Full prompt sent to the model when the bubble shows shorter chip copy. */
+  apiContent?: string;
 };
 
 type StatCardResult = {
@@ -1157,6 +1159,8 @@ export default function CoachScreen() {
           todayOnly: boolean;
         };
         hideUserBubble?: boolean;
+        /** Shorter bubble copy; the full `text` still goes to the model. */
+        userBubble?: string;
         /** Drop prior Coach thread — Home hero / one-tap shortcuts start clean. */
         freshThread?: boolean;
       },
@@ -1220,7 +1224,13 @@ export default function CoachScreen() {
         : messages.filter((m) => !isWelcomeMessage(m));
       const history: UIMessage[] = [
         ...thread,
-        { role: "user", content: trimmed, imageUris: images.length ? images.map((im) => im.uri) : undefined, hideBubble: opts?.hideUserBubble },
+        {
+          role: "user",
+          content: opts?.userBubble ?? trimmed,
+          apiContent: opts?.userBubble && opts.userBubble !== trimmed ? trimmed : undefined,
+          imageUris: images.length ? images.map((im) => im.uri) : undefined,
+          hideBubble: opts?.hideUserBubble,
+        },
       ];
       // A "scan/analyze my ticket" ask shows a Ticket Scan summary card above the
       // streamed breakdown. Snapshot the slip NOW (with each leg's edge note) so
@@ -1322,7 +1332,7 @@ export default function CoachScreen() {
               if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
               const grounded: ChatMessage[] = history.map((m) => ({
                 role: m.role,
-                content: m.content,
+                content: m.apiContent ?? m.content,
               }));
               grounded[grounded.length - 1] = {
                 role: "user",
@@ -1760,7 +1770,7 @@ export default function CoachScreen() {
           if (modelStrengths.length > 0) context.modelStrengths = modelStrengths;
           const apiMessages: ChatMessage[] = history.map((m) => ({
             role: m.role,
-            content: m.content,
+            content: m.apiContent ?? m.content,
           }));
 
           // Background-finish: a signed-in parlay build is eligible to keep going
@@ -3990,7 +4000,13 @@ export default function CoachScreen() {
             // build one (catches the early stream BEFORE any PICK line, so the
             // lead-in prose never flashes) or PICK lines have started arriving.
             const priorUserText =
-              messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ?? "";
+              messages
+                .slice(0, i)
+                .reverse()
+                .find((x) => x.role === "user")
+                ?.apiContent ??
+              messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ??
+              "";
             const parlayBuildIntent =
               m.role === "assistant" && isParlayBuildAsk(priorUserText);
             const isBuildingParlay =
@@ -4273,7 +4289,7 @@ export default function CoachScreen() {
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
                   key={q.label}
-                  onPress={() => send(q.prompt, { freshThread: true, hideUserBubble: true })}
+                  onPress={() => send(q.prompt, { freshThread: true, userBubble: q.label })}
                   style={({ pressed }) => ({
                     flexDirection: "row",
                     alignItems: "center",
