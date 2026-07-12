@@ -474,12 +474,42 @@ function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
 /** Drop assistant rows that only carried the legacy watchdog line. */
 function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
   return msgs.filter((m) => {
+    if (isWelcomeMessage(m)) return true;
     if (m.role !== "assistant") return true;
     if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
       return true;
     }
+    if (m.retry || m.parlayBuild) return true;
     return !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
   });
+}
+
+function assistantHasVisibleContent(m: UIMessage): boolean {
+  if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
+    return true;
+  }
+  if (m.retry) return true;
+  const text = m.content?.trim() ?? "";
+  if (!text) return false;
+  if (DEAD_BUILD_PROSE_RE.test(text)) return false;
+  return true;
+}
+
+/** User sent (or build failed) but nothing visible is on screen — quick prompts hidden. */
+function isOrphanCoachThread(
+  msgs: UIMessage[],
+  opts: { streaming: boolean; buildFinishing: boolean },
+): boolean {
+  if (opts.streaming || opts.buildFinishing || msgs.length === 0) return false;
+  const last = msgs[msgs.length - 1];
+  if (!last) return true;
+  if (last.role === "user") return true;
+  if (last.role === "assistant" && !assistantHasVisibleContent(last)) return true;
+  return false;
+}
+
+function recoverOrphanCoachThread(): UIMessage[] {
+  return [{ role: "assistant", content: WELCOME_RETURNING }];
 }
 
 // Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
@@ -1038,11 +1068,15 @@ export default function CoachScreen() {
         /* storage unavailable — treat as first time */
       }
       if (cancelled) return;
-      setMessages((prev) =>
-        prev.length === 0
-          ? [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }]
-          : prev,
-      );
+      setMessages((prev) => {
+        if (prev.length === 0) {
+          return [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }];
+        }
+        if (isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) {
+          return [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }];
+        }
+        return prev;
+      });
     })();
     return () => {
       cancelled = true;
@@ -4005,6 +4039,11 @@ export default function CoachScreen() {
   useFocusEffect(
     useCallback(() => {
       void resumePendingBackgroundBuild();
+      if (streamingRef.current || buildFinishingRef.current) return;
+      setMessages((prev) => {
+        if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
+        return recoverOrphanCoachThread();
+      });
     }, [resumePendingBackgroundBuild]),
   );
 
@@ -4110,6 +4149,10 @@ export default function CoachScreen() {
     // assistant placeholder was lost to a superseded-send race.
     return last?.role === "user";
   }, [messages, buildFinishing, streaming, buildProgressExpired]);
+
+  const showQuickPrompts =
+    !messages.some((m) => m.role === "user") ||
+    isOrphanCoachThread(messages, { streaming, buildFinishing });
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -4484,7 +4527,7 @@ export default function CoachScreen() {
             />
           ) : null}
 
-          {!messages.some((m) => m.role === "user") ? (
+          {!showQuickPrompts ? null : (
             <View style={{ gap: 8, marginTop: 4 }}>
               {QUICK_PROMPTS.map((q) => (
                 <Pressable
