@@ -1,7 +1,7 @@
 // Step 2: fill with highest-rated mains. Step 3: qualifying alts to reach N.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts";
+import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
@@ -63,13 +63,7 @@ export function boardLegPoolRole(
 
 /** Label each leg main vs alt for ticket gating and ALT PICK badges. */
 export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
-  return picks.map((p) => {
-    if (isAltBoardPick(p) || isAltPropPick(p)) {
-      return { ...p, ticketRole: "alt" as const };
-    }
-    if (p.ticketRole === "alt") return p;
-    return { ...p, ticketRole: "main" as const };
-  });
+  return picks.map((p) => ({ ...p, ticketRole: ticketRoleForPick(p) }));
 }
 
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
@@ -118,23 +112,24 @@ export function buildStagedTicketFromScan(
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
   const altPicks = selectTopBoardLegs(altPool, gap).map((p) => ({
     ...p,
-    ticketRole: "alt" as const,
+    ticketRole: ticketRoleForPick(p),
   }));
   const gapReach = Math.max(0, target - mainPicks.length - altPicks.length);
   const usedAll = new Set([...mainPicks, ...altPicks].map(pickLegFingerprint));
   const reachPool = reach.filter((l) => !usedAll.has(pickLegFingerprint(l.pick)));
   const reachPicks = selectTopBoardLegs(reachPool, gapReach).map((p) => ({
     ...p,
-    ticketRole: "alt" as const,
+    ticketRole: ticketRoleForPick(p),
   }));
 
+  const allPicks = [...mainPicks, ...altPicks, ...reachPicks];
   return {
-    picks: [...mainPicks, ...altPicks, ...reachPicks],
+    picks: allPicks,
     breakdown: {
       mainQualified: mains.length,
       altQualified: alts.length + reach.length,
-      mainOnTicket: mainPicks.length,
-      altOnTicket: altPicks.length + reachPicks.length,
+      mainOnTicket: allPicks.filter((p) => p.ticketRole === "main").length,
+      altOnTicket: allPicks.filter((p) => p.ticketRole === "alt").length,
     },
   };
 }

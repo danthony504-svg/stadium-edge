@@ -24,7 +24,7 @@ import { scoreLineValue, type CombinedPickScore } from "@/lib/pickScore";
 import { rankPropPoolEntries, type PropSelectionOpts } from "@/lib/propSelection";
 import { shuffleWithSeed, varietyRankKey } from "@/lib/varietySeed";
 import { deprioritizePropPoolEntries, parlayLegKeyFromPool } from "@/lib/parlayVarietyMemory";
-import { isAltBoardPick, isAltPropPick } from "@/lib/altLinePool";
+import { pickShowsAltBadge } from "@/lib/altLinePool";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
@@ -710,8 +710,7 @@ export function PickCard({
     caption: "Alternate rung — positive EV, edge, and sim grade",
     tone: "grade" as const,
   };
-  const isAltLeg =
-    pick.ticketRole === "alt" || isAltBoardPick(pick) || isAltPropPick(pick);
+  const isAltLeg = pickShowsAltBadge(pick);
   const cardBadge = isAltLeg ? altPickBadge : badge;
 
   // Soccer ML/spread legs: tag the picked side as HOME or AWAY. Soccer uses the

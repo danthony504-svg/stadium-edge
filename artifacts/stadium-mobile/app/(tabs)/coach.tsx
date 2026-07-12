@@ -68,7 +68,7 @@ import { isGameLinePick } from "@/lib/gameSimScoring";
 import { passesCoachSimQualityGate } from "@/lib/gameSimQualityGates";
 import { optimizeGameLinePicksToBestFinalAi, buildGameLineOptimizerNote, mergeOddsEntries, buildEvalLinesByGameMap, buildEvalLinesForAllGames, backfillGameLinesFromEvalScores } from "@/lib/gameLineOptimizer";
 import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineRecommendations";
-import { isQualifyingBackupGameLine, isAltBoardPick, isAltPropPick } from "@/lib/altLinePool";
+import { isQualifyingBackupGameLine, pickShowsAltBadge } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
@@ -4439,7 +4439,7 @@ export default function CoachScreen() {
                         pick={p}
                         onPress={statsHandlerFor(p)}
                         badge={
-                          p.ticketRole === "alt" || isAltBoardPick(p) || isAltPropPick(p)
+                          pickShowsAltBadge(p)
                             ? {
                                 text: "ALT PICK",
                                 caption: "Alternate rung — positive EV, edge, and sim grade",

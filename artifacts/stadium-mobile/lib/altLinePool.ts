@@ -226,3 +226,23 @@ export function isAltBoardPick(pick: {
   if (isMainLineGameLeg(pick)) return false;
   return isQualifyingBackupGameLine(pick);
 }
+
+/** UI badge — only true alternate ladder rungs, never reach-fill mains or period mains. */
+export function pickShowsAltBadge(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  propIsAlt?: boolean;
+}): boolean {
+  return isAltBoardPick(pick) || isAltPropPick(pick);
+}
+
+/** Staged ticket role from market type (reach-fill mains stay main). */
+export function ticketRoleForPick(pick: {
+  market: string;
+  pick: string;
+  isProp?: boolean;
+  propIsAlt?: boolean;
+}): "main" | "alt" {
+  return pickShowsAltBadge(pick) ? "alt" : "main";
+}

@@ -10,6 +10,8 @@ import {
   isPeriodMainMarket,
   isPostablePoolLadderOdds,
   isQualifyingBackupGameLine,
+  pickShowsAltBadge,
+  ticketRoleForPick,
   ladderTierForSiblingIndex,
   poolLadderChampionIndices,
   poolMatchesPickFamily,
@@ -75,6 +77,17 @@ test("period moneylines are main board picks — never ALT PICK badges", () => {
   assert.ok(isMainBoardPick(periodMl));
   assert.ok(!isAltBoardPick(periodMl));
   assert.ok(!isQualifyingBackupGameLine(periodMl));
+});
+
+test("reach-fill plus-money moneylines stay main — no ALT PICK badge", () => {
+  const skyMl = {
+    market: "Moneyline",
+    pick: "Sky ML",
+    isProp: false,
+    ticketRole: "alt" as const,
+  };
+  assert.equal(ticketRoleForPick(skyMl), "main");
+  assert.ok(!pickShowsAltBadge(skyMl));
 });
 
 test("true alt rungs still classify as alt board picks", () => {

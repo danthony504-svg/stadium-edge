@@ -120,13 +120,14 @@ test("buildStagedTicketFromScan fills reach tier when mains and alts fall short"
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
     leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -105 }, 95, reachScore),
-    leg({ game: "E @ F", market: "Spread", pick: "E ML", odds: 120 }, 90, reachScore),
-    leg({ game: "G @ H", market: "Spread", pick: "G ML", odds: 130 }, 85, reachScore),
+    leg({ game: "E @ F", market: "Moneyline", pick: "E ML", odds: 120 }, 90, reachScore),
+    leg({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: 130 }, 85, reachScore),
   ];
   const { picks, breakdown } = buildStagedTicketFromScan(scored, 4);
   assert.equal(picks.length, 3);
-  assert.equal(breakdown.mainOnTicket, 1);
-  assert.equal(breakdown.altOnTicket, 2);
+  assert.equal(breakdown.mainOnTicket, 3);
+  assert.equal(breakdown.altOnTicket, 0);
+  assert.ok(picks.every((p) => p.ticketRole === "main"));
 });
 
 test("buildStagedTicketFromScan stops at available qualifiers without filler", () => {
