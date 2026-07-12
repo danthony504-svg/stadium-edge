@@ -34,6 +34,9 @@
       "path": "./lib/coach-alts"
     },
     {
+      "path": "./lib/coach-ticket"
+    },
+    {
       "path": "./lib/db"
     },
     {

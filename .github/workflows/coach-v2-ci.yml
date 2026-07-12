@@ -14,6 +14,7 @@ on:
       - "lib/coach-learn/**"
       - "lib/coach-rank/**"
       - "lib/coach-alts/**"
+      - "lib/coach-ticket/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -29,6 +30,7 @@ on:
       - "lib/coach-learn/**"
       - "lib/coach-rank/**"
       - "lib/coach-alts/**"
+      - "lib/coach-ticket/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -172,3 +174,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @workspace/coach-alts run typecheck
       - run: pnpm --filter @workspace/coach-alts run test
+
+  coach-ticket:
+    runs-on: ubuntu-latest
+    needs: coach-alts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-ticket run typecheck
+      - run: pnpm --filter @workspace/coach-ticket run test
