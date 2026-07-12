@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, qualifiesAltPick } from "@/lib/pickRecommendation";
+import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1063,9 +1063,14 @@ export default function CoachScreen() {
 
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
-      const gated = filterTicketPicksPreservingTicket(tagTicketRoles(picks));
-      if (!gated.length) return;
-      patchLastAssistantPicks(setMessages, gated, legNote);
+      const tagged = tagTicketRoles(picks);
+      const gated = filterTicketPicksPreservingTicket(tagged);
+      const toShow =
+        gated.length > 0
+          ? gated
+          : tagged.filter((p) => pickQualifiesForTicketGrade(p, p.finalAiScore));
+      if (!toShow.length) return;
+      patchLastAssistantPicks(setMessages, toShow, legNote);
       setStreaming(false);
       setWaiting(false);
       setParlayBuildPhase("score");
@@ -1097,7 +1102,6 @@ export default function CoachScreen() {
         if (sendGenerationRef.current !== sendGen) return;
         abortRef.current?.abort();
         simAbortRef.current?.abort();
-        sendGenerationRef.current++;
         setMessages((prev) => {
           const copy = [...prev];
           const last = copy[copy.length - 1];
@@ -1309,6 +1313,20 @@ export default function CoachScreen() {
       }
       if (sendGenerationRef.current !== sendGen) {
         releaseOtaBlock();
+        setWaiting(false);
+        setStreaming(false);
+        setBuildFinishing(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+        clearBuildStallWatchdog();
+        setMessages((prev) => {
+          const copy = [...prev];
+          const last = copy[copy.length - 1];
+          if (last?.role === "assistant" && !last.picks?.length && !last.content?.trim()) {
+            copy.pop();
+          }
+          return copy;
+        });
         return;
       }
 
@@ -3436,7 +3454,7 @@ export default function CoachScreen() {
         }
         picks = tagTicketRoles(picks);
         let aiFilterNote = "";
-        if (!isAnalyze && isParlayBuild && picks.length > 0) {
+        if (!isAnalyze && isParlayBuild && picks.length > 0 && !fullBoardScanned) {
           const beforeFilter = picks.length;
           picks = filterTicketPicksPreservingTicket(picks);
           if (picks.length < beforeFilter) {
@@ -3697,6 +3715,9 @@ export default function CoachScreen() {
               }
             }
             next = filterTicketPicksPreservingTicket(next);
+            if (next.length === 0 && snapshot.length > 0) {
+              next = snapshot;
+            }
             next = scrubExcludedSportsFromPicks(
               next,
               excludedSports,
@@ -4085,6 +4106,9 @@ export default function CoachScreen() {
               "";
             const parlayBuildIntent =
               m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
+            const deadBuildProse =
+              m.role === "assistant" &&
+              /still scoring every market/i.test(m.content);
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
@@ -4097,8 +4121,17 @@ export default function CoachScreen() {
               m.role === "assistant" &&
               i === messages.length - 1 &&
               !hasPicks &&
-              (buildFinishing || streaming || buildProgressExpired) &&
+              (buildFinishing || streaming || buildProgressExpired || deadBuildProse) &&
               parlayBuildIntent;
+            const parlayStalledEmpty =
+              m.role === "assistant" &&
+              i === messages.length - 1 &&
+              !hasPicks &&
+              parlayBuildIntent &&
+              !streaming &&
+              !buildFinishing &&
+              !waiting &&
+              !m.content.trim();
             // Live progress for the build indicator: a full-context parlay can take
             // ~15s of model time, and since the lead-in prose is hidden the user
             // would otherwise stare at a static spinner. Counting completed PICK
@@ -4123,7 +4156,7 @@ export default function CoachScreen() {
             // waiting phase. Show the same rich step-by-step AnalysisProgress card
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
-            const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting;
+            const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting && !parlayBuildIntent;
             const ticketActive = hasPicks;
             const bubbleText =
               m.role === "assistant"
@@ -4140,6 +4173,8 @@ export default function CoachScreen() {
               !m.teamCard &&
               !isBuildingParlay &&
               !parlayStillBuilding &&
+              !parlayStalledEmpty &&
+              !deadBuildProse &&
               !analyzeWaiting &&
               !askWaiting &&
               (bubbleText.length > 0 || !!m.imageUris?.length);
@@ -4253,6 +4288,32 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="analyze" />
                 ) : askWaiting ? (
                   <AnalysisProgress mode="ask" />
+                ) : null}
+
+                {parlayStalledEmpty ? (
+                  <Pressable
+                    onPress={() => send(priorUserText || "Build me a parlay")}
+                    disabled={streaming || buildFinishing}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      marginTop: 10,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: colors.radius,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      opacity: streaming || buildFinishing ? 0.5 : pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Feather name="refresh-cw" size={16} color={colors.foreground} />
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                      Try again
+                    </Text>
+                  </Pressable>
                 ) : null}
 
                 {hasPicks ? (

@@ -180,7 +180,7 @@ export function filterTicketPicks<
   });
 }
 
-/** Never zero a grounded ticket — keep qualifying alts or the strongest leg. */
+/** Never zero a grounded ticket — keep qualifying alts/reach or strongest sim-graded edge. */
 export function filterTicketPicksPreservingTicket<
   T extends RecommendablePick & {
     finalAiScore?: FinalAiScore | null;
@@ -194,7 +194,20 @@ export function filterTicketPicksPreservingTicket<
     (p) => qualifiesAltPick(p, p.finalAiScore) || qualifiesReachBoardPick(p, p.finalAiScore),
   );
   if (altFallback.length > 0) return altFallback;
-  return [];
+  // Progressive rescoring can flip recommends off while edge + sim stay positive —
+  // keep the strongest sim-graded legs rather than wiping a board-built ticket.
+  const rescoringFallback = [...picks]
+    .filter((p) => {
+      if (!pickHasSimGrade(p, p.finalAiScore?.simHit)) return false;
+      const edge = p.finalAiScore?.edgePct;
+      return edge != null && edge > 0;
+    })
+    .sort(
+      (a, b) =>
+        (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
+        (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
+    );
+  return rescoringFallback;
 }
 
 export function countAiRecommendedPicks(

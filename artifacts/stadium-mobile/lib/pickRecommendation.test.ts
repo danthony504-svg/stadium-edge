@@ -84,6 +84,31 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
   assert.equal(out[0]?.ticketRole, "alt");
 });
 
+test("filterTicketPicksPreservingTicket keeps sim-graded positive-edge legs after rescoring", () => {
+  const reachLeg = {
+    game: "MIL @ STL",
+    market: "Moneyline",
+    pick: "Brewers ML",
+    odds: 130,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.4,
+      simHit: 0.48,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C+", confidencePct: 52, edgePct: 1.4, scores: {} as never },
+    },
+  };
+  const out = filterTicketPicksPreservingTicket([reachLeg]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].pick, "Brewers ML");
+});
+
 test("filterTicketPicksPreservingTicket returns empty when no leg passes gates", () => {
   const weak = {
     game: "A @ B",
