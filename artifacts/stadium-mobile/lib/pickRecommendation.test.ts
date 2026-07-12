@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
   coachBoardScanTicketPicks,
+  coachFlashBoardScanPreviewPicks,
   coachFlashTicketPicks,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
@@ -526,4 +527,20 @@ test("pickGradeDisplayLabel shows letter grade for alt-qualified plus-money ML",
     pickGradeDisplayCaption(pick, score),
     "Passes sim, edge, EV, and confidence thresholds",
   );
+});
+
+test("coachFlashBoardScanPreviewPicks shows odds-backed legs before startsAt resolves", () => {
+  const picks = [
+    {
+      game: "Pirates @ Reds",
+      market: "Moneyline",
+      pick: "Pirates ML",
+      sport: "mlb",
+      odds: 145,
+      finalAiScore: null,
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.odds, 145);
 });

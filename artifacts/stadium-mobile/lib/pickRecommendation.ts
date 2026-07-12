@@ -316,6 +316,31 @@ export function stripCoachTicketHrvp<
   return stripHrvpFromPick(p);
 }
 
+/** In-flight board scan — show ranked legs with real odds before strict gates / startsAt resolve. */
+export function coachFlashBoardScanPreviewPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+    odds?: number | null;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const normalized = normalizeBoardScanPicks(picks);
+  const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
+  const withOdds = enriched.filter((p) => p.odds != null && Number.isFinite(p.odds));
+  if (withOdds.length > 0) return withOdds;
+  return normalized.filter((p) => p.odds != null && Number.isFinite(p.odds));
+}
+
 /** Board-scan → ticket: strict AI gates first, then flash/finalize salvage (no filler). */
 export function coachDeliverBoardScanPicks<
   T extends RecommendablePick & {

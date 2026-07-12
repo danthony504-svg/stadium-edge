@@ -115,7 +115,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1188,7 +1188,9 @@ export default function CoachScreen() {
       if (flash.length > 0) return flash;
       const finalized = finalizeCoachTicketPicks(tagged, enrich);
       if (finalized.picks.length > 0) return finalized.picks;
-      return filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
+      const bettable = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
+      if (bettable.length > 0) return bettable;
+      return coachFlashBoardScanPreviewPicks(tagged, enrich);
     },
     [],
   );
@@ -4707,6 +4709,12 @@ export default function CoachScreen() {
     return last?.role === "user";
   }, [messages, buildFinishing, streaming, buildProgressExpired]);
 
+  const footerProgressLegCount = Math.max(
+    boardScanPartialLegs,
+    boardTicketSnapshotRef.current?.length ?? 0,
+    latestBoardScanRef.current?.picks?.length ?? 0,
+  );
+
   const showQuickPrompts =
     !messages.some((m) => m.role === "user") ||
     isOrphanCoachThread(messages, { streaming, buildFinishing });
@@ -5179,6 +5187,7 @@ export default function CoachScreen() {
           {footerParlayProgress ? (
             <AnalysisProgress
               mode="build"
+              legCount={footerProgressLegCount}
               buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
             />
           ) : null}

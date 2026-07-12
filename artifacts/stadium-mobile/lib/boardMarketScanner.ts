@@ -36,6 +36,7 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildStagedTicketFromScan,
+  selectGreedyBoardLegs,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -332,6 +333,27 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
+/** Top evaluated game lines before sim gates qualify — early partial flash. */
+function bootstrapPicksFromEvalRows(
+  rows: EvaluatedGameLine[],
+  target: number,
+): ParsedPick[] {
+  const ranked = [...rows]
+    .filter((r) => r.pick.odds != null && Number.isFinite(r.pick.odds))
+    .sort((a, b) => (b.finalAiScore.composite ?? 0) - (a.finalAiScore.composite ?? 0));
+  const seen = new Set<string>();
+  const out: ParsedPick[] = [];
+  const want = Math.min(target, Math.max(2, ranked.length));
+  for (const row of ranked) {
+    const fp = pickLegFingerprint(row.pick);
+    if (seen.has(fp)) continue;
+    seen.add(fp);
+    out.push({ ...row.pick, finalAiScore: row.finalAiScore });
+    if (out.length >= want) break;
+  }
+  return out;
+}
+
 function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
@@ -339,14 +361,47 @@ function buildScanResult(
     evalLinesByGame: Map<string, RealOddsEntry[]>;
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
+    preview?: boolean;
+    bootstrapEvalRows?: EvaluatedGameLine[];
   },
 ): FullBoardScanResult {
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, opts.target);
+  const staged = buildStagedTicketFromScan(scored, opts.target);
+  let picks = staged.picks;
+  let breakdown = staged.breakdown;
+
+  // During in-flight scans, flash top-ranked scored legs before strict AI gates fill the ticket.
+  if (opts.preview && picks.length === 0 && scored.length > 0) {
+    const ranked = [...scored].sort((a, b) => b.rankScore - a.rankScore);
+    const previewCount = Math.min(opts.target, Math.max(2, ranked.length));
+    picks = selectGreedyBoardLegs(ranked, previewCount);
+    breakdown = {
+      mainQualified: ranked.length,
+      altQualified: 0,
+      mainOnTicket: picks.length,
+      altOnTicket: 0,
+    };
+  }
+
+  // Before sim grades land, flash top composite game lines so progress/cards don't stall at 84%.
+  if (opts.preview && picks.length === 0 && opts.bootstrapEvalRows?.length) {
+    picks = bootstrapPicksFromEvalRows(opts.bootstrapEvalRows, opts.target);
+    if (picks.length > 0) {
+      breakdown = {
+        mainQualified: opts.bootstrapEvalRows.length,
+        altQualified: 0,
+        mainOnTicket: picks.length,
+        altOnTicket: 0,
+      };
+    }
+  }
+
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const note =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
-      : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+      : picks.length > 0 && opts.preview
+        ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
+        : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
   return {
     picks,
     evalLinesByGame: opts.evalLinesByGame,
@@ -407,10 +462,24 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...evalLinesByGame.values(),
   );
   const scored: BoardScoredLeg[] = [];
+  const bootstrapEvalRows: EvaluatedGameLine[] = [];
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
+
+  const emitBoardScanPartial = () => {
+    if (!opts.onPartial) return;
+    const partial = buildScanResult(scored, {
+      target: opts.target,
+      evalLinesByGame,
+      gameSimulations,
+      totalScanned,
+      preview: true,
+      bootstrapEvalRows,
+    });
+    if (partial.picks.length > 0) opts.onPartial(partial);
+  };
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
@@ -425,21 +494,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         matchupInjuries: opts.matchupInjuries,
       });
       totalScanned += evaluated.length;
+      bootstrapEvalRows.push(...evaluated);
       for (const row of evaluated) {
         const simHit = gameSimHitForPick(row.pick, sim);
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) scored.push(leg);
       }
     }
-    if (scored.length > 0 && opts.onPartial) {
-      const partial = buildScanResult(scored, {
-        target: opts.target,
-        evalLinesByGame,
-        gameSimulations,
-        totalScanned,
-      });
-      if (partial.picks.length > 0) opts.onPartial(partial);
-    }
+    emitBoardScanPartial();
   };
 
   for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
@@ -471,15 +533,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     {
       target: opts.target,
       ...propScoreOpts,
-      onWave: (waveScored) => {
-        if (!opts.onPartial) return;
-        const partial = buildScanResult([...waveScored], {
-          target: opts.target,
-          evalLinesByGame,
-          gameSimulations,
-          totalScanned,
-        });
-        if (partial.picks.length > 0) opts.onPartial(partial);
+      onWave: () => {
+        emitBoardScanPartial();
       },
     },
     opts.signal,

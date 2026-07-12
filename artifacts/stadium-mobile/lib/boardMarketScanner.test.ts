@@ -34,7 +34,7 @@ test("augmentEvalLinesWithPostedOdds merges posted game lines missing from eval 
 });
 
 
-test("reachBoardScanEligible requires 6+ legs and no locks", () => {
+test("reachBoardScanEligible requires 3+ legs and no locks", () => {
   assert.equal(reachBoardScanEligible({ requestedLegs: 15 }), true);
   assert.equal(reachBoardScanEligible({ requestedLegs: 9 }), true);
   assert.equal(reachBoardScanEligible({ requestedLegs: 5 }), true);
