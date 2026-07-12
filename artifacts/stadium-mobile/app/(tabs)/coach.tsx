@@ -121,7 +121,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, coachPreserveStagedBoardPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, coachPreserveStagedBoardPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeBoardBuiltCoachTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp, topUpBoardBuiltTicket } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
@@ -1185,7 +1185,9 @@ export default function CoachScreen() {
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string) => {
-      const cleaned = stripFillerBackfillPicks(ticket);
+      const enrich = flashEnrichRef.current;
+      const rescored = rescoreCoachTicketPicks(tagTicketRoles(ticket), enrich);
+      const cleaned = stripFillerBackfillPicks(rescored);
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -4213,9 +4215,26 @@ export default function CoachScreen() {
         const ticketEnrich = { ...pickEnrich, realOdds: mergedGameOdds };
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          let finalized = finalizeCoachTicketPicks(picks, ticketEnrich);
+          let finalized = fullBoardScanned
+            ? finalizeBoardBuiltCoachTicket(picks, ticketEnrich)
+            : finalizeCoachTicketPicks(picks, ticketEnrich);
+          if (
+            fullBoardScanned &&
+            fullBoardScanMeta?.picks?.length &&
+            finalized.picks.length < reachTarget
+          ) {
+            finalized = {
+              ...finalized,
+              picks: topUpBoardBuiltTicket(
+                finalized.picks,
+                reachTarget,
+                tagTicketRoles([...fullBoardScanMeta.picks]),
+                ticketEnrich,
+              ),
+            };
+          }
           if (finalized.picks.length === 0 && fullBoardScanned && fullBoardScanMeta?.picks?.length) {
-            finalized = finalizeCoachTicketPicks(
+            finalized = finalizeBoardBuiltCoachTicket(
               tagTicketRoles([...fullBoardScanMeta.picks]),
               ticketEnrich,
             );

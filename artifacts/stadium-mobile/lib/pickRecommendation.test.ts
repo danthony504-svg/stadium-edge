@@ -6,6 +6,7 @@ import {
   coachFlashBoardScanPreviewPicks,
   coachFlashTicketPicks,
   coachPreserveStagedBoardPicks,
+  finalizeBoardBuiltCoachTicket,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
   filterAiRecommendedPicks,
@@ -15,8 +16,11 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
+  propBoardFillQualifies,
+  boardScanStagedLegQualifies,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
+  topUpBoardBuiltTicket,
 } from "./pickRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
 import { NOT_YET_AI_GRADED } from "./simMarketSupport.ts";
@@ -150,7 +154,7 @@ test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends f
   assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
   const { picks, usedRescoringFallback } = finalizeCoachTicketPicks([leg], enrich);
   assert.equal(picks.length, 1);
-  assert.equal(usedRescoringFallback, true);
+  assert.equal(usedRescoringFallback, false);
 });
 
 test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {
@@ -705,4 +709,68 @@ test("sanitizeCoachTicketPicks keeps all qualified legs when only some have star
     gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: future }],
   });
   assert.equal(out.length, 2);
+});
+
+test("propBoardFillQualifies accepts borderline confidence props for fixed-leg fill", () => {
+  const pick = {
+    isProp: true,
+    market: "Hits",
+    odds: 134,
+    finalAiScore: {
+      composite: 5.9,
+      grade: "C+",
+      confidencePct: 50,
+      edgePct: 1.1,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5.9, grade: "C+", confidencePct: 50, edgePct: 1.1, scores: {} as never },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
+  assert.equal(propBoardFillQualifies(pick, pick.finalAiScore), true);
+  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), true);
+});
+
+test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "Arizona Diamondbacks @ Los Angeles Dodgers",
+    market: "Hits",
+    pick: "Miguel Rojas Under 0.5 Hits",
+    odds: 134,
+    isProp: true,
+    player: "Miguel Rojas",
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5.9,
+      grade: "C+",
+      confidencePct: 50,
+      edgePct: 1.1,
+      simHit: 0.52,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5.9, grade: "C+", confidencePct: 50, edgePct: 1.1, scores: {} as never },
+      propHolistic: {
+        composite: 5.7,
+        grade: "C+",
+        confidencePct: 46,
+        coveragePct: 20,
+        missingCount: 6,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
+  assert.equal(finalizeBoardBuiltCoachTicket([leg], enrich).picks.length, 1);
+  const topped = topUpBoardBuiltTicket([], 2, [leg, leg], enrich);
+  assert.equal(topped.length, 1);
 });

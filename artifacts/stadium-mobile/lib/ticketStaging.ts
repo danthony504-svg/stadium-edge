@@ -8,6 +8,7 @@ import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropSt
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   pickIsAiRecommended,
+  propBoardFillQualifies,
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
@@ -78,6 +79,9 @@ export function boardLegPoolRole(
     return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
   }
   if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
+    return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
+  }
+  if (propBoardFillQualifies(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
   }
   return null;
