@@ -439,13 +439,6 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
-  const pool =
-    opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
-      ? filterBettablePropPool(
-          await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal),
-        )
-      : filterBettablePropPool(poolBase);
-
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
     const label = `${og.awayTeam} @ ${og.homeTeam}`;
@@ -461,6 +454,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...(opts.liveOdds ?? []),
     ...evalLinesByGame.values(),
   );
+
+  // Expand prop pool in parallel — never block the first partial on a slow fetch.
+  let pool = filterBettablePropPool(poolBase);
+  const poolExpandP =
+    opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
+      ? fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
+          .then((rows) => filterBettablePropPool(rows))
+          .catch(() => null)
+      : null;
+
   const scored: BoardScoredLeg[] = [];
   const bootstrapEvalRows: EvaluatedGameLine[] = [];
   let totalScanned = 0;
@@ -480,6 +483,21 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
+
+  // Flash top posted game lines immediately — before the first sim batch returns.
+  for (const [, lines] of gameEntries) {
+    if (!lines?.length) continue;
+    const evaluated = evaluateGameLines({
+      lines,
+      gameSim: undefined,
+      realOdds: mergedOdds,
+      matchupHistory: opts.matchupHistory,
+      matchupInjuries: opts.matchupInjuries,
+    });
+    totalScanned += evaluated.length;
+    bootstrapEvalRows.push(...evaluated);
+  }
+  emitBoardScanPartial();
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
@@ -515,6 +533,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
     scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
+
+  const expandedPool = await poolExpandP;
+  if (expandedPool?.length) pool = expandedPool;
 
   const propScoreOpts = {
     pool,

@@ -1200,10 +1200,23 @@ export default function CoachScreen() {
   /** Flash board-scan legs onto the bubble without ending the in-flight build. */
   const patchInstantBoardScanTicket = useCallback(
     (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
-      const ticket = boardScanPartialToTicket(partial, enrichOverride);
+      if (!partial.picks.length) return false;
+      const enrich = enrichOverride ?? flashEnrichRef.current;
+      const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      const enrichWithScan = {
+        ...enrich,
+        realOdds: [...enrich.realOdds, ...scanOdds],
+      };
+      let ticket = boardScanPartialToTicket(partial, enrichWithScan);
+      if (!ticket.length) {
+        ticket = stripFillerBackfillPicks(
+          coachFlashBoardScanPreviewPicks(tagTicketRoles([...partial.picks]), enrichWithScan),
+        );
+      }
       if (!ticket.length) return false;
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
+      setBoardScanPartialLegs(ticket.length);
       patchLastAssistantPicks(setMessages, ticket, partial.note);
       setAiPicks(ticket);
       captureFromCoach(ticket);
@@ -1312,10 +1325,11 @@ export default function CoachScreen() {
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
-      if (patchInstantBoardScanTicket(partial)) {
+      if (partial.picks.length) {
+        setBoardScanPartialLegs(partial.picks.length);
         setParlayBuildPhase("stream");
       }
+      patchInstantBoardScanTicket(partial);
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
@@ -1498,22 +1512,11 @@ export default function CoachScreen() {
             gameMeta: seed.built.gameMeta,
             realGames: seed.built.context.realGames,
           };
-          const tagged = tagTicketRoles([...seed.boardScan.picks]);
-          let delivered = coachDeliverBoardScanPicks(tagged, enrich);
-          if (!delivered.length) delivered = coachBoardScanTicketPicks(tagged, enrich);
-          if (!delivered.length) delivered = coachFlashTicketPicks(tagged, enrich);
-          if (!delivered.length) delivered = finalizeCoachTicketPicks(tagged, enrich).picks;
-          if (delivered.length) {
-            openingPicks = delivered;
+          flashEnrichRef.current = enrich;
+          const ticket = boardScanPartialToTicket(seed.boardScan, enrich);
+          if (ticket.length) {
+            openingPicks = ticket;
             openingLegNote = seed.boardScan.note;
-            flashEnrichRef.current = enrich;
-          } else {
-            const bettable = filterBettablePicks(enrichPicksWithStartsAt(tagged, enrich));
-            if (bettable.length) {
-              openingPicks = bettable;
-              openingLegNote = seed.boardScan.note;
-              flashEnrichRef.current = enrich;
-            }
           }
         }
       }
@@ -4444,6 +4447,7 @@ export default function CoachScreen() {
       flashCoachTicketPicks,
       tryInstantSlateSeedDelivery,
       patchInstantBoardScanTicket,
+      boardScanPartialToTicket,
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
