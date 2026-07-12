@@ -186,3 +186,20 @@ export async function hydrateSlatePreAnalysisCache(): Promise<boolean> {
   })();
   return hydratePromise;
 }
+
+/** Merge a server-precomputed snapshot when it is fresher than local cache. */
+export async function applyServerSlateSnapshot(
+  server: SlatePreAnalysisSnapshot | null | undefined,
+): Promise<boolean> {
+  if (!server?.at || !server.built?.context) return false;
+  if (!isSlatePreAnalysisFresh(server)) return false;
+  const local = memorySnapshot;
+  if (local && local.fingerprint === server.fingerprint && local.at >= server.at) {
+    return false;
+  }
+  if (local && local.at > server.at && isSlatePreAnalysisFresh(local)) {
+    return false;
+  }
+  await rememberSlatePreAnalysis(server);
+  return true;
+}

@@ -21,9 +21,11 @@ import {
   patchSlatePreAnalysisBoardScan,
   propSimMapToSnapshot,
   rememberSlatePreAnalysis,
+  applyServerSlateSnapshot,
   serializeBoardScan,
   type SlatePreAnalysisSnapshot,
 } from "./slatePreAnalysisCache.ts";
+import { fetchCoachServerSlate } from "./coachSlateApi.ts";
 
 /** Default reach target — seeds 6/9/15-leg asks via reach fill. */
 export const SLATE_PRE_ANALYSIS_TARGET = 9;
@@ -154,6 +156,17 @@ export async function runSlatePreAnalysis(opts?: {
   }
 }
 
+/** Pull latest server-precomputed slate into local cache (instant Coach seed). */
+export async function syncServerSlatePreAnalysis(): Promise<boolean> {
+  try {
+    const resp = await fetchCoachServerSlate();
+    if (!resp?.fresh || !resp.snapshot) return false;
+    return applyServerSlateSnapshot(resp.snapshot);
+  } catch {
+    return false;
+  }
+}
+
 /** Start or refresh background pre-analysis (no-op when Coach is building). */
 export function startSlatePreAnalysis(reason = "manual"): void {
   if (coachBuildBusy || running) return;
@@ -167,7 +180,18 @@ export function startSlatePreAnalysis(reason = "manual"): void {
   activeAbort = controller;
   running = true;
   lastForegroundRunAt = Date.now();
-  void runSlatePreAnalysis({ signal: controller.signal })
+  void (async () => {
+    await syncServerSlatePreAnalysis().catch(() => false);
+    if (controller.signal.aborted) return;
+    const seeded = getSlatePreAnalysisSnapshot();
+    if (seeded && isSlatePreAnalysisFresh(seeded) && seeded.boardScan?.picks?.length) {
+      if (!seeded.deepSimComplete) {
+        return runSlatePreAnalysis({ signal: controller.signal });
+      }
+      return seeded;
+    }
+    return runSlatePreAnalysis({ signal: controller.signal });
+  })()
     .catch(() => null)
     .finally(() => {
       if (activeAbort === controller) activeAbort = null;

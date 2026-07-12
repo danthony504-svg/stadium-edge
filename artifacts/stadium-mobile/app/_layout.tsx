@@ -32,6 +32,7 @@ import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import {
   startSlatePreAnalysis,
   stopSlatePreAnalysis,
+  syncServerSlatePreAnalysis,
 } from "@/lib/slatePreAnalysis";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { BetSlipProvider } from "@/context/BetSlipContext";
@@ -221,7 +222,10 @@ function RootLayoutNav() {
 function DiscoverHydrateBridge() {
   useEffect(() => {
     void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
-    void hydrateSlatePreAnalysisCache();
+    void (async () => {
+      await hydrateSlatePreAnalysisCache();
+      await syncServerSlatePreAnalysis().catch(() => false);
+    })();
     if (typeof warmApiForCoachBuild === "function") {
       void warmApiForCoachBuild();
     }
