@@ -122,7 +122,7 @@ export function AnalysisProgress({
       ? "Scanning every posted market on the live board…"
       : mode === "build" && buildPhase === "context"
         ? "Pulling live odds and props…"
-        : mode === "build" && buildPhase === "score"
+        : mode === "build" && buildPhase === "score" && legCount > 0
           ? "Finalizing your ticket…"
           : null;
   const displayStage = phaseStage ?? stageList[effectiveIndex];

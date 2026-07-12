@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
+  coachFlashTicketPicks,
   filterAiRecommendedPicks,
   filterTicketPicks,
   filterTicketPicksPreservingTicket,
@@ -109,6 +110,38 @@ test("pickIsAiRecommended rejects High-Risk Value Play when sim disagrees", () =
     pickIsAiRecommended({ market: "Moneyline", sport: "mlb", odds: 135 }, hrVp),
     false,
   );
+});
+
+test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const alt = {
+    game: "E @ F",
+    market: "Alt Spread",
+    pick: "F +3.5",
+    odds: -105,
+    isProp: false,
+    ticketRole: "alt" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  const out = coachFlashTicketPicks([alt], {
+    realOdds: [{ game: "E @ F", market: "Alt Spread", pick: "F +3.5", odds: -105, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "E @ F", sport: "mlb", startsAt: kickoff, homeTeam: "F", awayTeam: "E", homeAbbr: "F", awayAbbr: "E", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.startsAt, kickoff);
+  assert.equal(out[0]!.sport, "mlb");
 });
 
 test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {

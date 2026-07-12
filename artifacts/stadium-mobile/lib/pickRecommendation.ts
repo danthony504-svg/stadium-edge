@@ -8,7 +8,47 @@ import {
 } from "./gameSimQualityGates.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
+import { enrichPicksWithSport } from "./chatContextPriority.ts";
 import { filterBettablePicks, enrichPicksWithStartsAt } from "./slate.ts";
+
+export type CoachPickEnrichSources = Parameters<typeof enrichPicksWithStartsAt>[1] & {
+  propPool?: Array<{ game: string; player?: string; sport?: string; startsAt?: string | null }>;
+  gameMeta?: Array<{ game: string; sport: string; startsAt?: string | null }>;
+};
+
+function stripHrvpFromPick<
+  T extends { highRiskValuePlay?: boolean; finalAiScore?: FinalAiScore | null },
+>(p: T): T {
+  return {
+    ...p,
+    highRiskValuePlay: false,
+    finalAiScore: p.finalAiScore
+      ? { ...p.finalAiScore, highRiskValuePlay: false }
+      : p.finalAiScore,
+  };
+}
+
+function enrichCoachPicksForGate<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+    startsAt?: string | null;
+    sport?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!enrich) return picks;
+  const withSport = enrichPicksWithSport(
+    picks,
+    enrich.propPool ?? [],
+    enrich.realOdds ?? [],
+    enrich.gameMeta,
+  );
+  return enrichPicksWithStartsAt(withSport, enrich);
+}
 
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
@@ -204,20 +244,33 @@ export function sanitizeCoachTicketPicks<
     isProp?: boolean;
     player?: string;
   },
->(
-  picks: T[],
-  enrich?: Parameters<typeof enrichPicksWithStartsAt<T>>[1],
-): T[] {
-  const enriched = enrich ? enrichPicksWithStartsAt(picks, enrich) : picks;
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  const enriched = enrichCoachPicksForGate(picks, enrich);
   const gated = filterTicketPicks(enriched);
   const kept = gated.length > 0 ? gated : enriched.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  return filterBettablePicks(kept.map(stripHrvpFromPick));
+}
+
+/** Flash partial board scans — strict gate first, then sim-aligned legs with metadata filled in. */
+export function coachFlashTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  const strict = sanitizeCoachTicketPicks(picks, enrich);
+  if (strict.length > 0) return strict;
+  const enriched = enrichCoachPicksForGate(picks, enrich);
   return filterBettablePicks(
-    kept.map((p) => ({
-      ...p,
-      highRiskValuePlay: false,
-      finalAiScore: p.finalAiScore
-        ? { ...p.finalAiScore, highRiskValuePlay: false, simAligned: p.finalAiScore.simAligned }
-        : p.finalAiScore,
-    })),
+    filterTicketPicks(enriched).map(stripHrvpFromPick),
   );
 }

@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
+import { coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1130,9 +1130,10 @@ export default function CoachScreen() {
   }, []);
 
   const flashCoachTicketPicks = useCallback(
-    (picks: ParsedPick[], legNote?: string) => {
+    (picks: ParsedPick[], legNote?: string, enrichOverride?: typeof flashEnrichRef.current) => {
       const tagged = tagTicketRoles(picks);
-      const toShow = sanitizeCoachTicketPicks(tagged, flashEnrichRef.current);
+      const enrich = enrichOverride ?? flashEnrichRef.current;
+      const toShow = coachFlashTicketPicks(tagged, enrich);
       if (!toShow.length) return;
       patchLastAssistantPicks(setMessages, toShow, legNote);
       setStreaming(false);
@@ -1199,7 +1200,11 @@ export default function CoachScreen() {
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
       if (partial.picks.length < 1) return;
-      flashCoachTicketPicks(partial.picks, partial.note);
+      const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      flashCoachTicketPicks(partial.picks, partial.note, {
+        ...flashEnrichRef.current,
+        realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+      });
     },
     [flashCoachTicketPicks],
   );
@@ -1912,7 +1917,11 @@ export default function CoachScreen() {
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
               ]);
               if (preBoardScan?.picks?.length) {
-                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
+                const scanOdds = [...preBoardScan.evalLinesByGame.values()].flat();
+                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note, {
+                  ...flashEnrichRef.current,
+                  realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+                });
               }
             } catch {
               preBoardScan = null;
@@ -2017,7 +2026,11 @@ export default function CoachScreen() {
               full = "";
               setWaiting(false);
               if (preBoardScan?.picks?.length) {
-                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
+                const scanOdds = [...preBoardScan.evalLinesByGame.values()].flat();
+                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note, {
+                  ...flashEnrichRef.current,
+                  realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+                });
               }
             } else {
               setParlayBuildPhase("stream");
@@ -2200,6 +2213,15 @@ export default function CoachScreen() {
             : fullBoardScanMeta?.picks?.length
               ? [...fullBoardScanMeta.picks]
               : parsePicks(full, context.realOdds, mergedPropPool, gameMeta, altRungBias);
+        if (!isAnalyze && fullBoardScanMeta?.picks?.length) {
+          const scanOdds = fullBoardScanMeta.evalLinesByGame
+            ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+            : [];
+          flashCoachTicketPicks(fullBoardScanMeta.picks, fullBoardScanMeta.note, {
+            ...flashEnrichRef.current,
+            realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+          });
+        }
         picks = scrubExcludedSportsFromPicks(
           picks,
           excludedSports,
@@ -2210,10 +2232,10 @@ export default function CoachScreen() {
         picks = filterBettablePicks(
           enrichPicksWithStartsAt(picks, flashEnrichRef.current),
         );
-        if (!isAnalyze && picks.length > 0) {
+        if (!isAnalyze && picks.length > 0 && !fullBoardScanMeta?.picks?.length) {
           const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {
-            flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
+            flashCoachTicketPicks(picks);
           }
         }
         let soccerScorerGkSalvage = false;
@@ -4215,6 +4237,40 @@ export default function CoachScreen() {
   /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
   const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
 
+  // Parlay build hung with progress visible but zero pick cards — clear stale flags
+  // and offer retry instead of an endless finalize screen.
+  useEffect(() => {
+    if (!buildFinishing && !streaming && !waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    const ask = priorUser?.apiContent ?? priorUser?.content ?? "";
+    if (!last.parlayBuild && !isParlayBuildAsk(ask)) return;
+    const timer = setTimeout(() => {
+      if (!buildFinishingRef.current && !streamingRef.current) return;
+      setBuildFinishing(false);
+      setStreaming(false);
+      setWaiting(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      clearBuildStallWatchdog();
+      setMessages((prev) => {
+        const copy = [...prev];
+        const tail = copy[copy.length - 1];
+        if (tail?.role !== "assistant" || (tail.picks?.length ?? 0) > 0) return prev;
+        if (tail.content?.trim()) return prev;
+        copy[copy.length - 1] = {
+          ...tail,
+          content:
+            "This build stalled before pick cards could render — the board scan may still be scoring. Tap below to try again.",
+          retry: ask,
+        };
+        return copy;
+      });
+    }, 75_000);
+    return () => clearTimeout(timer);
+  }, [buildFinishing, streaming, waiting, messages, clearBuildStallWatchdog]);
+
   // Recover stale busy flags left after a superseded send or OTA reload — welcome
   // with spinners on every quick prompt means streaming stuck true with no thread.
   useEffect(() => {
@@ -4307,17 +4363,14 @@ export default function CoachScreen() {
             // ~15s of model time, and since the lead-in prose is hidden the user
             // would otherwise stare at a static spinner. Counting completed PICK
             // lines as they stream in gives real "it's working" feedback.
-            const buildingLegCount = isBuildingParlay
-              ? Math.max(
-                  m.picks?.length ?? 0,
-                  m.content
+            const buildingLegCount = Math.max(
+              m.picks?.length ?? 0,
+              isBuildingParlay
+                ? m.content
                     .split("\n")
-                    // Require 3 pipes (4 fields) so only fully-streamed PICK lines
-                    // count — mirrors parsePicks' parts.length >= 4 so the running
-                    // total never transiently overshoots a half-emitted line.
-                    .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length,
-                )
-              : 0;
+                    .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length
+                : 0,
+            );
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
