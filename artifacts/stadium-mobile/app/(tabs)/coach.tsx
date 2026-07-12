@@ -1051,7 +1051,7 @@ export default function CoachScreen() {
 
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
-      const gated = filterTicketPicks(tagTicketRoles(picks));
+      const gated = filterTicketPicksPreservingTicket(tagTicketRoles(picks));
       if (!gated.length) return;
       patchLastAssistantPicks(setMessages, gated, legNote);
       setStreaming(false);
@@ -1090,7 +1090,7 @@ export default function CoachScreen() {
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      if (partial.picks.length < 3) return;
+      if (partial.picks.length < 1) return;
       flashCoachTicketPicks(partial.picks, partial.note);
     },
     [flashCoachTicketPicks],
@@ -1448,6 +1448,7 @@ export default function CoachScreen() {
         const slateLabel = slateOddsLabel(slateDay);
         const boardPhrase = slateDay ? `${slateLabel} board` : "the board";
         const thinSlateDepth = requestedLegs >= 9 && slateDay === "tonight";
+        const explicitPeriodAsk = wantsPeriodMarkets(trimmed) || singleGameDepth;
         const focalForPools =
           slateDay === "tomorrow" && !wantsTomorrowOnly(trimmed)
             ? `${trimmed} tomorrow`
@@ -1464,7 +1465,7 @@ export default function CoachScreen() {
         }
         const excludeSportsList = excludedSports.size > 0 ? [...excludedSports] : undefined;
         const sportScopeText = [...priorUserTexts, trimmed].join(" ");
-        const includePeriods = wantsPeriodMarkets(trimmed) || singleGameDepth || thinSlateDepth;
+        const includePeriods = explicitPeriodAsk || thinSlateDepth;
         // Explicit "+ alt" / "- alt" sign ask. "+ alt" / "plus alt" forces every
         // leg onto plus-money rungs (aggressive upside); "- alt" / "minus alt"
         // forces minus-money rungs (safer cushion). The sign is recognised three
@@ -1559,7 +1560,7 @@ export default function CoachScreen() {
           const genericParlayPath =
             fastParlay &&
             !oddsThreshold &&
-            !includePeriods &&
+            !explicitPeriodAsk &&
             !wantsAnalyzeSlip(trimmed) &&
             !altSign &&
             focalSports.size === 0;
@@ -1571,7 +1572,7 @@ export default function CoachScreen() {
             focalSports.size === 1 &&
             !oddsThreshold &&
             !confidenceThreshold &&
-            !includePeriods &&
+            !explicitPeriodAsk &&
             !wantsAnalyzeSlip(trimmed) &&
             !altSign;
           const focalSportId = useFocalSportParlayPath ? [...focalSports][0]! : null;
@@ -1585,7 +1586,7 @@ export default function CoachScreen() {
             buildLegs <= MAX_LEGS &&
             !oddsThreshold &&
             !confidenceThreshold &&
-            !includePeriods &&
+            !explicitPeriodAsk &&
             !wantsAnalyzeSlip(trimmed) &&
             !altSign;
           const useTinyParlayPath = genericParlayPath && !usePropsOnlyParlayPath && buildLegs <= 3;
@@ -1743,7 +1744,7 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
               ]);
-              if (preBoardScan?.picks?.length && preBoardScan.picks.length >= 3) {
+              if (preBoardScan?.picks?.length) {
                 flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
               }
             } catch {
@@ -1848,7 +1849,7 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan) {
               full = "";
               setWaiting(false);
-              if (preBoardScan?.picks?.length && preBoardScan.picks.length >= 3) {
+              if (preBoardScan?.picks?.length) {
                 flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
               }
             } else {
@@ -4046,6 +4047,7 @@ export default function CoachScreen() {
               !m.periodGameLog &&
               !m.teamCard &&
               !isBuildingParlay &&
+              !parlayStillBuilding &&
               !analyzeWaiting &&
               !askWaiting &&
               (bubbleText.length > 0 || !!m.imageUris?.length);
