@@ -276,7 +276,7 @@ export function prepareBoardScanDelivery<
   if (!picks.length) return [];
   const gated = coachBoardScanTicketPicks(picks, enrich);
   if (gated.length > 0) return gated;
-  return enrichCoachPicksForGate(picks, enrich)
+  const salvaged = enrichCoachPicksForGate(picks, enrich)
     .map(stripHrvpFromPick)
     .filter((p) => {
       const score = p.finalAiScore;
@@ -284,6 +284,12 @@ export function prepareBoardScanDelivery<
       if (score && !score.simAligned) return false;
       return true;
     });
+  if (salvaged.length > 0) return salvaged;
+  // A successful board scan must never surface as a blank ticket — deliver scored
+  // legs minus HRVP even when every strict gate failed (common on 15-leg reach).
+  return enrichCoachPicksForGate(picks, enrich)
+    .map(stripHrvpFromPick)
+    .filter((p) => !p.highRiskValuePlay && !p.finalAiScore?.highRiskValuePlay);
 }
 
 /** Board-scan legs already cleared sim/edge gates — enrich metadata and deliver without re-zeroing. */

@@ -233,6 +233,31 @@ test("prepareBoardScanDelivery keeps sim-aligned board legs when every gate fail
   assert.equal(prepareBoardScanDelivery([leg], {}).length, 1);
 });
 
+test("prepareBoardScanDelivery never returns empty when board scan produced legs", () => {
+  const leg = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "A -3.5",
+    odds: -108,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 4.2,
+      grade: "C-",
+      confidencePct: 44,
+      edgePct: 0.2,
+      simHit: 0.46,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 4.2, grade: "C-", confidencePct: 44, edgePct: 0.2, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(coachBoardScanTicketPicks([leg], {}).length, 0);
+  assert.equal(prepareBoardScanDelivery([leg], {}).length, 1);
+});
+
 test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {
   const hrVp = {
     game: "KC @ BAL",

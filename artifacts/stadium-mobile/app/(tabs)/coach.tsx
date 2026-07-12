@@ -1167,13 +1167,8 @@ export default function CoachScreen() {
         ...(enrichOverride ?? flashEnrichRef.current),
         realOdds: [...(enrichOverride ?? flashEnrichRef.current).realOdds, ...scanOdds],
       };
-      const toShow = prepareBoardScanDelivery(tagTicketRoles([...partial.picks]), enrich);
-      const ticket =
-        toShow.length > 0
-          ? toShow
-          : tagTicketRoles([...partial.picks])
-              .map(stripCoachTicketHrvp)
-              .filter((p) => !p.finalAiScore?.highRiskValuePlay && !p.highRiskValuePlay);
+      const tagged = tagTicketRoles([...partial.picks]);
+      const ticket = prepareBoardScanDelivery(tagged, enrich);
       if (!ticket.length) return;
       deliverCoachTicket(ticket, partial.note);
     },
@@ -4145,7 +4140,7 @@ export default function CoachScreen() {
             };
             return copy;
           });
-        } else if (!isAbortLikeError(e)) {
+        } else {
           const failMsg =
             hasOutgoingImages && !(e instanceof ChatStreamError)
               ? "Sorry — I couldn't finish reading your slip photo. Check your connection and try again."
@@ -4496,6 +4491,47 @@ export default function CoachScreen() {
     }, 4000);
     return () => clearInterval(interval);
   }, [buildFinishing, streaming, waiting, messages, deliverBoardScanTicket]);
+
+  // Silent dead-end: parlay build finished with no prose and no pick cards.
+  useEffect(() => {
+    if (streaming || buildFinishing || waiting) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    const priorUser = [...messages].reverse().find((m) => m.role === "user");
+    const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
+    if (!parlayIntent || (last.content ?? "").trim()) return;
+
+    const partial = latestBoardScanRef.current;
+    if (partial?.picks?.length) {
+      deliverBoardScanTicket(partial);
+      return;
+    }
+    const seed = readSlatePreAnalysisSeed();
+    if (seed?.boardScan?.picks?.length) {
+      deliverBoardScanTicket(seed.boardScan, {
+        realOdds: seed.built.context.realOdds,
+        propPool: seed.built.propPool,
+        gameMeta: seed.built.gameMeta,
+        realGames: seed.built.context.realGames,
+      });
+      return;
+    }
+    const retryText = priorUser?.content?.trim();
+    if (retryText) {
+      setMessages((prev) => {
+        const copy = [...prev];
+        const idx = copy.length - 1;
+        if (copy[idx]?.role !== "assistant") return prev;
+        copy[idx] = {
+          ...copy[idx],
+          content:
+            "This build finished without pick cards — the board scan may still be scoring. Tap below to try again.",
+          retry: retryText,
+        };
+        return copy;
+      });
+    }
+  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
