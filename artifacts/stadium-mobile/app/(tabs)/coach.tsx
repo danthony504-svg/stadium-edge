@@ -1168,7 +1168,12 @@ export default function CoachScreen() {
         realOdds: [...(enrichOverride ?? flashEnrichRef.current).realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      const ticket = prepareBoardScanDelivery(tagged, enrich);
+      let ticket = prepareBoardScanDelivery(tagged, enrich);
+      if (!ticket.length) {
+        ticket = tagged
+          .map(stripCoachTicketHrvp)
+          .filter((p) => !p.highRiskValuePlay && !p.finalAiScore?.highRiskValuePlay);
+      }
       if (!ticket.length) return;
       deliverCoachTicket(ticket, partial.note);
     },
@@ -1989,12 +1994,15 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
-              if (preBoardScan?.picks?.length) {
-                deliverBoardScanTicket(preBoardScan, {
+              const scanForDelivery =
+                preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
+              if (scanForDelivery?.picks?.length) {
+                preBoardScan = scanForDelivery;
+                deliverBoardScanTicket(scanForDelivery, {
                   ...flashEnrichRef.current,
                   realOdds: [
                     ...flashEnrichRef.current.realOdds,
-                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                    ...[...scanForDelivery.evalLinesByGame.values()].flat(),
                   ],
                 });
               }
@@ -2004,7 +2012,8 @@ export default function CoachScreen() {
             }
           }
           const skipModelStreamForBoardScan =
-            !!preBoardScan && preBoardScan.picks.length > 0 && reachFullPreScan;
+            !!(preBoardScan?.picks?.length || latestBoardScanRef.current?.picks?.length) &&
+            reachFullPreScan;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -2101,12 +2110,14 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan) {
               full = "";
               setWaiting(false);
-              if (preBoardScan?.picks?.length) {
-                deliverBoardScanTicket(preBoardScan, {
+              const scanForDelivery =
+                preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
+              if (scanForDelivery?.picks?.length) {
+                deliverBoardScanTicket(scanForDelivery, {
                   ...flashEnrichRef.current,
                   realOdds: [
                     ...flashEnrichRef.current.realOdds,
-                    ...[...preBoardScan.evalLinesByGame.values()].flat(),
+                    ...[...scanForDelivery.evalLinesByGame.values()].flat(),
                   ],
                 });
               }
@@ -2254,6 +2265,9 @@ export default function CoachScreen() {
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
             ]);
+            if (!reachBoardScan?.picks?.length && latestBoardScanRef.current?.picks?.length) {
+              reachBoardScan = latestBoardScanRef.current;
+            }
           }
         }
         let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
@@ -4157,6 +4171,12 @@ export default function CoachScreen() {
         }
       } finally {
         if (sendGenerationRef.current !== sendGen) return;
+        if (isParlayBuildAsk(trimmed)) {
+          const partial = latestBoardScanRef.current;
+          if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
+            deliverBoardScanTicket(partial);
+          }
+        }
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -4770,7 +4790,9 @@ export default function CoachScreen() {
                       setWaiting(false);
                       setBuildProgressExpired(false);
                       setParlayBuildPhase("idle");
-                      send(priorUserText || "Build me a 9-leg parlay", { freshThread: true });
+                      send(activeParlayAskRef.current || priorUserText || trimmed || "Build me a 15-leg longshot parlay", {
+                        freshThread: true,
+                      });
                     }}
                     disabled={false}
                     style={({ pressed }) => ({
