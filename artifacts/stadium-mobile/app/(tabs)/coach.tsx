@@ -922,6 +922,7 @@ export default function CoachScreen() {
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1053,6 +1054,13 @@ export default function CoachScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated }));
   }, []);
 
+  const clearBuildStallWatchdog = useCallback(() => {
+    if (buildStallTimerRef.current) {
+      clearTimeout(buildStallTimerRef.current);
+      buildStallTimerRef.current = null;
+    }
+  }, []);
+
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
       const gated = filterTicketPicksPreservingTicket(tagTicketRoles(picks));
@@ -1066,9 +1074,10 @@ export default function CoachScreen() {
         clearTimeout(buildProgressTimerRef.current);
         buildProgressTimerRef.current = null;
       }
+      clearBuildStallWatchdog();
       scrollToEnd(false);
     },
-    [scrollToEnd],
+    [clearBuildStallWatchdog, scrollToEnd],
   );
 
   const armBuildProgressWatchdog = useCallback(() => {
@@ -1079,6 +1088,43 @@ export default function CoachScreen() {
       scrollToEnd(false);
     }, 25_000);
   }, [scrollToEnd]);
+
+  /** Hard stop when a parlay build hangs with no pick cards for 2 minutes. */
+  const armBuildStallWatchdog = useCallback(
+    (sendGen: number, userText: string) => {
+      clearBuildStallWatchdog();
+      buildStallTimerRef.current = setTimeout(() => {
+        if (sendGenerationRef.current !== sendGen) return;
+        abortRef.current?.abort();
+        simAbortRef.current?.abort();
+        sendGenerationRef.current++;
+        setMessages((prev) => {
+          const copy = [...prev];
+          const last = copy[copy.length - 1];
+          if (last?.role === "assistant" && !(last.picks?.length)) {
+            copy[copy.length - 1] = {
+              ...last,
+              content:
+                "This build took too long — the live board scan may have stalled. Tap below to try again.",
+              retry: userText,
+            };
+          }
+          return copy;
+        });
+        setBuildFinishing(false);
+        setStreaming(false);
+        setWaiting(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
+        scrollToEnd(false);
+      }, 120_000);
+    },
+    [clearBuildStallWatchdog, scrollToEnd],
+  );
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
@@ -1176,6 +1222,7 @@ export default function CoachScreen() {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
         }
+        clearBuildStallWatchdog();
         setBuildFinishing(false);
         setStreaming(false);
         setWaiting(false);
@@ -1242,6 +1289,12 @@ export default function CoachScreen() {
       ]);
       setWaiting(true);
       setStreaming(true);
+      if (openingParlayBuild) {
+        setBuildFinishing(true);
+        setParlayBuildPhase("context");
+        armBuildProgressWatchdog();
+        armBuildStallWatchdog(sendGen, trimmed);
+      }
       const releaseOtaBlock = blockOtaReload();
       scrollToEnd();
 
@@ -1505,11 +1558,6 @@ export default function CoachScreen() {
         // correlation" only once the data is actually in (below), and the render
         // promotes to "Finalizing parlay" once real PICK lines stream.
         const isParlayBuild = isParlayBuildAsk(trimmed);
-        if (isParlayBuild) {
-          setBuildFinishing(true);
-          setParlayBuildPhase("context");
-          armBuildProgressWatchdog();
-        }
 
         // These are the same four pieces buildChatContext returns; in replay mode
         // we read them from the locally-saved PendingBuild instead of fetching.
@@ -3746,6 +3794,7 @@ export default function CoachScreen() {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
         }
+        clearBuildStallWatchdog();
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
@@ -3764,6 +3813,8 @@ export default function CoachScreen() {
       scrollToEnd,
       flashCoachTicketPicks,
       armBuildProgressWatchdog,
+      armBuildStallWatchdog,
+      clearBuildStallWatchdog,
       onBoardScanPartial,
       attachedImages,
       isSignedIn,

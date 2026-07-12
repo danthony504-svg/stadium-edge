@@ -348,12 +348,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
   scored.sort((a, b) => b.rankScore - a.rankScore);
-  return buildScanResult(scored, {
+  const result = buildScanResult(scored, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
     totalScanned,
   });
+  if (opts.onPartial && result.picks.length > 0) opts.onPartial(result);
+  return result;
 }
 
 export function shouldUseFullBoardScan(
