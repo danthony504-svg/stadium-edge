@@ -857,6 +857,29 @@ importers:
         specifier: 'catalog:'
         version: 25.6.2
 
+  lib/coach-learn:
+    dependencies:
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
+  lib/coach-rank:
+    dependencies:
+      '@workspace/coach-learn':
+        specifier: workspace:*
+        version: link:../coach-learn
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
   lib/coach-scan:
     dependencies:
       '@workspace/coach-data':

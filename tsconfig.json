@@ -25,6 +25,12 @@
       "path": "./lib/coach-scan"
     },
     {
+      "path": "./lib/coach-learn"
+    },
+    {
+      "path": "./lib/coach-rank"
+    },
+    {
       "path": "./lib/db"
     },
     {
