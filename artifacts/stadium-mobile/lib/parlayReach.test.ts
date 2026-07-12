@@ -131,6 +131,8 @@ test("selectParlayMainBackupPicks skips alt rungs", () => {
 
 test("buildFullBoardShortfallNote explains entire-board scan when short", () => {
   const note = buildFullBoardShortfallNote(15, 11, 840, 11, "today's real odds");
+  assert.match(note, /asked for \*\*15\*\* legs/i);
+  assert.match(note, /only \*\*11\*\*/i);
   assert.match(note, /840/);
   assert.match(note, /second half/i);
   assert.match(note, /combo props/i);

@@ -14,6 +14,12 @@ export const COACH_NO_FILLER_SHORTFALL =
 export const COACH_FIXED_LEG_SHORTFALL_LEAD =
   "Every qualifying market was evaluated across the live board — only this many AI-backed picks met the quality bar.";
 
+/** Visible one-liner when a fixed-leg ask returns fewer than requested. */
+export function buildFixedLegCountShortfallLead(requested: number, actual: number): string {
+  if (actual >= requested) return "";
+  return `You asked for **${requested}** legs — only **${actual}** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.`;
+}
+
 /** Fixed leg-count parlay (3, 5, 6, 10, 15, …) — full-board scan + staged alt promotion. */
 export function isFixedLegCountParlay(requestedLegs: number): boolean {
   return requestedLegs >= 3;
