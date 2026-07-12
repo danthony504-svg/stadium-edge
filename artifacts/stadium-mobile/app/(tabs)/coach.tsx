@@ -4644,23 +4644,31 @@ export default function CoachScreen() {
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
     if (!parlayIntent || (last.content ?? "").trim()) return;
 
-    const partial = latestBoardScanRef.current;
-    if (partial?.picks?.length) {
-      deliverBoardScanTicket(partial);
-      return;
-    }
-    const seed = readSlatePreAnalysisSeed();
-    if (seed?.boardScan?.picks?.length) {
-      deliverBoardScanTicket(seed.boardScan, {
-        realOdds: seed.built.context.realOdds,
-        propPool: seed.built.propPool,
-        gameMeta: seed.built.gameMeta,
-        realGames: seed.built.context.realGames,
-      });
-      return;
-    }
+    const tryStashedDelivery = () => {
+      const partial = latestBoardScanRef.current;
+      if (partial?.picks?.length) {
+        deliverBoardScanTicket(partial);
+        return true;
+      }
+      const seed = readSlatePreAnalysisSeed();
+      if (seed?.boardScan?.picks?.length) {
+        deliverBoardScanTicket(seed.boardScan, {
+          realOdds: seed.built.context.realOdds,
+          propPool: seed.built.propPool,
+          gameMeta: seed.built.gameMeta,
+          realGames: seed.built.context.realGames,
+        });
+        return true;
+      }
+      const legs = requestedLegCount(priorUser?.content ?? "") || effectiveBuildLegCount(priorUser?.content ?? "");
+      return tryInstantSlateSeedDelivery(legs);
+    };
+
+    if (tryStashedDelivery()) return;
+
     const retryText = priorUser?.content?.trim();
     if (retryText) {
+      setBuildProgressExpired(false);
       setMessages((prev) => {
         const copy = [...prev];
         const idx = copy.length - 1;
@@ -4674,7 +4682,22 @@ export default function CoachScreen() {
         return copy;
       });
     }
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket]);
+
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts += 1;
+      if (attempts > 20) {
+        clearInterval(interval);
+        return;
+      }
+      if (streamingRef.current || buildFinishingRef.current || waiting) {
+        clearInterval(interval);
+        return;
+      }
+      if (tryStashedDelivery()) clearInterval(interval);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, tryInstantSlateSeedDelivery]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -4748,7 +4771,15 @@ export default function CoachScreen() {
               i === messages.length - 1 &&
               !hasPicks &&
               parlayBuildIntent &&
-              buildProgressExpired;
+              buildProgressExpired &&
+              !streaming &&
+              !buildFinishing &&
+              !waiting &&
+              !m.retry;
+            const parlayShowRetryButton =
+              i === messages.length - 1 &&
+              !hasPicks &&
+              (parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung || !!m.retry);
             const parlayStuckDeadProse =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -4903,7 +4934,7 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung ? (
+                {parlayShowRetryButton ? (
                   <Pressable
                     onPress={() => {
                       abortRef.current?.abort();
@@ -4913,9 +4944,14 @@ export default function CoachScreen() {
                       setWaiting(false);
                       setBuildProgressExpired(false);
                       setParlayBuildPhase("idle");
-                      send(activeParlayAskRef.current || priorUserText || trimmed || "Build me a 15-leg longshot parlay", {
-                        freshThread: true,
-                      });
+                      send(
+                        m.retry ||
+                          activeParlayAskRef.current ||
+                          priorUserText ||
+                          trimmed ||
+                          "Build me a 15-leg longshot parlay",
+                        { freshThread: true },
+                      );
                     }}
                     disabled={false}
                     style={({ pressed }) => ({
@@ -5009,32 +5045,6 @@ export default function CoachScreen() {
                       </View>
                     ) : null}
                   </View>
-                ) : null}
-
-                {m.retry ? (
-                  <Pressable
-                    onPress={() => send(m.retry!)}
-                    disabled={streaming || buildFinishing}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      marginTop: 10,
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: colors.radius,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      opacity: streaming || buildFinishing ? 0.5 : pressed ? 0.85 : 1,
-                    })}
-                  >
-                    <Feather name="refresh-cw" size={16} color={colors.foreground} />
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-                      Try again
-                    </Text>
-                  </Pressable>
                 ) : null}
               </View>
             );
