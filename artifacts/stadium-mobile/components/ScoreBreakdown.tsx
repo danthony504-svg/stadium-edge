@@ -7,7 +7,7 @@ import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
 import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
-import { propHolisticTopDrivers, resolvePropHolisticForDisplay } from "@/lib/propHolisticRecommendation";
+import { propHolisticTopDrivers, resolvePropHolisticForDisplay, minimalPropHolisticForPick } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
@@ -114,14 +114,57 @@ const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof type
   { key: "simulation", label: "Model Sim", icon: "cpu" },
 ];
 
-const FACTOR_COMPACT_LABEL: Record<keyof PickSubScores, string> = {
-  matchup: "Match",
-  trend: "Trend",
-  lineValue: "Value",
-  injury: "Inj",
-  lineShopping: "Shop",
-  simulation: "Sim",
-};
+/** Five compact slots — line value + line shopping merge into one Value bar (no duplicate Line). */
+const LEGACY_COMPACT_STRIP: Array<{
+  key: string;
+  label: string;
+  scoreKeys: (keyof PickSubScores)[];
+}> = [
+  { key: "matchup", label: "Match", scoreKeys: ["matchup"] },
+  { key: "trend", label: "Trend", scoreKeys: ["trend"] },
+  { key: "value", label: "Value", scoreKeys: ["lineValue", "lineShopping"] },
+  { key: "injury", label: "Inj", scoreKeys: ["injury"] },
+  { key: "simulation", label: "Sim", scoreKeys: ["simulation"] },
+];
+
+function mergedStripScore(scores: PickSubScores, keys: (keyof PickSubScores)[]): number | null {
+  const vals = keys.map((k) => scores[k]).filter((v): v is number => v != null);
+  if (!vals.length) return null;
+  return Math.max(...vals);
+}
+
+function LegacyCompactFactorStrip({ scores }: { scores: PickSubScores }) {
+  const colors = useColors();
+  const scoreColor = useScoreColor();
+  return (
+    <View style={{ flexDirection: "row", gap: 4 }}>
+      {LEGACY_COMPACT_STRIP.map((slot) => {
+        const s = mergedStripScore(scores, slot.scoreKeys);
+        return (
+          <View key={slot.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
+            <View
+              style={{
+                width: "100%",
+                height: 4,
+                borderRadius: 999,
+                backgroundColor: s == null ? colors.border : scoreColor(s),
+                opacity: s == null ? 0.5 : 1,
+              }}
+            />
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+              style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
+            >
+              {slot.label}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 function MetricTile({
   icon,
@@ -332,7 +375,7 @@ export function ScoreBreakdown({
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
   const holisticDisplay =
     pick?.isProp || pick?.player
-      ? propHolistic ?? resolvePropHolisticForDisplay(pick) ?? null
+      ? propHolistic ?? resolvePropHolisticForDisplay(pick) ?? (pick ? minimalPropHolisticForPick(pick) : null)
       : propHolistic ?? null;
   const isPropCard = !!(pick?.isProp || pick?.player);
 
@@ -361,35 +404,12 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        {holisticDisplay ? (
+        {isPropCard && holisticDisplay ? (
+          <HolisticFactorStrip holistic={holisticDisplay} />
+        ) : holisticDisplay ? (
           <HolisticFactorStrip holistic={holisticDisplay} />
         ) : (
-          <View style={{ flexDirection: "row", gap: 4 }}>
-            {FACTORS.map((f) => {
-              const s = data.scores[f.key];
-              return (
-                <View key={f.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
-                  <View
-                    style={{
-                      width: "100%",
-                      height: 4,
-                      borderRadius: 999,
-                      backgroundColor: s == null ? colors.border : scoreColor(s),
-                      opacity: s == null ? 0.5 : 1,
-                    }}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
-                  >
-                    {FACTOR_COMPACT_LABEL[f.key]}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
+          <LegacyCompactFactorStrip scores={data.scores} />
         )}
       </View>
     );

@@ -610,6 +610,31 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
   return mergePropHolisticScores(existing, synthesized);
 }
 
+/** Guaranteed holistic strip for prop cards — never fall back to the legacy 6-factor row. */
+export function minimalPropHolisticForPick(pick: ParsedPick): PropHolisticScore | null {
+  const resolved = resolvePropHolisticForDisplay(pick);
+  if (resolved) return resolved;
+  const rubric = pick.finalAiScore?.rubric?.scores ?? pick.scores?.scores;
+  const edgePct = pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null;
+  const simHit = pick.finalAiScore?.simHit ?? null;
+  if (!rubric && simHit == null && edgePct == null) return null;
+  return buildPropHolisticScore({
+    sport: pick.sport,
+    marketKey: pick.propMarketKey ?? pick.market,
+    propSide: pick.propSide,
+    rubricScores: rubric ?? {
+      matchup: null,
+      trend: null,
+      lineValue: null,
+      injury: null,
+      lineShopping: null,
+      simulation: null,
+    },
+    edgePct,
+    simHit,
+  });
+}
+
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {
   const ranked = holistic.factors
     .filter((f) => f.applicable && f.present && f.score != null)

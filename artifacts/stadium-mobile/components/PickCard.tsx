@@ -906,7 +906,9 @@ export function PickCard({
           pick={pick}
           propHolistic={
             pick.isProp || pick.player
-              ? resolvePropHolisticForDisplay(pick) ?? pick.finalAiScore?.propHolistic
+              ? minimalPropHolisticForPick(pick) ??
+                resolvePropHolisticForDisplay(pick) ??
+                pick.finalAiScore?.propHolistic
               : undefined
           }
           simulationPending={pick.simulationPending}

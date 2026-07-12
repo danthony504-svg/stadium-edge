@@ -7,6 +7,7 @@ import {
   propHolisticRecommends,
   propHolisticTopDrivers,
   resolvePropHolisticForDisplay,
+  minimalPropHolisticForPick,
   PROP_HOLISTIC_WEIGHTS,
 } from "./propHolisticRecommendation.ts";
 import { buildFinalAiScore } from "./finalAiScore.ts";
@@ -325,5 +326,49 @@ test("resolvePropHolisticForDisplay merges rubric factors into thin propHolistic
   assert.ok(holistic);
   assert.ok(holistic!.factors.some((f) => f.key === "recentForm" && f.present));
   assert.ok(holistic!.factors.some((f) => f.key === "matchup" && f.present));
+  assert.ok(holistic!.factors.some((f) => f.key === "simulation" && f.present));
+});
+
+test("minimalPropHolisticForPick always returns holistic for sim-graded props", () => {
+  const holistic = minimalPropHolisticForPick({
+    game: "Rockies @ Giants",
+    market: "Strikeouts",
+    pick: "Trevor McDonald Over 4.5 Strikeouts",
+    odds: 135,
+    isProp: true,
+    player: "Trevor McDonald",
+    propSide: "Over",
+    propLine: 4.5,
+    sport: "mlb",
+    finalAiScore: {
+      composite: 6.1,
+      grade: "B-",
+      confidencePct: 58,
+      edgePct: 2,
+      simHit: 0.54,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: true,
+      factors: [],
+      rubric: {
+        composite: 6.1,
+        grade: "B-",
+        confidencePct: 58,
+        edgePct: 2,
+        scores: {
+          matchup: null,
+          trend: null,
+          lineValue: 6.5,
+          injury: null,
+          lineShopping: 6.2,
+          simulation: 6.4,
+        },
+      },
+    },
+  });
+  assert.ok(holistic);
+  const labels = holistic!.factors.filter((f) => f.applicable).map((f) => f.key);
+  assert.equal(new Set(labels).size, labels.length, "holistic factor keys must be unique");
+  assert.ok(holistic!.factors.some((f) => f.key === "sportsbookValue" && f.present));
   assert.ok(holistic!.factors.some((f) => f.key === "simulation" && f.present));
 });
