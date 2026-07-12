@@ -158,3 +158,19 @@ test("stripFillerBackfillPicks removes round-out posted lines", () => {
   assert.equal(out.length, 1);
   assert.equal(isFillerBackfillPick(picks[1]!), true);
 });
+
+test("stripFillerBackfillPicks keeps filler props when ticket has no board props", () => {
+  const picks = [
+    { game: "A @ B", market: "Moneyline", pick: "A ML", odds: 120 },
+    {
+      game: "C @ D",
+      market: "Points",
+      pick: "Player Over 24.5 Points",
+      odds: -110,
+      isProp: true,
+      edge: FILLER_BACKFILL_EDGE_NOTE,
+    },
+  ];
+  const out = stripFillerBackfillPicks(picks);
+  assert.equal(out.length, 2);
+});

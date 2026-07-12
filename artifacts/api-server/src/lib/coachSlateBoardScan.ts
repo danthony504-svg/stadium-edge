@@ -5,6 +5,7 @@ import {
   simHitForGameLine,
 } from "./coachSlateGameSims.js";
 import { stageServerTicketBalanced } from "./coachSlateBalancedStaging.js";
+import { serverBoardLegQualifies } from "./coachSlateLegQualification.js";
 import { buildSlateTicketsIndex, primaryBoardScanFromRanked } from "./coachSlateTickets.js";
 import type {
   BuiltChatContext,
@@ -284,8 +285,12 @@ function collapseServerRankedByLadder(
       if (a.isAlt !== b.isAlt) return a.isAlt ? 1 : -1;
       return b.rankScore - a.rankScore;
     });
-    const qualifying = ladder.find((r) => r.pick.finalAiScore?.recommends || (r.pick.finalAiScore?.simAligned && (r.pick.finalAiScore.edgePct ?? 0) > 0));
-    if (qualifying) out.push(qualifying);
+    for (const row of ladder) {
+      if (serverBoardLegQualifies(row.pick, row.pick.finalAiScore)) {
+        out.push(row);
+        break;
+      }
+    }
   }
   return out;
 }
@@ -360,10 +365,11 @@ export async function runServerBoardScan(
     totalScanned++;
     const pick = pickFromPoolEntry(e);
     const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
-    const minHit = propSims.get(k);
+    const minHit = propSims.get(k) ?? null;
     const edge = e.edge ?? 0;
     if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
     if (minHit != null && minHit < 0.52 && edge <= 0) continue;
+    if (e.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = e.edge;
     if (minHit != null) {
       pick.finalAiScore = serverPickFinalAiScore(minHit, e.odds, e.edge);
     }

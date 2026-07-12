@@ -254,6 +254,16 @@ export function boardScanStagedLegQualifies(
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
+  if (
+    pick.isProp &&
+    pick.ticketRole &&
+    score.simHit != null &&
+    score.simHit >= 0.52 &&
+    pick.odds != null &&
+    score.simHit > impliedProb(pick.odds)
+  ) {
+    return true;
+  }
   if (propBoardFillQualifies(pick, score)) return true;
   if (propSimEdgeStagingQualifies(pick, score)) return true;
   if (pickPassesTicketGate(pick, score)) return true;
