@@ -134,7 +134,7 @@ export async function loadPropSimulationsProgressive(
   }
 }
 
-/** Update the most recent assistant message that carries picks. */
+/** Flash or refresh picks on the latest assistant reply (seeds cards during long builds). */
 export function patchLastAssistantPicks<
   T extends { role: string; picks?: ParsedPick[]; content?: string; legNote?: string },
 >(
@@ -145,7 +145,7 @@ export function patchLastAssistantPicks<
   setMessages((prev) => {
     const copy = [...prev];
     for (let i = copy.length - 1; i >= 0; i--) {
-      if (copy[i].role === "assistant" && copy[i].picks?.length) {
+      if (copy[i].role === "assistant") {
         copy[i] = {
           ...copy[i],
           picks,

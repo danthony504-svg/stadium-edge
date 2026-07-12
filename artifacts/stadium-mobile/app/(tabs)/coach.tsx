@@ -1740,6 +1740,14 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan) {
               full = "";
               setWaiting(false);
+              if (preBoardScan?.picks?.length) {
+                patchLastAssistantPicks(
+                  setMessages,
+                  tagTicketRoles(preBoardScan.picks),
+                  preBoardScan.note,
+                );
+                scrollToEnd(false);
+              }
             } else {
               full = await runStream();
             }
@@ -1835,34 +1843,41 @@ export default function CoachScreen() {
           confidenceThreshold,
         });
         if (reachBoardEligible) {
-          const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-            (s) => !excludedSports.has(s),
-          );
-          const [espnGames, oddsGames, liveFeed] = await Promise.all([
-            Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
-              rows.flat(),
-            ),
-            Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-              rows.flat(),
-            ),
-            getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
-          ]);
-          reachBoardScan = await tryReachFullBoardScan({
-            target: Math.min(legTarget, MAX_LEGS),
-            oddsGames,
-            propPool: mergedPropPool,
-            realOdds: context.realOdds,
-            liveOdds: liveFeed.odds,
-            espnGames,
-            gameMeta,
-            teamIdMap: buildGameTeamIdMap(espnGames),
-            excludedSports,
-            matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
-            playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            perfByFamily: marketPerf,
-            calibration: modelCalibration,
-          });
+          if (preBoardScan?.picks?.length) {
+            reachBoardScan = preBoardScan;
+          } else {
+            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
+              (s) => !excludedSports.has(s),
+            );
+            const [espnGames, oddsGames, liveFeed] = await Promise.all([
+              Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
+                rows.flat(),
+              ),
+              getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
+                games: [],
+                odds: [],
+              })),
+            ]);
+            reachBoardScan = await tryReachFullBoardScan({
+              target: Math.min(legTarget, MAX_LEGS),
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta,
+              teamIdMap: buildGameTeamIdMap(espnGames),
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              perfByFamily: marketPerf,
+              calibration: modelCalibration,
+            });
+          }
         }
         let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
         let fullBoardScanMeta: FullBoardScanResult | null =
@@ -1909,6 +1924,14 @@ export default function CoachScreen() {
           context.realOdds,
           gameMeta,
         );
+        if (!isAnalyze && picks.length > 0) {
+          patchLastAssistantPicks(
+            setMessages,
+            tagTicketRoles(picks),
+            fullBoardScanMeta?.note,
+          );
+          scrollToEnd(false);
+        }
         let soccerScorerGkSalvage = false;
         if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
           const salvaged = buildSoccerScorerGkPicks(mergedPropPool, context.realOdds, gameMeta);
