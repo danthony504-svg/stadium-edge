@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
+  coachBoardScanTicketPicks,
   coachFlashTicketPicks,
   finalizeCoachTicketPicks,
   filterAiRecommendedPicks,
@@ -178,6 +179,31 @@ test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows
   assert.equal(out.length, 1);
   assert.equal(out[0]!.startsAt, kickoff);
   assert.equal(out[0]!.sport, "mlb");
+});
+
+test("coachBoardScanTicketPicks delivers sim-aligned board legs without startsAt metadata", () => {
+  const leg = {
+    game: "A @ B",
+    market: "Alt Spread",
+    pick: "B +3.5",
+    odds: -105,
+    isProp: false,
+    ticketRole: "alt" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: 1.5,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 52, edgePct: 1.5, scores: {} as never },
+    },
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], {}).length, 0);
+  assert.equal(coachBoardScanTicketPicks([leg], {}).length, 1);
 });
 
 test("sanitizeCoachTicketPicks strips High-Risk Value Play and sim-opposed legs", () => {

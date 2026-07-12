@@ -251,6 +251,37 @@ export function sanitizeCoachTicketPicks<
   return filterBettablePicks(kept.map(stripHrvpFromPick));
 }
 
+/** Board-scan legs already cleared sim/edge gates — enrich metadata and deliver without re-zeroing. */
+export function coachBoardScanTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const enriched = enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick);
+  const bettable = filterBettablePicks(enriched);
+  if (bettable.length > 0) return bettable;
+  return enriched.filter((p) => {
+    const score = p.finalAiScore;
+    if (score?.highRiskValuePlay) return false;
+    if (!score?.simAligned) return false;
+    const edge = score.edgePct;
+    if (edge == null || edge <= 0) return false;
+    if (!pickHasSimGrade(p, score.simHit)) return false;
+    return pickPassesTicketGate(p, score) || qualifiesAltPick(p, score);
+  });
+}
+
 /** Flash partial board scans — strict gate first, then sim-aligned legs with metadata filled in. */
 export function coachFlashTicketPicks<
   T extends RecommendablePick & {
@@ -270,9 +301,11 @@ export function coachFlashTicketPicks<
   const strict = sanitizeCoachTicketPicks(picks, enrich);
   if (strict.length > 0) return strict;
   const enriched = enrichCoachPicksForGate(picks, enrich);
-  return filterBettablePicks(
-    filterTicketPicks(enriched).map(stripHrvpFromPick),
+  const preserved = filterBettablePicks(
+    filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
   );
+  if (preserved.length > 0) return preserved;
+  return coachBoardScanTicketPicks(enriched, enrich);
 }
 
 /** Final ticket gate — strict sanitize, then rescoring/flash salvage so board builds don't zero. */
@@ -310,9 +343,10 @@ export function finalizeCoachTicketPicks<
     };
   }
   const flash = coachFlashTicketPicks(enriched, enrich);
+  const board = flash.length > 0 ? flash : coachBoardScanTicketPicks(enriched, enrich);
   return {
-    picks: flash,
-    removed: picks.length - flash.length,
-    usedRescoringFallback: flash.length > 0,
+    picks: board,
+    removed: picks.length - board.length,
+    usedRescoringFallback: board.length > 0,
   };
 }

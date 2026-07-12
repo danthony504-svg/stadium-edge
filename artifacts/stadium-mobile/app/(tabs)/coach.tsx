@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -2112,6 +2112,9 @@ export default function CoachScreen() {
             await clearPendingBuild();
           }
         }
+        if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
+          setParlayBuildPhase("score");
+        }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
         const mergedPropPool: PropPoolEntry[] = (() => {
@@ -2245,7 +2248,16 @@ export default function CoachScreen() {
             picks = boardTicket;
             deliverCoachTicket(boardTicket, fullBoardScanMeta.note);
           } else {
-            flashCoachTicketPicks(fullBoardScanMeta.picks, fullBoardScanMeta.note, scanEnrich);
+            const boardShow = coachBoardScanTicketPicks(
+              tagTicketRoles([...fullBoardScanMeta.picks]),
+              scanEnrich,
+            );
+            if (boardShow.length > 0) {
+              picks = boardShow;
+              deliverCoachTicket(boardShow, fullBoardScanMeta.note);
+            } else {
+              flashCoachTicketPicks(fullBoardScanMeta.picks, fullBoardScanMeta.note, scanEnrich);
+            }
           }
         }
         picks = scrubExcludedSportsFromPicks(
@@ -3823,6 +3835,25 @@ export default function CoachScreen() {
         if (isParlayBuild && picks.length > 1) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
+        if (
+          picks.length === 0 &&
+          fullBoardScanned &&
+          fullBoardScanMeta?.picks?.length
+        ) {
+          const scanEnrich = {
+            ...ticketEnrich,
+            realOdds: [
+              ...mergedGameOdds,
+              ...(fullBoardScanMeta.evalLinesByGame
+                ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+                : []),
+            ],
+          };
+          picks = coachBoardScanTicketPicks(
+            tagTicketRoles([...fullBoardScanMeta.picks]),
+            scanEnrich,
+          );
+        }
         const boardSnapshot = boardTicketSnapshotRef.current;
         const outPicks =
           picks.length > 0 ? picks : boardSnapshot?.length ? boardSnapshot : picks;
@@ -3945,10 +3976,23 @@ export default function CoachScreen() {
               fullBoardScanned &&
               fullBoardScanMeta?.picks?.length
             ) {
-              next = finalizeCoachTicketPicks(tagTicketRoles([...fullBoardScanMeta.picks]), {
+              const scanEnrich = {
                 ...pickEnrich,
-                realOdds: mergedGameOdds,
-              }).picks;
+                realOdds: [
+                  ...mergedGameOdds,
+                  ...(fullBoardScanMeta.evalLinesByGame
+                    ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+                    : []),
+                ],
+              };
+              next = finalizeCoachTicketPicks(tagTicketRoles([...fullBoardScanMeta.picks]), scanEnrich)
+                .picks;
+              if (next.length === 0) {
+                next = coachBoardScanTicketPicks(
+                  tagTicketRoles([...fullBoardScanMeta.picks]),
+                  scanEnrich,
+                );
+              }
             }
             next = scrubExcludedSportsFromPicks(
               next,
@@ -3957,6 +4001,8 @@ export default function CoachScreen() {
               mergedGameOdds,
               gameMeta,
             );
+            // Progressive rescoring must never wipe pick cards already on screen.
+            if (next.length === 0 && (boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
             let simLegNote: string | undefined;
             if (ticketTarget > 0 && next.length < ticketTarget) {
               const altOnTicket = next.filter((p) => p.ticketRole === "alt").length;
