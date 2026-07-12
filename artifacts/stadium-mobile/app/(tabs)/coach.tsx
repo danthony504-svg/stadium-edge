@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1168,8 +1168,14 @@ export default function CoachScreen() {
         realOdds: [...(enrichOverride ?? flashEnrichRef.current).realOdds, ...scanOdds],
       };
       const toShow = prepareBoardScanDelivery(tagTicketRoles([...partial.picks]), enrich);
-      if (!toShow.length) return;
-      deliverCoachTicket(toShow, partial.note);
+      const ticket =
+        toShow.length > 0
+          ? toShow
+          : tagTicketRoles([...partial.picks])
+              .map(stripCoachTicketHrvp)
+              .filter((p) => !p.finalAiScore?.highRiskValuePlay && !p.highRiskValuePlay);
+      if (!ticket.length) return;
+      deliverCoachTicket(ticket, partial.note);
     },
     [deliverCoachTicket],
   );
@@ -4458,40 +4464,6 @@ export default function CoachScreen() {
   /** Busy spinners only when a build is actually in flight — not on the welcome screen. */
   const coachBuildInFlight = hasUserTurn && (streaming || buildFinishing || waiting);
 
-  // Parlay build hung with progress visible but zero pick cards — clear stale flags
-  // and offer retry instead of an endless finalize screen.
-  useEffect(() => {
-    if (!buildFinishing && !streaming && !waiting) return;
-    const last = messages[messages.length - 1];
-    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
-    const priorUser = [...messages].reverse().find((m) => m.role === "user");
-    const ask = priorUser?.apiContent ?? priorUser?.content ?? "";
-    if (!last.parlayBuild && !isParlayBuildAsk(ask)) return;
-    const timer = setTimeout(() => {
-      if (!buildFinishingRef.current && !streamingRef.current) return;
-      setBuildFinishing(false);
-      setStreaming(false);
-      setWaiting(false);
-      setBuildProgressExpired(false);
-      setParlayBuildPhase("idle");
-      clearBuildStallWatchdog();
-      setMessages((prev) => {
-        const copy = [...prev];
-        const tail = copy[copy.length - 1];
-        if (tail?.role !== "assistant" || (tail.picks?.length ?? 0) > 0) return prev;
-        if (tail.content?.trim()) return prev;
-        copy[copy.length - 1] = {
-          ...tail,
-          content:
-            "This build stalled before pick cards could render — the board scan may still be scoring. Tap below to try again.",
-          retry: ask,
-        };
-        return copy;
-      });
-    }, 20_000);
-    return () => clearTimeout(timer);
-  }, [buildFinishing, streaming, waiting, messages, clearBuildStallWatchdog]);
-
   // Recover stale busy flags left after a superseded send or OTA reload — welcome
   // with spinners on every quick prompt means streaming stuck true with no thread.
   useEffect(() => {
@@ -4512,12 +4484,17 @@ export default function CoachScreen() {
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const partial = latestBoardScanRef.current;
     if (!partial?.picks?.length) return;
-    const timer = setTimeout(() => {
-      const tail = messages[messages.length - 1];
-      if (tail?.role !== "assistant" || (tail.picks?.length ?? 0) > 0) return;
-      deliverBoardScanTicket(partial);
-    }, 12_000);
-    return () => clearTimeout(timer);
+    deliverBoardScanTicket(partial);
+    const interval = setInterval(() => {
+      if (!buildFinishingRef.current && !streamingRef.current && !waiting) {
+        clearInterval(interval);
+        return;
+      }
+      const partialRetry = latestBoardScanRef.current;
+      if (!partialRetry?.picks?.length) return;
+      deliverBoardScanTicket(partialRetry);
+    }, 4000);
+    return () => clearInterval(interval);
   }, [buildFinishing, streaming, waiting, messages, deliverBoardScanTicket]);
 
   return (
