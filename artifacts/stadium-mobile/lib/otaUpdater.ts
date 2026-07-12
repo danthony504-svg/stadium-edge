@@ -81,7 +81,7 @@ export function useOtaUpdater(enabled: boolean) {
     if (!enabled) return;
 
     const launchTimer = setTimeout(
-      () => void prefetch(true, true),
+      () => void prefetch(true, false),
       LAUNCH_DELAY_MS,
     );
     const sub = AppState.addEventListener("change", (state) => {

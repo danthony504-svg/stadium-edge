@@ -26,6 +26,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
+import { OtaStartupGate } from "@/components/OtaStartupGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
@@ -325,26 +326,28 @@ export default function RootLayout() {
             <BootScreen />
           </ClerkLoading>
           <ClerkLoaded>
-            <OtaBridge />
-            <DiscoverHydrateBridge />
-            <QueryClientProvider client={queryClient}>
-              <AuthTokenBridge />
-              <PushNotificationsBridge />
-              <SlatePreAnalysisBridge />
-              <BetSlipProvider>
-                <PickTrackerProvider>
-                  <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-                    <KeyboardProvider>
-                      <StatusBar style="light" />
-                      <OtaRequiredGate>
-                        <RootLayoutNav />
-                      </OtaRequiredGate>
-                      <OtaUpdateBanner />
-                    </KeyboardProvider>
-                  </GestureHandlerRootView>
-                </PickTrackerProvider>
-              </BetSlipProvider>
-            </QueryClientProvider>
+            <OtaStartupGate>
+              <OtaBridge />
+              <DiscoverHydrateBridge />
+              <QueryClientProvider client={queryClient}>
+                <AuthTokenBridge />
+                <PushNotificationsBridge />
+                <SlatePreAnalysisBridge />
+                <BetSlipProvider>
+                  <PickTrackerProvider>
+                    <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+                      <KeyboardProvider>
+                        <StatusBar style="light" />
+                        <OtaRequiredGate>
+                          <RootLayoutNav />
+                        </OtaRequiredGate>
+                        <OtaUpdateBanner />
+                      </KeyboardProvider>
+                    </GestureHandlerRootView>
+                  </PickTrackerProvider>
+                </BetSlipProvider>
+              </QueryClientProvider>
+            </OtaStartupGate>
           </ClerkLoaded>
         </ClerkProvider>
       </ErrorBoundary>

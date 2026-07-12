@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 
@@ -99,9 +100,25 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
               textAlign: "center",
               opacity: 0.75,
             }}
-            numberOfLines={3}
+            numberOfLines={4}
           >
             {error.message}
+          </Text>
+        ) : null}
+
+        {error.message?.includes("doesn't exist") ? (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 13,
+              lineHeight: 19,
+              textAlign: "center",
+              marginTop: 4,
+            }}
+          >
+            A bad app update may be cached on this device. Delete Stadium Edge, reinstall
+            from TestFlight, then reopen.
           </Text>
         ) : null}
 
