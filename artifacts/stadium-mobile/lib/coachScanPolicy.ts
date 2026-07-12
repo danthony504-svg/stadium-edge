@@ -2,7 +2,7 @@
 // staging, and delivery gates. Never pad tickets with ungraded posted lines.
 
 export const COACH_FULL_BOARD_SCAN_POLICY =
-  "Scan every available market. Return all AI Recommended picks first. If fewer than the requested number qualify, continue scanning alternate lines, props, periods, innings, quarters, halves, and team totals until enough AI Recommended picks are found. Only if every posted market has been evaluated and there still aren't enough qualifying picks should the app return fewer legs. Never add filler picks just to reach the requested number.";
+  "Scan every available market and every player prop. Score each with EV, edge, confidence, AI grade, and 10k simulation. Build a balanced ticket (~50% player props, ~25% main game lines, ~15% team totals, ~10% alternate lines) from separate ranked pools. Only add more game lines when there are not enough qualified props. Never lower AI standards to hit the leg count — return fewer legs instead of weak filler.";
 
 /** User-facing fixed-leg ticket policy (3, 5, 6, 10, 15, …). */
 export const COACH_FIXED_LEG_TICKET_POLICY =

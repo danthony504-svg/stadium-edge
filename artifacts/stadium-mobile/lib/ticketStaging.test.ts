@@ -76,7 +76,8 @@ test("tagTicketRoles labels period moneylines as main — not alt", () => {
   assert.ok(tagged.every((p) => p.ticketRole === "main"));
 });
 
-test("buildStagedTicketFromScan fills mains first then alts to reach target", () => {
+test("buildStagedTicketFromScan builds balanced mix for 4+ leg targets", () => {
+  const propMainScore = { ...mainScore };
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
     leg({ game: "C @ D", market: "Total", pick: "Over 8.5", odds: -105 }, 95, mainScore),
@@ -85,22 +86,53 @@ test("buildStagedTicketFromScan fills mains first then alts to reach target", ()
     leg(
       {
         game: "I @ J",
+        market: "Points",
+        pick: "Player Over 24.5 Points",
+        odds: -110,
+        isProp: true,
+        player: "Player",
+        propLine: 24.5,
+        propSide: "Over",
+      },
+      99,
+      propMainScore,
+    ),
+    leg(
+      {
+        game: "K @ L",
+        market: "Rebounds",
+        pick: "Star Over 10.5 Rebounds",
+        odds: -105,
+        isProp: true,
+        player: "Star",
+        propLine: 10.5,
+        propSide: "Over",
+      },
+      98,
+      propMainScore,
+    ),
+    leg(
+      {
+        game: "M @ N",
         market: "Stolen Bases",
-        pick: "Player Over 0.5 Stolen Bases",
+        pick: "Runner Over 0.5 Stolen Bases",
         odds: 1000,
         isProp: true,
         propIsAlt: true,
+        player: "Runner",
+        propLine: 0.5,
+        propSide: "Over",
       },
       80,
       altScore,
     ),
   ];
-  const { picks, breakdown } = buildStagedTicketFromScan(scored, 4);
+  const { picks } = buildStagedTicketFromScan(scored, 4);
   assert.equal(picks.length, 4);
-  assert.equal(breakdown.mainOnTicket, 2);
-  assert.equal(breakdown.altOnTicket, 2);
-  assert.ok(picks.slice(0, 2).every((p) => p.ticketRole === "main"));
-  assert.ok(picks.slice(2).every((p) => p.ticketRole === "alt"));
+  const props = picks.filter((p) => p.isProp).length;
+  const gameLines = picks.filter((p) => !p.isProp).length;
+  assert.ok(props >= 2, `expected at least 2 props, got ${props}`);
+  assert.ok(gameLines <= 2, `expected at most 2 game lines, got ${gameLines}`);
 });
 
 test("buildStagedTicketFromScan returns honest shortfall — no reach-tier filler", () => {

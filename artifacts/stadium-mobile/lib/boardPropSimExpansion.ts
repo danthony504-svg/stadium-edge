@@ -1,4 +1,4 @@
-// Progressive board prop sim — fast-rank all props, expand MC until enough qualify.
+// Progressive board prop sim — prescore entire pool, run MC on every candidate.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
