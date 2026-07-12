@@ -189,6 +189,8 @@ export const snapshotFixture: CoachSnapshot = {
   activeSports: ["mlb"],
   deepSimComplete: true,
   serveable: true,
+  propsQualified: 42,
+  gameLinesQualified: 5,
   tickets: {
     global: {
       5: ticketFixture,

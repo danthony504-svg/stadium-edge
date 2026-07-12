@@ -159,6 +159,8 @@ describe("coach-background refresh", () => {
       tickets: { global: {}, bySport: {} },
       activeSports: ["mlb"],
       deepSimComplete: true,
+      propsQualified: 1,
+      gameLinesQualified: 0,
       serveable: true,
     });
 
@@ -215,6 +217,8 @@ describe("coach-background refresh", () => {
       },
       activeSports: ["mlb"],
       deepSimComplete: true,
+      propsQualified: 1,
+      gameLinesQualified: 0,
       serveable: true,
     });
 
@@ -259,6 +263,8 @@ describe("coach-background refresh", () => {
       tickets: { global: {}, bySport: {} },
       activeSports: ["mlb"],
       deepSimComplete: true,
+      propsQualified: 1,
+      gameLinesQualified: 0,
       serveable: true,
     });
 
@@ -426,6 +432,8 @@ describe("coach-background tick", () => {
       tickets: { global: {}, bySport: {} },
       activeSports: ["mlb"],
       deepSimComplete: true,
+      propsQualified: 1,
+      gameLinesQualified: 0,
       serveable: true,
     });
 

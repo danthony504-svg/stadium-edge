@@ -43,6 +43,9 @@
       "path": "./lib/coach-background"
     },
     {
+      "path": "./lib/coach-runtime"
+    },
+    {
       "path": "./lib/db"
     },
     {

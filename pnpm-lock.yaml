@@ -178,6 +178,12 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/coach-runtime':
+        specifier: workspace:*
+        version: link:../../lib/coach-runtime
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../../lib/coach-types
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -939,6 +945,49 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.6.2
+
+  lib/coach-runtime:
+    dependencies:
+      '@workspace/coach-background':
+        specifier: workspace:*
+        version: link:../coach-background
+      '@workspace/coach-cache':
+        specifier: workspace:*
+        version: link:../coach-cache
+      '@workspace/coach-data':
+        specifier: workspace:*
+        version: link:../coach-data
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-scan':
+        specifier: workspace:*
+        version: link:../coach-scan
+      '@workspace/coach-sim':
+        specifier: workspace:*
+        version: link:../coach-sim
+      '@workspace/coach-ticket':
+        specifier: workspace:*
+        version: link:../coach-ticket
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.20.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+      '@workspace/coach-gates':
+        specifier: workspace:*
+        version: link:../coach-gates
+      '@workspace/coach-sim-cache':
+        specifier: workspace:*
+        version: link:../coach-sim-cache
 
   lib/coach-scan:
     dependencies:

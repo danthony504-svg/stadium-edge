@@ -84,5 +84,7 @@ export function buildCoachSnapshot(input: BuildCoachSnapshotInput): CoachSnapsho
     activeSports: input.activeSports,
     deepSimComplete: input.manifest.deepSimComplete,
     serveable,
+    propsQualified: input.ranked.props.length,
+    gameLinesQualified: input.ranked.gameLines.length,
   };
 }
