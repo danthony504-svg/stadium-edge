@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildStagedTicketFromScan, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
+import { buildStagedTicketFromScan, capThinStatMarketsOnTicket, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { ParsedPick } from "../components/PickCard.tsx";
 
 function leg(
@@ -140,6 +140,28 @@ test("buildStagedTicketFromScan stops at available qualifiers without filler", (
   assert.equal(breakdown.altOnTicket, 1);
   assert.equal(breakdown.mainQualified, 1);
   assert.equal(breakdown.altQualified, 1);
+});
+
+test("capThinStatMarketsOnTicket limits stolen bases on 6+ leg tickets", () => {
+  const sb = (player: string, game: string) => ({
+    game,
+    market: "Stolen Bases",
+    pick: `${player} Over 0.5 Stolen Bases`,
+    odds: 300,
+    isProp: true,
+    player,
+  });
+  const picks = [
+    sb("A", "G1"),
+    sb("B", "G2"),
+    sb("C", "G3"),
+    sb("D", "G4"),
+    { game: "G5", market: "Strikeouts", pick: "E Over 5.5 Strikeouts", odds: 105, isProp: true, player: "E" },
+    { game: "G6", market: "Hits", pick: "F Over 1.5 Hits", odds: -110, isProp: true, player: "F" },
+  ];
+  const capped = capThinStatMarketsOnTicket(picks, 6);
+  assert.equal(capped.filter((p) => p.market === "Stolen Bases").length, 2);
+  assert.equal(capped.length, 4);
 });
 
 test("buildStagedTicketFromScan greedy-fills alts without correlation throttle", () => {

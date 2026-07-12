@@ -38,6 +38,7 @@ import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildStagedTicketFromScan,
   selectGreedyBoardLegs,
+  selectTopBoardLegs,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -376,7 +377,7 @@ function buildScanResult(
   if (opts.preview && picks.length === 0 && scored.length > 0) {
     const ranked = [...scored].sort((a, b) => b.rankScore - a.rankScore);
     const previewCount = Math.min(opts.target, Math.max(2, ranked.length));
-    picks = selectGreedyBoardLegs(ranked, previewCount);
+    picks = selectTopBoardLegs(ranked, previewCount);
     breakdown = {
       mainQualified: ranked.length,
       altQualified: 0,

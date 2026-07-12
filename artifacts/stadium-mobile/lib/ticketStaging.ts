@@ -4,7 +4,7 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import { isAltBoardPick, isAltPropPick, isMainBoardPick, ticketRoleForPick } from "./altLinePool.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
-import { selectCorrelationAwareBoardLegs } from "./parlayCorrelationScore.ts";
+import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { pickIsAiRecommended, qualifiesAltPick } from "./pickRecommendation.ts";
 
@@ -80,6 +80,23 @@ export function selectGreedyBoardLegs(ranked: BoardScoredLeg[], target: number):
   return dedupeSameTeamGameLegsLite(out).slice(0, target);
 }
 
+/** Hard cap on niche stat markets so SB stacks cannot dominate a ticket. */
+export function capThinStatMarketsOnTicket(picks: ParsedPick[], target: number): ParsedPick[] {
+  const maxThin = maxLegsPerThinStatMarket(target);
+  const out: ParsedPick[] = [];
+  const thinCounts = new Map<string, number>();
+  for (const p of picks) {
+    if (p.isProp && isThinPropStatMarket(p.market)) {
+      const key = p.market.toLowerCase();
+      const n = thinCounts.get(key) ?? 0;
+      if (n >= maxThin) continue;
+      thinCounts.set(key, n + 1);
+    }
+    out.push(p);
+  }
+  return out;
+}
+
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
 export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
   if (target >= 3) {
@@ -116,11 +133,13 @@ export function buildStagedTicketFromScan(
   // Alt gap fill: greedy rank order — promoted alternates get ALT PICK badges.
   const gap = Math.max(0, target - allPicks.length);
   if (gap > 0 && altPool.length > 0) {
-    const altPicks = selectGreedyBoardLegs(altPool, gap).map((p) => ({
+    const altPicks = (target >= 3 ? selectTopBoardLegs(altPool, gap) : selectGreedyBoardLegs(altPool, gap)).map(
+      (p) => ({
       ...p,
       ticketRole: "alt" as const,
       highRiskValuePlay: false,
-    }));
+    }),
+    );
     allPicks = [...allPicks, ...altPicks];
   }
 
@@ -128,14 +147,14 @@ export function buildStagedTicketFromScan(
   const mainGap = Math.max(0, target - allPicks.length);
   if (mainGap > 0) {
     const usedFp = new Set(allPicks.map(pickLegFingerprint));
-    const extraMains = mains
-      .filter((l) => !usedFp.has(pickLegFingerprint(l.pick)))
-      .slice(0, mainGap)
-      .map((l) => ({ ...l.pick, ticketRole: "main" as const, highRiskValuePlay: false }));
+    const remainingMains = mains.filter((l) => !usedFp.has(pickLegFingerprint(l.pick)));
+    const extraMains = (target >= 3 ? selectTopBoardLegs(remainingMains, mainGap) : selectGreedyBoardLegs(remainingMains, mainGap)).map(
+      (p) => ({ ...p, ticketRole: "main" as const, highRiskValuePlay: false }),
+    );
     allPicks = [...allPicks, ...extraMains];
   }
 
-  const finalPicks = allPicks.slice(0, target);
+  const finalPicks = capThinStatMarketsOnTicket(allPicks.slice(0, target), target);
   return {
     picks: finalPicks,
     breakdown: {

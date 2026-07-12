@@ -25,6 +25,21 @@ function isGameSideLeg(p: CorrelationPick): boolean {
   return !p.isProp && /moneyline|spread|total|run line|puck line/i.test(p.market);
 }
 
+/** Niche stat props (SB, etc.) — low volume, high variance; cap per ticket. */
+const THIN_PROP_MARKET_RE =
+  /\b(stolen bases?|steals?\b|first (td|basket|goal)|double[- ]?double)\b/i;
+
+export function isThinPropStatMarket(market: string): boolean {
+  return THIN_PROP_MARKET_RE.test(market.toLowerCase());
+}
+
+/** Max legs of the same thin stat market on a fixed-leg ticket. */
+export function maxLegsPerThinStatMarket(target: number): number {
+  if (target >= 9) return 2;
+  if (target >= 6) return 2;
+  return 1;
+}
+
 /** Higher = worse for parlay independence. */
 export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: CorrelationPick[]): number {
   let penalty = 0;
@@ -36,7 +51,15 @@ export function parlayCorrelationPenalty(candidate: CorrelationPick, ticket: Cor
     const sameMkt = ticket.filter(
       (l) => l.isProp && l.market.toLowerCase() === candMkt,
     ).length;
-    if (sameMkt > 0) penalty += 10 * sameMkt;
+    const thin = isThinPropStatMarket(candidate.market);
+    const perDup = thin ? 22 : 10;
+    if (sameMkt > 0) penalty += perDup * sameMkt;
+    if (thin) {
+      const thinOnTicket = ticket.filter(
+        (l) => l.isProp && isThinPropStatMarket(l.market),
+      ).length;
+      if (thinOnTicket > 0) penalty += 12 * thinOnTicket;
+    }
   }
 
   for (const leg of ticket) {
