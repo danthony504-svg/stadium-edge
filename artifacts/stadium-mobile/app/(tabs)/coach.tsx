@@ -115,7 +115,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1178,7 +1178,7 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      return prepareBoardScanDelivery(tagged, enrich);
+      return coachDeliverBoardScanPicks(tagged, enrich);
     },
     [],
   );
@@ -1508,6 +1508,7 @@ export default function CoachScreen() {
 
       if (openingParlayBuild) {
         const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        await hydrateCoachSlateFromServer();
         if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
           await hydrateSlatePreAnalysisCache();
           if (!tryInstantSlateSeedDelivery(earlyLegTarget)) {
@@ -2384,7 +2385,11 @@ export default function CoachScreen() {
           });
         }
         if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
-          setParlayBuildPhase("score");
+          if (boardTicketSnapshotRef.current?.length) {
+            setParlayBuildPhase("score");
+          } else if (!fullBoardScanned) {
+            setParlayBuildPhase("board-scan");
+          }
         }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
@@ -4840,15 +4845,9 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
-            // Progress finalizes once pick cards are on the message — or when a
-            // board-scan partial has scored legs waiting for delivery gates.
-            const progressLegCount = hasPicks
-              ? (m.picks?.length ?? 0)
-              : Math.max(
-                  boardScanPartialLegs,
-                  boardTicketSnapshotRef.current?.length ?? 0,
-                  latestBoardScanRef.current?.picks?.length ?? 0,
-                );
+            // Progress finalizes only once pick cards are on the message — not when
+            // a board-scan ref holds unscored/filtered legs still waiting for gates.
+            const progressLegCount = m.picks?.length ?? 0;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
