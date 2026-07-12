@@ -251,6 +251,41 @@ export function sanitizeCoachTicketPicks<
   return filterBettablePicks(kept.map(stripHrvpFromPick));
 }
 
+export function stripCoachTicketHrvp<
+  T extends { highRiskValuePlay?: boolean; finalAiScore?: FinalAiScore | null },
+>(p: T): T {
+  return stripHrvpFromPick(p);
+}
+
+/** Deliver board-scan legs — gate when possible, never return empty if scan produced qualifiers. */
+export function prepareBoardScanDelivery<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const gated = coachBoardScanTicketPicks(picks, enrich);
+  if (gated.length > 0) return gated;
+  return enrichCoachPicksForGate(picks, enrich)
+    .map(stripHrvpFromPick)
+    .filter((p) => {
+      const score = p.finalAiScore;
+      if (score?.highRiskValuePlay) return false;
+      if (score && !score.simAligned) return false;
+      return true;
+    });
+}
+
 /** Board-scan legs already cleared sim/edge gates — enrich metadata and deliver without re-zeroing. */
 export function coachBoardScanTicketPicks<
   T extends RecommendablePick & {
@@ -343,7 +378,7 @@ export function finalizeCoachTicketPicks<
     };
   }
   const flash = coachFlashTicketPicks(enriched, enrich);
-  const board = flash.length > 0 ? flash : coachBoardScanTicketPicks(enriched, enrich);
+  const board = flash.length > 0 ? flash : prepareBoardScanDelivery(enriched, enrich);
   return {
     picks: board,
     removed: picks.length - board.length,
