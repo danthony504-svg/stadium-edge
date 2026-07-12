@@ -1,4 +1,5 @@
 // Full-board scan: sim every posted game-line rung + prop pool row, rank by EV/edge/grade, top N.
+// Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
@@ -11,7 +12,7 @@ import {
   mergeOddsEntries,
   type EvaluatedGameLine,
 } from "./gameLineOptimizer.ts";
-import { gameSimHitForPick, gameLineLegBucket } from "./gameSimScoring.ts";
+import { gameSimHitForPick } from "./gameSimScoring.ts";
 import {
   deriveGameSimLineMetrics,
   simEvPct,
@@ -331,77 +332,6 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
-const EARLY_FLASH_MARKET_ORDER = [
-  /^Alt Spread$/,
-  /^Alt Total$/,
-  /^Team Total$/i,
-  /^Spread$/,
-  /^Total$/,
-  /^Moneyline$/,
-];
-
-/** One posted rung per team-sided bucket — no PickCard import so node tests load. */
-function quickPostedLinesForTarget(
-  realOdds: RealOddsEntry[],
-  target: number,
-  gameMeta: GameMeta[],
-): ParsedPick[] {
-  const out: ParsedPick[] = [];
-  const bucketSeen = new Set<string>();
-  const legSeen = new Set<string>();
-  const startsFor = (game: string) =>
-    gameMeta.find((g) => g.game === game)?.startsAt ?? null;
-  for (const matcher of EARLY_FLASH_MARKET_ORDER) {
-    for (const e of realOdds) {
-      if (out.length >= target) return out;
-      if (!matcher.test(e.market)) continue;
-      if (typeof e.odds !== "number") continue;
-      const bucketKey = gameLineLegBucket(e.game, e.market, e.pick);
-      if (bucketSeen.has(bucketKey)) continue;
-      const legKey = `${e.game}|${e.market}|${e.pick}`.toLowerCase();
-      if (legSeen.has(legKey)) continue;
-      bucketSeen.add(bucketKey);
-      legSeen.add(legKey);
-      out.push({
-        game: e.game,
-        market: e.market,
-        pick: e.pick,
-        odds: e.odds,
-        sport: e.sport,
-        startsAt: e.startsAt ?? startsFor(e.game),
-      });
-    }
-  }
-  return out;
-}
-
-/** Flash real posted game lines before 10k sims finish — unblocks the progress UI. */
-function emitEarlyPostedLineFlash(opts: {
-  evalLinesByGame: Map<string, RealOddsEntry[]>;
-  mergedOdds: RealOddsEntry[];
-  target: number;
-  gameMeta: GameMeta[];
-  onPartial?: (result: FullBoardScanResult) => void;
-}): void {
-  if (!opts.onPartial) return;
-  const picks = quickPostedLinesForTarget(opts.mergedOdds, opts.target, opts.gameMeta);
-  if (!picks.length) return;
-  opts.onPartial({
-    picks,
-    evalLinesByGame: opts.evalLinesByGame,
-    gameSimulations: new Map(),
-    totalScanned: 0,
-    totalQualified: picks.length,
-    staging: {
-      mainQualified: 0,
-      altQualified: picks.length,
-      mainOnTicket: 0,
-      altOnTicket: picks.length,
-    },
-    note: "_Scanning every posted market — pick cards refine as simulations finish._",
-  });
-}
-
 function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
@@ -454,15 +384,6 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : opts.oddsGames;
   const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
-  // Instant flash from posted odds — before prop fan-out or 10k sim fetch.
-  emitEarlyPostedLineFlash({
-    evalLinesByGame: new Map(),
-    mergedOdds: mergeOddsEntries(opts.realOdds, ...(opts.liveOdds ?? [])),
-    target: opts.target,
-    gameMeta: opts.gameMeta,
-    onPartial: opts.onPartial,
-  });
-
   const pool =
     opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
       ? filterBettablePropPool(
@@ -480,53 +401,57 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     ...opts.realOdds,
     ...(opts.liveOdds ?? []),
   ]);
-  const mergedOddsPreSim = mergeOddsEntries(
+  const mergedOdds = mergeOddsEntries(
     opts.realOdds,
     ...(opts.liveOdds ?? []),
     ...evalLinesByGame.values(),
   );
-  emitEarlyPostedLineFlash({
-    evalLinesByGame,
-    mergedOdds: mergedOddsPreSim,
-    target: opts.target,
-    gameMeta: opts.gameMeta,
-    onPartial: opts.onPartial,
-  });
-  const gameSimulations = await fetchSlateGameSimulations(
-    evalLinesByGame,
-    opts.teamIdMap,
-    opts.signal,
-  );
-
-  const mergedOdds = mergeOddsEntries(opts.realOdds, ...(opts.liveOdds ?? []), ...evalLinesByGame.values());
   const scored: BoardScoredLeg[] = [];
   let totalScanned = 0;
+  const gameSimulations = new Map<string, CoachGameSimEntry>();
+  const gameEntries = [...evalLinesByGame.entries()];
+  const SLATE_SIM_BATCH = 4;
 
-  for (const [game, lines] of evalLinesByGame) {
-    const sim = gameSimulations.get(game);
-    const evaluated = evaluateGameLines({
-      lines,
-      gameSim: sim,
-      realOdds: mergedOdds,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-    });
-    totalScanned += evaluated.length;
-    for (const row of evaluated) {
-      const simHit = gameSimHitForPick(row.pick, sim);
-      const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
-      if (leg) scored.push(leg);
+  const scoreGamesAndMaybePartial = (games: string[]) => {
+    for (const game of games) {
+      const lines = evalLinesByGame.get(game);
+      if (!lines?.length) continue;
+      const sim = gameSimulations.get(game);
+      const evaluated = evaluateGameLines({
+        lines,
+        gameSim: sim,
+        realOdds: mergedOdds,
+        matchupHistory: opts.matchupHistory,
+        matchupInjuries: opts.matchupInjuries,
+      });
+      totalScanned += evaluated.length;
+      for (const row of evaluated) {
+        const simHit = gameSimHitForPick(row.pick, sim);
+        const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
+        if (leg) scored.push(leg);
+      }
     }
-  }
+    if (scored.length > 0 && opts.onPartial) {
+      const partial = buildScanResult(scored, {
+        target: opts.target,
+        evalLinesByGame,
+        gameSimulations,
+        totalScanned,
+      });
+      if (partial.picks.length > 0) opts.onPartial(partial);
+    }
+  };
 
-  if (scored.length > 0 && opts.onPartial) {
-    const partial = buildScanResult(scored, {
-      target: opts.target,
-      evalLinesByGame,
-      gameSimulations,
-      totalScanned,
-    });
-    if (partial.picks.length > 0) opts.onPartial(partial);
+  for (let i = 0; i < gameEntries.length; i += SLATE_SIM_BATCH) {
+    if (opts.signal?.aborted) break;
+    const batch = gameEntries.slice(i, i + SLATE_SIM_BATCH);
+    const batchSims = await fetchSlateGameSimulations(
+      new Map(batch),
+      opts.teamIdMap,
+      opts.signal,
+    );
+    for (const [label, sim] of batchSims) gameSimulations.set(label, sim);
+    scoreGamesAndMaybePartial(batch.map(([game]) => game));
   }
 
   const propScoreOpts = {

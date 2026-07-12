@@ -40,7 +40,6 @@ import {
   ALT_BACKFILL_ORDER,
   PERIOD_BACKFILL_ORDER,
   GENERIC_BACKFILL_ORDER,
-  FULL_REACH_GAME_ORDER,
   type ParsedPick,
   type AltRungBias,
 } from "@/components/PickCard";
@@ -994,7 +993,6 @@ export default function CoachScreen() {
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const boardScanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1179,16 +1177,7 @@ export default function CoachScreen() {
         realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
-      let ticket = prepareBoardScanDelivery(tagged, enrich);
-      if (!ticket.length) {
-        ticket = tagged
-          .map(stripCoachTicketHrvp)
-          .filter((p) => !p.highRiskValuePlay && !p.finalAiScore?.highRiskValuePlay);
-      }
-      if (!ticket.length && tagged.length) {
-        ticket = tagged.map(stripCoachTicketHrvp).slice(0, MAX_LEGS);
-      }
-      return ticket;
+      return prepareBoardScanDelivery(tagged, enrich);
     },
     [],
   );
@@ -1305,64 +1294,16 @@ export default function CoachScreen() {
     [patchInstantBoardScanTicket],
   );
 
-  const clearBoardScanFlashWatchdog = useCallback(() => {
-    if (boardScanFlashTimerRef.current) {
-      clearTimeout(boardScanFlashTimerRef.current);
-      boardScanFlashTimerRef.current = null;
-    }
-  }, []);
-
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      if (partial.picks.length) {
-        setBoardScanPartialLegs(partial.picks.length);
-        clearBoardScanFlashWatchdog();
-      }
+      if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
       patchInstantBoardScanTicket(partial);
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog, clearBoardScanFlashWatchdog],
-  );
-
-  /** If board scan runs long with no cards, flash posted lines from context. */
-  const armBoardScanFlashWatchdog = useCallback(
-    (sendGen: number, legTarget: number) => {
-      clearBoardScanFlashWatchdog();
-      boardScanFlashTimerRef.current = setTimeout(() => {
-        boardScanFlashTimerRef.current = null;
-        if (sendGenerationRef.current !== sendGen) return;
-        if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
-        const enrich = flashEnrichRef.current;
-        const odds = enrich.realOdds ?? [];
-        if (!odds.length) return;
-        const target = Math.min(legTarget, MAX_LEGS);
-        const picks = backfillPicks([], odds, enrich.gameMeta ?? [], {
-          target,
-          order: FULL_REACH_GAME_ORDER,
-        });
-        if (!picks.length) return;
-        const flash: FullBoardScanResult = {
-          picks,
-          evalLinesByGame: new Map(),
-          gameSimulations: new Map(),
-          totalScanned: 0,
-          totalQualified: picks.length,
-          staging: {
-            mainQualified: 0,
-            altQualified: picks.length,
-            mainOnTicket: 0,
-            altOnTicket: picks.length,
-          },
-          note: "_Posted lines from tonight's board — refining as the full scan finishes._",
-        };
-        latestBoardScanRef.current = flash;
-        onBoardScanPartial(flash);
-      }, 45_000);
-    },
-    [clearBoardScanFlashWatchdog, onBoardScanPartial],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1459,7 +1400,6 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
-        clearBoardScanFlashWatchdog();
         setBuildFinishing(false);
         setStreaming(false);
         setWaiting(false);
@@ -1971,7 +1911,6 @@ export default function CoachScreen() {
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
             setParlayBuildPhase("board-scan");
-            armBoardScanFlashWatchdog(sendGen, legTarget);
             const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
               (s) => !excludedSports.has(s),
             );
@@ -2843,6 +2782,7 @@ export default function CoachScreen() {
               : `_Your ${reachTarget}-leg ticket is built from player props and alt rungs on the live board — not the model's chalk moneyline scaffold._`;
           }
         } else if (
+          false &&
           !fullBoardScanned &&
           needsParlayBackfill(picks, legTarget, { longshotAsk, deepParlay: deepMultiLegParlay }) &&
           (picks.length > 0 ||
@@ -3017,6 +2957,7 @@ export default function CoachScreen() {
             diversityNote = `_Dropped ${dedupedAfterBackfill.dropped} duplicate team leg${dedupedAfterBackfill.dropped === 1 ? "" : "s"} after backfill._`;
           }
           if (
+            false &&
             deepMultiLegParlay &&
             picks.length < Math.min(legTarget, MAX_LEGS) &&
             !oddsThreshold &&
@@ -3504,15 +3445,23 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
             });
-          } else {
-            picks = topUpDeepParlayToTarget(
-              picks,
-              reachTarget,
-              mergedPropPool,
-              latePool,
+          } else if (coachEvalLinesByGame && gameSimulations.size > 0) {
+            picks = replenishParlayToTarget(picks, reachTarget, {
+              longshotAsk,
+              plusMoneyBias: propBackfillOpts.plusMoneyBias,
+              diversify: propBackfillOpts.diversify,
+              varietySeed,
+              avoidLegKeys,
+              selectionOpts,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              mergedGameOdds,
               gameMeta,
-              boardBuildOpts,
-            );
+              evalLinesByGame: coachEvalLinesByGame,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+            });
           }
           picks = attachPickScores(picks, {
             realOdds: mergedGameOdds,
@@ -3549,6 +3498,7 @@ export default function CoachScreen() {
           }
         }
         if (
+          false &&
           !isAnalyze &&
           isParlayBuild &&
           picks.length > 0 &&
@@ -3696,17 +3646,23 @@ export default function CoachScreen() {
               matchupHistory: context.matchupHistory,
               matchupInjuries: context.matchupInjuries,
             });
-          } else {
-            let lateReachPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}-reach`);
-            if (slateDay) lateReachPool = filterOddsForSlateDay(lateReachPool, slateDay);
-            picks = topUpDeepParlayToTarget(
-              picks,
-              reachTarget,
-              mergedPropPool,
-              lateReachPool,
+          } else if (coachEvalLinesByGame && gameSimulations.size > 0) {
+            picks = replenishParlayToTarget(picks, reachTarget, {
+              longshotAsk,
+              plusMoneyBias: propBackfillOpts.plusMoneyBias,
+              diversify: propBackfillOpts.diversify,
+              varietySeed,
+              avoidLegKeys,
+              selectionOpts,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              mergedGameOdds,
               gameMeta,
-              boardBuildOpts,
-            );
+              evalLinesByGame: coachEvalLinesByGame,
+              gameSimulations,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+            });
           }
           picks = dedupeSameTeamGameLegs(picks).picks;
           picks = attachPickScores(picks, {
@@ -4380,7 +4336,6 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
-        clearBoardScanFlashWatchdog();
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
@@ -4408,8 +4363,6 @@ export default function CoachScreen() {
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
-      armBoardScanFlashWatchdog,
-      clearBoardScanFlashWatchdog,
       onBoardScanPartial,
       attachedImages,
       isSignedIn,
