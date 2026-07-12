@@ -142,6 +142,12 @@ export function AnalysisProgress({
   // Ease the displayed percentage toward the current stage's target so the bar
   // glides instead of jumping, and never looks frozen or goes backwards.
   useEffect(() => {
+    if (mode === "build" && legCount === 0) {
+      setPct((p) => Math.min(p, targetList[Math.min(autoIndex, maxAuto)]));
+    }
+  }, [mode, legCount, autoIndex, maxAuto, targetList]);
+
+  useEffect(() => {
     const id = setInterval(() => {
       setPct((p) => {
         if (p >= target) return target;
