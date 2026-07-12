@@ -24,6 +24,7 @@ import type { PropSelectionOpts } from "./propSelection.ts";
 import {
   pickLegFingerprint,
   reachParlayMix,
+  mergeParlayRejects,
   type ParlayLegReject,
 } from "./parlayReachCore.ts";
 
