@@ -127,7 +127,7 @@ import {
   rescoreCoachTicketPreservingLegs,
   topUpCoachTicketToTarget,
 } from "@/lib/coachTicketRescore";
-import { applyCoachTicketKernel, boardScanToCoachTicket } from "@/lib/coachTicketKernel";
+import { applyCoachTicketKernel, boardScanToCoachTicket, coerceCoachDisplayPicks } from "@/lib/coachTicketKernel";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -5310,6 +5310,10 @@ export default function CoachScreen() {
             )
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
+            const displayPicks = hasPicks
+              ? coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current)
+              : [];
+            const showTicketPicks = displayPicks.length > 0;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -5330,7 +5334,7 @@ export default function CoachScreen() {
             const ticketLegTarget =
               m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
             const picksShortOfTarget =
-              hasPicks && ticketLegTarget > 0 && (m.picks?.length ?? 0) < ticketLegTarget;
+              showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
@@ -5394,8 +5398,8 @@ export default function CoachScreen() {
               !waiting;
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
-            const progressLegCount = hasPicks
-              ? (m.picks?.length ?? 0)
+            const progressLegCount = showTicketPicks
+              ? displayPicks.length
               : Math.max(
                   boardScanPartialLegs,
                   boardTicketSnapshotRef.current?.length ?? 0,
@@ -5411,7 +5415,7 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting && !parlayBuildIntent;
-            const ticketActive = hasPicks;
+            const ticketActive = showTicketPicks;
             const bubbleText =
               m.role === "assistant"
                 ? ticketActive
@@ -5586,27 +5590,27 @@ export default function CoachScreen() {
                   </Pressable>
                 ) : null}
 
-                {hasPicks ? (
+                {showTicketPicks ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {m.picks!.length > 0 ? (
+                    {displayPicks.length > 0 ? (
                       <CoachTicketHeader
-                        picks={m.picks!}
+                        picks={displayPicks}
                         legNote={m.legNote}
                         coachDetailNote={m.coachDetailNote}
                         requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
                         scanInProgress={parlayScanInProgress}
                       />
                     ) : null}
-                    {m.picks!.length > 1 ? (
+                    {displayPicks.length > 1 ? (
                       <AddAllButton
-                        picks={m.picks!}
+                        picks={displayPicks}
                         slipCount={legs.length}
                         addLeg={addLeg}
                         removeLeg={removeLeg}
                         hasLeg={hasLeg}
                       />
                     ) : null}
-                    {m.picks!.map((p, j) => (
+                    {displayPicks.map((p, j) => (
                       <PickCard
                         key={`${i}-${j}`}
                         pick={p}

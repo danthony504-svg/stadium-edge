@@ -33,7 +33,19 @@ export function applyCoachTicketKernel(
   if (!ticket.length) return [];
 
   let rescored = rescoreCoachTicketPreservingLegs(tagTicketRoles(ticket), enrich);
-  const pool = boardMeta?.picks?.length ? tagTicketRoles([...boardMeta.picks]) : [];
+  rescored = finalizeCoachDeliveryPicks(rescored, {
+    simByGame: enrich.gameSimulations,
+    matchupHistory: enrich.matchupHistory,
+  });
+
+  const rawPool = boardMeta?.picks?.length ? tagTicketRoles([...boardMeta.picks]) : [];
+  const pool =
+    rawPool.length > 0
+      ? finalizeCoachDeliveryPicks(rawPool, {
+          simByGame: enrich.gameSimulations,
+          matchupHistory: enrich.matchupHistory,
+        })
+      : [];
   if (legTarget >= 3 && pool.length && rescored.length < legTarget) {
     rescored = topUpCoachTicketToTarget(rescored, legTarget, pool, enrich);
   }
@@ -45,6 +57,16 @@ export function applyCoachTicketKernel(
     matchupHistory: enrich.matchupHistory,
   });
   return enforceConsistentPropSides(cleaned).picks;
+}
+
+/** Last-line display guard — never render opposing ML/spread on the same game. */
+export function coerceCoachDisplayPicks(
+  picks: ParsedPick[],
+  enrich?: CoachTicketKernelOpts["enrich"],
+): ParsedPick[] {
+  if (!picks.length) return picks;
+  const base = enrich ?? { realOdds: [], propPool: [], gameMeta: [] };
+  return applyCoachTicketKernel(picks, { enrich: base });
 }
 
 /** Board-scan partial → display-ready ticket (staging gates + kernel). */
