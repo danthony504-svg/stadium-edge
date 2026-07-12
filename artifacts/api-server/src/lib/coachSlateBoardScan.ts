@@ -326,6 +326,7 @@ export async function runServerBoardScan(
     gameSimulations,
     totalScanned,
     sports: activeSports,
+    matchupHistory: context.matchupHistory,
   });
 
   const maybeEmitPartial = async () => {

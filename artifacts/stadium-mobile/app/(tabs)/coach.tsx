@@ -78,7 +78,7 @@ import { attachPropPoolLadder, attachSimAltOptionsToPicks } from "@/lib/altLineR
 import { isQualifyingBackupGameLine, pickShowsAltBadge } from "@/lib/altLinePool";
 import { enforceConsistentGameSides } from "@/lib/gameSideConsistency";
 import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib/propSideConsistency";
-import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
+import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
   rememberParlayBuild,
@@ -1221,9 +1221,12 @@ export default function CoachScreen() {
           enrich,
         );
       }
-      const cleaned = filterCoachHorizonPicksAfterEnrich(
-        stripFillerBackfillPicks(rescored),
-        enrich,
+      const cleaned = finalizeCoachDeliveryPicks(
+        filterCoachHorizonPicksAfterEnrich(stripFillerBackfillPicks(rescored), enrich),
+        {
+          simByGame: enrich.gameSimulations,
+          matchupHistory: enrich.matchupHistory,
+        },
       );
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
@@ -1293,8 +1296,12 @@ export default function CoachScreen() {
           enrich,
         );
       }
-      return stripFillerBackfillPicks(
-        filterCoachHorizonPicksAfterEnrich(ticket, enrich),
+      return finalizeCoachDeliveryPicks(
+        stripFillerBackfillPicks(filterCoachHorizonPicksAfterEnrich(ticket, enrich)),
+        {
+          simByGame: enrich.gameSimulations,
+          matchupHistory: enrich.matchupHistory,
+        },
       );
     },
     [marketPerf],
@@ -1320,8 +1327,14 @@ export default function CoachScreen() {
           tagTicketRoles([...partial.picks]),
           enrichWithScan,
         );
-        ticket = stripFillerBackfillPicks(
-          coachFlashBoardScanPreviewPicks(rescoredPartial, enrichWithScan),
+        ticket = finalizeCoachDeliveryPicks(
+          stripFillerBackfillPicks(
+            coachFlashBoardScanPreviewPicks(rescoredPartial, enrichWithScan),
+          ),
+          {
+            simByGame: enrichWithScan.gameSimulations,
+            matchupHistory: enrichWithScan.matchupHistory,
+          },
         );
       }
       if (!ticket.length) return false;
@@ -3937,7 +3950,7 @@ export default function CoachScreen() {
             gameMeta,
           );
         }
-        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+        if (picks.some(isGameLinePick)) {
           const finalDeduped = dedupeCoachGameLinePicks(picks, {
             simByGame: gameSimulations,
             matchupHistory: context.matchupHistory,
