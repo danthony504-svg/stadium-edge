@@ -20,6 +20,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.stadiumedge.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
