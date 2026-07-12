@@ -458,6 +458,30 @@ function isWelcomeMessage(m: { role: string; content: string }): boolean {
 // colon so normal Q&A is never truncated.
 const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 
+/** Legacy 25s watchdog copy from older OTAs — never show as a chat bubble. */
+const DEAD_BUILD_PROSE_RE = /still scoring every market/i;
+
+function scrubDeadBuildProseFromMessages(msgs: UIMessage[]): UIMessage[] {
+  let changed = false;
+  const next = msgs.map((m) => {
+    if (m.role !== "assistant" || !DEAD_BUILD_PROSE_RE.test(m.content)) return m;
+    changed = true;
+    return { ...m, content: "", parlayBuild: m.parlayBuild ?? true };
+  });
+  return changed ? next : msgs;
+}
+
+/** Drop assistant rows that only carried the legacy watchdog line. */
+function pruneDeadParlayPlaceholders(msgs: UIMessage[]): UIMessage[] {
+  return msgs.filter((m) => {
+    if (m.role !== "assistant") return true;
+    if (m.picks?.length || m.analyzeSlip?.length || m.statCard || m.periodGameLog || m.teamCard) {
+      return true;
+    }
+    return !DEAD_BUILD_PROSE_RE.test(m.content) && !!m.content.trim();
+  });
+}
+
 // Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
 // merely mentions the word "parlay")? When it does, we suppress the streamed
 // lead-in prose ("Here's a balanced 5-leg ticket…") for the whole build and show
@@ -1090,6 +1114,7 @@ export default function CoachScreen() {
     setBuildProgressExpired(false);
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
+      setMessages((prev) => scrubDeadBuildProseFromMessages(prev));
       scrollToEnd(false);
     }, 25_000);
   }, [scrollToEnd]);
@@ -1260,9 +1285,11 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
-      const thread = opts?.freshThread
-        ? []
-        : messages.filter((m) => !isWelcomeMessage(m));
+      const thread = pruneDeadParlayPlaceholders(
+        scrubDeadBuildProseFromMessages(
+          opts?.freshThread ? [] : messages.filter((m) => !isWelcomeMessage(m)),
+        ),
+      );
       const history: UIMessage[] = [
         ...thread,
         {
@@ -1313,20 +1340,6 @@ export default function CoachScreen() {
       }
       if (sendGenerationRef.current !== sendGen) {
         releaseOtaBlock();
-        setWaiting(false);
-        setStreaming(false);
-        setBuildFinishing(false);
-        setBuildProgressExpired(false);
-        setParlayBuildPhase("idle");
-        clearBuildStallWatchdog();
-        setMessages((prev) => {
-          const copy = [...prev];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant" && !last.picks?.length && !last.content?.trim()) {
-            copy.pop();
-          }
-          return copy;
-        });
         return;
       }
 
@@ -4064,6 +4077,31 @@ export default function CoachScreen() {
     return `v${Constants.expoConfig?.version ?? "dev"}`;
   }, []);
 
+  // Older OTAs injected dead watchdog prose into assistant bubbles — scrub on load.
+  useEffect(() => {
+    setMessages((prev) => pruneDeadParlayPlaceholders(scrubDeadBuildProseFromMessages(prev)));
+  }, []);
+
+  const footerParlayProgress = useMemo(() => {
+    if (!(buildFinishing || streaming || buildProgressExpired)) return false;
+    const last = messages[messages.length - 1];
+    if (last?.picks?.length) return false;
+    let parlayUserText = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "user") continue;
+      const text = m.apiContent ?? m.content;
+      if (isParlayBuildAsk(text)) {
+        parlayUserText = text;
+        break;
+      }
+    }
+    if (!parlayUserText) return false;
+    // When the newest message is the user's parlay ask, show progress even if the
+    // assistant placeholder was lost to a superseded-send race.
+    return last?.role === "user";
+  }, [messages, buildFinishing, streaming, buildProgressExpired]);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
@@ -4107,8 +4145,7 @@ export default function CoachScreen() {
             const parlayBuildIntent =
               m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
             const deadBuildProse =
-              m.role === "assistant" &&
-              /still scoring every market/i.test(m.content);
+              m.role === "assistant" && DEAD_BUILD_PROSE_RE.test(m.content);
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
@@ -4122,7 +4159,7 @@ export default function CoachScreen() {
               i === messages.length - 1 &&
               !hasPicks &&
               (buildFinishing || streaming || buildProgressExpired || deadBuildProse) &&
-              parlayBuildIntent;
+              (parlayBuildIntent || deadBuildProse);
             const parlayStalledEmpty =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -4420,6 +4457,13 @@ export default function CoachScreen() {
               </View>
             );
           })}
+
+          {footerParlayProgress ? (
+            <AnalysisProgress
+              mode="build"
+              buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+            />
+          ) : null}
 
           {!messages.some((m) => m.role === "user") ? (
             <View style={{ gap: 8, marginTop: 4 }}>
