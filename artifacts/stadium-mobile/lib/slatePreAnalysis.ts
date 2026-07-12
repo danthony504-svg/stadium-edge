@@ -32,7 +32,7 @@ import {
   type SlatePreAnalysisSnapshot,
   type SlateTicketsIndex,
 } from "./slatePreAnalysisCache.ts";
-import { fetchCoachServerSlate } from "./coachSlateApi.ts";
+import { fetchCoachServerSlate, legacySnapshotFromServerResponse } from "./coachSlateApi.ts";
 
 export { SLATE_PRE_ANALYSIS_TARGET };
 
@@ -324,7 +324,9 @@ export async function syncServerSlatePreAnalysis(opts?: SlateSeedOpts): Promise<
     const resp = await fetchCoachServerSlate(opts);
     const usable = resp?.snapshot && (resp.fresh || resp.instantServe);
     if (!usable || !resp.snapshot) return false;
-    return applyServerSlateSnapshot(sanitizeSlateSnapshot(resp.snapshot));
+    const legacy = legacySnapshotFromServerResponse(resp.snapshot);
+    if (!legacy) return false;
+    return applyServerSlateSnapshot(sanitizeSlateSnapshot(legacy));
   } catch {
     return false;
   }

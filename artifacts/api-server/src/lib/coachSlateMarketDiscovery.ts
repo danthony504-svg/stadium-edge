@@ -1,7 +1,17 @@
 // Discover every sportsbook-posted game-line outcome — alt spreads/totals,
 // team totals, period markets, and any new market key the feed adds.
 
-import type { RealOddsEntry } from "./coachSlateTypes.js";
+export type RealOddsEntry = {
+  sport: string;
+  game: string;
+  market: string;
+  pick: string;
+  odds: number;
+  startsAt?: string;
+  noVigFair?: number | null;
+  edge?: number | null;
+  bookSpread?: number | null;
+};
 
 const EVAL_ALT_MAX_JUICE = -1000;
 

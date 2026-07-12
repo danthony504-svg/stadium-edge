@@ -48,10 +48,6 @@ function createSimService(): CoachSimService {
   });
 }
 
-export function isCoachV2Enabled(): boolean {
-  return process.env.COACH_V2_ENABLED === "1" || process.env.COACH_V2_ENABLED === "true";
-}
-
 export function getCoachV2Runtime(slateLoader: CoachSlateLoader = { load: loadCoachV2RawSlate }): CoachRuntime {
   if (!runtimeSingleton) {
     runtimeSingleton = new CoachRuntime({

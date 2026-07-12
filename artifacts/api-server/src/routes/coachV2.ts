@@ -1,26 +1,11 @@
-import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { COACH_PARLAY_SIZES } from "@workspace/coach-types";
 import { parseLegsQuery, parseSportQuery } from "@workspace/coach-runtime";
-import { getCoachV2Runtime, isCoachV2Enabled } from "../lib/coachV2Runtime.js";
+import { getCoachV2Runtime } from "../lib/coachV2Runtime.js";
 import { logger } from "../lib/logger.js";
 
 const router: IRouter = Router();
 
-function v2Disabled(_req: Request, res: Response): void {
-  res.status(404).json({ error: "coach v2 not enabled" });
-}
-
-function requireV2(req: Request, res: Response, next: NextFunction): void {
-  if (!isCoachV2Enabled()) {
-    v2Disabled(req, res);
-    return;
-  }
-  next();
-}
-
-router.use("/coach/v2", requireV2);
-
-/** Server-authoritative precomputed slate snapshot. */
 router.get("/coach/v2/slate", async (_req, res): Promise<void> => {
   try {
     const runtime = getCoachV2Runtime();

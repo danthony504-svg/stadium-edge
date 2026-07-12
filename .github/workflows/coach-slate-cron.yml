@@ -17,7 +17,7 @@ jobs:
           PREBUILD_CRON_KEY: ${{ secrets.PREBUILD_CRON_KEY }}
           NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
         run: |
-          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge-1.replit.app/api/coach/slate/cron}"
+          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge-1.replit.app/api/coach/v2/cron}"
           KEY="${COACH_SLATE_CRON_KEY:-${PREBUILD_CRON_KEY:-${NOTIFY_CRON_KEY:-}}}"
           if [ -z "$KEY" ]; then
             echo "No cron key configured — set COACH_SLATE_CRON_KEY or PREBUILD_CRON_KEY in repo secrets."
