@@ -291,9 +291,8 @@ function boardScanBudgetMs(targetLegs: number): number {
 /** Stall copy only when nothing has appeared — must exceed context fetch + board scan. */
 function buildStallBudgetMs(requestedLegs: number): number {
   if (requestedLegs >= 15) return 300_000;
-  if (requestedLegs >= 9) return 240_000;
-  if (requestedLegs >= 6) return 180_000;
-  return 90_000;
+  if (requestedLegs >= 6) return 240_000;
+  return 120_000;
 }
 
 type PendingBuild = {
@@ -1173,6 +1172,7 @@ export default function CoachScreen() {
 
   const boardTicketSnapshotRef = useRef<ParsedPick[] | null>(null);
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
+  const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   const activeParlayAskRef = useRef("");
 
   const deliverCoachTicket = useCallback(
@@ -1238,6 +1238,12 @@ export default function CoachScreen() {
         realOdds: [...enrich.realOdds, ...scanOdds],
       };
       let ticket = boardScanPartialToTicket(partial, enrichWithScan);
+      if (!boardScanIsComplete(partial)) {
+        const preview = stripFillerBackfillPicks(
+          coachFlashBoardScanPreviewPicks(tagTicketRoles([...partial.picks]), enrichWithScan),
+        );
+        if (preview.length > 0) ticket = preview;
+      }
       if (!ticket.length) {
         ticket = stripFillerBackfillPicks(
           coachFlashBoardScanPreviewPicks(tagTicketRoles([...partial.picks]), enrichWithScan),
@@ -1357,12 +1363,14 @@ export default function CoachScreen() {
           const copy = [...prev];
           const last = copy[copy.length - 1];
           if (last?.role === "assistant" && !(last.picks?.length)) {
+            const stallNote =
+              "Still scanning every posted market — pick cards appear as each leg clears the quality bar.";
             copy[copy.length - 1] = {
               ...last,
-              content:
-                "This build is taking longer than usual — the live board scan is still running. Pick cards should appear shortly; tap below only if nothing shows up after a few more minutes.",
+              content: "",
               retry: userText,
               parlayBuild: true,
+              legNote: last.legNote?.includes(stallNote) ? last.legNote : stallNote,
             };
           }
           return copy;
@@ -1400,6 +1408,76 @@ export default function CoachScreen() {
       }
     },
     [patchInstantBoardScanTicket, armBuildStallWatchdog],
+  );
+
+  const kickoffEarlyReachBoardScan = useCallback(
+    (opts: {
+      target: number;
+      sportScopeText: string;
+      excludedSports: Set<string>;
+      seedBuilt?: {
+        context: ChatContext;
+        propPool: PropPoolEntry[];
+        gameMeta: GameMeta[];
+      };
+      signal?: AbortSignal;
+    }) => {
+      const { target, sportScopeText, excludedSports, seedBuilt, signal } = opts;
+      const scanSports = coachBuildSports(sportScopeText, target, DEFAULT_SPORTS).filter(
+        (s) => !excludedSports.has(s),
+      );
+      return (async (): Promise<FullBoardScanResult | null> => {
+        try {
+          setParlayBuildPhase("board-scan");
+          const [espnGames, oddsGames, liveFeed] = await Promise.all([
+            Promise.all(scanSports.map((s) => getGames(s, signal).catch(() => []))).then((rows) =>
+              rows.flat(),
+            ),
+            Promise.all(scanSports.map((s) => getOdds(s, signal).catch(() => []))).then((rows) =>
+              filterBettableOddsGames(rows.flat()),
+            ),
+            getLiveOdds(scanSports, signal).catch(() => ({ games: [], odds: [] })),
+          ]);
+          if (seedBuilt) {
+            flashEnrichRef.current = {
+              realOdds: seedBuilt.context.realOdds,
+              propPool: seedBuilt.propPool,
+              gameMeta: seedBuilt.gameMeta,
+              realGames: seedBuilt.context.realGames,
+            };
+          }
+          const reachTarget = Math.min(target, MAX_LEGS);
+          return await Promise.race([
+            tryReachFullBoardScan({
+              target: reachTarget,
+              oddsGames,
+              propPool: seedBuilt?.propPool ?? [],
+              realOdds: seedBuilt?.context.realOdds ?? [],
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta: seedBuilt?.gameMeta ?? [],
+              teamIdMap: buildGameTeamIdMap(espnGames),
+              excludedSports,
+              matchupHistory: seedBuilt?.context.matchupHistory,
+              matchupInjuries: seedBuilt?.context.matchupInjuries,
+              playerHistory: seedBuilt?.context.playerHistory as
+                | Record<string, PlayerHistorySlice>
+                | undefined,
+              perfByFamily: marketPerf,
+              calibration: modelCalibration,
+              onPartial: onBoardScanPartial,
+              signal,
+            }),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), boardScanBudgetMs(reachTarget)),
+            ),
+          ]);
+        } catch {
+          return null;
+        }
+      })();
+    },
+    [marketPerf, modelCalibration, onBoardScanPartial],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1484,6 +1562,7 @@ export default function CoachScreen() {
       const sendGen = ++sendGenerationRef.current;
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
+      earlyReachBoardScanRef.current = null;
       setBoardScanPartialLegs(0);
 
       const resetInFlightBuild = () => {
@@ -1491,6 +1570,7 @@ export default function CoachScreen() {
         simAbortRef.current?.abort();
         boardTicketSnapshotRef.current = null;
         latestBoardScanRef.current = null;
+        earlyReachBoardScanRef.current = null;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1567,7 +1647,7 @@ export default function CoachScreen() {
       let openingLegNote: string | undefined;
       if (openingParlayBuild) {
         await hydrateSlatePreAnalysisCache();
-        await hydrateCoachSlateFromServer(slateSeedOpts);
+        void hydrateCoachSlateFromServer(slateSeedOpts);
         const seed = readSlatePreAnalysisSeed(slateSeedOpts);
         if (seed?.boardScan?.picks?.length) {
           const enrich = {
@@ -1659,6 +1739,25 @@ export default function CoachScreen() {
             maxMs: 12_000,
           });
           tryInstantSlateSeedDelivery(earlyLegTarget, slateSport);
+        }
+        const sportScopeEarly = [
+          ...messages.filter((m) => m.role === "user").map((m) => m.content),
+          trimmed,
+        ].join(" ");
+        if (
+          reachBoardScanEligible({
+            requestedLegs: earlyLegTarget,
+            propsOnly: wantsPropsOnly(trimmed),
+          })
+        ) {
+          const seedBuilt = readSlatePreAnalysisSeed(slateSeedOpts)?.built;
+          earlyReachBoardScanRef.current = kickoffEarlyReachBoardScan({
+            target: earlyLegTarget,
+            sportScopeText: sportScopeEarly,
+            excludedSports: persistedExcludedSportsRef.current,
+            seedBuilt,
+            signal: controller.signal,
+          });
         }
       }
 
@@ -2101,51 +2200,18 @@ export default function CoachScreen() {
             };
             patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
           }
-          let earlyReachBoardScanPromise: Promise<FullBoardScanResult | null> | null = null;
-          if (reachFullPreScanEligible && scanFeedsPromise) {
+          let earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
+          if (!earlyReachBoardScanPromise && reachFullPreScanEligible && scanFeedsPromise) {
             const reachTargetEarly = Math.min(legTarget, MAX_LEGS);
             const seedBuilt = preAnalysisSeed?.built;
-            earlyReachBoardScanPromise = (async (): Promise<FullBoardScanResult | null> => {
-              try {
-                const { espnGames, oddsGames, liveFeed } = await scanFeedsPromise!;
-                if (seedBuilt) {
-                  flashEnrichRef.current = {
-                    realOdds: seedBuilt.context.realOdds,
-                    propPool: seedBuilt.propPool,
-                    gameMeta: seedBuilt.gameMeta,
-                    realGames: seedBuilt.context.realGames,
-                  };
-                }
-                setParlayBuildPhase("board-scan");
-                return await Promise.race([
-                  tryReachFullBoardScan({
-                    target: reachTargetEarly,
-                    oddsGames,
-                    propPool: seedBuilt?.propPool ?? [],
-                    realOdds: seedBuilt?.context.realOdds ?? [],
-                    liveOdds: liveFeed.odds,
-                    espnGames,
-                    gameMeta: seedBuilt?.gameMeta ?? [],
-                    teamIdMap: buildGameTeamIdMap(espnGames),
-                    excludedSports,
-                    matchupHistory: seedBuilt?.context.matchupHistory,
-                    matchupInjuries: seedBuilt?.context.matchupInjuries,
-                    playerHistory: seedBuilt?.context.playerHistory as
-                      | Record<string, PlayerHistorySlice>
-                      | undefined,
-                    perfByFamily: marketPerf,
-                    calibration: modelCalibration,
-                    onPartial: onBoardScanPartial,
-                    signal: abortRef.current?.signal,
-                  }),
-                  new Promise<null>((resolve) =>
-                    setTimeout(() => resolve(null), boardScanBudgetMs(reachTargetEarly)),
-                  ),
-                ]);
-              } catch {
-                return null;
-              }
-            })();
+            earlyReachBoardScanPromise = kickoffEarlyReachBoardScan({
+              target: reachTargetEarly,
+              sportScopeText,
+              excludedSports,
+              seedBuilt,
+              signal: abortRef.current?.signal,
+            });
+            earlyReachBoardScanRef.current = earlyReachBoardScanPromise;
           }
           const rawBuilt = slipImageVerdictOnly
             ? {
@@ -4666,6 +4732,7 @@ export default function CoachScreen() {
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
       onBoardScanPartial,
+      kickoffEarlyReachBoardScan,
       attachedImages,
       isSignedIn,
       modelStrengths,
