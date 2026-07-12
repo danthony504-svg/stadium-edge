@@ -82,6 +82,31 @@ test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter
   assert.equal(out[0]?.ticketRole, "alt");
 });
 
+test("filterTicketPicksPreservingTicket returns empty when no leg passes gates", () => {
+  const weak = {
+    game: "A @ B",
+    market: "Home Runs",
+    pick: "Player Over 0.5",
+    odds: 400,
+    isProp: true,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 9,
+      grade: "A+",
+      confidencePct: 60,
+      edgePct: 2,
+      simHit: null,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 9, grade: "A+", confidencePct: 60, edgePct: 2, scores: {} as never },
+    },
+    scores: { composite: 9, grade: "A+", confidencePct: 60, edgePct: 2 },
+  };
+  assert.equal(filterTicketPicksPreservingTicket([weak]).length, 0);
+});
+
 test("filterTicketPicks keeps staged alt legs that fail strict main gate", () => {
   const altLeg = {
     game: "A @ B",

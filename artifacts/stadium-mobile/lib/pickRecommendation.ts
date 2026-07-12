@@ -66,14 +66,17 @@ export function pickGradeDisplayLabel(
 }
 
 export function pickGradeDisplayCaption(
-  pick: RecommendablePick,
+  pick: RecommendablePick & { simulationPending?: boolean },
   score: FinalAiScore | null | undefined,
 ): string {
   if (!marketSupportsSimulation(pick.market ?? "", pick)) {
     return "Simulation not available for this market yet";
   }
+  if (pick.simulationPending) {
+    return "Running 10k simulation…";
+  }
   if (!pickHasSimGrade(pick, score?.simHit)) {
-    return "Simulation not available for this market yet";
+    return "Waiting for simulation result…";
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) {
     return "Passes sim, edge, EV, and confidence thresholds";
@@ -138,12 +141,7 @@ export function filterTicketPicksPreservingTicket<
   if (filtered.length > 0 || picks.length === 0) return filtered;
   const altFallback = picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
   if (altFallback.length > 0) return altFallback;
-  const ranked = [...picks].sort(
-    (a, b) =>
-      (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
-      (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
-  );
-  return ranked.slice(0, 1);
+  return [];
 }
 
 export function countAiRecommendedPicks(

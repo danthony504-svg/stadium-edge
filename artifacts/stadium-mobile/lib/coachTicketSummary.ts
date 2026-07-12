@@ -3,6 +3,7 @@
 import { gradeFromComposite } from "./pickScore.ts";
 import { isGameLinePick } from "./gameSimScoring.ts";
 import { decimalToAmerican } from "./format.ts";
+import { pickHasSimGrade } from "./simMarketSupport.ts";
 
 function fairOddsFromSimHit(simHit: number | null | undefined): number | null {
   if (simHit == null || !Number.isFinite(simHit) || simHit <= 0 || simHit >= 1) return null;
@@ -162,21 +163,23 @@ export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
   const rawGameLines = picks.filter((p) => isGameLinePick(p as Parameters<typeof isGameLinePick>[0]) && !p.isProp);
   const gameLines = dedupeTicketGameLines(rawGameLines);
   const scored = picks.map(scoresForPick);
+  const simGraded = picks.filter((p) => pickHasSimGrade(p, p.finalAiScore?.simHit));
   const confs = scored.map((s) => s.confidence).filter((c): c is number => c != null);
-  const edges = scored.map((s) => s.edge).filter((e): e is number => e != null);
-  const composites = scored.map((s) => s.composite).filter((c): c is number => c != null);
+  const edges = simGraded
+    .map((p) => scoresForPick(p).edge)
+    .filter((e): e is number => e != null);
+  const composites = simGraded
+    .map((p) => pickComposite(p))
+    .filter((c) => c >= 0);
   const avgComposite =
     composites.length > 0
       ? composites.reduce((a, b) => a + b, 0) / composites.length
       : null;
 
   const usedSim =
-    picks.some(
-      (p) =>
-        p.finalAiScore?.simHit != null ||
-        p.scores?.scores?.simulation != null ||
-        p.simulationPending,
-    ) || gameLines.length > 0;
+    simGraded.length > 0 ||
+    picks.some((p) => p.simulationPending) ||
+    gameLines.length > 0;
 
   return {
     pickCount: picks.length,
@@ -191,14 +194,9 @@ export function summarizeCoachTicket(picks: TicketPick[]): CoachTicketSummary {
         ? Math.round((edges.reduce((a, b) => a + b, 0) / edges.length) * 10) / 10
         : null,
     overallGrade:
-      avgComposite != null
+      avgComposite != null && simGraded.length > 0
         ? gradeFromComposite(avgComposite)
-        : (() => {
-            const ranks = scored.map((s) => gradeRank(s.grade)).filter((r) => r >= 0);
-            if (ranks.length === 0) return null;
-            const avg = ranks.reduce((a, b) => a + b, 0) / ranks.length;
-            return gradeFromRank(Math.round(avg));
-          })(),
+        : null,
     gameLines: gameLines.map((p) => {
       const s = scoresForPick(p);
       return {

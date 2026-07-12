@@ -1081,6 +1081,7 @@ export default function CoachScreen() {
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
+      if (partial.picks.length < 3) return;
       flashCoachTicketPicks(partial.picks, partial.note);
     },
     [flashCoachTicketPicks],
@@ -1990,7 +1991,10 @@ export default function CoachScreen() {
           gameMeta,
         );
         if (!isAnalyze && picks.length > 0) {
-          flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
+          const minEarlyFlash = requestedLegs >= 12 ? 3 : 2;
+          if (picks.length >= minEarlyFlash) {
+            flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
+          }
         }
         let soccerScorerGkSalvage = false;
         if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
