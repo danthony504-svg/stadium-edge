@@ -227,14 +227,16 @@ export function isAltBoardPick(pick: {
   return isQualifyingBackupGameLine(pick);
 }
 
-/** UI badge — only true alternate ladder rungs, never reach-fill mains or period mains. */
+/** UI badge — alternate ladder rungs and ticket legs promoted to fill a fixed-leg ask. */
 export function pickShowsAltBadge(pick: {
   market: string;
   pick: string;
   isProp?: boolean;
   propIsAlt?: boolean;
+  ticketRole?: "main" | "alt";
 }): boolean {
   if (isMainBoardPick(pick)) return false;
+  if (pick.ticketRole === "alt") return true;
   return isAltBoardPick(pick) || isAltPropPick(pick);
 }
 

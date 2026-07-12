@@ -113,13 +113,12 @@ export function buildStagedTicketFromScan(
   const used = new Set(allPicks.map(pickLegFingerprint));
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
 
-  // Alt gap fill: greedy rank order — never leave qualifying alts behind because
-  // correlation scoring throttled a reach-N ticket.
+  // Alt gap fill: greedy rank order — promoted alternates get ALT PICK badges.
   const gap = Math.max(0, target - allPicks.length);
   if (gap > 0 && altPool.length > 0) {
     const altPicks = selectGreedyBoardLegs(altPool, gap).map((p) => ({
       ...p,
-      ticketRole: ticketRoleForPick(p),
+      ticketRole: "alt" as const,
       highRiskValuePlay: false,
     }));
     allPicks = [...allPicks, ...altPicks];

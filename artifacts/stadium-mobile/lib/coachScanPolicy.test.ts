@@ -1,9 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  COACH_FIXED_LEG_SHORTFALL_LEAD,
   FILLER_BACKFILL_EDGE_NOTE,
   isFillerBackfillPick,
+  isFixedLegCountParlay,
   shouldAllowReachCountBackfill,
+  shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "./coachScanPolicy.ts";
 
@@ -32,6 +35,57 @@ test("shouldAllowReachCountBackfill blocks 3+ leg board-scan parlays", () => {
     }),
     true,
   );
+});
+
+test("isFixedLegCountParlay treats 3+ legs as fixed-leg asks", () => {
+  assert.equal(isFixedLegCountParlay(2), false);
+  assert.equal(isFixedLegCountParlay(3), true);
+  assert.equal(isFixedLegCountParlay(15), true);
+});
+
+test("shouldPromoteQualifyingAltsForFixedLegTicket gates fixed-leg parlay builds", () => {
+  assert.equal(
+    shouldPromoteQualifyingAltsForFixedLegTicket({
+      requestedLegs: 5,
+      isParlayBuild: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldPromoteQualifyingAltsForFixedLegTicket({
+      requestedLegs: 5,
+      isParlayBuild: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromoteQualifyingAltsForFixedLegTicket({
+      requestedLegs: 5,
+      isParlayBuild: true,
+      isAnalyze: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromoteQualifyingAltsForFixedLegTicket({
+      requestedLegs: 5,
+      isParlayBuild: true,
+      altSign: "plus",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromoteQualifyingAltsForFixedLegTicket({
+      requestedLegs: 2,
+      isParlayBuild: true,
+    }),
+    false,
+  );
+});
+
+test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
+  assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /Every qualifying market/i);
+  assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /AI-backed picks/i);
 });
 
 test("stripFillerBackfillPicks removes round-out posted lines", () => {

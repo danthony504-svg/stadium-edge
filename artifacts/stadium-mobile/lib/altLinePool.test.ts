@@ -90,6 +90,17 @@ test("reach-fill plus-money moneylines stay main — no ALT PICK badge", () => {
   assert.ok(!pickShowsAltBadge(skyMl));
 });
 
+test("promoted qualifying alt rungs show ALT PICK badge via ticketRole", () => {
+  const promotedAlt = {
+    market: "Alt Spread",
+    pick: "Pirates +2.5",
+    isProp: false,
+    ticketRole: "alt" as const,
+  };
+  assert.ok(pickShowsAltBadge(promotedAlt));
+  assert.equal(ticketRoleForPick(promotedAlt), "alt");
+});
+
 test("true alt rungs still classify as alt board picks", () => {
   const altSpread = { market: "Alt Spread", pick: "Pirates +2.5", isProp: false };
   assert.ok(isAltBoardPick(altSpread));

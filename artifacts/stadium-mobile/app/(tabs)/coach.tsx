@@ -117,7 +117,11 @@ import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
 import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
-import { shouldAllowReachCountBackfill, stripFillerBackfillPicks } from "@/lib/coachScanPolicy";
+import {
+  shouldAllowReachCountBackfill,
+  shouldPromoteQualifyingAltsForFixedLegTicket,
+  stripFillerBackfillPicks,
+} from "@/lib/coachScanPolicy";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -2578,16 +2582,18 @@ export default function CoachScreen() {
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
           requestedLegs >= 6 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
-        // 3–5 leg board scans must still promote qualifying mains/alts to hit the ask —
-        // reachFull only fires at 6+, but fillReachTicketStaged was wrongly 6+ only too.
-        const boardScanReachFill =
-          fullBoardScanned &&
-          requestedLegs >= 3 &&
-          !propsOnlyTicket &&
-          !explicitSingleGame &&
-          !oddsThreshold &&
-          !confidenceThreshold &&
-          !altSign;
+        // Fixed-leg policy: mains first, then qualifying alts — never round-out filler.
+        const promoteQualifyingAlts = shouldPromoteQualifyingAltsForFixedLegTicket({
+          requestedLegs,
+          isParlayBuild,
+          isAnalyze,
+          propsOnly: propsOnlyTicket,
+          explicitSingleGame,
+          oddsThreshold,
+          confidenceThreshold,
+          altSign,
+        });
+        const boardScanReachFill = promoteQualifyingAlts && fullBoardScanned;
         const reachFillEligible = reachFull || boardScanReachFill;
         const parlayRejections: ParlayLegReject[] = [];
         const composeFromBoard =

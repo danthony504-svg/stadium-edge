@@ -7,6 +7,7 @@ import {
   isMainLineGameLeg,
   isQualifyingBackupGameLine,
 } from "./altLinePool.ts";
+import { COACH_FIXED_LEG_SHORTFALL_LEAD } from "./coachScanPolicy.ts";
 import { FULL_BOARD_MARKET_FAMILIES } from "./fullBoardMarketCopy.ts";
 
 export type ParlayLegReject = {
@@ -93,7 +94,7 @@ export function selectParlayBackupPicks(
   return out;
 }
 
-/** Step 2 then 3: mains first on empty tickets; alt rungs fill any reach-N gap. */
+/** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
 export function promoteQualifyingStagedToTicket(
   ticket: ParsedPick[],
   qualifyingMains: ParlayLegReject[],
@@ -105,18 +106,7 @@ export function promoteQualifyingStagedToTicket(
   const promotedAlts: ParsedPick[] = [];
   const onTicket = new Set(merged.map(pickLegFingerprint));
 
-  // Alt rungs fill reach-N shortfalls first — user expects ALT PICK cards, not more mains.
-  const altGap = Math.max(0, target - merged.length);
-  if (altGap > 0 && qualifyingAlts.length > 0) {
-    for (const p of selectParlayBackupPicks(merged, qualifyingAlts, altGap)) {
-      const fp = pickLegFingerprint(p);
-      if (onTicket.has(fp)) continue;
-      onTicket.add(fp);
-      merged.push(p);
-      promotedAlts.push(p);
-    }
-  }
-
+  // Step 2: add qualifying mains first (highest-rated not already on ticket).
   const mainGap = Math.max(0, target - merged.length);
   if (mainGap > 0 && qualifyingMains.length > 0) {
     for (const p of selectParlayMainBackupPicks(merged, qualifyingMains, mainGap)) {
@@ -125,6 +115,18 @@ export function promoteQualifyingStagedToTicket(
       onTicket.add(fp);
       merged.push(p);
       promotedMains.push(p);
+    }
+  }
+
+  // Step 3: promote qualifying alternates until target or pool exhausted.
+  const altGap = Math.max(0, target - merged.length);
+  if (altGap > 0 && qualifyingAlts.length > 0) {
+    for (const p of selectParlayBackupPicks(merged, qualifyingAlts, altGap)) {
+      const fp = pickLegFingerprint(p);
+      if (onTicket.has(fp)) continue;
+      onTicket.add(fp);
+      merged.push(p);
+      promotedAlts.push(p);
     }
   }
 
@@ -231,7 +233,7 @@ export function buildFullBoardShortfallNote(
   }
   return [
     scanLead,
-    `Only **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan.${altFill} These **${actual}** are every qualifying pick — I won't pad with weak filler.`,
+    `${COACH_FIXED_LEG_SHORTFALL_LEAD} **${mainQ}** main and **${altQ}** alt lines met quality standards after the full-board scan.${altFill} These **${actual}** are every AI-backed pick on the board — no ungraded filler was added.`,
   ].join("\n\n");
 }
 

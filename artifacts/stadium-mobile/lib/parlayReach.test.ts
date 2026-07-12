@@ -79,7 +79,7 @@ test("promoteQualifyingAltsToTicket fills the main ticket up to the target", () 
   assert.equal(picks.length, 3);
 });
 
-test("promoteQualifyingStagedToTicket fills alts before extra mains on reach-N shortfall", () => {
+test("promoteQualifyingStagedToTicket fills mains before qualifying alts on reach-N shortfall", () => {
   const ticket = [
     { game: "A @ B", market: "Points", pick: "Player A Over 10.5 Points", odds: -110, isProp: true },
   ];
@@ -106,8 +106,8 @@ test("promoteQualifyingStagedToTicket fills alts before extra mains on reach-N s
   assert.equal(promotedAlts.length, 1);
   assert.equal(promotedMains.length, 1);
   assert.equal(picks.length, 3);
-  assert.equal(picks[1]!.ticketRole, "alt");
-  assert.equal(picks[2]!.ticketRole, "main");
+  assert.equal(picks[1]!.ticketRole, "main");
+  assert.equal(picks[2]!.ticketRole, "alt");
 });
 
 test("selectParlayMainBackupPicks skips alt rungs", () => {
@@ -135,6 +135,8 @@ test("buildFullBoardShortfallNote explains entire-board scan when short", () => 
   assert.match(note, /second half/i);
   assert.match(note, /combo props/i);
   assert.match(note, /correlation scoring/i);
+  assert.match(note, /Every qualifying market/i);
+  assert.match(note, /no ungraded filler/i);
 });
 
 test("buildFullBoardShortfallNote confirms top 15 when board has more qualifiers", () => {
