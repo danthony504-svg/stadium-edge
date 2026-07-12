@@ -104,7 +104,7 @@ import {
 } from "@/lib/confidence";
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
-import { AnalysisProgress } from "@/components/AnalysisProgress";
+import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
@@ -908,6 +908,8 @@ export default function CoachScreen() {
   const [inputFocused, setInputFocused] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const [buildFinishing, setBuildFinishing] = useState(false);
+  const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1034,6 +1036,18 @@ export default function CoachScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated }));
   }, []);
 
+  const flashCoachTicketPicks = useCallback(
+    (picks: ParsedPick[], legNote?: string) => {
+      if (!picks.length) return;
+      patchLastAssistantPicks(setMessages, tagTicketRoles(picks), legNote);
+      setStreaming(false);
+      setWaiting(false);
+      setParlayBuildPhase("score");
+      scrollToEnd(false);
+    },
+    [scrollToEnd],
+  );
+
   // Open the photo library and stash the chosen image as a pending attachment.
   // We downscale to <=1280px wide and JPEG-compress it so a phone screenshot
   // (often a multi-MB PNG) becomes a small base64 payload, well under the API's
@@ -1041,7 +1055,7 @@ export default function CoachScreen() {
   // system photo picker, which needs no runtime permission on modern iOS/Android.
   const MAX_IMAGES = 3;
   const pickImage = useCallback(async () => {
-    if (streaming || pickingImage) return;
+    if (streaming || buildFinishing || pickingImage) return;
     const remaining = MAX_IMAGES - attachedImages.length;
     if (remaining <= 0) return;
     try {
@@ -1076,7 +1090,7 @@ export default function CoachScreen() {
     } finally {
       setPickingImage(false);
     }
-  }, [streaming, pickingImage, attachedImages.length]);
+  }, [streaming, buildFinishing, pickingImage, attachedImages.length]);
 
   const send = useCallback(
     async (
@@ -1114,7 +1128,7 @@ export default function CoachScreen() {
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
       const images = replay ? [] : attachedImages;
-      if ((!trimmed && !images.length) || (streaming && !opts?.freshThread)) return;
+      if ((!trimmed && !images.length) || ((streaming || buildFinishing) && !opts?.freshThread)) return;
       if (opts?.freshThread) {
         abortRef.current?.abort();
         simAbortRef.current?.abort();
@@ -1406,6 +1420,10 @@ export default function CoachScreen() {
         // correlation" only once the data is actually in (below), and the render
         // promotes to "Finalizing parlay" once real PICK lines stream.
         const isParlayBuild = PARLAY_BUILD_RE.test(trimmed) || requestedLegs > 0;
+        if (isParlayBuild) {
+          setBuildFinishing(true);
+          setParlayBuildPhase("context");
+        }
 
         // These are the same four pieces buildChatContext returns; in replay mode
         // we read them from the locally-saved PendingBuild instead of fetching.
@@ -1605,6 +1623,7 @@ export default function CoachScreen() {
             !oddsThreshold &&
             !confidenceThreshold;
           if (reachFullPreScan) {
+            setParlayBuildPhase("board-scan");
             try {
               const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
                 (s) => !excludedSports.has(s),
@@ -1622,22 +1641,28 @@ export default function CoachScreen() {
                 })),
               ]);
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-              preBoardScan = await tryReachFullBoardScan({
-                target: reachTargetPreScan,
-                oddsGames,
-                propPool,
-                realOdds: context.realOdds,
-                liveOdds: liveFeed.odds,
-                espnGames,
-                gameMeta,
-                teamIdMap: scanTeamIdMap,
-                excludedSports,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-                perfByFamily: marketPerf,
-                calibration: modelCalibration,
-              });
+              preBoardScan = await Promise.race([
+                tryReachFullBoardScan({
+                  target: reachTargetPreScan,
+                  oddsGames,
+                  propPool,
+                  realOdds: context.realOdds,
+                  liveOdds: liveFeed.odds,
+                  espnGames,
+                  gameMeta,
+                  teamIdMap: scanTeamIdMap,
+                  excludedSports,
+                  matchupHistory: context.matchupHistory,
+                  matchupInjuries: context.matchupInjuries,
+                  playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+                  perfByFamily: marketPerf,
+                  calibration: modelCalibration,
+                }),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 120_000)),
+              ]);
+              if (preBoardScan?.picks?.length) {
+                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
+              }
             } catch {
               preBoardScan = null;
             }
@@ -1741,14 +1766,10 @@ export default function CoachScreen() {
               full = "";
               setWaiting(false);
               if (preBoardScan?.picks?.length) {
-                patchLastAssistantPicks(
-                  setMessages,
-                  tagTicketRoles(preBoardScan.picks),
-                  preBoardScan.note,
-                );
-                scrollToEnd(false);
+                flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
               }
             } else {
+              setParlayBuildPhase("stream");
               full = await runStream();
             }
             if (!wantsAnalyzeSlip(trimmed)) {
@@ -1925,12 +1946,7 @@ export default function CoachScreen() {
           gameMeta,
         );
         if (!isAnalyze && picks.length > 0) {
-          patchLastAssistantPicks(
-            setMessages,
-            tagTicketRoles(picks),
-            fullBoardScanMeta?.note,
-          );
-          scrollToEnd(false);
+          flashCoachTicketPicks(picks, fullBoardScanMeta?.note);
         }
         let soccerScorerGkSalvage = false;
         if (!isAnalyze && soccerScorerGkAsk && picks.length === 0) {
@@ -3600,6 +3616,8 @@ export default function CoachScreen() {
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
+        setBuildFinishing(false);
+        setParlayBuildPhase("idle");
         abortRef.current = null;
         scrollToEnd();
       }
@@ -3608,7 +3626,9 @@ export default function CoachScreen() {
       messages,
       slipForContext,
       streaming,
+      buildFinishing,
       scrollToEnd,
+      flashCoachTicketPicks,
       attachedImages,
       isSignedIn,
       modelStrengths,
@@ -3812,12 +3832,13 @@ export default function CoachScreen() {
     const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
     if (streaming && !launch?.freshThread) return;
+    if (buildFinishing && !launch?.freshThread) return;
     autoSentRef.current = token;
     send(String(autoMsg), {
       hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
       freshThread: launch?.freshThread ?? false,
     });
-  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, send]);
+  }, [params.send, params.ts, params.autoMsg, params.prefill, streaming, buildFinishing, send]);
 
   useEffect(() => {
     return () => {
@@ -3872,12 +3893,15 @@ export default function CoachScreen() {
             // would otherwise stare at a static spinner. Counting completed PICK
             // lines as they stream in gives real "it's working" feedback.
             const buildingLegCount = isBuildingParlay
-              ? m.content
-                  .split("\n")
-                  // Require 3 pipes (4 fields) so only fully-streamed PICK lines
-                  // count — mirrors parsePicks' parts.length >= 4 so the running
-                  // total never transiently overshoots a half-emitted line.
-                  .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length
+              ? Math.max(
+                  m.picks?.length ?? 0,
+                  m.content
+                    .split("\n")
+                    // Require 3 pipes (4 fields) so only fully-streamed PICK lines
+                    // count — mirrors parsePicks' parts.length >= 4 so the running
+                    // total never transiently overshoots a half-emitted line.
+                    .filter((l) => /^PICK\s*:.*\|.*\|.*\|/i.test(l.trim())).length,
+                )
               : 0;
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
@@ -4008,7 +4032,11 @@ export default function CoachScreen() {
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
                 {isBuildingParlay ? (
-                  <AnalysisProgress mode="build" legCount={buildingLegCount} />
+                  <AnalysisProgress
+                    mode="build"
+                    legCount={buildingLegCount}
+                    buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                  />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />
                 ) : askWaiting ? (
@@ -4094,7 +4122,7 @@ export default function CoachScreen() {
                 {m.retry ? (
                   <Pressable
                     onPress={() => send(m.retry!)}
-                    disabled={streaming}
+                    disabled={streaming || buildFinishing}
                     style={({ pressed }) => ({
                       flexDirection: "row",
                       alignItems: "center",
@@ -4107,7 +4135,7 @@ export default function CoachScreen() {
                       borderRadius: colors.radius,
                       paddingVertical: 12,
                       paddingHorizontal: 14,
-                      opacity: streaming ? 0.5 : pressed ? 0.85 : 1,
+                      opacity: streaming || buildFinishing ? 0.5 : pressed ? 0.85 : 1,
                     })}
                   >
                     <Feather name="refresh-cw" size={16} color={colors.foreground} />
@@ -4257,7 +4285,7 @@ export default function CoachScreen() {
       >
         <Pressable
           onPress={pickImage}
-          disabled={streaming || pickingImage || attachedImages.length >= MAX_IMAGES}
+          disabled={streaming || buildFinishing || pickingImage || attachedImages.length >= MAX_IMAGES}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
@@ -4268,7 +4296,7 @@ export default function CoachScreen() {
             alignItems: "center",
             justifyContent: "center",
             opacity:
-              pressed || streaming || attachedImages.length >= MAX_IMAGES ? 0.6 : 1,
+              pressed || streaming || buildFinishing || attachedImages.length >= MAX_IMAGES ? 0.6 : 1,
           })}
         >
           {pickingImage ? (
@@ -4302,21 +4330,24 @@ export default function CoachScreen() {
         />
         <Pressable
           onPress={() => send(input)}
-          disabled={(!input.trim() && !attachedImages.length) || streaming}
+          disabled={(!input.trim() && !attachedImages.length) || streaming || buildFinishing}
           style={({ pressed }) => ({
             width: 44,
             height: 44,
             borderRadius: 22,
             backgroundColor:
-              (!input.trim() && !attachedImages.length) || streaming ? colors.card : colors.primary,
-            borderWidth: (!input.trim() && !attachedImages.length) || streaming ? 1 : 0,
+              (!input.trim() && !attachedImages.length) || streaming || buildFinishing
+                ? colors.card
+                : colors.primary,
+            borderWidth:
+              (!input.trim() && !attachedImages.length) || streaming || buildFinishing ? 1 : 0,
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          {streaming ? (
+          {streaming || buildFinishing ? (
             <ActivityIndicator color={colors.mutedForeground} size="small" />
           ) : (
             <Feather

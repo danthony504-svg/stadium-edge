@@ -72,6 +72,8 @@ const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
   { label: "Answer ready", doneAt: 8 },
 ];
 
+export type ParlayBuildPhase = "context" | "board-scan" | "stream" | "score";
+
 /**
  * A step-by-step "AI is analyzing real data" loading screen shown while the
  * Coach builds a parlay or analyzes a ticket. Shows the current stage, a
@@ -86,9 +88,11 @@ const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
 export function AnalysisProgress({
   mode = "build",
   legCount = 0,
+  buildPhase,
 }: {
   mode?: "build" | "analyze" | "ask";
   legCount?: number;
+  buildPhase?: ParlayBuildPhase;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
@@ -108,6 +112,15 @@ export function AnalysisProgress({
   const maxAuto = mode === "build" ? 8 : stageList.length - 1;
   const effectiveIndex = mode === "build" && legCount > 0 ? stageList.length - 1 : autoIndex;
   const target = targetList[effectiveIndex];
+  const phaseStage =
+    mode === "build" && buildPhase === "board-scan"
+      ? "Scanning every posted market on the live board…"
+      : mode === "build" && buildPhase === "context"
+        ? "Pulling live odds and props…"
+        : mode === "build" && buildPhase === "score"
+          ? "Finalizing your ticket…"
+          : null;
+  const displayStage = phaseStage ?? stageList[effectiveIndex];
 
   // Advance the stage on a steady cadence (capped at maxAuto).
   useEffect(() => {
@@ -116,6 +129,17 @@ export function AnalysisProgress({
     }, 1500);
     return () => clearInterval(id);
   }, [maxAuto]);
+
+  // Full-board scans can take a minute with no streamed PICK lines — never leave
+  // the bar frozen at 93% if cards are still being scored off-screen.
+  useEffect(() => {
+    if (mode !== "build" || legCount > 0) return;
+    if (autoIndex < 8) return;
+    const id = setTimeout(() => {
+      setAutoIndex(stageList.length - 1);
+    }, 12_000);
+    return () => clearTimeout(id);
+  }, [mode, legCount, autoIndex, stageList.length]);
 
   // Ease the displayed percentage toward the current stage's target so the bar
   // glides instead of jumping, and never looks frozen or goes backwards.
@@ -204,7 +228,7 @@ export function AnalysisProgress({
             fontSize: 14,
           }}
         >
-          {stageList[effectiveIndex]}
+          {displayStage}
         </Text>
         <Text
           style={{
