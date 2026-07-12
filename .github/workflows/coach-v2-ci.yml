@@ -10,6 +10,7 @@ on:
       - "lib/coach-sim/**"
       - "lib/coach-gates/**"
       - "lib/coach-grade/**"
+      - "lib/coach-scan/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -21,6 +22,7 @@ on:
       - "lib/coach-sim/**"
       - "lib/coach-gates/**"
       - "lib/coach-grade/**"
+      - "lib/coach-scan/**"
       - "tsconfig.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/coach-v2-ci.yml"
@@ -108,3 +110,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @workspace/coach-grade run typecheck
       - run: pnpm --filter @workspace/coach-grade run test
+
+  coach-scan:
+    runs-on: ubuntu-latest
+    needs: coach-grade
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workspace/coach-scan run typecheck
+      - run: pnpm --filter @workspace/coach-scan run test

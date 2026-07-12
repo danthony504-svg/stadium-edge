@@ -22,6 +22,9 @@
       "path": "./lib/coach-grade"
     },
     {
+      "path": "./lib/coach-scan"
+    },
+    {
       "path": "./lib/db"
     },
     {
