@@ -1,6 +1,7 @@
 // Progressive board prop sim — fast-rank all props, expand MC until enough qualify.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
+import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
 import { marketSupportsSimulation } from "./simMarketSupport.ts";
 import { buildStagedTicketFromScan, type BoardScoredLeg } from "./ticketStaging.ts";
 
@@ -14,10 +15,14 @@ export function isRealisticBoardPropCandidate(pick: ParsedPick): boolean {
   return marketSupportsSimulation(pick.market ?? "", pick);
 }
 
-/** How many scanned legs pass main/alt quality gates for this target. */
+/**
+ * How many unique legs can fill the ticket right now — ladder-collapsed so duplicate
+ * alt rungs on the same player/market do not inflate the count and stop prop sim early.
+ */
 export function countQualifiedBoardLegs(scored: BoardScoredLeg[], target: number): number {
-  const { breakdown } = buildStagedTicketFromScan(scored, target);
-  return breakdown.mainQualified + breakdown.altQualified;
+  const collapsed = collapseScoredLegsByMarketLadder(scored);
+  const { picks } = buildStagedTicketFromScan(collapsed, target);
+  return picks.length;
 }
 
 /** First prop-sim wave — wide enough to surface early qualifiers quickly. */
