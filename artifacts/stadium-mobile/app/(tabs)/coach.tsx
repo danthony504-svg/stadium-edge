@@ -105,6 +105,7 @@ import {
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
+import * as Updates from "expo-updates";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
@@ -910,6 +911,8 @@ export default function CoachScreen() {
   const [waiting, setWaiting] = useState(false);
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
+  const [buildProgressExpired, setBuildProgressExpired] = useState(false);
+  const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1043,10 +1046,37 @@ export default function CoachScreen() {
       setStreaming(false);
       setWaiting(false);
       setParlayBuildPhase("score");
+      setBuildProgressExpired(false);
+      if (buildProgressTimerRef.current) {
+        clearTimeout(buildProgressTimerRef.current);
+        buildProgressTimerRef.current = null;
+      }
       scrollToEnd(false);
     },
     [scrollToEnd],
   );
+
+  const armBuildProgressWatchdog = useCallback(() => {
+    if (buildProgressTimerRef.current) clearTimeout(buildProgressTimerRef.current);
+    setBuildProgressExpired(false);
+    buildProgressTimerRef.current = setTimeout(() => {
+      setBuildProgressExpired(true);
+      setStreaming(false);
+      setMessages((prev) => {
+        const copy = [...prev];
+        const last = copy[copy.length - 1];
+        if (last?.role === "assistant" && !(last.picks?.length)) {
+          copy[copy.length - 1] = {
+            ...last,
+            content:
+              "_Still scoring every market on the live board — your pick cards will appear in a moment._",
+          };
+        }
+        return copy;
+      });
+      scrollToEnd(false);
+    }, 25_000);
+  }, [scrollToEnd]);
 
   // Open the photo library and stash the chosen image as a pending attachment.
   // We downscale to <=1280px wide and JPEG-compress it so a phone screenshot
@@ -1423,6 +1453,7 @@ export default function CoachScreen() {
         if (isParlayBuild) {
           setBuildFinishing(true);
           setParlayBuildPhase("context");
+          armBuildProgressWatchdog();
         }
 
         // These are the same four pieces buildChatContext returns; in replay mode
@@ -3613,10 +3644,15 @@ export default function CoachScreen() {
           });
         }
       } finally {
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
         setBuildFinishing(false);
+        setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
         abortRef.current = null;
         scrollToEnd();
@@ -3629,6 +3665,7 @@ export default function CoachScreen() {
       buildFinishing,
       scrollToEnd,
       flashCoachTicketPicks,
+      armBuildProgressWatchdog,
       attachedImages,
       isSignedIn,
       modelStrengths,
@@ -3847,13 +3884,18 @@ export default function CoachScreen() {
     };
   }, []);
 
+  const coachBundleStamp = useMemo(() => {
+    const id = Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
+    return id.length > 10 ? id.slice(0, 8) : id;
+  }, []);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <AppHeader bottomGap={0}>
         <PageTitleRow
           icon="zap"
           title="AI Coach"
-          subtitle="Picks grounded in real odds — never invented"
+          subtitle={`Picks grounded in real odds — never invented · ${coachBundleStamp}`}
         />
       </AppHeader>
 
@@ -3884,6 +3926,7 @@ export default function CoachScreen() {
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
+              !buildProgressExpired &&
               i === messages.length - 1 &&
               !hasPicks &&
               (parlayBuildIntent ||
