@@ -511,6 +511,10 @@ function requestedLegCount(text: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isParlayBuildAsk(text: string): boolean {
+  return PARLAY_BUILD_RE.test(text) || requestedLegCount(text) > 0;
+}
+
 function appendUniqueNote(existing: string, addition: string): string {
   const next = addition.trim();
   if (!next) return existing;
@@ -954,6 +958,11 @@ export default function CoachScreen() {
   useEffect(() => {
     streamingRef.current = streaming;
   }, [streaming]);
+  const buildFinishingRef = useRef(false);
+  useEffect(() => {
+    buildFinishingRef.current = buildFinishing;
+  }, [buildFinishing]);
+  const sendGenerationRef = useRef(0);
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -1064,6 +1073,8 @@ export default function CoachScreen() {
     buildProgressTimerRef.current = setTimeout(() => {
       setBuildProgressExpired(true);
       setStreaming(false);
+      setBuildFinishing(false);
+      setWaiting(false);
       setMessages((prev) => {
         const copy = [...prev];
         const last = copy[copy.length - 1];
@@ -1155,24 +1166,33 @@ export default function CoachScreen() {
     ) => {
       const replay = opts?.replay ?? null;
       const trimmed = text.trim();
-      if (!excludedSportsHydratedRef.current) {
-        try {
-          const raw = await AsyncStorage.getItem(EXCLUDED_SPORTS_KEY);
-          if (raw) persistedExcludedSportsRef.current = new Set(JSON.parse(raw) as string[]);
-        } catch {
-          /* ignore corrupt storage */
-        }
-        excludedSportsHydratedRef.current = true;
-      }
-      // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
-      // replay the same ranked props and game-line walk order every tap.
-      const varietySeed = makeBuildId();
       const images = replay ? [] : attachedImages;
-      if ((!trimmed && !images.length) || ((streaming || buildFinishing) && !opts?.freshThread)) return;
-      if (opts?.freshThread) {
+      const parlayPreempt = isParlayBuildAsk(trimmed);
+      const mayInterrupt = !!opts?.freshThread || parlayPreempt;
+      if (
+        (!trimmed && !images.length) ||
+        ((streamingRef.current || buildFinishingRef.current) && !mayInterrupt)
+      ) {
+        return;
+      }
+
+      const sendGen = ++sendGenerationRef.current;
+
+      const resetInFlightBuild = () => {
         abortRef.current?.abort();
         simAbortRef.current?.abort();
-      }
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
+        setBuildFinishing(false);
+        setStreaming(false);
+        setWaiting(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+      };
+      if (mayInterrupt) resetInFlightBuild();
+
       // Drop the keyboard once a message is actually sent so the reply isn't
       // hidden behind it (covers the send button, suggested prompts, auto-send).
       Keyboard.dismiss();
@@ -1212,6 +1232,7 @@ export default function CoachScreen() {
         wantsAnalyzeSlip(trimmed) && legs.length
           ? legs.map((l) => ({ pick: l.pick, odds: l.odds, edge: l.edge }))
           : undefined;
+      if (sendGenerationRef.current !== sendGen) return;
       setMessages([
         ...history,
         { role: "assistant", content: "", ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}) },
@@ -1220,6 +1241,24 @@ export default function CoachScreen() {
       setStreaming(true);
       const releaseOtaBlock = blockOtaReload();
       scrollToEnd();
+
+      if (!excludedSportsHydratedRef.current) {
+        try {
+          const raw = await AsyncStorage.getItem(EXCLUDED_SPORTS_KEY);
+          if (raw) persistedExcludedSportsRef.current = new Set(JSON.parse(raw) as string[]);
+        } catch {
+          /* ignore corrupt storage */
+        }
+        excludedSportsHydratedRef.current = true;
+      }
+      if (sendGenerationRef.current !== sendGen) {
+        releaseOtaBlock();
+        return;
+      }
+
+      // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
+      // replay the same ranked props and game-line walk order every tap.
+      const varietySeed = makeBuildId();
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -1353,8 +1392,10 @@ export default function CoachScreen() {
         }
       } catch (e: any) {
         if (e?.name === "AbortError") {
+          if (sendGenerationRef.current !== sendGen) return;
           setWaiting(false);
           setStreaming(false);
+          setBuildFinishing(false);
           abortRef.current = null;
           releaseOtaBlock();
           return;
@@ -1459,7 +1500,7 @@ export default function CoachScreen() {
         // buildChatContext), capped at "Checking matchups". We jump to "Building
         // correlation" only once the data is actually in (below), and the render
         // promotes to "Finalizing parlay" once real PICK lines stream.
-        const isParlayBuild = PARLAY_BUILD_RE.test(trimmed) || requestedLegs > 0;
+        const isParlayBuild = isParlayBuildAsk(trimmed);
         if (isParlayBuild) {
           setBuildFinishing(true);
           setParlayBuildPhase("context");
@@ -3658,14 +3699,13 @@ export default function CoachScreen() {
             copy[copy.length - 1] = {
               role: "assistant",
               content: failMsg,
-              ...(PARLAY_BUILD_RE.test(trimmed) || requestedLegCount(trimmed) > 0
-                ? { retry: trimmed }
-                : {}),
+              ...(isParlayBuildAsk(trimmed) ? { retry: trimmed } : {}),
             };
             return copy;
           });
         }
       } finally {
+        if (sendGenerationRef.current !== sendGen) return;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -3891,8 +3931,8 @@ export default function CoachScreen() {
     const launch = takeCoachLaunch();
     const token = String(params.ts ?? autoMsg);
     if (autoSentRef.current === token) return;
-    if (streaming && !launch?.freshThread) return;
-    if (buildFinishing && !launch?.freshThread) return;
+    if (streaming && !launch?.freshThread && !isParlayBuildAsk(String(autoMsg))) return;
+    if (buildFinishing && !launch?.freshThread && !isParlayBuildAsk(String(autoMsg))) return;
     autoSentRef.current = token;
     send(String(autoMsg), {
       hideUserBubble: launch?.hideBubble ?? !!params.autoMsg,
@@ -3948,8 +3988,10 @@ export default function CoachScreen() {
             // A parlay BUILD is in flight when either the user explicitly asked to
             // build one (catches the early stream BEFORE any PICK line, so the
             // lead-in prose never flashes) or PICK lines have started arriving.
+            const priorUserText =
+              messages.slice(0, i).reverse().find((x) => x.role === "user")?.content ?? "";
             const parlayBuildIntent =
-              m.role === "assistant" && PARLAY_BUILD_RE.test(messages[i - 1]?.content || "");
+              m.role === "assistant" && isParlayBuildAsk(priorUserText);
             const isBuildingParlay =
               m.role === "assistant" &&
               streaming &&
@@ -4233,13 +4275,16 @@ export default function CoachScreen() {
                     borderColor: colors.border,
                     borderRadius: colors.radius,
                     padding: 14,
-                    opacity: pressed ? 0.85 : 1,
+                    opacity: streaming || buildFinishing ? 0.7 : pressed ? 0.85 : 1,
                   })}
                 >
                   <Feather name="zap" size={16} color={colors.accent} />
                   <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 14, flex: 1 }}>
                     {q.label}
                   </Text>
+                  {streaming || buildFinishing ? (
+                    <ActivityIndicator color={colors.mutedForeground} size="small" />
+                  ) : null}
                 </Pressable>
               ))}
             </View>
@@ -4400,24 +4445,31 @@ export default function CoachScreen() {
         />
         <Pressable
           onPress={() => send(input)}
-          disabled={(!input.trim() && !attachedImages.length) || streaming || buildFinishing}
+          disabled={
+            (!input.trim() && !attachedImages.length) ||
+            ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
+          }
           style={({ pressed }) => ({
             width: 44,
             height: 44,
             borderRadius: 22,
             backgroundColor:
-              (!input.trim() && !attachedImages.length) || streaming || buildFinishing
+              (!input.trim() && !attachedImages.length) ||
+              ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
                 ? colors.card
                 : colors.primary,
             borderWidth:
-              (!input.trim() && !attachedImages.length) || streaming || buildFinishing ? 1 : 0,
+              (!input.trim() && !attachedImages.length) ||
+              ((streaming || buildFinishing) && !isParlayBuildAsk(input.trim()))
+                ? 1
+                : 0,
             borderColor: colors.border,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.85 : 1,
           })}
         >
-          {streaming || buildFinishing ? (
+          {(streaming || buildFinishing) && !isParlayBuildAsk(input.trim()) ? (
             <ActivityIndicator color={colors.mutedForeground} size="small" />
           ) : (
             <Feather
