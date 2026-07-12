@@ -4856,7 +4856,6 @@ export default function CoachScreen() {
   const footerParlayProgress = useMemo(() => {
     if (!(buildFinishing || streaming || buildProgressExpired)) return false;
     const last = messages[messages.length - 1];
-    if (last?.picks?.length) return false;
     let parlayUserText = "";
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -4868,6 +4867,12 @@ export default function CoachScreen() {
       }
     }
     if (!parlayUserText) return false;
+    const target =
+      last?.ticketLegTarget ?? requestedLegCount(parlayUserText);
+    if (last?.picks?.length && target > 0 && last.picks.length < target) {
+      return buildFinishing || streaming;
+    }
+    if (last?.picks?.length) return false;
     // When the newest message is the user's parlay ask, show progress even if the
     // assistant placeholder was lost to a superseded-send race.
     return last?.role === "user";
@@ -5028,6 +5033,15 @@ export default function CoachScreen() {
               "";
             const parlayBuildIntent =
               m.role === "assistant" && !!(m.parlayBuild || isParlayBuildAsk(priorUserText));
+            const ticketLegTarget =
+              m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
+            const picksShortOfTarget =
+              hasPicks && ticketLegTarget > 0 && (m.picks?.length ?? 0) < ticketLegTarget;
+            const parlayScanInProgress =
+              i === messages.length - 1 &&
+              parlayBuildIntent &&
+              picksShortOfTarget &&
+              (buildFinishing || streaming);
             const deadBuildProse =
               m.role === "assistant" && DEAD_BUILD_PROSE_RE.test(m.content);
             const isBuildingParlay =
@@ -5049,6 +5063,10 @@ export default function CoachScreen() {
                   parlayBuildPhase !== "stream") ||
                 deadBuildProse) &&
               (parlayBuildIntent || deadBuildProse);
+            const parlayStillFilling =
+              m.role === "assistant" &&
+              i === messages.length - 1 &&
+              parlayScanInProgress;
             const parlayStalledEmpty =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -5220,7 +5238,7 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {isBuildingParlay || (parlayStillBuilding && !parlayBuildHung) ? (
+                {isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
@@ -5281,7 +5299,8 @@ export default function CoachScreen() {
                         picks={m.picks!}
                         legNote={m.legNote}
                         coachDetailNote={m.coachDetailNote}
-                        requestedLegs={m.ticketLegTarget}
+                        requestedLegs={ticketLegTarget > 0 ? ticketLegTarget : undefined}
+                        scanInProgress={parlayScanInProgress}
                       />
                     ) : null}
                     {m.picks!.length > 1 ? (

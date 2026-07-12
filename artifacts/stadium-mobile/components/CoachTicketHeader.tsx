@@ -20,6 +20,8 @@ type Props = {
   coachDetailNote?: string;
   /** When set and greater than pick count, shows a prominent shortfall banner. */
   requestedLegs?: number;
+  /** True while the board scan is still running — shows in-progress copy, not final shortfall. */
+  scanInProgress?: boolean;
 };
 
 function SummaryStat({
@@ -174,7 +176,13 @@ function GameLineDetailCard({ row }: { row: GameLineSummary }) {
   );
 }
 
-export function CoachTicketHeader({ picks, legNote, coachDetailNote, requestedLegs }: Props) {
+export function CoachTicketHeader({
+  picks,
+  legNote,
+  coachDetailNote,
+  requestedLegs,
+  scanInProgress,
+}: Props) {
   const colors = useColors();
   const [expanded, setExpanded] = useState(false);
   const { picks: trackedPicks } = usePickTracker();
@@ -185,10 +193,13 @@ export function CoachTicketHeader({ picks, legNote, coachDetailNote, requestedLe
   const summary = useMemo(() => summarizeCoachTicket(picks), [picks]);
   const shortfallLead = useMemo(() => {
     if (requestedLegs != null && requestedLegs > summary.pickCount) {
+      if (scanInProgress) {
+        return `You asked for **${requestedLegs}** legs — showing **${summary.pickCount}** while the full-board scan continues.`;
+      }
       return buildFixedLegCountShortfallLead(requestedLegs, summary.pickCount);
     }
     return notes.shortfall?.trim() ?? "";
-  }, [requestedLegs, summary.pickCount, notes.shortfall]);
+  }, [requestedLegs, scanInProgress, summary.pickCount, notes.shortfall]);
   const similar = useMemo(
     () => similarPickRecord(picks, trackedPicks),
     [picks, trackedPicks],
