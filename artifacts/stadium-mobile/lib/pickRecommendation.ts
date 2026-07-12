@@ -55,52 +55,16 @@ export function pickIsAiRecommended(
   return score.recommends;
 }
 
-/** Display label for pick card grade tile. */
-export function pickGradeDisplayLabel(
-  pick: RecommendablePick,
+/** Letter grade for a sim-graded leg on a ticket (main, alt, or reach fill). */
+export function pickQualifiesForTicketGrade(
+  pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
-): string | null {
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
-  if (!pickHasSimGrade(pick, score?.simHit)) return null;
-  if (
-    pick.ticketRole === "alt" &&
-    (qualifiesAltPick(pick, score ?? undefined) ||
-      qualifiesReachBoardPick(pick, score ?? undefined))
-  ) {
-    return score?.grade ?? null;
-  }
-  if (pickIsAiRecommended(pick, score ?? undefined)) return score?.grade ?? null;
-  return NOT_AI_RECOMMENDED;
-}
-
-export function pickGradeDisplayCaption(
-  pick: RecommendablePick & { simulationPending?: boolean },
-  score: FinalAiScore | null | undefined,
-): string {
-  if (!marketSupportsSimulation(pick.market ?? "", pick)) {
-    return "Simulation not available for this market yet";
-  }
-  if (pick.simulationPending) {
-    return "Running 10k simulation…";
-  }
-  if (!pickHasSimGrade(pick, score?.simHit)) {
-    return "Waiting for simulation result…";
-  }
-  if (
-    pick.ticketRole === "alt" ||
-    (pick as { propIsAlt?: boolean }).propIsAlt
-  ) {
-    if (qualifiesAltPick(pick, score ?? undefined)) {
-      return "Alternate pick — positive EV, edge, and sim grade";
-    }
-    if (qualifiesReachBoardPick(pick, score ?? undefined)) {
-      return "Reach fill — positive EV and edge on a sim-graded line";
-    }
-  }
-  if (pickIsAiRecommended(pick, score ?? undefined)) {
-    return "Passes sim, edge, EV, and confidence thresholds";
-  }
-  return "Did not pass AI recommendation thresholds";
+): boolean {
+  return (
+    pickIsAiRecommended(pick, score) ||
+    qualifiesAltPick(pick, score) ||
+    qualifiesReachBoardPick(pick, score)
+  );
 }
 
 /** Step-4 reach fill on a full-board scan — softer than main, honest vs junk. */
@@ -137,6 +101,51 @@ export function qualifiesAltPick(
   return true;
 }
 
+function gradeFromPickScore(
+  pick: RecommendablePick & { scores?: { grade?: string | null } | null },
+  score: FinalAiScore | null | undefined,
+): string | null {
+  return score?.grade ?? pick.scores?.grade ?? null;
+}
+
+/** Display label for pick card grade tile. */
+export function pickGradeDisplayLabel(
+  pick: RecommendablePick & { scores?: { grade?: string | null } | null },
+  score: FinalAiScore | null | undefined,
+): string | null {
+  if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
+  if (!pickHasSimGrade(pick, score?.simHit)) return null;
+  if (pickQualifiesForTicketGrade(pick, score ?? undefined)) {
+    return gradeFromPickScore(pick, score);
+  }
+  return NOT_AI_RECOMMENDED;
+}
+
+export function pickGradeDisplayCaption(
+  pick: RecommendablePick & { simulationPending?: boolean; scores?: { grade?: string | null } | null },
+  score: FinalAiScore | null | undefined,
+): string {
+  if (!marketSupportsSimulation(pick.market ?? "", pick)) {
+    return "Simulation not available for this market yet";
+  }
+  if (pick.simulationPending) {
+    return "Running 10k simulation…";
+  }
+  if (!pickHasSimGrade(pick, score?.simHit)) {
+    return "Waiting for simulation result…";
+  }
+  if (pickIsAiRecommended(pick, score ?? undefined)) {
+    return "Passes sim, edge, EV, and confidence thresholds";
+  }
+  if (qualifiesAltPick(pick, score ?? undefined)) {
+    return "Alternate pick — positive EV, edge, and sim grade";
+  }
+  if (qualifiesReachBoardPick(pick, score ?? undefined)) {
+    return "Reach fill — positive EV and edge on a sim-graded line";
+  }
+  return "Did not pass AI recommendation thresholds";
+}
+
 /** Main legs use the strict gate; staged alt legs use the softer alt gate. */
 export function pickPassesTicketGate(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
@@ -145,7 +154,11 @@ export function pickPassesTicketGate(
   if (pick.ticketRole === "alt") {
     return qualifiesAltPick(pick, score) || qualifiesReachBoardPick(pick, score);
   }
-  return pickIsAiRecommended(pick, score);
+  return (
+    pickIsAiRecommended(pick, score) ||
+    qualifiesAltPick(pick, score) ||
+    qualifiesReachBoardPick(pick, score)
+  );
 }
 
 /** Keep only legs that pass every AI recommendation threshold. */
@@ -177,7 +190,9 @@ export function filterTicketPicksPreservingTicket<
 >(picks: T[]): T[] {
   const filtered = filterTicketPicks(picks);
   if (filtered.length > 0 || picks.length === 0) return filtered;
-  const altFallback = picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  const altFallback = picks.filter(
+    (p) => qualifiesAltPick(p, p.finalAiScore) || qualifiesReachBoardPick(p, p.finalAiScore),
+  );
   if (altFallback.length > 0) return altFallback;
   return [];
 }

@@ -251,3 +251,24 @@ test("qualifiesReachBoardPick accepts C-grade sim lines below alt bar", () => {
     "Reach fill — positive EV and edge on a sim-graded line",
   );
 });
+
+test("pickGradeDisplayLabel shows letter grade for reach-qualified plus-money ML", () => {
+  const score = {
+    composite: 6,
+    grade: "B-",
+    confidencePct: 58,
+    edgePct: 2.5,
+    simHit: 0.52,
+    simAligned: false,
+    highRiskValuePlay: false,
+    recommends: false,
+    factors: [],
+    rubric: { composite: 6, grade: "B-", confidencePct: 58, edgePct: 2.5, scores: {} as never },
+  };
+  const pick = { market: "Moneyline", sport: "mlb", odds: 110, ticketRole: "main" as const };
+  assert.equal(pickGradeDisplayLabel(pick, score), "B-");
+  assert.equal(
+    pickGradeDisplayCaption(pick, score),
+    "Alternate pick — positive EV, edge, and sim grade",
+  );
+});
