@@ -107,14 +107,19 @@ export function AnalysisProgress({
 
   // In build mode the auto-timer holds below the penultimate stage during the
   // long context/board-scan fetch, then advances through grading while the scan
-  // runs. Finalize only when legCount > 0 (real pick cards or scored partial).
+  // runs. During board-scan with no pick cards yet, cap at stage 7 (~84%) so we
+  // never show 93% / "Final ticket ready" while sims are still running.
+  const boardScanWaiting =
+    mode === "build" && buildPhase === "board-scan" && legCount === 0;
   const maxAuto =
     mode === "build"
       ? legCount > 0
         ? stageList.length - 1
-        : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
-          ? 8
-          : 6
+        : boardScanWaiting
+          ? 7
+          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
+            ? 8
+            : 6
       : stageList.length - 1;
   const effectiveIndex =
     mode === "build" && legCount > 0
@@ -191,7 +196,10 @@ export function AnalysisProgress({
 
   const displayPct = Math.round(pct);
   // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = checklist.findIndex((c) => effectiveIndex < c.doneAt);
+  const activeChecklist = checklist.findIndex((c) => {
+    if (boardScanWaiting && c.label === "Final ticket ready") return false;
+    return effectiveIndex < c.doneAt;
+  });
 
   return (
     <View

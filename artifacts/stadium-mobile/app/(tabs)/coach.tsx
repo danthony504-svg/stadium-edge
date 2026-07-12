@@ -40,6 +40,7 @@ import {
   ALT_BACKFILL_ORDER,
   PERIOD_BACKFILL_ORDER,
   GENERIC_BACKFILL_ORDER,
+  FULL_REACH_GAME_ORDER,
   type ParsedPick,
   type AltRungBias,
 } from "@/components/PickCard";
@@ -993,6 +994,7 @@ export default function CoachScreen() {
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const boardScanFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A photo the user has attached (bet slip / sportsbook screenshot) but not yet
@@ -1303,16 +1305,64 @@ export default function CoachScreen() {
     [patchInstantBoardScanTicket],
   );
 
+  const clearBoardScanFlashWatchdog = useCallback(() => {
+    if (boardScanFlashTimerRef.current) {
+      clearTimeout(boardScanFlashTimerRef.current);
+      boardScanFlashTimerRef.current = null;
+    }
+  }, []);
+
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
-      if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
+      if (partial.picks.length) {
+        setBoardScanPartialLegs(partial.picks.length);
+        clearBoardScanFlashWatchdog();
+      }
       patchInstantBoardScanTicket(partial);
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, clearBoardScanFlashWatchdog],
+  );
+
+  /** If board scan runs long with no cards, flash posted lines from context. */
+  const armBoardScanFlashWatchdog = useCallback(
+    (sendGen: number, legTarget: number) => {
+      clearBoardScanFlashWatchdog();
+      boardScanFlashTimerRef.current = setTimeout(() => {
+        boardScanFlashTimerRef.current = null;
+        if (sendGenerationRef.current !== sendGen) return;
+        if ((boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
+        const enrich = flashEnrichRef.current;
+        const odds = enrich.realOdds ?? [];
+        if (!odds.length) return;
+        const target = Math.min(legTarget, MAX_LEGS);
+        const picks = backfillPicks([], odds, enrich.gameMeta ?? [], {
+          target,
+          order: FULL_REACH_GAME_ORDER,
+        });
+        if (!picks.length) return;
+        const flash: FullBoardScanResult = {
+          picks,
+          evalLinesByGame: new Map(),
+          gameSimulations: new Map(),
+          totalScanned: 0,
+          totalQualified: picks.length,
+          staging: {
+            mainQualified: 0,
+            altQualified: picks.length,
+            mainOnTicket: 0,
+            altOnTicket: picks.length,
+          },
+          note: "_Posted lines from tonight's board — refining as the full scan finishes._",
+        };
+        latestBoardScanRef.current = flash;
+        onBoardScanPartial(flash);
+      }, 45_000);
+    },
+    [clearBoardScanFlashWatchdog, onBoardScanPartial],
   );
 
   // Open the photo library and stash the chosen image as a pending attachment.
@@ -1409,6 +1459,7 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
+        clearBoardScanFlashWatchdog();
         setBuildFinishing(false);
         setStreaming(false);
         setWaiting(false);
@@ -1920,6 +1971,7 @@ export default function CoachScreen() {
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
             setParlayBuildPhase("board-scan");
+            armBoardScanFlashWatchdog(sendGen, legTarget);
             const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
               (s) => !excludedSports.has(s),
             );
@@ -4328,6 +4380,7 @@ export default function CoachScreen() {
           buildProgressTimerRef.current = null;
         }
         clearBuildStallWatchdog();
+        clearBoardScanFlashWatchdog();
         releaseOtaBlock();
         setWaiting(false);
         setStreaming(false);
@@ -4355,6 +4408,8 @@ export default function CoachScreen() {
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
+      armBoardScanFlashWatchdog,
+      clearBoardScanFlashWatchdog,
       onBoardScanPartial,
       attachedImages,
       isSignedIn,
