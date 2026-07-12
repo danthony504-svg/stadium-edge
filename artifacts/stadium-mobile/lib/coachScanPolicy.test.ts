@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   boardScanIsComplete,
   boardScanMeetsLegTarget,
+  ensureFixedLegShortfallLegNote,
   COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
   FILLER_BACKFILL_EDGE_NOTE,
@@ -109,6 +110,14 @@ test("boardScanIsComplete distinguishes partial previews from settled scans", ()
   assert.equal(boardScanIsComplete({ scanComplete: false }), false);
   assert.equal(boardScanIsComplete({}), false);
   assert.equal(boardScanIsComplete(null), false);
+});
+
+test("ensureFixedLegShortfallLegNote prepends lead when missing", () => {
+  const out = ensureFixedLegShortfallLegNote("", 9, 7);
+  assert.match(out, /asked for \*\*9\*\* legs/i);
+  assert.match(out, /only \*\*7\*\*/i);
+  const kept = ensureFixedLegShortfallLegNote(out, 9, 7);
+  assert.equal(kept, out);
 });
 
 test("shouldBlockUngradedParlayTopUp blocks fixed-leg and board-scan parlays", () => {

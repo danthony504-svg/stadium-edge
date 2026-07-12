@@ -24,6 +24,20 @@ export function buildFixedLegCountShortfallLead(requested: number, actual: numbe
   return `You asked for **${requested}** legs — only **${actual}** cleared the AI quality bar after every posted market was scanned. No ungraded filler was added.`;
 }
 
+/** Guarantee the shortfall lead is present when a fixed-leg ticket is short. */
+export function ensureFixedLegShortfallLegNote(
+  legNote: string,
+  requested: number,
+  actual: number,
+): string {
+  const lead = buildFixedLegCountShortfallLead(requested, actual);
+  if (!lead) return legNote.trim();
+  if (legNote.includes(lead) || /asked for (\*\*)?\d+(\*\*)? legs/i.test(legNote)) {
+    return legNote.trim();
+  }
+  return legNote.trim() ? `${lead}\n\n${legNote.trim()}` : lead;
+}
+
 /** Fixed leg-count parlay (3, 5, 6, 10, 15, …) — full-board scan + staged alt promotion. */
 export function isFixedLegCountParlay(requestedLegs: number): boolean {
   return requestedLegs >= 3;

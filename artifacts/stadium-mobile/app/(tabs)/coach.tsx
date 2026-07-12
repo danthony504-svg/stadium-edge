@@ -120,6 +120,8 @@ import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
   boardScanMeetsLegTarget,
+  buildFixedLegCountShortfallLead,
+  ensureFixedLegShortfallLegNote,
   shouldAllowReachCountBackfill,
   shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
@@ -250,6 +252,8 @@ type UIMessage = {
   apiContent?: string;
   /** Parlay build in flight — survives even if the user bubble is hidden. */
   parlayBuild?: boolean;
+  /** Requested leg count for this ticket — drives visible shortfall copy in the header. */
+  ticketLegTarget?: number;
 };
 
 type StatCardResult = {
@@ -1256,7 +1260,17 @@ export default function CoachScreen() {
       const ticket = boardScanPartialToTicket(partial, enrichOverride);
       if (!ticket.length) return;
       latestBoardScanRef.current = partial;
-      deliverCoachTicket(ticket, partial.note);
+      const legTarget =
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+      let legNote = partial.note;
+      if (legTarget > ticket.length) {
+        legNote = boardScanIsComplete(partial)
+          ? ensureFixedLegShortfallLegNote(partial.note, legTarget, ticket.length)
+          : buildFixedLegCountShortfallLead(legTarget, ticket.length) ||
+            `You asked for **${legTarget}** legs — showing **${ticket.length}** while the full-board scan continues.`;
+      }
+      deliverCoachTicket(ticket, legNote);
     },
     [boardScanPartialToTicket, deliverCoachTicket],
   );
@@ -1539,7 +1553,13 @@ export default function CoachScreen() {
           content: "",
           ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}),
           ...(openingParlayBuild ? { parlayBuild: true } : {}),
-          ...(openingPicks?.length ? { picks: openingPicks, legNote: openingLegNote } : {}),
+          ...(openingPicks?.length
+            ? {
+                picks: openingPicks,
+                legNote: openingLegNote,
+                ...(earlyLegTarget > 0 ? { ticketLegTarget: earlyLegTarget } : {}),
+              }
+            : {}),
         },
       ]);
       if (openingPicks?.length) {
@@ -2023,7 +2043,13 @@ export default function CoachScreen() {
               ? readSlatePreAnalysisSeed({ legs: legTarget, sport: streamSlateSport })
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
-            preBoardScan = preAnalysisSeed.boardScan;
+            const seedMeetsBuildTarget = boardScanMeetsLegTarget(preAnalysisSeed.boardScan, buildLegs);
+            preBoardScan = {
+              ...preAnalysisSeed.boardScan,
+              scanComplete: seedMeetsBuildTarget
+                ? (preAnalysisSeed.boardScan.scanComplete ?? true)
+                : false,
+            };
             flashEnrichRef.current = {
               realOdds: preAnalysisSeed.built.context.realOdds,
               propPool: preAnalysisSeed.built.propPool,
@@ -4133,6 +4159,9 @@ export default function CoachScreen() {
           }
         }
         legNote = dedupeLegNoteParagraphs(picks.length > 0 ? legNoteForCards : legNote);
+        if (picks.length > 0 && ticketTarget > picks.length) {
+          legNote = ensureFixedLegShortfallLegNote(legNote, ticketTarget, picks.length);
+        }
         // Never leave an empty, invisible assistant bubble. A parlay reply renders
         // blank when the model emitted PICK lines but NONE resolved to a real odds
         // entry (board thin / between updates): the cards are empty AND
@@ -4231,6 +4260,7 @@ export default function CoachScreen() {
             content: outPicks.length > 0 ? "" : finalContent,
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
+            ...(ticketTarget > 0 && outPicks.length > 0 ? { ticketLegTarget: ticketTarget } : {}),
             ...(picks.length > 0 && coachDetailNote.trim()
               ? { coachDetailNote: coachDetailNote.trim() }
               : {}),
@@ -5200,6 +5230,7 @@ export default function CoachScreen() {
                         picks={m.picks!}
                         legNote={m.legNote}
                         coachDetailNote={m.coachDetailNote}
+                        requestedLegs={m.ticketLegTarget}
                       />
                     ) : null}
                     {m.picks!.length > 1 ? (
