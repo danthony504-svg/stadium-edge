@@ -37,6 +37,9 @@
       "path": "./lib/coach-ticket"
     },
     {
+      "path": "./lib/coach-cache"
+    },
+    {
       "path": "./lib/db"
     },
     {

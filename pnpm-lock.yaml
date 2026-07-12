@@ -831,6 +831,22 @@ importers:
         specifier: 'catalog:'
         version: 25.6.2
 
+  lib/coach-cache:
+    dependencies:
+      '@workspace/coach-rank':
+        specifier: workspace:*
+        version: link:../coach-rank
+      '@workspace/coach-ticket':
+        specifier: workspace:*
+        version: link:../coach-ticket
+      '@workspace/coach-types':
+        specifier: workspace:*
+        version: link:../coach-types
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.6.2
+
   lib/coach-data:
     dependencies:
       '@workspace/coach-types':
