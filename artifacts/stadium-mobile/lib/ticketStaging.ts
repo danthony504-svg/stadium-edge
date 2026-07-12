@@ -7,6 +7,7 @@ import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { pickIsAiRecommended, qualifiesAltPick } from "./pickRecommendation.ts";
+import { propQualifiesForTicketFill } from "./propHolisticRecommendation.ts";
 
 function pickRank(p: ParsedPick): number {
   return p.finalAiScore?.composite ?? p.scores?.composite ?? 0;
@@ -58,6 +59,20 @@ export function boardLegPoolRole(
   }
   if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
   if (qualifiesAltPick(pick, score ?? undefined)) return "alt";
+  if (
+    pick.isProp &&
+    score?.propHolistic &&
+    propQualifiesForTicketFill(pick, score.propHolistic, {
+      edgePct: score.edgePct,
+      simHit: score.simHit,
+      odds: pick.odds,
+    })
+  ) {
+    return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
+  }
+  if (pick.isProp && qualifiesAltPick(pick, score ?? undefined)) {
+    return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
+  }
   return null;
 }
 
@@ -133,7 +148,14 @@ function applyCapAndBackfillToTarget(
   if (current.length >= target) return current.slice(0, target);
 
   const used = new Set(current.map(pickLegFingerprint));
-  const ranked = [...pool].sort((a, b) => b.rankScore - a.rankScore);
+  const thinOnTicket = current.filter((p) => p.isProp && isThinPropStatMarket(p.market)).length;
+  const maxThin = maxLegsPerThinStatMarket(target);
+  const ranked = [...pool].sort((a, b) => {
+    const aThin = a.pick.isProp && isThinPropStatMarket(a.pick.market) ? 1 : 0;
+    const bThin = b.pick.isProp && isThinPropStatMarket(b.pick.market) ? 1 : 0;
+    if (thinOnTicket >= maxThin && aThin !== bThin) return aThin - bThin;
+    return b.rankScore - a.rankScore;
+  });
 
   for (const row of ranked) {
     if (current.length >= target) break;

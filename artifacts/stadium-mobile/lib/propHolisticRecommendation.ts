@@ -64,7 +64,9 @@ export const PROP_HOLISTIC_WEIGHTS: Record<PropHolisticFactorKey, number> = {
 };
 
 export const PROP_HOLISTIC_MIN_GRADE = "B+";
-export const PROP_HOLISTIC_MIN_COVERAGE = 0.5;
+/** Advisory coverage target — missing factors penalize confidence instead of hard-blocking. */
+export const PROP_HOLISTIC_MIN_COVERAGE = 0.35;
+export const PROP_HOLISTIC_TICKET_FILL_MIN_GRADE = "B-";
 export const CONFIDENCE_PENALTY_PER_MISSING = 5;
 
 const GRADE_RANK: Record<string, number> = {
@@ -480,7 +482,6 @@ export function propHolisticRecommends(
   if ((opts.edgePct ?? 0) <= 0) return false;
   if (gradeRank(holistic.grade) < gradeRank(PROP_HOLISTIC_MIN_GRADE)) return false;
   if ((holistic.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
-  if (holistic.coveragePct < PROP_HOLISTIC_MIN_COVERAGE * 100) return false;
   if (holistic.composite == null) return false;
 
   if (opts.simHit != null && opts.odds != null) {
@@ -498,12 +499,41 @@ export function propHolisticRecommends(
       f.key !== "sportsbookValue",
   );
 
+  const strongContextCount = contextFactors.filter((f) => (f.score ?? 0) >= 6).length;
   const strongContext =
-    contextFactors.filter((f) => (f.score ?? 0) >= 6).length >= 2;
+    strongContextCount >= 2 ||
+    (strongContextCount >= 1 && (holistic.composite ?? 0) >= 7.5);
   const simSupports = (simFactor?.score ?? 0) >= 5.8;
   const valueSupports = (valueFactor?.score ?? 0) >= 5.5;
 
   return strongContext && simSupports && valueSupports;
+}
+
+/** Softer bar for filling fixed-leg tickets when strict AI Recommended pool is short. */
+export function propQualifiesForTicketFill(
+  pick: ParsedPick,
+  holistic: PropHolisticScore,
+  opts: {
+    edgePct?: number | null;
+    simHit?: number | null;
+    odds?: number | null;
+  },
+): boolean {
+  if (!pick.isProp) return false;
+  if (!pickHasSimGrade(pick, opts.simHit)) return false;
+  if ((opts.edgePct ?? 0) <= 0) return false;
+  if ((holistic.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (gradeRank(holistic.grade) < gradeRank(PROP_HOLISTIC_TICKET_FILL_MIN_GRADE)) return false;
+  if (holistic.composite == null) return false;
+
+  if (opts.simHit != null && opts.odds != null) {
+    const ev = simEvPct(opts.simHit, opts.odds);
+    if (ev != null && ev <= 0) return false;
+  }
+
+  const simFactor = holistic.factors.find((f) => f.key === "simulation");
+  const valueFactor = holistic.factors.find((f) => f.key === "sportsbookValue");
+  return (simFactor?.score ?? 0) >= 5.5 && (valueFactor?.score ?? 0) >= 5.2;
 }
 
 export function propHolisticRankScore(holistic: PropHolisticScore, edgePct?: number | null): number {

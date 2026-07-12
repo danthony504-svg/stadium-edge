@@ -108,7 +108,7 @@ test("prop holistic recommends strongest opportunities not sim-only edges", () =
   assert.ok((holistic.composite ?? 0) >= 7.5);
 });
 
-test("sim-positive prop with thin context fails holistic gate", () => {
+test("sim-positive prop with thin context fails strict AI gate but may fill ticket", () => {
   const holistic = buildPropHolisticScore({
     sport: "nba",
     marketKey: "player_points",

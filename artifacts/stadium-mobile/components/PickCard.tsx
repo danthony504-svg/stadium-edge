@@ -897,10 +897,17 @@ export function PickCard({
 
       <LineLadder pick={pick} />
 
-      {hideReadout ? null : pick.scores ? (
+      {hideReadout ? null : pick.scores || pick.finalAiScore?.rubric ? (
         <ScoreBreakdown
-          data={pick.scores}
+          data={{
+            ...(pick.finalAiScore?.rubric ?? pick.scores!),
+            composite: pick.finalAiScore?.composite ?? pick.scores?.composite ?? null,
+            grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
+            confidencePct: pick.finalAiScore?.confidencePct ?? pick.scores?.confidencePct ?? null,
+            edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
+          }}
           variant="compact"
+          propHolistic={pick.isProp ? pick.finalAiScore?.propHolistic : undefined}
           simulationPending={pick.simulationPending}
           simGradePending={
             marketSupportsSimulation(pick.market ?? "", pick) &&

@@ -5,28 +5,14 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
-// Renders the 6-component pick rubric (Matchup / Trend / Line Value / Injury /
-// Line-Shopping / Model Sim) plus the combined AI Grade, Confidence, and Edge %
-// up into. EVERY value here is real or honestly absent: a sub-score the surface
-// could not ground shows "no data" with an empty track, and the header omits
-// Edge when there is no real betting edge to report. Nothing is fabricated.
-//
-// `variant="full"` (detail pages) shows the header tiles + all five labeled bars.
-// `variant="compact"` (Coach / Props / Slip cards) shows just the header tiles +
-// a thin five-segment strip, and renders nothing at all when the pick cannot be
-// graded — keeping cards clean rather than showing an empty rubric.
-
-const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof typeof Feather.glyphMap }> = [
-  { key: "matchup", label: "Matchup", icon: "users" },
-  { key: "trend", label: "Trend", icon: "trending-up" },
-  { key: "lineValue", label: "Line Value", icon: "tag" },
-  { key: "injury", label: "Injury Impact", icon: "activity" },
-  { key: "lineShopping", label: "Line Shopping", icon: "shopping-cart" },
-  { key: "simulation", label: "Model Sim", icon: "cpu" },
-];
+// Renders the pick rubric plus combined AI Grade, Confidence, and Edge %.
+// For player props with a holistic score, the compact strip shows all nine
+// contextual factors (form, matchup, opponent, injury, minutes, weather, line
+// move, value, sim) — missing signals render dim rather than disappearing.
 
 function useScoreColor() {
   const colors = useColors();
@@ -39,6 +25,80 @@ function useScoreColor() {
           ? colors.primary
           : colors.mutedForeground;
 }
+
+const HOLISTIC_STRIP: Array<{ key: string; label: string }> = [
+  { key: "recentForm", label: "Form" },
+  { key: "matchup", label: "Match" },
+  { key: "opponentTendency", label: "Opp" },
+  { key: "injury", label: "Inj" },
+  { key: "playingTime", label: "Min" },
+  { key: "weather", label: "Wx" },
+  { key: "lineMovement", label: "Move" },
+  { key: "sportsbookValue", label: "Value" },
+  { key: "simulation", label: "Sim" },
+];
+
+function HolisticFactorStrip({ holistic }: { holistic: PropHolisticScore }) {
+  const colors = useColors();
+  const scoreColor = useScoreColor();
+  const factors = holistic.factors;
+  return (
+    <View style={{ gap: 5 }}>
+      <View style={{ flexDirection: "row", gap: 3 }}>
+        {HOLISTIC_STRIP.map((slot) => {
+          const f = factors.find((x) => x.key === slot.key);
+          const applicable = f?.applicable ?? true;
+          if (!applicable) {
+            return <View key={slot.key} style={{ flex: 1 }} />;
+          }
+          const present = f?.present && f.score != null;
+          const s = f?.score ?? null;
+          return (
+            <View key={slot.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
+              <View
+                style={{
+                  width: "100%",
+                  height: 4,
+                  borderRadius: 999,
+                  backgroundColor: present ? scoreColor(s) : colors.border,
+                  opacity: present ? 1 : 0.35,
+                }}
+              />
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.65}
+                style={{
+                  color: present ? colors.foreground : colors.mutedForeground,
+                  fontFamily: FONT.medium,
+                  fontSize: 8,
+                  opacity: present ? 1 : 0.55,
+                }}
+              >
+                {slot.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9.5 }}>
+        {holistic.coveragePct}% context grounded
+        {holistic.missingCount > 0
+          ? ` · ${holistic.missingCount} signal${holistic.missingCount === 1 ? "" : "s"} missing`
+          : ""}
+      </Text>
+    </View>
+  );
+}
+
+const FACTORS: Array<{ key: keyof PickSubScores; label: string; icon: keyof typeof Feather.glyphMap }> = [
+  { key: "matchup", label: "Matchup", icon: "users" },
+  { key: "trend", label: "Trend", icon: "trending-up" },
+  { key: "lineValue", label: "Line Value", icon: "tag" },
+  { key: "injury", label: "Injury Impact", icon: "activity" },
+  { key: "lineShopping", label: "Line Shopping", icon: "shopping-cart" },
+  { key: "simulation", label: "Model Sim", icon: "cpu" },
+];
 
 function MetricTile({
   icon,
@@ -228,6 +288,7 @@ export function ScoreBreakdown({
   simGradePending,
   gradeLabel,
   gradeCaption,
+  propHolistic,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
@@ -238,6 +299,8 @@ export function ScoreBreakdown({
   simGradePending?: boolean;
   gradeLabel?: string | null;
   gradeCaption?: string | null;
+  /** Holistic prop factor breakdown — replaces the legacy 6-factor strip on prop cards. */
+  propHolistic?: PropHolisticScore | null;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
@@ -267,32 +330,36 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        <View style={{ flexDirection: "row", gap: 4 }}>
-          {FACTORS.map((f) => {
-            const s = data.scores[f.key];
-            return (
-              <View key={f.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
-                <View
-                  style={{
-                    width: "100%",
-                    height: 4,
-                    borderRadius: 999,
-                    backgroundColor: s == null ? colors.border : scoreColor(s),
-                    opacity: s == null ? 0.5 : 1,
-                  }}
-                />
-                <Text
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                  style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
-                >
-                  {f.label.split(" ")[0]}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
+        {propHolistic ? (
+          <HolisticFactorStrip holistic={propHolistic} />
+        ) : (
+          <View style={{ flexDirection: "row", gap: 4 }}>
+            {FACTORS.map((f) => {
+              const s = data.scores[f.key];
+              return (
+                <View key={f.key} style={{ flex: 1, alignItems: "center", gap: 3 }}>
+                  <View
+                    style={{
+                      width: "100%",
+                      height: 4,
+                      borderRadius: 999,
+                      backgroundColor: s == null ? colors.border : scoreColor(s),
+                      opacity: s == null ? 0.5 : 1,
+                    }}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                    style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 8.5 }}
+                  >
+                    {f.label.split(" ")[0]}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
     );
   }
