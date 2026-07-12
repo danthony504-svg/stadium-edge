@@ -4,6 +4,7 @@ import {
   qualifiesServerAiLine,
   simHitForGameLine,
 } from "./coachSlateGameSims.js";
+import { stageServerTicketBalanced } from "./coachSlateBalancedStaging.js";
 import { buildSlateTicketsIndex, primaryBoardScanFromRanked } from "./coachSlateTickets.js";
 import type {
   BuiltChatContext,
@@ -279,45 +280,7 @@ function collapseServerRankedByLadder(
   return out;
 }
 
-function stageTicket(
-  ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }>,
-  target: number,
-): { picks: ParsedPick[]; breakdown: FullBoardScanResult["staging"] } {
-  const mains = ranked.filter((r) => !r.isAlt).sort((a, b) => b.rankScore - a.rankScore);
-  const alts = ranked.filter((r) => r.isAlt).sort((a, b) => b.rankScore - a.rankScore);
-  const used = new Set<string>();
-  const picks: ParsedPick[] = [];
-
-  for (const row of mains) {
-    const fp = legFingerprint(row.pick);
-    if (used.has(fp)) continue;
-    used.add(fp);
-    picks.push({ ...row.pick, ticketRole: "main" });
-    if (picks.length >= target) break;
-  }
-
-  for (const row of alts) {
-    if (picks.length >= target) break;
-    const fp = legFingerprint(row.pick);
-    if (used.has(fp)) continue;
-    used.add(fp);
-    picks.push({ ...row.pick, ticketRole: "alt" });
-    if (picks.length >= target) break;
-  }
-
-  const finalPicks = picks.slice(0, target);
-  return {
-    picks: finalPicks,
-    breakdown: {
-      mainQualified: mains.length,
-      altQualified: alts.length,
-      mainOnTicket: finalPicks.filter((p) => p.ticketRole === "main").length,
-      altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
-    },
-  };
-}
-
-/** Server board scan — 10k game + prop sims, all parlay sizes, no filler. */
+/** Server board scan — 10k game + prop sims, balanced category mix, no filler. */
 export async function runServerBoardScan(
   built: BuiltChatContext,
   opts?: {
@@ -338,12 +301,10 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const quickSims = await fetchQuickPropSims(propPool, 96);
-  let propSims = quickSims;
-  if (opts?.deepSim !== false) {
-    const deepSims = await fetchAllPropSimulations(propPool);
-    for (const [k, v] of deepSims) propSims.set(k, v);
-  }
+  const propSims =
+    opts?.deepSim !== false
+      ? await fetchAllPropSimulations(propPool)
+      : await fetchQuickPropSims(propPool, 96);
 
   const gameSimulations = await fetchServerGameSimulations(realOdds);
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
@@ -362,8 +323,8 @@ export async function runServerBoardScan(
     const now = Date.now();
     if (now - lastPartialAt < 3000) return;
     lastPartialAt = now;
-    const tickets = buildSlateTicketsIndex(ranked, scanCtx(), stageTicket);
-    const scan = primaryBoardScanFromRanked(ranked, scanCtx(), stageTicket);
+    const tickets = buildSlateTicketsIndex(ranked, scanCtx(), stageServerTicketBalanced);
+    const scan = primaryBoardScanFromRanked(ranked, scanCtx(), stageServerTicketBalanced);
     if (!scan.picks.length) return;
     await opts.onPartial(scan, tickets);
   };
@@ -403,8 +364,8 @@ export async function runServerBoardScan(
   const collapsed = collapseServerRankedByLadder(ranked);
   collapsed.sort((a, b) => b.rankScore - a.rankScore);
   const ctx = scanCtx();
-  const tickets = buildSlateTicketsIndex(collapsed, ctx, stageTicket);
-  const scan = primaryBoardScanFromRanked(collapsed, ctx, stageTicket);
+  const tickets = buildSlateTicketsIndex(collapsed, ctx, stageServerTicketBalanced);
+  const scan = primaryBoardScanFromRanked(collapsed, ctx, stageServerTicketBalanced);
 
   return { scan, tickets };
 }
