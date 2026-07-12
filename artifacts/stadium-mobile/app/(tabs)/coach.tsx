@@ -1158,14 +1158,14 @@ export default function CoachScreen() {
     [clearBuildStallWatchdog, scrollToEnd],
   );
 
-  const deliverBoardScanTicket = useCallback(
+  const boardScanPartialToTicket = useCallback(
     (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
-      if (!partial.picks.length) return;
-      latestBoardScanRef.current = partial;
+      if (!partial.picks.length) return [] as ParsedPick[];
       const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      const base = enrichOverride ?? flashEnrichRef.current;
       const enrich = {
-        ...(enrichOverride ?? flashEnrichRef.current),
-        realOdds: [...(enrichOverride ?? flashEnrichRef.current).realOdds, ...scanOdds],
+        ...base,
+        realOdds: [...base.realOdds, ...scanOdds],
       };
       const tagged = tagTicketRoles([...partial.picks]);
       let ticket = prepareBoardScanDelivery(tagged, enrich);
@@ -1174,10 +1174,55 @@ export default function CoachScreen() {
           .map(stripCoachTicketHrvp)
           .filter((p) => !p.highRiskValuePlay && !p.finalAiScore?.highRiskValuePlay);
       }
+      if (!ticket.length && tagged.length) {
+        ticket = tagged.map(stripCoachTicketHrvp).slice(0, MAX_LEGS);
+      }
+      return ticket;
+    },
+    [],
+  );
+
+  /** Flash board-scan legs onto the bubble without ending the in-flight build. */
+  const patchInstantBoardScanTicket = useCallback(
+    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+      const ticket = boardScanPartialToTicket(partial, enrichOverride);
+      if (!ticket.length) return false;
+      latestBoardScanRef.current = partial;
+      boardTicketSnapshotRef.current = ticket;
+      patchLastAssistantPicks(setMessages, ticket, partial.note);
+      setAiPicks(ticket);
+      captureFromCoach(ticket);
+      scrollToEnd(false);
+      return true;
+    },
+    [boardScanPartialToTicket, scrollToEnd],
+  );
+
+  const tryInstantSlateSeedDelivery = useCallback(
+    (legTarget: number) => {
+      if (legTarget < 6) return false;
+      const seed = readSlatePreAnalysisSeed();
+      if (!seed?.boardScan?.picks?.length) return false;
+      const enrich = {
+        realOdds: seed.built.context.realOdds,
+        propPool: seed.built.propPool,
+        gameMeta: seed.built.gameMeta,
+        realGames: seed.built.context.realGames,
+      };
+      flashEnrichRef.current = enrich;
+      return patchInstantBoardScanTicket(seed.boardScan, enrich);
+    },
+    [patchInstantBoardScanTicket],
+  );
+
+  const deliverBoardScanTicket = useCallback(
+    (partial: FullBoardScanResult, enrichOverride?: typeof flashEnrichRef.current) => {
+      const ticket = boardScanPartialToTicket(partial, enrichOverride);
       if (!ticket.length) return;
+      latestBoardScanRef.current = partial;
       deliverCoachTicket(ticket, partial.note);
     },
-    [deliverCoachTicket],
+    [boardScanPartialToTicket, deliverCoachTicket],
   );
 
   const flashCoachTicketPicks = useCallback(
@@ -1417,6 +1462,8 @@ export default function CoachScreen() {
         setParlayBuildPhase("context");
         armBuildProgressWatchdog();
         armBuildStallWatchdog(sendGen, trimmed);
+        const earlyLegTarget = requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed);
+        tryInstantSlateSeedDelivery(earlyLegTarget);
       }
       const releaseOtaBlock = blockOtaReload();
       scrollToEnd();
@@ -1853,6 +1900,13 @@ export default function CoachScreen() {
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
             preBoardScan = preAnalysisSeed.boardScan;
+            flashEnrichRef.current = {
+              realOdds: preAnalysisSeed.built.context.realOdds,
+              propPool: preAnalysisSeed.built.propPool,
+              gameMeta: preAnalysisSeed.built.gameMeta,
+              realGames: preAnalysisSeed.built.context.realGames,
+            };
+            patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
           }
           const rawBuilt = slipImageVerdictOnly
             ? {
@@ -2008,7 +2062,12 @@ export default function CoachScreen() {
               }
               }
             } catch {
-              preBoardScan = null;
+              preBoardScan =
+                latestBoardScanRef.current?.picks?.length
+                  ? latestBoardScanRef.current
+                  : preBoardScan?.picks?.length
+                    ? preBoardScan
+                    : null;
             }
           }
           const skipModelStreamForBoardScan =
@@ -2120,6 +2179,8 @@ export default function CoachScreen() {
                     ...[...scanForDelivery.evalLinesByGame.values()].flat(),
                   ],
                 });
+              } else {
+                tryInstantSlateSeedDelivery(legTarget);
               }
             } else {
               setParlayBuildPhase("stream");
@@ -4175,6 +4236,10 @@ export default function CoachScreen() {
           const partial = latestBoardScanRef.current;
           if (partial?.picks?.length && !boardTicketSnapshotRef.current?.length) {
             deliverBoardScanTicket(partial);
+          } else if (!boardTicketSnapshotRef.current?.length) {
+            tryInstantSlateSeedDelivery(
+              requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed),
+            );
           }
         }
         if (buildProgressTimerRef.current) {
@@ -4202,6 +4267,8 @@ export default function CoachScreen() {
       deliverCoachTicket,
       deliverBoardScanTicket,
       flashCoachTicketPicks,
+      tryInstantSlateSeedDelivery,
+      patchInstantBoardScanTicket,
       armBuildProgressWatchdog,
       armBuildStallWatchdog,
       clearBuildStallWatchdog,
