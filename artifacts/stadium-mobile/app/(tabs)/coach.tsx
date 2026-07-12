@@ -2578,6 +2578,17 @@ export default function CoachScreen() {
         const longshotAsk = /\b(?:long\s?shots?|longshots?|lottery)\b/i.test(trimmed);
         const reachFull =
           requestedLegs >= 6 && deepMultiLegParlay && !propsOnlyTicket && !explicitSingleGame;
+        // 3–5 leg board scans must still promote qualifying mains/alts to hit the ask —
+        // reachFull only fires at 6+, but fillReachTicketStaged was wrongly 6+ only too.
+        const boardScanReachFill =
+          fullBoardScanned &&
+          requestedLegs >= 3 &&
+          !propsOnlyTicket &&
+          !explicitSingleGame &&
+          !oddsThreshold &&
+          !confidenceThreshold &&
+          !altSign;
+        const reachFillEligible = reachFull || boardScanReachFill;
         const parlayRejections: ParlayLegReject[] = [];
         const composeFromBoard =
           !isAnalyze &&
@@ -3399,7 +3410,7 @@ export default function CoachScreen() {
         let reachStagedPromotedAlts = 0;
         if (
           !isAnalyze &&
-          reachFull &&
+          reachFillEligible &&
           picks.length < reachTarget &&
           !oddsThreshold &&
           !confidenceThreshold
@@ -3665,7 +3676,7 @@ export default function CoachScreen() {
         // Last reach pass — dedupe / side filters can leave 12+ leg asks short after sim.
         if (
           !isAnalyze &&
-          reachFull &&
+          reachFillEligible &&
           picks.length < reachTarget &&
           !oddsThreshold &&
           !confidenceThreshold
@@ -3830,7 +3841,7 @@ export default function CoachScreen() {
         let reachAltPromoted = reachStagedPromotedAlts;
         if (
           !isAnalyze &&
-          reachFull &&
+          reachFillEligible &&
           picks.length < reachTarget &&
           coachEvalLinesByGame &&
           gameSimulations.size > 0
@@ -4214,7 +4225,7 @@ export default function CoachScreen() {
             });
             next = tagTicketRoles(next);
             if (
-              reachFull &&
+              reachFillEligible &&
               next.length < reachTarget &&
               coachEvalLinesByGame &&
               gameSimulations.size > 0
