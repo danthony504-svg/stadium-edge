@@ -234,6 +234,7 @@ export function pickShowsAltBadge(pick: {
   isProp?: boolean;
   propIsAlt?: boolean;
 }): boolean {
+  if (isMainBoardPick(pick)) return false;
   return isAltBoardPick(pick) || isAltPropPick(pick);
 }
 
