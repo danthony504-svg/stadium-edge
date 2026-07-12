@@ -99,10 +99,58 @@ export function capThinStatMarketsOnTicket(picks: ParsedPick[], target: number):
 
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
 export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
-  if (target >= 3) {
-    return dedupeSameTeamGameLegsLite(selectCorrelationAwareBoardLegs(ranked, target)).slice(0, target);
+  if (target < 3) return selectGreedyBoardLegs(ranked, target);
+
+  const out: ParsedPick[] = [];
+  const usedFp = new Set<string>();
+  const sorted = [...ranked].sort((a, b) => b.rankScore - a.rankScore);
+
+  while (out.length < target) {
+    const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
+    if (!remaining.length) break;
+
+    const next = selectCorrelationAwareBoardLegs(remaining, 1);
+    if (!next.length) break;
+
+    const pick = next[0]!;
+    usedFp.add(pickLegFingerprint(pick));
+    const deduped = dedupeSameTeamGameLegsLite([...out, pick]);
+    if (deduped.length <= out.length) continue;
+    out.length = 0;
+    out.push(...deduped);
   }
-  return selectGreedyBoardLegs(ranked, target);
+
+  return out.slice(0, target);
+}
+
+/** After thin-market caps, backfill from the qualifying pool so fixed-leg asks don't lose a leg. */
+function applyCapAndBackfillToTarget(
+  picks: ParsedPick[],
+  target: number,
+  pool: BoardScoredLeg[],
+): ParsedPick[] {
+  let current = capThinStatMarketsOnTicket(picks, target);
+  if (current.length >= target) return current.slice(0, target);
+
+  const used = new Set(current.map(pickLegFingerprint));
+  const ranked = [...pool].sort((a, b) => b.rankScore - a.rankScore);
+
+  for (const row of ranked) {
+    if (current.length >= target) break;
+    const fp = pickLegFingerprint(row.pick);
+    if (used.has(fp)) continue;
+    const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+    if (!role) continue;
+    const trial = capThinStatMarketsOnTicket(
+      [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
+      target,
+    );
+    if (trial.length > current.length) {
+      current = trial;
+      used.add(fp);
+    }
+  }
+  return current;
 }
 
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
@@ -154,7 +202,7 @@ export function buildStagedTicketFromScan(
     allPicks = [...allPicks, ...extraMains];
   }
 
-  const finalPicks = capThinStatMarketsOnTicket(allPicks.slice(0, target), target);
+  const finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [...mains, ...alts]);
   return {
     picks: finalPicks,
     breakdown: {

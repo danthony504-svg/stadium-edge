@@ -164,6 +164,63 @@ test("capThinStatMarketsOnTicket limits stolen bases on 6+ leg tickets", () => {
   assert.equal(capped.length, 4);
 });
 
+test("buildStagedTicketFromScan backfills after thin-market cap drops a leg", () => {
+  const scored: BoardScoredLeg[] = [];
+  for (let i = 0; i < 3; i++) {
+    scored.push(
+      leg(
+        {
+          game: `SB${i} @ Opp${i}`,
+          market: "Stolen Bases",
+          pick: `Runner${i} Over 0.5 Stolen Bases`,
+          odds: 280 + i * 10,
+          isProp: true,
+          player: `Runner${i}`,
+        },
+        120 - i,
+        mainScore,
+      ),
+    );
+  }
+  for (let i = 0; i < 8; i++) {
+    scored.push(
+      leg(
+        {
+          game: `P${i} @ Q${i}`,
+          market: "Strikeouts",
+          pick: `Pitcher${i} Over ${4 + i}.5 Strikeouts`,
+          odds: 105 + i,
+          isProp: true,
+          player: `Pitcher${i}`,
+        },
+        110 - i,
+        mainScore,
+      ),
+    );
+  }
+  const { picks } = buildStagedTicketFromScan(scored, 9);
+  assert.equal(picks.length, 9);
+  assert.equal(picks.filter((p) => p.market === "Stolen Bases").length, 2);
+});
+
+test("buildStagedTicketFromScan backfills when same-team game-line dedupe shrinks selection", () => {
+  const scored: BoardScoredLeg[] = [
+    leg({ game: "A @ B", market: "Moneyline", pick: "A ML", odds: 120 }, 100, mainScore),
+    leg({ game: "A @ B", market: "Spread", pick: "A +1.5", odds: -110 }, 99, mainScore),
+  ];
+  for (let i = 0; i < 10; i++) {
+    scored.push(
+      leg(
+        { game: `M${i} @ N${i}`, market: "Total", pick: `Over ${8 + i}.5`, odds: -105 },
+        95 - i,
+        mainScore,
+      ),
+    );
+  }
+  const { picks } = buildStagedTicketFromScan(scored, 9);
+  assert.equal(picks.length, 9);
+});
+
 test("buildStagedTicketFromScan greedy-fills alts without correlation throttle", () => {
   const scored: BoardScoredLeg[] = [
     leg({ game: "A @ B", market: "Spread", pick: "B -3.5", odds: -110 }, 100, mainScore),
