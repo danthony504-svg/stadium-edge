@@ -127,6 +127,8 @@ import { blockOtaReload } from "@/lib/otaBlock";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
+  filterBettableOddsGames,
+  filterBettablePicks,
   filterOddsForSlateDay,
   filterPicksForSlateDay,
   mentionsPropIntent,
@@ -1770,7 +1772,7 @@ export default function CoachScreen() {
                 rows.flat(),
               ),
               Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                rows.flat(),
+                filterBettableOddsGames(rows.flat()),
               ),
               getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
                 games: [],
@@ -1863,7 +1865,7 @@ export default function CoachScreen() {
                         rows.flat(),
                       ),
                       Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                        rows.flat(),
+                        filterBettableOddsGames(rows.flat()),
                       ),
                       getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
                         games: [],
@@ -2108,7 +2110,7 @@ export default function CoachScreen() {
                 rows.flat(),
               ),
               Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-                rows.flat(),
+                filterBettableOddsGames(rows.flat()),
               ),
               getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({
                 games: [],
@@ -2182,6 +2184,7 @@ export default function CoachScreen() {
           context.realOdds,
           gameMeta,
         );
+        picks = filterBettablePicks(picks);
         if (!isAnalyze && picks.length > 0) {
           const minEarlyFlash = requestedLegs >= 6 ? 3 : 2;
           if (picks.length >= minEarlyFlash) {
@@ -2451,7 +2454,7 @@ export default function CoachScreen() {
               rows.flat(),
             ),
             Promise.all(scanSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
-              rows.flat(),
+              filterBettableOddsGames(rows.flat()),
             ),
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);

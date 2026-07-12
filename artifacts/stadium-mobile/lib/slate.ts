@@ -216,6 +216,27 @@ export function filterOddsForSlateDay<T extends { startsAt?: string | null }>(
   return entries;
 }
 
+/** Odds API games within each sport's coach bettable horizon (48h, 14d soccer). */
+export function filterBettableOddsGames<T extends { sport?: string; commenceTime?: string }>(
+  games: T[],
+): T[] {
+  return games.filter((g) => isPregameBettableForSport(g.commenceTime, g.sport ?? ""));
+}
+
+/** Prop pool rows within the same pregame horizon as coach context. */
+export function filterBettablePropPool<T extends { sport?: string; startsAt?: string | null }>(
+  pool: T[],
+): T[] {
+  return pool.filter((p) => isPregameBettableForSport(p.startsAt, p.sport ?? ""));
+}
+
+/** Resolved picks — drop far-future or already-started games. */
+export function filterBettablePicks<T extends { sport?: string; startsAt?: string | null }>(
+  picks: T[],
+): T[] {
+  return picks.filter((p) => isPregameBettableForSport(p.startsAt, p.sport ?? ""));
+}
+
 /** Sport-focused odds pool for parlay salvage (World Cup → soccer only, etc.). */
 export function filterSalvageOddsPool<T extends { sport?: string; startsAt?: string | null }>(
   odds: T[],

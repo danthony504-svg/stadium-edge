@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport } from "./slate.ts";
+import { mentionsPropIntent, wantsPropsOnly, effectiveBuildLegCount, explicitSingleGameIntent, tonightExhaustedNote, wantsTonightSlate, threadWantsTonightSlate, filterTonightSlatePicks, localDayDiff, wantsTomorrowSlate, threadWantsTomorrowSlate, slateDayFromThread, slateOddsLabel, filterTomorrowSlatePicks, filterPicksForSlateDay, wantsMlbPitcherSlateAsk, wantsPropPickRecommendation, wantsSoccerScorerGoalkeeperPicks, isPregameBettableForSport, filterBettableOddsGames, filterBettablePicks } from "./slate.ts";
 
 // A GENERIC parlay ask carries no prop words, so the today-only salvage and the
 // reach-count backfill are both allowed to fill from real GAME-LEVEL mains.
@@ -165,4 +165,26 @@ test("filterTonightSlatePicks drops tomorrow kickoffs", () => {
   ]);
   assert.equal(kept.length, 0);
   assert.equal(localDayDiff(tomorrow.toISOString()), 1);
+});
+
+test("filterBettableOddsGames drops games outside the 48h coach window", () => {
+  const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const september = new Date(Date.now() + 54 * 24 * 3600_000).toISOString();
+  const kept = filterBettableOddsGames([
+    { sport: "ncaaf", commenceTime: soon },
+    { sport: "ncaaf", commenceTime: september },
+  ]);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]?.commenceTime, soon);
+});
+
+test("filterBettablePicks drops far-future legs from a mixed ticket", () => {
+  const soon = new Date(Date.now() + 6 * 3600_000).toISOString();
+  const september = new Date(Date.now() + 54 * 24 * 3600_000).toISOString();
+  const kept = filterBettablePicks([
+    { sport: "wnba", startsAt: soon },
+    { sport: "ncaaf", startsAt: september },
+  ]);
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0]?.sport, "wnba");
 });

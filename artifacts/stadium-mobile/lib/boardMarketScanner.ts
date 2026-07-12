@@ -3,7 +3,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
-import { filterForExcludedSports } from "./chatContextPriority.ts";
+import { filterBettableOddsGames, filterBettablePropPool } from "./slate.ts";
 import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import {
   buildEvalLinesForAllGames,
@@ -375,16 +375,20 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
 }): Promise<FullBoardScanResult> {
-  const poolBase =
-    opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool;
-  const oddsGames = opts.excludedSports?.size
+  const poolBase = filterBettablePropPool(
+    opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
+  );
+  const oddsGamesRaw = opts.excludedSports?.size
     ? opts.oddsGames.filter((g) => !opts.excludedSports!.has(g.sport))
     : opts.oddsGames;
+  const oddsGames = filterBettableOddsGames(oddsGamesRaw);
 
   const pool =
     opts.espnGames?.length && poolBase.length < MIN_PROP_POOL_FOR_SKIP_FETCH
-      ? await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal)
-      : poolBase;
+      ? filterBettablePropPool(
+          await fetchFullBoardPropPool(oddsGames, opts.espnGames, poolBase, opts.signal),
+        )
+      : filterBettablePropPool(poolBase);
 
   let evalLinesByGame = new Map<string, RealOddsEntry[]>();
   for (const og of oddsGames) {
