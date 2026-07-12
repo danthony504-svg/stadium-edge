@@ -1042,8 +1042,9 @@ export default function CoachScreen() {
 
   const flashCoachTicketPicks = useCallback(
     (picks: ParsedPick[], legNote?: string) => {
-      if (!picks.length) return;
-      patchLastAssistantPicks(setMessages, tagTicketRoles(picks), legNote);
+      const gated = filterTicketPicks(tagTicketRoles(picks));
+      if (!gated.length) return;
+      patchLastAssistantPicks(setMessages, gated, legNote);
       setStreaming(false);
       setWaiting(false);
       setParlayBuildPhase("score");
@@ -1701,7 +1702,7 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000)),
               ]);
-              if (preBoardScan?.picks?.length) {
+              if (preBoardScan?.picks?.length && preBoardScan.picks.length >= 3) {
                 flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
               }
             } catch {
@@ -1806,7 +1807,7 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan) {
               full = "";
               setWaiting(false);
-              if (preBoardScan?.picks?.length) {
+              if (preBoardScan?.picks?.length && preBoardScan.picks.length >= 3) {
                 flashCoachTicketPicks(preBoardScan.picks, preBoardScan.note);
               }
             } else {
@@ -2215,6 +2216,8 @@ export default function CoachScreen() {
         // on an explicit count, a grounded ticket (picks.length > 0), and no active
         // odds-threshold lock (whose own filter must stay authoritative).
         const reachTarget = Math.min(legTarget, MAX_LEGS);
+        const ticketTarget =
+          requestedLegs > 0 ? requestedLegs : isParlayBuild ? reachTarget : 0;
         let reachPool = rotatePool(context.realOdds, `${trimmed}|${varietySeed}`);
         if (slateDay) reachPool = filterOddsForSlateDay(reachPool, slateDay);
         const forceBoardBuild =
@@ -3333,7 +3336,7 @@ export default function CoachScreen() {
         } else if (gameSimSupplementNote) {
           gameSimNote = gameSimSupplementNote;
         }
-        if (picks.length > 0 && requestedLegs > picks.length) {
+        if (picks.length > 0 && ticketTarget > picks.length) {
           const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
           const mainOnTicket = picks.length - altOnTicket;
           const stagingForNote = fullBoardScanMeta?.staging
@@ -3351,7 +3354,7 @@ export default function CoachScreen() {
           legNote =
             fullBoardScanned && fullBoardScanMeta
               ? buildFullBoardShortfallNote(
-                  requestedLegs,
+                  ticketTarget,
                   picks.length,
                   fullBoardScanMeta.totalScanned,
                   fullBoardScanMeta.totalQualified,
@@ -3359,11 +3362,11 @@ export default function CoachScreen() {
                   excludeSportsList,
                   stagingForNote,
                 )
-              : requestedLegs > MAX_LEGS && picks.length >= MAX_LEGS
-                ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${requestedLegs}-leg request.`
+              : ticketTarget > MAX_LEGS && picks.length >= MAX_LEGS
+                ? `Tickets cap at ${MAX_LEGS} legs — here's the strongest ${MAX_LEGS}-leg version of your ${ticketTarget}-leg request.`
                 : backupNote ||
                   buildQualifyingAltShortfallNote(
-                    requestedLegs,
+                    ticketTarget,
                     picks.length,
                     altOnTicket > 0 ? altOnTicket : backupPicks.length,
                     oddsPhrase,
@@ -3374,11 +3377,10 @@ export default function CoachScreen() {
         // failures only — never above rendered pick cards. Shortfall copy is the only
         // legNote we surface when cards are on screen.
         const legNoteForCards =
-          picks.length > 0 && fullBoardScanned && fullBoardScanMeta
-            ? requestedLegs > picks.length
-              ? legNote
-              : buildFullBoardShortfallNote(
-                  requestedLegs,
+          picks.length > 0 && ticketTarget > picks.length
+            ? fullBoardScanned && fullBoardScanMeta
+              ? buildFullBoardShortfallNote(
+                  ticketTarget,
                   picks.length,
                   fullBoardScanMeta.totalScanned,
                   fullBoardScanMeta.totalQualified,
@@ -3392,9 +3394,8 @@ export default function CoachScreen() {
                       }
                     : undefined,
                 )
-            : picks.length > 0 && requestedLegs > picks.length
-              ? legNote
-              : "";
+              : legNote
+            : "";
         const exclusionNote =
           excludedSports.size > 0
             ? `_Leagues excluded on this ticket: **${[...excludedSports].map((s) => s.toUpperCase()).join(", ")}** — say an league name to include it again (e.g. "15 leg MLB parlay")._`
@@ -3579,7 +3580,7 @@ export default function CoachScreen() {
               gameMeta,
             );
             let simLegNote: string | undefined;
-            if (requestedLegs > 0 && next.length < requestedLegs) {
+            if (ticketTarget > 0 && next.length < ticketTarget) {
               const altOnTicket = next.filter((p) => p.ticketRole === "alt").length;
               const mainOnTicket = next.length - altOnTicket;
               const oddsPhraseSim = slateDay ? `${slateLabel} real odds` : "the real odds";
@@ -3589,7 +3590,7 @@ export default function CoachScreen() {
               simLegNote =
                 fullBoardScanned && fullBoardScanMeta
                   ? buildFullBoardShortfallNote(
-                      requestedLegs,
+                      ticketTarget,
                       next.length,
                       fullBoardScanMeta.totalScanned,
                       fullBoardScanMeta.totalQualified,
@@ -3598,7 +3599,7 @@ export default function CoachScreen() {
                       stagingForSim,
                     )
                   : buildQualifyingAltShortfallNote(
-                      requestedLegs,
+                      ticketTarget,
                       next.length,
                       altOnTicket,
                       oddsPhraseSim,
