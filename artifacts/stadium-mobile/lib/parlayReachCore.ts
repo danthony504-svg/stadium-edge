@@ -130,6 +130,25 @@ export function promoteQualifyingStagedToTicket(
   return { picks: merged, promotedMains, promotedAlts };
 }
 
+/** Coach entry point — same module as promoteQualifyingStagedToTicket (no cross-file binding). */
+export function fillReachTicketStaged(
+  ticket: ParsedPick[],
+  target: number,
+  qualifyingMains: ParlayLegReject[],
+  qualifyingAlts: ParlayLegReject[],
+): { picks: ParsedPick[]; promotedMains: ParsedPick[]; promotedAlts: ParsedPick[] } {
+  return promoteQualifyingStagedToTicket(ticket, qualifyingMains, qualifyingAlts, target);
+}
+
+/** Coach entry point — same module as promoteQualifyingAltsToTicket. */
+export function fillReachTicketWithQualifyingAlts(
+  ticket: ParsedPick[],
+  target: number,
+  qualifying: ParlayLegReject[],
+): { picks: ParsedPick[]; promoted: ParsedPick[] } {
+  return promoteQualifyingAltsToTicket(ticket, qualifying, target);
+}
+
 /** Pull sim-graded alt rungs onto the main ticket when a reach-N ask is short. */
 export function promoteQualifyingAltsToTicket(
   ticket: ParsedPick[],

@@ -25,8 +25,6 @@ import {
   pickLegFingerprint,
   reachParlayMix,
   mergeParlayRejects,
-  promoteQualifyingAltsToTicket,
-  promoteQualifyingStagedToTicket,
   type ParlayLegReject,
 } from "./parlayReachCore.ts";
 
@@ -41,6 +39,8 @@ export {
   buildFullBoardShortfallNote,
   promoteQualifyingAltsToTicket,
   promoteQualifyingStagedToTicket,
+  fillReachTicketStaged,
+  fillReachTicketWithQualifyingAlts,
   selectParlayMainBackupPicks,
 } from "./parlayReachCore.ts";
 
@@ -264,25 +264,6 @@ function reasonForQualifyingAltProp(pick: ParsedPick): string {
     edge == null ? "?" : edge >= 0 ? `+${edge.toFixed(1)}` : edge.toFixed(1);
   const hitStr = hit != null ? `${Math.round(hit * 100)}%` : "?";
   return `${edgeStr}% edge · ${hitStr} sim hit · grade ${grade}`;
-}
-
-/** Promote qualifying alt game lines + alt props onto the main ticket. */
-export function fillReachTicketWithQualifyingAlts(
-  ticket: ParsedPick[],
-  target: number,
-  qualifying: ParlayLegReject[],
-): { picks: ParsedPick[]; promoted: ParsedPick[] } {
-  return promoteQualifyingAltsToTicket(ticket, qualifying, target);
-}
-
-/** Mains first, then qualifying alts — staged reach-N fill from the live board. */
-export function fillReachTicketStaged(
-  ticket: ParsedPick[],
-  target: number,
-  qualifyingMains: ParlayLegReject[],
-  qualifyingAlts: ParlayLegReject[],
-): { picks: ParsedPick[]; promotedMains: ParsedPick[]; promotedAlts: ParsedPick[] } {
-  return promoteQualifyingStagedToTicket(ticket, qualifyingMains, qualifyingAlts, target);
 }
 
 /** Collect mains + alts from eval lines and prop pool for staged reach fill. */

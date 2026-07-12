@@ -80,13 +80,13 @@ import {
 import {
   collectQualifyingGameLines,
   collectReachStagedQualifiers,
-  fillReachTicketStaged,
   replenishParlayToTarget,
   selectParlayBackupPicks,
   buildQualifyingAltShortfallNote,
   buildFullBoardShortfallNote,
   type ParlayLegReject,
 } from "@/lib/parlayReach";
+import { fillReachTicketStaged } from "@/lib/parlayReachCore";
 import { tagTicketRoles } from "@/lib/boardMarketScanner";
 import { parsedPickFromPoolEntry } from "@/lib/propSelection";
 import {
