@@ -543,13 +543,23 @@ export function propQualifiesForTicketFill(
 export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticScore | null {
   if (!pick.isProp && !pick.player) return null;
   const existing = pick.finalAiScore?.propHolistic;
-  if (existing) return existing;
+  if (existing?.factors?.some((f) => f.present)) return existing;
   const rubric =
     pick.finalAiScore?.rubric?.scores ??
     pick.scores?.scores ??
     undefined;
-  if (!rubric && pick.finalAiScore?.simHit == null) return null;
-  return buildPropHolisticScore({
+  const edgeFromText = (() => {
+    const raw = pick.edge ?? "";
+    const m = String(raw).match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+    return m ? Number(m[1]) : null;
+  })();
+  const edgePct =
+    pick.finalAiScore?.edgePct ??
+    pick.scores?.edgePct ??
+    (edgeFromText != null && Number.isFinite(edgeFromText) ? edgeFromText : null);
+  const simHit = pick.finalAiScore?.simHit ?? null;
+  if (!rubric && simHit == null && edgePct == null) return existing ?? null;
+  const synthesized = buildPropHolisticScore({
     sport: pick.sport,
     marketKey: pick.propMarketKey ?? pick.market,
     propSide: pick.propSide,
@@ -561,9 +571,13 @@ export function resolvePropHolisticForDisplay(pick: ParsedPick): PropHolisticSco
       lineShopping: null,
       simulation: null,
     },
-    edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
-    simHit: pick.finalAiScore?.simHit ?? null,
+    edgePct,
+    simHit,
   });
+  if (!existing) return synthesized;
+  const existingPresent = existing.factors.filter((f) => f.present).length;
+  const synthPresent = synthesized.factors.filter((f) => f.present).length;
+  return synthPresent > existingPresent ? synthesized : existing;
 }
 
 export function propHolisticTopDrivers(holistic: PropHolisticScore, max = 3): string {

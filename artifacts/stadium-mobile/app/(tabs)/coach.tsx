@@ -121,7 +121,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachDeliverBoardScanPicks, coachFlashBoardScanPreviewPicks, coachFlashTicketPicks, coachPreserveStagedBoardPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, prepareBoardScanDelivery, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
@@ -1218,6 +1218,8 @@ export default function CoachScreen() {
       };
       const tagged = tagTicketRoles([...partial.picks]);
       const rescored = rescoreCoachTicketPicks(tagged, enrich);
+      const preserved = coachPreserveStagedBoardPicks(rescored, enrich);
+      if (preserved.length > 0) return stripFillerBackfillPicks(preserved);
       const delivered = coachDeliverBoardScanPicks(rescored, enrich);
       if (delivered.length > 0) return stripFillerBackfillPicks(delivered);
       const board = coachBoardScanTicketPicks(rescored, enrich);

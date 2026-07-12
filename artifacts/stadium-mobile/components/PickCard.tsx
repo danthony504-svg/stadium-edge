@@ -903,6 +903,7 @@ export function PickCard({
             edgePct: pick.finalAiScore?.edgePct ?? pick.scores?.edgePct ?? null,
           }}
           variant="compact"
+          pick={pick}
           propHolistic={
             pick.isProp || pick.player
               ? resolvePropHolisticForDisplay(pick) ?? pick.finalAiScore?.propHolistic

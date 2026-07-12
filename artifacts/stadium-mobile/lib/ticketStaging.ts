@@ -192,6 +192,34 @@ function applyCapAndBackfillToTarget(
       used.add(fp);
     }
   }
+
+  // Second pass: prefer non-thin markets when SB cap left the ticket short.
+  if (current.length < target) {
+    const thinOnTicket = current.filter((p) => p.isProp && isThinPropStatMarket(p.market)).length;
+    const nonThin = ranked.filter((row) => {
+      const fp = pickLegFingerprint(row.pick);
+      if (used.has(fp)) return false;
+      if (thinOnTicket >= maxThin && row.pick.isProp && isThinPropStatMarket(row.pick.market)) {
+        return false;
+      }
+      return boardLegPoolRole(row.pick, row.pick.finalAiScore) != null;
+    });
+    for (const row of nonThin) {
+      if (current.length >= target) break;
+      const fp = pickLegFingerprint(row.pick);
+      if (used.has(fp)) continue;
+      const role = boardLegPoolRole(row.pick, row.pick.finalAiScore)!;
+      const trial = capThinStatMarketsOnTicket(
+        [...current, { ...row.pick, ticketRole: role, highRiskValuePlay: false }],
+        target,
+      );
+      if (trial.length > current.length) {
+        current = trial;
+        used.add(fp);
+      }
+    }
+  }
+
   return current;
 }
 

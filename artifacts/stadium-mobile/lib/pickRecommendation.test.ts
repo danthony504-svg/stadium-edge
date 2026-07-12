@@ -5,6 +5,7 @@ import {
   coachBoardScanTicketPicks,
   coachFlashBoardScanPreviewPicks,
   coachFlashTicketPicks,
+  coachPreserveStagedBoardPicks,
   finalizeCoachTicketPicks,
   prepareBoardScanDelivery,
   filterAiRecommendedPicks,
@@ -628,4 +629,40 @@ test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic con
     },
   };
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
+});
+
+test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
+  const staged = {
+    game: "Toronto Blue Jays @ San Diego Padres",
+    market: "Stolen Bases",
+    pick: "Fernando Tatis Jr. Over 0.5 Stolen Bases",
+    odds: 325,
+    isProp: true,
+    player: "Fernando Tatis Jr.",
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 54,
+      edgePct: 1.4,
+      simHit: 0.53,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 54, edgePct: 1.4, scores: {} as never },
+      propHolistic: {
+        composite: 5.8,
+        grade: "C+",
+        confidencePct: 48,
+        coveragePct: 25,
+        missingCount: 5,
+        applicableCount: 8,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  const out = coachPreserveStagedBoardPicks([staged], { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
 });

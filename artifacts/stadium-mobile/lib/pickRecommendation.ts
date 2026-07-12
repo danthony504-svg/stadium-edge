@@ -45,16 +45,25 @@ function normalizeBoardScanPickScore<
 
   if (pick.isProp && score.propHolistic) {
     const holistic = score.propHolistic;
-    const recommends = propHolisticGatePassed(pick, score);
+    // Holistic gate reads holistic.recommends — not the sim-only recommends flag.
+    const holisticPassed = propHolisticGatePassed(pick, {
+      ...score,
+      recommends: holistic.recommends ?? score.recommends,
+    });
     return {
       ...pick,
       finalAiScore: {
         ...score,
-        composite: holistic.composite ?? score.composite,
-        grade: holistic.grade ?? score.grade,
-        confidencePct: holistic.confidencePct ?? score.confidencePct,
-        recommends,
-        propHolistic: { ...holistic, recommends },
+        // Keep sim grade/confidence for staging delivery when holistic context is thin.
+        ...(holisticPassed
+          ? {
+              composite: holistic.composite ?? score.composite,
+              grade: holistic.grade ?? score.grade,
+              confidencePct: holistic.confidencePct ?? score.confidencePct,
+            }
+          : {}),
+        recommends: holisticPassed,
+        propHolistic: { ...holistic, recommends: holistic.recommends ?? false },
       },
     };
   }
@@ -316,6 +325,11 @@ export function pickGradeDisplayCaption(
   if (qualifiesAltPick(pick, score ?? undefined)) {
     return "Alternate pick — positive EV, edge, and sim grade";
   }
+  if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
+    return pick.isProp
+      ? "Sim + edge cleared — matchup and form still loading"
+      : "Sim-aligned with positive edge";
+  }
   return "Did not pass AI recommendation thresholds";
 }
 
@@ -324,6 +338,7 @@ export function pickPassesTicketGate(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
   score: FinalAiScore | null | undefined,
 ): boolean {
+  if (propSimEdgeStagingQualifies(pick, score)) return true;
   if (pick.ticketRole === "alt") {
     return qualifiesAltPick(pick, score);
   }
@@ -450,6 +465,30 @@ export function coachFlashBoardScanPreviewPicks<
   );
   if (awaitingSim.length > 0) return awaitingSim;
   return normalized.filter((p) => p.odds != null && Number.isFinite(p.odds) && !p.finalAiScore);
+}
+
+/** Deliver board-scan legs that already cleared staging — don't re-zero on stricter holistic gate. */
+export function coachPreserveStagedBoardPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    startsAt?: string | null;
+    sport?: string;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const normalized = normalizeBoardScanPicks(picks);
+  const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
+  const qualified = enriched.filter((p) => pickPassesTicketGate(p, p.finalAiScore));
+  const bettable = filterBettablePicks(qualified);
+  if (bettable.length > 0) return bettable;
+  if (qualified.length > 0) return qualified;
+  return filterBettablePicks(enriched);
 }
 
 /** Board-scan → ticket: strict AI gates first, then flash/finalize salvage (no filler). */

@@ -5,8 +5,9 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import type { CombinedPickScore, PickSubScores } from "@/lib/pickScore";
 import { confidenceTierLabel } from "@/lib/finalAiScore";
+import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
-import { propHolisticTopDrivers } from "@/lib/propHolisticRecommendation";
+import { propHolisticTopDrivers, resolvePropHolisticForDisplay } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
 import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
 
@@ -302,22 +303,28 @@ export function ScoreBreakdown({
   gradeLabel,
   gradeCaption,
   propHolistic,
+  pick,
 }: {
   data: CombinedPickScore;
   variant?: "full" | "compact";
   title?: string;
   note?: string;
   simulationPending?: boolean;
-  /** Hide AI Grade tile until 10k sim lands — no "Not yet AI graded" placeholder. */
   simGradePending?: boolean;
   gradeLabel?: string | null;
   gradeCaption?: string | null;
   /** Holistic prop factor breakdown — replaces the legacy 6-factor strip on prop cards. */
   propHolistic?: PropHolisticScore | null;
+  /** Source pick for synthesizing holistic factors when propHolistic is absent. */
+  pick?: ParsedPick;
 }) {
   const colors = useColors();
   const scoreColor = useScoreColor();
   const present = FACTORS.filter((f) => data.scores[f.key] != null).length;
+  const holisticDisplay =
+    pick?.isProp || pick?.player
+      ? propHolistic ?? resolvePropHolisticForDisplay(pick) ?? null
+      : propHolistic ?? null;
 
   // Compact (cards): show nothing when the pick can't be graded at all, so a
   // card never carries an empty rubric.
@@ -343,8 +350,8 @@ export function ScoreBreakdown({
             Simulation updating…
           </Text>
         ) : null}
-        {propHolistic ? (
-          <HolisticFactorStrip holistic={propHolistic} />
+        {holisticDisplay ? (
+          <HolisticFactorStrip holistic={holisticDisplay} />
         ) : (
           <View style={{ flexDirection: "row", gap: 4 }}>
             {FACTORS.map((f) => {
