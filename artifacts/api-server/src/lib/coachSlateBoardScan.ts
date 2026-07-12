@@ -1,4 +1,9 @@
 import { pooled, slateLoopbackPost } from "./coachSlateLoopback.js";
+import {
+  fetchServerGameSimulations,
+  qualifiesServerAiLine,
+  simHitForGameLine,
+} from "./coachSlateGameSims.js";
 import type {
   BuiltChatContext,
   CoachGameSimEntry,
@@ -216,7 +221,7 @@ function stageTicket(
   };
 }
 
-/** Server board scan — deep 10k sims on top props + game-line edge ranking. */
+/** Server board scan — 10k game + prop sims, AI Recommended gates, no filler. */
 export async function runServerBoardScan(
   built: BuiltChatContext,
   opts?: { deepSim?: boolean },
@@ -232,38 +237,52 @@ export async function runServerBoardScan(
     evalLinesByGame.set(o.game, rows);
   }
 
-  const quickSims = await fetchQuickPropSims(propPool, 48);
+  const quickSims = await fetchQuickPropSims(propPool, 64);
   let propSims = quickSims;
   if (opts?.deepSim !== false) {
-    const deepSims = await fetchPropSimulationsDeep(propPool, 64);
+    const deepSims = await fetchPropSimulationsDeep(propPool, 96);
     for (const [k, v] of deepSims) propSims.set(k, v);
   }
 
-  const gameSimulations = new Map<string, CoachGameSimEntry>();
+  const gameSimulations = await fetchServerGameSimulations(realOdds);
   const ranked: Array<{ pick: ParsedPick; rankScore: number; isAlt: boolean }> = [];
   let totalScanned = 0;
 
   for (const o of realOdds) {
     totalScanned++;
-    const isAlt = o.market.startsWith("Alt ");
+    const isAlt = /^alt /i.test(o.market) || /alt/i.test(o.market);
+    const simHit = simHitForGameLine(o, gameSimulations.get(o.game));
+    if (!qualifiesServerAiLine(o, simHit)) continue;
     const pick = pickFromOdds(o);
     if (o.edge != null) (pick as ParsedPick & { edgeNum?: number }).edgeNum = o.edge;
-    const score = rankScoreForPick(pick, propSims);
-    if (score > 0 || (o.edge ?? 0) > 0) {
-      ranked.push({ pick, rankScore: score, isAlt });
+    if (simHit != null) {
+      pick.finalAiScore = {
+        composite: Math.round((simHit * 100 + (o.edge ?? 0)) * 10) / 10,
+        grade: simHit >= 0.58 ? "B" : simHit >= 0.54 ? "B-" : "C+",
+        simHit,
+      };
     }
+    const score = rankScoreForPick(pick, propSims, simHit);
+    ranked.push({ pick, rankScore: score, isAlt });
   }
 
   for (const e of propPool) {
     totalScanned++;
     const pick = pickFromPoolEntry(e);
-    const score = rankScoreForPick(pick, propSims);
-    const minHit = propSims.get(
-      propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side),
-    );
-    if ((e.edge ?? 0) > 0 || (minHit ?? 0) >= 0.52) {
-      ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
+    const k = propSimKey(e.player, e.marketKey ?? e.marketLabel, e.line!, e.side);
+    const minHit = propSims.get(k);
+    const edge = e.edge ?? 0;
+    if (edge <= 0 && (minHit ?? 0) < 0.52) continue;
+    if (minHit != null && minHit < 0.52 && edge <= 0) continue;
+    if (minHit != null) {
+      pick.finalAiScore = {
+        composite: Math.round(minHit * 1000) / 10,
+        grade: minHit >= 0.58 ? "B" : minHit >= 0.54 ? "B-" : "C+",
+        simHit: minHit,
+      };
     }
+    const score = rankScoreForPick(pick, propSims, minHit ?? null);
+    ranked.push({ pick, rankScore: score, isAlt: !!e.alt });
   }
 
   ranked.sort((a, b) => b.rankScore - a.rankScore);
@@ -278,8 +297,8 @@ export async function runServerBoardScan(
     staging: breakdown,
     note:
       picks.length >= target
-        ? `Server precomputed ${picks.length} legs from ${totalScanned} scanned markets.`
-        : `Server scan found ${picks.length} qualifying legs (${totalScanned} markets scanned).`,
+        ? `Server precomputed ${picks.length} AI-simulated legs from ${totalScanned} posted markets (10k sim each).`
+        : `Server scan: ${picks.length} AI Recommended legs after evaluating ${totalScanned} markets — no filler added.`,
   };
 }
 

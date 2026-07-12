@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "artifacts/api-server/**"
+      - "lib/db/**"
       - ".github/workflows/deploy-api-server.yml"
   workflow_dispatch:
 

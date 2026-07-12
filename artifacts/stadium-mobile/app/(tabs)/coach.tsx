@@ -132,6 +132,7 @@ import {
   readSlatePreAnalysisSeed,
   setCoachBuildBusy,
   startSlatePreAnalysis,
+  hydrateCoachSlateFromServer,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
@@ -4518,8 +4519,11 @@ export default function CoachScreen() {
   useFocusEffect(
     useCallback(() => {
       void resumePendingBackgroundBuild();
-      void hydrateSlatePreAnalysisCache();
-      startSlatePreAnalysis("coach-focus");
+      void (async () => {
+        await hydrateSlatePreAnalysisCache();
+        await hydrateCoachSlateFromServer();
+        startSlatePreAnalysis("coach-focus");
+      })();
       if (!streamingRef.current && !buildFinishingRef.current) {
         void prefetchAndMaybeApplyOta(true);
       }

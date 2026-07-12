@@ -68,12 +68,13 @@ export function readSlatePreAnalysisSeed(): SlatePreAnalysisSeed | null {
   };
 }
 
-/** Poll until background pre-analysis lands board-scan legs (or time out). */
+/** Poll until precomputed board-scan legs are available (server or local). */
 export async function awaitWarmSlateSeed(opts?: {
   signal?: AbortSignal;
   maxMs?: number;
   pollMs?: number;
 }): Promise<SlatePreAnalysisSeed | null> {
+  await syncServerSlatePreAnalysis().catch(() => false);
   const maxMs = opts?.maxMs ?? 8000;
   const pollMs = opts?.pollMs ?? 300;
   const deadline = Date.now() + maxMs;
@@ -81,11 +82,18 @@ export async function awaitWarmSlateSeed(opts?: {
     if (opts?.signal?.aborted) return null;
     const seed = readSlatePreAnalysisSeed();
     if (seed?.boardScan?.picks?.length) return seed;
-    if (!isSlatePreAnalysisRunning()) break;
+    if (!isSlatePreAnalysisRunning()) {
+      await syncServerSlatePreAnalysis().catch(() => false);
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   const last = readSlatePreAnalysisSeed();
   return last?.boardScan?.picks?.length ? last : null;
+}
+
+/** Instant hydrate from server DB — call on app boot and Coach tab focus. */
+export async function hydrateCoachSlateFromServer(): Promise<boolean> {
+  return syncServerSlatePreAnalysis();
 }
 
 async function fetchScanFeeds(signal?: AbortSignal) {

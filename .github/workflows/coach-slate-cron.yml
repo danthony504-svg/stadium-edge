@@ -1,0 +1,29 @@
+name: Coach slate cron
+
+on:
+  schedule:
+    # Every 5 minutes — keeps AI Coach precomputed slate warm 24/7.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  coach-slate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run server slate pre-analysis
+        env:
+          COACH_SLATE_CRON_URL: ${{ secrets.COACH_SLATE_CRON_URL }}
+          COACH_SLATE_CRON_KEY: ${{ secrets.COACH_SLATE_CRON_KEY }}
+          PREBUILD_CRON_KEY: ${{ secrets.PREBUILD_CRON_KEY }}
+          NOTIFY_CRON_KEY: ${{ secrets.NOTIFY_CRON_KEY }}
+        run: |
+          URL="${COACH_SLATE_CRON_URL:-https://stadium-edge-1.replit.app/api/coach/slate/cron}"
+          KEY="${COACH_SLATE_CRON_KEY:-${PREBUILD_CRON_KEY:-${NOTIFY_CRON_KEY:-}}}"
+          if [ -z "$KEY" ]; then
+            echo "No cron key configured — set COACH_SLATE_CRON_KEY or PREBUILD_CRON_KEY in repo secrets."
+            exit 0
+          fi
+          echo "POST $URL"
+          curl -fsS --max-time 300 -X POST -H "x-cron-key: $KEY" "$URL"
+          echo
+          echo "coach slate cron: done"

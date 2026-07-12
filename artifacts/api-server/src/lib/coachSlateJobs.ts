@@ -45,7 +45,9 @@ export async function runCoachSlateJob(): Promise<{ ok: true; summary: CoachSlat
     if (
       existing.snapshot &&
       existing.snapshot.fingerprint === fingerprint &&
-      isSlateSnapshotFresh(existing.snapshot)
+      isSlateSnapshotFresh(existing.snapshot) &&
+      (existing.snapshot.boardScan?.picks?.length ?? 0) > 0 &&
+      existing.deepSimComplete
     ) {
       return {
         ok: true,

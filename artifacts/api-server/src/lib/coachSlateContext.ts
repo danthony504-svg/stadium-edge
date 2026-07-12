@@ -8,10 +8,14 @@ import type {
   RealPropEntry,
 } from "./coachSlateTypes.js";
 
-const PROPS_SPORTS = Object.keys(MARKETS_BY_SPORT);
-const MAX_SPORTS = 6;
-const MAX_ODDS_GAMES = 24;
-const MAX_PROP_GAMES = 14;
+const PROPS_SPORTS = [
+  ...Object.keys(MARKETS_BY_SPORT),
+  "tennis",
+  "ufc",
+];
+const MAX_SPORTS = 10;
+const MAX_ODDS_GAMES = 36;
+const MAX_PROP_GAMES = 22;
 const PROPS_CONCURRENCY = 3;
 const ALT_RUNGS_PER_PROP = 8;
 
@@ -36,8 +40,6 @@ type OddsGame = {
 type EspnGame = {
   id: string;
   sport: string;
-  homeTeam?: string;
-  awayTeam?: string;
   homeTeam?: string;
   awayTeam?: string;
   homeAbbr?: string | null;

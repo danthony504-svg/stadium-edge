@@ -33,6 +33,7 @@ import {
   startSlatePreAnalysis,
   stopSlatePreAnalysis,
   syncServerSlatePreAnalysis,
+  hydrateCoachSlateFromServer,
 } from "@/lib/slatePreAnalysis";
 import { warmApiForCoachBuild } from "@/lib/api";
 import { BetSlipProvider } from "@/context/BetSlipContext";
@@ -243,7 +244,10 @@ function SlatePreAnalysisBridge() {
       stopSlatePreAnalysis();
       return;
     }
-    const cold = setTimeout(() => startSlatePreAnalysis("cold-start"), 3000);
+    const cold = setTimeout(() => {
+      void hydrateCoachSlateFromServer();
+      startSlatePreAnalysis("cold-start");
+    }, 500);
     return () => {
       clearTimeout(cold);
       stopSlatePreAnalysis();
