@@ -544,3 +544,56 @@ test("coachFlashBoardScanPreviewPicks shows odds-backed legs before startsAt res
   assert.equal(out.length, 1);
   assert.equal(out[0]?.odds, 145);
 });
+
+test("coachFlashBoardScanPreviewPicks drops scored plus legs without positive edge", () => {
+  const picks = [
+    {
+      game: "Athletics @ White Sox",
+      market: "Alt Spread",
+      pick: "Athletics -1",
+      sport: "mlb",
+      odds: 169,
+      finalAiScore: {
+        composite: 5.8,
+        grade: "C",
+        confidencePct: 50,
+        edgePct: 0,
+        simHit: 0.41,
+        simAligned: false,
+        highRiskValuePlay: false,
+        recommends: false,
+        factors: [],
+        rubric: { composite: 5.8, grade: "C", confidencePct: 50, edgePct: 0, scores: {} as never },
+      },
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 0);
+});
+
+test("coachFlashBoardScanPreviewPicks keeps minus-money legs with sim and positive edge", () => {
+  const picks = [
+    {
+      game: "E @ F",
+      market: "Spread",
+      pick: "F -3.5",
+      sport: "nba",
+      odds: -108,
+      finalAiScore: {
+        composite: 6.4,
+        grade: "C+",
+        confidencePct: 54,
+        edgePct: 2.1,
+        simHit: 0.56,
+        simAligned: true,
+        highRiskValuePlay: false,
+        recommends: true,
+        factors: [],
+        rubric: { composite: 6.4, grade: "C+", confidencePct: 54, edgePct: 2.1, scores: {} as never },
+      },
+    },
+  ];
+  const out = coachFlashBoardScanPreviewPicks(picks, { realOdds: [], propPool: [], gameMeta: [] });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.odds, -108);
+});

@@ -1248,15 +1248,13 @@ export default function CoachScreen() {
         realOdds: [...enrich.realOdds, ...scanOdds],
       };
       let ticket = boardScanPartialToTicket(partial, enrichWithScan);
-      if (!boardScanIsComplete(partial)) {
-        const preview = stripFillerBackfillPicks(
-          coachFlashBoardScanPreviewPicks(tagTicketRoles([...partial.picks]), enrichWithScan),
-        );
-        if (preview.length > 0) ticket = preview;
-      }
       if (!ticket.length) {
+        const rescoredPartial = rescoreCoachTicketPicks(
+          tagTicketRoles([...partial.picks]),
+          enrichWithScan,
+        );
         ticket = stripFillerBackfillPicks(
-          coachFlashBoardScanPreviewPicks(tagTicketRoles([...partial.picks]), enrichWithScan),
+          coachFlashBoardScanPreviewPicks(rescoredPartial, enrichWithScan),
         );
       }
       if (!ticket.length) return false;

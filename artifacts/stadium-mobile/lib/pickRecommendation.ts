@@ -416,9 +416,21 @@ export function coachFlashBoardScanPreviewPicks<
   if (!picks.length) return [];
   const normalized = normalizeBoardScanPicks(picks);
   const enriched = enrichCoachPicksForGate(normalized, enrich).map(stripHrvpFromPick);
-  const withOdds = enriched.filter((p) => p.odds != null && Number.isFinite(p.odds));
-  if (withOdds.length > 0) return withOdds;
-  return normalized.filter((p) => p.odds != null && Number.isFinite(p.odds));
+  const previewQualified = enriched.filter((p) => {
+    if (p.odds == null || !Number.isFinite(p.odds)) return false;
+    const score = p.finalAiScore;
+    if (!score) return false;
+    if (!pickHasSimGrade(p, score.simHit)) return false;
+    const edge = score.edgePct;
+    return edge != null && edge > 0;
+  });
+  if (previewQualified.length > 0) return previewQualified;
+  // Sim still landing — flash odds-backed legs only when no grade exists yet.
+  const awaitingSim = enriched.filter(
+    (p) => p.odds != null && Number.isFinite(p.odds) && !p.finalAiScore,
+  );
+  if (awaitingSim.length > 0) return awaitingSim;
+  return normalized.filter((p) => p.odds != null && Number.isFinite(p.odds) && !p.finalAiScore);
 }
 
 /** Board-scan → ticket: strict AI gates first, then flash/finalize salvage (no filler). */
