@@ -106,6 +106,7 @@ import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "
 import { FONT } from "@/components/ui";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
 import * as Updates from "expo-updates";
+import { latestContext } from "expo-updates";
 import Constants from "expo-constants";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
@@ -124,6 +125,7 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
+import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
   awaitWarmSlateSeed,
@@ -4477,6 +4479,9 @@ export default function CoachScreen() {
       void resumePendingBackgroundBuild();
       void hydrateSlatePreAnalysisCache();
       startSlatePreAnalysis("coach-focus");
+      if (!streamingRef.current && !buildFinishingRef.current) {
+        void prefetchAndMaybeApplyOta(true);
+      }
       if (streamingRef.current || buildFinishingRef.current) return;
       setMessages((prev) => {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
@@ -4548,6 +4553,7 @@ export default function CoachScreen() {
 
   const coachBundleStamp = useMemo(() => {
     if (Updates.updateId) return Updates.updateId.slice(0, 8);
+    if (latestContext?.isUpdatePending) return "update-ready";
     if (Updates.createdAt) {
       const d = new Date(Updates.createdAt);
       return `ota-${d.getUTCMonth() + 1}${String(d.getUTCDate()).padStart(2, "0")}`;
