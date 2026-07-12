@@ -79,9 +79,9 @@ function legFingerprint(p: ParsedPick): string {
 const COACH_HORIZON_MS = 48 * 60 * 60 * 1000;
 
 function isCoachBettableStartsAt(startsAt?: string | null): boolean {
-  if (!startsAt) return true;
+  if (!startsAt) return false;
   const t = Date.parse(startsAt);
-  if (!Number.isFinite(t)) return true;
+  if (!Number.isFinite(t)) return false;
   const now = Date.now();
   return t > now && t < now + COACH_HORIZON_MS;
 }
