@@ -1294,6 +1294,15 @@ export default function CoachScreen() {
     [clearBuildStallWatchdog, scrollToEnd],
   );
 
+  const flashBoardScanResult = useCallback(
+    (scan: FullBoardScanResult | null | undefined, enrichOverride?: typeof flashEnrichRef.current) => {
+      if (!scan?.picks?.length) return false;
+      setBoardScanPartialLegs(scan.picks.length);
+      return patchInstantBoardScanTicket(scan, enrichOverride);
+    },
+    [patchInstantBoardScanTicket],
+  );
+
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
       if (partial.picks.length) setBoardScanPartialLegs(partial.picks.length);
@@ -1777,6 +1786,7 @@ export default function CoachScreen() {
         let propSimulations = new Map<string, { hitProbability: number | null }>();
         let selectionOpts: PropSelectionOpts | undefined;
         let preBoardScan: FullBoardScanResult | null = null;
+        let didReachFullPreScan = false;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
@@ -2027,9 +2037,10 @@ export default function CoachScreen() {
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
+            didReachFullPreScan = true;
             try {
               if (preBoardScan?.picks?.length) {
-                deliverBoardScanTicket(preBoardScan, {
+                flashBoardScanResult(preBoardScan, {
                   ...flashEnrichRef.current,
                   realOdds: [
                     ...flashEnrichRef.current.realOdds,
@@ -2284,9 +2295,6 @@ export default function CoachScreen() {
             await clearPendingBuild();
           }
         }
-        if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
-          setParlayBuildPhase("score");
-        }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
         const mergedPropPool: PropPoolEntry[] = (() => {
@@ -2327,7 +2335,9 @@ export default function CoachScreen() {
         if (reachBoardEligible) {
           if (preBoardScan?.picks?.length) {
             reachBoardScan = preBoardScan;
-          } else {
+          } else if (latestBoardScanRef.current?.picks?.length) {
+            reachBoardScan = latestBoardScanRef.current;
+          } else if (!didReachFullPreScan) {
             const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
               (s) => !excludedSports.has(s),
             );
@@ -2371,6 +2381,19 @@ export default function CoachScreen() {
         let fullBoardScanned = !!(reachBoardScan?.picks?.length || preBoardScan?.picks?.length);
         let fullBoardScanMeta: FullBoardScanResult | null =
           reachBoardScan?.picks?.length ? reachBoardScan : preBoardScan?.picks?.length ? preBoardScan : null;
+        if (fullBoardScanMeta?.picks?.length) {
+          const scanOdds = fullBoardScanMeta.evalLinesByGame
+            ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+            : [];
+          flashBoardScanResult(fullBoardScanMeta, {
+            ...flashEnrichRef.current,
+            propPool: mergedPropPool,
+            realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+          });
+        }
+        if (isParlayBuild && !wantsAnalyzeSlip(trimmed)) {
+          setParlayBuildPhase("score");
+        }
         let boardBuilt = fullBoardScanned;
         let diversityNote = fullBoardScanMeta?.note ?? "";
 
@@ -2423,6 +2446,8 @@ export default function CoachScreen() {
           if (boardTicket.length > 0) {
             picks = boardTicket;
             deliverCoachTicket(boardTicket, fullBoardScanMeta.note);
+          } else {
+            flashBoardScanResult(fullBoardScanMeta, scanEnrich);
           }
         }
         picks = scrubExcludedSportsFromPicks(
@@ -4323,6 +4348,7 @@ export default function CoachScreen() {
       scrollToEnd,
       deliverCoachTicket,
       deliverBoardScanTicket,
+      flashBoardScanResult,
       flashCoachTicketPicks,
       tryInstantSlateSeedDelivery,
       patchInstantBoardScanTicket,
