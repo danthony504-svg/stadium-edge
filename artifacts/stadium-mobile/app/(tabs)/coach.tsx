@@ -13,6 +13,8 @@ import {
   Animated,
   AppState,
   Keyboard,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   Text,
@@ -1063,6 +1065,8 @@ export default function CoachScreen() {
     if (copiedTimer.current) clearTimeout(copiedTimer.current);
   }, []);
   const scrollRef = useRef<ScrollView>(null);
+  /** When false, the user scrolled up — don't fight them with scrollToEnd. */
+  const autoScrollRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const simAbortRef = useRef<AbortController | null>(null);
   // Mirror of `streaming` readable synchronously from the AppState listener
@@ -1171,7 +1175,18 @@ export default function CoachScreen() {
   // lines spill below the fold ("overflowing as it's delivered"). Pass false
   // there for an instant scroll that pins the bottom on every chunk.
   const scrollToEnd = useCallback((animated: boolean = true) => {
+    if (!autoScrollRef.current) return;
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated }));
+  }, []);
+
+  const onCoachScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    if (contentSize.height <= layoutMeasurement.height + 4) {
+      autoScrollRef.current = true;
+      return;
+    }
+    const distFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    autoScrollRef.current = distFromBottom < 96;
   }, []);
 
   const clearBuildStallWatchdog = useCallback(() => {
@@ -1283,7 +1298,7 @@ export default function CoachScreen() {
     (
       partial: FullBoardScanResult,
       enrichOverride?: CoachFlashEnrich,
-      opts?: { legNote?: string; ticketLegTarget?: number },
+      opts?: { legNote?: string; ticketLegTarget?: number; pinScroll?: boolean },
     ) => {
       if (!partial.picks.length) return false;
       const enrich = enrichOverride ?? flashEnrichRef.current;
@@ -1335,7 +1350,7 @@ export default function CoachScreen() {
       setAiPicks(ticket);
       captureFromCoach(ticket);
       if (buildFinishingRef.current) setParlayBuildPhase("stream");
-      scrollToEnd(false);
+      if (opts?.pinScroll !== false) scrollToEnd(false);
       return true;
     },
     [boardScanPartialToTicket, scrollToEnd],
@@ -1353,7 +1368,7 @@ export default function CoachScreen() {
     }
     const partial = latestBoardScanRef.current;
     if (partial?.picks?.length) {
-      return patchInstantBoardScanTicket(partial, enrich);
+      return patchInstantBoardScanTicket(partial, enrich, { pinScroll: false });
     }
     const snapshot = boardTicketSnapshotRef.current;
     if (!snapshot?.length) return false;
@@ -1371,9 +1386,8 @@ export default function CoachScreen() {
     });
     setAiPicks(rescored);
     captureFromCoach(rescored);
-    scrollToEnd(false);
     return true;
-  }, [captureFromCoach, patchInstantBoardScanTicket, scrollToEnd]);
+  }, [captureFromCoach, patchInstantBoardScanTicket]);
 
   const tryInstantSlateSeedDelivery = useCallback(
     (legTarget: number, sport?: string | null) => {
@@ -1646,6 +1660,7 @@ export default function CoachScreen() {
       }
 
       const sendGen = ++sendGenerationRef.current;
+      autoScrollRef.current = true;
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
       earlyReachBoardScanRef.current = null;
@@ -5275,6 +5290,8 @@ export default function CoachScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 + slipClearance }}
         bottomOffset={12}
+        onScroll={onCoachScroll}
+        scrollEventThrottle={16}
       >
         <View style={{ gap: 14, paddingTop: 4 }}>
           {messages
