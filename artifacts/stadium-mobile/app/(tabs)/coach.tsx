@@ -112,7 +112,8 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { filterTicketPicks, pickIsAiRecommended, qualifiesAltPick } from "@/lib/pickRecommendation";
+import { filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, qualifiesAltPick } from "@/lib/pickRecommendation";
+import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -2899,19 +2900,21 @@ export default function CoachScreen() {
           );
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
-          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
-            evalLinesByGame: coachEvalLinesByGame,
-            realOdds: mergedGameOdds,
+          const finalDeduped = dedupeCoachGameLinePicks(picks, {
+            simByGame: gameSimulations,
             matchupHistory: context.matchupHistory,
-            matchupInjuries: context.matchupInjuries,
           });
-          gameSimNote = optimizerNote
-            ? gameSimSupplementNote
-              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
-              : optimizerNote
-            : gameSimSupplementNote;
-        } else if (gameSimSupplementNote) {
-          gameSimNote = gameSimSupplementNote;
+          picks = finalDeduped.picks;
+          if (finalDeduped.sideNote) {
+            gameSimSupplementNote = appendUniqueNote(
+              gameSimSupplementNote,
+              finalDeduped.sideNote,
+            );
+          }
+          if (finalDeduped.dropped > 0) {
+            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate or opposing game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
+            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, dedupeNote);
+          }
         }
         if (
           !isAnalyze &&
@@ -2944,33 +2947,6 @@ export default function CoachScreen() {
               mergedGameOdds,
               gameMeta,
             );
-          }
-        }
-        if (!isAnalyze && picks.some(isGameLinePick)) {
-          const finalDeduped = dedupeCoachGameLinePicks(picks, {
-            simByGame: gameSimulations,
-            matchupHistory: context.matchupHistory,
-          });
-          picks = finalDeduped.picks;
-          if (finalDeduped.sideNote) {
-            gameSimSupplementNote = appendUniqueNote(
-              gameSimSupplementNote,
-              finalDeduped.sideNote,
-            );
-            if (gameSimNote && !gameSimNote.includes(finalDeduped.sideNote)) {
-              gameSimNote = appendUniqueNote(gameSimNote, finalDeduped.sideNote);
-            } else if (!gameSimNote) {
-              gameSimNote = finalDeduped.sideNote;
-            }
-          }
-          if (finalDeduped.dropped > 0) {
-            const dedupeNote = `_Dropped ${finalDeduped.dropped} duplicate or opposing game-line leg${finalDeduped.dropped === 1 ? "" : "s"} on the same matchup._`;
-            gameSimSupplementNote = appendUniqueNote(gameSimSupplementNote, dedupeNote);
-            if (gameSimNote && !gameSimNote.includes(dedupeNote)) {
-              gameSimNote = appendUniqueNote(gameSimNote, dedupeNote);
-            } else if (!gameSimNote) {
-              gameSimNote = dedupeNote;
-            }
           }
         }
         if (!isAnalyze && picks.some((p) => p.isProp)) {
@@ -3243,13 +3219,28 @@ export default function CoachScreen() {
         let aiFilterNote = "";
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = filterTicketPicks(picks);
+          picks = filterTicketPicksPreservingTicket(picks);
           if (picks.length < beforeFilter) {
             aiFilterNote =
               picks.length > 0
                 ? `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`
                 : `_No legs cleared every sim, edge, EV, and confidence threshold after rescoring — try a smaller parlay or a different slate._`;
           }
+        }
+        if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
+          const optimizerNote = buildGameLineOptimizerNote(picks, gameSimulations, {
+            evalLinesByGame: coachEvalLinesByGame,
+            realOdds: mergedGameOdds,
+            matchupHistory: context.matchupHistory,
+            matchupInjuries: context.matchupInjuries,
+          });
+          gameSimNote = optimizerNote
+            ? gameSimSupplementNote
+              ? `${optimizerNote}\n\n${gameSimSupplementNote}`
+              : optimizerNote
+            : gameSimSupplementNote;
+        } else if (gameSimSupplementNote) {
+          gameSimNote = gameSimSupplementNote;
         }
         if (picks.length > 0 && requestedLegs > picks.length) {
           const altOnTicket = picks.filter((p) => p.ticketRole === "alt").length;
@@ -3363,15 +3354,14 @@ export default function CoachScreen() {
           picks.length === 0 &&
           (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
         ) {
-          // Model wrote parlay marketing prose but zero cards survived resolve /
-          // salvage / sim gates. Never pair "Here's your N-leg ticket…" with an
-          // empty slip — show only the honest note.
+          const partitioned = partitionCoachNotes(legNote, coachDetailNote);
           const note =
             todayNote ||
             thresholdNote ||
             confidenceNote ||
             signNote ||
-            legNote ||
+            partitioned.shortfall ||
+            aiFilterNote ||
             (emittedPickLines > 0
               ? "_I couldn't ground any of those legs in the real odds right now — the board may be thin or between updates. Try again in a moment, or ask for a specific game or market._"
               : "_I couldn't ground a real ticket from the live board right now — try again in a moment, or name a sport or game._");
@@ -3489,7 +3479,7 @@ export default function CoachScreen() {
                 }
               }
             }
-            next = filterTicketPicks(next);
+            next = filterTicketPicksPreservingTicket(next);
             next = scrubExcludedSportsFromPicks(
               next,
               excludedSports,

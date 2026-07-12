@@ -126,6 +126,26 @@ export function filterTicketPicks<
   });
 }
 
+/** Never zero a grounded ticket — keep qualifying alts or the strongest leg. */
+export function filterTicketPicksPreservingTicket<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+  },
+>(picks: T[]): T[] {
+  const filtered = filterTicketPicks(picks);
+  if (filtered.length > 0 || picks.length === 0) return filtered;
+  const altFallback = picks.filter((p) => qualifiesAltPick(p, p.finalAiScore));
+  if (altFallback.length > 0) return altFallback;
+  const ranked = [...picks].sort(
+    (a, b) =>
+      (b.finalAiScore?.composite ?? b.scores?.composite ?? 0) -
+      (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
+  );
+  return ranked.slice(0, 1);
+}
+
 export function countAiRecommendedPicks(
   picks: Array<RecommendablePick & { finalAiScore?: FinalAiScore | null }>,
 ): number {

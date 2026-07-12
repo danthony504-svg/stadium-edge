@@ -4,6 +4,7 @@ import {
   NOT_AI_RECOMMENDED,
   filterAiRecommendedPicks,
   filterTicketPicks,
+  filterTicketPicksPreservingTicket,
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   qualifiesAltPick,
@@ -35,6 +36,50 @@ test("qualifiesAltPick accepts softer thresholds without recommends flag", () =>
     ),
     false,
   );
+});
+
+test("filterTicketPicksPreservingTicket keeps qualifying alts when strict filter zeros ticket", () => {
+  const weakMain = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B -3.5",
+    odds: -110,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5,
+      grade: "C",
+      confidencePct: 45,
+      edgePct: -1,
+      simHit: 0.47,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5, grade: "C", confidencePct: 45, edgePct: -1, scores: {} as never },
+    },
+  };
+  const altLeg = {
+    game: "C @ D",
+    market: "Alt Spread",
+    pick: "C +2.5",
+    odds: 115,
+    ticketRole: "alt" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C+",
+      confidencePct: 51,
+      edgePct: 1.1,
+      simHit: 0.51,
+      simAligned: false,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C+", confidencePct: 51, edgePct: 1.1, scores: {} as never },
+    },
+  };
+  const out = filterTicketPicksPreservingTicket([weakMain, altLeg]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.ticketRole, "alt");
 });
 
 test("filterTicketPicks keeps staged alt legs that fail strict main gate", () => {

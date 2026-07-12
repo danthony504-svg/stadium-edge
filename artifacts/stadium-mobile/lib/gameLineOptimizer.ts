@@ -593,7 +593,11 @@ function formatGameLineScoreNote(
     );
     edge = rubric?.edgePct ?? null;
   }
-  const grade = scored?.finalAiScore.grade ?? pick.finalAiScore?.grade ?? "—";
+  const grade =
+    scored?.finalAiScore.grade ??
+    pick.finalAiScore?.grade ??
+    pick.scores?.grade ??
+    "—";
   const wp = simHit != null ? `${Math.round(simHit * 100)}%` : "—";
   const edgeStr = edge != null ? `${edge > 0 ? "+" : ""}${edge}%` : "—";
   return `${pick.game}: ${pick.pick} (${pick.market}) — Final AI ${grade}, sim ${wp}, edge ${edgeStr}`;
