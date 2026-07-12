@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   NOT_AI_RECOMMENDED,
   coachFlashTicketPicks,
+  finalizeCoachTicketPicks,
   filterAiRecommendedPicks,
   filterTicketPicks,
   filterTicketPicksPreservingTicket,
@@ -110,6 +111,41 @@ test("pickIsAiRecommended rejects High-Risk Value Play when sim disagrees", () =
     pickIsAiRecommended({ market: "Moneyline", sport: "mlb", odds: 135 }, hrVp),
     false,
   );
+});
+
+test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends flips off", () => {
+  const kickoff = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  const leg = {
+    game: "A @ B",
+    market: "Spread",
+    pick: "B -1.5",
+    odds: -110,
+    isProp: false,
+    sport: "mlb",
+    startsAt: kickoff,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6.2,
+      grade: "C",
+      confidencePct: 52,
+      edgePct: 1.4,
+      simHit: 0.55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.2, grade: "C", confidencePct: 52, edgePct: 1.4, scores: {} as never },
+    },
+  };
+  const enrich = {
+    realOdds: [{ game: "A @ B", market: "Spread", pick: "B -1.5", odds: -110, startsAt: kickoff, sport: "mlb" }],
+    gameMeta: [{ game: "A @ B", sport: "mlb", startsAt: kickoff, homeTeam: "B", awayTeam: "A", homeAbbr: "B", awayAbbr: "A", homeLogo: null, awayLogo: null }],
+    propPool: [],
+  };
+  assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
+  const { picks, usedRescoringFallback } = finalizeCoachTicketPicks([leg], enrich);
+  assert.equal(picks.length, 1);
+  assert.equal(usedRescoringFallback, true);
 });
 
 test("coachFlashTicketPicks surfaces board legs when startsAt lives on odds rows only", () => {

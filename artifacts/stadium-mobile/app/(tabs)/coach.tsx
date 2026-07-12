@@ -114,7 +114,7 @@ import { useColors } from "@/hooks/useColors";
 import { computeAnalytics, computeModelStrengths } from "@/lib/modelReport";
 import { perfMapFromByFamily } from "@/lib/marketWeighting";
 import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
-import { coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
+import { coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks } from "@/lib/pickRecommendation";
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -3554,17 +3554,68 @@ export default function CoachScreen() {
         }
         picks = tagTicketRoles(picks);
         let aiFilterNote = "";
+        const ticketEnrich = { ...pickEnrich, realOdds: mergedGameOdds };
         if (!isAnalyze && isParlayBuild && picks.length > 0) {
           const beforeFilter = picks.length;
-          picks = sanitizeCoachTicketPicks(picks, {
-            ...pickEnrich,
-            realOdds: mergedGameOdds,
-          });
-          if (picks.length < beforeFilter) {
-            aiFilterNote =
-              picks.length > 0
-                ? `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`
-                : `_No legs cleared every sim, edge, EV, and confidence threshold after rescoring — try a smaller parlay or a different slate._`;
+          let finalized = finalizeCoachTicketPicks(picks, ticketEnrich);
+          if (finalized.picks.length === 0 && fullBoardScanned && fullBoardScanMeta?.picks?.length) {
+            finalized = finalizeCoachTicketPicks(
+              tagTicketRoles([...fullBoardScanMeta.picks]),
+              ticketEnrich,
+            );
+          }
+          if (
+            finalized.picks.length === 0 &&
+            fullBoardScanned &&
+            coachEvalLinesByGame &&
+            gameSimulations.size > 0
+          ) {
+            const reachScoreOpts = {
+              realOdds: mergedGameOdds,
+              propPool: mergedPropPool,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              perfByFamily: marketPerf,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              gameSimulations,
+            };
+            const scoredMainProps = attachPickScores(
+              mergedPropPool.filter((e) => !e.alt).map(parsedPickFromPoolEntry),
+              reachScoreOpts,
+            );
+            const scoredAltProps = mergedPropPool.some((e) => e.alt)
+              ? attachPickScores(
+                  mergedPropPool.filter((e) => e.alt).map(parsedPickFromPoolEntry),
+                  reachScoreOpts,
+                )
+              : [];
+            const { mains, alts } = collectReachStagedQualifiers(
+              [],
+              coachEvalLinesByGame,
+              gameSimulations,
+              mergedPropPool,
+              scoredMainProps,
+              scoredAltProps,
+              {
+                realOdds: mergedGameOdds,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                excludedSports,
+              },
+            );
+            if (mains.length > 0 || alts.length > 0) {
+              const filled = fillReachTicketStaged([], reachTarget, mains, alts);
+              finalized = finalizeCoachTicketPicks(
+                tagTicketRoles(attachPickScores(filled.picks, reachScoreOpts)),
+                ticketEnrich,
+              );
+            }
+          }
+          picks = finalized.picks;
+          if (picks.length < beforeFilter && picks.length > 0) {
+            aiFilterNote = finalized.usedRescoringFallback
+              ? `_Rescoring adjusted grades on ${beforeFilter - picks.length} line(s) — kept sim-aligned legs with positive edge on your ticket._`
+              : `_Only legs that pass sim, edge, EV, and confidence thresholds stay on the ticket — ${beforeFilter - picks.length} weaker line(s) removed._`;
           }
         }
         if (coachEvalLinesByGame && gameSimulations.size > 0 && picks.some(isGameLinePick)) {
@@ -3834,16 +3885,26 @@ export default function CoachScreen() {
                 }
               }
             }
-            next = sanitizeCoachTicketPicks(next, {
+            next = finalizeCoachTicketPicks(next, {
               ...pickEnrich,
               realOdds: mergedGameOdds,
-            });
+            }).picks;
             if (next.length === 0 && snapshot.length > 0) {
-              const salvaged = sanitizeCoachTicketPicks(snapshot, {
+              const salvaged = finalizeCoachTicketPicks(snapshot, {
                 ...pickEnrich,
                 realOdds: mergedGameOdds,
-              });
+              }).picks;
               if (salvaged.length > 0) next = salvaged;
+            }
+            if (
+              next.length === 0 &&
+              fullBoardScanned &&
+              fullBoardScanMeta?.picks?.length
+            ) {
+              next = finalizeCoachTicketPicks(tagTicketRoles([...fullBoardScanMeta.picks]), {
+                ...pickEnrich,
+                realOdds: mergedGameOdds,
+              }).picks;
             }
             next = scrubExcludedSportsFromPicks(
               next,

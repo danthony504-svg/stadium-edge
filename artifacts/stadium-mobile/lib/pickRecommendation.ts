@@ -274,3 +274,45 @@ export function coachFlashTicketPicks<
     filterTicketPicks(enriched).map(stripHrvpFromPick),
   );
 }
+
+/** Final ticket gate — strict sanitize, then rescoring/flash salvage so board builds don't zero. */
+export function finalizeCoachTicketPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    scores?: { composite?: number | null } | null;
+    startsAt?: string | null;
+    sport?: string;
+    highRiskValuePlay?: boolean;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+  },
+>(
+  picks: T[],
+  enrich?: CoachPickEnrichSources,
+): { picks: T[]; removed: number; usedRescoringFallback: boolean } {
+  if (!picks.length) return { picks: [], removed: 0, usedRescoringFallback: false };
+  const strict = sanitizeCoachTicketPicks(picks, enrich);
+  if (strict.length > 0) {
+    return { picks: strict, removed: picks.length - strict.length, usedRescoringFallback: false };
+  }
+  const enriched = enrichCoachPicksForGate(picks, enrich);
+  const preserved = filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick);
+  const bettablePreserved = filterBettablePicks(preserved);
+  if (bettablePreserved.length > 0) {
+    return {
+      picks: bettablePreserved,
+      removed: picks.length - bettablePreserved.length,
+      usedRescoringFallback: true,
+    };
+  }
+  const flash = coachFlashTicketPicks(enriched, enrich);
+  return {
+    picks: flash,
+    removed: picks.length - flash.length,
+    usedRescoringFallback: flash.length > 0,
+  };
+}
