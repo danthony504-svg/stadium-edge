@@ -67,4 +67,6 @@ export type CoachSnapshot = {
   activeSports: CoachSportIdOrCustom[];
   deepSimComplete: boolean;
   serveable: boolean;
+  propsQualified: number;
+  gameLinesQualified: number;
 };

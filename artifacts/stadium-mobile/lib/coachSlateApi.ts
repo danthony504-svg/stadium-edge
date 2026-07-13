@@ -1,19 +1,13 @@
-import { getJson } from "./api.ts";
 import type { SlateParlayLegCount, SlatePreAnalysisSnapshot } from "./slatePreAnalysisCache.ts";
+import { fetchCoachV2Slate } from "./coachV2Api.ts";
+import { coachV2SnapshotToLegacy } from "./coachV2Adapter.ts";
+import type { CoachV2SlateResponse } from "./coachV2Types.ts";
 
-export type CoachServerSlateResponse = {
-  snapshot: SlatePreAnalysisSnapshot | null;
-  fresh: boolean;
-  instantServe: boolean;
-  refreshing?: boolean;
-  computedAt: string | null;
-  deepSimComplete: boolean;
-  maxAgeMs: number;
+export type CoachServerSlateResponse = CoachV2SlateResponse & {
   instantServeMaxMs?: number;
   supportedLegCounts?: SlateParlayLegCount[];
   resolvedLegCount?: number;
   resolvedSport?: string;
-  activeSports?: string[];
 };
 
 export type CoachSlateFetchOpts = {
@@ -22,18 +16,19 @@ export type CoachSlateFetchOpts = {
   signal?: AbortSignal;
 };
 
-/** Fetch the latest server-precomputed Coach slate (24/7 background job). */
+/** Fetch the latest server-precomputed Coach v2 slate. */
 export async function fetchCoachServerSlate(
   opts?: CoachSlateFetchOpts,
 ): Promise<CoachServerSlateResponse | null> {
-  try {
-    const params = new URLSearchParams();
-    if (opts?.legs != null && opts.legs >= 3) params.set("legs", String(opts.legs));
-    if (opts?.sport) params.set("sport", opts.sport);
-    const qs = params.toString();
-    const path = qs ? `/coach/slate?${qs}` : "/coach/slate";
-    return await getJson<CoachServerSlateResponse>(path, opts?.signal, 12_000);
-  } catch {
-    return null;
-  }
+  const resp = await fetchCoachV2Slate(opts);
+  if (!resp) return null;
+  return resp;
+}
+
+/** Convert v2 API snapshot to legacy cache format. */
+export function legacySnapshotFromServerResponse(
+  snapshot: CoachServerSlateResponse["snapshot"],
+): SlatePreAnalysisSnapshot | null {
+  if (!snapshot) return null;
+  return coachV2SnapshotToLegacy(snapshot);
 }
