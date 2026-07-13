@@ -39,6 +39,15 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      - name: Verify iOS entitlements (no Sign in with Apple for stale profile)
+        run: |
+          if pnpm exec expo config --type introspect 2>/dev/null | grep -q "com.apple.developer.applesignin"; then
+            echo "ERROR: Sign in with Apple entitlement still present — provisioning profile from build #58 will reject the archive."
+            echo "Remove expo-apple-authentication from package.json or regenerate the App Store provisioning profile."
+            exit 1
+          fi
+          echo "OK: no com.apple.developer.applesignin entitlement"
+
       - name: Build iOS (optional App Store Connect submit)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
