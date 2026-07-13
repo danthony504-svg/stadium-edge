@@ -305,7 +305,7 @@ export default function RootLayout() {
     return (
       <View style={{ flex: 1, backgroundColor: DARK_BG, padding: 32, justifyContent: "center" }}>
         <Text style={{ color: "#e2e8f0", fontSize: 15, textAlign: "center", lineHeight: 22 }}>
-          App configuration error (missing auth key). Reinstall from TestFlight or contact support.
+          App configuration error (missing auth key). Reinstall from the App Store or contact support.
         </Text>
       </View>
     );
