@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/expo";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -17,6 +16,7 @@ import Svg, { Circle, Line, Polyline } from "react-native-svg";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
+import { AppHeader } from "@/components/AppHeader";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
@@ -1956,59 +1956,7 @@ export default function HomeScreen() {
           the screen and NEVER move, even while data loads in below. Rendered as
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
-      <View style={{ paddingTop: insets.top + 6, backgroundColor: colors.background }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingLeft: 60,
-            paddingRight: 16,
-            marginBottom: 14,
-          }}
-        >
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: 150, height: 42 }}
-            resizeMode="contain"
-            fadeDuration={0}
-            accessibilityLabel="Stadium Edge"
-          />
-          <View style={{ flex: 1 }} />
-          <View style={{ alignItems: "flex-end", marginRight: 10 }}>
-            <Text
-              style={{
-                color: colors.foreground,
-                fontFamily: FONT.display,
-                fontSize: 17,
-                letterSpacing: 0.2,
-              }}
-            >
-              PLAYER PROPS
-            </Text>
-            <Text style={{ fontSize: 9, fontFamily: FONT.semibold, letterSpacing: 0.2, marginTop: 2 }}>
-              <Text style={{ color: colors.mutedForeground }}>AI POWERED. DATA DRIVEN. </Text>
-              <Text style={{ color: colors.primary }}>REAL EDGE.</Text>
-            </Text>
-          </View>
-          <Pressable
-            onPress={() => router.push(isSignedIn ? "/notifications" : "/sign-in")}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              width: 38,
-              height: 38,
-              borderRadius: 19,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.card,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Feather name="bell" size={17} color={colors.foreground} />
-          </Pressable>
-        </View>
-
+      <AppHeader bottomGap={0}>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
@@ -2092,7 +2040,7 @@ export default function HomeScreen() {
             );
           })}
         </ScrollView>
-      </View>
+      </AppHeader>
 
       {sport === "tennis" ? (
         <ErrorBoundary FallbackComponent={HomeFeedErrorFallback}>
