@@ -15,6 +15,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { looksLikeCorruptOtaBundle } from "@/lib/otaCorruptBundle";
+import { clearSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -30,6 +32,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const handleRestart = async () => {
     try {
       await clearDiscoverCache();
+      await clearSlatePreAnalysisCache();
       if (Updates.isEnabled) {
         // Re-fetch from Expo — may receive a server rollback directive after a bad OTA.
         try {
@@ -106,7 +109,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           </Text>
         ) : null}
 
-        {error.message?.includes("doesn't exist") ? (
+        {looksLikeCorruptOtaBundle(error.message) ? (
           <Text
             style={{
               color: colors.mutedForeground,
