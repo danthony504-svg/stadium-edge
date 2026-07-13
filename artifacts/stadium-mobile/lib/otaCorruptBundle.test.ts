@@ -3,7 +3,8 @@ import test from "node:test";
 
 import { looksLikeCorruptOtaBundle } from "./otaCorruptBundle.ts";
 
-test("looksLikeCorruptOtaBundle flags phantom property errors", () => {
+test("looksLikeCorruptOtaBundle flags simple phantom property errors", () => {
+  assert.equal(looksLikeCorruptOtaBundle("Property 'width' doesn't exist"), true);
   assert.equal(looksLikeCorruptOtaBundle("Property 'pickSheetDisplayLabel' doesn't exist"), true);
 });
 

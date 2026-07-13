@@ -353,7 +353,7 @@ export function AppleAuthButton() {
         const nativeAvailable = await AppleAuthentication.isAvailableAsync();
         if (!nativeAvailable) {
           setError(
-            "Sign in with Apple needs the latest Stadium Edge build. Update from TestFlight or the App Store, then try again.",
+            "Sign in with Apple needs the latest Stadium Edge build. Update from the App Store, then try again.",
           );
           return;
         }
@@ -376,7 +376,7 @@ export function AppleAuthButton() {
         /oauth_apple|form_param_value_invalid/i.test(detail)
       ) {
         setError(
-          "This app build is out of date for Sign in with Apple. Install the latest TestFlight or App Store version, then try again.",
+          "This app build is out of date for Sign in with Apple. Install the latest version from the App Store, then try again.",
         );
         return;
       }
