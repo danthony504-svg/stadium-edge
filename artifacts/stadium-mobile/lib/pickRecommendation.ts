@@ -148,6 +148,8 @@ export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
 export const PROP_BOARD_FILL_MIN_CONFIDENCE = 48;
 
 export const NOT_AI_RECOMMENDED = "Not AI Recommended";
+/** Short label for narrow coach card grade tiles (avoids awkward line breaks). */
+export const NOT_AI_RECOMMENDED_COMPACT = "Not Rec.";
 
 export type RecommendablePick = {
   market?: string;

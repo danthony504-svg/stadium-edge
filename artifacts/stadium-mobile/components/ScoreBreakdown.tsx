@@ -9,7 +9,7 @@ import type { ParsedPick } from "@/components/PickCard";
 import type { PropHolisticScore } from "@/lib/propHolisticRecommendation";
 import { propHolisticTopDrivers, buildCoachCardHolistic } from "@/lib/propHolisticRecommendation";
 import { NOT_YET_AI_GRADED } from "@/lib/simMarketSupport";
-import { NOT_AI_RECOMMENDED } from "@/lib/pickRecommendation";
+import { NOT_AI_RECOMMENDED, NOT_AI_RECOMMENDED_COMPACT } from "@/lib/pickRecommendation";
 
 // Renders the pick rubric plus combined AI Grade, Confidence, and Edge %.
 // For player props, the compact strip shows EV / sim / matchup / form / injury /
@@ -140,6 +140,7 @@ function MetricTile({
   valueColor,
   caption,
   suffix,
+  compactValue,
 }: {
   icon: keyof typeof Feather.glyphMap;
   label: string;
@@ -147,8 +148,12 @@ function MetricTile({
   valueColor: string;
   caption: string;
   suffix?: string;
+  /** When set, shown instead of `value` in the large tile text (e.g. long grade labels). */
+  compactValue?: string;
 }) {
   const colors = useColors();
+  const displayValue = compactValue ?? value;
+  const longValue = displayValue.length > 8;
   return (
     <View
       style={{
@@ -180,8 +185,19 @@ function MetricTile({
           {label}
         </Text>
       </View>
-      <Text style={{ color: valueColor, fontFamily: FONT.bold, fontSize: 26, marginTop: 8 }}>
-        {value}
+      <Text
+        numberOfLines={2}
+        adjustsFontSizeToFit
+        minimumFontScale={0.55}
+        style={{
+          color: valueColor,
+          fontFamily: FONT.bold,
+          fontSize: longValue ? 17 : 26,
+          marginTop: 8,
+          lineHeight: longValue ? 20 : 30,
+        }}
+      >
+        {displayValue}
         {suffix ? (
           <Text style={{ color: colors.mutedForeground, fontFamily: FONT.bold, fontSize: 14 }}>
             {suffix}
@@ -236,6 +252,7 @@ function HeaderTiles({
           icon="award"
           label="AI Grade"
           value={displayGrade}
+          compactValue={displayGrade === NOT_AI_RECOMMENDED ? NOT_AI_RECOMMENDED_COMPACT : undefined}
           valueColor={gradeColor}
           caption={gradeCaption ?? gradeBlurb(data.composite)}
         />
