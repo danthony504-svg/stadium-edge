@@ -9,14 +9,14 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
   exit 1
 fi
 
-MESSAGE="${1:-Stable pre-table-tennis OTA $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main)}"
+MESSAGE="${1:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main) $(date -u +%Y-%m-%dT%H:%MZ)}"
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
 export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
-export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo unknown)}"
-export EXPO_PUBLIC_BUNDLE_STAMP="${EXPO_PUBLIC_BUNDLE_STAMP:-$(date -u +%Y-%m-%dT%H:%MZ)-${EXPO_PUBLIC_GIT_COMMIT}}"
+export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
+export EXPO_PUBLIC_DEPLOY_MESSAGE="${EXPO_PUBLIC_DEPLOY_MESSAGE:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null)-$(date -u +%Y%m%d-%H%M%S)}"
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive

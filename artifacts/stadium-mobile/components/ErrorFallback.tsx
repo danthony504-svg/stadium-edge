@@ -36,19 +36,22 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
       await clearDiscoverCache();
       await clearSlatePreAnalysisCache();
       if (Updates.isEnabled) {
-        // Re-fetch from Expo — may receive a server rollback directive after a bad OTA.
+        // Never resetError() in production — that reopens the same in-memory JS.
+        // Always reload through expo-updates so a fetched OTA bundle is used.
         try {
-          await Updates.checkForUpdateAsync();
-          await Updates.fetchUpdateAsync();
+          const check = await Updates.checkForUpdateAsync();
+          if (check.isAvailable) {
+            await Updates.fetchUpdateAsync();
+          }
         } catch {
-          // ignore — still attempt reload
+          // still attempt reload
         }
-        await Updates.reloadAsync();
-      } else {
+        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      } else if (__DEV__) {
         resetError();
       }
     } catch {
-      resetError();
+      if (__DEV__) resetError();
     }
   };
 
