@@ -5,6 +5,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
+import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
   createCoachBoardScanManifestRecorder,
@@ -244,7 +245,8 @@ async function simPropBatch(
     for (const [k, v] of rows) {
       out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
     }
-    return { hits: aliasPropSimHitsForBatch(batch, out), timedOut: false };
+    const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
+    return { hits: enriched, timedOut: false };
   } catch {
     return { hits: out, timedOut: true };
   }
