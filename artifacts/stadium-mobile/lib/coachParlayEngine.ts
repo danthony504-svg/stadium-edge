@@ -35,13 +35,17 @@ export function resolveCoachParlayKernelTicket(opts: {
   legTarget: number;
 }): CoachParlayKernelResult {
   const { scan, enrich, legTarget } = opts;
-  if (!scan?.picks?.length || !boardScanIsComplete(scan)) {
+  if (!scan || !boardScanIsComplete(scan)) {
     return { ticket: [], source: "none" };
   }
 
   const delivered = deliverCoachBoardScanTicket(scan, enrich, legTarget);
   if (!delivered.picks.length) {
-    return { ticket: [], source: "none" };
+    return {
+      ticket: [],
+      coachDetailNote: delivered.coachDetailNote,
+      source: "board-scan",
+    };
   }
 
   let legNote = scan.note;
