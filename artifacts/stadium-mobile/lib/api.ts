@@ -24,6 +24,7 @@ import {
 } from "./slimChatContext";
 import {
   isPickable,
+  isHomeDiscoverable,
   isPregameBettable,
   isPregameBettableForSport,
   isSimulatorEligible,
@@ -70,6 +71,7 @@ export {
 // existing `from "./api"` imports keep working unchanged.
 export {
   isPickable,
+  isHomeDiscoverable,
   isPregameBettable,
   isPregameBettableForSport,
   isSimulatorEligible,

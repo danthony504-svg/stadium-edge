@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isPickable, isPregameBettable, isSimulatorEligible, resolveTodayOnly } from "./slate.ts";
+import { isPickable, isHomeDiscoverable, isPregameBettable, isSimulatorEligible, resolveTodayOnly } from "./slate.ts";
 
 // ISO string offset from now, in hours.
 const at = (hoursFromNow: number) =>
@@ -72,6 +72,12 @@ test("only games beyond the 48h pickable window -> false", () => {
 // excludes in-progress games whose posted line is frozen (the Diamondbacks bug:
 // a game started 2.5h ago still passed isPickable, so its stale pregame ML got
 // recommended as a "value" pick).
+test("isHomeDiscoverable widens Home Upcoming beyond the 48h pickable window", () => {
+  assert.equal(isPickable(at(60)), false, "60h out is outside 48h pickable");
+  assert.equal(isHomeDiscoverable(at(60)), true, "but still within the 7d discover rail");
+  assert.equal(isHomeDiscoverable(at(8 * 24)), false, "beyond 7d is excluded");
+});
+
 test("isPregameBettable excludes already-started games that isPickable still allows", () => {
   const started = at(-2.5); // started 2.5h ago — inside isPickable's 4h grace
   assert.equal(isPickable(started), true, "isPickable keeps it for slate screens");
