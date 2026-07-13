@@ -6129,11 +6129,9 @@ export default function CoachScreen() {
         </View>
       ) : null}
 
-      {/* Composer — pinned above tab overlays; stays tappable after empty scans */}
-      <KeyboardStickyView
-        offset={{ closed: 0, opened: insets.bottom }}
-        style={{ zIndex: 100, elevation: 100 }}
-      >
+      {/* Composer — pinned at bottom; flexShrink keeps it in the viewport */}
+      <View style={{ flexShrink: 0 }}>
+      <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
       {/* Keyboard-dismiss button — only while the keyboard is open */}
       {inputFocused ? (
         <View style={{ alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 }}>
@@ -6300,6 +6298,7 @@ export default function CoachScreen() {
         </Pressable>
       </View>
       </KeyboardStickyView>
+      </View>
     </View>
   );
 }
