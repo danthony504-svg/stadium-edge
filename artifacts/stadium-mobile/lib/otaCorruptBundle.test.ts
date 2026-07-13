@@ -14,6 +14,14 @@ test("looksLikeCorruptOtaBundle flags coach fingerprint garbage", () => {
   );
 });
 
+test("looksLikeCorruptOtaBundle flags garbled pick/update module paths", () => {
+  assert.equal(
+    looksLikeCorruptOtaBundle('Property "pickBreadHicks/update?" doesn\'t exist'),
+    true,
+  );
+  assert.equal(looksLikeCorruptOtaBundle("pushNotifications/update"), true);
+});
+
 test("looksLikeCorruptOtaBundle ignores normal errors", () => {
   assert.equal(looksLikeCorruptOtaBundle("Network request failed"), false);
 });
