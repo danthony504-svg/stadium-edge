@@ -141,6 +141,7 @@ import {
   buildFixedLegCountShortfallLead,
   ensureFixedLegShortfallLegNote,
   preferBoardScanForDelivery,
+  preferFinalBoardScanForDelivery,
   shouldAllowReachCountBackfill,
   shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
@@ -167,6 +168,7 @@ import {
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import {
   COACH_SLATE_PREVIEW_NOTE,
+  coachLiveScanSports,
   markBoardScanAsPreview,
 } from "@/lib/coachSlateFreshness";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
@@ -1253,13 +1255,9 @@ export default function CoachScreen() {
   const varietySeedRef = useRef("");
 
   const deliverCoachTicket = useCallback(
-    (ticket: ParsedPick[], legNote?: string, opts?: { rotate?: boolean }): boolean => {
+    (ticket: ParsedPick[], legNote?: string): boolean => {
       const enrich = flashEnrichRef.current;
-      let toDeliver = ticket;
-      if (opts?.rotate !== false && toDeliver.length > 1 && varietySeedRef.current) {
-        toDeliver = rotateParlayDisplayOrder(toDeliver, varietySeedRef.current);
-      }
-      const cleaned = prepareCoachDeliveredTicket(toDeliver, enrich);
+      const cleaned = prepareCoachDeliveredTicket(ticket, enrich);
       if (!cleaned.length) return false;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -2345,9 +2343,7 @@ export default function CoachScreen() {
           let scanFeedsPromise: Promise<ScanFeeds> | null = null;
           if (reachFullPreScanEligible) {
             setParlayBuildPhase("board-scan");
-            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-              (s) => !excludedSports.has(s),
-            );
+            const scanSports = coachLiveScanSports(excludedSports);
             scanFeedsPromise = Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
                 rows.flat(),
@@ -2459,10 +2455,7 @@ export default function CoachScreen() {
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const scanDepthTarget = Math.min(SLATE_PRE_ANALYSIS_TARGET, MAX_LEGS);
-          const boardScanVariety = {
-            varietySeed,
-            avoidLegKeys: recentParlayLegKeys(),
-          };
+          const boardScanVariety = { varietySeed };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
             didReachFullPreScan = true;
@@ -2491,9 +2484,7 @@ export default function CoachScreen() {
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
                 : await (async () => {
-                    const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-                      (s) => !excludedSports.has(s),
-                    );
+                    const scanSports = coachLiveScanSports(excludedSports);
                     const [eg, og, lf] = await Promise.all([
                       Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
                         rows.flat(),
@@ -2539,7 +2530,7 @@ export default function CoachScreen() {
                 boardScanIsComplete(preBoardScan) &&
                 boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan)
               );
-              const scanForDelivery = preferBoardScanForDelivery(
+              const scanForDelivery = preferFinalBoardScanForDelivery(
                 preBoardScan,
                 latestBoardScanRef.current,
               );
@@ -2672,20 +2663,20 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan || useParlayKernel) {
               full = "";
               setWaiting(false);
-              let scanForDelivery = preferBoardScanForDelivery(
+              let scanForDelivery = preferFinalBoardScanForDelivery(
                 preBoardScan,
                 latestBoardScanRef.current,
               );
               if (
                 useParlayKernel &&
-                !boardScanIsComplete(scanForDelivery) &&
+                !scanForDelivery &&
                 earlyReachBoardScanRef.current
               ) {
                 try {
                   const earlyScan = await earlyReachBoardScanRef.current;
-                  scanForDelivery = preferBoardScanForDelivery(earlyScan, scanForDelivery);
+                  scanForDelivery = preferFinalBoardScanForDelivery(earlyScan, scanForDelivery);
                 } catch {
-                  scanForDelivery = preferBoardScanForDelivery(
+                  scanForDelivery = preferFinalBoardScanForDelivery(
                     latestBoardScanRef.current,
                     scanForDelivery,
                   );
@@ -2729,7 +2720,7 @@ export default function CoachScreen() {
                   scanForDelivery = latestBoardScanRef.current;
                 }
               }
-              scanForDelivery = preferBoardScanForDelivery(
+              scanForDelivery = preferFinalBoardScanForDelivery(
                 scanForDelivery,
                 latestBoardScanRef.current,
               );
@@ -2856,7 +2847,7 @@ export default function CoachScreen() {
               );
             }
           }
-          if (boardTicketSnapshotRef.current?.length || kernelParlayDelivered) {
+          if ((freshBoardScanComplete || kernelParlayDelivered) && boardTicketSnapshotRef.current?.length) {
             if (buildProgressTimerRef.current) {
               clearTimeout(buildProgressTimerRef.current);
               buildProgressTimerRef.current = null;
@@ -2912,16 +2903,14 @@ export default function CoachScreen() {
           confidenceThreshold,
         });
         if (reachBoardEligible) {
-          const cachedBoardScan = preferBoardScanForDelivery(
+          const cachedBoardScan = preferFinalBoardScanForDelivery(
             preBoardScan,
             latestBoardScanRef.current,
           );
-          if (cachedBoardScan && boardScanIsComplete(cachedBoardScan)) {
+          if (cachedBoardScan && !didReachFullPreScan) {
             reachBoardScan = cachedBoardScan;
-          } else if (!didReachFullPreScan || !boardScanIsComplete(cachedBoardScan)) {
-            const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-              (s) => !excludedSports.has(s),
-            );
+          } else if (!didReachFullPreScan || !freshBoardScanComplete) {
+            const scanSports = coachLiveScanSports(excludedSports);
             const [espnGames, oddsGames, liveFeed] = await Promise.all([
               Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
                 rows.flat(),
@@ -2973,7 +2962,7 @@ export default function CoachScreen() {
           boardScanIsComplete(reachBoardScan) ||
           boardScanIsComplete(preBoardScan) ||
           boardScanIsComplete(latestBoardScanRef.current);
-        let fullBoardScanMeta: FullBoardScanResult | null = preferBoardScanForDelivery(
+        let fullBoardScanMeta: FullBoardScanResult | null = preferFinalBoardScanForDelivery(
           reachBoardScan,
           preBoardScan,
           latestBoardScanRef.current,
@@ -3354,9 +3343,7 @@ export default function CoachScreen() {
           }
         } else if (!fullBoardScanned && useFullBoardScan) {
           setParlayBuildPhase("board-scan");
-          const scanSports = coachBuildSports(sportScopeText, legTarget, DEFAULT_SPORTS).filter(
-            (s) => !excludedSports.has(s),
-          );
+          const scanSports = coachLiveScanSports(excludedSports);
           const [espnGames, oddsGames, liveFeed] = await Promise.all([
             Promise.all(scanSports.map((s) => getGames(s).catch(() => []))).then((rows) =>
               rows.flat(),
@@ -4780,7 +4767,7 @@ export default function CoachScreen() {
         if (isParlayBuild && legTarget >= 3) {
           picks = stripFillerBackfillPicks(picks);
         }
-        if (isParlayBuild && picks.length > 1) {
+        if (isParlayBuild && picks.length > 1 && !fullBoardScanned && !didReachFullPreScan) {
           picks = rotateParlayDisplayOrder(picks, varietySeed);
         }
         const boardSnapshot = boardTicketSnapshotRef.current;
@@ -4791,6 +4778,25 @@ export default function CoachScreen() {
             !boardScanIsComplete(fullBoardScanMeta)
           ) {
             return existingPicks?.length ? existingPicks : [];
+          }
+          if (didReachFullPreScan) {
+            const liveFinal = preferFinalBoardScanForDelivery(
+              fullBoardScanMeta,
+              preBoardScan,
+              latestBoardScanRef.current,
+            );
+            if (liveFinal?.picks?.length) {
+              const ticket = boardScanPartialToTicket(liveFinal, ticketEnrich, legTarget);
+              if (ticket.length) {
+                return prepareCoachDeliveredTicket(
+                  isParlayBuild && legTarget >= 3 ? stripFillerBackfillPicks(ticket) : ticket,
+                  ticketEnrich,
+                );
+              }
+            }
+            if (!freshBoardScanComplete) {
+              return existingPicks?.length ? existingPicks : [];
+            }
           }
           const raw =
             picks.length > 0

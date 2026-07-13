@@ -42,8 +42,7 @@ import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { parlayLegKey } from "./parlayVarietyMemory.ts";
-import { varietyRankKey } from "./varietySeed.ts";
+import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
@@ -445,9 +444,10 @@ function buildScanResult(
     preview?: boolean;
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    varietySeed?: string;
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(scored, opts.target);
+  const staged = buildStagedTicketFromScan(scored, opts.target, opts.varietySeed);
   const picks = staged.picks;
   const breakdown = staged.breakdown;
 
@@ -497,7 +497,6 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
-  avoidLegKeys?: Set<string>;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -560,6 +559,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       totalScanned,
       preview: true,
       manifestRecorder,
+      varietySeed: opts.varietySeed,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -649,20 +649,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => {
-    const avoidA = opts.avoidLegKeys?.has(parlayLegKey(a.pick)) ? 1 : 0;
-    const avoidB = opts.avoidLegKeys?.has(parlayLegKey(b.pick)) ? 1 : 0;
-    if (avoidA !== avoidB) return avoidA - avoidB;
-    const diff = b.rankScore - a.rankScore;
-    if (diff !== 0) return diff;
-    if (opts.varietySeed) {
-      return (
-        varietyRankKey(opts.varietySeed, parlayLegKey(a.pick)) -
-        varietyRankKey(opts.varietySeed, parlayLegKey(b.pick))
-      );
-    }
-    return 0;
-  });
+  collapsed.sort((a, b) => compareBoardLegsForRank(a, b, opts.varietySeed));
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {
     target: opts.target,
@@ -671,6 +658,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     totalScanned,
     boardExhausted: true,
     manifestRecorder,
+    varietySeed: opts.varietySeed,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

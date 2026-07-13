@@ -5,6 +5,7 @@ import {
   boardScanMeetsLegTarget,
   ensureFixedLegShortfallLegNote,
   preferBoardScanForDelivery,
+  preferFinalBoardScanForDelivery,
   COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
   COACH_FIXED_LEG_TICKET_POLICY,
@@ -208,4 +209,14 @@ test("preferBoardScanForDelivery prefers complete scan over partial with picks",
     preferBoardScanForDelivery(null, partialWithPicks),
     partialWithPicks,
   );
+});
+
+test("preferFinalBoardScanForDelivery never returns preview-cache partials", () => {
+  const complete = { scanComplete: true, picks: [{}, {}] };
+  const partialWithPicks = { scanComplete: false, picks: [{}, {}, {}] };
+  assert.equal(
+    preferFinalBoardScanForDelivery(partialWithPicks, complete),
+    complete,
+  );
+  assert.equal(preferFinalBoardScanForDelivery(partialWithPicks, null), null);
 });

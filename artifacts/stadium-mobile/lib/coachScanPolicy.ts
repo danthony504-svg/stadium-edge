@@ -123,6 +123,16 @@ export function preferBoardScanForDelivery<
   return null;
 }
 
+/** Final ticket delivery — complete live scans only; never promote preview-cache rows. */
+export function preferFinalBoardScanForDelivery<
+  T extends { scanComplete?: boolean; picks?: { length: number } },
+>(...candidates: (T | null | undefined)[]): T | null {
+  for (const scan of candidates) {
+    if (scan && boardScanIsComplete(scan)) return scan;
+  }
+  return null;
+}
+
 /** Never pad 3+ leg parlays with ungraded posted lines when a board scan applies. */
 export function shouldAllowReachCountBackfill(opts: {
   fullBoardScanned?: boolean;

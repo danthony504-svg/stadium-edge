@@ -4,6 +4,20 @@ import type { BuiltChatContext } from "./api.ts";
 import type { GameInjuryReport } from "./injuries.ts";
 import type { SlatePreAnalysisSeed } from "./slatePreAnalysis.ts";
 
+/** All sports the Coach surfaces — kept local to avoid expo-ui imports in unit tests. */
+const LIVE_SCAN_SPORT_IDS = [
+  "mlb",
+  "wnba",
+  "nba",
+  "nhl",
+  "soccer",
+  "ufc",
+  "tennis",
+  "nfl",
+  "ncaaf",
+  "ncaab",
+] as const;
+
 export const COACH_SLATE_PREVIEW_NOTE =
   "Preview from the last board scan — refreshing live odds, injuries, and line movement now.";
 
@@ -67,4 +81,13 @@ export function cachedSeedMatchesBuilt(
 /** Cached tickets may flash instantly but must not finalize delivery. */
 export function markBoardScanAsPreview<T extends { scanComplete?: boolean }>(scan: T): T {
   return { ...scan, scanComplete: false };
+}
+
+/** Live board scan covers every supported sport (minus user exclusions). */
+export function coachLiveScanSports(excluded?: ReadonlySet<string> | readonly string[]): string[] {
+  const ex =
+    excluded instanceof Set
+      ? excluded
+      : new Set((excluded as readonly string[] | undefined) ?? []);
+  return LIVE_SCAN_SPORT_IDS.filter((s) => !ex.has(s));
 }

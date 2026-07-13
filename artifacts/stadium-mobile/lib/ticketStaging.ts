@@ -15,6 +15,7 @@ import {
 import { gameLineLegBucket, isGameLinePick } from "./gameSimScoring.ts";
 import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropStatMarket } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
@@ -100,10 +101,15 @@ export function tagTicketRoles(picks: ParsedPick[]): ParsedPick[] {
 }
 
 /** Greedy top-N by rank — no correlation penalty (used to fill alt gaps to reach N). */
-export function selectGreedyBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
+export function selectGreedyBoardLegs(
+  ranked: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+): ParsedPick[] {
   const seen = new Set<string>();
   const out: ParsedPick[] = [];
-  for (const row of ranked) {
+  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  for (const row of sorted) {
     const fp = pickLegFingerprint(row.pick);
     if (seen.has(fp)) continue;
     seen.add(fp);
@@ -131,12 +137,16 @@ export function capThinStatMarketsOnTicket(picks: ParsedPick[], target: number):
 }
 
 /** Greedy top-N by rank — correlation-aware when building multi-leg tickets. */
-export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): ParsedPick[] {
-  if (target < 3) return selectGreedyBoardLegs(ranked, target);
+export function selectTopBoardLegs(
+  ranked: BoardScoredLeg[],
+  target: number,
+  varietySeed?: string,
+): ParsedPick[] {
+  if (target < 3) return selectGreedyBoardLegs(ranked, target, varietySeed);
 
   const out: ParsedPick[] = [];
   const usedFp = new Set<string>();
-  const sorted = [...ranked].sort((a, b) => b.rankScore - a.rankScore);
+  const sorted = [...ranked].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
   while (out.length < target) {
     const remaining = sorted.filter((r) => !usedFp.has(pickLegFingerprint(r.pick)));
@@ -160,7 +170,7 @@ export function selectTopBoardLegs(ranked: BoardScoredLeg[], target: number): Pa
   if (out.length < target) {
     const usedFpFinal = new Set(out.map(pickLegFingerprint));
     const remaining = sorted.filter((r) => !usedFpFinal.has(pickLegFingerprint(r.pick)));
-    const greedy = selectGreedyBoardLegs(remaining, target - out.length);
+    const greedy = selectGreedyBoardLegs(remaining, target - out.length, varietySeed);
     if (greedy.length) {
       return dedupeSameTeamGameLegsLite([...out, ...greedy]).slice(0, target);
     }
@@ -244,10 +254,14 @@ function appendPicksFromPool(
   pool: BoardScoredLeg[],
   want: number,
   target: number,
+  varietySeed?: string,
 ): number {
   if (want <= 0) return 0;
   const remaining = pool.filter((row) => !used.has(pickLegFingerprint(row.pick)));
-  const picks = target >= 3 ? selectTopBoardLegs(remaining, want) : selectGreedyBoardLegs(remaining, want);
+  const picks =
+    target >= 3
+      ? selectTopBoardLegs(remaining, want, varietySeed)
+      : selectGreedyBoardLegs(remaining, want, varietySeed);
   let added = 0;
   for (const p of picks) {
     const fp = pickLegFingerprint(p);
@@ -266,6 +280,7 @@ function applyBalancedCapAndBackfill(
   picks: ParsedPick[],
   target: number,
   pools: PartitionedBoardPools,
+  varietySeed?: string,
 ): ParsedPick[] {
   let current = capThinStatMarketsOnTicket(picks, target);
   if (current.length >= target) return current.slice(0, target);
@@ -273,7 +288,7 @@ function applyBalancedCapAndBackfill(
   const used = new Set(current.map(pickLegFingerprint));
   for (const cat of BALANCED_BACKFILL_ORDER) {
     if (current.length >= target) break;
-    const ranked = [...pools[cat]].sort((a, b) => b.rankScore - a.rankScore);
+    const ranked = [...pools[cat]].sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
     for (const row of ranked) {
       if (current.length >= target) break;
       const fp = pickLegFingerprint(row.pick);
@@ -297,6 +312,7 @@ function applyBalancedCapAndBackfill(
 export function buildBalancedStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
+  varietySeed?: string,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
@@ -304,12 +320,12 @@ export function buildBalancedStagedTicketFromScan(
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
-  appendPicksFromPool(out, used, pools.props, slots.props, target);
-  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target);
-  appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target);
-  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target);
+  appendPicksFromPool(out, used, pools.props, slots.props, target, varietySeed);
+  appendPicksFromPool(out, used, pools.gameLines, slots.gameLines, target, varietySeed);
+  appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed);
+  appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed);
 
-  const finalPicks = applyBalancedCapAndBackfill(out, target, pools).slice(0, target);
+  const finalPicks = applyBalancedCapAndBackfill(out, target, pools, varietySeed).slice(0, target);
   const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
   const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
 
@@ -328,9 +344,10 @@ export function buildBalancedStagedTicketFromScan(
 export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
+  varietySeed?: string,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   if (target >= 3) {
-    return buildBalancedStagedTicketFromScan(scored, target);
+    return buildBalancedStagedTicketFromScan(scored, target, varietySeed);
   }
 
   const mains: BoardScoredLeg[] = [];
@@ -342,10 +359,10 @@ export function buildStagedTicketFromScan(
     else if (role === "alt") alts.push(leg);
   }
 
-  mains.sort((a, b) => b.rankScore - a.rankScore);
-  alts.sort((a, b) => b.rankScore - a.rankScore);
+  mains.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
+  alts.sort((a, b) => compareBoardLegsForRank(a, b, varietySeed));
 
-  const mainPicks = selectTopBoardLegs(mains, target).map((p) => ({
+  const mainPicks = selectTopBoardLegs(mains, target, varietySeed).map((p) => ({
     ...p,
     ticketRole: "main" as const,
   }));
@@ -353,31 +370,36 @@ export function buildStagedTicketFromScan(
   const used = new Set(allPicks.map(pickLegFingerprint));
   const altPool = alts.filter((l) => !used.has(pickLegFingerprint(l.pick)));
 
-  // Alt gap fill: greedy rank order — promoted alternates get ALT PICK badges.
   const gap = Math.max(0, target - allPicks.length);
   if (gap > 0 && altPool.length > 0) {
-    const altPicks = (target >= 3 ? selectTopBoardLegs(altPool, gap) : selectGreedyBoardLegs(altPool, gap)).map(
-      (p) => ({
+    const altPicks = (
+      target >= 3
+        ? selectTopBoardLegs(altPool, gap, varietySeed)
+        : selectGreedyBoardLegs(altPool, gap, varietySeed)
+    ).map((p) => ({
       ...p,
       ticketRole: "alt" as const,
       highRiskValuePlay: false,
-    }),
-    );
+    }));
     allPicks = [...allPicks, ...altPicks];
   }
 
-  // Last resort: any remaining qualifying mains if alts exhausted but mains remain.
   const mainGap = Math.max(0, target - allPicks.length);
   if (mainGap > 0) {
     const usedFp = new Set(allPicks.map(pickLegFingerprint));
     const remainingMains = mains.filter((l) => !usedFp.has(pickLegFingerprint(l.pick)));
-    const extraMains = (target >= 3 ? selectTopBoardLegs(remainingMains, mainGap) : selectGreedyBoardLegs(remainingMains, mainGap)).map(
-      (p) => ({ ...p, ticketRole: "main" as const, highRiskValuePlay: false }),
-    );
+    const extraMains = (
+      target >= 3
+        ? selectTopBoardLegs(remainingMains, mainGap, varietySeed)
+        : selectGreedyBoardLegs(remainingMains, mainGap, varietySeed)
+    ).map((p) => ({ ...p, ticketRole: "main" as const, highRiskValuePlay: false }));
     allPicks = [...allPicks, ...extraMains];
   }
 
-  const finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [...mains, ...alts]);
+  const finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [
+    ...mains,
+    ...alts,
+  ]);
   return {
     picks: finalPicks,
     breakdown: {
