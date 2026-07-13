@@ -205,6 +205,9 @@ export function CoachTicketHeader({
     [picks, trackedPicks],
   );
   const hasDetail = summary.gameLines.length > 0;
+  const hasCoachDetail = Boolean(notes.detail?.trim());
+  const hasScanManifest = /### Scan manifest/i.test(notes.detail ?? "");
+  const [detailExpanded, setDetailExpanded] = useState(false);
   const gradeColor = gradeTierColor(summary.overallGrade, colors);
 
   return (
