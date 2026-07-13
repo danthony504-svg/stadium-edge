@@ -230,6 +230,7 @@ async function simPropBatch(
 ): Promise<{ hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>; timedOut: boolean }> {
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
   if (!batch.length) return { hits: out, timedOut: false };
+  let timedOut = false;
   try {
     const rows = await Promise.race([
       fetchPropSimulations(
@@ -245,11 +246,11 @@ async function simPropBatch(
     for (const [k, v] of rows) {
       out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
     }
-    const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
-    return { hits: enriched, timedOut: false };
   } catch {
-    return { hits: out, timedOut: true };
+    timedOut = true;
   }
+  const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
+  return { hits: enriched, timedOut };
 }
 
 function appendPropScoredLegs(
@@ -399,7 +400,7 @@ async function simPropPoolUntilQualified(
         opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
         continue;
       }
-      if (wave.timedOut || !wave.hits.has(key)) {
+      if (!wave.hits.has(key)) {
         opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
         continue;
       }
