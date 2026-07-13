@@ -584,10 +584,13 @@ function recoverOrphanCoachThread(msgs: UIMessage[]): UIMessage[] {
     const copy = [...msgs];
     const lastIdx = copy.length - 1;
     if (copy[lastIdx]?.role === "assistant") {
+      const parlay = copy[lastIdx].parlayBuild ?? isParlayBuildAsk(priorUser.content);
       copy[lastIdx] = {
         ...copy[lastIdx],
-        parlayBuild: copy[lastIdx].parlayBuild ?? isParlayBuildAsk(priorUser.content),
-        retry: copy[lastIdx].retry ?? priorUser.content,
+        parlayBuild: parlay,
+        retry:
+          copy[lastIdx].retry ??
+          (parlay ? priorUser.content : undefined),
       };
     }
     return copy;
@@ -5764,10 +5767,16 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
+            const retryAffordance =
+              !!m.retry &&
+              (parlayBuildIntent || !assistantHasVisibleContent(m));
             const parlayShowRetryButton =
               i === messages.length - 1 &&
               !hasPicks &&
-              (parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung || !!m.retry);
+              (parlayStalledEmpty ||
+                parlayStuckDeadProse ||
+                parlayBuildHung ||
+                retryAffordance);
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
             const progressLegCount = showTicketPicks
