@@ -45,6 +45,8 @@ const COMPOSER_CLEARANCE = 66; // approx idle height of the Coach chat composer
 // (via KeyboardStickyView) and the dismiss button sits above that. Lift the slip
 // bar this far above the keyboard so it clears both and stays usable mid-chat.
 const COACH_KB_CLEARANCE = 120;
+// When the slip drawer is expanded on Coach, leave the composer strip tappable.
+const COACH_COMPOSER_TAP_ZONE = 108;
 
 // Extra bottom padding a scrollable screen should add so its last items can
 // scroll clear of the floating slip bar (summary bar height + its bottom offset
@@ -204,11 +206,17 @@ function SlipBarBody({
 
   return (
     <>
-      {/* Tap-away backdrop while expanded */}
+      {/* Tap-away backdrop while expanded — on Coach, keep the composer strip reachable */}
       {open ? (
         <Pressable
           onPress={toggle}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: onCoach ? insets.bottom + COACH_COMPOSER_TAP_ZONE : 0,
+          }}
         />
       ) : null}
 
@@ -218,6 +226,7 @@ function SlipBarBody({
           left: 12,
           right: 12,
           bottom: barBottom,
+          zIndex: onCoach ? 40 : undefined,
         }}
       >
         {/* Expanded leg list (sits above the summary bar) */}
