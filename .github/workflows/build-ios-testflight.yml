@@ -1,7 +1,6 @@
 name: Build iOS TestFlight
 
-# Manual only — App Store / TestFlight builds require review. JS fixes ship via
-# publish-production-ota.yml (OTA) on the production channel / runtime 1.0.0.
+# Manual or push trigger file — App Store builds require review.
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +12,10 @@ on:
         description: Auto-submit to App Store Connect when the build finishes
         required: false
         default: "false"
+  push:
+    branches: [main]
+    paths:
+      - ".github/ios-build-trigger"
 
 jobs:
   build:
@@ -50,7 +53,13 @@ jobs:
             echo "Add EXPO_TOKEN to repo secrets"
             exit 1
           fi
-          MSG="${{ github.event.inputs.message }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            MSG="v1.0.3 embedded diagnostics + home on launch $(git rev-parse --short HEAD)"
+            AUTO_SUBMIT="true"
+          else
+            MSG="${{ github.event.inputs.message }}"
+            AUTO_SUBMIT="${{ github.event.inputs.auto_submit }}"
+          fi
           if [ -z "$MSG" ]; then
             MSG="Manual iOS build $(git rev-parse --short HEAD)"
           fi
