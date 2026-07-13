@@ -42,7 +42,7 @@ import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { propSimKey } from "./propSelection.ts";
+import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
@@ -67,10 +67,27 @@ export {
 
 const PROP_SIM_BATCH_TIMEOUT_MS = 60_000;
 
-function propSimKeyForPick(pick: ParsedPick): string | null {
-  if (!pick.isProp || !pick.player) return null;
-  const market = pick.propMarketKey ?? pick.market ?? "";
-  return propSimKey(pick.player, market, pick.propLine, pick.propSide ?? "");
+function propSimKeyForPick(pick: ParsedPick, poolRow?: { marketKey?: string | null }): string | null {
+  return propSimLookupKey(pick, poolRow);
+}
+
+function poolRowForPropPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
+  return pool.find(
+    (e) =>
+      e.player === pick.player &&
+      e.side === pick.propSide &&
+      (pick.propLine == null || e.line === pick.propLine) &&
+      (pick.game ? e.game === pick.game : true),
+  );
+}
+
+function propPickHasSimHit(
+  pick: ParsedPick,
+  pool: PropPoolEntry[],
+  hits: Map<string, { hitProbability: number | null }>,
+): boolean {
+  const hit = hits.get(propSimKeyForPick(pick, poolRowForPropPick(pick, pool)) ?? "")?.hitProbability ?? null;
+  return pickHasSimGrade(pick, hit);
 }
 
 function aliasPropSimHitsForBatch(
@@ -103,14 +120,6 @@ function aliasPropSimHitsForBatch(
     }
   }
   return out;
-}
-
-function propPickHasSimHit(
-  pick: ParsedPick,
-  hits: Map<string, { hitProbability: number | null }>,
-): boolean {
-  const key = propSimKeyForPick(pick);
-  return key != null && hits.has(key);
 }
 
 export type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
@@ -227,9 +236,13 @@ async function simPropBatch(
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
-): Promise<{ hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>; timedOut: boolean }> {
+): Promise<{
+  hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>;
+  timedOut: boolean;
+  playerHistory: Record<string, PlayerHistorySlice>;
+}> {
   const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
-  if (!batch.length) return { hits: out, timedOut: false };
+  if (!batch.length) return { hits: out, timedOut: false, playerHistory: {} };
   let timedOut = false;
   try {
     const rows = await Promise.race([
@@ -250,7 +263,7 @@ async function simPropBatch(
     timedOut = true;
   }
   const enriched = await enrichCoachPropSimHits(batch, pool, aliasPropSimHitsForBatch(batch, out), signal);
-  return { hits: enriched, timedOut };
+  return { hits: enriched.hits, timedOut, playerHistory: enriched.playerHistory };
 }
 
 function appendPropScoredLegs(
@@ -272,7 +285,7 @@ function appendPropScoredLegs(
   },
 ): void {
   const pending = rankedProps.filter((p) => {
-    if (!propPickHasSimHit(p, propHits)) return false;
+    if (!propPickHasSimHit(p, opts.pool, propHits)) return false;
     return !seenFp.has(pickLegFingerprint(p));
   });
   if (!pending.length) return;
@@ -368,7 +381,7 @@ async function simPropPoolUntilQualified(
     mergedOdds,
     matchupHistory: opts.matchupHistory,
     matchupInjuries: opts.matchupInjuries,
-    playerHistory: opts.playerHistory,
+    playerHistory: { ...(opts.playerHistory ?? {}) },
     mlbPlatoon: opts.mlbPlatoon,
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
@@ -392,15 +405,14 @@ async function simPropPoolUntilQualified(
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal);
     for (const [k, v] of wave.hits) propHits.set(k, v);
+    for (const [k, v] of Object.entries(wave.playerHistory)) {
+      scoreOpts.playerHistory[k] = v;
+    }
     opts.onPropBatch?.(batch.length, wave.timedOut);
 
     for (const pick of batch) {
-      const key = propSimKeyForPick(pick);
+      const key = propSimKeyForPick(pick, poolRowForPropPick(pick, pool));
       if (!key) {
-        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
-        continue;
-      }
-      if (!wave.hits.has(key)) {
         opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
         continue;
       }

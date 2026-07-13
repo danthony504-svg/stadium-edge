@@ -356,7 +356,12 @@ function confidenceFromHolisticFactors(factors: PropHolisticFactor[]): number | 
   if (present === 0) return null;
 
   const missing = applicable.filter((f) => !f.present).length;
-  pts -= missing * CONFIDENCE_PENALTY_PER_MISSING;
+  const simFactor = factors.find((f) => f.key === "simulation" && f.present && f.score != null);
+  const missingPenalty =
+    simFactor && (simFactor.score ?? 0) >= 5.5
+      ? Math.min(missing * CONFIDENCE_PENALTY_PER_MISSING, 18)
+      : missing * CONFIDENCE_PENALTY_PER_MISSING;
+  pts -= missingPenalty;
   return clamp(Math.round(pts), 5, 95);
 }
 

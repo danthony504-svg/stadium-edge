@@ -636,6 +636,37 @@ test("propSimEdgeStagingQualifies accepts sim-aligned props without holistic con
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });
 
+test("propSimEdgeStagingQualifies uses sim hit floor when holistic confidence collapsed", () => {
+  const pick = {
+    isProp: true,
+    market: "Points",
+    odds: -110,
+    finalAiScore: {
+      composite: 6.1,
+      grade: "C+",
+      confidencePct: 18,
+      edgePct: 2.5,
+      simHit: 0.58,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.1, grade: "C+", confidencePct: 18, edgePct: 2.5, scores: {} as never },
+      propHolistic: {
+        composite: 6.1,
+        grade: "C+",
+        confidencePct: 18,
+        coveragePct: 22,
+        missingCount: 7,
+        applicableCount: 9,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
+});
+
 test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
   const staged = {
     game: "Toronto Blue Jays @ San Diego Padres",

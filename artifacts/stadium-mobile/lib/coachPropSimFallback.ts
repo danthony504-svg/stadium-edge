@@ -6,10 +6,17 @@ import type { ParsedPick } from "../components/PickCard.tsx";
 import type { PropPoolEntry } from "./api.ts";
 import { getPlayerHistory, searchPlayer } from "./api.ts";
 import { pickPlayerSearchResult } from "./playerSearchPick.ts";
-import { propSimKey } from "./propSelection.ts";
+import type { PlayerHistorySlice } from "./pickScoreContext.ts";
+import { propSimLookupKey } from "./propSelection.ts";
 import { localPropSimulation, type LocalHistorySlice } from "./simulatorLocalSim.ts";
 
 export type PropSimHit = { hitProbability: number | null; nullReason?: string | null };
+
+export type EnrichCoachPropSimResult = {
+  hits: Map<string, PropSimHit>;
+  /** Player#athleteId slices for holistic trend/form scoring during board scan. */
+  playerHistory: Record<string, PlayerHistorySlice>;
+};
 
 function poolRowForPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry | undefined {
   const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
@@ -26,12 +33,7 @@ function poolRowForPick(pick: ParsedPick, pool: PropPoolEntry[]): PropPoolEntry 
 }
 
 function simKeyForPick(pick: ParsedPick, pool: PropPoolEntry[]): string | null {
-  if (!pick.isProp || !pick.player || pick.propLine == null) return null;
-  const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
-  if (!side) return null;
-  const poolRow = poolRowForPick(pick, pool);
-  const market = pick.propMarketKey ?? poolRow?.marketKey ?? pick.market ?? "";
-  return propSimKey(pick.player, market, pick.propLine, side);
+  return propSimLookupKey(pick, poolRowForPick(pick, pool));
 }
 
 async function resolveAthleteId(
@@ -48,14 +50,33 @@ async function resolveAthleteId(
   }
 }
 
+function historySliceFromApi(
+  player: string,
+  h: Awaited<ReturnType<typeof getPlayerHistory>>,
+): PlayerHistorySlice {
+  return {
+    player,
+    recent: (h.recent ?? []).slice(0, 10).map((g) => ({
+      date: g.date,
+      opp: g.opponentName,
+      stats: g.stats,
+    })),
+    vsOpponent: (h.vsOpponent ?? []).slice(0, 5).map((g) => ({
+      date: g.date,
+      stats: g.stats,
+    })),
+  };
+}
+
 /** Fill null server MC hits using /sports/player-history + localPropSimulation. */
 export async function enrichCoachPropSimHits(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
   hits: Map<string, PropSimHit>,
   signal?: AbortSignal,
-): Promise<Map<string, PropSimHit>> {
+): Promise<EnrichCoachPropSimResult> {
   const out = new Map(hits);
+  const playerHistory: Record<string, PlayerHistorySlice> = {};
   const pending: ParsedPick[] = [];
 
   for (const pick of batch) {
@@ -66,7 +87,7 @@ export async function enrichCoachPropSimHits(
     pending.push(pick);
   }
 
-  if (!pending.length) return out;
+  if (!pending.length) return { hits: out, playerHistory };
 
   const historyCache = new Map<string, LocalHistorySlice>();
   const athleteIdCache = new Map<string, string | null>();
@@ -88,7 +109,7 @@ export async function enrichCoachPropSimHits(
   await Promise.all(
     pending.map(async (pick) => {
       const athleteId = await athleteIdForPick(pick);
-      if (!athleteId) return;
+      if (!athleteId || !pick.player) return;
       const poolRow = poolRowForPick(pick, pool);
       const sport = (pick.sport ?? poolRow?.sport ?? "nba").toLowerCase();
       const cacheKey = `${sport}:${athleteId}`;
@@ -100,6 +121,7 @@ export async function enrichCoachPropSimHits(
           labels: h.labels,
           recent: h.recent.map((g) => ({ stats: g.stats })),
         });
+        playerHistory[`${pick.player}#${athleteId}`] = historySliceFromApi(pick.player, h);
       } catch {
         /* honest skip */
       }
@@ -141,5 +163,5 @@ export async function enrichCoachPropSimHits(
     out.set(key, { hitProbability: local.hitProbability, nullReason: null });
   }
 
-  return out;
+  return { hits: out, playerHistory };
 }

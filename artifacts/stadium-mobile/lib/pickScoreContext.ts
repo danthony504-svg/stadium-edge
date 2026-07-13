@@ -19,6 +19,7 @@ import type {
   RealOddsEntry,
 } from "@/lib/api";
 import { propMarketLabel } from "@/lib/propMarketLabel";
+import { lookupPropSimHit } from "@/lib/propSelection";
 import type { GameInjuryReport } from "@/lib/injuries";
 import { summarizeTeamInjuries, teamNameMatches } from "@/lib/injuries";
 import {
@@ -498,12 +499,8 @@ function scorePropPickFromContext(
   const marketKey = pick.propMarketKey ?? entry?.marketKey ?? pick.market ?? "";
   const ph = playerHistoryFor(pick.player, entry?.athleteId ?? pick.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
-  const simKey =
-    pick.player && pick.propLine != null && pick.propSide
-      ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
-      : null;
-  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
-  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const simHit =
+    lookupPropSimHit(pick, entry, simulationByKey) ?? pick.finalAiScore?.simHit ?? null;
   const edgePct = edgePctFromPick(pick, entry?.edge, simHit);
   const matchup = propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory);
   const trend = propTrendScore(ph, marketKey, pick.propLine, pick.propSide);
@@ -561,12 +558,8 @@ function scorePropPick(
   const marketKey = pick.propMarketKey ?? entry.marketKey ?? pick.market;
   const ph = playerHistoryFor(pick.player, entry.athleteId ?? pick.athleteId, ctx?.playerHistory);
   const playerTeam = resolvePropPlayerTeam(pick.game, entry, ph);
-  const simKey =
-    pick.player && pick.propLine != null && pick.propSide
-      ? `${pick.player}|${marketKey}|${pick.propLine}|${pick.propSide}`
-      : null;
-  const sim = simKey ? simulationByKey?.get(simKey) : undefined;
-  const simHit = sim?.hitProbability ?? pick.finalAiScore?.simHit ?? null;
+  const simHit =
+    lookupPropSimHit(pick, entry, simulationByKey) ?? pick.finalAiScore?.simHit ?? null;
   const edgePct = edgePctFromPick(pick, entry.edge, simHit);
   const scores: PickSubScores = {
     matchup: propMatchupScore(pick.game, playerTeam, ctx?.matchupHistory),
@@ -683,14 +676,8 @@ export function attachPickScores(
     }
     if (!scores) return { ...p, scores: null };
 
-    const propKey =
-      p.isProp && p.player && p.propLine != null && p.propSide
-        ? `${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`
-        : null;
     const propSimHit =
-      p.isProp && propKey && sims?.get(propKey)?.hitProbability != null
-        ? (sims.get(propKey)!.hitProbability as number)
-        : null;
+      p.isProp && sims ? lookupPropSimHit(p, propEntryEarly, sims) : null;
 
     const propPh =
       p.isProp && p.player

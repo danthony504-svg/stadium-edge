@@ -166,6 +166,16 @@ function gradeRank(g: string | null | undefined): number {
   return GRADE_RANK[g] ?? -1;
 }
 
+/** Confidence floor from a grounded sim hit when holistic coverage is thin. */
+function propSimConfidenceFloor(simHit: number | null | undefined): number {
+  if (simHit == null || !Number.isFinite(simHit)) return 0;
+  return Math.max(5, Math.min(95, Math.round(50 + Math.abs(simHit - 0.5) * 40)));
+}
+
+function effectivePropConfidence(score: FinalAiScore): number {
+  return Math.max(score.confidencePct ?? 0, propSimConfidenceFloor(score.simHit));
+}
+
 function legacyPropStagingQualifies(
   pick: RecommendablePick,
   score: FinalAiScore | null | undefined,
@@ -174,7 +184,7 @@ function legacyPropStagingQualifies(
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);
@@ -217,7 +227,7 @@ export function propSimEdgeStagingQualifies(
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);
     if (score.simHit <= implied) return false;
@@ -289,7 +299,7 @@ export function pickIsAiRecommended(
   }
   if (!score.simAligned) return false;
   if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < COACH_SIM_MIN_CONFIDENCE) return false;
+  if (effectivePropConfidence(score) < COACH_SIM_MIN_CONFIDENCE) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
   if (score.simHit != null && pick.odds != null) {
     const implied = impliedProb(pick.odds);

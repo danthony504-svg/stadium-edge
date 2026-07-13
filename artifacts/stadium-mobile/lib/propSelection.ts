@@ -37,6 +37,44 @@ export function propSimKey(
   return `${player}|${market}|${line}|${s}`;
 }
 
+/** Canonical MC map key — prefers ESPN marketKey from the prop pool row. */
+export function propSimLookupKey(
+  pick: {
+    player?: string;
+    propMarketKey?: string | null;
+    market?: string;
+    propLine?: number | null;
+    propSide?: string | null;
+  },
+  poolRow?: { marketKey?: string | null } | null,
+): string | null {
+  if (!pick.player || pick.propLine == null || !pick.propSide) return null;
+  const side = pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
+  if (!side) return null;
+  const market = pick.propMarketKey ?? poolRow?.marketKey ?? pick.market ?? "";
+  return propSimKey(pick.player, market, pick.propLine, side);
+}
+
+export function lookupPropSimHit(
+  pick: Parameters<typeof propSimLookupKey>[0],
+  poolRow: Parameters<typeof propSimLookupKey>[1],
+  hits: Map<string, { hitProbability: number | null }>,
+): number | null {
+  const keys = new Set<string>();
+  const primary = propSimLookupKey(pick, poolRow);
+  if (primary) keys.add(primary);
+  const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
+  if (altMarket) {
+    const alt = propSimLookupKey({ ...pick, propMarketKey: altMarket }, poolRow);
+    if (alt) keys.add(alt);
+  }
+  for (const key of keys) {
+    const hit = hits.get(key)?.hitProbability;
+    if (hit != null && Number.isFinite(hit)) return hit;
+  }
+  return null;
+}
+
 export function parsedPickFromPoolEntry(e: PropPoolEntry): ParsedPick {
   const pick =
     e.line != null
