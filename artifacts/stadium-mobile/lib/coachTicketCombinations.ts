@@ -25,6 +25,12 @@ import {
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
+  type CoachTicketStyle,
+  type QualityTierGrade,
+  poolRoleAtMinGrade,
+  qualityTiersForStyle,
+} from "./coachTicketQualityTiers.ts";
+import {
   boardLegPoolRole,
   capThinStatMarketsOnTicket,
   type BoardScoredLeg,
@@ -43,6 +49,8 @@ export const SIGNIFICANT_LEAD_EDGE_GAP_PCT = 2.5;
 
 export type CoachTicketBuildOpts = {
   varietySeed: string;
+  /** Safe / Balanced / Value / Longshot — controls how far quality relaxes when filling legs. */
+  ticketStyle?: CoachTicketStyle;
 } & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
@@ -344,6 +352,53 @@ function appendFromCategory(
   ticket.push(...picked);
 }
 
+function stagedPickFromRow(
+  row: BoardScoredLeg,
+  role: "main" | "alt",
+  fillTier?: QualityTierGrade,
+): ParsedPick {
+  const strictRole = boardLegPoolRole(row.pick, row.pick.finalAiScore);
+  return {
+    ...row.pick,
+    ticketRole: role,
+    highRiskValuePlay: false,
+    ...(strictRole || !fillTier ? {} : { coachFillTier: fillTier }),
+  };
+}
+
+function tryAppendBackfillLeg(
+  current: ParsedPick[],
+  row: BoardScoredLeg,
+  role: "main" | "alt",
+  target: number,
+  ranked: BoardScoredLeg[],
+  config: AssemblyConfig,
+  fillTier?: QualityTierGrade,
+): ParsedPick[] | null {
+  const thinOnTicket = current.filter(
+    (p) => p.isProp && isThinPropStatMarket(p.market),
+  ).length;
+  const maxThin = maxLegsPerThinStatMarket(target);
+  if (
+    row.pick.isProp &&
+    isThinPropStatMarket(row.pick.market) &&
+    thinOnTicket >= maxThin
+  ) {
+    return null;
+  }
+  const corr = parlayCorrelationPenalty(row.pick, current);
+  const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
+  const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);
+  const trial = capThinStatMarketsOnTicket(
+    [...current, stagedPickFromRow(row, role, fillTier)],
+    target,
+  );
+  if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat - recent > 0) {
+    return trial;
+  }
+  return null;
+}
+
 function backfillDiverseTicket(
   ticket: ParsedPick[],
   target: number,
@@ -363,28 +418,8 @@ function backfillDiverseTicket(
       if (used.has(fp)) continue;
       const role = boardLegPoolRole(row.pick, row.pick.finalAiScore);
       if (!role) continue;
-      const thinOnTicket = current.filter(
-        (p) => p.isProp && isThinPropStatMarket(p.market),
-      ).length;
-      const maxThin = maxLegsPerThinStatMarket(target);
-      if (
-        row.pick.isProp &&
-        isThinPropStatMarket(row.pick.market) &&
-        thinOnTicket >= maxThin
-      ) {
-        continue;
-      }
-      const corr = parlayCorrelationPenalty(row.pick, current);
-      const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
-      const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);
-      const trial = capThinStatMarketsOnTicket(
-        [
-          ...current,
-          { ...row.pick, ticketRole: role, highRiskValuePlay: false },
-        ],
-        target,
-      );
-      if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat - recent > 0) {
+      const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config);
+      if (trial) {
         current = trial;
         used.add(fp);
       }
@@ -393,10 +428,72 @@ function backfillDiverseTicket(
   return current.slice(0, target);
 }
 
+function backfillAtQualityTier(
+  ticket: ParsedPick[],
+  target: number,
+  allScored: BoardScoredLeg[],
+  minGrade: QualityTierGrade,
+  config: AssemblyConfig,
+): ParsedPick[] {
+  let current = capThinStatMarketsOnTicket(ticket, target);
+  if (current.length >= target) return current.slice(0, target);
+
+  const tierLegs = allScored.filter(
+    (leg) => poolRoleAtMinGrade(leg.pick, leg.pick.finalAiScore, minGrade) != null,
+  );
+  const pools = partitionScoredLegsByCategory(tierLegs);
+  const used = new Set(current.map(pickLegFingerprint));
+
+  for (const cat of BALANCED_BACKFILL_ORDER) {
+    if (current.length >= target) break;
+    const ranked = sortBoardLegsForRank(pools[cat], config.seed);
+    for (const row of ranked) {
+      if (current.length >= target) break;
+      const fp = pickLegFingerprint(row.pick);
+      if (used.has(fp)) continue;
+      const role = poolRoleAtMinGrade(row.pick, row.pick.finalAiScore, minGrade);
+      if (!role) continue;
+      const trial = tryAppendBackfillLeg(current, row, role, target, ranked, config, minGrade);
+      if (trial) {
+        current = trial;
+        used.add(fp);
+      }
+    }
+  }
+  return current.slice(0, target);
+}
+
+/** Walk A+→B tiers after strict assembly — only shortfall when all allowed tiers are exhausted. */
+export function tieredBackfillStagedTicket(
+  ticket: ParsedPick[],
+  target: number,
+  allScored: BoardScoredLeg[],
+  ticketStyle: CoachTicketStyle,
+  seed?: string,
+): ParsedPick[] {
+  if (ticket.length >= target) return ticket.slice(0, target);
+  const config: AssemblyConfig = {
+    seed: seed ?? "tiered-backfill",
+    diversityWeight: 0.35,
+    bandOffset: 0,
+    categoryOrder: BALANCED_BACKFILL_ORDER,
+    poolRotate: 0,
+    lineShoppingBias: 1,
+  };
+  let current = ticket;
+  for (const tier of qualityTiersForStyle(ticketStyle)) {
+    if (current.length >= target) break;
+    current = backfillAtQualityTier(current, target, allScored, tier, config);
+  }
+  return current.slice(0, target);
+}
+
 function assembleBalancedDiverseTicket(
   qualifying: BoardScoredLeg[],
+  allScored: BoardScoredLeg[],
   target: number,
   config: AssemblyConfig,
+  ticketStyle: CoachTicketStyle = "balanced",
 ): ParsedPick[] {
   const pools = partitionScoredLegsByCategory(qualifying);
   const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
@@ -413,7 +510,8 @@ function assembleBalancedDiverseTicket(
     appendFromCategory(ticket, used, rotatedPools[cat], slots[cat], target, config);
   }
 
-  return backfillDiverseTicket(ticket, target, rotatedPools, config);
+  const afterStrict = backfillDiverseTicket(ticket, target, rotatedPools, config);
+  return tieredBackfillStagedTicket(afterStrict, target, allScored, ticketStyle, config.seed);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -544,7 +642,7 @@ function referenceGreedyLegKeys(
     poolRotate: 0,
     lineShoppingBias: 0.5,
   };
-  const picks = assembleBalancedDiverseTicket(qualifying, largerTarget, config);
+  const picks = assembleBalancedDiverseTicket(qualifying, qualifying, largerTarget, config);
   return picks.map((p) => parlayLegKey(p));
 }
 
@@ -581,10 +679,12 @@ function prefixPenaltyForTarget(
 }
 
 function generateTicketCandidates(
-  qualifying: BoardScoredLeg[],
+  scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
+  const qualifying = qualifyingScoredLegs(scored);
+  const ticketStyle = opts.ticketStyle ?? "balanced";
   const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
   const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
@@ -603,7 +703,13 @@ function generateTicketCandidates(
       recentPlayerCounts: opts.recentPlayerCounts,
       lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
     };
-    const picks = assembleBalancedDiverseTicket(qualifying, target, config);
+    const picks = assembleBalancedDiverseTicket(
+      qualifying,
+      scored,
+      target,
+      config,
+      ticketStyle,
+    );
     if (!picks.length) continue;
     const legKeys = picks.map((p) => parlayLegKey(p));
     const candidate: TicketCandidate = {
@@ -747,7 +853,7 @@ export function buildIndependentCoachTicket(
   opts: CoachTicketBuildOpts,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
-  const candidates = generateTicketCandidates(qualifying, target, opts);
+  const candidates = generateTicketCandidates(scored, target, opts);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),

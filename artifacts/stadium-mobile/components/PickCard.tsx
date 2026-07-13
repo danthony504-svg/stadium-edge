@@ -117,6 +117,8 @@ export type ParsedPick = {
   highRiskValuePlay?: boolean;
   /** Main-board leg vs alt rung promoted to fill a reach-N ticket. */
   ticketRole?: "main" | "alt";
+  /** Quality tier used when this leg filled a fixed-leg ticket below strict AI gates. */
+  coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
   /** Alternate-ladder prop rung from the prop pool (`alt: true`). */
   propIsAlt?: boolean;
 };

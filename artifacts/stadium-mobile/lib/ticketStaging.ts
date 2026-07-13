@@ -18,8 +18,10 @@ import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
   buildIndependentCoachTicket,
+  tieredBackfillStagedTicket,
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
+import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
@@ -280,12 +282,14 @@ function appendPicksFromPool(
   return added;
 }
 
-/** Props-first backfill — never relaxes AI gates; may return fewer than target legs. */
+/** Props-first backfill — strict pool first; tiered relax only when still short of target. */
 function applyBalancedCapAndBackfill(
   picks: ParsedPick[],
   target: number,
   pools: PartitionedBoardPools,
   varietySeed?: string,
+  allScored?: BoardScoredLeg[],
+  ticketStyle?: CoachTicketStyle,
 ): ParsedPick[] {
   let current = capThinStatMarketsOnTicket(picks, target);
   if (current.length >= target) return current.slice(0, target);
@@ -310,6 +314,9 @@ function applyBalancedCapAndBackfill(
       }
     }
   }
+  if (allScored?.length && ticketStyle && current.length < target) {
+    current = tieredBackfillStagedTicket(current, target, allScored, ticketStyle, varietySeed);
+  }
   return current;
 }
 
@@ -318,6 +325,7 @@ export function buildBalancedStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  ticketStyle: CoachTicketStyle = "balanced",
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const pools = partitionScoredLegsByCategory(qualifying);
@@ -330,7 +338,14 @@ export function buildBalancedStagedTicketFromScan(
   appendPicksFromPool(out, used, pools.teamTotals, slots.teamTotals, target, varietySeed);
   appendPicksFromPool(out, used, pools.alternateLines, slots.alternateLines, target, varietySeed);
 
-  const finalPicks = applyBalancedCapAndBackfill(out, target, pools, varietySeed).slice(0, target);
+  const finalPicks = applyBalancedCapAndBackfill(
+    out,
+    target,
+    pools,
+    varietySeed,
+    scored,
+    ticketStyle,
+  ).slice(0, target);
   const mains = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "main");
   const alts = qualifying.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) === "alt");
 
@@ -345,21 +360,27 @@ export function buildBalancedStagedTicketFromScan(
   };
 }
 
+export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
+  ticketStyle?: CoachTicketStyle;
+};
+
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
 export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
-  varietyContext?: Partial<CoachParlayVarietyContext>,
+  varietyContext?: CoachTicketStagingContext,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3 && varietySeed) {
     return buildIndependentCoachTicket(scored, target, {
       varietySeed,
+      ticketStyle,
       ...varietyContext,
     } satisfies CoachTicketBuildOpts);
   }
   if (target >= 3) {
-    return buildBalancedStagedTicketFromScan(scored, target, varietySeed);
+    return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
 
   const mains: BoardScoredLeg[] = [];
@@ -408,10 +429,13 @@ export function buildStagedTicketFromScan(
     allPicks = [...allPicks, ...extraMains];
   }
 
-  const finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [
+  let finalPicks = applyCapAndBackfillToTarget(allPicks.slice(0, target), target, [
     ...mains,
     ...alts,
   ]);
+  if (finalPicks.length < target) {
+    finalPicks = tieredBackfillStagedTicket(finalPicks, target, scored, ticketStyle, varietySeed);
+  }
   return {
     picks: finalPicks,
     breakdown: {

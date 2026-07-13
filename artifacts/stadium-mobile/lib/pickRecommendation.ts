@@ -274,7 +274,12 @@ export function pickQualifiesForBoardDelivery(
 
 /** Board-built legs that cleared staging — same bar as ticket delivery. */
 export function boardScanStagedLegQualifies(
-  pick: RecommendablePick & { ticketRole?: "main" | "alt"; odds?: number | null; propIsAlt?: boolean },
+  pick: RecommendablePick & {
+    ticketRole?: "main" | "alt";
+    odds?: number | null;
+    propIsAlt?: boolean;
+    coachFillTier?: "A+" | "A" | "A-" | "B+" | "B";
+  },
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score || score.highRiskValuePlay) return false;
@@ -283,6 +288,9 @@ export function boardScanStagedLegQualifies(
   if (score.simHit != null && pick.odds != null) {
     const ev = simEvPct(score.simHit, pick.odds);
     if (ev != null && ev <= 0) return false;
+  }
+  if (pick.coachFillTier) {
+    return gradeRank(score.grade) >= gradeRank(pick.coachFillTier);
   }
   return pickQualifiesForBoardDelivery(pick, score);
 }

@@ -158,6 +158,7 @@ import {
   varietyContextWithLastDelivered,
   type CoachTicketRequestContext,
 } from "@/lib/coachRequestLifecycle";
+import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -2615,10 +2616,12 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
+          const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
             requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+            ticketStyle: coachTicketStyle,
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -3118,6 +3121,7 @@ export default function CoachScreen() {
                 onPartial: onBoardScanPartial,
                 varietySeed,
                 varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+                ticketStyle: coachTicketStyle,
                 requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
@@ -3573,6 +3577,7 @@ export default function CoachScreen() {
               onPartial: onBoardScanPartial,
               varietySeed,
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+              ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
