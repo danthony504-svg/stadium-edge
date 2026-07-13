@@ -44,6 +44,8 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+          EXPO_PUBLIC_BUNDLE_STAMP: ${{ github.run_id }}-${{ github.sha }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
 
       - name: Publish OTA to production
@@ -52,6 +54,8 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+          EXPO_PUBLIC_BUNDLE_STAMP: ${{ github.run_id }}-${{ github.sha }}
           ROLLBACK_EMBEDDED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_embedded || '0' }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
@@ -60,6 +64,6 @@ jobs:
           fi
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
-            MSG="main $(git rev-parse --short HEAD) — restore new UI"
+            MSG="main $(git rev-parse --short HEAD) — OTA debug + channel pin"
           fi
           bash scripts/publish-production-ota.sh "$MSG"
