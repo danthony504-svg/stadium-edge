@@ -122,6 +122,7 @@ import {
   deliverCoachBoardScanProgress,
   deliverCoachBoardScanTicket,
   coachBoardScanManifestForMessage,
+  coachReplyHasScanManifest,
 } from "@/lib/coachBoardScanDelivery";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
@@ -2171,6 +2172,7 @@ export default function CoachScreen() {
           oddsThreshold: !!oddsThreshold,
           confidenceThreshold: !!confidenceThreshold,
         });
+        let kernelParlayDelivered = false;
 
         // These are the same four pieces buildChatContext returns; in replay mode
         // we read them from the locally-saved PendingBuild instead of fetching.
@@ -2714,8 +2716,10 @@ export default function CoachScreen() {
                   MAX_LEGS,
                 );
                 if (
-                  !deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
+                  deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
+                  kernelParlayDelivered = true;
+                } else {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
               } else if (scanForDelivery) {
@@ -2751,8 +2755,10 @@ export default function CoachScreen() {
                 };
                 const kernelLegTarget = Math.min(reachTargetPreScan || legTarget, MAX_LEGS);
                 if (
-                  !deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
+                  deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
+                  kernelParlayDelivered = true;
+                } else {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
               }
@@ -2822,16 +2828,45 @@ export default function CoachScreen() {
             await clearPendingBuild();
           }
         }
-        if (useParlayKernel && boardTicketSnapshotRef.current?.length) {
-          if (buildProgressTimerRef.current) {
-            clearTimeout(buildProgressTimerRef.current);
-            buildProgressTimerRef.current = null;
+        if (useParlayKernel) {
+          if (
+            !kernelParlayDelivered &&
+            !boardTicketSnapshotRef.current?.length
+          ) {
+            const scan = preferBoardScanForDelivery(
+              latestBoardScanRef.current,
+              preBoardScan,
+            );
+            if (scan && boardScanIsComplete(scan)) {
+              const kernelLegTarget = Math.min(
+                requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed) || legTarget,
+                MAX_LEGS,
+              );
+              kernelParlayDelivered = deliverKernelBoardScan(
+                scan,
+                flashEnrichRef.current,
+                kernelLegTarget,
+              );
+            }
           }
-          clearBuildStallWatchdog();
-          releaseOtaBlock();
-          setCoachBuildBusy(false);
-          scrollToEnd();
-          return;
+          if (boardTicketSnapshotRef.current?.length || kernelParlayDelivered) {
+            if (buildProgressTimerRef.current) {
+              clearTimeout(buildProgressTimerRef.current);
+              buildProgressTimerRef.current = null;
+            }
+            clearBuildStallWatchdog();
+            releaseOtaBlock();
+            setCoachBuildBusy(false);
+            setWaiting(false);
+            setStreaming(false);
+            setBuildFinishing(false);
+            setBuildProgressExpired(false);
+            setParlayBuildPhase("idle");
+            setBoardScanPartialLegs(0);
+            abortRef.current = null;
+            scrollToEnd();
+            return;
+          }
         }
         // Merge server rows the client pool is missing (the client pool wins on
         // collision so its render metadata — headshot/teamAbbr — is preserved).
@@ -2928,7 +2963,9 @@ export default function CoachScreen() {
           }
         }
         let fullBoardScanned =
-          boardScanIsComplete(reachBoardScan) || boardScanIsComplete(preBoardScan);
+          boardScanIsComplete(reachBoardScan) ||
+          boardScanIsComplete(preBoardScan) ||
+          boardScanIsComplete(latestBoardScanRef.current);
         let fullBoardScanMeta: FullBoardScanResult | null = preferBoardScanForDelivery(
           reachBoardScan,
           preBoardScan,
@@ -4600,6 +4637,20 @@ export default function CoachScreen() {
             ticketTarget,
           );
         }
+        if (!boardScanManifestDetail.trim()) {
+          const scanForManifest = preferBoardScanForDelivery(
+            fullBoardScanMeta,
+            latestBoardScanRef.current,
+            preBoardScan,
+          );
+          if (scanForManifest && boardScanIsComplete(scanForManifest)) {
+            boardScanManifestDetail = coachBoardScanManifestForMessage(
+              scanForManifest,
+              ticketEnrich,
+              ticketTarget,
+            );
+          }
+        }
         const coachDetailNote = dedupeLegNoteParagraphs(
           [boardScanManifestDetail, exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote, aiFilterNote]
             .filter(Boolean)
@@ -4670,8 +4721,12 @@ export default function CoachScreen() {
           (emittedPickLines > 0 || requestedLegs > 0 || isParlayBuild)
         ) {
           const partitioned = partitionCoachNotes(legNote, coachDetailNote);
+          const hasManifestReply = coachReplyHasScanManifest(
+            boardScanManifestDetail,
+            coachDetailNote,
+          );
           const note =
-            boardScanManifestDetail.trim()
+            hasManifestReply
               ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
               : todayNote ||
             thresholdNote ||
@@ -4687,7 +4742,7 @@ export default function CoachScreen() {
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
         if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
-          finalContent = boardScanManifestDetail.trim()
+          finalContent = coachReplyHasScanManifest(boardScanManifestDetail, coachDetailNote)
             ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
             : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
@@ -4732,10 +4787,14 @@ export default function CoachScreen() {
           outCoachDetailNote = dedupeLegNoteParagraphs(
             [coachDetailNote, prevAssistant.coachDetailNote ?? ""].filter(Boolean).join("\n\n"),
           );
+          const manifestReply = coachReplyHasScanManifest(
+            boardScanManifestDetail,
+            outCoachDetailNote,
+          );
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: outPicks.length > 0 ? "" : boardScanManifestDetail.trim() ? "" : finalContent,
+            content: outPicks.length > 0 ? "" : manifestReply ? "" : finalContent,
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
@@ -4753,7 +4812,7 @@ export default function CoachScreen() {
           setParlayBuildPhase("idle");
           setAiPicks(outPicks);
           captureFromCoach(outPicks);
-        } else if (isParlayBuild && outCoachDetailNote.trim()) {
+        } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
           setStreaming(false);
           setWaiting(false);
           setBuildFinishing(false);

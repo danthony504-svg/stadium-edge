@@ -104,6 +104,18 @@ export function coachBoardScanManifestForMessage(
   return "";
 }
 
+const SCAN_MANIFEST_HEADING_RE = /### Scan manifest/i;
+
+export function coachReplyHasScanManifest(
+  boardScanManifestDetail?: string,
+  coachDetailNote?: string,
+): boolean {
+  return (
+    SCAN_MANIFEST_HEADING_RE.test(boardScanManifestDetail ?? "") ||
+    SCAN_MANIFEST_HEADING_RE.test(coachDetailNote ?? "")
+  );
+}
+
 /** Progress-only flash — never claims final shortfall; may show scored preview count. */
 export function deliverCoachBoardScanProgress(
   scan: FullBoardScanResult,

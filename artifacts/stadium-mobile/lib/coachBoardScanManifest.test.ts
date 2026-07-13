@@ -4,7 +4,7 @@ import {
   createCoachBoardScanManifestRecorder,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
-import { coachBoardScanManifestForMessage } from "./coachBoardScanDelivery.ts";
+import { coachBoardScanManifestForMessage, coachReplyHasScanManifest } from "./coachBoardScanDelivery.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 
 test("formatCoachBoardScanManifest lists coverage and gate failures", () => {
@@ -66,4 +66,10 @@ test("coachBoardScanManifestForMessage returns manifest when scan staged zero le
   const text = coachBoardScanManifestForMessage(scan, { realOdds: [], propPool: [], gameMeta: [] }, 8);
   assert.match(text, /Scan manifest/i);
   assert.match(text, /0 legs delivered/i);
+});
+
+test("coachReplyHasScanManifest detects manifest heading in detail notes", () => {
+  assert.equal(coachReplyHasScanManifest("### Scan manifest\n\nfoo", ""), true);
+  assert.equal(coachReplyHasScanManifest("", "### Scan manifest\n\nbar"), true);
+  assert.equal(coachReplyHasScanManifest("", "no manifest here"), false);
 });
