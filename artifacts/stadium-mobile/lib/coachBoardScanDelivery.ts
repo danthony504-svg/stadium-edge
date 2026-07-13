@@ -83,6 +83,27 @@ export function deliverCoachBoardScanTicket(
   };
 }
 
+/** Format manifest markdown for UI — works even when scan staged zero ticket legs. */
+export function coachBoardScanManifestForMessage(
+  scan: FullBoardScanResult | null | undefined,
+  enrich: CoachFlashEnrich,
+  legTarget: number,
+): string {
+  if (!scan) return "";
+  if (boardScanIsComplete(scan) && scan.scanComplete) {
+    return deliverCoachBoardScanTicket(scan, enrich, legTarget).coachDetailNote;
+  }
+  if (scan.manifest) {
+    return formatCoachBoardScanManifest({
+      ...scan.manifest,
+      scanComplete: !!scan.scanComplete,
+      boardExhausted: !!scan.scanComplete,
+      requestedLegs: legTarget,
+    });
+  }
+  return "";
+}
+
 /** Progress-only flash — never claims final shortfall; may show scored preview count. */
 export function deliverCoachBoardScanProgress(
   scan: FullBoardScanResult,

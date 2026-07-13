@@ -121,6 +121,7 @@ import { calibrationFromTrackedPicks } from "@/lib/modelCalibration";
 import {
   deliverCoachBoardScanProgress,
   deliverCoachBoardScanTicket,
+  coachBoardScanManifestForMessage,
 } from "@/lib/coachBoardScanDelivery";
 import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
@@ -4501,7 +4502,7 @@ export default function CoachScreen() {
         if (
           picks.length === 0 &&
           fullBoardScanned &&
-          fullBoardScanMeta?.picks?.length &&
+          fullBoardScanMeta &&
           boardScanIsComplete(fullBoardScanMeta)
         ) {
           const scanEnrich = {
@@ -4516,6 +4517,35 @@ export default function CoachScreen() {
           const delivered = deliverCoachBoardScanTicket(fullBoardScanMeta, scanEnrich, ticketTarget);
           picks = delivered.picks;
           boardScanManifestDetail = delivered.coachDetailNote;
+        } else if (
+          picks.length === 0 &&
+          fullBoardScanMeta &&
+          boardScanIsComplete(fullBoardScanMeta)
+        ) {
+          const scanEnrich = {
+            ...ticketEnrich,
+            realOdds: [
+              ...mergedGameOdds,
+              ...(fullBoardScanMeta.evalLinesByGame
+                ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
+                : []),
+            ],
+          };
+          boardScanManifestDetail = coachBoardScanManifestForMessage(
+            fullBoardScanMeta,
+            scanEnrich,
+            ticketTarget,
+          );
+        } else if (
+          picks.length === 0 &&
+          latestBoardScanRef.current &&
+          boardScanIsComplete(latestBoardScanRef.current)
+        ) {
+          boardScanManifestDetail = coachBoardScanManifestForMessage(
+            latestBoardScanRef.current,
+            ticketEnrich,
+            ticketTarget,
+          );
         }
         const coachDetailNote = dedupeLegNoteParagraphs(
           [boardScanManifestDetail, exclusionNote, diversityNote, gameSimNote, mlLeanNote, propsOnlyNote, tonightNote, aiFilterNote]
@@ -4540,6 +4570,13 @@ export default function CoachScreen() {
           }
         }
         legNote = dedupeLegNoteParagraphs(picks.length > 0 ? legNoteForCards : legNote);
+        if (picks.length === 0 && isParlayBuild && ticketTarget > 0 && boardScanManifestDetail.trim()) {
+          legNote = ensureFixedLegShortfallLegNote(
+            legNote,
+            ticketTarget,
+            0,
+          );
+        }
         if (picks.length > 0 && ticketTarget > picks.length) {
           const scanSettled =
             !fullBoardScanned ||
@@ -4581,7 +4618,9 @@ export default function CoachScreen() {
         ) {
           const partitioned = partitionCoachNotes(legNote, coachDetailNote);
           const note =
-            todayNote ||
+            boardScanManifestDetail.trim()
+              ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
+              : todayNote ||
             thresholdNote ||
             confidenceNote ||
             signNote ||
@@ -4639,10 +4678,10 @@ export default function CoachScreen() {
           copy[copy.length - 1] = {
             ...prevAssistant,
             role: "assistant",
-            content: outPicks.length > 0 ? "" : finalContent,
+            content: outPicks.length > 0 ? "" : boardScanManifestDetail.trim() ? "" : finalContent,
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
-            ...(ticketTarget > 0 && outPicks.length > 0 ? { ticketLegTarget: ticketTarget } : {}),
+            ...(ticketTarget > 0 && isParlayBuild ? { ticketLegTarget: ticketTarget } : {}),
             ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
@@ -4657,6 +4696,12 @@ export default function CoachScreen() {
           setParlayBuildPhase("idle");
           setAiPicks(outPicks);
           captureFromCoach(outPicks);
+        } else if (isParlayBuild && coachDetailNote.trim()) {
+          setStreaming(false);
+          setWaiting(false);
+          setBuildFinishing(false);
+          setBuildProgressExpired(false);
+          setParlayBuildPhase("idle");
         }
         if (isParlayBuild && outPicks.length > 0) rememberParlayBuild(outPicks);
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
