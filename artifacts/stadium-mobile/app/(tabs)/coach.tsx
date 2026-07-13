@@ -138,16 +138,17 @@ import {
 import { partitionCoachNotes } from "@/lib/coachNotePartition";
 import {
   boardScanIsComplete,
-  boardScanMeetsLegTarget,
+  boardScanMatchesLegTarget,
+  boardScanReadyForDelivery,
   buildFixedLegCountShortfallLead,
   ensureFixedLegShortfallLegNote,
-  preferBoardScanForDelivery,
   preferFinalBoardScanForDelivery,
   shouldAllowReachCountBackfill,
   shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
+import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
 import { takeCoachLaunch } from "@/lib/coachSilentLaunch";
@@ -1412,6 +1413,12 @@ export default function CoachScreen() {
         return prev;
       });
       setAiPicks(ticket);
+      traceCoachTicket("mobile-delivered", {
+        requestedLegs: legTarget > 0 ? legTarget : undefined,
+        scanRequestedLegs: partial.requestedLegs,
+        pickIds: ticket,
+        source: boardScanIsComplete(partial) ? "final" : "preview",
+      });
       captureFromCoach(ticket);
       if (!boardScanIsComplete(partial) && buildFinishingRef.current) {
         setParlayBuildPhase("stream");
@@ -1434,7 +1441,16 @@ export default function CoachScreen() {
     }
     const partial = latestBoardScanRef.current;
     if (partial?.picks?.length) {
-      return patchInstantBoardScanTicket(partial, enrich, { pinScroll: false });
+      const legTarget =
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+      if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
+        return false;
+      }
+      return patchInstantBoardScanTicket(partial, enrich, {
+        pinScroll: false,
+        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+      });
     }
     const snapshot = boardTicketSnapshotRef.current;
     if (!snapshot?.length) return false;
@@ -1463,11 +1479,14 @@ export default function CoachScreen() {
     (legTarget: number, sport?: string | null) => {
       if (legTarget < 3) return false;
       const seed = readSlatePreAnalysisSeed({ legs: legTarget, sport });
-      if (!seed?.boardScan?.picks?.length) return false;
+      const scan = seed?.boardScan;
+      if (!scan?.picks?.length) return false;
+      if (!boardScanMatchesLegTarget(scan, legTarget)) return false;
       const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
-      return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
+      return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
         legNote: COACH_SLATE_PREVIEW_NOTE,
+        ticketLegTarget: legTarget,
       });
     },
     [patchInstantBoardScanTicket, marketPerf],
@@ -2379,6 +2398,7 @@ export default function CoachScreen() {
             });
             patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current, {
               legNote: COACH_SLATE_PREVIEW_NOTE,
+              ticketLegTarget: legTarget,
             });
           }
           const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
@@ -2534,7 +2554,7 @@ export default function CoachScreen() {
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
-                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan)
+                boardScanReadyForDelivery(preBoardScan, reachTargetPreScan)
               );
               const scanForDelivery = preferFinalBoardScanForDelivery(
                 reachTargetPreScan,
@@ -2559,7 +2579,8 @@ export default function CoachScreen() {
                 }
               }
             } catch {
-              preBoardScan = preferBoardScanForDelivery(
+              preBoardScan = preferFinalBoardScanForDelivery(
+                reachTargetPreScan,
                 latestBoardScanRef.current,
                 preBoardScan,
               );
@@ -2824,36 +2845,20 @@ export default function CoachScreen() {
           }
         }
         if (useParlayKernel) {
+          const kernelLegTarget = Math.min(
+            requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed) || legTarget,
+            MAX_LEGS,
+          );
           if (
             !kernelParlayDelivered &&
             !boardTicketSnapshotRef.current?.length
           ) {
-            let scan = preferBoardScanForDelivery(
+            const scan = preferFinalBoardScanForDelivery(
+              kernelLegTarget,
               latestBoardScanRef.current,
               preBoardScan,
             );
-            if (
-              (!scan || !boardScanIsComplete(scan)) &&
-              earlyReachBoardScanRef.current
-            ) {
-              try {
-                const settled = await earlyReachBoardScanRef.current;
-                scan = preferBoardScanForDelivery(
-                  settled,
-                  scan,
-                  latestBoardScanRef.current,
-                  preBoardScan,
-                );
-                if (scan) latestBoardScanRef.current = scan;
-              } catch {
-                /* scan promise rejected — fall through */
-              }
-            }
             if (scan && boardScanIsComplete(scan)) {
-              const kernelLegTarget = Math.min(
-                requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed) || legTarget,
-                MAX_LEGS,
-              );
               kernelParlayDelivered = deliverKernelBoardScan(
                 scan,
                 flashEnrichRef.current,
@@ -2861,7 +2866,23 @@ export default function CoachScreen() {
               );
             }
           }
-          if ((freshBoardScanComplete || kernelParlayDelivered) && boardTicketSnapshotRef.current?.length) {
+          const finalScan = preferFinalBoardScanForDelivery(
+            kernelLegTarget,
+            latestBoardScanRef.current,
+            preBoardScan,
+          );
+          const snapshotMatchesTarget =
+            !boardTicketSnapshotRef.current?.length ||
+            (finalScan != null && boardScanReadyForDelivery(finalScan, kernelLegTarget));
+          if (
+            (freshBoardScanComplete || kernelParlayDelivered) &&
+            boardTicketSnapshotRef.current?.length &&
+            snapshotMatchesTarget &&
+            boardScanReadyForDelivery(finalScan, kernelLegTarget)
+          ) {
+            if (boardTicketSnapshotRef.current?.length) {
+              rememberParlayBuild(boardTicketSnapshotRef.current);
+            }
             if (buildProgressTimerRef.current) {
               clearTimeout(buildProgressTimerRef.current);
               buildProgressTimerRef.current = null;
@@ -2966,12 +2987,18 @@ export default function CoachScreen() {
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
             if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
-              reachBoardScan = latestBoardScanRef.current;
+              const ref = latestBoardScanRef.current;
+              if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
+                reachBoardScan = ref;
+              }
             } else if (
               !reachBoardScan?.picks?.length &&
               latestBoardScanRef.current?.picks?.length
             ) {
-              reachBoardScan = latestBoardScanRef.current;
+              const ref = latestBoardScanRef.current;
+              if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
+                reachBoardScan = ref;
+              }
             }
           }
         }
@@ -4485,7 +4512,8 @@ export default function CoachScreen() {
             if (settled) {
               latestBoardScanRef.current = settled;
               if (!fullBoardScanMeta || !boardScanIsComplete(fullBoardScanMeta)) {
-                fullBoardScanMeta = preferBoardScanForDelivery(
+                fullBoardScanMeta = preferFinalBoardScanForDelivery(
+                  reachTarget,
                   settled,
                   fullBoardScanMeta,
                   preBoardScan,
@@ -4676,7 +4704,8 @@ export default function CoachScreen() {
           );
         }
         if (!boardScanManifestDetail.trim()) {
-          const scanForManifest = preferBoardScanForDelivery(
+          const scanForManifest = preferFinalBoardScanForDelivery(
+            ticketTarget,
             fullBoardScanMeta,
             latestBoardScanRef.current,
             preBoardScan,
@@ -5563,28 +5592,44 @@ export default function CoachScreen() {
     if (content && !genericFailure) return;
 
     const tryStashedDelivery = () => {
+      const legTarget =
+        requestedLegCount(priorUser?.content ?? "") ||
+        effectiveBuildLegCount(priorUser?.content ?? "");
       const partial = latestBoardScanRef.current;
       if (partial && boardScanIsComplete(partial)) {
+        if (legTarget > 0 && !boardScanReadyForDelivery(partial, legTarget)) {
+          return false;
+        }
         if (partial.picks?.length) {
           deliverBoardScanTicket(partial);
         } else {
-          patchInstantBoardScanTicket(partial);
+          patchInstantBoardScanTicket(partial, undefined, {
+            ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+          });
         }
         return true;
       }
       if (partial?.picks?.length) {
+        if (legTarget > 0 && !boardScanMatchesLegTarget(partial, legTarget)) {
+          return false;
+        }
         deliverBoardScanTicket(partial);
         return true;
       }
-      const seed = readSlatePreAnalysisSeed();
+      const seed = readSlatePreAnalysisSeed(
+        legTarget > 0 ? { legs: legTarget } : undefined,
+      );
       if (seed?.boardScan?.picks?.length) {
+        if (legTarget > 0 && !boardScanMatchesLegTarget(seed.boardScan, legTarget)) {
+          return false;
+        }
         const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
         return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
-        legNote: COACH_SLATE_PREVIEW_NOTE,
-      });
+          legNote: COACH_SLATE_PREVIEW_NOTE,
+          ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+        });
       }
-      const legs = requestedLegCount(priorUser?.content ?? "") || effectiveBuildLegCount(priorUser?.content ?? "");
-      return tryInstantSlateSeedDelivery(legs);
+      return tryInstantSlateSeedDelivery(legTarget);
     };
 
     if (tryStashedDelivery()) return;

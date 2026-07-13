@@ -7,6 +7,7 @@ import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
+import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
@@ -92,6 +93,13 @@ export function deliverCoachBoardScanTicket(
     requestedLegs: legTarget,
     deliveredLegs: picks.length,
   };
+
+  traceCoachTicket("board-scan-staged", {
+    requestedLegs: legTarget,
+    scanRequestedLegs: scan.requestedLegs,
+    pickIds: picks,
+    source: "deliverCoachBoardScanTicket",
+  });
 
   return {
     picks,

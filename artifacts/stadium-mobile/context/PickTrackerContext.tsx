@@ -14,6 +14,7 @@ import {
   captureCoachPicks,
   type TrackedPick,
 } from "@/lib/pickTracker";
+import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   computeSignalPerfMap,
   computeTrackedAnalytics,
@@ -80,6 +81,10 @@ export function PickTrackerProvider({ children }: { children: React.ReactNode })
 
   const captureFromCoach = useCallback((coachPicks: ParsedPick[]) => {
     if (coachPicks.length === 0) return;
+    traceCoachTicket("slip-capture", {
+      pickIds: coachPicks,
+      extra: { pickCount: coachPicks.length },
+    });
     setPicks((prev) => captureCoachPicks(prev, coachPicks));
   }, []);
 

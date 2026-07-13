@@ -29,6 +29,8 @@ export type SerializedBoardScan = {
   staging: TicketStagingBreakdown;
   note: string;
   scanComplete?: boolean;
+  /** Leg count this ticket was staged for — blocks cross-size reuse. */
+  requestedLegs?: number;
 };
 
 export type SlateTicketsIndex = {
@@ -131,6 +133,7 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
     staging: scan.staging,
     note: scan.note,
     scanComplete: scan.scanComplete ?? true,
+    requestedLegs: scan.requestedLegs ?? scan.picks.length,
   };
 }
 
@@ -143,7 +146,8 @@ export function deserializeBoardScan(raw: SerializedBoardScan): FullBoardScanRes
     totalQualified: raw.totalQualified,
     staging: raw.staging,
     note: raw.note,
-    scanComplete: raw.scanComplete ?? true,
+    scanComplete: raw.scanComplete ?? false,
+    requestedLegs: raw.requestedLegs,
   };
 }
 

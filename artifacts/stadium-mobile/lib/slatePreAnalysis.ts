@@ -8,7 +8,7 @@ import {
   type BuiltChatContext,
 } from "./api.ts";
 import { tryReachFullBoardScan, type FullBoardScanResult } from "./boardMarketScanner.ts";
-import { boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
+import { boardScanMeetsLegTarget, boardScanReadyForDelivery } from "./coachScanPolicy.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { enrichChatContextProps } from "./propSelection.ts";
 import { filterBettableOddsGames, filterBettablePropPool, filterCoachHorizonPicksAfterEnrich, isPregameBettableForSport } from "./slate.ts";
@@ -167,8 +167,9 @@ function seedFromSnapshot(
     boardScan: boardRaw
       ? deserializeBoardScan({
           ...boardRaw,
-          scanComplete:
-            (boardRaw.scanComplete ?? true) && boardScanMeetsLegTarget(boardRaw, requested),
+          requestedLegs: boardRaw.requestedLegs ?? boardRaw.picks.length,
+          // Cached slate seeds are preview-only until a live scan for this leg count completes.
+          scanComplete: false,
         })
       : null,
     fingerprint: clean.fingerprint,
@@ -186,7 +187,7 @@ function serverTicketsReady(snap: SlatePreAnalysisSnapshot | null, opts?: SlateS
   if (!snap) return false;
   const requested = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
   const scan = resolveSlateBoardScan(snap, opts);
-  return boardScanMeetsLegTarget(scan, requested);
+  return boardScanReadyForDelivery(scan, requested);
 }
 
 /** Poll until precomputed board-scan legs are available (server or local). */
@@ -205,7 +206,7 @@ export async function awaitWarmSlateSeed(
     if (opts?.signal?.aborted) return null;
     const seed = readSlatePreAnalysisSeed(opts);
     const requested = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
-    if (seed?.boardScan?.picks?.length && boardScanMeetsLegTarget(seed.boardScan, requested)) {
+    if (seed?.boardScan?.picks?.length && boardScanReadyForDelivery(seed.boardScan, requested)) {
       return seed;
     }
     if (!isSlatePreAnalysisRunning()) {
@@ -215,11 +216,9 @@ export async function awaitWarmSlateSeed(
   }
   const last = readSlatePreAnalysisSeed(opts);
   const requested = opts?.legs ?? SLATE_PRE_ANALYSIS_TARGET;
-  return last?.boardScan?.picks?.length && boardScanMeetsLegTarget(last.boardScan, requested)
+  return last?.boardScan?.picks?.length && boardScanReadyForDelivery(last.boardScan, requested)
     ? last
-    : last?.boardScan?.picks?.length
-      ? last
-      : null;
+    : null;
 }
 
 /** Instant hydrate from server DB — call on app boot and Coach tab focus. */

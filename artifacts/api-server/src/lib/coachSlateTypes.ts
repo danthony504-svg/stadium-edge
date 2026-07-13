@@ -136,6 +136,8 @@ export type SerializedBoardScan = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  scanComplete?: boolean;
+  requestedLegs?: number;
 };
 
 export type SlateTicketsIndex = {
@@ -166,6 +168,8 @@ export type FullBoardScanResult = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  scanComplete?: boolean;
+  requestedLegs?: number;
 };
 
 export function computeSlateFingerprint(
@@ -214,6 +218,8 @@ export function serializeBoardScan(scan: FullBoardScanResult): SerializedBoardSc
     totalQualified: scan.totalQualified,
     staging: scan.staging,
     note: scan.note,
+    scanComplete: scan.scanComplete ?? true,
+    requestedLegs: scan.requestedLegs ?? scan.picks.length,
   };
 }
 

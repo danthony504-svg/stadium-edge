@@ -23,6 +23,7 @@ import {
   type CoachParlayVarietyContext,
 } from "./parlayVarietyMemory.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
+import { traceCoachTicket } from "./coachTicketTrace.ts";
 import {
   boardLegPoolRole,
   capThinStatMarketsOnTicket,
@@ -712,8 +713,20 @@ export function buildIndependentCoachTicket(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(qualifying, target, opts);
+  traceCoachTicket("combinator-candidates", {
+    requestedLegs: target,
+    candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
+    extra: { candidateCount: candidates.length },
+  });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
   const picks = chosen?.picks ?? [];
+  traceCoachTicket("combinator-selected", {
+    requestedLegs: target,
+    candidateId: chosen
+      ? `score:${candidateTotalScore(chosen).toFixed(1)}`
+      : "none",
+    pickIds: picks,
+  });
   return {
     picks,
     breakdown: stagingBreakdown(picks, qualifying),

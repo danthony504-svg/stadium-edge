@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   boardScanIsComplete,
   boardScanMeetsLegTarget,
+  boardScanReadyForDelivery,
   ensureFixedLegShortfallLegNote,
   preferBoardScanForDelivery,
   preferFinalBoardScanForDelivery,
@@ -209,6 +210,23 @@ test("preferBoardScanForDelivery prefers complete scan over partial with picks",
     preferBoardScanForDelivery(null, partialWithPicks),
     partialWithPicks,
   );
+});
+
+test("boardScanReadyForDelivery requires exact leg count — 15-leg never satisfies 8-leg", () => {
+  const fifteen = {
+    scanComplete: true,
+    requestedLegs: 15,
+    picks: Array.from({ length: 15 }),
+  };
+  const eight = {
+    scanComplete: true,
+    requestedLegs: 8,
+    picks: Array.from({ length: 8 }),
+  };
+  assert.equal(boardScanReadyForDelivery(fifteen, 8), false);
+  assert.equal(boardScanReadyForDelivery(fifteen, 15), true);
+  assert.equal(boardScanReadyForDelivery(eight, 8), true);
+  assert.equal(boardScanReadyForDelivery(eight, 15), false);
 });
 
 test("preferFinalBoardScanForDelivery never returns preview-cache partials", () => {

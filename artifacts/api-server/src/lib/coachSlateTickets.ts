@@ -42,6 +42,18 @@ function scanFromRanked(
       | Record<string, { mlLean?: { side?: string } }>
       | undefined,
   });
+  console.log(
+    "[coach-ticket-trace] server-staged",
+    JSON.stringify({
+      requestedLegs: target,
+      pickCount: picks.length,
+      pickIds: picks.map((p) =>
+        p.isProp
+          ? `prop|${p.game}|${p.player}|${p.market}`
+          : `game|${p.game}|${p.market}|${p.pick}`,
+      ),
+    }),
+  );
   return {
     picks,
     evalLinesByGame: ctx.evalLinesByGame,
@@ -50,6 +62,8 @@ function scanFromRanked(
     totalQualified: sorted.length,
     staging: staged.breakdown,
     note: scanNote(target, picks.length, ctx.totalScanned, sorted.length),
+    scanComplete: true,
+    requestedLegs: target,
   };
 }
 

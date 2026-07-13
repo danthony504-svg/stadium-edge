@@ -3,7 +3,7 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { deliverCoachBoardScanTicket } from "./coachBoardScanDelivery.ts";
-import { boardScanIsComplete, boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
+import { boardScanIsComplete, boardScanMeetsLegTarget, boardScanReadyForDelivery } from "./coachScanPolicy.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 
 export const COACH_PARLAY_KERNEL_ONLY = true;
@@ -57,6 +57,6 @@ export function resolveCoachParlayKernelTicket(opts: {
     ticket: delivered.picks,
     legNote,
     coachDetailNote: delivered.coachDetailNote,
-    source: boardScanMeetsLegTarget(scan, legTarget) ? "slate-seed" : "board-scan",
+    source: boardScanReadyForDelivery(scan, legTarget) ? "board-scan" : "slate-seed",
   };
 }

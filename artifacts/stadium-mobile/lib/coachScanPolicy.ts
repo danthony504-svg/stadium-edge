@@ -110,6 +110,27 @@ export function boardScanMatchesLegTarget(
   return (scan.picks?.length ?? 0) === legTarget;
 }
 
+/**
+ * True when a complete scan may finalize for this leg count.
+ * A 15-leg scan must NOT satisfy an 8-leg ask (fixes prefix/slice reuse).
+ */
+export function boardScanReadyForDelivery(
+  scan:
+    | {
+        picks?: { length: number };
+        requestedLegs?: number;
+        scanComplete?: boolean;
+      }
+    | null
+    | undefined,
+  legTarget: number,
+): boolean {
+  if (!scan?.picks?.length || !boardScanIsComplete(scan)) return false;
+  if (legTarget <= 0) return true;
+  if (scan.requestedLegs != null) return scan.requestedLegs === legTarget;
+  return scan.picks.length === legTarget;
+}
+
 /** True when a board-scan finished evaluating the live board (not a partial preview). */
 export function boardScanIsComplete(
   scan: { scanComplete?: boolean } | null | undefined,
