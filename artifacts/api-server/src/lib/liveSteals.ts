@@ -2,6 +2,12 @@ import { asc, eq, inArray } from "drizzle-orm";
 import { db, liveStealsTable } from "@workspace/db";
 import { gradeLegs, type GradeLeg } from "../routes/grade";
 import {
+  emptyStealFeedDiagnostics,
+  StealFeedScanError,
+  type StealFeedDiagnostics,
+  type StealOddsSportProbe,
+} from "./stealFeedDiagnostics.ts";
+import {
   findGameSteals,
   findPropSteals,
   findNearMissGameSteals,
@@ -45,19 +51,53 @@ export {
   type NearMissSteal,
 } from "./liveStealsCore";
 
+export { type StealFeedDiagnostics, type StealOddsSportProbe } from "./stealFeedDiagnostics.ts";
+
 // ── loopback fetch (reuse cached app routes; bypasses external quota) ────────
 function apiBase(): string {
   const port = process.env["PORT"] || "5000";
   return `http://127.0.0.1:${port}/api`;
 }
-async function fetchJson<T>(path: string): Promise<T | null> {
+
+type JsonProbe<T> = {
+  ok: boolean;
+  httpStatus: number;
+  responseTimeMs: number;
+  data: T | null;
+  error?: string;
+};
+
+async function probeJson<T>(path: string): Promise<JsonProbe<T>> {
+  const started = Date.now();
   try {
     const r = await fetch(`${apiBase()}${path}`, { headers: { "x-internal-call": "1" } });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  } catch {
-    return null;
+    const responseTimeMs = Date.now() - started;
+    if (!r.ok) {
+      let error = `HTTP ${r.status}`;
+      try {
+        const body = (await r.json()) as { error?: string };
+        if (body?.error) error = `${error}: ${body.error}`;
+      } catch {
+        /* non-json error body */
+      }
+      return { ok: false, httpStatus: r.status, responseTimeMs, data: null, error };
+    }
+    const data = (await r.json()) as T;
+    return { ok: true, httpStatus: r.status, responseTimeMs, data };
+  } catch (err) {
+    return {
+      ok: false,
+      httpStatus: 0,
+      responseTimeMs: Date.now() - started,
+      data: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+async function fetchJson<T>(path: string): Promise<T | null> {
+  const probe = await probeJson<T>(path);
+  return probe.ok ? probe.data : null;
 }
 
 // Scan the slate for steals (cached FRESH_TTL_MS). Game-line steals are cheap
@@ -68,12 +108,14 @@ let freshCache: {
   steals: Steal[];
   meta: StealScanMeta;
   almostQualified: NearMissSteal[];
+  feed: StealFeedDiagnostics;
 } | null = null;
 
 export type LiveStealsPayload = {
   steals: Steal[];
   meta: StealScanMeta;
   almostQualified: NearMissSteal[];
+  feed: StealFeedDiagnostics;
 };
 
 export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
@@ -82,17 +124,53 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
       steals: freshCache.steals,
       meta: freshCache.meta,
       almostQualified: freshCache.almostQualified,
+      feed: freshCache.feed,
     };
   }
+  const scanStarted = Date.now();
   const now = Date.now();
+  const sportProbes: StealOddsSportProbe[] = [];
 
   const oddsBySport = new Map<string, OddsRow[]>();
   await Promise.all(
     STEAL_SPORTS.map(async (sport) => {
-      const rows = await fetchJson<OddsRow[]>(`/sports/odds?sport=${sport}`);
-      if (Array.isArray(rows)) oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
+      const endpoint = `/sports/odds?sport=${sport}`;
+      const probe = await probeJson<OddsRow[]>(endpoint);
+      const rows = Array.isArray(probe.data) ? probe.data : [];
+      sportProbes.push({
+        sport,
+        endpoint,
+        ok: probe.ok && Array.isArray(probe.data),
+        httpStatus: probe.httpStatus,
+        responseTimeMs: probe.responseTimeMs,
+        games: rows.length,
+        error: probe.error,
+      });
+      if (probe.ok && Array.isArray(probe.data)) {
+        oddsBySport.set(sport, rows.filter((g) => nearTerm(g.commenceTime, now)));
+      }
     }),
   );
+
+  const sportsOk = sportProbes.filter((p) => p.ok).length;
+  const sportsFailed = sportProbes.length - sportsOk;
+  const baseFeed = emptyStealFeedDiagnostics({
+    responseTimeMs: Date.now() - scanStarted,
+    sportsProbed: sportProbes.length,
+    sportsOk,
+    sportsFailed,
+    sportProbes,
+  });
+
+  if (sportsOk === 0) {
+    const reason =
+      sportProbes.find((p) => p.error)?.error ??
+      (baseFeed.oddsKeyConfigured ? "all_sports_odds_unreachable" : "ODDS_API_KEY not configured");
+    throw new StealFeedScanError(reason, {
+      ...baseFeed,
+      errorReason: reason,
+    });
+  }
 
   const gameTallies: Array<{
     marketsChecked: number;
@@ -149,9 +227,14 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     .slice(0, 12);
 
   const meta = buildScanMeta(steals, almostQualified, scanStats);
+  const feed: StealFeedDiagnostics = {
+    ...baseFeed,
+    responseTimeMs: Date.now() - scanStarted,
+    errorReason: null,
+  };
 
-  freshCache = { at: Date.now(), steals, meta, almostQualified };
-  return { steals, meta, almostQualified };
+  freshCache = { at: Date.now(), steals, meta, almostQualified, feed };
+  return { steals, meta, almostQualified, feed };
 }
 
 export async function fetchSteals(): Promise<Steal[]> {

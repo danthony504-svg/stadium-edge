@@ -17,7 +17,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { getLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
+import { getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
+import type { StealFeedClientLog } from "@/lib/stealFeedClient";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
   americanToDecimal,
@@ -161,6 +162,72 @@ function SeasonRecordCard({
           </Text>
         </View>
       </View>
+    </View>
+  );
+}
+
+function OddsFeedUnavailable({
+  log,
+  isRetrying,
+  onRetry,
+}: {
+  log?: StealFeedClientLog | null;
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
+  const colors = useColors();
+  const statusLine = log?.httpStatus != null ? `HTTP ${log.httpStatus}` : "No response";
+  const reason = log?.errorReason ?? "odds_feed_unreachable";
+  const retryLabel = isRetrying ? "Retrying…" : "Retry";
+
+  return (
+    <View
+      style={{
+        alignItems: "center",
+        gap: 14,
+        paddingVertical: 28,
+        paddingHorizontal: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+      }}
+    >
+      <Feather name="wifi-off" size={32} color={STEAL_ACCENT} />
+      <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, textAlign: "center" }}>
+        Odds feed unavailable
+      </Text>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+        We couldn&apos;t reach the live odds scan. No market counts are shown until a fresh scan succeeds.
+      </Text>
+      <View style={{ gap: 6, alignSelf: "stretch" }}>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Endpoint: {log?.endpoint ?? "/sports/live-steals"}
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Status: {statusLine} · {log?.responseTimeMs ?? 0}ms
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12 }}>
+          Provider: {log?.provider ?? "the-odds-api"}
+        </Text>
+        <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12 }}>
+          Reason: {reason}
+        </Text>
+      </View>
+      <Pressable
+        onPress={onRetry}
+        disabled={isRetrying}
+        style={{
+          marginTop: 4,
+          paddingVertical: 12,
+          paddingHorizontal: 28,
+          borderRadius: 12,
+          backgroundColor: STEAL_ACCENT,
+          opacity: isRetrying ? 0.6 : 1,
+        }}
+      >
+        <Text style={{ color: "#fff", fontFamily: FONT.bold, fontSize: 14 }}>{retryLabel}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -577,57 +644,64 @@ export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [sportFilter, setSportFilter] = useState<string | null>(null);
+  const [lastFeedLog, setLastFeedLog] = useState<StealFeedClientLog | null>(null);
 
   const query = useQuery({
     queryKey: ["live-steals"],
-    queryFn: ({ signal }) => getLiveSteals(signal),
+    queryFn: async ({ signal }) => {
+      const { response, log } = await fetchLiveSteals(signal);
+      setLastFeedLog(log);
+      return response;
+    },
     staleTime: 3_000,
     refetchInterval: (q) => {
-      const d = q.state.data;
+      if (q.state.isError) return 5_000;
       const found =
-        (d?.steals?.length ?? 0) > 0 || (d?.almostQualified?.length ?? 0) > 0;
-      if (found) return 3_000;
-      if (q.state.error) return 5_000;
-      return 3_000;
+        (q.state.data?.steals?.length ?? 0) > 0 || (q.state.data?.almostQualified?.length ?? 0) > 0;
+      return found ? 3_000 : 8_000;
     },
-    retry: (failureCount) => failureCount < 12,
+    retry: (failureCount, error) => {
+      const log = (error as { stealFeedLog?: StealFeedClientLog } | null)?.stealFeedLog;
+      if (log) setLastFeedLog(log);
+      return failureCount < 6;
+    },
     retryDelay: (attempt) => Math.min(8_000, 1_500 * 2 ** attempt),
-    placeholderData: (prev) => prev,
     refetchIntervalInBackground: true,
   });
 
-  const steals = query.data?.steals ?? [];
-  const meta = normalizeStealScanMeta(query.data?.meta);
-  const almostQualified = query.data?.almostQualified ?? [];
-  const seasonStats = query.data?.seasonStats;
+  // React Query keeps the last successful `data` while `isError` — never show stale scan stats.
+  const activeData = query.isError ? null : query.data ?? null;
+  const feedLog =
+    lastFeedLog ??
+    ((query.error as { stealFeedLog?: StealFeedClientLog } | null)?.stealFeedLog ?? null);
+  const steals = activeData?.steals ?? [];
+  const meta = activeData ? normalizeStealScanMeta(activeData.meta) : undefined;
+  const almostQualified = activeData?.almostQualified ?? [];
+  const seasonStats = activeData?.seasonStats;
   const hasResults = steals.length > 0 || almostQualified.length > 0;
-  const hasUsableScanMeta = stealScanStatsAreConsistent(meta);
-  // A background refetch failure must not trap the UI in hunting when we already
-  // have a completed scan in cache.
-  const feedUnreachable = Boolean(query.data?.feedDegraded) && !hasUsableScanMeta;
-  const scanComplete = stealScanIsComplete(meta, feedUnreachable);
-  const awaitingFirstResponse = query.isLoading && !query.data;
-  const scanPhase: "loading" | "complete" | "empty" =
-    awaitingFirstResponse || (!scanComplete && query.isFetching)
+  const awaitingFirstResponse = query.isLoading && !activeData && !query.isError;
+  const feedUnavailable = query.isError || (!awaitingFirstResponse && !activeData);
+  const scanComplete = Boolean(activeData && stealScanIsComplete(meta, false));
+  const scanPhase: "loading" | "complete" | "empty" = awaitingFirstResponse
+    ? "loading"
+    : feedUnavailable
       ? "loading"
-      : hasResults
-        ? "complete"
-        : scanComplete
-          ? "empty"
-          : "loading";
-  const showHuntingUi = scanPhase === "loading";
-  const showEmptyScanUi = scanPhase === "empty";
+    : hasResults
+      ? "complete"
+      : scanComplete
+        ? "empty"
+        : "loading";
   const filteredSteals = React.useMemo(
     () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
     [steals, sportFilter],
   );
   const record: StealRecord =
-    query.data?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
+    activeData?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
 
   useFocusEffect(
     useCallback(() => {
-      if (!scanComplete) void query.refetch();
-    }, [scanComplete, query.refetch]),
+      void query.refetch();
+    }, [query.refetch]),
   );
 
   return (
@@ -675,8 +749,8 @@ export default function StealsScreen() {
       >
         <SeasonRecordCard record={record} seasonStats={seasonStats} />
 
-      {!showHuntingUi && meta ? <ScanProgressPanel meta={meta} phase={scanPhase} /> : null}
-        {!showHuntingUi && meta ? <StealsFoundToday meta={meta} /> : null}
+      {!feedUnavailable && meta ? <ScanProgressPanel meta={meta} phase={scanPhase} /> : null}
+        {!feedUnavailable && meta ? <StealsFoundToday meta={meta} /> : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
           <Pressable
@@ -742,6 +816,7 @@ export default function StealsScreen() {
           </Pressable>
         </ScrollView>
 
+        {!feedUnavailable ? (
         <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 10 }}>
           {["GAME / MARKET", "EV EDGE ↓", "BOOKS", "TIME"].map((h, i) => (
             <Text
@@ -758,54 +833,43 @@ export default function StealsScreen() {
             </Text>
           ))}
         </View>
-
-        {showHuntingUi ? (
-          <ScanProgressPanel meta={meta} phase="loading" />
         ) : null}
 
-        {showHuntingUi ? (
-          <RadarScan hideFooter>
-            {feedUnreachable ? (
-              <View style={{ alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
-                <Feather name="wifi-off" size={18} color={STEAL_ACCENT} />
-                <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 13, textAlign: "center" }}>
-                  Couldn&apos;t reach the odds feed
-                </Text>
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center", lineHeight: 17 }}>
-                  Retrying automatically every few seconds…
-                </Text>
-                <Pressable onPress={() => query.refetch()}>
-                  <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12 }}>Retry now</Text>
-                </Pressable>
-              </View>
-            ) : (
+        {feedUnavailable ? (
+          <OddsFeedUnavailable
+            log={feedLog}
+            isRetrying={query.isFetching}
+            onRetry={() => query.refetch()}
+          />
+        ) : awaitingFirstResponse ? (
+          <>
+            <ScanProgressPanel phase="loading" />
+            <RadarScan hideFooter>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                Scanning sportsbooks for longshots with real edge…
+                Connecting to live odds scan…
               </Text>
-            )}
-          </RadarScan>
-        ) : showEmptyScanUi ? (
-          <View
-            style={{
-              alignItems: "center",
-              gap: 12,
-              paddingVertical: 24,
-              paddingHorizontal: 12,
-            }}
-          >
-            <Feather name="search" size={28} color={STEAL_ACCENT} />
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, textAlign: "center" }}>
-              No steals right now
-            </Text>
-            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
-              The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
-            </Text>
-            {query.isError ? (
-              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                Connection hiccup — retrying automatically…
+            </RadarScan>
+          </>
+        ) : scanPhase === "empty" ? (
+          <>
+            <ScanProgressPanel meta={meta} phase="empty" />
+            <View
+              style={{
+                alignItems: "center",
+                gap: 12,
+                paddingVertical: 24,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Feather name="search" size={28} color={STEAL_ACCENT} />
+              <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, textAlign: "center" }}>
+                No steals right now
               </Text>
-            ) : null}
-          </View>
+              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+                The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
+              </Text>
+            </View>
+          </>
         ) : (
           <>
             {filteredSteals.length > 0 ? (

@@ -1,4 +1,9 @@
-import { propMarketLabel, PROP_MARKET_LABEL_MAP } from "./propMarketLabel";
+import {
+  logStealFeedClient,
+  stealFeedFullUrl,
+  stealFeedPath,
+  type StealFeedClientLog,
+} from "./stealFeedClient.ts";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -753,8 +758,16 @@ export type LiveStealsResponse = {
   meta?: StealScanMeta;
   almostQualified?: NearMissSteal[];
   seasonStats?: StealSeasonStats;
-  /** True when the odds scan could not run — client should keep hunting, not error out. */
+  /** True when the live odds scan could not run on this refresh. */
   feedDegraded?: boolean;
+  /** Structured scan diagnostics from the API server. */
+  feed?: import("./stealFeedClient.ts").StealFeedDiagnostics;
+  ledgerError?: string | null;
+};
+
+export type LiveStealsFetchResult = {
+  response: LiveStealsResponse;
+  log: import("./stealFeedClient.ts").StealFeedClientLog;
 };
 
 const EMPTY_STEAL_RECORD: StealRecord = {
@@ -776,19 +789,112 @@ const EMPTY_STEAL_SCAN_META: StealScanMeta = {
   scanComplete: false,
 };
 
+export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsFetchResult> {
+  const path = stealFeedPath();
+  const fullUrl = stealFeedFullUrl();
+  const started = Date.now();
+  try {
+    const res = await withTimeout(expoFetch(fullUrl, { signal }), 45_000, path);
+    const responseTimeMs = Date.now() - started;
+    const bodyText = await res.text();
+
+    if (!res.ok) {
+      let errorReason = `HTTP ${res.status}`;
+      try {
+        const errBody = JSON.parse(bodyText) as { error?: string };
+        if (errBody?.error) errorReason = `HTTP ${res.status}: ${errBody.error}`;
+      } catch {
+        if (bodyText.trim()) errorReason = `HTTP ${res.status}: ${bodyText.slice(0, 120)}`;
+      }
+      const log: StealFeedClientLog = {
+        endpoint: path,
+        fullUrl,
+        httpStatus: res.status,
+        responseTimeMs,
+        provider: "the-odds-api",
+        errorReason,
+        feedDegraded: true,
+        ok: false,
+        sportProbes: [],
+      };
+      logStealFeedClient(log);
+      throw Object.assign(new Error(errorReason), { stealFeedLog: log });
+    }
+
+    let parsed: LiveStealsResponse;
+    try {
+      parsed = JSON.parse(bodyText) as LiveStealsResponse;
+    } catch {
+      const log: StealFeedClientLog = {
+        endpoint: path,
+        fullUrl,
+        httpStatus: res.status,
+        responseTimeMs,
+        provider: "the-odds-api",
+        errorReason: "invalid_json",
+        feedDegraded: true,
+        ok: false,
+        sportProbes: [],
+      };
+      logStealFeedClient(log);
+      throw new Error(`invalid JSON from ${path}`);
+    }
+
+    const feedOk =
+      parsed.feedDegraded !== true &&
+      parsed.feed?.ok !== false &&
+      parsed.feed?.errorReason == null;
+    const log: StealFeedClientLog = {
+      endpoint: path,
+      fullUrl,
+      httpStatus: res.status,
+      responseTimeMs,
+      provider: parsed.feed?.provider ?? "the-odds-api",
+      errorReason:
+        parsed.feed?.errorReason ??
+        (feedOk ? null : "feed_degraded"),
+      feedDegraded: !feedOk,
+      ok: feedOk,
+      sportProbes: parsed.feed?.sportProbes ?? [],
+    };
+    logStealFeedClient(log);
+
+    if (!feedOk) {
+      throw Object.assign(new Error(log.errorReason ?? "odds_feed_unavailable"), { stealFeedLog: log });
+    }
+
+    const response: LiveStealsResponse = {
+      steals: parsed.steals ?? [],
+      record: parsed.record ?? EMPTY_STEAL_RECORD,
+      history: parsed.history ?? [],
+      meta: parsed.meta ?? EMPTY_STEAL_SCAN_META,
+      almostQualified: parsed.almostQualified ?? [],
+      seasonStats: parsed.seasonStats ?? { roiPct: null, avgOdds: null },
+      feedDegraded: false,
+      feed: parsed.feed,
+      ledgerError: parsed.ledgerError ?? null,
+    };
+    return { response, log };
+  } catch (err) {
+    const log: StealFeedClientLog = {
+      endpoint: path,
+      fullUrl,
+      httpStatus: null,
+      responseTimeMs: Date.now() - started,
+      provider: "the-odds-api",
+      errorReason: err instanceof Error ? err.message : String(err),
+      feedDegraded: true,
+      ok: false,
+      sportProbes: [],
+    };
+    logStealFeedClient(log);
+    throw Object.assign(err instanceof Error ? err : new Error(String(err)), { stealFeedLog: log });
+  }
+}
+
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
-  // Steals scan fans out across every sport + prop games — allow a longer budget
-  // than the default 12s so the first pass can finish instead of timing out forever.
-  const data = await getJson<LiveStealsResponse>(`/sports/live-steals`, signal, 45_000);
-  return {
-    steals: data.steals ?? [],
-    record: data.record ?? EMPTY_STEAL_RECORD,
-    history: data.history ?? [],
-    meta: data.meta ?? EMPTY_STEAL_SCAN_META,
-    almostQualified: data.almostQualified ?? [],
-    seasonStats: data.seasonStats ?? { roiPct: null, avgOdds: null },
-    feedDegraded: data.feedDegraded ?? false,
-  };
+  const { response } = await fetchLiveSteals(signal);
+  return response;
 }
 
 export type GetPropsArgs = {
