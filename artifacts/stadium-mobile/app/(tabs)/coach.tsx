@@ -1094,6 +1094,7 @@ export default function CoachScreen() {
     if (copiedTimer.current) clearTimeout(copiedTimer.current);
   }, []);
   const scrollRef = useRef<ScrollView>(null);
+  const composerInputRef = useRef<TextInput>(null);
   /** When false, the user scrolled up — don't fight them with scrollToEnd. */
   const autoScrollRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -5502,6 +5503,31 @@ export default function CoachScreen() {
     clearBuildStallWatchdog();
   }, [hasUserTurn, streaming, buildFinishing, waiting, clearBuildStallWatchdog]);
 
+  // Finished empty-scan tickets can leave build flags set while the manifest is
+  // already on screen — unlock the composer so the user can type a new ask.
+  useEffect(() => {
+    if (!hasUserTurn || (!streaming && !buildFinishing && !waiting)) return;
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return;
+    if (!coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
+    const scan = latestBoardScanRef.current;
+    if (!scan || !boardScanIsComplete(scan)) return;
+    setStreaming(false);
+    setBuildFinishing(false);
+    setWaiting(false);
+    setBuildProgressExpired(false);
+    setParlayBuildPhase("idle");
+    setCoachBuildBusy(false);
+    clearBuildStallWatchdog();
+  }, [
+    hasUserTurn,
+    messages,
+    streaming,
+    buildFinishing,
+    waiting,
+    clearBuildStallWatchdog,
+  ]);
+
   // Board scan finished but delivery gates zeroed the ticket — replay from stash.
   useEffect(() => {
     if (!buildFinishing && !streaming && !waiting) return;
@@ -5710,10 +5736,6 @@ export default function CoachScreen() {
               !buildFinishing &&
               !waiting &&
               !m.retry;
-            const parlayShowRetryButton =
-              i === messages.length - 1 &&
-              !hasPicks &&
-              (parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung || !!m.retry);
             const parlayStuckDeadProse =
               m.role === "assistant" &&
               i === messages.length - 1 &&
@@ -5722,6 +5744,10 @@ export default function CoachScreen() {
               !streaming &&
               !buildFinishing &&
               !waiting;
+            const parlayShowRetryButton =
+              i === messages.length - 1 &&
+              !hasPicks &&
+              (parlayStalledEmpty || parlayStuckDeadProse || parlayBuildHung || !!m.retry);
             // Progress finalizes once pick cards are on the message — or when a
             // board-scan partial has scored legs waiting for delivery gates.
             const progressLegCount = showTicketPicks
@@ -5920,6 +5946,29 @@ export default function CoachScreen() {
                   </Pressable>
                 ) : null}
 
+                {parlayShowRetryButton && !coachBuildInFlight ? (
+                  <Pressable
+                    onPress={() => {
+                      composerInputRef.current?.focus();
+                      scrollToEnd(true);
+                    }}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      marginTop: 8,
+                      paddingVertical: 10,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Feather name="edit-3" size={15} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 13 }}>
+                      Or type a new ask in the box below
+                    </Text>
+                  </Pressable>
+                ) : null}
+
                 {showTicketHeader ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {showTicketPicks || hasScanManifest ? (
@@ -6060,8 +6109,11 @@ export default function CoachScreen() {
         </View>
       ) : null}
 
-      {/* Composer */}
-      <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
+      {/* Composer — pinned above tab overlays; stays tappable after empty scans */}
+      <KeyboardStickyView
+        offset={{ closed: 0, opened: insets.bottom }}
+        style={{ zIndex: 100, elevation: 100 }}
+      >
       {/* Keyboard-dismiss button — only while the keyboard is open */}
       {inputFocused ? (
         <View style={{ alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 8 }}>
@@ -6165,6 +6217,7 @@ export default function CoachScreen() {
           )}
         </Pressable>
         <TextInput
+          ref={composerInputRef}
           value={input}
           onChangeText={setInput}
           onFocus={() => setInputFocused(true)}
