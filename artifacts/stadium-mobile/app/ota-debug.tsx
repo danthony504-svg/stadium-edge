@@ -1,7 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,9 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import {
+  collectOtaFullDiagnostics,
   forceOtaCheckFetchAndReload,
-  readOtaDebugSnapshot,
-  type OtaDebugSnapshot,
+  type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -28,7 +28,7 @@ function Row({ label, value }: { label: string; value: string }) {
       </Text>
       <Text
         selectable
-        style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 14, lineHeight: 20 }}
+        style={{ color: colors.foreground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}
       >
         {value}
       </Text>
@@ -36,49 +36,135 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+function LogBlock({ title, lines }: { title: string; lines: string[] }) {
+  const colors = useColors();
+  return (
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: colors.mutedForeground, fontFamily: FONT.semibold, fontSize: 12 }}>
+        {title}
+      </Text>
+      {lines.map((line, i) => (
+        <Text
+          key={`${i}-${line.slice(0, 24)}`}
+          selectable
+          style={{
+            color: colors.foreground,
+            fontFamily: FONT.body,
+            fontSize: 11,
+            lineHeight: 16,
+          }}
+        >
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function buildReport(diag: OtaFullDiagnostics): string {
+  return [
+    "=== Stadium Edge OTA Diagnostics ===",
+    `Updates.isEnabled: ${diag.updatesEnabled}`,
+    `Updates.isEmbeddedLaunch: ${diag.isEmbeddedLaunch}`,
+    `Updates.isEmergencyLaunch: ${diag.isEmergencyLaunch}`,
+    `Updates.emergencyLaunchReason: ${diag.emergencyLaunchReason}`,
+    `Updates.updateId: ${diag.updateId}`,
+    `Updates.runtimeVersion: ${diag.runtimeVersion}`,
+    `Updates.channel: ${diag.channel}`,
+    `Updates.createdAt: ${diag.updateCreatedAt}`,
+    `Updates.checkAutomatically: ${diag.checkAutomatically}`,
+    `fallbackToCacheTimeout: ${diag.fallbackToCacheTimeout}`,
+    `Updates.launchDuration (ms): ${diag.launchDurationMs}`,
+    `isUpdatePending: ${diag.isUpdatePending}`,
+    `isStartupProcedureRunning: ${diag.isStartupProcedureRunning}`,
+    `rollback.commitTime: ${diag.rollbackCommitTime}`,
+    `native checkError: ${diag.checkError}`,
+    `native downloadError: ${diag.downloadError}`,
+    `bundle source: ${diag.bundleSource}`,
+    `app version: ${diag.appVersion}`,
+    `iOS build: ${diag.buildNumber}`,
+    `commit (running): ${diag.commitHash}`,
+    `deploy message: ${diag.deployMessage}`,
+    `updates.url: ${diag.updateUrl}`,
+    `requestHeaders: ${diag.requestHeaders}`,
+    `projectId: ${diag.projectId}`,
+    "",
+    `checkForUpdateAsync: ${diag.checkResult}`,
+    `fetchUpdateAsync: ${diag.fetchResult}`,
+    `reloadAsync: ${diag.reloadResult}`,
+    "",
+    "--- expo-updates native logs (last hour) ---",
+    ...diag.startupLogs,
+    "",
+    "--- JS launch OTA logs ---",
+    ...(diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none)"]),
+  ].join("\n");
+}
+
 export default function OtaDebugScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [snap, setSnap] = useState<OtaDebugSnapshot>(() => readOtaDebugSnapshot());
+  const [diag, setDiag] = useState<OtaFullDiagnostics | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => {
-    setSnap(readOtaDebugSnapshot());
+  const refresh = useCallback(async () => {
+    const next = await collectOtaFullDiagnostics();
+    setDiag(next);
+    return next;
   }, []);
 
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
   const copyAll = async () => {
-    const lines = [
-      `App version: ${snap.appVersion}`,
-      `iOS build number: ${snap.buildNumber}`,
-      `Runtime version: ${snap.runtimeVersion}`,
-      `Channel: ${snap.channel}`,
-      `Update ID: ${snap.updateId}`,
-      `Commit hash: ${snap.commitHash}`,
-      `Update created: ${snap.updateCreatedAt}`,
-      `Bundle source: ${snap.bundleSource}`,
-      `Updates enabled: ${snap.updatesEnabled}`,
-      `Deploy message: ${snap.deployMessage}`,
-      `Update URL: ${snap.updateUrl}`,
-      `Project ID: ${snap.projectId}`,
-    ];
-    await Clipboard.setStringAsync(lines.join("\n"));
-    setStatus("Copied to clipboard");
+    const snap = diag ?? (await refresh());
+    await Clipboard.setStringAsync(buildReport(snap));
+    setStatus("Copied full report to clipboard");
   };
 
-  const runCheck = async () => {
+  const runCheckFetchReload = async () => {
     setBusy(true);
     setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
     const result = await forceOtaCheckFetchAndReload();
     if (result.reloaded) {
-      setStatus("Reloading into new bundle…");
+      setStatus(result.reloadResult ?? "Reloading into new bundle…");
       return;
     }
-    refresh();
-    setStatus(result.reason ?? "No update available");
+    const next = await refresh();
+    setDiag(next);
+    setStatus(
+      [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
+        "Probe finished — see reloadAsync row",
+    );
     setBusy(false);
   };
+
+  if (!diag) {
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.background,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingTop: insets.top,
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ color: colors.mutedForeground, marginTop: 12, fontFamily: FONT.medium }}>
+          Loading OTA diagnostics…
+        </Text>
+      </View>
+    );
+  }
+
+  const embeddedWarning =
+    diag.isEmbeddedLaunch && diag.updatesEnabled
+      ? "Running embedded bundle. If check/fetch succeed but isEmbeddedLaunch stays true after force-reload, error recovery may be rolling back every launch."
+      : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: insets.top }}>
@@ -107,11 +193,27 @@ export default function OtaDebugScreen() {
         }}
       >
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-          Deployment verification only. Expected: runtime <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>production</Text>, project{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>9af36ab9-f953-4879-9dd2-82807ef7430c</Text>.
-          App Store build <Text style={{ fontFamily: FONT.semibold }}>#62</Text> (1.0.2) is the last known production submit.
+          Temporary deployment probe. Expected: runtime{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>production</Text>, updates URL{" "}
+          <Text style={{ fontFamily: FONT.semibold }}>u.expo.dev/9af36ab9-…</Text>.
         </Text>
+
+        {embeddedWarning ? (
+          <View
+            style={{
+              backgroundColor: "rgba(234,179,8,0.12)",
+              borderWidth: 1,
+              borderColor: "rgba(234,179,8,0.35)",
+              borderRadius: 10,
+              padding: 12,
+            }}
+          >
+            <Text style={{ color: "#fde68a", fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 }}>
+              {embeddedWarning}
+            </Text>
+          </View>
+        ) : null}
 
         <View
           style={{
@@ -123,19 +225,93 @@ export default function OtaDebugScreen() {
             gap: 14,
           }}
         >
-          <Row label="App version" value={snap.appVersion} />
-          <Row label="iOS build number" value={snap.buildNumber} />
-          <Row label="Runtime version" value={snap.runtimeVersion} />
-          <Row label="Channel" value={snap.channel} />
-          <Row label="Update ID" value={snap.updateId} />
-          <Row label="Commit hash (running bundle)" value={snap.commitHash} />
-          <Row label="Update creation date" value={snap.updateCreatedAt} />
-          <Row label="Bundle source" value={snap.bundleSource} />
-          <Row label="Updates enabled" value={String(snap.updatesEnabled)} />
-          <Row label="Update pending" value={String(snap.isUpdatePending)} />
-          <Row label="Deploy message" value={snap.deployMessage} />
-          <Row label="Update URL" value={snap.updateUrl} />
-          <Row label="Expo project ID" value={snap.projectId} />
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Running bundle (Updates.*)
+          </Text>
+          <Row label="Updates.isEnabled" value={String(diag.updatesEnabled)} />
+          <Row label="Updates.isEmbeddedLaunch" value={String(diag.isEmbeddedLaunch)} />
+          <Row label="Updates.isEmergencyLaunch" value={String(diag.isEmergencyLaunch)} />
+          <Row label="Updates.emergencyLaunchReason" value={diag.emergencyLaunchReason} />
+          <Row label="Updates.updateId" value={diag.updateId} />
+          <Row label="Updates.runtimeVersion" value={diag.runtimeVersion} />
+          <Row label="Updates.channel" value={diag.channel} />
+          <Row label="Updates.createdAt" value={diag.updateCreatedAt} />
+          <Row label="Updates.checkAutomatically (effective)" value={diag.checkAutomatically} />
+          <Row label="fallbackToCacheTimeout (app.json)" value={String(diag.fallbackToCacheTimeout)} />
+          <Row label="Updates.launchDuration (ms)" value={diag.launchDurationMs} />
+          <Row label="Bundle source" value={diag.bundleSource} />
+          <Row label="Commit hash (running JS)" value={diag.commitHash} />
+          <Row label="Deploy message" value={diag.deployMessage} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Native state machine
+          </Text>
+          <Row label="isUpdatePending" value={String(diag.isUpdatePending)} />
+          <Row label="isDownloading" value={String(diag.isDownloading)} />
+          <Row label="isStartupProcedureRunning" value={String(diag.isStartupProcedureRunning)} />
+          <Row label="rollback.commitTime" value={diag.rollbackCommitTime} />
+          <Row label="native checkError" value={diag.checkError} />
+          <Row label="native downloadError" value={diag.downloadError} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 14,
+          }}
+        >
+          <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+            Live probe (JS API)
+          </Text>
+          <Row label="checkForUpdateAsync()" value={diag.checkResult} />
+          <Row label="fetchUpdateAsync()" value={diag.fetchResult} />
+          <Row label="reloadAsync()" value={diag.reloadResult} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 10,
+          }}
+        >
+          <Row label="App version" value={diag.appVersion} />
+          <Row label="iOS build number" value={diag.buildNumber} />
+          <Row label="updates.url" value={diag.updateUrl} />
+          <Row label="requestHeaders" value={diag.requestHeaders} />
+          <Row label="Expo project ID" value={diag.projectId} />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 12,
+            padding: 14,
+            gap: 12,
+          }}
+        >
+          <LogBlock title="expo-updates native logs (startup / error recovery)" lines={diag.startupLogs} />
+          <LogBlock title="JS OtaStartupGate / manual logs" lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]} />
         </View>
 
         {status ? (
@@ -144,7 +320,7 @@ export default function OtaDebugScreen() {
 
         <View style={{ gap: 10 }}>
           <Pressable
-            onPress={() => void runCheck()}
+            onPress={() => void runCheckFetchReload()}
             disabled={busy}
             style={({ pressed }) => ({
               backgroundColor: colors.primary,
@@ -164,10 +340,7 @@ export default function OtaDebugScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => {
-              refresh();
-              void copyAll();
-            }}
+            onPress={() => void refresh().then(() => setStatus("Refreshed"))}
             style={({ pressed }) => ({
               paddingVertical: 12,
               alignItems: "center",
@@ -175,7 +348,20 @@ export default function OtaDebugScreen() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Refresh & copy report
+              Refresh probe & logs
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => void copyAll()}
+            style={({ pressed }) => ({
+              paddingVertical: 12,
+              alignItems: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
+              Copy full report
             </Text>
           </Pressable>
         </View>

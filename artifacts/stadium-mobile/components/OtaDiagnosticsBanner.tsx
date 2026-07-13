@@ -58,7 +58,7 @@ export function OtaDiagnosticsBanner() {
           }}
           selectable
         >
-          OTA {snap.bundleSource} · ch {snap.channel} · rt {snap.runtimeVersion} · id {shortId}
+          OTA {snap.bundleSource} · embedded={String(snap.isEmbeddedLaunch)} · ch {snap.channel} · id {shortId}
         </Text>
         <Text
           style={{
