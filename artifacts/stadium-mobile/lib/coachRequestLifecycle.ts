@@ -1,7 +1,7 @@
 // Per-request Coach ticket lifecycle — isolate leg count, cache keys, and traces.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import { parlayLegKey, type CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
+import { parlayLegKey, rememberParlayBuild, type CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
@@ -121,21 +121,80 @@ export function rejectPrefixOfLastDelivered(
   return false;
 }
 
+export type CoachTicketDeliveryResult =
+  | { ok: true; picks: ParsedPick[] }
+  | { ok: false; reason: "empty" | "prefix-of-last-delivered" };
+
+/**
+ * Single delivery gate — prefix rejection, variety memory, and trace logging.
+ * Every final ticket path must pass through here before UI/slip capture.
+ */
+export function finalizeCoachTicketForRequest(
+  ticket: readonly ParsedPick[],
+  opts: {
+    requestedLegs: number;
+    requestId?: string;
+    previousRequestId?: string;
+    cacheKey?: string;
+    source: string;
+    recordDelivered?: boolean;
+  },
+): CoachTicketDeliveryResult {
+  if (!ticket.length) return { ok: false, reason: "empty" };
+  const legTarget = opts.requestedLegs;
+  if (legTarget > 0 && rejectPrefixOfLastDelivered(ticket, legTarget)) {
+    traceCoachTicket("mobile-delivered", {
+      requestedLegs: legTarget,
+      pickIds: [...ticket],
+      source: "rejected-prefix-of-last-delivered",
+      extra: {
+        requestId: opts.requestId,
+        previousRequestId: opts.previousRequestId,
+        cacheKey: opts.cacheKey,
+        deliverySource: opts.source,
+      },
+    });
+    return { ok: false, reason: "prefix-of-last-delivered" };
+  }
+  const picks = [...ticket];
+  traceCoachTicket("mobile-delivered", {
+    requestedLegs: legTarget > 0 ? legTarget : undefined,
+    pickIds: picks,
+    source: opts.source,
+    extra: {
+      requestId: opts.requestId,
+      previousRequestId: opts.previousRequestId,
+      cacheKey: opts.cacheKey,
+    },
+  });
+  rememberParlayBuild(picks);
+  if (opts.recordDelivered !== false && legTarget > 0) {
+    recordCoachTicketDelivered(picks, {
+      requestId: opts.requestId ?? "",
+      requestedLegs: legTarget,
+    });
+  }
+  return { ok: true, picks };
+}
+
 /** Guards partial/final scan delivery against stale generation or wrong leg count. */
 export function boardScanAppliesToRequest(
   scan:
     | {
         requestedLegs?: number;
         picks?: { length: number };
+        requestId?: string;
       }
     | null
     | undefined,
   legTarget: number,
   sendGeneration: number,
   activeSendGeneration: number,
+  activeRequestId?: string | null,
 ): boolean {
   if (!scan?.picks?.length || legTarget <= 0) return false;
   if (sendGeneration !== activeSendGeneration) return false;
+  if (activeRequestId && scan.requestId && scan.requestId !== activeRequestId) return false;
   return boardScanMatchesLegTarget(scan, legTarget);
 }
 

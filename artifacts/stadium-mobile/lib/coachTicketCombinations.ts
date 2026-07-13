@@ -680,20 +680,16 @@ function pickBestDistinctCandidate(
   const nonPrefix = candidates.filter(
     (c) => !isExactPrefixOfLargerTicket(c.legKeys, largerTickets),
   );
-  let pool = nonPrefix;
-  if (!pool.length && largerTickets.length) {
-    pool = [...candidates].sort((a, b) => {
-      const leadA = Math.min(
-        ...largerTickets.map((t) => leadingPrefixMatchLen(a.legKeys, t)),
-      );
-      const leadB = Math.min(
-        ...largerTickets.map((t) => leadingPrefixMatchLen(b.legKeys, t)),
-      );
-      if (leadA !== leadB) return leadA - leadB;
-      return candidateTotalScore(b) - candidateTotalScore(a);
+  if (!nonPrefix.length) {
+    traceCoachTicket("combinator-selected", {
+      requestedLegs: target,
+      candidateId: "none",
+      pickIds: [],
+      extra: { rejectedAllPrefix: true, largerTicketCount: largerTickets.length },
     });
+    return null;
   }
-  if (!pool.length) pool = candidates;
+  let pool = nonPrefix;
 
   const sorted = [...pool].sort(
     (a, b) => candidateTotalScore(b) - candidateTotalScore(a),

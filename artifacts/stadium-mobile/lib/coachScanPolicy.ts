@@ -102,11 +102,21 @@ export function boardScanMeetsLegTarget(
 
 /** True when scan was staged for the exact leg count being delivered. */
 export function boardScanMatchesLegTarget(
-  scan: { requestedLegs?: number; picks?: { length: number } } | null | undefined,
+  scan:
+    | {
+        requestedLegs?: number;
+        picks?: { length: number };
+        scanComplete?: boolean;
+      }
+    | null
+    | undefined,
   legTarget: number,
 ): boolean {
   if (!scan || legTarget <= 0) return true;
   if (scan.requestedLegs != null) return scan.requestedLegs === legTarget;
+  // Legacy scans without metadata: only accept a complete ticket with exact leg count.
+  // Never treat a partial larger scan (e.g. 4 picks from a 15-leg build) as a 4-leg ticket.
+  if (!boardScanIsComplete(scan)) return false;
   return (scan.picks?.length ?? 0) === legTarget;
 }
 

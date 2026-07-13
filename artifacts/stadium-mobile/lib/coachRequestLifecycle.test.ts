@@ -4,12 +4,15 @@ import test from "node:test";
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
   buildCoachTicketCacheKey,
+  finalizeCoachTicketForRequest,
   recordCoachTicketDelivered,
   rejectPrefixOfLastDelivered,
   startCoachTicketRequest,
   ticketMatchesLargerPrefix,
   varietyContextWithLastDelivered,
+  boardScanAppliesToRequest,
 } from "./coachRequestLifecycle.ts";
+import { boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
   buildIndependentCoachTicket,
   isPrefixTicket,
@@ -94,6 +97,75 @@ test("cache keys differ by leg count and variety seed", () => {
   });
   assert.notEqual(a, b);
   assert.notEqual(b, c);
+});
+
+test("boardScanMatchesLegTarget rejects partial without requestedLegs metadata", () => {
+  const partial = { picks: { length: 4 }, scanComplete: false };
+  assert.equal(boardScanMatchesLegTarget(partial, 4), false);
+});
+
+test("boardScanAppliesToRequest rejects stale requestId", () => {
+  const scan = {
+    picks: { length: 4 },
+    requestedLegs: 4,
+    requestId: "req-15",
+  };
+  assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-4"), false);
+  assert.equal(boardScanAppliesToRequest(scan, 4, 2, 2, "req-15"), true);
+});
+
+test("finalizeCoachTicketForRequest rejects prefix then accepts independent ticket", () => {
+  clearParlayVarietyMemory();
+  const scored = wnbaBoard();
+  const fifteen = buildStagedTicketFromScan(scored, 15, "seq-15", {}).picks;
+  recordCoachTicketDelivered(fifteen, { requestId: "req-15", requestedLegs: 15 });
+
+  const prefix = fifteen.slice(0, 4);
+  const rejected = finalizeCoachTicketForRequest(prefix, {
+    requestedLegs: 4,
+    requestId: "req-4",
+    source: "test-prefix",
+  });
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) assert.equal(rejected.reason, "prefix-of-last-delivered");
+
+  const ctx = varietyContextWithLastDelivered({
+    recentTickets: [],
+    recentLeadPlayers: [],
+    recentPlayerCounts: new Map(),
+    recentTicketsByLegCount: new Map(),
+  });
+  const independent = buildStagedTicketFromScan(scored, 4, "seq-4", ctx).picks;
+  const accepted = finalizeCoachTicketForRequest(independent, {
+    requestedLegs: 4,
+    requestId: "req-4",
+    previousRequestId: "req-15",
+    source: "test-independent",
+  });
+  assert.equal(accepted.ok, true);
+  if (accepted.ok) {
+    assert.equal(isPrefixTicket(fifteen, accepted.picks), false);
+  }
+});
+
+test("production sequence: 5-leg then 8-leg must not prefix-match", () => {
+  clearParlayVarietyMemory();
+  const scored = wnbaBoard();
+  const five = buildStagedTicketFromScan(scored, 5, "seq-5", {}).picks;
+  recordCoachTicketDelivered(five, { requestId: "req-5", requestedLegs: 5 });
+  const ctx = varietyContextWithLastDelivered({
+    recentTickets: [],
+    recentLeadPlayers: [],
+    recentPlayerCounts: new Map(),
+    recentTicketsByLegCount: new Map(),
+  });
+  const eight = buildStagedTicketFromScan(scored, 8, "seq-8", ctx).picks;
+  assert.equal(eight.length, 8);
+  assert.equal(
+    isPrefixTicket(five, eight.slice(0, 5)),
+    false,
+    `8-leg must not start with exact 5-leg ticket.\n5: ${five.map((p) => pickLegFingerprint(p)).join(",")}\n8-prefix: ${eight.slice(0, 5).map((p) => pickLegFingerprint(p)).join(",")}`,
+  );
 });
 
 test("production sequence: 15-leg then 4-leg must not prefix-match", () => {

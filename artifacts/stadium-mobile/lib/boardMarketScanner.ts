@@ -136,6 +136,8 @@ export type FullBoardScanResult = {
   note: string;
   /** Leg count this scan was staged for — must match delivery target. */
   requestedLegs?: number;
+  /** Coach request that started this scan — blocks stale cross-request reuse. */
+  requestId?: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
@@ -449,6 +451,7 @@ function buildScanResult(
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
     varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+    requestId?: string;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(
@@ -489,6 +492,7 @@ function buildScanResult(
     note,
     scanComplete,
     requestedLegs: opts.target,
+    requestId: opts.requestId,
     manifest,
   };
 }
@@ -514,6 +518,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
   varietyContext?: Partial<import("./parlayVarietyMemory.ts").CoachParlayVarietyContext>;
+  requestId?: string;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -578,6 +583,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       manifestRecorder,
       varietySeed: opts.varietySeed,
       varietyContext: opts.varietyContext,
+      requestId: opts.requestId,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -678,6 +684,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     manifestRecorder,
     varietySeed: opts.varietySeed,
     varietyContext: opts.varietyContext,
+    requestId: opts.requestId,
   });
   if (opts.onPartial) opts.onPartial(result);
   return result;

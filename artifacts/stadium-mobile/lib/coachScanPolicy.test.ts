@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   boardScanIsComplete,
+  boardScanMatchesLegTarget,
   boardScanMeetsLegTarget,
   boardScanReadyForDelivery,
   ensureFixedLegShortfallLegNote,
@@ -117,6 +118,18 @@ test("COACH_EXHAUSTIVE_MARKET_LADDER_POLICY documents alt ladder exhaustion", ()
 test("COACH_FIXED_LEG_SHORTFALL_LEAD states honest shortfall copy", () => {
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /Every qualifying market/i);
   assert.match(COACH_FIXED_LEG_SHORTFALL_LEAD, /AI-backed picks/i);
+});
+
+test("boardScanMatchesLegTarget rejects partial without requestedLegs", () => {
+  assert.equal(boardScanMatchesLegTarget({ picks: { length: 4 }, scanComplete: false }, 4), false);
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 4 }, scanComplete: true }, 4),
+    true,
+  );
+  assert.equal(
+    boardScanMatchesLegTarget({ picks: { length: 15 }, requestedLegs: 15, scanComplete: true }, 4),
+    false,
+  );
 });
 
 test("boardScanMeetsLegTarget requires picks length >= requested legs", () => {
