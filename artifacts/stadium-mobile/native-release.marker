@@ -1,3 +1,3 @@
-# Bump this file to trigger a TestFlight native build (embeds current JS in the binary).
-# 2026-07-13 — embed MLB ESPN fallback + wordmark Home; recover stale TestFlight JS.
-34c9f013f
+# Manual App Store / TestFlight builds only (workflow_dispatch).
+# Do NOT bump to ship JS — use publish-production-ota.yml instead.
+# Last intentional native embed: 34c9f013f (2026-07-13)
