@@ -158,13 +158,16 @@ import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
-  awaitWarmSlateSeed,
   readSlatePreAnalysisSeed,
   setCoachBuildBusy,
   startSlatePreAnalysis,
   hydrateCoachSlateFromServer,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
+import {
+  COACH_SLATE_PREVIEW_NOTE,
+  markBoardScanAsPreview,
+} from "@/lib/coachSlateFreshness";
 import { buildParlaySalvagePicks, topUpParlayPicks } from "@/lib/parlaySalvage";
 import { buildSoccerScorerGkPicks } from "@/lib/soccerScorerGkSalvage";
 import {
@@ -1459,7 +1462,7 @@ export default function CoachScreen() {
       if (!seed?.boardScan?.picks?.length) return false;
       const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
-      return patchInstantBoardScanTicket(seed.boardScan, enrich);
+      return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich);
     },
     [patchInstantBoardScanTicket, marketPerf],
   );
@@ -1854,18 +1857,15 @@ export default function CoachScreen() {
         if (seed?.boardScan?.picks?.length) {
           const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
           flashEnrichRef.current = enrich;
-          const ticket = boardScanPartialToTicket(seed.boardScan, enrich);
+          const ticket = boardScanPartialToTicket(markBoardScanAsPreview(seed.boardScan), enrich);
           if (ticket.length) {
             openingPicks = prepareCoachDeliveredTicket(ticket, enrich);
           }
           if (openingPicks?.length) {
-            openingLegNote =
-              earlyLegTarget > 0 && openingPicks.length < earlyLegTarget
-                ? seed.boardScan.note ||
-                  `You asked for **${earlyLegTarget}** legs — showing **${openingPicks.length}** from the precomputed slate while the full-board scan continues.`
-                : seed.boardScan.note;
+            openingLegNote = COACH_SLATE_PREVIEW_NOTE;
           }
         }
+        void startSlatePreAnalysis("coach-send", slateSeedOpts);
       }
       if (sendGenerationRef.current !== sendGen) return;
       setMessages([
@@ -1929,35 +1929,8 @@ export default function CoachScreen() {
       abortRef.current = controller;
 
       if (openingParlayBuild) {
-        if (!tryInstantSlateSeedDelivery(earlyLegTarget, slateSport)) {
-          startSlatePreAnalysis("coach-send", slateSeedOpts);
-          await awaitWarmSlateSeed({
-            legs: earlyLegTarget,
-            sport: slateSport,
-            signal: controller.signal,
-            maxMs: 12_000,
-          });
-          tryInstantSlateSeedDelivery(earlyLegTarget, slateSport);
-        }
-        const sportScopeEarly = [
-          ...messages.filter((m) => m.role === "user").map((m) => m.content),
-          trimmed,
-        ].join(" ");
-        if (
-          reachBoardScanEligible({
-            requestedLegs: earlyLegTarget,
-            propsOnly: wantsPropsOnly(trimmed),
-          })
-        ) {
-          const seedBuilt = readSlatePreAnalysisSeed(slateSeedOpts)?.built;
-          earlyReachBoardScanRef.current = kickoffEarlyReachBoardScan({
-            target: earlyLegTarget,
-            sportScopeText: sportScopeEarly,
-            excludedSports: persistedExcludedSportsRef.current,
-            seedBuilt,
-            signal: controller.signal,
-          });
-        }
+        // Cached slate may flash as a preview only — final picks come from a fresh scan.
+        tryInstantSlateSeedDelivery(earlyLegTarget, slateSport);
       }
 
       // Card/booking asks have no feed — answer instantly instead of streaming guesses.
@@ -2228,6 +2201,7 @@ export default function CoachScreen() {
         let selectionOpts: PropSelectionOpts | undefined;
         let preBoardScan: FullBoardScanResult | null = null;
         let didReachFullPreScan = false;
+        let freshBoardScanComplete = false;
         // The server streams back the EXACT prop pool the model saw (post
         // market-lock filter + fresh-fetch backfill). The local propPool is capped
         // to the soonest games and can miss late-starting games, so without this
@@ -2389,32 +2363,14 @@ export default function CoachScreen() {
               ? readSlatePreAnalysisSeed({ legs: legTarget, sport: streamSlateSport })
               : null;
           if (preAnalysisSeed?.boardScan?.picks?.length) {
-            const seedMeetsBuildTarget = boardScanMeetsLegTarget(preAnalysisSeed.boardScan, buildLegs);
-            preBoardScan = {
-              ...preAnalysisSeed.boardScan,
-              scanComplete: seedMeetsBuildTarget
-                ? (preAnalysisSeed.boardScan.scanComplete ?? true)
-                : false,
-            };
+            preBoardScan = markBoardScanAsPreview(preAnalysisSeed.boardScan);
             flashEnrichRef.current = coachFlashEnrichFromBuilt(preAnalysisSeed.built, {
               propSimulations: preAnalysisSeed.propSimulations,
               perfByFamily: marketPerf,
             });
-            patchInstantBoardScanTicket(preAnalysisSeed.boardScan, flashEnrichRef.current);
+            patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current);
           }
-          let earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
-          if (!earlyReachBoardScanPromise && reachFullPreScanEligible && scanFeedsPromise) {
-            const reachTargetEarly = Math.min(legTarget, MAX_LEGS);
-            const seedBuilt = preAnalysisSeed?.built;
-            earlyReachBoardScanPromise = kickoffEarlyReachBoardScan({
-              target: reachTargetEarly,
-              sportScopeText,
-              excludedSports,
-              seedBuilt,
-              signal: abortRef.current?.signal,
-            });
-            earlyReachBoardScanRef.current = earlyReachBoardScanPromise;
-          }
+          const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -2440,10 +2396,9 @@ export default function CoachScreen() {
                   focalText: trimmed,
                 })
             : useCompactParlayPath
-              ? (preAnalysisSeed?.built ??
-                (await buildCompactParlayContext(buildLegs, controller.signal, {
+              ? await buildCompactParlayContext(buildLegs, controller.signal, {
                   excludeSports: excludeSportsList,
-                })))
+                })
               : useMlbSlatePath
                 ? await buildMlbSlateContext(controller.signal)
                 : usePropPickPath
@@ -2460,9 +2415,7 @@ export default function CoachScreen() {
                 wantsAnalyzeSlip(trimmed),
               );
           const enriched =
-            preAnalysisSeed
-              ? { built: preAnalysisSeed.built, propSimulations: preAnalysisSeed.propSimulations }
-              : slipImageVerdictOnly || usePropPickPath
+            slipImageVerdictOnly || usePropPickPath
               ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
               : boardScanPreEligible
                 ? { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() }
@@ -2498,13 +2451,8 @@ export default function CoachScreen() {
           if (reachFullPreScan) {
             didReachFullPreScan = true;
             try {
-              const seedScanComplete =
-                !!preBoardScan?.picks?.length && boardScanIsComplete(preBoardScan);
-              const seedMeetsTarget =
-                seedScanComplete &&
-                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan);
               if (preBoardScan?.picks?.length) {
-                flashBoardScanResult(preBoardScan, {
+                flashBoardScanResult(markBoardScanAsPreview(preBoardScan), {
                   ...flashEnrichRef.current,
                   realOdds: [
                     ...flashEnrichRef.current.realOdds,
@@ -2512,27 +2460,18 @@ export default function CoachScreen() {
                   ],
                 });
               }
-              if (!seedMeetsTarget) {
               if (earlyReachBoardScanPromise) {
                 const earlyScan = await earlyReachBoardScanPromise;
                 if (earlyScan?.picks?.length) {
-                  preBoardScan = latestBoardScanRef.current?.picks?.length
-                    ? latestBoardScanRef.current
-                    : earlyScan;
-                  flashBoardScanResult(preBoardScan, {
+                  flashBoardScanResult(markBoardScanAsPreview(earlyScan), {
                     ...flashEnrichRef.current,
                     realOdds: [
                       ...flashEnrichRef.current.realOdds,
-                      ...[...(preBoardScan.evalLinesByGame?.values() ?? [])].flat(),
+                      ...[...(earlyScan.evalLinesByGame?.values() ?? [])].flat(),
                     ],
                   });
                 }
               }
-              const scanSettled =
-                !!preBoardScan?.picks?.length &&
-                boardScanIsComplete(preBoardScan) &&
-                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan);
-              if (!scanSettled) {
               const { espnGames, oddsGames, liveFeed } = scanFeedsPromise
                 ? await scanFeedsPromise
                 : await (async () => {
@@ -2578,6 +2517,11 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
+              freshBoardScanComplete = !!(
+                preBoardScan?.picks?.length &&
+                boardScanIsComplete(preBoardScan) &&
+                boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan)
+              );
               const scanForDelivery = preferBoardScanForDelivery(
                 preBoardScan,
                 latestBoardScanRef.current,
@@ -2599,8 +2543,6 @@ export default function CoachScreen() {
                   });
                 }
               }
-              }
-              }
             } catch {
               preBoardScan = preferBoardScanForDelivery(
                 latestBoardScanRef.current,
@@ -2615,20 +2557,8 @@ export default function CoachScreen() {
             latestBoardScanRef.current?.picks?.length
           );
           const skipModelStreamForBoardScan = useParlayKernel
-            ? kernelScanReady
-            : (() => {
-            const seedScan = preBoardScan?.picks?.length
-              ? preBoardScan
-              : latestBoardScanRef.current?.picks?.length
-                ? latestBoardScanRef.current
-                : null;
-            return (
-              !!seedScan?.picks?.length &&
-              reachFullPreScan &&
-              boardScanIsComplete(seedScan) &&
-              boardScanMeetsLegTarget(seedScan, reachTargetPreScan)
-            );
-          })();
+            ? freshBoardScanComplete && kernelScanReady
+            : freshBoardScanComplete && reachFullPreScan;
           // "Today / tonight" ask: buildChatContext already restricts the pools to
           // today's upcoming games AND returns the EFFECTIVE decision it applied.
           // We reuse that `todayOnly` (NOT a fresh wantsTodayOnly) so the post-parse
@@ -5604,13 +5534,8 @@ export default function CoachScreen() {
       }
       const seed = readSlatePreAnalysisSeed();
       if (seed?.boardScan?.picks?.length) {
-        deliverBoardScanTicket(seed.boardScan, {
-          realOdds: seed.built.context.realOdds,
-          propPool: seed.built.propPool,
-          gameMeta: seed.built.gameMeta,
-          realGames: seed.built.context.realGames,
-        });
-        return true;
+        const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
+        return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich);
       }
       const legs = requestedLegCount(priorUser?.content ?? "") || effectiveBuildLegCount(priorUser?.content ?? "");
       return tryInstantSlateSeedDelivery(legs);
@@ -5649,7 +5574,7 @@ export default function CoachScreen() {
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery]);
+  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
