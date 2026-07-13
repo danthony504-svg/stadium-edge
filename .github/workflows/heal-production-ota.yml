@@ -1,0 +1,50 @@
+name: Heal corrupt production OTA
+
+# OTA-only recovery: rollback to App Store embedded JS, then publish clean OTA.
+# No new App Store binary / review required.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/.ota-heal-trigger"
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify bundle compiles
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: HEAL-EMBEDDED ${{ github.sha }}
+        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-heal-check
+
+      - name: Heal production OTA (rollback embedded + clean publish)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
+        run: bash scripts/heal-production-ota.sh
