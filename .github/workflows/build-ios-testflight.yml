@@ -1,16 +1,18 @@
 name: Build iOS TestFlight
 
+# Manual only — App Store / TestFlight builds require review. JS fixes ship via
+# publish-production-ota.yml (OTA) on the production channel / runtime 1.0.0.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/native-release.marker"
   workflow_dispatch:
     inputs:
       message:
         description: Build message (EAS build profile)
         required: false
-        default: "Embed latest JS — Discover Home + Table Tennis"
+        default: "Embed latest JS — manual App Store submission"
+      auto_submit:
+        description: Auto-submit to App Store Connect when the build finishes
+        required: false
+        default: "false"
 
 jobs:
   build:
@@ -34,13 +36,14 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      - name: Build and submit to TestFlight
+      - name: Build iOS (optional App Store Connect submit)
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EAS_NO_VCS: "1"
+          AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets"
@@ -48,12 +51,16 @@ jobs:
           fi
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
-            MSG="Discover Home embedded $(git rev-parse --short HEAD)"
+            MSG="Manual iOS build $(git rev-parse --short HEAD)"
+          fi
+          SUBMIT_FLAG=""
+          if [ "$AUTO_SUBMIT" = "true" ]; then
+            SUBMIT_FLAG="--auto-submit"
           fi
           pnpm exec eas build \
             --platform ios \
             --profile production \
-            --auto-submit \
+            $SUBMIT_FLAG \
             --non-interactive \
             --no-wait \
             --message "$MSG"
