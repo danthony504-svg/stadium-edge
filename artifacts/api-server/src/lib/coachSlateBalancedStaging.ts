@@ -1,4 +1,4 @@
-// Balanced server ticket assembly — ~50% props, category pools, props-first backfill.
+// Balanced server ticket assembly — independent optimization per leg count.
 
 import {
   BALANCED_BACKFILL_ORDER,
@@ -17,6 +17,60 @@ function legFingerprint(p: ParsedPick): string {
     return `prop|${p.game}|${p.player}|${p.propMarketKey ?? p.market}|${p.propLine}|${p.propSide}`;
   }
   return `game|${p.game}|${p.market}|${p.pick}`;
+}
+
+const ASSEMBLY_CATEGORY_ORDERS: readonly (readonly BoardMarketCategory[])[] = [
+  ["props", "gameLines", "teamTotals", "alternateLines"],
+  ["gameLines", "props", "teamTotals", "alternateLines"],
+  ["props", "teamTotals", "gameLines", "alternateLines"],
+  ["gameLines", "teamTotals", "props", "alternateLines"],
+  ["props", "alternateLines", "gameLines", "teamTotals"],
+  ["teamTotals", "props", "gameLines", "alternateLines"],
+  ["alternateLines", "props", "gameLines", "teamTotals"],
+  ["props", "gameLines", "alternateLines", "teamTotals"],
+];
+
+type SizeProfile = {
+  poolRotate: number;
+  orderShift: number;
+};
+
+const SIZE_PROFILES: Partial<Record<number, SizeProfile>> = {
+  3: { poolRotate: 3, orderShift: 5 },
+  5: { poolRotate: 5, orderShift: 2 },
+  6: { poolRotate: 6, orderShift: 4 },
+  8: { poolRotate: 7, orderShift: 1 },
+  9: { poolRotate: 4, orderShift: 6 },
+  10: { poolRotate: 8, orderShift: 3 },
+  15: { poolRotate: 2, orderShift: 0 },
+};
+
+function sizeProfile(target: number): SizeProfile {
+  return (
+    SIZE_PROFILES[target] ?? {
+      poolRotate: (target * 3) % 9,
+      orderShift: target % ASSEMBLY_CATEGORY_ORDERS.length,
+    }
+  );
+}
+
+function rotatePool<T>(pool: T[], rotate: number): T[] {
+  if (!pool.length || rotate <= 0) return pool;
+  const skip = rotate % pool.length;
+  if (!skip) return pool;
+  return [...pool.slice(skip), ...pool.slice(0, skip)];
+}
+
+function rotatePoolsForTarget(
+  pools: PartitionedServerPools,
+  profile: SizeProfile,
+): PartitionedServerPools {
+  return {
+    props: rotatePool(pools.props, profile.poolRotate),
+    gameLines: rotatePool(pools.gameLines, profile.poolRotate + 2),
+    teamTotals: rotatePool(pools.teamTotals, profile.poolRotate + 4),
+    alternateLines: rotatePool(pools.alternateLines, profile.poolRotate + 1),
+  };
 }
 
 function appendFromPool(
@@ -99,26 +153,23 @@ export function stageServerTicketLegacy(
   };
 }
 
-/** Balanced ticket: ~50% props, ~25% game lines, ~15% team totals, ~10% alts. */
+/** Balanced ticket with per-size pool rotation and category order — not a prefix slice. */
 export function stageServerTicketBalanced(
   ranked: ServerRankedLeg[],
   target: number,
 ): { picks: ParsedPick[]; breakdown: FullBoardScanResult["staging"] } {
   if (target < 3) return stageServerTicketLegacy(ranked, target);
 
-  const pools = partitionServerRankedByCategory(ranked);
+  const profile = sizeProfile(target);
+  const pools = rotatePoolsForTarget(partitionServerRankedByCategory(ranked), profile);
   const slots = balancedMixSlots(target);
+  const categoryOrder = ASSEMBLY_CATEGORY_ORDERS[profile.orderShift % ASSEMBLY_CATEGORY_ORDERS.length]!;
   const used = new Set<string>();
   const out: ParsedPick[] = [];
 
-  const fillCategory = (cat: BoardMarketCategory, want: number) => {
-    appendFromPool(out, used, pools[cat], want);
-  };
-
-  fillCategory("props", slots.props);
-  fillCategory("gameLines", slots.gameLines);
-  fillCategory("teamTotals", slots.teamTotals);
-  fillCategory("alternateLines", slots.alternateLines);
+  for (const cat of categoryOrder) {
+    appendFromPool(out, used, pools[cat], slots[cat]);
+  }
 
   const finalPicks = applyBalancedBackfill(out, target, pools);
   const mains = ranked.filter((r) => !r.isAlt);
@@ -133,4 +184,16 @@ export function stageServerTicketBalanced(
       altOnTicket: finalPicks.filter((p) => p.ticketRole === "alt").length,
     },
   };
+}
+
+/** True when shorter leg keys are the prefix of a longer ticket. */
+export function isPrefixServerTicket(
+  longer: readonly ParsedPick[],
+  shorter: readonly ParsedPick[],
+): boolean {
+  if (!shorter.length || shorter.length >= longer.length) return false;
+  for (let i = 0; i < shorter.length; i++) {
+    if (legFingerprint(longer[i]!) !== legFingerprint(shorter[i]!)) return false;
+  }
+  return true;
 }

@@ -6,7 +6,7 @@ import {
   serverBoardMarketCategory,
   ticketCategoryMix,
 } from "../src/lib/coachSlateMarketPools.js";
-import { stageServerTicketBalanced } from "../src/lib/coachSlateBalancedStaging.js";
+import { stageServerTicketBalanced, isPrefixServerTicket } from "../src/lib/coachSlateBalancedStaging.js";
 import type { ParsedPick } from "../src/lib/coachSlateTypes.js";
 
 function pick(
@@ -74,4 +74,30 @@ test("stageServerTicketBalanced fills ~50% props when pool has depth", () => {
   assert.equal(picks.length, 10);
   assert.ok(mix.props >= 4, `expected props >= 4, got ${mix.props}`);
   assert.ok(mix.propShare >= 0.4, `prop share ${mix.propShare} below 40%`);
+});
+
+test("stageServerTicketBalanced builds independent tickets per leg count", () => {
+  const ranked = [
+    { pick: pick({ game: "A @ B", market: "Points", pick: "P1 Over 20.5", odds: -110, isProp: true, player: "P1" }), rankScore: 100, isAlt: false },
+    { pick: pick({ game: "A @ B", market: "Rebounds", pick: "P2 Over 8.5", odds: -110, isProp: true, player: "P2" }), rankScore: 95, isAlt: false },
+    { pick: pick({ game: "A @ B", market: "Assists", pick: "P3 Over 5.5", odds: -110, isProp: true, player: "P3" }), rankScore: 90, isAlt: false },
+    { pick: pick({ game: "A @ B", market: "Threes", pick: "P4 Over 2.5", odds: -110, isProp: true, player: "P4" }), rankScore: 85, isAlt: false },
+    { pick: pick({ game: "A @ B", market: "Steals", pick: "P5 Over 1.5", odds: -110, isProp: true, player: "P5" }), rankScore: 80, isAlt: false },
+    { pick: pick({ game: "C @ D", market: "Spread", pick: "C -4.5", odds: -110 }), rankScore: 75, isAlt: false },
+    { pick: pick({ game: "C @ D", market: "Total", pick: "Over 220.5", odds: -110 }), rankScore: 70, isAlt: false },
+    { pick: pick({ game: "E @ F", market: "Team Total", pick: "Over 112.5", odds: -110 }), rankScore: 65, isAlt: false },
+    { pick: pick({ game: "E @ F", market: "Alt Spread", pick: "E -1.5", odds: -110 }), rankScore: 60, isAlt: true },
+    { pick: pick({ game: "G @ H", market: "Moneyline", pick: "G ML", odds: -150 }), rankScore: 55, isAlt: false },
+    { pick: pick({ game: "G @ H", market: "Alt Total", pick: "Over 228.5", odds: -110 }), rankScore: 50, isAlt: true },
+    { pick: pick({ game: "I @ J", market: "Points", pick: "P6 Over 18.5", odds: -110, isProp: true, player: "P6" }), rankScore: 48, isAlt: false },
+    { pick: pick({ game: "K @ L", market: "Points", pick: "P7 Over 17.5", odds: -110, isProp: true, player: "P7" }), rankScore: 46, isAlt: false },
+    { pick: pick({ game: "M @ N", market: "Points", pick: "P8 Over 16.5", odds: -110, isProp: true, player: "P8" }), rankScore: 44, isAlt: false },
+    { pick: pick({ game: "O @ P", market: "Spread", pick: "O -2.5", odds: -110 }), rankScore: 42, isAlt: false },
+  ];
+
+  const five = stageServerTicketBalanced(ranked, 5).picks;
+  const fifteen = stageServerTicketBalanced(ranked, 15).picks;
+  assert.equal(five.length, 5);
+  assert.equal(fifteen.length, 15);
+  assert.equal(isPrefixServerTicket(fifteen, five), false);
 });

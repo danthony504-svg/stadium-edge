@@ -16,6 +16,7 @@ import {
 } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
+  isPrefixLegKeys,
   parlayLegKey,
   parlayPlayerKey,
   ticketOverlapRatio,
@@ -56,11 +57,67 @@ type AssemblyConfig = {
   diversityWeight: number;
   bandOffset: number;
   categoryOrder: readonly BoardMarketCategory[];
+  poolRotate: number;
   recentLegKeys?: Set<string>;
   recentLeadPlayers?: readonly string[];
   recentPlayerCounts?: ReadonlyMap<string, number>;
   lineShoppingBias: number;
 };
+
+/** Per-leg-count optimization — different pools, weights, and assembly for each size. */
+type TicketSizeProfile = {
+  diversityBase: number;
+  poolRotate: number;
+  orderShift: number;
+  lineShoppingBias: number;
+  candidateCount: number;
+};
+
+const SIZE_PROFILES: Partial<Record<number, TicketSizeProfile>> = {
+  3: { diversityBase: 0.58, poolRotate: 3, orderShift: 5, lineShoppingBias: 1.1, candidateCount: 32 },
+  5: { diversityBase: 0.5, poolRotate: 5, orderShift: 2, lineShoppingBias: 1.0, candidateCount: 40 },
+  6: { diversityBase: 0.45, poolRotate: 6, orderShift: 4, lineShoppingBias: 0.95, candidateCount: 40 },
+  8: { diversityBase: 0.4, poolRotate: 7, orderShift: 1, lineShoppingBias: 0.9, candidateCount: 40 },
+  9: { diversityBase: 0.36, poolRotate: 4, orderShift: 6, lineShoppingBias: 0.85, candidateCount: 40 },
+  10: { diversityBase: 0.32, poolRotate: 8, orderShift: 3, lineShoppingBias: 0.8, candidateCount: 40 },
+  15: { diversityBase: 0.28, poolRotate: 2, orderShift: 0, lineShoppingBias: 0.75, candidateCount: 40 },
+};
+
+function ticketSizeProfile(target: number): TicketSizeProfile {
+  const known = SIZE_PROFILES[target];
+  if (known) return known;
+  return {
+    diversityBase: 0.3 + (target % 6) * 0.06,
+    poolRotate: (target * 3) % 9,
+    orderShift: target % ASSEMBLY_CATEGORY_ORDERS.length,
+    lineShoppingBias: 0.7 + (target % 4) * 0.1,
+    candidateCount: TICKET_CANDIDATE_COUNT,
+  };
+}
+
+function sizeScopedSeed(varietySeed: string, target: number): string {
+  return `${varietySeed}|legs-${target}`;
+}
+
+function rotateLegPoolForSize<T>(pool: T[], rotate: number): T[] {
+  if (!pool.length || rotate <= 0) return pool;
+  const skip = rotate % pool.length;
+  if (!skip) return pool;
+  return [...pool.slice(skip), ...pool.slice(0, skip)];
+}
+
+function largerTicketsForTarget(
+  target: number,
+  bySize?: ReadonlyMap<number, readonly (readonly string[])[]>,
+): readonly (readonly string[])[] {
+  if (!bySize?.size) return [];
+  const out: (readonly string[])[] = [];
+  for (const [size, tickets] of bySize.entries()) {
+    if (size <= target) continue;
+    for (const ticket of tickets) out.push(ticket);
+  }
+  return out;
+}
 
 const ASSEMBLY_CATEGORY_ORDERS: readonly (readonly BoardMarketCategory[])[] = [
   ["props", "gameLines", "teamTotals", "alternateLines"],
@@ -340,15 +397,21 @@ function assembleBalancedDiverseTicket(
   config: AssemblyConfig,
 ): ParsedPick[] {
   const pools = partitionScoredLegsByCategory(qualifying);
+  const rotatedPools: Record<BoardMarketCategory, BoardScoredLeg[]> = {
+    props: rotateLegPoolForSize(pools.props, config.poolRotate),
+    gameLines: rotateLegPoolForSize(pools.gameLines, config.poolRotate + 2),
+    teamTotals: rotateLegPoolForSize(pools.teamTotals, config.poolRotate + 4),
+    alternateLines: rotateLegPoolForSize(pools.alternateLines, config.poolRotate + 1),
+  };
   const slots = balancedMixSlots(target);
   const ticket: ParsedPick[] = [];
   const used = new Set<string>();
 
   for (const cat of config.categoryOrder) {
-    appendFromCategory(ticket, used, pools[cat], slots[cat], target, config);
+    appendFromCategory(ticket, used, rotatedPools[cat], slots[cat], target, config);
   }
 
-  return backfillDiverseTicket(ticket, target, pools, config);
+  return backfillDiverseTicket(ticket, target, rotatedPools, config);
 }
 
 function legRankOnTicket(pick: ParsedPick, qualifying: BoardScoredLeg[]): number {
@@ -464,23 +527,44 @@ function candidateVarietyPenalty(
   return penalty;
 }
 
+function prefixPenaltyForTarget(
+  candidate: TicketCandidate,
+  target: number,
+  opts: CoachTicketBuildOpts,
+): number {
+  let penalty = 0;
+  const larger = largerTicketsForTarget(target, opts.recentTicketsByLegCount);
+  for (const ticket of larger) {
+    if (isPrefixLegKeys(candidate.legKeys, ticket)) {
+      penalty += 120;
+      break;
+    }
+  }
+  return penalty;
+}
+
 function generateTicketCandidates(
   qualifying: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
   const out: TicketCandidate[] = [];
+  const profile = ticketSizeProfile(target);
+  const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
   const recentFlat = new Set((opts.recentTickets ?? []).flatMap((r) => [...r]));
-  for (let i = 0; i < TICKET_CANDIDATE_COUNT; i++) {
+  const candidateCount = profile.candidateCount;
+  for (let i = 0; i < candidateCount; i++) {
+    const orderIdx = (i + profile.orderShift) % ASSEMBLY_CATEGORY_ORDERS.length;
     const config: AssemblyConfig = {
-      seed: `${opts.varietySeed}|ticket-${i}`,
-      diversityWeight: 0.28 + (i % 8) * 0.1,
-      bandOffset: i,
-      categoryOrder: ASSEMBLY_CATEGORY_ORDERS[i % ASSEMBLY_CATEGORY_ORDERS.length]!,
+      seed: `${sizeSeed}|ticket-${i}`,
+      diversityWeight: profile.diversityBase + (i % 6) * 0.08,
+      bandOffset: i + target * 5,
+      categoryOrder: ASSEMBLY_CATEGORY_ORDERS[orderIdx]!,
+      poolRotate: profile.poolRotate + i,
       recentLegKeys: recentFlat.size ? recentFlat : undefined,
       recentLeadPlayers: opts.recentLeadPlayers,
       recentPlayerCounts: opts.recentPlayerCounts,
-      lineShoppingBias: 0.6 + (i % 5) * 0.2,
+      lineShoppingBias: profile.lineShoppingBias + (i % 4) * 0.12,
     };
     const picks = assembleBalancedDiverseTicket(qualifying, target, config);
     if (!picks.length) continue;
@@ -492,7 +576,9 @@ function generateTicketCandidates(
       diversityScore: ticketDiversityScore(picks),
       varietyPenalty: 0,
     };
-    candidate.varietyPenalty = candidateVarietyPenalty(candidate, qualifying, opts);
+    candidate.varietyPenalty =
+      candidateVarietyPenalty(candidate, qualifying, opts) +
+      prefixPenaltyForTarget(candidate, target, opts);
     out.push(candidate);
   }
   return out;
@@ -519,10 +605,18 @@ function maxRecentOverlap(
 function pickBestDistinctCandidate(
   candidates: TicketCandidate[],
   opts: CoachTicketBuildOpts,
+  target: number,
 ): TicketCandidate | null {
   if (!candidates.length) return null;
   const recentTickets = opts.recentTickets ?? [];
-  const sorted = [...candidates].sort(
+  const largerTickets = largerTicketsForTarget(target, opts.recentTicketsByLegCount);
+
+  const nonPrefix = candidates.filter(
+    (c) => !largerTickets.some((ticket) => isPrefixLegKeys(c.legKeys, ticket)),
+  );
+  const pool = nonPrefix.length ? nonPrefix : candidates;
+
+  const sorted = [...pool].sort(
     (a, b) => candidateTotalScore(b) - candidateTotalScore(a),
   );
   if (!recentTickets.length) return sorted[0]!;
@@ -540,8 +634,8 @@ function pickBestDistinctCandidate(
   }
 
   const viable = sorted.filter((c) => c.qualityScore >= qualityFloor);
-  const pool = viable.length ? viable : sorted;
-  const diversePick = [...pool].sort((a, b) => {
+  const viablePool = viable.length ? viable : sorted;
+  const diversePick = [...viablePool].sort((a, b) => {
     const scoreA = candidateTotalScore(a) - maxRecentOverlap(a, recentTickets) * 25;
     const scoreB = candidateTotalScore(b) - maxRecentOverlap(b, recentTickets) * 25;
     return scoreB - scoreA;
@@ -579,7 +673,7 @@ export function buildIndependentCoachTicket(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(qualifying, target, opts);
-  const chosen = pickBestDistinctCandidate(candidates, opts);
+  const chosen = pickBestDistinctCandidate(candidates, opts, target);
   const picks = chosen?.picks ?? [];
   return {
     picks,
@@ -593,8 +687,7 @@ export function isPrefixTicket(
   shorter: readonly ParsedPick[],
 ): boolean {
   if (shorter.length >= longer.length || shorter.length === 0) return false;
-  for (let i = 0; i < shorter.length; i++) {
-    if (pickLegFingerprint(longer[i]!) !== pickLegFingerprint(shorter[i]!)) return false;
-  }
-  return true;
+  const longerKeys = longer.map((p) => parlayLegKey(p));
+  const shorterKeys = shorter.map((p) => parlayLegKey(p));
+  return isPrefixLegKeys(shorterKeys, longerKeys);
 }

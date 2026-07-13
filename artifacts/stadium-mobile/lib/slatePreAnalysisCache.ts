@@ -17,7 +17,7 @@ export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
 export const SLATE_INSTANT_LOAD_MAX_MS = 30 * 60_000;
 /** Precompute target mirrored from server. */
 export const SLATE_PRE_ANALYSIS_TARGET = 15;
-export const SLATE_PARLAY_SIZES = [3, 5, 6, 9, 10, 15] as const;
+export const SLATE_PARLAY_SIZES = [3, 5, 6, 8, 9, 10, 15] as const;
 export type SlateParlayLegCount = (typeof SLATE_PARLAY_SIZES)[number];
 
 export type SerializedBoardScan = {
@@ -107,29 +107,9 @@ export function resolveSlateBoardScan(
   if (tickets) {
     if (sport && tickets.bySport?.[sport]?.[size]) return tickets.bySport[sport]![size]!;
     if (tickets.global?.[size]) return tickets.global[size]!;
-    if (sport && tickets.bySport?.[sport]) {
-      const sportSizes = Object.keys(tickets.bySport[sport]!)
-        .map(Number)
-        .filter((n) => n <= size)
-        .sort((a, b) => b - a);
-      const fallback = sportSizes[0];
-      if (fallback && tickets.bySport[sport]![fallback as SlateParlayLegCount]) {
-        return tickets.bySport[sport]![fallback as SlateParlayLegCount]!;
-      }
-    }
-    const globalSizes = Object.keys(tickets.global ?? {})
-      .map(Number)
-      .filter((n) => n <= size)
-      .sort((a, b) => b - a);
-    const globalFallback = globalSizes[0];
-    if (globalFallback && tickets.global?.[globalFallback as SlateParlayLegCount]) {
-      return tickets.global[globalFallback as SlateParlayLegCount]!;
-    }
   }
-  if (snapshot.boardScan?.picks?.length) {
-    if (snapshot.boardScan.picks.length <= legs) return snapshot.boardScan;
-    return { ...snapshot.boardScan, picks: snapshot.boardScan.picks.slice(0, legs) };
-  }
+  // Legacy single boardScan — only when it matches the exact requested size.
+  if (snapshot.boardScan?.picks?.length === legs) return snapshot.boardScan;
   return null;
 }
 

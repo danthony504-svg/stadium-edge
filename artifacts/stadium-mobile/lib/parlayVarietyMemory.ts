@@ -35,6 +35,7 @@ export function parlayPlayerKey(p: { player?: string | null }): string {
 
 export type ParlayBuildRecord = {
   legKeys: string[];
+  legCount: number;
   leadPlayerKey: string;
   leadLegKey: string;
 };
@@ -49,7 +50,34 @@ export type CoachParlayVarietyContext = {
   recentTickets: readonly (readonly string[])[];
   recentLeadPlayers: readonly string[];
   recentPlayerCounts: ReadonlyMap<string, number>;
+  /** Tickets grouped by leg count — used to avoid smaller sizes prefixing larger ones. */
+  recentTicketsByLegCount: ReadonlyMap<number, readonly (readonly string[])[]>;
 };
+
+function ticketsByLegCountFromBuilds(
+  builds: ParlayBuildRecord[],
+): Map<number, string[][]> {
+  const out = new Map<number, string[][]>();
+  for (const build of builds) {
+    const size = build.legCount;
+    const rows = out.get(size) ?? [];
+    rows.push([...build.legKeys]);
+    out.set(size, rows);
+  }
+  return out;
+}
+
+/** True when `shorter` is exactly the first N legs of `longer` (same order). */
+export function isPrefixLegKeys(
+  shorter: readonly string[],
+  longer: readonly string[],
+): boolean {
+  if (!shorter.length || shorter.length >= longer.length) return false;
+  for (let i = 0; i < shorter.length; i++) {
+    if (shorter[i] !== longer[i]) return false;
+  }
+  return true;
+}
 
 function playerCountsFromBuilds(builds: ParlayBuildRecord[]): Map<string, number> {
   const counts = new Map<string, number>();
@@ -85,6 +113,7 @@ export function recentParlayVarietyContext(): CoachParlayVarietyContext {
       .map((b) => b.leadPlayerKey)
       .filter((p) => p.length > 0),
     recentPlayerCounts: playerCountsFromBuilds(recentBuilds),
+    recentTicketsByLegCount: ticketsByLegCountFromBuilds(recentBuilds),
   };
 }
 
@@ -121,6 +150,7 @@ export function rememberParlayBuild(picks: ParsedPick[]): void {
   const lead = picks[0]!;
   const record: ParlayBuildRecord = {
     legKeys,
+    legCount: picks.length,
     leadPlayerKey: parlayPlayerKey(lead),
     leadLegKey: parlayLegKey(lead),
   };

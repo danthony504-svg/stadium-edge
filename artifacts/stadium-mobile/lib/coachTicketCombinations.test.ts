@@ -132,11 +132,16 @@ test("6-leg and 15-leg tickets are built independently — not a prefix slice", 
     scored.push(mainGame(`M${i} @ N${i}`, 80 - i));
   }
 
-  const six = buildIndependentCoachTicket(scored, 6, { varietySeed: "seed-6" }).picks;
-  const fifteen = buildIndependentCoachTicket(scored, 15, { varietySeed: "seed-15" }).picks;
+  const sharedSeed = "shared-board-seed";
+  const five = buildIndependentCoachTicket(scored, 5, { varietySeed: sharedSeed }).picks;
+  const six = buildIndependentCoachTicket(scored, 6, { varietySeed: sharedSeed }).picks;
+  const fifteen = buildIndependentCoachTicket(scored, 15, { varietySeed: sharedSeed }).picks;
+  assert.equal(five.length, 5);
   assert.equal(six.length, 6);
   assert.equal(fifteen.length, 15);
-  assert.equal(isPrefixTicket(fifteen, six), false);
+  assert.equal(isPrefixTicket(fifteen, five), false, "5-leg must not be a prefix of 15-leg");
+  assert.equal(isPrefixTicket(fifteen, six), false, "6-leg must not be a prefix of 15-leg");
+  assert.equal(isPrefixTicket(six, five), false, "5-leg must not be a prefix of 6-leg");
 });
 
 test("buildIndependentCoachTicket prefers a ticket different from the last build", () => {
