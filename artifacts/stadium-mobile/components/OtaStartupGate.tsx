@@ -33,6 +33,14 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
         try {
           const pendingBefore = !!latestContext?.isUpdatePending;
           const check = await Updates.checkForUpdateAsync();
+
+          // Server rollback → use embedded JS from the App Store binary (build #62).
+          if ((check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded) {
+            await Updates.fetchUpdateAsync();
+            await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+            return;
+          }
+
           if (check.isAvailable) {
             await Updates.fetchUpdateAsync();
             await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });

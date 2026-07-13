@@ -1,0 +1,3 @@
+# Touch this file and merge to main to run heal-production-ota.yml once.
+# Removes corrupt PLAYER PROPS OTA and restores App Store embedded AppHeader.
+heal-2026-07-13T0058Z
