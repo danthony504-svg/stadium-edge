@@ -162,6 +162,7 @@ import {
   setCoachBuildBusy,
   startSlatePreAnalysis,
   hydrateCoachSlateFromServer,
+  SLATE_PRE_ANALYSIS_TARGET,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import {
@@ -1249,11 +1250,16 @@ export default function CoachScreen() {
   const latestBoardScanRef = useRef<FullBoardScanResult | null>(null);
   const earlyReachBoardScanRef = useRef<Promise<FullBoardScanResult | null> | null>(null);
   const activeParlayAskRef = useRef("");
+  const varietySeedRef = useRef("");
 
   const deliverCoachTicket = useCallback(
-    (ticket: ParsedPick[], legNote?: string): boolean => {
+    (ticket: ParsedPick[], legNote?: string, opts?: { rotate?: boolean }): boolean => {
       const enrich = flashEnrichRef.current;
-      const cleaned = prepareCoachDeliveredTicket(ticket, enrich);
+      let toDeliver = ticket;
+      if (opts?.rotate !== false && toDeliver.length > 1 && varietySeedRef.current) {
+        toDeliver = rotateParlayDisplayOrder(toDeliver, varietySeedRef.current);
+      }
+      const cleaned = prepareCoachDeliveredTicket(toDeliver, enrich);
       if (!cleaned.length) return false;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -1462,7 +1468,9 @@ export default function CoachScreen() {
       if (!seed?.boardScan?.picks?.length) return false;
       const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
-      return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich);
+      return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
+        legNote: COACH_SLATE_PREVIEW_NOTE,
+      });
     },
     [patchInstantBoardScanTicket, marketPerf],
   );
@@ -1924,6 +1932,7 @@ export default function CoachScreen() {
       // Fresh entropy each send so identical prompts (e.g. "15-leg longshot") don't
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
+      varietySeedRef.current = varietySeed;
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -2368,7 +2377,9 @@ export default function CoachScreen() {
               propSimulations: preAnalysisSeed.propSimulations,
               perfByFamily: marketPerf,
             });
-            patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current);
+            patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current, {
+              legNote: COACH_SLATE_PREVIEW_NOTE,
+            });
           }
           const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
           const rawBuilt = slipImageVerdictOnly
@@ -2447,6 +2458,11 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
+          const scanDepthTarget = Math.min(SLATE_PRE_ANALYSIS_TARGET, MAX_LEGS);
+          const boardScanVariety = {
+            varietySeed,
+            avoidLegKeys: recentParlayLegKeys(),
+          };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
             didReachFullPreScan = true;
@@ -2496,7 +2512,7 @@ export default function CoachScreen() {
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
-                  target: reachTargetPreScan,
+                  target: scanDepthTarget,
                   oddsGames,
                   propPool,
                   realOdds: context.realOdds,
@@ -2514,6 +2530,7 @@ export default function CoachScreen() {
                   calibration: modelCalibration,
                   onPartial: onBoardScanPartial,
                   signal: abortRef.current?.signal,
+                  ...boardScanVariety,
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
@@ -5535,7 +5552,9 @@ export default function CoachScreen() {
       const seed = readSlatePreAnalysisSeed();
       if (seed?.boardScan?.picks?.length) {
         const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
-        return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich);
+        return patchInstantBoardScanTicket(markBoardScanAsPreview(seed.boardScan), enrich, {
+        legNote: COACH_SLATE_PREVIEW_NOTE,
+      });
       }
       const legs = requestedLegCount(priorUser?.content ?? "") || effectiveBuildLegCount(priorUser?.content ?? "");
       return tryInstantSlateSeedDelivery(legs);

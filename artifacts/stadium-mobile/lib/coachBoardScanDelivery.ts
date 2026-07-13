@@ -66,7 +66,10 @@ export function deliverCoachBoardScanTicket(
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (legTarget > 0 && picks.length > legTarget) {
+    picks = picks.slice(0, legTarget);
+  }
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -132,7 +135,10 @@ export function deliverCoachBoardScanProgress(
   }
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (legTarget > 0 && picks.length > legTarget) {
+    picks = picks.slice(0, legTarget);
+  }
   if (!picks.length) {
     return { picks: [], progressNote: "" };
   }

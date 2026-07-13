@@ -42,6 +42,8 @@ import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { parlayLegKey } from "./parlayVarietyMemory.ts";
+import { varietyRankKey } from "./varietySeed.ts";
 import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
@@ -494,6 +496,8 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   calibration?: Map<string, CalibrationBucket>;
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
+  varietySeed?: string;
+  avoidLegKeys?: Set<string>;
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -645,7 +649,20 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
-  collapsed.sort((a, b) => b.rankScore - a.rankScore);
+  collapsed.sort((a, b) => {
+    const avoidA = opts.avoidLegKeys?.has(parlayLegKey(a.pick)) ? 1 : 0;
+    const avoidB = opts.avoidLegKeys?.has(parlayLegKey(b.pick)) ? 1 : 0;
+    if (avoidA !== avoidB) return avoidA - avoidB;
+    const diff = b.rankScore - a.rankScore;
+    if (diff !== 0) return diff;
+    if (opts.varietySeed) {
+      return (
+        varietyRankKey(opts.varietySeed, parlayLegKey(a.pick)) -
+        varietyRankKey(opts.varietySeed, parlayLegKey(b.pick))
+      );
+    }
+    return 0;
+  });
   manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {
     target: opts.target,
