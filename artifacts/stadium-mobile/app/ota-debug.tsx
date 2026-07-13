@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useColors } from "@/hooks/useColors";
 import {
   collectOtaFullDiagnostics,
@@ -58,7 +59,7 @@ function LogBlock({ title, lines }: { title: string; lines: string[] }) {
       </Text>
       {lines.map((line, i) => (
         <Text
-          key={`${i}-${line.slice(0, 24)}`}
+          key={`${i}-${String(line ?? "").slice(0, 24)}`}
           selectable
           style={{
             color: colors.foreground,
@@ -115,6 +116,14 @@ function buildReport(diag: OtaFullDiagnostics): string {
 }
 
 export default function OtaDebugScreen() {
+  return (
+    <ErrorBoundary>
+      <OtaDebugScreenInner />
+    </ErrorBoundary>
+  );
+}
+
+function OtaDebugScreenInner() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -125,10 +134,23 @@ export default function OtaDebugScreen() {
 
   const refresh = useCallback(async () => {
     setProbeLoading(true);
-    const next = await collectOtaFullDiagnostics();
-    setDiag(next);
-    setProbeLoading(false);
-    return next;
+    try {
+      const next = await collectOtaFullDiagnostics();
+      setDiag(next);
+      return next;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDiag((prev) => ({
+        ...prev,
+        checkResult: `ERR: ${msg}`,
+        fetchResult: "skipped (refresh failed)",
+        reloadResult: "skipped",
+        startupLogs: [`collectOtaFullDiagnostics ERR: ${msg}`],
+      }));
+      return null;
+    } finally {
+      setProbeLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -197,6 +219,8 @@ export default function OtaDebugScreen() {
           {probeLoading ? (
             <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
           ) : null}
+          {" "}
+          Opening this screen only checks for updates — use the button below to download and restart.
         </Text>
 
         {embeddedWarning ? (

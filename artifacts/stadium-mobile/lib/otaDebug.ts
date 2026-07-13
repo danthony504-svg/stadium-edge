@@ -99,6 +99,42 @@ function readUpdatesConfig() {
 
 /** Collect static OTA deployment metadata for on-device diagnostics. */
 export function readOtaDebugSnapshot(): OtaDebugSnapshot {
+  try {
+    return readOtaDebugSnapshotUnsafe();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      appVersion: "—",
+      buildNumber: "—",
+      runtimeVersion: "—",
+      channel: "—",
+      updateId: "—",
+      commitHash: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked",
+      updateCreatedAt: "—",
+      bundleSource: "unknown",
+      updatesEnabled: false,
+      isEmbeddedLaunch: true,
+      isEmergencyLaunch: false,
+      emergencyLaunchReason: "—",
+      checkAutomatically: "—",
+      fallbackToCacheTimeout: 0,
+      launchDurationMs: "—",
+      isUpdatePending: false,
+      isDownloading: false,
+      isStartupProcedureRunning: false,
+      rollbackCommitTime: "—",
+      checkError: `snapshot ERR: ${msg}`,
+      downloadError: "—",
+      updateUrl: "—",
+      requestHeaders: "—",
+      projectId: "—",
+      deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
+      expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
+    };
+  }
+}
+
+function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
   const { expo, updatesCfg } = readUpdatesConfig();
   const extra = expo?.extra as { eas?: { projectId?: string } } | undefined;
 
@@ -173,22 +209,23 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
   }
 }
 
-/** Run check + fetch only (no reload) — safe for automatic diagnostics display. */
-export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
+/** Run check only — never fetch on the diagnostics screen (fetch without reload corrupts the in-memory bundle). */
+export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
   if (__DEV__ || !Updates.isEnabled) {
     return {
       checkResult: __DEV__ ? "skipped: __DEV__" : "skipped: Updates.isEnabled=false",
-      fetchResult: "skipped",
+      fetchResult: "skipped (probe is check-only — use “Check, fetch & reload”)",
       reloadResult: "skipped (probe does not auto-reload)",
     };
   }
 
   let checkResult = "—";
-  let fetchResult = "—";
+  const fetchResult =
+    "skipped (check-only probe — tap “Check, fetch & reload” to download)";
   const reloadResult = "not invoked (use “Check, fetch & reload” button)";
 
   try {
-    pushOtaLog("checkForUpdateAsync", true, "diagnostics probe…");
+    pushOtaLog("checkForUpdateAsync", true, "diagnostics probe (check-only)…");
     const check = await withOtaTimeout(
       "checkForUpdateAsync",
       Updates.checkForUpdateAsync(),
@@ -200,33 +237,17 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
       reason: (check as { reason?: string }).reason ?? null,
     });
     pushOtaLog("checkForUpdateAsync", true, checkResult);
-
-    if (check.isAvailable || roll) {
-      try {
-        pushOtaLog("fetchUpdateAsync", true, "diagnostics probe…");
-        const fetch = await withOtaTimeout(
-          "fetchUpdateAsync",
-          Updates.fetchUpdateAsync(),
-        );
-        fetchResult = JSON.stringify({
-          isNew: (fetch as { isNew?: boolean }).isNew ?? null,
-          isRollBackToEmbedded: (fetch as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded ?? false,
-        });
-        pushOtaLog("fetchUpdateAsync", true, fetchResult);
-      } catch (e) {
-        fetchResult = `ERR: ${e instanceof Error ? e.message : String(e)}`;
-        pushOtaLog("fetchUpdateAsync", false, fetchResult);
-      }
-    } else {
-      fetchResult = "skipped (check.isAvailable=false, no rollback)";
-    }
   } catch (e) {
     checkResult = `ERR: ${e instanceof Error ? e.message : String(e)}`;
-    fetchResult = "skipped (check failed)";
     pushOtaLog("checkForUpdateAsync", false, checkResult);
   }
 
   return { checkResult, fetchResult, reloadResult };
+}
+
+/** @deprecated Use probeOtaCheckOnly — automatic diagnostics must not fetch without reload. */
+export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
+  return probeOtaCheckOnly();
 }
 
 /** Full on-device diagnostics: static state, native logs, and live check/fetch probe. */
@@ -237,7 +258,7 @@ export async function collectOtaFullDiagnostics(
   const jsLaunchLogs = formatOtaLogLines();
 
   const probe = await Promise.race([
-    probeOtaCheckAndFetch(),
+    probeOtaCheckOnly(),
     new Promise<OtaProbeResults>((resolve) =>
       setTimeout(
         () =>
