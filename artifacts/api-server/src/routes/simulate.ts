@@ -110,6 +110,10 @@ function tierSimCount(tier: SimTier, simulations?: number): number {
   return tier === "deep" ? DEEP_SIMULATIONS : QUICK_SIMULATIONS;
 }
 
+function propSport(p: SimPropRequest, gameCtx: GameSimContext): string {
+  return String(p.sport ?? gameCtx.sport).toLowerCase();
+}
+
 async function runPropSims(
   props: SimPropRequest[],
   tier: SimTier,
@@ -123,12 +127,13 @@ async function runPropSims(
 
   const rows = await Promise.all(
     props.map(async (p) => {
-      const cacheKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, tier, p.additionalLines);
+      const sportKey = propSport(p, gameCtx);
+      const cacheKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, tier, p.additionalLines);
       const cached = await getCachedSim<SimPropRow>(cacheKey);
       if (cached && cached.hitProbability != null) {
         const row: SimPropRow = { ...cached, tier, cached: true };
         if (tier === "quick") {
-          const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
+          const deepKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
           const deepHit = await getCachedSim(deepKey);
           if (!deepHit) {
             deepPending = true;
@@ -139,18 +144,18 @@ async function runPropSims(
       }
 
       const athleteId = p.athleteId ?? "";
-      const histKey = `${p.sport}:${athleteId}:${p.opponentTeamId ?? ""}`;
+      const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
       let history = historyCache.get(histKey);
       if (history === undefined) {
         history = athleteId
-          ? await fetchEspnPlayerHistory(p.sport, athleteId, p.opponentTeamId ?? undefined)
+          ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
           : null;
         historyCache.set(histKey, history);
       }
 
       const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
       const result = simulateProp(
-        { ...p, sport: p.sport, isHome },
+        { ...p, sport: sportKey, isHome },
         history,
         {
           sport: gameCtx.sport,
@@ -199,7 +204,8 @@ async function warmDeepSims(
   const historyCache = new Map<string, Awaited<ReturnType<typeof fetchEspnPlayerHistory>> | null>();
 
   for (const p of props) {
-    const deepKey = simCacheKey(p.sport, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
+    const sportKey = propSport(p, gameCtx);
+    const deepKey = simCacheKey(sportKey, p.player, p.market, p.line, p.side, "deep", p.additionalLines);
     if (deepInFlight.has(deepKey)) continue;
     const existing = await getCachedSim(deepKey);
     if (existing) continue;
@@ -207,18 +213,18 @@ async function warmDeepSims(
     deepInFlight.add(deepKey);
     try {
       const athleteId = p.athleteId ?? "";
-      const histKey = `${p.sport}:${athleteId}:${p.opponentTeamId ?? ""}`;
+      const histKey = `${sportKey}:${athleteId}:${p.opponentTeamId ?? ""}`;
       let history = historyCache.get(histKey);
       if (history === undefined) {
         history = athleteId
-          ? await fetchEspnPlayerHistory(p.sport, athleteId, p.opponentTeamId ?? undefined)
+          ? await fetchEspnPlayerHistory(sportKey, athleteId, p.opponentTeamId ?? undefined)
           : null;
         historyCache.set(histKey, history);
       }
 
       const isHome = p.isHome ?? isHomeByPlayer[p.player] ?? null;
       const result = simulateProp(
-        { ...p, sport: p.sport, isHome },
+        { ...p, sport: sportKey, isHome },
         history,
         {
           sport: gameCtx.sport,
@@ -387,7 +393,11 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
 
   const homeTeamId = String(req.body?.homeTeamId ?? "").trim();
   const awayTeamId = String(req.body?.awayTeamId ?? "").trim();
-  const propsResolved = await resolvePropAthleteIds(sport, props as SimPropRequest[], {
+  const propsIn = (props as SimPropRequest[]).map((p) => ({
+    ...p,
+    sport: String(p.sport ?? sport).toLowerCase(),
+  }));
+  const propsResolved = await resolvePropAthleteIds(sport, propsIn, {
     homeTeamId,
     awayTeamId,
     homeTeam,

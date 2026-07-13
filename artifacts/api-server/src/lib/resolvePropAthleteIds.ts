@@ -122,7 +122,8 @@ export async function resolvePropAthleteIds(
     const awayTeamId = String(p.awayTeamId ?? opts?.awayTeamId ?? "").trim();
     const homeTeam = String(opts?.homeTeam ?? "").trim();
     const awayTeam = String(opts?.awayTeam ?? "").trim();
-    out.push(await resolveOne(p, homeTeamId, awayTeamId, homeTeam, awayTeam));
+    const resolved = await resolveOne(p, homeTeamId, awayTeamId, homeTeam, awayTeam);
+    out.push({ ...resolved, sport: String(resolved.sport ?? sport).toLowerCase() });
   }
   return out;
 }
