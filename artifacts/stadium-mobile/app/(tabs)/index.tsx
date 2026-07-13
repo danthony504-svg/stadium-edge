@@ -1905,7 +1905,6 @@ function HomeSportFeed({
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isSignedIn } = useAuth();
   const slipClearance = useSlipClearance();
   const router = useRouter();
   const queryClient = useQueryClient();
