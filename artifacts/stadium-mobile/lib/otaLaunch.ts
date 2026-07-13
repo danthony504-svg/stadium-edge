@@ -3,7 +3,26 @@ import { latestContext } from "expo-updates";
 
 import { pushOtaLog } from "./otaLaunchLog";
 
+const OTA_LAUNCH_TIMEOUT_MS = 12_000;
+
 export type LaunchOtaOutcome = "reloaded" | "idle";
+
+async function withLaunchTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${OTA_LAUNCH_TIMEOUT_MS}ms`)),
+          OTA_LAUNCH_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function checkDetail(check: Awaited<ReturnType<typeof Updates.checkForUpdateAsync>>): string {
   const roll = (check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded;
@@ -26,14 +45,14 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
 
   try {
     pushOtaLog("checkForUpdateAsync", true, "calling…");
-    const check = await Updates.checkForUpdateAsync();
+    const check = await withLaunchTimeout("checkForUpdateAsync", Updates.checkForUpdateAsync());
     pushOtaLog("checkForUpdateAsync", true, checkDetail(check));
 
     const rollBack = (check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded;
     if (rollBack || check.isAvailable) {
       try {
         pushOtaLog("fetchUpdateAsync", true, "calling…");
-        await Updates.fetchUpdateAsync();
+        await withLaunchTimeout("fetchUpdateAsync", Updates.fetchUpdateAsync());
         pushOtaLog("fetchUpdateAsync", true, "success");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

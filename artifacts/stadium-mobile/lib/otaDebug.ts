@@ -51,6 +51,30 @@ function str(v: unknown, fallback = "—"): string {
   return String(v);
 }
 
+const OTA_NETWORK_TIMEOUT_MS = 12_000;
+
+/** Prevent expo-updates network calls from freezing the UI indefinitely. */
+export async function withOtaTimeout<T>(
+  label: string,
+  promise: Promise<T>,
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function formatCreatedAt(): string {
   const raw =
     (Updates as { createdAt?: Date | string | null }).createdAt ??
@@ -133,7 +157,11 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
 async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
   if (__DEV__ || !Updates.isEnabled) return ["skipped: dev or Updates.isEnabled=false"];
   try {
-    const entries = await Updates.readLogEntriesAsync(maxAgeMs);
+    const entries = await withOtaTimeout(
+      "readLogEntriesAsync",
+      Updates.readLogEntriesAsync(maxAgeMs),
+      8_000,
+    );
     if (entries.length === 0) return ["(no expo-updates log entries in last hour)"];
     return entries.map((e) => {
       const ts = e.timestamp ? new Date(e.timestamp).toISOString() : "?";
@@ -161,7 +189,10 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
 
   try {
     pushOtaLog("checkForUpdateAsync", true, "diagnostics probe…");
-    const check = await Updates.checkForUpdateAsync();
+    const check = await withOtaTimeout(
+      "checkForUpdateAsync",
+      Updates.checkForUpdateAsync(),
+    );
     const roll = (check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded;
     checkResult = JSON.stringify({
       isAvailable: check.isAvailable,
@@ -173,7 +204,10 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
     if (check.isAvailable || roll) {
       try {
         pushOtaLog("fetchUpdateAsync", true, "diagnostics probe…");
-        const fetch = await Updates.fetchUpdateAsync();
+        const fetch = await withOtaTimeout(
+          "fetchUpdateAsync",
+          Updates.fetchUpdateAsync(),
+        );
         fetchResult = JSON.stringify({
           isNew: (fetch as { isNew?: boolean }).isNew ?? null,
           isRollBackToEmbedded: (fetch as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded ?? false,
@@ -196,13 +230,45 @@ export async function probeOtaCheckAndFetch(): Promise<OtaProbeResults> {
 }
 
 /** Full on-device diagnostics: static state, native logs, and live check/fetch probe. */
-export async function collectOtaFullDiagnostics(): Promise<OtaFullDiagnostics> {
-  const [startupLogs, probe] = await Promise.all([readStartupLogs(), probeOtaCheckAndFetch()]);
+export async function collectOtaFullDiagnostics(
+  timeoutMs = OTA_NETWORK_TIMEOUT_MS,
+): Promise<OtaFullDiagnostics> {
+  const snapshot = readOtaDebugSnapshot();
+  const jsLaunchLogs = formatOtaLogLines();
+
+  const probe = await Promise.race([
+    probeOtaCheckAndFetch(),
+    new Promise<OtaProbeResults>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            checkResult: `timeout after ${timeoutMs}ms`,
+            fetchResult: "skipped (probe timeout)",
+            reloadResult: "skipped (probe timeout)",
+          }),
+        timeoutMs,
+      ),
+    ),
+  ]).catch(
+    (): OtaProbeResults => ({
+      checkResult: "ERR: probe failed",
+      fetchResult: "skipped",
+      reloadResult: "skipped",
+    }),
+  );
+
+  let startupLogs: string[] = ["loading…"];
+  try {
+    startupLogs = await readStartupLogs();
+  } catch (e) {
+    startupLogs = [`readLogEntriesAsync ERR: ${e instanceof Error ? e.message : String(e)}`];
+  }
+
   return {
-    ...readOtaDebugSnapshot(),
+    ...snapshot,
     ...probe,
     startupLogs,
-    jsLaunchLogs: formatOtaLogLines(),
+    jsLaunchLogs,
   };
 }
 
