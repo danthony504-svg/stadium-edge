@@ -17,6 +17,9 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
 
     let cancelled = false;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const maxWait = setTimeout(() => {
+      if (!cancelled) setReady(true);
+    }, 20_000);
 
     (async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -31,6 +34,7 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(maxWait);
     };
   }, []);
 

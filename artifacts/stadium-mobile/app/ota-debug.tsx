@@ -16,8 +16,21 @@ import { useColors } from "@/hooks/useColors";
 import {
   collectOtaFullDiagnostics,
   forceOtaCheckFetchAndReload,
+  readOtaDebugSnapshot,
   type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
+import { formatOtaLogLines } from "@/lib/otaLaunchLog";
+
+function initialDiagnostics(): OtaFullDiagnostics {
+  return {
+    ...readOtaDebugSnapshot(),
+    checkResult: "loading…",
+    fetchResult: "—",
+    reloadResult: "—",
+    startupLogs: ["loading native logs…"],
+    jsLaunchLogs: formatOtaLogLines(),
+  };
+}
 
 function Row({ label, value }: { label: string; value: string }) {
   const colors = useColors();
@@ -105,13 +118,16 @@ export default function OtaDebugScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [diag, setDiag] = useState<OtaFullDiagnostics | null>(null);
+  const [diag, setDiag] = useState<OtaFullDiagnostics>(initialDiagnostics);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [probeLoading, setProbeLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setProbeLoading(true);
     const next = await collectOtaFullDiagnostics();
     setDiag(next);
+    setProbeLoading(false);
     return next;
   }, []);
 
@@ -141,25 +157,6 @@ export default function OtaDebugScreen() {
     );
     setBusy(false);
   };
-
-  if (!diag) {
-    return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.background,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingTop: insets.top,
-        }}
-      >
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.mutedForeground, marginTop: 12, fontFamily: FONT.medium }}>
-          Loading OTA diagnostics…
-        </Text>
-      </View>
-    );
-  }
 
   const embeddedWarning =
     diag.isEmbeddedLaunch && diag.updatesEnabled
@@ -197,6 +194,9 @@ export default function OtaDebugScreen() {
           <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
           <Text style={{ fontFamily: FONT.semibold }}>production</Text>, updates URL{" "}
           <Text style={{ fontFamily: FONT.semibold }}>u.expo.dev/9af36ab9-…</Text>.
+          {probeLoading ? (
+            <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
+          ) : null}
         </Text>
 
         {embeddedWarning ? (
