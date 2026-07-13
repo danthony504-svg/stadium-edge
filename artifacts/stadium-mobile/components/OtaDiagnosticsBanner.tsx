@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
@@ -11,12 +12,18 @@ import { formatOtaLogLines, subscribeOtaLaunchLogs } from "@/lib/otaLaunchLog";
  */
 export function OtaDiagnosticsBanner() {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
   const [tick, setTick] = useState(0);
 
   useEffect(() => subscribeOtaLaunchLogs(() => setTick((n) => n + 1)), []);
 
   if (__DEV__) return null;
+
+  // Coach pins a chat composer to the bottom — this banner sits at the same
+  // coordinates (zIndex 9998) and was fully covering the text field.
+  const onCoach = pathname === "/coach" || pathname.startsWith("/coach/");
+  if (onCoach) return null;
 
   const snap = readOtaDebugSnapshot();
   const logs = formatOtaLogLines();
