@@ -80,7 +80,7 @@ import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
-  recentParlayTicketLegSets,
+  recentParlayVarietyContext,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
@@ -2456,7 +2456,7 @@ export default function CoachScreen() {
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
           const boardScanVariety = {
             varietySeed,
-            recentTickets: recentParlayTicketLegSets(),
+            varietyContext: recentParlayVarietyContext(),
           };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
@@ -2947,6 +2947,8 @@ export default function CoachScreen() {
                 perfByFamily: marketPerf,
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
+                varietySeed,
+                varietyContext: recentParlayVarietyContext(),
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
@@ -3377,6 +3379,8 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               signal: abortRef.current?.signal,
               onPartial: onBoardScanPartial,
+              varietySeed,
+              varietyContext: recentParlayVarietyContext(),
             }),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
           ]);

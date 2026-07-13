@@ -1,4 +1,4 @@
-// Independent high-quality parlay tickets — multiple candidates, diversity-aware selection.
+// Independent high-quality parlay tickets — many candidates, diversity-aware selection.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import {
@@ -15,7 +15,12 @@ import {
   parlayCorrelationPenalty,
 } from "./parlayCorrelationScore.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
-import { parlayLegKey, ticketOverlapRatio } from "./parlayVarietyMemory.ts";
+import {
+  parlayLegKey,
+  parlayPlayerKey,
+  ticketOverlapRatio,
+  type CoachParlayVarietyContext,
+} from "./parlayVarietyMemory.ts";
 import { shuffleWithSeed, varietyRankKey } from "./varietySeed.ts";
 import {
   boardLegPoolRole,
@@ -23,32 +28,50 @@ import {
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 
-export const TICKET_CANDIDATE_COUNT = 8;
+/** Build 25–50 independent candidate tickets per request (user: more variety). */
+export const TICKET_CANDIDATE_COUNT = 40;
 /** Only repeat a player when edge beats the best alternative by this much. */
 export const SIGNIFICANT_EDGE_GAP_PCT = 3;
 /** Near-equal edge band for diversity swaps (user: ~1–2%). */
 export const NEAR_EQUAL_TICKET_EDGE_PCT = 2;
 /** Max leg overlap vs a recent ticket before we prefer another candidate. */
-export const MAX_RECENT_TICKET_OVERLAP = 0.45;
+export const MAX_RECENT_TICKET_OVERLAP = 0.4;
+/** Lead-player repeat penalty unless edge gap exceeds this. */
+export const SIGNIFICANT_LEAD_EDGE_GAP_PCT = 2.5;
 
 export type CoachTicketBuildOpts = {
   varietySeed: string;
-  recentTickets?: readonly (readonly string[])[];
-};
+} & Partial<CoachParlayVarietyContext>;
 
 type TicketCandidate = {
   picks: ParsedPick[];
   legKeys: string[];
   qualityScore: number;
   diversityScore: number;
+  varietyPenalty: number;
 };
 
 type AssemblyConfig = {
   seed: string;
   diversityWeight: number;
   bandOffset: number;
+  categoryOrder: readonly BoardMarketCategory[];
   recentLegKeys?: Set<string>;
+  recentLeadPlayers?: readonly string[];
+  recentPlayerCounts?: ReadonlyMap<string, number>;
+  lineShoppingBias: number;
 };
+
+const ASSEMBLY_CATEGORY_ORDERS: readonly (readonly BoardMarketCategory[])[] = [
+  ["props", "gameLines", "teamTotals", "alternateLines"],
+  ["gameLines", "props", "teamTotals", "alternateLines"],
+  ["props", "teamTotals", "gameLines", "alternateLines"],
+  ["gameLines", "teamTotals", "props", "alternateLines"],
+  ["props", "alternateLines", "gameLines", "teamTotals"],
+  ["teamTotals", "props", "gameLines", "alternateLines"],
+  ["alternateLines", "props", "gameLines", "teamTotals"],
+  ["props", "gameLines", "alternateLines", "teamTotals"],
+];
 
 function qualifyingScoredLegs(scored: BoardScoredLeg[]): BoardScoredLeg[] {
   return scored.filter((leg) => boardLegPoolRole(leg.pick, leg.pick.finalAiScore) != null);
@@ -134,7 +157,31 @@ function samePlayerRepeatPenalty(
   const legEdge = leg.edgePct ?? 0;
   const altEdge = bestAlternativeEdge(leg, pool, ticket, selected);
   if (legEdge - altEdge >= SIGNIFICANT_EDGE_GAP_PCT) return 0;
-  return 28;
+  if (legEdge - altEdge >= 1) return 36;
+  return 52;
+}
+
+function recentLegPenalty(
+  leg: BoardScoredLeg,
+  pool: BoardScoredLeg[],
+  ticket: ParsedPick[],
+  selected: ParsedPick[],
+  recentLegKeys?: Set<string>,
+): number {
+  if (!recentLegKeys?.has(parlayLegKey(leg.pick))) return 0;
+  const legEdge = leg.edgePct ?? 0;
+  const altEdge = bestAlternativeEdge(leg, pool, ticket, selected);
+  if (legEdge - altEdge >= SIGNIFICANT_EDGE_GAP_PCT) return 8;
+  return 38;
+}
+
+function lineShoppingTieBonus(
+  leg: BoardScoredLeg,
+  config: AssemblyConfig,
+): number {
+  const score = leg.lineShoppingScore;
+  if (score == null || score <= 0) return 0;
+  return score * 0.04 * config.lineShoppingBias;
 }
 
 function pickDiverseLegsFromPool(
@@ -155,7 +202,7 @@ function pickDiverseLegsFromPool(
   const shuffled = shuffleWithSeed(rotated, `${config.seed}|pool-${want}`);
   let poolCopy = [...shuffled];
   if (config.bandOffset > 0 && poolCopy.length > 1) {
-    const skip = config.bandOffset % Math.min(poolCopy.length, 4);
+    const skip = config.bandOffset % Math.min(poolCopy.length, 6);
     if (skip > 0) {
       poolCopy = [...poolCopy.slice(skip), ...poolCopy.slice(0, skip)];
     }
@@ -173,19 +220,11 @@ function pickDiverseLegsFromPool(
 
       const corr = parlayCorrelationPenalty(row.pick, [...ticket, ...selected]);
       let effective =
-        row.rankScore - corr * config.diversityWeight - samePlayerRepeatPenalty(
-          row,
-          poolCopy,
-          ticket,
-          selected,
-        );
-      if (config.recentLegKeys?.has(parlayLegKey(row.pick))) {
-        const altEdge = bestAlternativeEdge(row, poolCopy, ticket, selected);
-        const legEdge = row.edgePct ?? 0;
-        if (legEdge - altEdge < SIGNIFICANT_EDGE_GAP_PCT) {
-          effective -= 32;
-        }
-      }
+        row.rankScore -
+        corr * config.diversityWeight -
+        samePlayerRepeatPenalty(row, poolCopy, ticket, selected) -
+        recentLegPenalty(row, poolCopy, ticket, selected, config.recentLegKeys) +
+        lineShoppingTieBonus(row, config);
 
       if (effective > bestScore) {
         bestScore = effective;
@@ -204,9 +243,20 @@ function pickDiverseLegsFromPool(
       const corrAlt = parlayCorrelationPenalty(alt.pick, [...ticket, ...selected]);
       const repeatChosen = samePlayerRepeatPenalty(chosen, poolCopy, ticket, selected);
       const repeatAlt = samePlayerRepeatPenalty(alt, poolCopy, ticket, selected);
+      const recentChosen = recentLegPenalty(chosen, poolCopy, ticket, selected, config.recentLegKeys);
+      const recentAlt = recentLegPenalty(alt, poolCopy, ticket, selected, config.recentLegKeys);
       const effChosen =
-        chosen.rankScore - corrChosen * config.diversityWeight - repeatChosen;
-      const effAlt = alt.rankScore - corrAlt * config.diversityWeight - repeatAlt;
+        chosen.rankScore -
+        corrChosen * config.diversityWeight -
+        repeatChosen -
+        recentChosen +
+        lineShoppingTieBonus(chosen, config);
+      const effAlt =
+        alt.rankScore -
+        corrAlt * config.diversityWeight -
+        repeatAlt -
+        recentAlt +
+        lineShoppingTieBonus(alt, config);
       if (effAlt > effChosen && Math.abs((alt.edgePct ?? 0) - chosenEdge) <= NEAR_EQUAL_TICKET_EDGE_PCT) {
         bestIdx = i;
       }
@@ -267,6 +317,7 @@ function backfillDiverseTicket(
       }
       const corr = parlayCorrelationPenalty(row.pick, current);
       const repeat = samePlayerRepeatPenalty(row, ranked, current, []);
+      const recent = recentLegPenalty(row, ranked, current, [], config.recentLegKeys);
       const trial = capThinStatMarketsOnTicket(
         [
           ...current,
@@ -274,7 +325,7 @@ function backfillDiverseTicket(
         ],
         target,
       );
-      if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat > 0) {
+      if (trial.length > current.length && row.rankScore - corr * 0.4 - repeat - recent > 0) {
         current = trial;
         used.add(fp);
       }
@@ -293,10 +344,9 @@ function assembleBalancedDiverseTicket(
   const ticket: ParsedPick[] = [];
   const used = new Set<string>();
 
-  appendFromCategory(ticket, used, pools.props, slots.props, target, config);
-  appendFromCategory(ticket, used, pools.gameLines, slots.gameLines, target, config);
-  appendFromCategory(ticket, used, pools.teamTotals, slots.teamTotals, target, config);
-  appendFromCategory(ticket, used, pools.alternateLines, slots.alternateLines, target, config);
+  for (const cat of config.categoryOrder) {
+    appendFromCategory(ticket, used, pools[cat], slots[cat], target, config);
+  }
 
   return backfillDiverseTicket(ticket, target, pools, config);
 }
@@ -335,7 +385,83 @@ function ticketDiversityScore(picks: ParsedPick[]): number {
   const gameRatio = games.size / picks.length;
   const playerRatio = propPicks.length ? players.size / propPicks.length : 1;
   const dupPlayers = propPicks.length - players.size;
-  return gameRatio * 32 + playerRatio * 28 + markets.size * 1.5 - dupPlayers * 12;
+  return gameRatio * 32 + playerRatio * 28 + markets.size * 1.5 - dupPlayers * 14;
+}
+
+function bestAlternativeLeadEdge(
+  excludePlayer: string,
+  qualifying: BoardScoredLeg[],
+): number {
+  let best = -Infinity;
+  for (const row of qualifying) {
+    const player = row.pick.player?.toLowerCase();
+    if (player && player === excludePlayer) continue;
+    if (boardLegPoolRole(row.pick, row.pick.finalAiScore) == null) continue;
+    const edge = row.edgePct ?? 0;
+    if (edge > best) best = edge;
+  }
+  return best === -Infinity ? 0 : best;
+}
+
+function candidateVarietyPenalty(
+  candidate: TicketCandidate,
+  qualifying: BoardScoredLeg[],
+  opts: CoachTicketBuildOpts,
+): number {
+  let penalty = 0;
+  const recentTickets = opts.recentTickets ?? [];
+  const recentLeads = opts.recentLeadPlayers ?? [];
+  const playerCounts = opts.recentPlayerCounts;
+
+  for (let i = 0; i < recentTickets.length; i++) {
+    const recent = recentTickets[i]!;
+    const overlap = ticketOverlapRatio(candidate.legKeys, [...recent]);
+    const recency = 1 - i / Math.max(recentTickets.length, 1);
+    penalty += overlap * recency * 52;
+    if (overlap >= 1) penalty += 90 * recency;
+    else if (overlap > MAX_RECENT_TICKET_OVERLAP) penalty += (overlap - MAX_RECENT_TICKET_OVERLAP) * 40 * recency;
+  }
+
+  const lead = candidate.picks[0];
+  if (!lead) return penalty;
+
+  const leadPlayer = parlayPlayerKey(lead);
+  const leadEdge = lead.finalAiScore?.edgePct ?? lead.scores?.edgePct ?? 0;
+  const altLeadEdge = leadPlayer ? bestAlternativeLeadEdge(leadPlayer, qualifying) : 0;
+  const clearLeadEdge = leadEdge - altLeadEdge >= SIGNIFICANT_LEAD_EDGE_GAP_PCT;
+
+  if (leadPlayer) {
+    let leadRepeatCount = 0;
+    for (let i = 0; i < recentLeads.length; i++) {
+      if (recentLeads[i] !== leadPlayer) continue;
+      leadRepeatCount += 1;
+      const recency = 1 - i / Math.max(recentLeads.length, 1);
+      if (!clearLeadEdge) {
+        penalty += (42 + i * 10) * recency;
+      } else if (i === 0) {
+        penalty += 12 * recency;
+      }
+    }
+    if (leadRepeatCount >= 2 && !clearLeadEdge) {
+      penalty += leadRepeatCount * 28;
+    }
+
+    const onTicketCount = playerCounts?.get(leadPlayer) ?? 0;
+    if (onTicketCount >= 3 && !clearLeadEdge) {
+      penalty += (onTicketCount - 2) * 16;
+    }
+  }
+
+  const leadLeg = parlayLegKey(lead);
+  for (let i = 0; i < recentTickets.length; i++) {
+    const recent = recentTickets[i]!;
+    if (!recent.length || recent[0] !== leadLeg) continue;
+    const recency = 1 - i / Math.max(recentTickets.length, 1);
+    if (!clearLeadEdge) penalty += 35 * recency;
+    break;
+  }
+
+  return penalty;
 }
 
 function generateTicketCandidates(
@@ -348,21 +474,36 @@ function generateTicketCandidates(
   for (let i = 0; i < TICKET_CANDIDATE_COUNT; i++) {
     const config: AssemblyConfig = {
       seed: `${opts.varietySeed}|ticket-${i}`,
-      diversityWeight: 0.3 + (i % 5) * 0.12,
+      diversityWeight: 0.28 + (i % 8) * 0.1,
       bandOffset: i,
+      categoryOrder: ASSEMBLY_CATEGORY_ORDERS[i % ASSEMBLY_CATEGORY_ORDERS.length]!,
       recentLegKeys: recentFlat.size ? recentFlat : undefined,
+      recentLeadPlayers: opts.recentLeadPlayers,
+      recentPlayerCounts: opts.recentPlayerCounts,
+      lineShoppingBias: 0.6 + (i % 5) * 0.2,
     };
     const picks = assembleBalancedDiverseTicket(qualifying, target, config);
     if (!picks.length) continue;
     const legKeys = picks.map((p) => parlayLegKey(p));
-    out.push({
+    const candidate: TicketCandidate = {
       picks,
       legKeys,
       qualityScore: ticketQualityScore(picks, qualifying),
       diversityScore: ticketDiversityScore(picks),
-    });
+      varietyPenalty: 0,
+    };
+    candidate.varietyPenalty = candidateVarietyPenalty(candidate, qualifying, opts);
+    out.push(candidate);
   }
   return out;
+}
+
+function candidateTotalScore(candidate: TicketCandidate): number {
+  return (
+    candidate.qualityScore +
+    candidate.diversityScore * 0.2 -
+    candidate.varietyPenalty
+  );
 }
 
 function maxRecentOverlap(
@@ -377,25 +518,34 @@ function maxRecentOverlap(
 
 function pickBestDistinctCandidate(
   candidates: TicketCandidate[],
-  recentTickets: readonly (readonly string[])[],
+  opts: CoachTicketBuildOpts,
 ): TicketCandidate | null {
   if (!candidates.length) return null;
+  const recentTickets = opts.recentTickets ?? [];
   const sorted = [...candidates].sort(
-    (a, b) =>
-      b.qualityScore + b.diversityScore * 0.18 - (a.qualityScore + a.diversityScore * 0.18),
+    (a, b) => candidateTotalScore(b) - candidateTotalScore(a),
   );
   if (!recentTickets.length) return sorted[0]!;
 
+  const qualityFloor = sorted[0]!.qualityScore - 4;
+
   for (const c of sorted) {
+    if (c.qualityScore < qualityFloor) break;
     if (maxRecentOverlap(c, recentTickets) < 1) return c;
   }
 
   for (const c of sorted) {
+    if (c.qualityScore < qualityFloor) break;
     if (maxRecentOverlap(c, recentTickets) <= MAX_RECENT_TICKET_OVERLAP) return c;
   }
 
-  const topTier = sorted.slice(0, Math.min(3, sorted.length));
-  const diversePick = [...topTier].sort((a, b) => b.diversityScore - a.diversityScore)[0];
+  const viable = sorted.filter((c) => c.qualityScore >= qualityFloor);
+  const pool = viable.length ? viable : sorted;
+  const diversePick = [...pool].sort((a, b) => {
+    const scoreA = candidateTotalScore(a) - maxRecentOverlap(a, recentTickets) * 25;
+    const scoreB = candidateTotalScore(b) - maxRecentOverlap(b, recentTickets) * 25;
+    return scoreB - scoreA;
+  })[0];
   if (diversePick) return diversePick;
 
   return [...sorted].sort(
@@ -429,7 +579,7 @@ export function buildIndependentCoachTicket(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(qualifying, target, opts);
-  const chosen = pickBestDistinctCandidate(candidates, opts.recentTickets ?? []);
+  const chosen = pickBestDistinctCandidate(candidates, opts);
   const picks = chosen?.picks ?? [];
   return {
     picks,

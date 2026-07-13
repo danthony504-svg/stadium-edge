@@ -20,6 +20,7 @@ import {
   buildIndependentCoachTicket,
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
+import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
@@ -349,12 +350,12 @@ export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
-  recentTickets?: readonly (readonly string[])[],
+  varietyContext?: Partial<CoachParlayVarietyContext>,
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   if (target >= 3 && varietySeed) {
     return buildIndependentCoachTicket(scored, target, {
       varietySeed,
-      recentTickets,
+      ...varietyContext,
     } satisfies CoachTicketBuildOpts);
   }
   if (target >= 3) {

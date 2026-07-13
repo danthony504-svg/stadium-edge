@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearParlayVarietyMemory,
+  MAX_PARLAY_BUILD_HISTORY,
   parlayLegKey,
   parlayLegKeyFromPool,
+  parlayPlayerKey,
   recentParlayLegKeys,
+  recentParlayVarietyContext,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
   deprioritizePropPoolEntries,
@@ -38,6 +41,49 @@ test("ticketOverlapRatio measures shared legs", () => {
   const a = ["g1|p1|pts", "g2|p2|reb"];
   const b = ["g1|p1|pts", "g3|p3|ast"];
   assert.equal(ticketOverlapRatio(a, b), 0.5);
+});
+
+test("rememberParlayBuild tracks lead player for variety context", () => {
+  clearParlayVarietyMemory();
+  rememberParlayBuild([
+    {
+      game: "Sparks @ Dream",
+      market: "Assists",
+      pick: "Allisha Gray Under 3.5 Assists",
+      player: "Allisha Gray",
+      odds: -110,
+      isProp: true,
+    },
+    {
+      game: "Mercury @ Lynx",
+      market: "Pts+Reb",
+      pick: "Kahleah Copper Over 23.5 Pts+Reb",
+      player: "Kahleah Copper",
+      odds: -114,
+      isProp: true,
+    },
+  ]);
+  const ctx = recentParlayVarietyContext();
+  assert.equal(ctx.recentLeadPlayers[0], parlayPlayerKey({ player: "Allisha Gray" }));
+  assert.equal(ctx.recentTickets[0]!.length, 2);
+});
+
+test("recentParlayVarietyContext caps history at MAX_PARLAY_BUILD_HISTORY", () => {
+  clearParlayVarietyMemory();
+  for (let i = 0; i < MAX_PARLAY_BUILD_HISTORY + 5; i++) {
+    rememberParlayBuild([
+      {
+        game: `G${i} @ H${i}`,
+        market: "Points",
+        pick: `Player ${i} Over 1.5 Points`,
+        player: `Player ${i}`,
+        odds: -110,
+        isProp: true,
+      },
+    ]);
+  }
+  const ctx = recentParlayVarietyContext();
+  assert.equal(ctx.recentTickets.length, MAX_PARLAY_BUILD_HISTORY);
 });
 
 test("deprioritizePropPoolEntries pushes avoided legs to the end", () => {

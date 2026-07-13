@@ -8,7 +8,14 @@ import {
   NEAR_EQUAL_TICKET_EDGE_PCT,
   TICKET_CANDIDATE_COUNT,
 } from "./coachTicketCombinations.ts";
-import { clearParlayVarietyMemory, parlayLegKey, rememberParlayBuild, recentParlayTicketLegSets, ticketOverlapRatio } from "./parlayVarietyMemory.ts";
+import {
+  clearParlayVarietyMemory,
+  parlayLegKey,
+  parlayPlayerKey,
+  rememberParlayBuild,
+  recentParlayVarietyContext,
+  ticketOverlapRatio,
+} from "./parlayVarietyMemory.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 import { buildStagedTicketFromScan } from "./ticketStaging.ts";
 
@@ -145,18 +152,54 @@ test("buildIndependentCoachTicket prefers a ticket different from the last build
   const first = buildIndependentCoachTicket(scored, 6, { varietySeed: "round-1" }).picks;
   rememberParlayBuild(first);
 
+  const ctx = recentParlayVarietyContext();
   const second = buildIndependentCoachTicket(scored, 6, {
     varietySeed: "round-2",
-    recentTickets: recentParlayTicketLegSets(),
+    ...ctx,
   }).picks;
 
   assert.ok(second.length >= 3);
-  assert.ok(TICKET_CANDIDATE_COUNT >= 5);
+  assert.ok(TICKET_CANDIDATE_COUNT >= 25);
   assert.ok(NEAR_EQUAL_TICKET_EDGE_PCT >= 1.5);
   const firstKeys = first.map((p) => parlayLegKey(p));
   const secondKeys = second.map((p) => parlayLegKey(p));
   const overlap = ticketOverlapRatio(secondKeys, firstKeys);
   assert.ok(overlap < 1, `expected at least one fresh leg across builds, overlap=${overlap}`);
+});
+
+test("buildIndependentCoachTicket rotates anchor player after repeated lead picks", () => {
+  clearParlayVarietyMemory();
+  const scored: BoardScoredLeg[] = [
+    propLeg("Allisha Gray", "Sparks @ Dream", "Assists", 18, 90),
+    propLeg("Natasha Howard", "Mercury @ Lynx", "Assists", 17.8, 89),
+    propLeg("Jordin Canada", "Sparks @ Dream", "Rebounds", 17.6, 88),
+    propLeg("Kahleah Copper", "Mercury @ Lynx", "Pts+Reb", 17.4, 87),
+    propLeg("Player Five", "A @ B", "Points", 17.2, 86),
+    propLeg("Player Six", "C @ D", "Points", 17, 85),
+    mainGame("E @ F", 70),
+    mainGame("G @ H", 68),
+    mainGame("I @ J", 66),
+  ];
+
+  for (let i = 0; i < 3; i++) {
+    const ticket = buildIndependentCoachTicket(scored, 5, {
+      varietySeed: `anchor-round-${i}`,
+      ...recentParlayVarietyContext(),
+    }).picks;
+    rememberParlayBuild(ticket);
+  }
+
+  const fourth = buildIndependentCoachTicket(scored, 5, {
+    varietySeed: "anchor-round-4",
+    ...recentParlayVarietyContext(),
+  }).picks;
+  const recentLeads = recentParlayVarietyContext().recentLeadPlayers;
+  const grayLeads = recentLeads.filter((p) => p === parlayPlayerKey({ player: "Allisha Gray" })).length;
+  const fourthLead = parlayPlayerKey(fourth[0] ?? {});
+  assert.ok(
+    fourthLead !== parlayPlayerKey({ player: "Allisha Gray" }) || grayLeads < 3,
+    "expected anchor rotation away from repeatedly featured lead player",
+  );
 });
 
 test("buildStagedTicketFromScan with varietySeed uses independent combinator", () => {
