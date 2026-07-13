@@ -6,12 +6,6 @@ on:
     paths:
       - "artifacts/stadium-mobile/**"
       - ".github/workflows/publish-production-ota.yml"
-    paths-ignore:
-      - "artifacts/stadium-mobile/.ota-test-001-trigger"
-      - "artifacts/stadium-mobile/.ota-test-002-trigger"
-      - "artifacts/stadium-mobile/scripts/publish-ota-test-*.sh"
-      - "artifacts/stadium-mobile/scripts/pre-publish-ota-check.sh"
-      - ".github/workflows/ota-test-*.yml"
   workflow_dispatch:
     inputs:
       message:
@@ -25,7 +19,7 @@ on:
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') && !contains(github.event.head_commit.message, 'ota-test') }}
     runs-on: ubuntu-latest
     defaults:
       run:

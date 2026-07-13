@@ -26,9 +26,9 @@ echo "Runtime version (app.json):  $(node -e "console.log(require('./app.json').
 echo "Channel header (app.json):   $(node -e "console.log(require('./app.json').expo.updates.requestHeaders['expo-channel-name'])")"
 echo ""
 
-echo "── App Store iOS build (EAS) ──"
+echo "── App Store iOS build (EAS build:list, build #62) ──"
 echo '```'
-pnpm exec eas build:view "${APP_STORE_BUILD_ID}" --non-interactive 2>&1 || true
+pnpm exec eas build:list --platform ios --limit 8 --non-interactive 2>&1 | head -80 || true
 echo '```'
 echo ""
 
