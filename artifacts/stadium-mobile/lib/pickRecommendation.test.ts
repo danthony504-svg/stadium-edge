@@ -16,7 +16,7 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
-  propBoardFillQualifies,
+  filterCoachDeliveredPicks,
   boardScanStagedLegQualifies,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
@@ -711,7 +711,29 @@ test("sanitizeCoachTicketPicks keeps all qualified legs when only some have star
   assert.equal(out.length, 2);
 });
 
-test("propBoardFillQualifies accepts borderline confidence props for fixed-leg fill", () => {
+test("boardScanStagedLegQualifies rejects game lines that only have simAligned without full gates", () => {
+  const leg = {
+    isProp: false,
+    market: "Moneyline",
+    odds: 207,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C",
+      confidencePct: 60,
+      edgePct: 17.3,
+      simHit: 0.55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C", confidencePct: 60, edgePct: 17.3, scores: {} as never },
+    },
+  };
+  assert.equal(boardScanStagedLegQualifies(leg, leg.finalAiScore), false);
+});
+
+test("propSimEdgeStagingQualifies rejects borderline confidence props below 52%", () => {
   const pick = {
     isProp: true,
     market: "Hits",
@@ -730,8 +752,57 @@ test("propBoardFillQualifies accepts borderline confidence props for fixed-leg f
     },
   };
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
-  assert.equal(propBoardFillQualifies(pick, pick.finalAiScore), true);
-  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), true);
+  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), false);
+});
+
+test("prepareCoachDeliveredTicket drops negative-edge game lines", async () => {
+  const { prepareCoachDeliveredTicket } = await import("./coachTicketKernel.ts");
+  const leg = {
+    game: "Washington Mystics @ Toronto Tempo",
+    market: "Moneyline",
+    pick: "Tempo ML",
+    odds: 100,
+    isProp: false,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: -0.5,
+      simHit: 0.51,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5, grade: "C+", confidencePct: 52, edgePct: -0.5, scores: {} as never },
+    },
+  };
+  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
+  assert.equal(prepareCoachDeliveredTicket([leg], enrich).length, 0);
+});
+
+test("filterCoachDeliveredPicks drops negative-edge game lines", () => {
+  const leg = {
+    game: "Washington Mystics @ Toronto Tempo",
+    market: "Moneyline",
+    pick: "Tempo ML",
+    odds: 100,
+    isProp: false,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: -0.5,
+      simHit: 0.51,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5, grade: "C+", confidencePct: 52, edgePct: -0.5, scores: {} as never },
+    },
+  };
+  assert.equal(filterCoachDeliveredPicks([leg], {}).length, 0);
 });
 
 test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {

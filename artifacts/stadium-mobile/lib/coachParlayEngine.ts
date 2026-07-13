@@ -2,19 +2,16 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
+import { deliverCoachBoardScanTicket } from "./coachBoardScanDelivery.ts";
 import { boardScanIsComplete, boardScanMeetsLegTarget } from "./coachScanPolicy.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import {
-  applyCoachTicketInvariants,
-  boardScanToCoachTicket,
-} from "./coachTicketKernel.ts";
-import { tagTicketRoles } from "./ticketStaging.ts";
 
 export const COACH_PARLAY_KERNEL_ONLY = true;
 
 export type CoachParlayKernelResult = {
   ticket: ParsedPick[];
   legNote?: string;
+  coachDetailNote?: string;
   source: "board-scan" | "slate-seed" | "none";
 };
 
@@ -38,32 +35,24 @@ export function resolveCoachParlayKernelTicket(opts: {
   legTarget: number;
 }): CoachParlayKernelResult {
   const { scan, enrich, legTarget } = opts;
-  if (!scan?.picks?.length) {
+  if (!scan?.picks?.length || !boardScanIsComplete(scan)) {
     return { ticket: [], source: "none" };
   }
 
-  const ticket = boardScanToCoachTicket(scan, enrich, legTarget);
-  if (!ticket.length && scan.picks.length) {
-    return {
-      ticket: applyCoachTicketInvariants(tagTicketRoles([...scan.picks]), enrich),
-      legNote: scan.note,
-      source: "board-scan",
-    };
-  }
-  if (!ticket.length) {
+  const delivered = deliverCoachBoardScanTicket(scan, enrich, legTarget);
+  if (!delivered.picks.length) {
     return { ticket: [], source: "none" };
   }
 
   let legNote = scan.note;
-  if (legTarget > ticket.length) {
-    legNote = boardScanIsComplete(scan)
-      ? legNote
-      : `You asked for **${legTarget}** legs — showing **${ticket.length}** from the scored board.`;
+  if (legTarget > delivered.picks.length) {
+    legNote = scan.note;
   }
 
   return {
-    ticket,
+    ticket: delivered.picks,
     legNote,
+    coachDetailNote: delivered.coachDetailNote,
     source: boardScanMeetsLegTarget(scan, legTarget) ? "slate-seed" : "board-scan",
   };
 }

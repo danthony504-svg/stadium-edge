@@ -21,10 +21,9 @@ export function pickLegFingerprint(p: ParsedPick): string {
 }
 
 export function reachParlayMix(legTarget: number) {
-  return {
-    minProps: Math.max(4, Math.floor(legTarget * 0.35)),
-    maxGameLegs: Math.max(5, Math.min(Math.ceil(legTarget * 0.5), legTarget - 3)),
-  };
+  const minProps = Math.max(1, Math.round(legTarget * 0.5));
+  const maxGameLegs = Math.max(0, Math.ceil(legTarget * 0.3));
+  return { minProps, maxGameLegs };
 }
 
 export function mergeParlayRejects(...groups: ParlayLegReject[][]): ParlayLegReject[] {

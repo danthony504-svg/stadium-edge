@@ -6,6 +6,8 @@ import {
   ensureFixedLegShortfallLegNote,
   COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
+  COACH_FIXED_LEG_TICKET_POLICY,
+  COACH_FULL_BOARD_SCAN_POLICY,
   FILLER_BACKFILL_EDGE_NOTE,
   isFillerBackfillPick,
   isFixedLegCountParlay,
@@ -86,6 +88,21 @@ test("shouldPromoteQualifyingAltsForFixedLegTicket gates fixed-leg parlay builds
     }),
     false,
   );
+});
+
+test("COACH_FULL_BOARD_SCAN_POLICY documents balanced scan and no filler", () => {
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /every available market/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /every player prop/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /10,000 simulations/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /separate ranked pools/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /50%/i);
+  assert.match(COACH_FULL_BOARD_SCAN_POLICY, /fewer legs instead of weak filler/i);
+});
+
+test("COACH_FIXED_LEG_TICKET_POLICY never pads to reach leg count", () => {
+  assert.match(COACH_FIXED_LEG_TICKET_POLICY, /return fewer legs/i);
+  assert.match(COACH_FIXED_LEG_TICKET_POLICY, /positive EV/i);
+  assert.match(COACH_FIXED_LEG_TICKET_POLICY, /separate ranked pools/i);
 });
 
 test("COACH_EXHAUSTIVE_MARKET_LADDER_POLICY documents alt ladder exhaustion", () => {

@@ -144,9 +144,6 @@ function enrichCoachPicksForGate<
 /** Alt ladder legs use the same confidence floor as main picks — never lowered to fill a ticket. */
 export const ALT_PICK_MIN_CONFIDENCE = COACH_SIM_MIN_CONFIDENCE;
 
-/** Relaxed confidence floor for filling fixed-leg board tickets (display grade unchanged). */
-export const PROP_BOARD_FILL_MIN_CONFIDENCE = 48;
-
 export const NOT_AI_RECOMMENDED = "Not AI Recommended";
 /** Short label for narrow coach card grade tiles (avoids awkward line breaks). */
 export const NOT_AI_RECOMMENDED_COMPACT = "Not Rec.";
@@ -229,25 +226,6 @@ export function propSimEdgeStagingQualifies(
   return true;
 }
 
-/** Relaxed sim+edge bar for staging 9-leg tickets when holistic context is still loading. */
-export function propBoardFillQualifies(
-  pick: RecommendablePick,
-  score: FinalAiScore | null | undefined,
-): boolean {
-  if (!score || !pick.isProp) return false;
-  if (!pickHasSimGrade(pick, score.simHit)) return false;
-  if ((score.edgePct ?? 0) <= 0) return false;
-  if (gradeRank(score.grade) < gradeRank(COACH_SIM_MIN_GRADE)) return false;
-  if ((score.confidencePct ?? 0) < PROP_BOARD_FILL_MIN_CONFIDENCE) return false;
-  if (score.simHit != null && pick.odds != null) {
-    const implied = impliedProb(pick.odds);
-    if (score.simHit <= implied) return false;
-    const ev = simEvPct(score.simHit, pick.odds);
-    if (ev != null && ev <= 0) return false;
-  }
-  return true;
-}
-
 /** Board-built legs that cleared sim + edge — do not re-drop on stricter holistic rescoring. */
 export function boardScanStagedLegQualifies(
   pick: RecommendablePick & { ticketRole?: "main" | "alt" },
@@ -266,11 +244,9 @@ export function boardScanStagedLegQualifies(
   ) {
     return true;
   }
-  if (propBoardFillQualifies(pick, score)) return true;
   if (propSimEdgeStagingQualifies(pick, score)) return true;
   if (pickPassesTicketGate(pick, score)) return true;
   if (qualifiesAltPick(pick, score)) return true;
-  if (!pick.isProp && score.simAligned) return true;
   return false;
 }
 
@@ -349,7 +325,7 @@ export function pickGradeDisplayLabel(
 ): string | null {
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
   if (!pickHasSimGrade(pick, score?.simHit)) return null;
-  if (pickQualifiesForTicketGrade(pick, score ?? undefined)) {
+  if (pickPassesTicketGate(pick, score ?? undefined)) {
     return gradeFromPickScore(pick, score);
   }
   return NOT_AI_RECOMMENDED;
@@ -442,6 +418,37 @@ export function filterTicketPicksPreservingTicket<
         (a.finalAiScore?.composite ?? a.scores?.composite ?? 0),
     );
   return rescoringFallback;
+}
+
+/** Hard delivery filter — positive edge, sim grade, and ticket gate. No Not Rec / negative EV legs. */
+export function filterCoachDeliveredPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    startsAt?: string | null;
+    sport?: string;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+    odds?: number | null;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const enriched = enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick);
+  return enriched.filter((p) => {
+    const score = p.finalAiScore;
+    if (!score || score.highRiskValuePlay) return false;
+    if (!pickHasSimGrade(p, score.simHit)) return false;
+    const edge = score.edgePct;
+    if (edge == null || edge <= 0) return false;
+    if (score.simHit != null && p.odds != null) {
+      const ev = simEvPct(score.simHit, p.odds);
+      if (ev != null && ev <= 0) return false;
+    }
+    return pickPassesTicketGate(p, score);
+  });
 }
 
 export function countAiRecommendedPicks(
@@ -670,10 +677,11 @@ export function finalizeBoardBuiltCoachTicket<
   const enriched = enrichCoachPicksForGate(noFiller, enrich).map(stripHrvpFromPick);
   const kept = enriched.filter((p) => boardScanStagedLegQualifies(p, p.finalAiScore));
   if (kept.length > 0) {
+    const delivered = filterCoachDeliveredPicks(preferBettableQualifiedPicks(kept), enrich);
     return {
-      picks: preferBettableQualifiedPicks(kept),
-      removed: noFiller.length - kept.length,
-      usedRescoringFallback: kept.length < noFiller.length,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length < noFiller.length,
     };
   }
   return finalizeCoachTicketPicks(picks, enrich);
@@ -731,32 +739,40 @@ export function finalizeCoachTicketPicks<
   const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
   const staged = coachPreserveStagedBoardPicks(noFiller, enrich);
   if (staged.length > 0) {
+    const delivered = filterCoachDeliveredPicks(staged, enrich);
     return {
-      picks: staged,
-      removed: noFiller.length - staged.length,
-      usedRescoringFallback: staged.length < noFiller.length,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length < noFiller.length,
     };
   }
   const strict = sanitizeCoachTicketPicks(noFiller, enrich);
   if (strict.length > 0) {
-    return { picks: strict, removed: noFiller.length - strict.length, usedRescoringFallback: false };
+    const delivered = filterCoachDeliveredPicks(strict, enrich);
+    return {
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: false,
+    };
   }
   const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const preserved = preferBettableQualifiedPicks(
     filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
   );
   if (preserved.length > 0) {
+    const delivered = filterCoachDeliveredPicks(preserved, enrich);
     return {
-      picks: preserved,
-      removed: noFiller.length - preserved.length,
-      usedRescoringFallback: true,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length > 0,
     };
   }
   const flash = coachFlashTicketPicks(enriched, enrich);
   const board = flash.length > 0 ? flash : prepareBoardScanDelivery(enriched, enrich);
+  const delivered = filterCoachDeliveredPicks(board, enrich);
   return {
-    picks: board,
-    removed: noFiller.length - board.length,
-    usedRescoringFallback: board.length > 0,
+    picks: delivered,
+    removed: noFiller.length - delivered.length,
+    usedRescoringFallback: delivered.length > 0,
   };
 }

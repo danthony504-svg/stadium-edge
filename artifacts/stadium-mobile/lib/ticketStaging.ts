@@ -17,7 +17,6 @@ import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropSt
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   pickIsAiRecommended,
-  propBoardFillQualifies,
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
 } from "./pickRecommendation.ts";
@@ -88,9 +87,6 @@ export function boardLegPoolRole(
     return isAltPropPick(pick) || pick.propIsAlt ? "alt" : "main";
   }
   if (propSimEdgeStagingQualifies(pick, score ?? undefined)) {
-    return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
-  }
-  if (propBoardFillQualifies(pick, score ?? undefined)) {
     return isAltPropPick(pick) || pick.propIsAlt || isAltBoardPick(pick) ? "alt" : "main";
   }
   return null;
@@ -295,7 +291,7 @@ function applyBalancedCapAndBackfill(
   return current;
 }
 
-/** Balanced ticket: ~50% props, ~25% game lines, ~15% team totals, ~10% alts. */
+/** Balanced ticket: ~50% props, ~25% game lines, ~12.5% team totals, ~12.5% alts. */
 export function buildBalancedStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,

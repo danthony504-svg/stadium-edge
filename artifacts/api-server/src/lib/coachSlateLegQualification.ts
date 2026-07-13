@@ -1,4 +1,4 @@
-// Server-side leg qualification — mirrors mobile boardLegPoolRole / propBoardFillQualifies.
+// Server-side leg qualification — mirrors mobile boardLegPoolRole quality gates.
 
 import type { ParsedPick } from "./coachSlateTypes.js";
 
@@ -52,7 +52,7 @@ export function serverBoardLegQualifies(
     if (score.recommends) return true;
     if (gradeRank(score.grade) < gradeRank("C+")) return false;
     if (!simEvPositive(simHit, pick.odds)) return false;
-    if ((score.confidencePct ?? 0) >= 48) return true;
+    if ((score.confidencePct ?? 0) >= 52) return true;
     return false;
   }
 
