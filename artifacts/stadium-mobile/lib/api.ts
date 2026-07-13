@@ -1708,7 +1708,32 @@ export type PropSimulationResult = {
     p90: number;
   } | null;
   lineHitRates?: Record<string, number>;
+  /** Present when hitProbability is null — explains why MC could not grade. */
+  nullReason?: "missing_athlete_id" | "no_history" | "insufficient_sample" | "stat_mapping_failed" | null;
 };
+
+export type PropSimTeamIds = {
+  homeTeamId: string;
+  awayTeamId: string;
+  homeTeam?: string;
+  awayTeam?: string;
+};
+
+function resolvePropSimTeamIds(
+  gameLabel: string,
+  map?: Map<string, PropSimTeamIds>,
+): PropSimTeamIds | null {
+  if (!map?.size) return null;
+  const direct = map.get(gameLabel.toLowerCase());
+  if (direct) return direct;
+  const parts = gameLabel.split(" @ ");
+  if (parts.length === 2) {
+    const nick = `${nickname(parts[0]!).toLowerCase()}|${nickname(parts[1]!).toLowerCase()}`;
+    const hit = map.get(nick);
+    if (hit) return hit;
+  }
+  return null;
+}
 
 /** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */
 export async function fetchPropSimulations(
@@ -1726,6 +1751,10 @@ export async function fetchPropSimulations(
   opts?: {
     homeTeam?: string;
     awayTeam?: string;
+    homeTeamId?: string | null;
+    awayTeamId?: string | null;
+    /** ESPN team ids keyed by "Away @ Home" (and nickname fallback). */
+    teamIdsByGame?: Map<string, PropSimTeamIds>;
     weatherImpact?: number | null;
     tier?: "quick" | "deep";
     simulations?: number;
@@ -1733,15 +1762,17 @@ export async function fetchPropSimulations(
   signal?: AbortSignal,
 ): Promise<Map<string, PropSimulationResult>> {
   const out = new Map<string, PropSimulationResult>();
-  const props: Array<{
+  type BuiltProp = {
     player: string;
     market: string;
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
     sport: string;
+    game: string;
     additionalLines?: number[];
-  }> = [];
+  };
+  const props: BuiltProp[] = [];
 
   for (const p of picks) {
     if (!p?.isProp || !p.player || p.propLine == null) continue;
@@ -1757,12 +1788,13 @@ export async function fetchPropSimulations(
       ) ?? propPool.find((e) => e.player === p.player && e.side === side);
     const market = p.propMarketKey ?? pool?.marketKey;
     if (!market) continue;
-    const sport = (p.sport ?? pool?.sport ?? "nba").toLowerCase();
+    const sport = (p.sport ?? pool?.sport ?? picks.find((x) => x.sport)?.sport ?? "nba").toLowerCase();
+    const game = p.game ?? pool?.game ?? "";
     const additionalLines: number[] = [];
     for (const e of propPool) {
       if (e.player !== p.player || e.side !== side) continue;
       if (market && e.marketKey !== market) continue;
-      if (p.game && e.game !== p.game) continue;
+      if (game && e.game !== game) continue;
       if (e.line == null || e.line === p.propLine) continue;
       if (!additionalLines.includes(e.line)) additionalLines.push(e.line);
     }
@@ -1774,44 +1806,57 @@ export async function fetchPropSimulations(
       side,
       athleteId: p.athleteId ?? pool?.athleteId,
       sport,
+      game,
       ...(additionalLines.length ? { additionalLines } : {}),
     });
   }
 
   if (!props.length) return out;
 
-  const sport = props[0]!.sport;
-  let homeTeam = opts?.homeTeam ?? "";
-  let awayTeam = opts?.awayTeam ?? "";
-  if (!homeTeam && picks[0]?.game?.includes(" @ ")) {
-    const parts = picks[0].game.split(" @ ");
-    awayTeam = parts[0]?.trim() ?? "";
-    homeTeam = parts[1]?.trim() ?? "";
+  const byGame = new Map<string, BuiltProp[]>();
+  for (const row of props) {
+    const label = row.game || "_unknown";
+    const arr = byGame.get(label) ?? [];
+    arr.push(row);
+    byGame.set(label, arr);
   }
 
-  const path = "/sports/simulate/props";
   const tier = opts?.tier ?? "quick";
-  const res = await withTimeout(
-    expoFetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sport,
+  for (const [gameLabel, rows] of byGame) {
+    const sport = rows[0]!.sport;
+    let homeTeam = opts?.homeTeam ?? "";
+    let awayTeam = opts?.awayTeam ?? "";
+    let homeTeamId = opts?.homeTeamId ?? null;
+    let awayTeamId = opts?.awayTeamId ?? null;
+
+    const fromMap = gameLabel !== "_unknown" ? resolvePropSimTeamIds(gameLabel, opts?.teamIdsByGame) : null;
+    if (fromMap) {
+      homeTeamId = fromMap.homeTeamId;
+      awayTeamId = fromMap.awayTeamId;
+      homeTeam = fromMap.homeTeam ?? homeTeam;
+      awayTeam = fromMap.awayTeam ?? awayTeam;
+    } else if (!homeTeam && gameLabel.includes(" @ ")) {
+      const parts = gameLabel.split(" @ ");
+      awayTeam = parts[0]?.trim() ?? "";
+      homeTeam = parts[1]?.trim() ?? "";
+    }
+
+    const batchRows = await fetchPropSimulationsBatch(
+      sport,
+      rows.map(({ game: _g, ...r }) => r),
+      {
         homeTeam,
         awayTeam,
+        homeTeamId,
+        awayTeamId,
         weatherImpact: opts?.weatherImpact ?? null,
         tier,
         simulations: opts?.simulations,
-        props,
-      }),
+      },
       signal,
-    }),
-    tier === "deep" ? REQUEST_TIMEOUT_MS * 3 : REQUEST_TIMEOUT_MS,
-    path,
-  );
-  if (!res.ok) return out;
-  const json = (await res.json()) as { props?: PropSimulationResult[] };
-  for (const row of json.props ?? []) out.set(row.key, row);
+    );
+    for (const row of batchRows) out.set(row.key, row);
+  }
   return out;
 }
 

@@ -3,7 +3,7 @@
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
+import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
 import {
@@ -224,13 +224,19 @@ function scoredFromPropPick(
 async function simPropBatch(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
+  teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
 ): Promise<{ hits: Map<string, { hitProbability: number | null }>; timedOut: boolean }> {
   const out = new Map<string, { hitProbability: number | null }>();
   if (!batch.length) return { hits: out, timedOut: false };
   try {
     const rows = await Promise.race([
-      fetchPropSimulations(batch, pool, { tier: "deep" }, signal),
+      fetchPropSimulations(
+        batch,
+        pool,
+        { tier: "deep", teamIdsByGame: teamIdsByGame as Map<string, PropSimTeamIds> | undefined },
+        signal,
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
       ),
@@ -332,6 +338,7 @@ async function simPropPoolUntilQualified(
     onWave?: (scored: BoardScoredLeg[]) => void;
     onPropBatch?: (size: number, timedOut: boolean) => void;
     manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
+    teamIdsByGame?: Map<string, GameTeamIds>;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -380,7 +387,7 @@ async function simPropPoolUntilQualified(
 
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
-    const wave = await simPropBatch(batch, pool, signal);
+    const wave = await simPropBatch(batch, pool, opts.teamIdsByGame, signal);
     for (const [k, v] of wave.hits) propHits.set(k, v);
     opts.onPropBatch?.(batch.length, wave.timedOut);
 
@@ -607,6 +614,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     {
       target: opts.target,
       ...propScoreOpts,
+      teamIdsByGame: opts.teamIdMap,
       onWave: () => {
         emitBoardScanPartial();
       },
