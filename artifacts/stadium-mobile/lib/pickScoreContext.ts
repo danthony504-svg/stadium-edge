@@ -39,7 +39,7 @@ import {
   type PickSubScores,
 } from "@/lib/pickScore";
 import { applyMarketWeighting, type MarketPerf } from "@/lib/marketWeighting";
-import { gameValueForMarket } from "@/lib/propStats";
+import { computeAmbiguous, gameValueForMarket } from "@/lib/propStats";
 import {
   gameSimHitForPick,
   gameLabelsMatch,
@@ -57,6 +57,7 @@ import {
 // Compact player-history slice carried in chat context (keyed Player#athleteId).
 export type PlayerHistorySlice = {
   player?: string;
+  labels?: string[];
   recent?: { date?: string; opp?: string; stats?: Record<string, unknown> }[];
   vsOpponent?: { date?: string; stats?: Record<string, unknown> }[];
   minutesTrend?: {
@@ -327,8 +328,15 @@ function propTrendScore(
   side: string | null | undefined,
 ): PickSubScores["trend"] {
   if (!ph?.recent?.length || line == null) return null;
+  const ambiguous = computeAmbiguous(ph.labels);
   const vals = ph.recent
-    .map((g) => gameValueForMarket(marketKey, g.stats ?? {}, {}))
+    .map((g) =>
+      gameValueForMarket(
+        marketKey,
+        (g.stats ?? {}) as Record<string, string>,
+        ambiguous,
+      ),
+    )
     .filter((v): v is number => v != null);
   return scoreTrend(playerTrendMomentum(vals, line, side));
 }
