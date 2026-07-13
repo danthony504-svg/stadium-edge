@@ -1957,6 +1957,29 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <AppHeader bottomGap={0}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 10 }}>
+          <Text
+            style={{
+              color: colors.foreground,
+              fontFamily: FONT.display,
+              fontSize: 26,
+              letterSpacing: 0.5,
+            }}
+          >
+            PLAYER PROPS — OTA TEST 001
+          </Text>
+          <Text
+            style={{
+              color: colors.primary,
+              fontFamily: FONT.medium,
+              fontSize: 11,
+              marginTop: 4,
+              letterSpacing: 0.8,
+            }}
+          >
+            POWERED BY DATA DRIVEN REAL-TIME
+          </Text>
+        </View>
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
