@@ -1968,7 +1968,7 @@ export default function HomeScreen() {
             }}
           >
             {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
-              ? "PLAYER PROPS — BOOTSTRAP OTA"
+              ? "STADIUM EDGE — v1.0.3"
               : "PLAYER PROPS — OTA TEST 002"}
           </Text>
           <Text
@@ -1981,7 +1981,7 @@ export default function HomeScreen() {
             }}
           >
             {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
-              ? "DIAGNOSTICS ONLY — SAFE STARTUP"
+              ? "EMBEDDED BUILD · OTA DIAGNOSTICS IN MENU"
               : "POWERED BY DATA DRIVEN REAL-TIME"}
           </Text>
         </View>

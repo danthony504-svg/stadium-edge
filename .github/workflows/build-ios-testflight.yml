@@ -42,6 +42,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
           EAS_NO_VCS: "1"
           AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |

@@ -45,13 +45,11 @@ export default function AccountScreen() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      // Server deletes the auth user (incl. linked Google/Apple logins) and all
-      // stored data, then we drop saved credentials, sign out, and land on the
-      // public welcome screen.
+      // Server deletes the auth user, then sign out and return to Home.
       await deleteAccount();
       await clearBiometricLogin().catch(() => {});
       await signOut();
-      router.replace("/welcome");
+      router.replace("/");
     } catch {
       setDeleting(false);
       setDeleteError(
