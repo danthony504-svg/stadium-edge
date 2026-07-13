@@ -299,6 +299,39 @@ export function CoachTicketHeader({
             </Text>
           </Pressable>
         ) : null}
+        {hasCoachDetail ? (
+          <Pressable
+            onPress={() => setDetailExpanded((e) => !e)}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              alignSelf: "flex-start",
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              borderRadius: 999,
+              backgroundColor: colors.background,
+              borderWidth: 1,
+              borderColor: colors.border,
+              opacity: pressed ? 0.85 : 1,
+            })}
+          >
+            <Feather
+              name={detailExpanded ? "chevron-up" : "chevron-down"}
+              size={14}
+              color={colors.primary}
+            />
+            <Text
+              style={{
+                color: colors.primary,
+                fontFamily: FONT.semibold,
+                fontSize: 12,
+              }}
+            >
+              {hasScanManifest ? "View scan manifest" : "More ticket detail"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {shortfallLead ? (
@@ -342,6 +375,24 @@ export function CoachTicketHeader({
           color={colors.foreground}
           mutedColor={colors.mutedForeground}
         />
+      ) : null}
+
+      {detailExpanded && notes.detail?.trim() ? (
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            borderWidth: 1,
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <ChatMarkdown
+            text={notes.detail.trim()}
+            color={colors.foreground}
+            mutedColor={colors.mutedForeground}
+          />
+        </View>
       ) : null}
     </View>
   );

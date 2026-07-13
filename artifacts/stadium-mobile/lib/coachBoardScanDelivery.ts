@@ -9,7 +9,7 @@ import {
 } from "./coachBoardScanManifest.ts";
 import { applyCoachTicketInvariants } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
-import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
+import { filterCoachDeliveredPicks, finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 
 export type CoachBoardScanDelivery = {
@@ -65,7 +65,10 @@ export function deliverCoachBoardScanTicket(
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = applyCoachTicketInvariants(finalized.picks, enrich);
+  const picks = filterCoachDeliveredPicks(
+    applyCoachTicketInvariants(finalized.picks, enrich),
+    enrich,
+  );
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
@@ -94,7 +97,13 @@ export function deliverCoachBoardScanProgress(
   }
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = applyCoachTicketInvariants(finalized.picks, enrich);
+  const picks = filterCoachDeliveredPicks(
+    applyCoachTicketInvariants(finalized.picks, enrich),
+    enrich,
+  );
+  if (!picks.length) {
+    return { picks: [], progressNote: "" };
+  }
   const note = `Scoring live board — **${picks.length}** of **${legTarget}** legs ready (${scan.totalScanned.toLocaleString()} markets scanned)…`;
   return { picks, progressNote: note };
 }

@@ -420,6 +420,37 @@ export function filterTicketPicksPreservingTicket<
   return rescoringFallback;
 }
 
+/** Hard delivery filter — positive edge, sim grade, and ticket gate. No Not Rec / negative EV legs. */
+export function filterCoachDeliveredPicks<
+  T extends RecommendablePick & {
+    finalAiScore?: FinalAiScore | null;
+    ticketRole?: "main" | "alt";
+    startsAt?: string | null;
+    sport?: string;
+    game?: string;
+    market?: string;
+    pick?: string;
+    isProp?: boolean;
+    player?: string;
+    odds?: number | null;
+  },
+>(picks: T[], enrich?: CoachPickEnrichSources): T[] {
+  if (!picks.length) return [];
+  const enriched = enrichCoachPicksForGate(picks, enrich).map(stripHrvpFromPick);
+  return enriched.filter((p) => {
+    const score = p.finalAiScore;
+    if (!score || score.highRiskValuePlay) return false;
+    if (!pickHasSimGrade(p, score.simHit)) return false;
+    const edge = score.edgePct;
+    if (edge == null || edge <= 0) return false;
+    if (score.simHit != null && p.odds != null) {
+      const ev = simEvPct(score.simHit, p.odds);
+      if (ev != null && ev <= 0) return false;
+    }
+    return pickPassesTicketGate(p, score);
+  });
+}
+
 export function countAiRecommendedPicks(
   picks: Array<RecommendablePick & { finalAiScore?: FinalAiScore | null }>,
 ): number {

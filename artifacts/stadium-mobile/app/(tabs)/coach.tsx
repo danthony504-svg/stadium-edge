@@ -122,7 +122,7 @@ import {
   deliverCoachBoardScanProgress,
   deliverCoachBoardScanTicket,
 } from "@/lib/coachBoardScanDelivery";
-import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
+import { coachBoardScanTicketPicks, coachFlashTicketPicks, filterCoachDeliveredPicks, filterTicketPicks, filterTicketPicksPreservingTicket, finalizeCoachTicketPicks, pickIsAiRecommended, pickQualifiesForTicketGrade, qualifiesAltPick, sanitizeCoachTicketPicks, stripCoachTicketHrvp } from "@/lib/pickRecommendation";
 import {
   rescoreCoachTicketPreservingLegs,
   topUpCoachTicketToTarget,
@@ -1212,7 +1212,10 @@ export default function CoachScreen() {
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string) => {
       const enrich = flashEnrichRef.current;
-      const cleaned = applyCoachTicketInvariants(tagTicketRoles(ticket), enrich);
+      const cleaned = filterCoachDeliveredPicks(
+        applyCoachTicketInvariants(tagTicketRoles(ticket), enrich),
+        enrich,
+      );
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -1295,6 +1298,18 @@ export default function CoachScreen() {
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
       setBoardScanPartialLegs(ticket.length);
+      if (boardScanIsComplete(partial)) {
+        setStreaming(false);
+        setWaiting(false);
+        setBuildFinishing(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
+        clearBuildStallWatchdog();
+      }
       setMessages((prev) => {
         const copy = [...prev];
         for (let i = copy.length - 1; i >= 0; i--) {
@@ -1314,11 +1329,13 @@ export default function CoachScreen() {
       });
       setAiPicks(ticket);
       captureFromCoach(ticket);
-      if (buildFinishingRef.current) setParlayBuildPhase("stream");
+      if (!boardScanIsComplete(partial) && buildFinishingRef.current) {
+        setParlayBuildPhase("stream");
+      }
       if (opts?.pinScroll !== false) scrollToEnd(false);
       return true;
     },
-    [scrollToEnd],
+    [clearBuildStallWatchdog, scrollToEnd],
   );
 
   const rehydrateVisibleBoardTicket = useCallback(() => {
@@ -5135,8 +5152,9 @@ export default function CoachScreen() {
   }, [messages, streaming, buildFinishing, waiting]);
 
   const footerParlayProgress = useMemo(() => {
-    if (!(buildFinishing || streaming || buildProgressExpired)) return false;
     const last = messages[messages.length - 1];
+    if (last?.picks?.length) return false;
+    if (!(buildFinishing || streaming || buildProgressExpired)) return false;
     let parlayUserText = "";
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
@@ -5302,7 +5320,10 @@ export default function CoachScreen() {
             .map(({ m, i }) => {
             const hasPicks = !!(m.picks && m.picks.length > 0);
             const displayPicks = hasPicks
-              ? coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current)
+              ? filterCoachDeliveredPicks(
+                  coerceCoachDisplayPicks(m.picks!, flashEnrichRef.current),
+                  flashEnrichRef.current,
+                )
               : [];
             const showTicketPicks = displayPicks.length > 0;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
@@ -5529,7 +5550,7 @@ export default function CoachScreen() {
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
                 {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
-                  !(showTicketPicks && buildIdle)) ? (
+                  !(showTicketPicks && displayPicks.length > 0)) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
