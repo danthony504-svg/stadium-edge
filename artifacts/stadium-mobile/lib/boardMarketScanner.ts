@@ -5,6 +5,11 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, RealOddsEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
+import { filterForExcludedSports } from "./chatContextPriority.ts";
+import {
+  createCoachBoardScanManifestRecorder,
+  type CoachBoardScanManifest,
+} from "./coachBoardScanManifest.ts";
 import { filterBettableOddsGames, filterBettablePropPool } from "./slate.ts";
 import { fetchSlateGameSimulations, type GameTeamIds, type CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import {
@@ -38,8 +43,6 @@ import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildStagedTicketFromScan,
-  selectGreedyBoardLegs,
-  selectTopBoardLegs,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
 export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
@@ -87,6 +90,8 @@ export type FullBoardScanResult = {
   note: string;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
+  /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
+  manifest?: CoachBoardScanManifest;
 };
 
 function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
@@ -186,12 +191,12 @@ async function simPropBatch(
   batch: ParsedPick[],
   pool: PropPoolEntry[],
   signal?: AbortSignal,
-): Promise<Map<string, { hitProbability: number | null }>> {
+): Promise<{ hits: Map<string, { hitProbability: number | null }>; timedOut: boolean }> {
   const out = new Map<string, { hitProbability: number | null }>();
-  if (!batch.length) return out;
+  if (!batch.length) return { hits: out, timedOut: false };
   try {
     const rows = await Promise.race([
-      fetchPropSimulations(batch, pool, { tier: "quick" }, signal),
+      fetchPropSimulations(batch, pool, { tier: "deep" }, signal),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("prop-sim-batch-timeout")), PROP_SIM_BATCH_TIMEOUT_MS),
       ),
@@ -199,10 +204,10 @@ async function simPropBatch(
     for (const [k, v] of rows) {
       out.set(k, { hitProbability: v.hitProbability });
     }
+    return { hits: out, timedOut: false };
   } catch {
-    /* rubric-only for this batch */
+    return { hits: out, timedOut: true };
   }
-  return out;
 }
 
 function appendPropScoredLegs(
@@ -290,6 +295,7 @@ async function simPropPoolUntilQualified(
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
+    onPropBatch?: (size: number, timedOut: boolean) => void;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -338,7 +344,8 @@ async function simPropPoolUntilQualified(
     const batch = rankedProps.slice(simIndex, simIndex + batchSize);
     simIndex += batch.length;
     const wave = await simPropBatch(batch, pool, signal);
-    for (const [k, v] of wave) propHits.set(k, v);
+    for (const [k, v] of wave.hits) propHits.set(k, v);
+    opts.onPropBatch?.(batch.length, wave.timedOut);
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
@@ -351,27 +358,6 @@ async function simPropPoolUntilQualified(
   return { propScored, propHits, simEvaluated: simIndex };
 }
 
-/** Top evaluated game lines before sim gates qualify — early partial flash. */
-function bootstrapPicksFromEvalRows(
-  rows: EvaluatedGameLine[],
-  target: number,
-): ParsedPick[] {
-  const ranked = [...rows]
-    .filter((r) => r.pick.odds != null && Number.isFinite(r.pick.odds))
-    .sort((a, b) => (b.finalAiScore.composite ?? 0) - (a.finalAiScore.composite ?? 0));
-  const seen = new Set<string>();
-  const out: ParsedPick[] = [];
-  const want = Math.min(target, Math.max(2, ranked.length));
-  for (const row of ranked) {
-    const fp = pickLegFingerprint(row.pick);
-    if (seen.has(fp)) continue;
-    seen.add(fp);
-    out.push({ ...row.pick, finalAiScore: row.finalAiScore });
-    if (out.length >= want) break;
-  }
-  return out;
-}
-
 function buildScanResult(
   scored: BoardScoredLeg[],
   opts: {
@@ -380,41 +366,21 @@ function buildScanResult(
     gameSimulations: Map<string, CoachGameSimEntry>;
     totalScanned: number;
     preview?: boolean;
-    bootstrapEvalRows?: EvaluatedGameLine[];
     boardExhausted?: boolean;
+    manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
   },
 ): FullBoardScanResult {
   const staged = buildStagedTicketFromScan(scored, opts.target);
-  let picks = staged.picks;
-  let breakdown = staged.breakdown;
-
-  // During in-flight scans, flash top-ranked scored legs before strict AI gates fill the ticket.
-  if (opts.preview && picks.length === 0 && scored.length > 0) {
-    const ranked = [...scored].sort((a, b) => b.rankScore - a.rankScore);
-    const previewCount = Math.min(opts.target, Math.max(2, ranked.length));
-    picks = selectTopBoardLegs(ranked, previewCount);
-    breakdown = {
-      mainQualified: ranked.length,
-      altQualified: 0,
-      mainOnTicket: picks.length,
-      altOnTicket: 0,
-    };
-  }
-
-  // Before sim grades land, flash top composite game lines so progress/cards don't stall at 84%.
-  if (opts.preview && picks.length === 0 && opts.bootstrapEvalRows?.length) {
-    picks = bootstrapPicksFromEvalRows(opts.bootstrapEvalRows, opts.target);
-    if (picks.length > 0) {
-      breakdown = {
-        mainQualified: opts.bootstrapEvalRows.length,
-        altQualified: 0,
-        mainOnTicket: picks.length,
-        altOnTicket: 0,
-      };
-    }
-  }
+  const picks = staged.picks;
+  const breakdown = staged.breakdown;
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
+  const scanComplete = !opts.preview && opts.boardExhausted === true;
+  const manifest = opts.manifestRecorder.finalize({
+    scanComplete,
+    boardExhausted: opts.boardExhausted === true,
+    deliveredLegs: scanComplete ? picks.length : 0,
+  });
   const note =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
@@ -429,7 +395,8 @@ function buildScanResult(
     totalQualified,
     staging: breakdown,
     note,
-    scanComplete: !opts.preview && (picks.length >= opts.target || opts.boardExhausted === true),
+    scanComplete,
+    manifest,
   };
 }
 
@@ -486,39 +453,37 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     : null;
 
   const scored: BoardScoredLeg[] = [];
-  const bootstrapEvalRows: EvaluatedGameLine[] = [];
   let totalScanned = 0;
   const gameSimulations = new Map<string, CoachGameSimEntry>();
   const gameEntries = [...evalLinesByGame.entries()];
   const SLATE_SIM_BATCH = 2;
+  const manifestRecorder = createCoachBoardScanManifestRecorder(opts.target);
+
+  for (const [, lines] of gameEntries) {
+    for (const entry of lines ?? []) {
+      manifestRecorder.recordMarketFound({
+        game: entry.game,
+        market: entry.market,
+        pick: entry.pick,
+        odds: entry.odds,
+        isProp: false,
+      } as ParsedPick);
+    }
+  }
 
   const emitBoardScanPartial = () => {
     if (!opts.onPartial) return;
+    manifestRecorder.recomputeQualificationFromScored(scored);
     const partial = buildScanResult(scored, {
       target: opts.target,
       evalLinesByGame,
       gameSimulations,
       totalScanned,
       preview: true,
-      bootstrapEvalRows,
+      manifestRecorder,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
-
-  // Flash top posted game lines immediately — before the first sim batch returns.
-  for (const [, lines] of gameEntries) {
-    if (!lines?.length) continue;
-    const evaluated = evaluateGameLines({
-      lines,
-      gameSim: undefined,
-      realOdds: mergedOdds,
-      matchupHistory: opts.matchupHistory,
-      matchupInjuries: opts.matchupInjuries,
-    });
-    totalScanned += evaluated.length;
-    bootstrapEvalRows.push(...evaluated);
-  }
-  emitBoardScanPartial();
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
     for (const game of games) {
@@ -533,9 +498,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         matchupInjuries: opts.matchupInjuries,
       });
       totalScanned += evaluated.length;
-      bootstrapEvalRows.push(...evaluated);
       for (const row of evaluated) {
+        manifestRecorder.recordMarketFound(row.pick);
         const simHit = gameSimHitForPick(row.pick, sim);
+        if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
         if (leg) scored.push(leg);
       }
@@ -557,6 +523,10 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   const expandedPool = await poolExpandP;
   if (expandedPool?.length) pool = expandedPool;
+
+  for (const entry of pool) {
+    manifestRecorder.recordPropPoolRow(parsedPickFromPoolEntry(entry));
+  }
 
   const propScoreOpts = {
     pool,
@@ -580,6 +550,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       onWave: () => {
         emitBoardScanPartial();
       },
+      onPropBatch: (size, timedOut) => {
+        manifestRecorder.recordPropSimBatch(size, timedOut);
+      },
     },
     opts.signal,
   );
@@ -589,12 +562,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   totalScanned += pool.length;
   const collapsed = collapseScoredLegsByMarketLadder(scored);
   collapsed.sort((a, b) => b.rankScore - a.rankScore);
+  manifestRecorder.recomputeQualificationFromScored(collapsed);
   const result = buildScanResult(collapsed, {
     target: opts.target,
     evalLinesByGame,
     gameSimulations,
     totalScanned,
     boardExhausted: true,
+    manifestRecorder,
   });
   if (opts.onPartial && result.picks.length > 0) opts.onPartial(result);
   return result;
