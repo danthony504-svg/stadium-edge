@@ -1822,29 +1822,29 @@ export async function fetchPropSimulations(
   }
 
   const tier = opts?.tier ?? "quick";
-  for (const [gameLabel, rows] of byGame) {
-    const sport = rows[0]!.sport;
-    let homeTeam = opts?.homeTeam ?? "";
-    let awayTeam = opts?.awayTeam ?? "";
-    let homeTeamId = opts?.homeTeamId ?? null;
-    let awayTeamId = opts?.awayTeamId ?? null;
+  const MAX_PROPS_PER_REQUEST = 40;
 
-    const fromMap = gameLabel !== "_unknown" ? resolvePropSimTeamIds(gameLabel, opts?.teamIdsByGame) : null;
-    if (fromMap) {
-      homeTeamId = fromMap.homeTeamId;
-      awayTeamId = fromMap.awayTeamId;
-      homeTeam = fromMap.homeTeam ?? homeTeam;
-      awayTeam = fromMap.awayTeam ?? awayTeam;
-    } else if (!homeTeam && gameLabel.includes(" @ ")) {
-      const parts = gameLabel.split(" @ ");
-      awayTeam = parts[0]?.trim() ?? "";
-      homeTeam = parts[1]?.trim() ?? "";
-    }
+  const gameResults = await Promise.all(
+    [...byGame.entries()].map(async ([gameLabel, rows]) => {
+      const sport = rows[0]!.sport;
+      let homeTeam = opts?.homeTeam ?? "";
+      let awayTeam = opts?.awayTeam ?? "";
+      let homeTeamId = opts?.homeTeamId ?? null;
+      let awayTeamId = opts?.awayTeamId ?? null;
 
-    const batchRows = await fetchPropSimulationsBatch(
-      sport,
-      rows.map(({ game: _g, ...r }) => r),
-      {
+      const fromMap = gameLabel !== "_unknown" ? resolvePropSimTeamIds(gameLabel, opts?.teamIdsByGame) : null;
+      if (fromMap) {
+        homeTeamId = fromMap.homeTeamId;
+        awayTeamId = fromMap.awayTeamId;
+        homeTeam = fromMap.homeTeam ?? homeTeam;
+        awayTeam = fromMap.awayTeam ?? awayTeam;
+      } else if (!homeTeam && gameLabel.includes(" @ ")) {
+        const parts = gameLabel.split(" @ ");
+        awayTeam = parts[0]?.trim() ?? "";
+        homeTeam = parts[1]?.trim() ?? "";
+      }
+
+      const batchOpts = {
         homeTeam,
         awayTeam,
         homeTeamId,
@@ -1852,9 +1852,28 @@ export async function fetchPropSimulations(
         weatherImpact: opts?.weatherImpact ?? null,
         tier,
         simulations: opts?.simulations,
-      },
-      signal,
-    );
+      };
+
+      const chunks: BuiltProp[][] = [];
+      for (let i = 0; i < rows.length; i += MAX_PROPS_PER_REQUEST) {
+        chunks.push(rows.slice(i, i + MAX_PROPS_PER_REQUEST));
+      }
+
+      const chunkRows = await Promise.all(
+        chunks.map((chunk) =>
+          fetchPropSimulationsBatch(
+            sport,
+            chunk.map(({ game: _g, ...r }) => r),
+            batchOpts,
+            signal,
+          ),
+        ),
+      );
+      return chunkRows.flat();
+    }),
+  );
+
+  for (const batchRows of gameResults) {
     for (const row of batchRows) out.set(row.key, row);
   }
   return out;

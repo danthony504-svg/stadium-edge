@@ -64,7 +64,7 @@ export {
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
 
-const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
+const PROP_SIM_BATCH_TIMEOUT_MS = 60_000;
 
 function propSimKeyForPick(pick: ParsedPick): string | null {
   if (!pick.isProp || !pick.player) return null;
@@ -226,8 +226,8 @@ async function simPropBatch(
   pool: PropPoolEntry[],
   teamIdsByGame?: Map<string, GameTeamIds>,
   signal?: AbortSignal,
-): Promise<{ hits: Map<string, { hitProbability: number | null }>; timedOut: boolean }> {
-  const out = new Map<string, { hitProbability: number | null }>();
+): Promise<{ hits: Map<string, { hitProbability: number | null; nullReason?: string | null }>; timedOut: boolean }> {
+  const out = new Map<string, { hitProbability: number | null; nullReason?: string | null }>();
   if (!batch.length) return { hits: out, timedOut: false };
   try {
     const rows = await Promise.race([
@@ -242,7 +242,7 @@ async function simPropBatch(
       ),
     ]);
     for (const [k, v] of rows) {
-      out.set(k, { hitProbability: v.hitProbability });
+      out.set(k, { hitProbability: v.hitProbability, nullReason: v.nullReason ?? null });
     }
     return { hits: aliasPropSimHitsForBatch(batch, out), timedOut: false };
   } catch {
