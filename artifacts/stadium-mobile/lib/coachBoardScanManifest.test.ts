@@ -99,6 +99,20 @@ test("recomputeQualificationFromScored does not double-count evaluated candidate
   assert.equal(recorder.preScoreEvaluated, 1);
 });
 
+test("finalize reconciles simulated markets missing from evaluated tally", () => {
+  const recorder = createCoachBoardScanManifestRecorder(8);
+  recorder.recordPropSimBatch(120, false);
+  recorder.recomputeQualificationFromScored([]);
+  const manifest = recorder.finalize({
+    scanComplete: true,
+    boardExhausted: true,
+    deliveredLegs: 0,
+  });
+  assert.equal(manifest.marketsSimulated, 120);
+  assert.equal(manifest.totalEvaluated, 120);
+  assert.equal(manifest.gateFailureCounts.no_sim_grade, 120);
+});
+
 test("createCoachBoardScanManifestRecorder tracks prop pool rows", () => {
   const recorder = createCoachBoardScanManifestRecorder(6);
   recorder.recordPropPoolRow({

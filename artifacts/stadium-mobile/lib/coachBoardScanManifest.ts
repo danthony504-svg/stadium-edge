@@ -279,6 +279,15 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       if (!manifest.totalEvaluated) {
         manifest.totalEvaluated = manifest.preScoreEvaluated;
       }
+      if (
+        opts.scanComplete &&
+        manifest.marketsSimulated > manifest.totalEvaluated
+      ) {
+        const gap = manifest.marketsSimulated - manifest.totalEvaluated;
+        preScoreGateFailures.no_sim_grade = (preScoreGateFailures.no_sim_grade ?? 0) + gap;
+        manifest.preScoreEvaluated += gap;
+        manifest.totalEvaluated = manifest.marketsSimulated;
+      }
       return {
         ...manifest,
         gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
