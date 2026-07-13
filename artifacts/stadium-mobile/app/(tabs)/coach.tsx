@@ -25,7 +25,6 @@ import { useAuth } from "@clerk/expo";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppHeader, PageTitleRow } from "@/components/AppHeader";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { CoachTicketHeader } from "@/components/CoachTicketHeader";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
@@ -112,9 +111,6 @@ import {
 import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "@/lib/format";
 import { FONT } from "@/components/ui";
 import { AnalysisProgress, type ParlayBuildPhase } from "@/components/AnalysisProgress";
-import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
-import Constants from "expo-constants";
 import { useCoachSlipClearance } from "@/components/SlipBar";
 import { useBetSlip, MAX_LEGS } from "@/context/BetSlipContext";
 import { usePickTracker } from "@/context/PickTrackerContext";
@@ -5149,15 +5145,15 @@ export default function CoachScreen() {
     };
   }, []);
 
-  const coachBundleStamp = useMemo(() => {
-    if (Updates.updateId) return Updates.updateId.slice(0, 8);
-    if (latestContext?.isUpdatePending) return "update-ready";
-    if (Updates.createdAt) {
-      const d = new Date(Updates.createdAt);
-      return `ota-${d.getUTCMonth() + 1}${String(d.getUTCDate()).padStart(2, "0")}`;
-    }
-    return `v${Constants.expoConfig?.version ?? "dev"}`;
-  }, []);
+  const headerUserTexts = useMemo(
+    () => messages.filter((m) => m.role === "user").map((m) => m.content),
+    [messages],
+  );
+  const headerSlateLabel = useMemo(() => {
+    const last = headerUserTexts.at(-1) ?? "";
+    const day = slateDayFromThread(last, headerUserTexts.slice(0, -1));
+    return slateOddsLabel(day ?? "tonight");
+  }, [headerUserTexts]);
 
   // Older OTAs injected dead watchdog prose into assistant bubbles — scrub on load.
   useEffect(() => {
@@ -5312,13 +5308,14 @@ export default function CoachScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <AppHeader bottomGap={0}>
-        <PageTitleRow
-          icon="zap"
-          title="AI Coach"
-          subtitle={`Picks grounded in real odds — never invented · ${coachBundleStamp}`}
-        />
-      </AppHeader>
+      <View style={{ paddingTop: insets.top + 8, paddingLeft: 64, paddingRight: 16, paddingBottom: 12 }}>
+        <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 24 }}>
+          AI Coach
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 12, marginTop: 2 }}>
+          Picks grounded in {headerSlateLabel} real odds — never invented
+        </Text>
+      </View>
 
       <KeyboardAwareScrollViewCompat
         ref={scrollRef as any}
