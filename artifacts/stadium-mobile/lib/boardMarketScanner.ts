@@ -41,6 +41,7 @@ import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
+import { propSimKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
@@ -66,8 +67,41 @@ export {
 const PROP_SIM_BATCH_TIMEOUT_MS = 20_000;
 
 function propSimKeyForPick(pick: ParsedPick): string | null {
-  if (!pick.isProp || !pick.player || pick.propLine == null || !pick.propSide) return null;
-  return `${pick.player}|${pick.propMarketKey ?? pick.market}|${pick.propLine}|${pick.propSide}`;
+  if (!pick.isProp || !pick.player) return null;
+  const market = pick.propMarketKey ?? pick.market ?? "";
+  return propSimKey(pick.player, market, pick.propLine, pick.propSide ?? "");
+}
+
+function aliasPropSimHitsForBatch(
+  batch: ParsedPick[],
+  hits: Map<string, { hitProbability: number | null }>,
+): Map<string, { hitProbability: number | null }> {
+  const out = new Map(hits);
+  for (const pick of batch) {
+    const clientKey = propSimKeyForPick(pick);
+    if (!clientKey || out.has(clientKey)) continue;
+    const market = pick.propMarketKey ?? pick.market ?? "";
+    const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
+    const altKey =
+      altMarket && altMarket !== market
+        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        : null;
+    if (altKey && out.has(altKey)) {
+      out.set(clientKey, out.get(altKey)!);
+      continue;
+    }
+    const side =
+      pick.propSide === "Under" ? "Under" : pick.propSide === "Over" ? "Over" : null;
+    if (!side || pick.propLine == null) continue;
+    const suffix = `|${pick.propLine}|${side}`;
+    for (const [serverKey, row] of hits) {
+      if (serverKey.startsWith(`${pick.player}|`) && serverKey.endsWith(suffix)) {
+        out.set(clientKey, row);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 function propPickHasSimHit(
@@ -204,7 +238,7 @@ async function simPropBatch(
     for (const [k, v] of rows) {
       out.set(k, { hitProbability: v.hitProbability });
     }
-    return { hits: out, timedOut: false };
+    return { hits: aliasPropSimHitsForBatch(batch, out), timedOut: false };
   } catch {
     return { hits: out, timedOut: true };
   }
@@ -225,6 +259,7 @@ function appendPropScoredLegs(
     mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
+    manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
   },
 ): void {
   const pending = rankedProps.filter((p) => {
@@ -296,6 +331,7 @@ async function simPropPoolUntilQualified(
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
     onPropBatch?: (size: number, timedOut: boolean) => void;
+    manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -327,6 +363,7 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
+    manifestRecorder: opts.manifestRecorder,
   };
 
   const combinedScored = () => [...gameScored, ...propScored];
@@ -346,6 +383,22 @@ async function simPropPoolUntilQualified(
     const wave = await simPropBatch(batch, pool, signal);
     for (const [k, v] of wave.hits) propHits.set(k, v);
     opts.onPropBatch?.(batch.length, wave.timedOut);
+
+    for (const pick of batch) {
+      const key = propSimKeyForPick(pick);
+      if (!key) {
+        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
+        continue;
+      }
+      if (wave.timedOut || !wave.hits.has(key)) {
+        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
+        continue;
+      }
+      const simHit = wave.hits.get(key)?.hitProbability ?? null;
+      if (!propHasSimGrade(pick, simHit)) {
+        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit });
+      }
+    }
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
@@ -503,7 +556,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
-        if (leg) scored.push(leg);
+        if (leg) {
+          scored.push(leg);
+        } else if (sim) {
+          manifestRecorder.recordPreScoreGateFailure(row.pick, {
+            ...row.finalAiScore,
+            simHit: simHit ?? row.finalAiScore.simHit ?? null,
+          });
+        }
       }
     }
     emitBoardScanPartial();
@@ -553,6 +613,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       onPropBatch: (size, timedOut) => {
         manifestRecorder.recordPropSimBatch(size, timedOut);
       },
+      manifestRecorder,
     },
     opts.signal,
   );

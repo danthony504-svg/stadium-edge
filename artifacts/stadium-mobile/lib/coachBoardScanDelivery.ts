@@ -45,6 +45,7 @@ export function deliverCoachBoardScanTicket(
     propsSimulated: 0,
     propsSimBatches: 0,
     propsSimTimeouts: 0,
+    preScoreEvaluated: 0,
     totalEvaluated: scan.totalQualified,
     totalQualified: scan.totalQualified,
     qualifiedMain: scan.staging.mainQualified,
