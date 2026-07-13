@@ -5186,10 +5186,11 @@ export default function CoachScreen() {
     if (!parlayUserText) return false;
     const target =
       last?.ticketLegTarget ?? requestedLegCount(parlayUserText);
+    const buildIdle = !buildFinishing && !streaming && !waiting;
+    if (last?.picks?.length && buildIdle) return false;
     if (last?.picks?.length && target > 0 && last.picks.length < target) {
-      return buildFinishing || streaming;
+      return !buildIdle;
     }
-    if (last?.picks?.length) return false;
     // When the newest message is the user's parlay ask, show progress even if the
     // assistant placeholder was lost to a superseded-send race.
     return last?.role === "user";
@@ -5361,11 +5362,12 @@ export default function CoachScreen() {
               m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
             const picksShortOfTarget =
               showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
+            const buildIdle = !buildFinishing && !streaming && !waiting;
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
               picksShortOfTarget &&
-              (buildFinishing || streaming);
+              !buildIdle;
             const deadBuildProse =
               m.role === "assistant" && DEAD_BUILD_PROSE_RE.test(m.content);
             const isBuildingParlay =
@@ -5562,7 +5564,8 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung) ? (
+                {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
+                  !(showTicketPicks && buildIdle)) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
