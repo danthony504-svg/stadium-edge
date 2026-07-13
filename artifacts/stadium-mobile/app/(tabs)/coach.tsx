@@ -1551,6 +1551,7 @@ export default function CoachScreen() {
 
   const onBoardScanPartial = useCallback(
     (partial: FullBoardScanResult) => {
+      latestBoardScanRef.current = partial;
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
         setParlayBuildPhase("stream");
@@ -2833,10 +2834,27 @@ export default function CoachScreen() {
             !kernelParlayDelivered &&
             !boardTicketSnapshotRef.current?.length
           ) {
-            const scan = preferBoardScanForDelivery(
+            let scan = preferBoardScanForDelivery(
               latestBoardScanRef.current,
               preBoardScan,
             );
+            if (
+              (!scan || !boardScanIsComplete(scan)) &&
+              earlyReachBoardScanRef.current
+            ) {
+              try {
+                const settled = await earlyReachBoardScanRef.current;
+                scan = preferBoardScanForDelivery(
+                  settled,
+                  scan,
+                  latestBoardScanRef.current,
+                  preBoardScan,
+                );
+                if (scan) latestBoardScanRef.current = scan;
+              } catch {
+                /* scan promise rejected — fall through */
+              }
+            }
             if (scan && boardScanIsComplete(scan)) {
               const kernelLegTarget = Math.min(
                 requestedLegCount(trimmed) || effectiveBuildLegCount(trimmed) || legTarget,
@@ -4459,6 +4477,30 @@ export default function CoachScreen() {
         }
         picks = tagTicketRoles(picks);
         let aiFilterNote = "";
+        if (
+          !isAnalyze &&
+          isParlayBuild &&
+          earlyReachBoardScanRef.current &&
+          !boardScanIsComplete(fullBoardScanMeta) &&
+          !boardScanIsComplete(latestBoardScanRef.current)
+        ) {
+          try {
+            const settled = await earlyReachBoardScanRef.current;
+            if (settled) {
+              latestBoardScanRef.current = settled;
+              if (!fullBoardScanMeta || !boardScanIsComplete(fullBoardScanMeta)) {
+                fullBoardScanMeta = preferBoardScanForDelivery(
+                  settled,
+                  fullBoardScanMeta,
+                  preBoardScan,
+                );
+              }
+              if (boardScanIsComplete(settled)) fullBoardScanned = true;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
         let boardScanManifestDetail = "";
         const ticketEnrich = { ...pickEnrich, realOdds: mergedGameOdds };
         if (
@@ -5450,14 +5492,20 @@ export default function CoachScreen() {
     return () => clearInterval(interval);
   }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
 
-  // Silent dead-end: parlay build finished with no prose and no pick cards.
+  // Silent dead-end: parlay build finished with no pick cards (blank or generic fallback).
   useEffect(() => {
     if (streaming || buildFinishing || waiting) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    if (coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
-    if (!parlayIntent || (last.content ?? "").trim()) return;
+    if (!parlayIntent) return;
+    const content = (last.content ?? "").trim();
+    const genericFailure =
+      /couldn't ground a real ticket/i.test(content) ||
+      /couldn't ground any of those legs/i.test(content);
+    if (content && !genericFailure) return;
 
     const tryStashedDelivery = () => {
       const partial = latestBoardScanRef.current;

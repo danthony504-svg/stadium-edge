@@ -571,7 +571,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     boardExhausted: true,
     manifestRecorder,
   });
-  if (opts.onPartial && result.picks.length > 0) opts.onPartial(result);
+  if (opts.onPartial) opts.onPartial(result);
   return result;
 }
 

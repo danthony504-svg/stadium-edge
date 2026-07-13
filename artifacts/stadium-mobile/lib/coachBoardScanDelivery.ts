@@ -116,6 +116,10 @@ export function coachReplyHasScanManifest(
   );
 }
 
+/** User-facing lead when a fixed-leg parlay exhausts the board with zero deliveries. */
+export const COACH_EMPTY_BOARD_SCAN_LEAD =
+  "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._";
+
 /** Progress-only flash — never claims final shortfall; may show scored preview count. */
 export function deliverCoachBoardScanProgress(
   scan: FullBoardScanResult,
