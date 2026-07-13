@@ -247,7 +247,6 @@ export function boardScanStagedLegQualifies(
   if (propSimEdgeStagingQualifies(pick, score)) return true;
   if (pickPassesTicketGate(pick, score)) return true;
   if (qualifiesAltPick(pick, score)) return true;
-  if (!pick.isProp && score.simAligned) return true;
   return false;
 }
 
@@ -326,7 +325,7 @@ export function pickGradeDisplayLabel(
 ): string | null {
   if (!marketSupportsSimulation(pick.market ?? "", pick)) return null;
   if (!pickHasSimGrade(pick, score?.simHit)) return null;
-  if (pickQualifiesForTicketGrade(pick, score ?? undefined)) {
+  if (pickPassesTicketGate(pick, score ?? undefined)) {
     return gradeFromPickScore(pick, score);
   }
   return NOT_AI_RECOMMENDED;

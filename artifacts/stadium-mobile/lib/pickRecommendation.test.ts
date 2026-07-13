@@ -710,6 +710,28 @@ test("sanitizeCoachTicketPicks keeps all qualified legs when only some have star
   assert.equal(out.length, 2);
 });
 
+test("boardScanStagedLegQualifies rejects game lines that only have simAligned without full gates", () => {
+  const leg = {
+    isProp: false,
+    market: "Moneyline",
+    odds: 207,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 6,
+      grade: "C",
+      confidencePct: 60,
+      edgePct: 17.3,
+      simHit: 0.55,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6, grade: "C", confidencePct: 60, edgePct: 17.3, scores: {} as never },
+    },
+  };
+  assert.equal(boardScanStagedLegQualifies(leg, leg.finalAiScore), false);
+});
+
 test("propSimEdgeStagingQualifies rejects borderline confidence props below 52%", () => {
   const pick = {
     isProp: true,
