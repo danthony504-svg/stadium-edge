@@ -677,10 +677,11 @@ export function finalizeBoardBuiltCoachTicket<
   const enriched = enrichCoachPicksForGate(noFiller, enrich).map(stripHrvpFromPick);
   const kept = enriched.filter((p) => boardScanStagedLegQualifies(p, p.finalAiScore));
   if (kept.length > 0) {
+    const delivered = filterCoachDeliveredPicks(preferBettableQualifiedPicks(kept), enrich);
     return {
-      picks: preferBettableQualifiedPicks(kept),
-      removed: noFiller.length - kept.length,
-      usedRescoringFallback: kept.length < noFiller.length,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length < noFiller.length,
     };
   }
   return finalizeCoachTicketPicks(picks, enrich);
@@ -738,32 +739,40 @@ export function finalizeCoachTicketPicks<
   const noFiller = picks.filter((p) => !isFillerBackfillPick(p));
   const staged = coachPreserveStagedBoardPicks(noFiller, enrich);
   if (staged.length > 0) {
+    const delivered = filterCoachDeliveredPicks(staged, enrich);
     return {
-      picks: staged,
-      removed: noFiller.length - staged.length,
-      usedRescoringFallback: staged.length < noFiller.length,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length < noFiller.length,
     };
   }
   const strict = sanitizeCoachTicketPicks(noFiller, enrich);
   if (strict.length > 0) {
-    return { picks: strict, removed: noFiller.length - strict.length, usedRescoringFallback: false };
+    const delivered = filterCoachDeliveredPicks(strict, enrich);
+    return {
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: false,
+    };
   }
   const enriched = enrichCoachPicksForGate(noFiller, enrich);
   const preserved = preferBettableQualifiedPicks(
     filterTicketPicksPreservingTicket(enriched).map(stripHrvpFromPick),
   );
   if (preserved.length > 0) {
+    const delivered = filterCoachDeliveredPicks(preserved, enrich);
     return {
-      picks: preserved,
-      removed: noFiller.length - preserved.length,
-      usedRescoringFallback: true,
+      picks: delivered,
+      removed: noFiller.length - delivered.length,
+      usedRescoringFallback: delivered.length > 0,
     };
   }
   const flash = coachFlashTicketPicks(enriched, enrich);
   const board = flash.length > 0 ? flash : prepareBoardScanDelivery(enriched, enrich);
+  const delivered = filterCoachDeliveredPicks(board, enrich);
   return {
-    picks: board,
-    removed: noFiller.length - board.length,
-    usedRescoringFallback: board.length > 0,
+    picks: delivered,
+    removed: noFiller.length - delivered.length,
+    usedRescoringFallback: delivered.length > 0,
   };
 }

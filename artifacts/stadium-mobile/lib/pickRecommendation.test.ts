@@ -755,6 +755,32 @@ test("propSimEdgeStagingQualifies rejects borderline confidence props below 52%"
   assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), false);
 });
 
+test("prepareCoachDeliveredTicket drops negative-edge game lines", async () => {
+  const { prepareCoachDeliveredTicket } = await import("./coachTicketKernel.ts");
+  const leg = {
+    game: "Washington Mystics @ Toronto Tempo",
+    market: "Moneyline",
+    pick: "Tempo ML",
+    odds: 100,
+    isProp: false,
+    ticketRole: "main" as const,
+    finalAiScore: {
+      composite: 5,
+      grade: "C+",
+      confidencePct: 52,
+      edgePct: -0.5,
+      simHit: 0.51,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 5, grade: "C+", confidencePct: 52, edgePct: -0.5, scores: {} as never },
+    },
+  };
+  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
+  assert.equal(prepareCoachDeliveredTicket([leg], enrich).length, 0);
+});
+
 test("filterCoachDeliveredPicks drops negative-edge game lines", () => {
   const leg = {
     game: "Washington Mystics @ Toronto Tempo",

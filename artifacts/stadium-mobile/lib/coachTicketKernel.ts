@@ -12,6 +12,7 @@ import { enforceConsistentPropSides } from "./propSideConsistency.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
+import { filterCoachDeliveredPicks } from "./pickRecommendation.ts";
 
 export type CoachTicketKernelOpts = {
   enrich: CoachFlashEnrich;
@@ -51,6 +52,16 @@ export function applyCoachTicketInvariants(
     out = finalizeCoachDeliveryPicks(stripFillerBackfillPicks(picks), dedupeOpts(enrich));
   }
   return enforceConsistentPropSides(out).picks;
+}
+
+/** Final delivery gate — invariants + positive edge / AI-rec filter. Use on every write to message state. */
+export function prepareCoachDeliveredTicket(
+  picks: ParsedPick[],
+  enrich: CoachFlashEnrich,
+): ParsedPick[] {
+  if (!picks.length) return [];
+  const tagged = tagTicketRoles(picks);
+  return filterCoachDeliveredPicks(applyCoachTicketInvariants(tagged, enrich), enrich);
 }
 
 /** Display guard — lightweight dedupe only; never rescore or re-gate. */

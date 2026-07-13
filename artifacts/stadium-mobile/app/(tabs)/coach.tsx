@@ -127,7 +127,7 @@ import {
   rescoreCoachTicketPreservingLegs,
   topUpCoachTicketToTarget,
 } from "@/lib/coachTicketRescore";
-import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks } from "@/lib/coachTicketKernel";
+import { applyCoachTicketInvariants, boardScanToCoachTicket, coerceCoachDisplayPicks, prepareCoachDeliveredTicket } from "@/lib/coachTicketKernel";
 import {
   coachParlayKernelSkipStream,
   resolveCoachParlayKernelTicket,
@@ -1212,10 +1212,7 @@ export default function CoachScreen() {
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string) => {
       const enrich = flashEnrichRef.current;
-      const cleaned = filterCoachDeliveredPicks(
-        applyCoachTicketInvariants(tagTicketRoles(ticket), enrich),
-        enrich,
-      );
+      const cleaned = prepareCoachDeliveredTicket(ticket, enrich);
       if (!cleaned.length) return;
       boardTicketSnapshotRef.current = cleaned;
       patchLastAssistantPicks(setMessages, cleaned, legNote);
@@ -1295,6 +1292,9 @@ export default function CoachScreen() {
         legNote = progress.progressNote || legNote;
       }
 
+      ticket = prepareCoachDeliveredTicket(ticket, enrichWithScan);
+      if (!ticket.length) return false;
+
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
       setBoardScanPartialLegs(ticket.length);
@@ -1354,7 +1354,11 @@ export default function CoachScreen() {
     }
     const snapshot = boardTicketSnapshotRef.current;
     if (!snapshot?.length) return false;
-    const rescored = rescoreCoachTicketPreservingLegs(snapshot, enrich);
+    const rescored = prepareCoachDeliveredTicket(
+      rescoreCoachTicketPreservingLegs(snapshot, enrich),
+      enrich,
+    );
+    if (!rescored.length) return false;
     boardTicketSnapshotRef.current = rescored;
     setMessages((prev) => {
       const copy = [...prev];
@@ -1737,11 +1741,13 @@ export default function CoachScreen() {
           flashEnrichRef.current = enrich;
           const ticket = boardScanPartialToTicket(seed.boardScan, enrich);
           if (ticket.length) {
-            openingPicks = ticket;
+            openingPicks = prepareCoachDeliveredTicket(ticket, enrich);
+          }
+          if (openingPicks?.length) {
             openingLegNote =
-              earlyLegTarget > 0 && ticket.length < earlyLegTarget
+              earlyLegTarget > 0 && openingPicks.length < earlyLegTarget
                 ? seed.boardScan.note ||
-                  `You asked for **${earlyLegTarget}** legs — showing **${ticket.length}** from the precomputed slate while the full-board scan continues.`
+                  `You asked for **${earlyLegTarget}** legs — showing **${openingPicks.length}** from the precomputed slate while the full-board scan continues.`
                 : seed.boardScan.note;
           }
         }
@@ -4580,9 +4586,12 @@ export default function CoachScreen() {
                   : existingPicks?.length
                     ? existingPicks
                     : picks;
-          return isParlayBuild && legTarget >= 3
-            ? tagTicketRoles(stripFillerBackfillPicks(raw))
-            : raw;
+          return prepareCoachDeliveredTicket(
+            isParlayBuild && legTarget >= 3
+              ? stripFillerBackfillPicks(raw)
+              : raw,
+            ticketEnrich,
+          );
         };
         let outPicks: ParsedPick[] = [];
         setMessages((prev) => {
@@ -4604,6 +4613,12 @@ export default function CoachScreen() {
           return copy;
         });
         if (outPicks.length > 0) {
+          boardTicketSnapshotRef.current = outPicks;
+          setStreaming(false);
+          setWaiting(false);
+          setBuildFinishing(false);
+          setBuildProgressExpired(false);
+          setParlayBuildPhase("idle");
           setAiPicks(outPicks);
           captureFromCoach(outPicks);
         }
@@ -4735,6 +4750,10 @@ export default function CoachScreen() {
               mergedGameOdds,
               gameMeta,
             );
+            next = prepareCoachDeliveredTicket(next, {
+              ...pickEnrich,
+              realOdds: mergedGameOdds,
+            });
             // Progressive rescoring must never wipe pick cards already on screen.
             if (next.length === 0 && (boardTicketSnapshotRef.current?.length ?? 0) > 0) return;
             let simLegNote: string | undefined;
@@ -4774,6 +4793,12 @@ export default function CoachScreen() {
               simLegNote = simLegNote ? `${simLegNote}\n\n${shortfall}` : shortfall;
             }
             patchLastAssistantPicks(setMessages, next, simLegNote);
+            boardTicketSnapshotRef.current = next;
+            setStreaming(false);
+            setWaiting(false);
+            setBuildFinishing(false);
+            setBuildProgressExpired(false);
+            setParlayBuildPhase("idle");
             setAiPicks(next);
             captureFromCoach(next);
           };
@@ -5154,6 +5179,8 @@ export default function CoachScreen() {
   const footerParlayProgress = useMemo(() => {
     const last = messages[messages.length - 1];
     if (last?.picks?.length) return false;
+    const buildIdle = !buildFinishing && !streaming && !waiting;
+    if (buildIdle) return false;
     if (!(buildFinishing || streaming || buildProgressExpired)) return false;
     let parlayUserText = "";
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -5168,8 +5195,6 @@ export default function CoachScreen() {
     if (!parlayUserText) return false;
     const target =
       last?.ticketLegTarget ?? requestedLegCount(parlayUserText);
-    const buildIdle = !buildFinishing && !streaming && !waiting;
-    if (last?.picks?.length && buildIdle) return false;
     if (last?.picks?.length && target > 0 && last.picks.length < target) {
       return !buildIdle;
     }
@@ -5413,11 +5438,13 @@ export default function CoachScreen() {
             // board-scan partial has scored legs waiting for delivery gates.
             const progressLegCount = showTicketPicks
               ? displayPicks.length
-              : Math.max(
-                  boardScanPartialLegs,
-                  boardTicketSnapshotRef.current?.length ?? 0,
-                  latestBoardScanRef.current?.picks?.length ?? 0,
-                );
+              : buildIdle
+                ? 0
+                : Math.max(
+                    boardScanPartialLegs,
+                    boardTicketSnapshotRef.current?.length ?? 0,
+                    latestBoardScanRef.current?.picks?.length ?? 0,
+                  );
             // An "analyze my ticket" reply is in its waiting phase (request sent,
             // nothing streamed back yet). It carries the scanned legs (analyzeSlip)
             // so we can show the rich step-by-step AnalysisProgress instead of a
@@ -5550,7 +5577,8 @@ export default function CoachScreen() {
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
                 {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
-                  !(showTicketPicks && displayPicks.length > 0)) ? (
+                  !showTicketPicks &&
+                  !hasPicks) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
