@@ -250,7 +250,7 @@ export function NavMenu() {
                   fontSize: 15,
                 }}
               >
-                OTA Debug
+                OTA Diagnostics
               </Text>
             </Pressable>
             <Pressable

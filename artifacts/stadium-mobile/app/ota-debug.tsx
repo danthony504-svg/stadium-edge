@@ -1,5 +1,4 @@
 import * as Clipboard from "expo-clipboard";
-import * as Updates from "expo-updates";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useState } from "react";
@@ -14,13 +13,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { clearDiscoverCache } from "@/lib/discoverSessionCache";
 import {
-  forceOtaCheckAndFetch,
+  forceOtaCheckFetchAndReload,
   readOtaDebugSnapshot,
   type OtaDebugSnapshot,
 } from "@/lib/otaDebug";
-import { clearSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 
 function Row({ label, value }: { label: string; value: string }) {
   const colors = useColors();
@@ -54,16 +51,15 @@ export default function OtaDebugScreen() {
   const copyAll = async () => {
     const lines = [
       `App version: ${snap.appVersion}`,
-      `Build number: ${snap.buildNumber}`,
+      `iOS build number: ${snap.buildNumber}`,
       `Runtime version: ${snap.runtimeVersion}`,
+      `Channel: ${snap.channel}`,
       `Update ID: ${snap.updateId}`,
       `Commit hash: ${snap.commitHash}`,
-      `OTA channel: ${snap.channel}`,
-      `Last update: ${snap.lastUpdateAt}`,
+      `Update created: ${snap.updateCreatedAt}`,
+      `Bundle source: ${snap.bundleSource}`,
       `Updates enabled: ${snap.updatesEnabled}`,
-      `Embedded launch: ${snap.isEmbeddedLaunch}`,
-      `MLB fallback in bundle: ${snap.bundleHasMlbFallback}`,
-      `Bundle stamp: ${snap.bundleFeatureStamp}`,
+      `Deploy message: ${snap.deployMessage}`,
       `Update URL: ${snap.updateUrl}`,
       `Project ID: ${snap.projectId}`,
     ];
@@ -73,28 +69,15 @@ export default function OtaDebugScreen() {
 
   const runCheck = async () => {
     setBusy(true);
-    setStatus("Checking expo-updates…");
-    const result = await forceOtaCheckAndFetch();
+    setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
+    const result = await forceOtaCheckFetchAndReload();
+    if (result.reloaded) {
+      setStatus("Reloading into new bundle…");
+      return;
+    }
     refresh();
-    if (result.isAvailable) {
-      setStatus("Update downloaded — tap Reload to apply");
-    } else {
-      setStatus(result.reason ?? "No update available");
-    }
+    setStatus(result.reason ?? "No update available");
     setBusy(false);
-  };
-
-  const reload = async () => {
-    setBusy(true);
-    try {
-      await clearDiscoverCache();
-      await clearSlatePreAnalysisCache();
-      if (Updates.isEnabled) {
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      }
-    } finally {
-      setBusy(false);
-    }
   };
 
   return (
@@ -112,7 +95,7 @@ export default function OtaDebugScreen() {
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </Pressable>
         <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20, flex: 1 }}>
-          OTA Debug
+          OTA Diagnostics
         </Text>
       </View>
 
@@ -124,10 +107,10 @@ export default function OtaDebugScreen() {
         }}
       >
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-          Temporary diagnostics for App Store OTA delivery. Expected runtime{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
+          Deployment verification only. Expected: runtime <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
           <Text style={{ fontFamily: FONT.semibold }}>production</Text>, project{" "}
           <Text style={{ fontFamily: FONT.semibold }}>9af36ab9-f953-4879-9dd2-82807ef7430c</Text>.
+          App Store build <Text style={{ fontFamily: FONT.semibold }}>#62</Text> (1.0.2) is the last known production submit.
         </Text>
 
         <View
@@ -141,18 +124,16 @@ export default function OtaDebugScreen() {
           }}
         >
           <Row label="App version" value={snap.appVersion} />
-          <Row label="Build number" value={snap.buildNumber} />
+          <Row label="iOS build number" value={snap.buildNumber} />
           <Row label="Runtime version" value={snap.runtimeVersion} />
+          <Row label="Channel" value={snap.channel} />
           <Row label="Update ID" value={snap.updateId} />
-          <Row label="Commit hash (bundle)" value={snap.commitHash} />
-          <Row label="OTA channel" value={snap.channel} />
-          <Row label="Last update timestamp" value={snap.lastUpdateAt} />
+          <Row label="Commit hash (running bundle)" value={snap.commitHash} />
+          <Row label="Update creation date" value={snap.updateCreatedAt} />
+          <Row label="Bundle source" value={snap.bundleSource} />
           <Row label="Updates enabled" value={String(snap.updatesEnabled)} />
-          <Row label="Embedded launch" value={String(snap.isEmbeddedLaunch)} />
           <Row label="Update pending" value={String(snap.isUpdatePending)} />
-          <Row label="Downloading" value={String(snap.isDownloading)} />
-          <Row label="MLB ESPN fallback in bundle" value={String(snap.bundleHasMlbFallback)} />
-          <Row label="Bundle stamp" value={snap.bundleFeatureStamp} />
+          <Row label="Deploy message" value={snap.deployMessage} />
           <Row label="Update URL" value={snap.updateUrl} />
           <Row label="Expo project ID" value={snap.projectId} />
         </View>
@@ -177,27 +158,9 @@ export default function OtaDebugScreen() {
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
-                Check & download update
+                Check, fetch & reload (expo-updates)
               </Text>
             )}
-          </Pressable>
-
-          <Pressable
-            onPress={() => void reload()}
-            disabled={busy}
-            style={({ pressed }) => ({
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: 10,
-              paddingVertical: 14,
-              alignItems: "center",
-              opacity: pressed || busy ? 0.85 : 1,
-            })}
-          >
-            <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 15 }}>
-              Reload app
-            </Text>
           </Pressable>
 
           <Pressable
@@ -212,7 +175,7 @@ export default function OtaDebugScreen() {
             })}
           >
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 14 }}>
-              Refresh &amp; copy report
+              Refresh & copy report
             </Text>
           </Pressable>
         </View>

@@ -2,25 +2,22 @@ import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
-import { isHomeDiscoverable } from "./slate";
-
 export type OtaDebugSnapshot = {
   appVersion: string;
   buildNumber: string;
   runtimeVersion: string;
+  channel: string;
   updateId: string;
   commitHash: string;
-  channel: string;
-  lastUpdateAt: string;
+  updateCreatedAt: string;
+  bundleSource: "embedded" | "ota" | "unknown";
   updatesEnabled: boolean;
-  isEmbeddedLaunch: boolean;
   isUpdatePending: boolean;
   isDownloading: boolean;
   updateUrl: string;
   projectId: string;
+  deployMessage: string;
   expectedCommit: string;
-  bundleHasMlbFallback: boolean;
-  bundleFeatureStamp: string;
 };
 
 function str(v: unknown, fallback = "—"): string {
@@ -28,7 +25,7 @@ function str(v: unknown, fallback = "—"): string {
   return String(v);
 }
 
-/** Collect OTA / bundle metadata for the debug screen. */
+/** Collect OTA deployment metadata for on-device diagnostics. */
 export function readOtaDebugSnapshot(): OtaDebugSnapshot {
   const expo = Constants.expoConfig;
   const extra = expo?.extra as { eas?: { projectId?: string } } | undefined;
@@ -46,53 +43,86 @@ export function readOtaDebugSnapshot(): OtaDebugSnapshot {
     (Updates as { createdAt?: Date | string | null }).createdAt ??
     (Updates.manifest as { createdAt?: string } | null)?.createdAt;
 
-  let lastUpdateAt = "—";
+  let updateCreatedAt = "—";
   if (createdAt) {
     const d = createdAt instanceof Date ? createdAt : new Date(createdAt);
-    lastUpdateAt = Number.isFinite(d.getTime()) ? d.toISOString() : str(createdAt);
+    updateCreatedAt = Number.isFinite(d.getTime()) ? d.toISOString() : str(createdAt);
   }
+
+  const bundleSource: OtaDebugSnapshot["bundleSource"] = !Updates.isEnabled
+    ? "unknown"
+    : Updates.isEmbeddedLaunch
+      ? "embedded"
+      : "ota";
 
   return {
     appVersion: str(expo?.version ?? Constants.nativeAppVersion),
     buildNumber: str(Constants.nativeBuildVersion),
     runtimeVersion: str(Updates.runtimeVersion ?? expo?.runtimeVersion),
+    channel,
     updateId: str(Updates.updateId, Updates.isEmbeddedLaunch ? "embedded" : "—"),
     commitHash: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked",
-    channel,
-    lastUpdateAt,
+    updateCreatedAt,
+    bundleSource,
     updatesEnabled: Updates.isEnabled,
-    isEmbeddedLaunch: Updates.isEmbeddedLaunch,
     isUpdatePending: !!latestContext?.isUpdatePending,
     isDownloading: !!latestContext?.isDownloading,
     updateUrl: str(updatesCfg?.url),
     projectId: str(extra?.eas?.projectId),
-    expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "not-baked",
-    bundleHasMlbFallback: typeof isHomeDiscoverable === "function",
-    bundleFeatureStamp: process.env.EXPO_PUBLIC_BUNDLE_STAMP ?? "unknown",
+    deployMessage: process.env.EXPO_PUBLIC_DEPLOY_MESSAGE ?? "—",
+    expectedCommit: process.env.EXPO_PUBLIC_GIT_COMMIT ?? "—",
   };
 }
 
 export type OtaCheckResult = {
-  isAvailable: boolean;
+  downloaded: boolean;
+  reloaded: boolean;
   reason?: string;
 };
 
-/** Run check + fetch; returns whether a new bundle was downloaded. */
-export async function forceOtaCheckAndFetch(): Promise<OtaCheckResult> {
+/**
+ * Check, fetch, and reload via expo-updates only — never reset React error
+ * boundaries (that reopens the same in-memory JS bundle).
+ */
+export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
   if (__DEV__ || !Updates.isEnabled) {
-    return { isAvailable: false, reason: "Updates disabled (dev build or expo-updates off)" };
+    return {
+      downloaded: false,
+      reloaded: false,
+      reason: "Updates disabled (dev build or expo-updates off)",
+    };
   }
   try {
     const check = await Updates.checkForUpdateAsync();
-    if (!check.isAvailable) {
-      return { isAvailable: false, reason: "Server reports no newer update for this runtime/channel" };
+    if (check.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      return { downloaded: true, reloaded: true };
     }
-    await Updates.fetchUpdateAsync();
-    return { isAvailable: true };
+    const pending = !!latestContext?.isUpdatePending;
+    if (pending) {
+      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
+      return { downloaded: false, reloaded: true, reason: "Pending update applied via reload" };
+    }
+    return {
+      downloaded: false,
+      reloaded: false,
+      reason: "Server reports no newer update for this runtime/channel",
+    };
   } catch (e) {
     return {
-      isAvailable: false,
+      downloaded: false,
+      reloaded: false,
       reason: e instanceof Error ? e.message : String(e),
     };
   }
+}
+
+/** @deprecated Use forceOtaCheckFetchAndReload */
+export async function forceOtaCheckAndFetch(): Promise<{ isAvailable: boolean; reason?: string }> {
+  const r = await forceOtaCheckFetchAndReload();
+  return {
+    isAvailable: r.downloaded || r.reloaded,
+    reason: r.reason,
+  };
 }
