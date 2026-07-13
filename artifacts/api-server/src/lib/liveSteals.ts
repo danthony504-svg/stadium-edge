@@ -16,6 +16,7 @@ import {
   tallyGameScan,
   tallyPropScan,
   buildScanMeta,
+  finalizeStealScanStats,
   seasonStatsFromGraded,
   type FeedProp,
   type OddsRow,
@@ -93,14 +94,13 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     }),
   );
 
-  const bookSet = new Set<string>();
-  let marketsChecked = 0;
-  let longshotsAnalyzed = 0;
+  const gameTallies: Array<{
+    marketsChecked: number;
+    longshotsAnalyzed: number;
+    books: Set<string>;
+  }> = [];
   for (const rows of oddsBySport.values()) {
-    const tally = tallyGameScan(rows);
-    marketsChecked += tally.marketsChecked;
-    longshotsAnalyzed += tally.longshotsAnalyzed;
-    for (const b of tally.books) bookSet.add(b);
+    gameTallies.push(tallyGameScan(rows));
   }
 
   const gameSteals: Steal[] = [];
@@ -124,8 +124,7 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     }),
   );
   const propTally = tallyPropScan(propGames);
-  marketsChecked += propTally.marketsChecked;
-  longshotsAnalyzed += propTally.longshotsAnalyzed;
+  const scanStats = finalizeStealScanStats(gameTallies, propTally);
 
   const propSteals = findPropSteals(propGames);
   const nearProp = findNearMissPropSteals(propGames);
@@ -149,12 +148,7 @@ export async function fetchStealsWithMeta(): Promise<LiveStealsPayload> {
     .sort((a, b) => (b.edge ?? 0) - (a.edge ?? 0))
     .slice(0, 12);
 
-  const booksScanned = bookSet.size > 0 ? bookSet.size : STEAL_SPORTS.length * 3;
-  const meta = buildScanMeta(steals, almostQualified, {
-    marketsChecked,
-    longshotsAnalyzed,
-    booksScanned,
-  });
+  const meta = buildScanMeta(steals, almostQualified, scanStats);
 
   freshCache = { at: Date.now(), steals, meta, almostQualified };
   return { steals, meta, almostQualified };

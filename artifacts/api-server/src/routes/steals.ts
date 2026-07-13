@@ -24,6 +24,7 @@ const EMPTY_SCAN_META = {
   stealsFound: 0,
   sportCounts: {} as Record<string, number>,
   totalOpportunities: 0,
+  scanComplete: false,
 };
 
 router.get("/sports/live-steals", async (req, res): Promise<void> => {

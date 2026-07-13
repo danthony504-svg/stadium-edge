@@ -8,6 +8,8 @@ import {
   inStealBand,
   recordLabel,
   recordWinPct,
+  stealScanIsComplete,
+  stealScanStatsAreConsistent,
   STEAL_MAX_ODDS,
   STEAL_MIN_ODDS,
   type StealRecord,
@@ -63,4 +65,46 @@ test("americanToDecimal", () => {
   assert.equal(americanToDecimal(100), 2);
   assert.equal(americanToDecimal(-100), 2);
   assert.equal(americanToDecimal(650), 7.5);
+});
+
+test("stealScanStatsAreConsistent rejects zero books with market counts", () => {
+  assert.equal(
+    stealScanStatsAreConsistent({
+      booksScanned: 0,
+      marketsChecked: 2184,
+      longshotsAnalyzed: 117,
+      stealsFound: 0,
+      sportCounts: {},
+      totalOpportunities: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    stealScanStatsAreConsistent({
+      booksScanned: 12,
+      marketsChecked: 2184,
+      longshotsAnalyzed: 117,
+      stealsFound: 0,
+      sportCounts: {},
+      totalOpportunities: 0,
+      scanComplete: true,
+    }),
+    true,
+  );
+});
+
+test("stealScanIsComplete honors scanComplete flag", () => {
+  assert.equal(
+    stealScanIsComplete({
+      booksScanned: 12,
+      marketsChecked: 100,
+      longshotsAnalyzed: 10,
+      stealsFound: 0,
+      sportCounts: {},
+      totalOpportunities: 0,
+      scanComplete: true,
+    }),
+    true,
+  );
+  assert.equal(stealScanIsComplete(undefined, true), false);
 });

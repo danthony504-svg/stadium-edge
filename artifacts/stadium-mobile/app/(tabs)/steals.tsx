@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -27,6 +27,9 @@ import {
   nearMissNeededLabel,
   recordLabel,
   recordWinPct,
+  stealScanIsComplete,
+  stealScanStatsAreConsistent,
+  normalizeStealScanMeta,
 } from "@/lib/steals";
 
 const STEAL_ACCENT = "#a855f7"; // violet — longshot upside, distinct from the app's cyan/green/amber
@@ -164,35 +167,39 @@ function SeasonRecordCard({
 
 function ScanProgressPanel({
   meta,
-  loading,
-  step,
+  phase,
 }: {
   meta?: StealScanMeta;
-  loading: boolean;
-  step: number;
+  phase: "loading" | "complete" | "empty";
 }) {
   const colors = useColors();
-  const books = meta?.booksScanned ?? 24;
-  const markets = meta?.marketsChecked ?? 0;
-  const longshots = meta?.longshotsAnalyzed ?? 0;
+  const consistent = stealScanStatsAreConsistent(meta);
+  const books = consistent ? meta!.booksScanned : null;
+  const markets = consistent ? meta!.marketsChecked : null;
+  const longshots = consistent ? meta!.longshotsAnalyzed : null;
   const found = meta?.stealsFound ?? 0;
 
-  const hasLiveScan = (meta?.marketsChecked ?? 0) > 0;
-  const lines = hasLiveScan
-    ? [
-        { label: `Scanning: ${books} sportsbooks...`, done: true },
-        { label: `${formatScanCount(markets)} markets checked`, done: true },
-        { label: `${formatScanCount(longshots)} longshots analyzed`, done: true },
-        { label: `${found} value steals found`, done: true },
-      ]
-    : loading
+  const lines =
+    phase === "loading"
       ? [
-          { label: `Scanning: ${books} sportsbooks...`, done: step >= 1 },
-          { label: `${formatScanCount(markets || 2184)} markets checked`, done: step >= 2 },
-          { label: `${formatScanCount(longshots || 117)} longshots analyzed`, done: step >= 3 },
-          { label: `${found} value steals found`, done: step >= 4 },
+          { label: "Scanning sportsbooks…", done: false },
+          { label: "Checking markets…", done: false },
+          { label: "Analyzing longshots…", done: false },
+          { label: "Looking for value steals…", done: false },
         ]
-      : [];
+      : phase === "empty"
+        ? [
+            { label: `Scanned ${books} sportsbook${books === 1 ? "" : "s"}`, done: true },
+            { label: `${formatScanCount(markets!)} markets checked`, done: true },
+            { label: `${formatScanCount(longshots!)} longshots evaluated`, done: true },
+            { label: "No +500 value opportunities found at this time.", done: true },
+          ]
+        : [
+            { label: `Scanned ${books} sportsbook${books === 1 ? "" : "s"}`, done: true },
+            { label: `${formatScanCount(markets!)} markets checked`, done: true },
+            { label: `${formatScanCount(longshots!)} longshots evaluated`, done: true },
+            { label: `${found} value steal${found === 1 ? "" : "s"} found`, done: true },
+          ];
 
   return (
     <View style={{ gap: 10, marginBottom: 8 }}>
@@ -212,13 +219,13 @@ function ScanProgressPanel({
           </Text>
         </View>
       ))}
-      {!loading && hasLiveScan ? (
+      {phase === "complete" ? (
         <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.semibold, fontSize: 12, marginTop: 4 }}>
           Updating every 3 seconds…
         </Text>
-      ) : loading ? (
+      ) : phase === "empty" ? (
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, marginTop: 4 }}>
-          Scanning until a steal is found…
+          We&apos;ll rescan every few seconds in case a new longshot surfaces.
         </Text>
       ) : null}
     </View>
@@ -570,7 +577,6 @@ export default function StealsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [sportFilter, setSportFilter] = useState<string | null>(null);
-  const [scanStep, setScanStep] = useState(0);
 
   const query = useQuery({
     queryKey: ["live-steals"],
@@ -591,10 +597,23 @@ export default function StealsScreen() {
   });
 
   const steals = query.data?.steals ?? [];
-  const meta = query.data?.meta;
+  const meta = normalizeStealScanMeta(query.data?.meta);
   const almostQualified = query.data?.almostQualified ?? [];
   const seasonStats = query.data?.seasonStats;
   const hasResults = steals.length > 0 || almostQualified.length > 0;
+  const feedUnreachable = Boolean(query.data?.feedDegraded);
+  const scanComplete = stealScanIsComplete(meta, feedUnreachable);
+  const awaitingFirstResponse = query.isLoading && !query.data;
+  const scanPhase: "loading" | "complete" | "empty" =
+    awaitingFirstResponse || (!scanComplete && query.isFetching)
+      ? "loading"
+      : hasResults
+        ? "complete"
+        : scanComplete
+          ? "empty"
+          : "loading";
+  const showHuntingUi = scanPhase === "loading";
+  const showEmptyScanUi = scanPhase === "empty";
   const filteredSteals = React.useMemo(
     () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
     [steals, sportFilter],
@@ -602,29 +621,11 @@ export default function StealsScreen() {
   const record: StealRecord =
     query.data?.record ?? { wins: 0, losses: 0, pushes: 0, pending: 0, ungraded: 0, graded: 0 };
 
-  // Keep hunting until at least one qualified steal or near-miss surfaces.
-  const hunting = !hasResults;
-  const awaitingFirstResponse = query.isLoading && !query.data;
-  const showHuntingUi = hunting;
-  const feedUnreachable = Boolean(query.data?.feedDegraded) && hunting;
-
   useFocusEffect(
     useCallback(() => {
-      if (!hasResults) void query.refetch();
-    }, [hasResults, query.refetch]),
+      if (!scanComplete) void query.refetch();
+    }, [scanComplete, query.refetch]),
   );
-
-  useEffect(() => {
-    if (!showHuntingUi) {
-      setScanStep(4);
-      return;
-    }
-    setScanStep(0);
-    const id = setInterval(() => {
-      setScanStep((s) => (s >= 4 ? 0 : s + 1));
-    }, 450);
-    return () => clearInterval(id);
-  }, [showHuntingUi, meta?.marketsChecked, meta?.longshotsAnalyzed]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -671,7 +672,7 @@ export default function StealsScreen() {
       >
         <SeasonRecordCard record={record} seasonStats={seasonStats} />
 
-      {!showHuntingUi && meta ? <ScanProgressPanel meta={meta} loading={false} step={4} /> : null}
+      {!showHuntingUi && meta ? <ScanProgressPanel meta={meta} phase={scanPhase} /> : null}
         {!showHuntingUi && meta ? <StealsFoundToday meta={meta} /> : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
@@ -756,11 +757,7 @@ export default function StealsScreen() {
         </View>
 
         {showHuntingUi ? (
-          <ScanProgressPanel
-            meta={meta}
-            loading={awaitingFirstResponse || query.isFetching}
-            step={scanStep}
-          />
+          <ScanProgressPanel meta={meta} phase="loading" />
         ) : null}
 
         {showHuntingUi ? (
@@ -778,16 +775,29 @@ export default function StealsScreen() {
                   <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.bold, fontSize: 12 }}>Retry now</Text>
                 </Pressable>
               </View>
-            ) : meta && meta.marketsChecked > 0 ? (
-              <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                {formatScanCount(meta.marketsChecked)} markets checked · {meta.longshotsAnalyzed} longshots · rescanning every 3s
-              </Text>
             ) : (
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                Rescanning every 3s until a longshot with real edge surfaces…
+                Scanning sportsbooks for longshots with real edge…
               </Text>
             )}
           </RadarScan>
+        ) : showEmptyScanUi ? (
+          <View
+            style={{
+              alignItems: "center",
+              gap: 12,
+              paddingVertical: 24,
+              paddingHorizontal: 12,
+            }}
+          >
+            <Feather name="search" size={28} color={STEAL_ACCENT} />
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 18, textAlign: "center" }}>
+              No steals right now
+            </Text>
+            <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
+              The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
+            </Text>
+          </View>
         ) : (
           <>
             {filteredSteals.length > 0 ? (

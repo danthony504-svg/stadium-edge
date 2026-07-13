@@ -150,7 +150,12 @@ export type StealScanMeta = {
   stealsFound: number;
   sportCounts: Record<string, number>;
   totalOpportunities: number;
+  /** True when a full odds/props pass finished (even if zero steals qualified). */
+  scanComplete: boolean;
 };
+
+/** Conservative book-count estimate when outcome-level book lists are absent. */
+export const STEAL_BOOKS_FALLBACK = STEAL_SPORTS.length * 3;
 
 export type NearMissSteal = Steal & {
   neededEdgePct: number;
@@ -199,10 +204,44 @@ export function tallyPropScan(games: PropGame[]): { marketsChecked: number; long
   return { marketsChecked, longshotsAnalyzed };
 }
 
+export function finalizeStealScanStats(
+  gameTallies: Array<{ marketsChecked: number; longshotsAnalyzed: number; books: Set<string> }>,
+  propTally: { marketsChecked: number; longshotsAnalyzed: number },
+): {
+  marketsChecked: number;
+  longshotsAnalyzed: number;
+  booksScanned: number;
+  scanComplete: boolean;
+} {
+  const bookSet = new Set<string>();
+  let marketsChecked = 0;
+  let longshotsAnalyzed = 0;
+  for (const tally of gameTallies) {
+    marketsChecked += tally.marketsChecked;
+    longshotsAnalyzed += tally.longshotsAnalyzed;
+    for (const book of tally.books) bookSet.add(book);
+  }
+  marketsChecked += propTally.marketsChecked;
+  longshotsAnalyzed += propTally.longshotsAnalyzed;
+
+  if (marketsChecked <= 0) {
+    return { marketsChecked: 0, longshotsAnalyzed: 0, booksScanned: 0, scanComplete: false };
+  }
+
+  const booksScanned =
+    bookSet.size > 0 ? bookSet.size : STEAL_BOOKS_FALLBACK;
+  return { marketsChecked, longshotsAnalyzed, booksScanned, scanComplete: true };
+}
+
 export function buildScanMeta(
   steals: Steal[],
   almostQualified: NearMissSteal[],
-  stats: { marketsChecked: number; longshotsAnalyzed: number; booksScanned: number },
+  stats: {
+    marketsChecked: number;
+    longshotsAnalyzed: number;
+    booksScanned: number;
+    scanComplete?: boolean;
+  },
 ): StealScanMeta {
   return {
     booksScanned: stats.booksScanned,
@@ -211,6 +250,7 @@ export function buildScanMeta(
     stealsFound: steals.length,
     sportCounts: sportCountsForSteals(steals),
     totalOpportunities: steals.length + almostQualified.length,
+    scanComplete: stats.scanComplete === true,
   };
 }
 

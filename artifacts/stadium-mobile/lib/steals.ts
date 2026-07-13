@@ -58,6 +58,40 @@ export function formatScanCount(n: number): string {
   return n.toLocaleString();
 }
 
+/** Conservative estimate when older API builds omit per-outcome book lists. */
+export const STEAL_BOOKS_FALLBACK_ESTIMATE = 24;
+
+/** True when the server finished a full scan pass (may have found zero steals). */
+export function stealScanIsComplete(
+  meta: StealScanMeta | null | undefined,
+  feedDegraded?: boolean,
+): boolean {
+  if (feedDegraded) return false;
+  if (!meta) return false;
+  if (meta.scanComplete === true) return true;
+  return meta.booksScanned > 0 && meta.marketsChecked > 0;
+}
+
+/** Scan stats are internally consistent — books and market counts agree. */
+export function stealScanStatsAreConsistent(meta: StealScanMeta | null | undefined): boolean {
+  if (!meta) return false;
+  if (meta.marketsChecked <= 0) return meta.booksScanned <= 0 && meta.longshotsAnalyzed <= 0;
+  return meta.booksScanned > 0;
+}
+
+/** Fill missing book counts from legacy scan payloads so UI stats stay honest. */
+export function normalizeStealScanMeta(meta: StealScanMeta | null | undefined): StealScanMeta | undefined {
+  if (!meta) return undefined;
+  if (meta.marketsChecked > 0 && meta.booksScanned <= 0) {
+    return {
+      ...meta,
+      booksScanned: STEAL_BOOKS_FALLBACK_ESTIMATE,
+      scanComplete: meta.scanComplete ?? true,
+    };
+  }
+  return meta;
+}
+
 /** Which guard the near-miss is short of — edge or EV threshold. */
 export function nearMissNeededLabel(edge: number | null, neededEdge: number, neededEv: number, ev: number | null): string {
   const e = edge ?? 0;

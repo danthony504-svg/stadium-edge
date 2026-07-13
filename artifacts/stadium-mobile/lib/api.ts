@@ -720,6 +720,8 @@ export type StealScanMeta = {
   stealsFound: number;
   sportCounts: Record<string, number>;
   totalOpportunities: number;
+  /** True when a full scan finished — even if zero steals qualified. */
+  scanComplete?: boolean;
 };
 
 export type NearMissSteal = LiveSteal & {
@@ -771,6 +773,7 @@ const EMPTY_STEAL_SCAN_META: StealScanMeta = {
   stealsFound: 0,
   sportCounts: {},
   totalOpportunities: 0,
+  scanComplete: false,
 };
 
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
