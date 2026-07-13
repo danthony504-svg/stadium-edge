@@ -8,7 +8,7 @@ import {
   explainBoardLegQualification,
   pickLabelForManifest,
 } from "./boardLegQualification.ts";
-import type { BoardScoredLeg } from "./ticketStaging.ts";
+import type { FinalAiScore } from "./finalAiScore.ts";
 import { isRealisticBoardPropCandidate } from "./boardPropSimExpansion.ts";
 import { isAltPropPick } from "./altLinePool.ts";
 
@@ -49,6 +49,8 @@ export type CoachBoardScanManifest = {
   propsSimBatches: number;
   propsSimTimeouts: number;
 
+  /** Sim finished but pick never entered scored[] (null MC hit, timeout, etc.). */
+  preScoreEvaluated: number;
   totalEvaluated: number;
   totalQualified: number;
   qualifiedMain: number;
@@ -102,6 +104,7 @@ export function emptyCoachBoardScanManifest(requestedLegs = 0): CoachBoardScanMa
     propsSimulated: 0,
     propsSimBatches: 0,
     propsSimTimeouts: 0,
+    preScoreEvaluated: 0,
     totalEvaluated: 0,
     totalQualified: 0,
     qualifiedMain: 0,
@@ -143,6 +146,8 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
   recordPropPoolRow(pick: ParsedPick): void;
   recordGameLineSimulated(): void;
   recordPropSimBatch(size: number, timedOut: boolean): void;
+  /** Sim ran but the pick could not be graded (null MC hit, batch timeout, etc.). */
+  recordPreScoreGateFailure(pick: ParsedPick, score?: Partial<FinalAiScore> | null): void;
   recordEvaluatedLeg(leg: BoardScoredLeg): void;
   recordEvaluatedPick(pick: ParsedPick, score: ParsedPick["finalAiScore"]): void;
   recomputeQualificationFromScored(scored: BoardScoredLeg[]): void;
@@ -151,12 +156,49 @@ export type CoachBoardScanManifestRecorder = CoachBoardScanManifest & {
 
 const MAX_REJECTED_SAMPLES = 80;
 
+function mergeGateFailureCounts(
+  a: Partial<Record<BoardLegGateCode, number>>,
+  b: Partial<Record<BoardLegGateCode, number>>,
+): Partial<Record<BoardLegGateCode, number>> {
+  const out: Partial<Record<BoardLegGateCode, number>> = { ...a };
+  for (const [gate, count] of Object.entries(b)) {
+    if (!count) continue;
+    const code = gate as BoardLegGateCode;
+    out[code] = (out[code] ?? 0) + count;
+  }
+  return out;
+}
+
 export function createCoachBoardScanManifestRecorder(requestedLegs: number): CoachBoardScanManifestRecorder {
   const manifest = emptyCoachBoardScanManifest(requestedLegs);
   const seenRejectFp = new Set<string>();
+  const seenPreScoreFp = new Set<string>();
+  let preScoreGateFailures: Partial<Record<BoardLegGateCode, number>> = {};
+  let preScoreRejectedSamples: CoachBoardScanManifest["rejectedSamples"] = [];
 
-  const bumpGate = (gate: BoardLegGateCode) => {
-    manifest.gateFailureCounts[gate] = (manifest.gateFailureCounts[gate] ?? 0) + 1;
+  const bumpGate = (gate: BoardLegGateCode, target: Partial<Record<BoardLegGateCode, number>>) => {
+    target[gate] = (target[gate] ?? 0) + 1;
+  };
+
+  const pushRejectedSample = (
+    pick: ParsedPick,
+    gate: BoardLegGateCode,
+    reason: string,
+    bucket: CoachBoardScanManifest["rejectedSamples"],
+    seen: Set<string>,
+  ) => {
+    const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|${gate}`;
+    if (seen.has(fp) || bucket.length >= MAX_REJECTED_SAMPLES) return;
+    seen.add(fp);
+    bucket.push({
+      game: pick.game,
+      market: String(pick.market ?? ""),
+      pick: pickLabelForManifest(pick),
+      category: boardMarketCategory(pick),
+      family: classifyManifestMarketFamily(pick),
+      gate,
+      reason,
+    });
   };
 
   const recorder: CoachBoardScanManifestRecorder = {
@@ -190,11 +232,19 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       manifest.marketsSimulated += size;
       if (timedOut) manifest.propsSimTimeouts += 1;
     },
+    recordPreScoreGateFailure(pick, score) {
+      const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|pre_score`;
+      if (seenPreScoreFp.has(fp)) return;
+      seenPreScoreFp.add(fp);
+      manifest.preScoreEvaluated += 1;
+      const q = explainBoardLegQualification(pick, (score as FinalAiScore | null | undefined) ?? null);
+      bumpGate(q.gate, preScoreGateFailures);
+      pushRejectedSample(pick, q.gate, q.reason, preScoreRejectedSamples, seenRejectFp);
+    },
     recordEvaluatedLeg(leg) {
       recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
     },
     recordEvaluatedPick(pick, score) {
-      manifest.totalEvaluated += 1;
       const q = explainBoardLegQualification(pick, score);
       if (q.qualifies) {
         manifest.totalQualified += 1;
@@ -204,19 +254,8 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
         manifest.qualifiedByCategory[cat] += 1;
         return;
       }
-      bumpGate(q.gate);
-      const fp = `${pick.game}|${pick.market}|${pick.pick}|${pick.odds}|${q.gate}`;
-      if (seenRejectFp.has(fp) || manifest.rejectedSamples.length >= MAX_REJECTED_SAMPLES) return;
-      seenRejectFp.add(fp);
-      manifest.rejectedSamples.push({
-        game: pick.game,
-        market: String(pick.market ?? ""),
-        pick: pickLabelForManifest(pick),
-        category: boardMarketCategory(pick),
-        family: classifyManifestMarketFamily(pick),
-        gate: q.gate,
-        reason: q.reason,
-      });
+      bumpGate(q.gate, manifest.gateFailureCounts);
+      pushRejectedSample(pick, q.gate, q.reason, manifest.rejectedSamples, seenRejectFp);
     },
     recomputeQualificationFromScored(scored) {
       manifest.totalQualified = 0;
@@ -226,16 +265,28 @@ export function createCoachBoardScanManifestRecorder(requestedLegs: number): Coa
       manifest.gateFailureCounts = {};
       manifest.rejectedSamples = [];
       seenRejectFp.clear();
-      manifest.totalEvaluated = scored.length;
+
       for (const leg of scored) {
         recorder.recordEvaluatedPick(leg.pick, leg.pick.finalAiScore);
       }
+
+      manifest.totalEvaluated = manifest.preScoreEvaluated + scored.length;
     },
     finalize(opts) {
       manifest.scanComplete = opts.scanComplete;
       manifest.boardExhausted = opts.boardExhausted;
       manifest.deliveredLegs = opts.deliveredLegs;
-      return { ...manifest, rejectedSamples: [...manifest.rejectedSamples] };
+      if (!manifest.totalEvaluated) {
+        manifest.totalEvaluated = manifest.preScoreEvaluated;
+      }
+      return {
+        ...manifest,
+        gateFailureCounts: mergeGateFailureCounts(preScoreGateFailures, manifest.gateFailureCounts),
+        rejectedSamples: [...preScoreRejectedSamples, ...manifest.rejectedSamples].slice(
+          0,
+          MAX_REJECTED_SAMPLES,
+        ),
+      };
     },
   };
 
@@ -317,6 +368,11 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
   lines.push("");
   lines.push("**Qualification**");
   lines.push(`- Candidates evaluated (with sim): **${manifest.totalEvaluated.toLocaleString()}**`);
+  if (manifest.preScoreEvaluated > 0) {
+    lines.push(
+      `- Sim completed but not gradable: **${manifest.preScoreEvaluated.toLocaleString()}** (null MC hit, timeout, or missing score)`,
+    );
+  }
   lines.push(`- Qualified (main): **${manifest.qualifiedMain}**`);
   lines.push(`- Qualified (alt): **${manifest.qualifiedAlt}**`);
   lines.push(
@@ -355,6 +411,14 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
     } else if (manifest.qualifiedMain + manifest.qualifiedAlt > 0) {
       lines.push(
         `- **0 legs delivered** — **${manifest.qualifiedMain + manifest.qualifiedAlt}** passed sim/AI gates but none survived final delivery (horizon, dedupe, or in-flight rescoring).`,
+      );
+    } else if (manifest.marketsSimulated > 0 && manifest.totalEvaluated > 0) {
+      lines.push(
+        `- **0 legs delivered** — **${manifest.marketsSimulated.toLocaleString()}** markets got 10k MC sims; **${manifest.totalEvaluated.toLocaleString()}** were graded but none passed edge, EV, and confidence gates. See gate failures above.`,
+      );
+    } else if (manifest.marketsSimulated > 0) {
+      lines.push(
+        `- **0 legs delivered** — **${manifest.marketsSimulated.toLocaleString()}** markets were simulated but none produced a gradable sim result on this slate.`,
       );
     } else {
       lines.push(

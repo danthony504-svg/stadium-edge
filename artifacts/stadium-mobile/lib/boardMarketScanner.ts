@@ -225,6 +225,7 @@ function appendPropScoredLegs(
     mlbGameEnv?: Record<string, unknown>;
     perfByFamily?: Map<string, MarketPerf>;
     calibration?: Map<string, CalibrationBucket>;
+    manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
   },
 ): void {
   const pending = rankedProps.filter((p) => {
@@ -296,6 +297,7 @@ async function simPropPoolUntilQualified(
     calibration?: Map<string, CalibrationBucket>;
     onWave?: (scored: BoardScoredLeg[]) => void;
     onPropBatch?: (size: number, timedOut: boolean) => void;
+    manifestRecorder?: ReturnType<typeof createCoachBoardScanManifestRecorder>;
   },
   signal?: AbortSignal,
 ): Promise<{ propScored: BoardScoredLeg[]; propHits: Map<string, { hitProbability: number | null }>; simEvaluated: number }> {
@@ -327,6 +329,7 @@ async function simPropPoolUntilQualified(
     mlbGameEnv: opts.mlbGameEnv,
     perfByFamily: opts.perfByFamily,
     calibration: opts.calibration,
+    manifestRecorder: opts.manifestRecorder,
   };
 
   const combinedScored = () => [...gameScored, ...propScored];
@@ -346,6 +349,19 @@ async function simPropPoolUntilQualified(
     const wave = await simPropBatch(batch, pool, signal);
     for (const [k, v] of wave.hits) propHits.set(k, v);
     opts.onPropBatch?.(batch.length, wave.timedOut);
+
+    for (const pick of batch) {
+      const key = propSimKeyForPick(pick);
+      if (!key) continue;
+      if (wave.timedOut || !wave.hits.has(key)) {
+        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit: null });
+        continue;
+      }
+      const simHit = wave.hits.get(key)?.hitProbability ?? null;
+      if (!propHasSimGrade(pick, simHit)) {
+        opts.manifestRecorder?.recordPreScoreGateFailure(pick, { simHit });
+      }
+    }
 
     appendPropScoredLegs(rankedProps, propHits, propScored, seenFp, scoreOpts);
     opts.onWave?.(combinedScored());
@@ -503,7 +519,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const simHit = gameSimHitForPick(row.pick, sim);
         if (sim) manifestRecorder.recordGameLineSimulated();
         const leg = scoredFromEvalRow(row, opts.perfByFamily, simHit, opts.calibration);
-        if (leg) scored.push(leg);
+        if (leg) {
+          scored.push(leg);
+        } else if (sim) {
+          manifestRecorder.recordPreScoreGateFailure(row.pick, {
+            ...row.finalAiScore,
+            simHit: simHit ?? row.finalAiScore.simHit ?? null,
+          });
+        }
       }
     }
     emitBoardScanPartial();
@@ -553,6 +576,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       onPropBatch: (size, timedOut) => {
         manifestRecorder.recordPropSimBatch(size, timedOut);
       },
+      manifestRecorder,
     },
     opts.signal,
   );
