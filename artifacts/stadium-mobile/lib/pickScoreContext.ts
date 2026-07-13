@@ -471,6 +471,17 @@ function edgePctFromPick(
   entryEdge: number | null | undefined,
   simHit: number | null | undefined,
 ): number | null {
+  if (simHit != null && pick.odds != null) {
+    const simEdge = simEdgeFromHit(simHit, pick.odds);
+    if (
+      simEdge != null &&
+      Number.isFinite(simHit) &&
+      simHit > 0 &&
+      simHit < 1
+    ) {
+      return simEdge;
+    }
+  }
   if (entryEdge != null && Number.isFinite(entryEdge)) return entryEdge;
   const edgeNum = (pick as { edgeNum?: number }).edgeNum;
   if (typeof edgeNum === "number" && Number.isFinite(edgeNum)) return edgeNum;

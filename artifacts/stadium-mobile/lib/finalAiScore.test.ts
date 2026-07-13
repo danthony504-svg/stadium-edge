@@ -93,6 +93,33 @@ test("buildFinalAiScore recommends sim-aligned B+ leg", () => {
   assert.equal(score.highRiskValuePlay, false);
 });
 
+test("buildFinalAiScore prop aligns when sim beats implied even below 52% hit", () => {
+  const score = buildFinalAiScore({
+    pick: {
+      game: "Sparks @ Dream",
+      market: "Points",
+      pick: "Player Over 17.5 Points",
+      odds: 105,
+      isProp: true,
+      player: "Test Player",
+      propLine: 17.5,
+      propSide: "Over",
+    },
+    rubricScores: {
+      matchup: null,
+      trend: null,
+      lineValue: 6,
+      injury: null,
+      lineShopping: null,
+      simulation: 6,
+    },
+    edgePct: 1.2,
+    odds: 105,
+    propSimHit: 0.5,
+  });
+  assert.equal(score.simAligned, true);
+});
+
 test("buildFinalAiScore does not recommend without sim grade", () => {
   const score = buildFinalAiScore({
     pick: {

@@ -667,6 +667,37 @@ test("propSimEdgeStagingQualifies uses sim hit floor when holistic confidence co
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
 });
 
+test("propSimEdgeStagingQualifies accepts MC edge when book EV edge on pool row is negative", () => {
+  const pick = {
+    isProp: true,
+    market: "Assists",
+    odds: -111,
+    finalAiScore: {
+      composite: 6.4,
+      grade: "C+",
+      confidencePct: 62,
+      edgePct: 17.4,
+      simHit: 0.7,
+      simAligned: true,
+      highRiskValuePlay: false,
+      recommends: false,
+      factors: [],
+      rubric: { composite: 6.4, grade: "C+", confidencePct: 62, edgePct: 17.4, scores: {} as never },
+      propHolistic: {
+        composite: 6.2,
+        grade: "C+",
+        confidencePct: 55,
+        coveragePct: 40,
+        missingCount: 4,
+        applicableCount: 9,
+        recommends: false,
+        factors: [],
+      },
+    },
+  };
+  assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), true);
+});
+
 test("coachPreserveStagedBoardPicks keeps sim-edge props dropped by strict holistic gate", () => {
   const staged = {
     game: "Toronto Blue Jays @ San Diego Padres",

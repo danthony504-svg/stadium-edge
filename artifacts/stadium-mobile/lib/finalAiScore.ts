@@ -17,6 +17,7 @@ import {
   type CoachGameSimEntry,
 } from "./gameSimScoring.ts";
 import { pickHasSimGrade } from "./simMarketSupport.ts";
+import { impliedProb } from "./format.ts";
 import {
   buildPropHolisticScore,
   propHolisticRecommends,
@@ -146,7 +147,15 @@ export function buildFinalAiScore(input: {
     input.fairProb,
   );
 
-  const { simAligned, highRiskValuePlay } = classifySimAlignment(simHit, rubric.edgePct);
+  const { simAligned, highRiskValuePlay } = (() => {
+    if (input.pick.isProp && simHit != null && input.odds != null) {
+      const implied = impliedProb(input.odds);
+      if (Number.isFinite(implied)) {
+        return { simAligned: simHit > implied, highRiskValuePlay: false };
+      }
+    }
+    return classifySimAlignment(simHit, rubric.edgePct);
+  })();
 
   const simScore = scoreSimulation(simHit);
   const factors: FinalAiFactor[] = [
