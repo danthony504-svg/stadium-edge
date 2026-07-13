@@ -10,6 +10,8 @@ import {
   boardScanMatchesLegTarget,
   boardScanReadyForDelivery,
 } from "./coachScanPolicy.ts";
+import { rememberParlayBuild, recentParlayVarietyContext } from "./parlayVarietyMemory.ts";
+import { varietyContextWithLastDelivered } from "./coachRequestLifecycle.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
   buildBalancedStagedTicketFromScan,
@@ -87,6 +89,17 @@ test("boardScanReadyForDelivery rejects 15-leg scan for 8-leg ask", () => {
   };
   assert.equal(boardScanReadyForDelivery(fifteen, 8), false);
   assert.equal(boardScanMatchesLegTarget(fifteen, 8), false);
+});
+
+test("production sequence: 15-leg then 4-leg must not prefix-match", () => {
+  const scored = wnbaBoard();
+  const seed = "sequence-15-then-4";
+  const fifteen = buildIndependentCoachTicket(scored, 15, { varietySeed: seed }).picks;
+  rememberParlayBuild(fifteen);
+  const ctx = varietyContextWithLastDelivered(recentParlayVarietyContext());
+  const four = buildStagedTicketFromScan(scored, 4, "sequence-4", ctx).picks;
+  assert.equal(four.length, 4);
+  assert.equal(isPrefixTicket(fifteen, four), false);
 });
 
 test("production sequence: 8-leg must not prefix-match first 8 of 15-leg (independent combinator)", () => {

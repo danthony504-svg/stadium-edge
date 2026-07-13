@@ -76,6 +76,7 @@ type TicketSizeProfile = {
 
 const SIZE_PROFILES: Partial<Record<number, TicketSizeProfile>> = {
   3: { diversityBase: 0.58, poolRotate: 3, orderShift: 5, lineShoppingBias: 1.1, candidateCount: 32 },
+  4: { diversityBase: 0.54, poolRotate: 4, orderShift: 3, lineShoppingBias: 1.05, candidateCount: 36 },
   5: { diversityBase: 0.5, poolRotate: 5, orderShift: 2, lineShoppingBias: 1.0, candidateCount: 40 },
   6: { diversityBase: 0.45, poolRotate: 6, orderShift: 4, lineShoppingBias: 0.95, candidateCount: 40 },
   8: { diversityBase: 0.4, poolRotate: 7, orderShift: 1, lineShoppingBias: 0.9, candidateCount: 40 },
@@ -638,6 +639,30 @@ function maxRecentOverlap(
   );
 }
 
+function leadingPrefixMatchLen(
+  shorter: readonly string[],
+  longer: readonly string[],
+): number {
+  const n = Math.min(shorter.length, longer.length);
+  let matched = 0;
+  for (let i = 0; i < n; i++) {
+    if (shorter[i] !== longer[i]) break;
+    matched++;
+  }
+  return matched;
+}
+
+function isExactPrefixOfLargerTicket(
+  candidateKeys: readonly string[],
+  largerTickets: readonly (readonly string[])[],
+): boolean {
+  return largerTickets.some(
+    (larger) =>
+      larger.length > candidateKeys.length &&
+      isPrefixLegKeys(candidateKeys, larger),
+  );
+}
+
 function pickBestDistinctCandidate(
   candidates: TicketCandidate[],
   opts: CoachTicketBuildOpts,
@@ -651,10 +676,24 @@ function pickBestDistinctCandidate(
     ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
   ];
 
+  // Hard reject: never return a ticket that exactly matches the first N legs of a larger ticket.
   const nonPrefix = candidates.filter(
-    (c) => !largerTickets.some((ticket) => isPrefixLegKeys(c.legKeys, ticket)),
+    (c) => !isExactPrefixOfLargerTicket(c.legKeys, largerTickets),
   );
-  const pool = nonPrefix.length ? nonPrefix : candidates;
+  let pool = nonPrefix;
+  if (!pool.length && largerTickets.length) {
+    pool = [...candidates].sort((a, b) => {
+      const leadA = Math.min(
+        ...largerTickets.map((t) => leadingPrefixMatchLen(a.legKeys, t)),
+      );
+      const leadB = Math.min(
+        ...largerTickets.map((t) => leadingPrefixMatchLen(b.legKeys, t)),
+      );
+      if (leadA !== leadB) return leadA - leadB;
+      return candidateTotalScore(b) - candidateTotalScore(a);
+    });
+  }
+  if (!pool.length) pool = candidates;
 
   const sorted = [...pool].sort(
     (a, b) => candidateTotalScore(b) - candidateTotalScore(a),

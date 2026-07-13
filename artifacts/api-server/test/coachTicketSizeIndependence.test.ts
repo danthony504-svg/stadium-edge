@@ -34,6 +34,19 @@ function legFingerprint(p: ParsedPick): string {
   return `game|${p.game}|${p.market}|${p.pick}`;
 }
 
+test("production sequence: server 4-leg must not prefix-match first 4 of 15-leg", () => {
+  const ranked = wnbaRanked();
+  const four = stageServerTicketBalanced(ranked, 4).picks;
+  const fifteen = stageServerTicketBalanced(ranked, 15).picks;
+  assert.equal(four.length, 4);
+  assert.equal(fifteen.length, 15);
+  assert.equal(
+    isPrefixServerTicket(fifteen, four),
+    false,
+    `server 4-leg must differ from 15-leg prefix.\n4: ${four.map(legFingerprint).join(",")}\n15-prefix: ${fifteen.slice(0, 4).map(legFingerprint).join(",")}`,
+  );
+});
+
 test("production sequence: server 8-leg must not prefix-match first 8 of 15-leg", () => {
   const ranked = wnbaRanked();
   const eight = stageServerTicketBalanced(ranked, 8).picks;

@@ -37,6 +37,7 @@ type SizeProfile = {
 
 const SIZE_PROFILES: Partial<Record<number, SizeProfile>> = {
   3: { poolRotate: 3, orderShift: 5 },
+  4: { poolRotate: 4, orderShift: 3 },
   5: { poolRotate: 5, orderShift: 2 },
   6: { poolRotate: 6, orderShift: 4 },
   8: { poolRotate: 7, orderShift: 1 },

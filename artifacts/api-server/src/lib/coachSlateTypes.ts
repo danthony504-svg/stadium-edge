@@ -3,7 +3,7 @@
 /** Precompute enough legs for instant 15-leg longshot asks — no filler. */
 export const SLATE_PRE_ANALYSIS_TARGET = 15;
 /** Supported parlay sizes precomputed 24/7 — global + per-sport. */
-export const SLATE_PARLAY_SIZES = [3, 5, 6, 8, 9, 10, 15] as const;
+export const SLATE_PARLAY_SIZES = [3, 4, 5, 6, 8, 9, 10, 15] as const;
 export type SlateParlayLegCount = (typeof SLATE_PARLAY_SIZES)[number];
 export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
 /** Serve slightly stale snapshots for instant Coach load while a refresh runs. */

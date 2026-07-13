@@ -17,7 +17,7 @@ export const SLATE_PRE_ANALYSIS_MAX_MS = 15 * 60_000;
 export const SLATE_INSTANT_LOAD_MAX_MS = 30 * 60_000;
 /** Precompute target mirrored from server. */
 export const SLATE_PRE_ANALYSIS_TARGET = 15;
-export const SLATE_PARLAY_SIZES = [3, 5, 6, 8, 9, 10, 15] as const;
+export const SLATE_PARLAY_SIZES = [3, 4, 5, 6, 8, 9, 10, 15] as const;
 export type SlateParlayLegCount = (typeof SLATE_PARLAY_SIZES)[number];
 
 export type SerializedBoardScan = {
