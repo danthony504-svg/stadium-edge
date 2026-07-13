@@ -1863,7 +1863,11 @@ export default function CoachScreen() {
         if (seed?.boardScan?.picks?.length) {
           const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
           flashEnrichRef.current = enrich;
-          const ticket = boardScanPartialToTicket(markBoardScanAsPreview(seed.boardScan), enrich);
+          const ticket = boardScanPartialToTicket(
+            markBoardScanAsPreview(seed.boardScan),
+            enrich,
+            earlyLegTarget || undefined,
+          );
           if (ticket.length) {
             openingPicks = prepareCoachDeliveredTicket(ticket, enrich);
           }
@@ -2533,6 +2537,7 @@ export default function CoachScreen() {
                 boardScanMeetsLegTarget(preBoardScan, reachTargetPreScan)
               );
               const scanForDelivery = preferFinalBoardScanForDelivery(
+                reachTargetPreScan,
                 preBoardScan,
                 latestBoardScanRef.current,
               );
@@ -2666,6 +2671,7 @@ export default function CoachScreen() {
               full = "";
               setWaiting(false);
               let scanForDelivery = preferFinalBoardScanForDelivery(
+                Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                 preBoardScan,
                 latestBoardScanRef.current,
               );
@@ -2676,9 +2682,14 @@ export default function CoachScreen() {
               ) {
                 try {
                   const earlyScan = await earlyReachBoardScanRef.current;
-                  scanForDelivery = preferFinalBoardScanForDelivery(earlyScan, scanForDelivery);
+                  scanForDelivery = preferFinalBoardScanForDelivery(
+                    Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
+                    earlyScan,
+                    scanForDelivery,
+                  );
                 } catch {
                   scanForDelivery = preferFinalBoardScanForDelivery(
+                    Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                     latestBoardScanRef.current,
                     scanForDelivery,
                   );
@@ -2723,6 +2734,7 @@ export default function CoachScreen() {
                 }
               }
               scanForDelivery = preferFinalBoardScanForDelivery(
+                Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
                 scanForDelivery,
                 latestBoardScanRef.current,
               );
@@ -2906,6 +2918,7 @@ export default function CoachScreen() {
         });
         if (reachBoardEligible) {
           const cachedBoardScan = preferFinalBoardScanForDelivery(
+            Math.min(legTarget, MAX_LEGS),
             preBoardScan,
             latestBoardScanRef.current,
           );
@@ -2967,6 +2980,7 @@ export default function CoachScreen() {
           boardScanIsComplete(preBoardScan) ||
           boardScanIsComplete(latestBoardScanRef.current);
         let fullBoardScanMeta: FullBoardScanResult | null = preferFinalBoardScanForDelivery(
+          Math.min(legTarget, MAX_LEGS),
           reachBoardScan,
           preBoardScan,
           latestBoardScanRef.current,
@@ -4787,6 +4801,7 @@ export default function CoachScreen() {
           }
           if (didReachFullPreScan) {
             const liveFinal = preferFinalBoardScanForDelivery(
+              legTarget,
               fullBoardScanMeta,
               preBoardScan,
               latestBoardScanRef.current,

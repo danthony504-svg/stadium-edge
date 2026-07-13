@@ -212,11 +212,18 @@ test("preferBoardScanForDelivery prefers complete scan over partial with picks",
 });
 
 test("preferFinalBoardScanForDelivery never returns preview-cache partials", () => {
-  const complete = { scanComplete: true, picks: [{}, {}] };
+  const complete = { scanComplete: true, picks: [{}, {}], requestedLegs: 5 };
   const partialWithPicks = { scanComplete: false, picks: [{}, {}, {}] };
   assert.equal(
     preferFinalBoardScanForDelivery(partialWithPicks, complete),
     complete,
   );
   assert.equal(preferFinalBoardScanForDelivery(partialWithPicks, null), null);
+});
+
+test("preferFinalBoardScanForDelivery rejects scans staged for a different leg count", () => {
+  const fiveLeg = { scanComplete: true, picks: [{}, {}, {}, {}, {}], requestedLegs: 5 };
+  const fifteenLeg = { scanComplete: true, picks: Array(15).fill({}), requestedLegs: 15 };
+  assert.equal(preferFinalBoardScanForDelivery(5, fifteenLeg, fiveLeg), fiveLeg);
+  assert.equal(preferFinalBoardScanForDelivery(5, fifteenLeg), null);
 });

@@ -100,6 +100,16 @@ export function boardScanMeetsLegTarget(
   return (scan?.picks?.length ?? 0) >= requestedLegs;
 }
 
+/** True when scan was staged for the exact leg count being delivered. */
+export function boardScanMatchesLegTarget(
+  scan: { requestedLegs?: number; picks?: { length: number } } | null | undefined,
+  legTarget: number,
+): boolean {
+  if (!scan || legTarget <= 0) return true;
+  if (scan.requestedLegs != null) return scan.requestedLegs === legTarget;
+  return (scan.picks?.length ?? 0) === legTarget;
+}
+
 /** True when a board-scan finished evaluating the live board (not a partial preview). */
 export function boardScanIsComplete(
   scan: { scanComplete?: boolean } | null | undefined,
@@ -125,10 +135,26 @@ export function preferBoardScanForDelivery<
 
 /** Final ticket delivery — complete live scans only; never promote preview-cache rows. */
 export function preferFinalBoardScanForDelivery<
-  T extends { scanComplete?: boolean; picks?: { length: number } },
->(...candidates: (T | null | undefined)[]): T | null {
+  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
+>(legTarget: number, ...candidates: (T | null | undefined)[]): T | null;
+export function preferFinalBoardScanForDelivery<
+  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
+>(...candidates: (T | null | undefined)[]): T | null;
+export function preferFinalBoardScanForDelivery<
+  T extends { scanComplete?: boolean; picks?: { length: number }; requestedLegs?: number },
+>(...args: (T | null | undefined | number)[]): T | null {
+  let legTarget = 0;
+  let candidates: (T | null | undefined)[];
+  if (typeof args[0] === "number") {
+    legTarget = args[0];
+    candidates = args.slice(1) as (T | null | undefined)[];
+  } else {
+    candidates = args as (T | null | undefined)[];
+  }
   for (const scan of candidates) {
-    if (scan && boardScanIsComplete(scan)) return scan;
+    if (!scan || !boardScanIsComplete(scan)) continue;
+    if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) continue;
+    return scan;
   }
   return null;
 }

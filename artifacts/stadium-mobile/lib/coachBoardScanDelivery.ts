@@ -2,7 +2,7 @@
 
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
-import { boardScanIsComplete } from "./coachScanPolicy.ts";
+import { boardScanIsComplete, boardScanMatchesLegTarget } from "./coachScanPolicy.ts";
 import {
   type CoachBoardScanManifest,
   formatCoachBoardScanManifest,
@@ -61,6 +61,23 @@ export function deliverCoachBoardScanTicket(
       manifest,
       scanComplete: false,
       coachDetailNote: formatCoachBoardScanManifest({ ...manifest, scanComplete: false }),
+    };
+  }
+
+  if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
+    return {
+      picks: [],
+      manifest: {
+        ...manifest,
+        requestedLegs: legTarget,
+        deliveredLegs: 0,
+      },
+      scanComplete: false,
+      coachDetailNote: formatCoachBoardScanManifest({
+        ...manifest,
+        scanComplete: false,
+        requestedLegs: legTarget,
+      }),
     };
   }
 

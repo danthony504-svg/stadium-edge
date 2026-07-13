@@ -207,6 +207,30 @@ test("buildIndependentCoachTicket rotates anchor player after repeated lead pick
   );
 });
 
+test("5-leg WNBA ticket is not the opening legs of a 15-leg ticket on the same board", () => {
+  const scored: BoardScoredLeg[] = [
+    propLeg("Allisha Gray", "Sparks @ Dream", "Assists", 18, 90),
+    propLeg("Allisha Gray", "Sparks @ Dream", "3-Pointers", 17.5, 88),
+    propLeg("Natasha Howard", "Mercury @ Lynx", "Assists", 17, 87),
+    propLeg("Jordin Canada", "Sparks @ Dream", "Rebounds", 16.5, 86),
+    propLeg("Kahleah Copper", "Mercury @ Lynx", "Pts+Reb", 16, 85),
+    propLeg("Ariel Atkins", "Sparks @ Dream", "Rebounds", 15.5, 84),
+    propLeg("Player Seven", "A @ B", "Points", 15, 83),
+    propLeg("Player Eight", "C @ D", "Points", 14.5, 82),
+    propLeg("Player Nine", "E @ F", "Points", 14, 81),
+    propLeg("Player Ten", "G @ H", "Points", 13.5, 80),
+    mainGame("I @ J", 70),
+    mainGame("K @ L", 68),
+    mainGame("M @ N", 66),
+    mainGame("O @ P", 64),
+    mainGame("Q @ R", 62),
+  ];
+  const seed = "wnba-live-board";
+  const five = buildIndependentCoachTicket(scored, 5, { varietySeed: seed }).picks;
+  const fifteen = buildIndependentCoachTicket(scored, 15, { varietySeed: seed }).picks;
+  assert.equal(isPrefixTicket(fifteen, five), false);
+});
+
 test("buildStagedTicketFromScan with varietySeed uses independent combinator", () => {
   const scored: BoardScoredLeg[] = [
     propLeg("A", "G1 @ H1", "Points", 20, 100),

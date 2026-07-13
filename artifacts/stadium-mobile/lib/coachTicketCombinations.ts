@@ -527,6 +527,41 @@ function candidateVarietyPenalty(
   return penalty;
 }
 
+const REFERENCE_LARGER_SIZES = [15, 10, 9, 8, 6, 5] as const;
+
+function referenceGreedyLegKeys(
+  qualifying: BoardScoredLeg[],
+  largerTarget: number,
+  varietySeed: string,
+): string[] {
+  const config: AssemblyConfig = {
+    seed: `${varietySeed}|ref-greedy-${largerTarget}`,
+    diversityWeight: 0.22,
+    bandOffset: 0,
+    categoryOrder: ASSEMBLY_CATEGORY_ORDERS[0]!,
+    poolRotate: 0,
+    lineShoppingBias: 0.5,
+  };
+  const picks = assembleBalancedDiverseTicket(qualifying, largerTarget, config);
+  return picks.map((p) => parlayLegKey(p));
+}
+
+function sameBoardLargerReferenceTickets(
+  qualifying: BoardScoredLeg[],
+  target: number,
+  varietySeed: string,
+): readonly (readonly string[])[] {
+  if (target >= 15) return [];
+  const out: string[][] = [];
+  for (const size of REFERENCE_LARGER_SIZES) {
+    if (size <= target) continue;
+    const keys = referenceGreedyLegKeys(qualifying, size, varietySeed);
+    if (keys.length > target) out.push(keys);
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+
 function prefixPenaltyForTarget(
   candidate: TicketCandidate,
   target: number,
@@ -606,10 +641,14 @@ function pickBestDistinctCandidate(
   candidates: TicketCandidate[],
   opts: CoachTicketBuildOpts,
   target: number,
+  qualifying: BoardScoredLeg[],
 ): TicketCandidate | null {
   if (!candidates.length) return null;
   const recentTickets = opts.recentTickets ?? [];
-  const largerTickets = largerTicketsForTarget(target, opts.recentTicketsByLegCount);
+  const largerTickets = [
+    ...largerTicketsForTarget(target, opts.recentTicketsByLegCount),
+    ...sameBoardLargerReferenceTickets(qualifying, target, opts.varietySeed),
+  ];
 
   const nonPrefix = candidates.filter(
     (c) => !largerTickets.some((ticket) => isPrefixLegKeys(c.legKeys, ticket)),
@@ -673,7 +712,7 @@ export function buildIndependentCoachTicket(
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const qualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(qualifying, target, opts);
-  const chosen = pickBestDistinctCandidate(candidates, opts, target);
+  const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
   const picks = chosen?.picks ?? [];
   return {
     picks,

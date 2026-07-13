@@ -133,6 +133,8 @@ export type FullBoardScanResult = {
   totalQualified: number;
   staging: TicketStagingBreakdown;
   note: string;
+  /** Leg count this scan was staged for — must match delivery target. */
+  requestedLegs?: number;
   /** False for in-flight partial flashes; true when the scan finished or exhausted the board. */
   scanComplete?: boolean;
   /** Exhaustive scan audit — families found, sim counts, gate failures, sample rejections. */
@@ -479,6 +481,7 @@ function buildScanResult(
     staging: breakdown,
     note,
     scanComplete,
+    requestedLegs: opts.target,
     manifest,
   };
 }
