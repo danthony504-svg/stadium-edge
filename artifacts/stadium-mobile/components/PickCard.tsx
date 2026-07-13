@@ -25,6 +25,11 @@ import { pickShowsAltBadge } from "@/lib/altLinePool";
 import { gameLabelsMatch } from "@/lib/gameLineOptimizer";
 import { gameLineLegBucket, canonicalGameKey, normalizedGamePickKey } from "@/lib/gameSimScoring";
 import { propCommitSide, propIdentityKey } from "@/lib/propSideConsistency";
+import {
+  NOT_AI_RECOMMENDED,
+  pickGradeDisplayCaption,
+  pickGradeDisplayLabel,
+} from "@/lib/pickRecommendation";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { FONT } from "@/components/ui";
 
