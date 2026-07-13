@@ -31,7 +31,7 @@ import {
   getOdds,
   getProps,
   getTennisFlags,
-  isPickable,
+  isHomeDiscoverable,
   propMarketLabel,
   PROPS_SPORTS,
   resolveTennisFlag,
@@ -51,6 +51,7 @@ import {
   clearDiscoverCache,
   type CachedPropEntry,
 } from "@/lib/discoverSessionCache";
+import { oddsGameFromEspnShell } from "@/lib/gameResolve";
 import { isRenderableOddsGame, safeMarkets } from "@/lib/sportFeed";
 import { buildUfcFeedPhotoMap, withUfcFightPhotos } from "@/lib/ufcFighterPhotos";
 
@@ -523,14 +524,27 @@ function HomeSportFeed({
   }, [displayLiveGames]);
 
   const games: OddsGame[] = useMemo(() => {
-    const list = oddsForSport
-      .filter((g) => isPickable(g.commenceTime))
-      .filter(
-        (g) =>
-          !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase()),
-      );
-    return list.sort((a, b) => Date.parse(a.commenceTime) - Date.parse(b.commenceTime));
-  }, [oddsForSport, liveKeySet]);
+    const dropLive = (g: OddsGame) =>
+      !liveKeySet.has(`${nickname(g.awayTeam)}|${nickname(g.homeTeam)}`.toLowerCase());
+    const byStart = (a: OddsGame, b: OddsGame) =>
+      Date.parse(a.commenceTime) - Date.parse(b.commenceTime);
+
+    const fromOdds = oddsForSport
+      .filter((g) => isHomeDiscoverable(g.commenceTime))
+      .filter(dropLive)
+      .sort(byStart);
+    if (fromOdds.length > 0) return fromOdds;
+
+    // Odds feed is often empty during MLB All-Star break and other off-days;
+    // fall back to ESPN schedule shells so Upcoming still lists the next slate.
+    return gamesForSport
+      .filter((g) => g.state !== "post" && g.state !== "in")
+      .filter((g) => isHomeDiscoverable(g.startsAt))
+      .map((g) => oddsGameFromEspnShell(sport, g))
+      .filter((g): g is OddsGame => g !== null)
+      .filter(dropLive)
+      .sort(byStart);
+  }, [oddsForSport, gamesForSport, liveKeySet, sport]);
 
   const ufcPhotoKey = useMemo(
     () =>
@@ -1621,8 +1635,8 @@ function HomeSportFeed({
           <View style={{ paddingHorizontal: 16 }}>
             <EmptyState
               icon="calendar"
-              title="No games in the window"
-              subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games are within the next 48 hours. Try another league.`}
+              title="No upcoming games"
+              subtitle={`No ${SPORTS.find((s) => s.id === sport)?.label ?? sport} games are scheduled in the next week. Try another league.`}
             />
           </View>
         ) : (

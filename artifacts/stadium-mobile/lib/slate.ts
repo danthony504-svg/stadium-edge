@@ -16,6 +16,17 @@ export function isPickable(startsAt?: string | null): boolean {
   return t > now - 4 * 3600_000 && t < now + 48 * 3600_000;
 }
 
+// Home Discover / Upcoming rail: wider than isPickable so off-days (MLB All-Star
+// break, etc.) still surface the next scheduled slate when the odds feed is empty
+// or lines aren't posted yet. Coach betting pools keep the strict 48h gate.
+export function isHomeDiscoverable(startsAt?: string | null): boolean {
+  if (!startsAt) return false;
+  const t = Date.parse(startsAt);
+  if (!Number.isFinite(t)) return false;
+  const now = Date.now();
+  return t > now - 4 * 3600_000 && t < now + 7 * 24 * 3600_000;
+}
+
 // A game is BETTABLE by the AI Coach only while it is still PREGAME (hasn't
 // started yet) and tips off within the next 48h. This is intentionally STRICTER
 // than isPickable's 4h started-grace window: the coach's betting pools
