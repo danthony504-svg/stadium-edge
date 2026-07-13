@@ -139,6 +139,7 @@ import {
   boardScanMeetsLegTarget,
   buildFixedLegCountShortfallLead,
   ensureFixedLegShortfallLegNote,
+  preferBoardScanForDelivery,
   shouldAllowReachCountBackfill,
   shouldBlockUngradedParlayTopUp,
   shouldPromoteQualifyingAltsForFixedLegTicket,
@@ -1427,12 +1428,17 @@ export default function CoachScreen() {
 
   const deliverBoardScanTicket = useCallback(
     (partial: FullBoardScanResult, enrichOverride?: CoachFlashEnrich) => {
-      const ticket = boardScanPartialToTicket(partial, enrichOverride);
-      if (!ticket.length) return;
       latestBoardScanRef.current = partial;
       const legTarget =
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
+      const ticket = boardScanPartialToTicket(partial, enrichOverride);
+      if (!ticket.length) {
+        if (boardScanIsComplete(partial)) {
+          patchInstantBoardScanTicket(partial, enrichOverride, { ticketLegTarget: legTarget });
+        }
+        return;
+      }
       let legNote = partial.note;
       if (legTarget > ticket.length) {
         legNote = boardScanIsComplete(partial)
@@ -2500,9 +2506,11 @@ export default function CoachScreen() {
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
               ]);
-              const scanForDelivery =
-                preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
-              if (scanForDelivery?.picks?.length) {
+              const scanForDelivery = preferBoardScanForDelivery(
+                preBoardScan,
+                latestBoardScanRef.current,
+              );
+              if (scanForDelivery) {
                 preBoardScan = scanForDelivery;
                 const scanEnrich = {
                   ...flashEnrichRef.current,
@@ -2513,7 +2521,7 @@ export default function CoachScreen() {
                 };
                 if (boardScanIsComplete(scanForDelivery)) {
                   deliverBoardScanTicket(scanForDelivery, scanEnrich);
-                } else {
+                } else if (scanForDelivery.picks?.length) {
                   patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
                     ticketLegTarget: reachTargetPreScan,
                   });
@@ -2522,16 +2530,17 @@ export default function CoachScreen() {
               }
               }
             } catch {
-              preBoardScan =
-                latestBoardScanRef.current?.picks?.length
-                  ? latestBoardScanRef.current
-                  : preBoardScan?.picks?.length
-                    ? preBoardScan
-                    : null;
+              preBoardScan = preferBoardScanForDelivery(
+                latestBoardScanRef.current,
+                preBoardScan,
+              );
             }
           }
           const kernelScanReady = !!(
-            preBoardScan?.picks?.length || latestBoardScanRef.current?.picks?.length
+            boardScanIsComplete(preBoardScan) ||
+            boardScanIsComplete(latestBoardScanRef.current) ||
+            preBoardScan?.picks?.length ||
+            latestBoardScanRef.current?.picks?.length
           );
           const skipModelStreamForBoardScan = useParlayKernel
             ? kernelScanReady
@@ -2644,13 +2653,23 @@ export default function CoachScreen() {
             if (skipModelStreamForBoardScan || useParlayKernel) {
               full = "";
               setWaiting(false);
-              let scanForDelivery =
-                preBoardScan?.picks?.length ? preBoardScan : latestBoardScanRef.current;
-              if (useParlayKernel && !scanForDelivery?.picks?.length && earlyReachBoardScanRef.current) {
+              let scanForDelivery = preferBoardScanForDelivery(
+                preBoardScan,
+                latestBoardScanRef.current,
+              );
+              if (
+                useParlayKernel &&
+                !boardScanIsComplete(scanForDelivery) &&
+                earlyReachBoardScanRef.current
+              ) {
                 try {
-                  scanForDelivery = await earlyReachBoardScanRef.current;
+                  const earlyScan = await earlyReachBoardScanRef.current;
+                  scanForDelivery = preferBoardScanForDelivery(earlyScan, scanForDelivery);
                 } catch {
-                  scanForDelivery = latestBoardScanRef.current;
+                  scanForDelivery = preferBoardScanForDelivery(
+                    latestBoardScanRef.current,
+                    scanForDelivery,
+                  );
                 }
               }
               const scanEnrich = {
@@ -2674,12 +2693,16 @@ export default function CoachScreen() {
                 });
                 if (ticket.length) {
                   deliverCoachTicket(ticket, legNote);
+                } else if (scanForDelivery && boardScanIsComplete(scanForDelivery)) {
+                  patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
+                    ticketLegTarget: kernelLegTarget,
+                  });
                 } else if (scanForDelivery?.picks?.length) {
                   deliverBoardScanTicket(scanForDelivery, scanEnrich);
                 } else {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
-              } else if (scanForDelivery?.picks?.length) {
+              } else if (scanForDelivery) {
                 deliverBoardScanTicket(scanForDelivery, scanEnrich);
               } else {
                 tryInstantSlateSeedDelivery(legTarget);
@@ -2696,7 +2719,11 @@ export default function CoachScreen() {
                   scanForDelivery = latestBoardScanRef.current;
                 }
               }
-              if (!scanForDelivery?.picks?.length) {
+              scanForDelivery = preferBoardScanForDelivery(
+                scanForDelivery,
+                latestBoardScanRef.current,
+              );
+              if (!scanForDelivery) {
                 tryInstantSlateSeedDelivery(legTarget);
               } else {
                 const scanEnrich = {
@@ -2706,13 +2733,21 @@ export default function CoachScreen() {
                     ...[...scanForDelivery.evalLinesByGame.values()].flat(),
                   ],
                 };
+                const kernelLegTarget = Math.min(reachTargetPreScan || legTarget, MAX_LEGS);
                 const { ticket, legNote } = resolveCoachParlayKernelTicket({
                   scan: scanForDelivery,
                   enrich: scanEnrich,
-                  legTarget: Math.min(reachTargetPreScan || legTarget, MAX_LEGS),
+                  legTarget: kernelLegTarget,
                 });
-                if (ticket.length) deliverCoachTicket(ticket, legNote);
-                else deliverBoardScanTicket(scanForDelivery, scanEnrich);
+                if (ticket.length) {
+                  deliverCoachTicket(ticket, legNote);
+                } else if (boardScanIsComplete(scanForDelivery)) {
+                  patchInstantBoardScanTicket(scanForDelivery, scanEnrich, {
+                    ticketLegTarget: kernelLegTarget,
+                  });
+                } else {
+                  deliverBoardScanTicket(scanForDelivery, scanEnrich);
+                }
               }
             } else {
               setParlayBuildPhase("stream");
@@ -2780,7 +2815,11 @@ export default function CoachScreen() {
             await clearPendingBuild();
           }
         }
-        if (useParlayKernel && boardTicketSnapshotRef.current?.length) {
+        if (
+          useParlayKernel &&
+          (boardTicketSnapshotRef.current?.length ||
+            boardScanIsComplete(latestBoardScanRef.current))
+        ) {
           return;
         }
         // Merge server rows the client pool is missing (the client pool wins on
@@ -2820,11 +2859,10 @@ export default function CoachScreen() {
           confidenceThreshold,
         });
         if (reachBoardEligible) {
-          const cachedBoardScan = preBoardScan?.picks?.length
-            ? preBoardScan
-            : latestBoardScanRef.current?.picks?.length
-              ? latestBoardScanRef.current
-              : null;
+          const cachedBoardScan = preferBoardScanForDelivery(
+            preBoardScan,
+            latestBoardScanRef.current,
+          );
           if (cachedBoardScan && boardScanIsComplete(cachedBoardScan)) {
             reachBoardScan = cachedBoardScan;
           } else if (!didReachFullPreScan || !boardScanIsComplete(cachedBoardScan)) {
@@ -2868,19 +2906,23 @@ export default function CoachScreen() {
               }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
             ]);
-            if (!reachBoardScan?.picks?.length && latestBoardScanRef.current?.picks?.length) {
+            if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
+              reachBoardScan = latestBoardScanRef.current;
+            } else if (
+              !reachBoardScan?.picks?.length &&
+              latestBoardScanRef.current?.picks?.length
+            ) {
               reachBoardScan = latestBoardScanRef.current;
             }
           }
         }
         let fullBoardScanned =
           boardScanIsComplete(reachBoardScan) || boardScanIsComplete(preBoardScan);
-        let fullBoardScanMeta: FullBoardScanResult | null =
-          reachBoardScan?.picks?.length
-            ? reachBoardScan
-            : preBoardScan?.picks?.length
-              ? preBoardScan
-              : null;
+        let fullBoardScanMeta: FullBoardScanResult | null = preferBoardScanForDelivery(
+          reachBoardScan,
+          preBoardScan,
+          latestBoardScanRef.current,
+        );
         if (fullBoardScanMeta?.picks?.length) {
           const scanOdds = fullBoardScanMeta.evalLinesByGame
             ? [...fullBoardScanMeta.evalLinesByGame.values()].flat()
@@ -5344,6 +5386,14 @@ export default function CoachScreen() {
 
     const tryStashedDelivery = () => {
       const partial = latestBoardScanRef.current;
+      if (partial && boardScanIsComplete(partial)) {
+        if (partial.picks?.length) {
+          deliverBoardScanTicket(partial);
+        } else {
+          patchInstantBoardScanTicket(partial);
+        }
+        return true;
+      }
       if (partial?.picks?.length) {
         deliverBoardScanTicket(partial);
         return true;
@@ -5395,7 +5445,7 @@ export default function CoachScreen() {
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, tryInstantSlateSeedDelivery]);
+  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>

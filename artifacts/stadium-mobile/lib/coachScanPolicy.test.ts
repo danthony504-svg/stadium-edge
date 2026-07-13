@@ -4,6 +4,7 @@ import {
   boardScanIsComplete,
   boardScanMeetsLegTarget,
   ensureFixedLegShortfallLegNote,
+  preferBoardScanForDelivery,
   COACH_EXHAUSTIVE_MARKET_LADDER_POLICY,
   COACH_FIXED_LEG_SHORTFALL_LEAD,
   COACH_FIXED_LEG_TICKET_POLICY,
@@ -190,4 +191,21 @@ test("stripFillerBackfillPicks keeps filler props when ticket has no board props
   ];
   const out = stripFillerBackfillPicks(picks);
   assert.equal(out.length, 2);
+});
+
+test("preferBoardScanForDelivery prefers complete scan over partial with picks", () => {
+  const completeEmpty = { scanComplete: true, picks: [] as { length: number } };
+  const partialWithPicks = { scanComplete: false, picks: [{}, {}] };
+  assert.equal(
+    preferBoardScanForDelivery(partialWithPicks, completeEmpty),
+    completeEmpty,
+  );
+  assert.equal(
+    preferBoardScanForDelivery(completeEmpty, partialWithPicks),
+    completeEmpty,
+  );
+  assert.equal(
+    preferBoardScanForDelivery(null, partialWithPicks),
+    partialWithPicks,
+  );
 });
