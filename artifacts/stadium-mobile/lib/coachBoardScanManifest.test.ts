@@ -25,6 +25,7 @@ test("formatCoachBoardScanManifest lists coverage and gate failures", () => {
   assert.match(text, /Scan manifest/i);
   assert.match(text, /Markets found/i);
   assert.match(text, /single delivery/i);
+  assert.match(text, /0 legs delivered/i);
 });
 
 test("createCoachBoardScanManifestRecorder tracks prop pool rows", () => {

@@ -10,6 +10,7 @@ import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { enrichPicksWithSport } from "./chatContextPriority.ts";
 import { filterBettablePicks, enrichPicksWithStartsAt, preferBettableQualifiedPicks } from "./slate.ts";
+import { isAltBoardPick, isAltPropPick, isMainBoardPick } from "./altLinePool.ts";
 import { isFillerBackfillPick } from "./coachScanPolicy.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import {
@@ -226,28 +227,54 @@ export function propSimEdgeStagingQualifies(
   return true;
 }
 
-/** Board-built legs that cleared sim + edge — do not re-drop on stricter holistic rescoring. */
+/** Same role gate as board staging pools — keeps delivery aligned with scan qualification. */
+export function pickQualifiesForBoardDelivery(
+  pick: RecommendablePick & {
+    ticketRole?: "main" | "alt";
+    odds?: number | null;
+    propIsAlt?: boolean;
+  },
+  score: FinalAiScore | null | undefined,
+): boolean {
+  if (!score) return false;
+  if (isMainBoardPick(pick as { market?: string; pick?: string; isProp?: boolean; propIsAlt?: boolean })) {
+    if (pickIsAiRecommended(pick, score)) return true;
+    return !!(pick.isProp && propSimEdgeStagingQualifies(pick, score));
+  }
+  if (isAltBoardPick(pick as { market?: string; pick?: string; isProp?: boolean })) {
+    return qualifiesAltPick(pick, score);
+  }
+  if (pickIsAiRecommended(pick, score)) return true;
+  if (qualifiesAltPick(pick, score)) return true;
+  if (
+    pick.isProp &&
+    score.propHolistic &&
+    propQualifiesForTicketFill(pick, score.propHolistic, {
+      edgePct: score.edgePct,
+      simHit: score.simHit,
+      odds: pick.odds,
+    })
+  ) {
+    return true;
+  }
+  if (pick.isProp && qualifiesAltPick(pick, score)) return true;
+  if (propSimEdgeStagingQualifies(pick, score)) return true;
+  return false;
+}
+
+/** Board-built legs that cleared staging — same bar as ticket delivery. */
 export function boardScanStagedLegQualifies(
-  pick: RecommendablePick & { ticketRole?: "main" | "alt" },
+  pick: RecommendablePick & { ticketRole?: "main" | "alt"; odds?: number | null; propIsAlt?: boolean },
   score: FinalAiScore | null | undefined,
 ): boolean {
   if (!score || score.highRiskValuePlay) return false;
   if (!pickHasSimGrade(pick, score.simHit)) return false;
   if ((score.edgePct ?? 0) <= 0) return false;
-  if (
-    pick.isProp &&
-    pick.ticketRole &&
-    score.simHit != null &&
-    score.simHit >= 0.52 &&
-    pick.odds != null &&
-    score.simHit > impliedProb(pick.odds)
-  ) {
-    return true;
+  if (score.simHit != null && pick.odds != null) {
+    const ev = simEvPct(score.simHit, pick.odds);
+    if (ev != null && ev <= 0) return false;
   }
-  if (propSimEdgeStagingQualifies(pick, score)) return true;
-  if (pickPassesTicketGate(pick, score)) return true;
-  if (qualifiesAltPick(pick, score)) return true;
-  return false;
+  return pickQualifiesForBoardDelivery(pick, score);
 }
 
 /** True when a pick passes all AI recommendation thresholds (sim must agree). */
@@ -447,7 +474,7 @@ export function filterCoachDeliveredPicks<
       const ev = simEvPct(score.simHit, p.odds);
       if (ev != null && ev <= 0) return false;
     }
-    return pickPassesTicketGate(p, score);
+    return pickQualifiesForBoardDelivery(p, score);
   });
 }
 
