@@ -2,6 +2,9 @@ import Constants from "expo-constants";
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
+import { launchOtaCheckFetchReload } from "./otaLaunch";
+import { pushOtaLog } from "./otaLaunchLog";
+
 export type OtaDebugSnapshot = {
   appVersion: string;
   buildNumber: string;
@@ -86,36 +89,22 @@ export type OtaCheckResult = {
  */
 export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
   if (__DEV__ || !Updates.isEnabled) {
+    pushOtaLog("checkForUpdateAsync", false, "manual: dev or Updates disabled");
     return {
       downloaded: false,
       reloaded: false,
       reason: "Updates disabled (dev build or expo-updates off)",
     };
   }
-  try {
-    const check = await Updates.checkForUpdateAsync();
-    if (check.isAvailable) {
-      await Updates.fetchUpdateAsync();
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      return { downloaded: true, reloaded: true };
-    }
-    const pending = !!latestContext?.isUpdatePending;
-    if (pending) {
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      return { downloaded: false, reloaded: true, reason: "Pending update applied via reload" };
-    }
-    return {
-      downloaded: false,
-      reloaded: false,
-      reason: "Server reports no newer update for this runtime/channel",
-    };
-  } catch (e) {
-    return {
-      downloaded: false,
-      reloaded: false,
-      reason: e instanceof Error ? e.message : String(e),
-    };
+  const outcome = await launchOtaCheckFetchReload();
+  if (outcome === "reloaded") {
+    return { downloaded: true, reloaded: true };
   }
+  return {
+    downloaded: false,
+    reloaded: false,
+    reason: "Server reports no newer update for this runtime/channel",
+  };
 }
 
 /** @deprecated Use forceOtaCheckFetchAndReload */

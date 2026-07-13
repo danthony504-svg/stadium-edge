@@ -25,6 +25,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaStartupGate } from "@/components/OtaStartupGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
@@ -348,6 +349,7 @@ export default function RootLayout() {
                           <RootLayoutNav />
                         </OtaRequiredGate>
                         <OtaUpdateBanner />
+                        <OtaDiagnosticsBanner />
                       </KeyboardProvider>
                     </GestureHandlerRootView>
                   </PickTrackerProvider>

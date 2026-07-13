@@ -1,18 +1,15 @@
 import * as Updates from "expo-updates";
-import { latestContext } from "expo-updates";
 import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
 import { clearSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 
 /**
- * Blocks the app until expo-updates has checked for (and applied) a pending
- * production bundle. Prevents crash-loops where a corrupt OTA is already on
- * disk and the rest of the tree throws before any update fetch runs.
- *
- * App Store users get JS fixes here — no new binary / review required.
+ * Blocks the app until expo-updates check → fetch → reload completes on launch.
+ * App Store users receive JS fixes here — no new binary required.
  */
 export function OtaStartupGate({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(() => __DEV__ || !Updates.isEnabled);
@@ -21,7 +18,6 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
     if (__DEV__ || !Updates.isEnabled) return;
 
     let cancelled = false;
-
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
     (async () => {
@@ -30,31 +26,9 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
 
       for (let attempt = 0; attempt < 3; attempt++) {
         if (cancelled) return;
-        try {
-          const pendingBefore = !!latestContext?.isUpdatePending;
-          const check = await Updates.checkForUpdateAsync();
-
-          // Server rollback → use embedded JS from the App Store binary (build #62).
-          if ((check as { isRollBackToEmbedded?: boolean }).isRollBackToEmbedded) {
-            await Updates.fetchUpdateAsync();
-            await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-            return;
-          }
-
-          if (check.isAvailable) {
-            await Updates.fetchUpdateAsync();
-            await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-            return;
-          }
-          const pending = pendingBefore || !!latestContext?.isUpdatePending;
-          if (pending) {
-            await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-            return;
-          }
-          break;
-        } catch {
-          if (attempt < 2) await sleep(1500 * (attempt + 1));
-        }
+        const outcome = await launchOtaCheckFetchReload();
+        if (outcome === "reloaded") return;
+        if (attempt < 2) await sleep(1500 * (attempt + 1));
       }
 
       if (!cancelled) setReady(true);
