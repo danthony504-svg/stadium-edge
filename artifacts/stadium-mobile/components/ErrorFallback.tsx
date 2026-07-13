@@ -26,10 +26,12 @@ export type ErrorFallbackProps = {
 export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const corruptBundle = looksLikeCorruptOtaBundle(error.message);
 
   const [isModalVisible, setIsModalVisible] = useState(false);
 
   const handleRestart = async () => {
+    if (corruptBundle) return;
     try {
       await clearDiscoverCache();
       await clearSlatePreAnalysisCache();
@@ -109,7 +111,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           </Text>
         ) : null}
 
-        {looksLikeCorruptOtaBundle(error.message) ? (
+        {corruptBundle ? (
           <Text
             style={{
               color: colors.mutedForeground,
@@ -122,30 +124,45 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           >
             A mixed app update is cached on this device (not a Coach or Home bug).
             Delete Stadium Edge, reinstall from TestFlight, then reopen once. Do not
-            tap Try Again repeatedly — that can download another partial bundle.
+            use Try Again — it downloads another partial bundle and makes this worse.
           </Text>
         ) : null}
 
-        <Pressable
-          onPress={handleRestart}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: colors.primary,
-              opacity: pressed ? 0.9 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.buttonText,
-              { color: colors.primaryForeground },
+        {!corruptBundle ? (
+          <Pressable
+            onPress={handleRestart}
+            style={({ pressed }) => [
+              styles.button,
+              {
+                backgroundColor: colors.primary,
+                opacity: pressed ? 0.9 : 1,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              },
             ]}
           >
-            Try Again
+            <Text
+              style={[
+                styles.buttonText,
+                { color: colors.primaryForeground },
+              ]}
+            >
+              Try Again
+            </Text>
+          </Pressable>
+        ) : (
+          <Text
+            style={{
+              color: colors.mutedForeground,
+              fontFamily: FONT.medium,
+              fontSize: 14,
+              lineHeight: 20,
+              textAlign: "center",
+              marginTop: 8,
+            }}
+          >
+            Reinstall from TestFlight to recover.
           </Text>
-        </Pressable>
+        )}
       </View>
 
       {__DEV__ ? (
