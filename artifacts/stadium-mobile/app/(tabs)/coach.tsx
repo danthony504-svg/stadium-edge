@@ -595,6 +595,19 @@ function recoverOrphanCoachThread(msgs: UIMessage[]): UIMessage[] {
   return [{ role: "assistant", content: WELCOME_RETURNING }];
 }
 
+function isEmptyParlayScanReply(m: UIMessage): boolean {
+  if (m.role !== "assistant") return false;
+  if (m.picks?.length) return false;
+  if (coachReplyHasScanManifest(undefined, m.coachDetailNote)) return true;
+  if (m.parlayBuild || m.retry) return true;
+  const note = `${m.legNote ?? ""}\n${m.content ?? ""}`;
+  return /cleared the AI quality bar|no legs cleared delivery gates/i.test(note);
+}
+
+function prunePriorEmptyParlayReplies(msgs: UIMessage[]): UIMessage[] {
+  return msgs.filter((m) => !isEmptyParlayScanReply(m));
+}
+
 // Does the preceding user message ask us to BUILD a parlay (vs. a plain Q&A that
 // merely mentions the word "parlay")? When it does, we suppress the streamed
 // lead-in prose ("Here's a balanced 5-leg ticket…") for the whole build and show
@@ -1788,9 +1801,16 @@ export default function CoachScreen() {
       }
       const hasOutgoingImages = !!outgoingImageDataUrls?.length;
 
+      const priorThread = opts?.freshThread
+        ? []
+        : messages.filter((m) => !isWelcomeMessage(m));
+      const restartParlayThread =
+        isParlayBuildAsk(trimmed) &&
+        !opts?.freshThread &&
+        priorThread.some(isEmptyParlayScanReply);
       const thread = pruneDeadParlayPlaceholders(
         scrubDeadBuildProseFromMessages(
-          opts?.freshThread ? [] : messages.filter((m) => !isWelcomeMessage(m)),
+          restartParlayThread ? [] : prunePriorEmptyParlayReplies(priorThread),
         ),
       );
       const history: UIMessage[] = [
@@ -5904,71 +5924,6 @@ export default function CoachScreen() {
                   <AnalysisProgress mode="ask" />
                 ) : null}
 
-                {parlayShowRetryButton ? (
-                  <Pressable
-                    onPress={() => {
-                      abortRef.current?.abort();
-                      simAbortRef.current?.abort();
-                      setBuildFinishing(false);
-                      setStreaming(false);
-                      setWaiting(false);
-                      setBuildProgressExpired(false);
-                      setParlayBuildPhase("idle");
-                      send(
-                        m.retry ||
-                          activeParlayAskRef.current ||
-                          priorUserText ||
-                          trimmed ||
-                          "Build me a 15-leg longshot parlay",
-                        { freshThread: true },
-                      );
-                    }}
-                    disabled={false}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      marginTop: 10,
-                      backgroundColor: colors.card,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      borderRadius: colors.radius,
-                      paddingVertical: 12,
-                      paddingHorizontal: 14,
-                      opacity: pressed ? 0.85 : 1,
-                    })}
-                  >
-                    <Feather name="refresh-cw" size={16} color={colors.foreground} />
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
-                      Try again
-                    </Text>
-                  </Pressable>
-                ) : null}
-
-                {parlayShowRetryButton && !coachBuildInFlight ? (
-                  <Pressable
-                    onPress={() => {
-                      composerInputRef.current?.focus();
-                      scrollToEnd(true);
-                    }}
-                    style={({ pressed }) => ({
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      marginTop: 8,
-                      paddingVertical: 10,
-                      opacity: pressed ? 0.85 : 1,
-                    })}
-                  >
-                    <Feather name="edit-3" size={15} color={colors.primary} />
-                    <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 13 }}>
-                      Or type a new ask in the box below
-                    </Text>
-                  </Pressable>
-                ) : null}
-
                 {showTicketHeader ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
                     {showTicketPicks || hasScanManifest ? (
@@ -6040,6 +5995,71 @@ export default function CoachScreen() {
                       </View>
                     ) : null}
                   </View>
+                ) : null}
+
+                {parlayShowRetryButton ? (
+                  <Pressable
+                    onPress={() => {
+                      abortRef.current?.abort();
+                      simAbortRef.current?.abort();
+                      setBuildFinishing(false);
+                      setStreaming(false);
+                      setWaiting(false);
+                      setBuildProgressExpired(false);
+                      setParlayBuildPhase("idle");
+                      send(
+                        m.retry ||
+                          activeParlayAskRef.current ||
+                          priorUserText ||
+                          trimmed ||
+                          "Build me a 15-leg longshot parlay",
+                        { freshThread: true },
+                      );
+                    }}
+                    disabled={false}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      marginTop: 10,
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      borderRadius: colors.radius,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Feather name="refresh-cw" size={16} color={colors.foreground} />
+                    <Text style={{ color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}>
+                      Try again
+                    </Text>
+                  </Pressable>
+                ) : null}
+
+                {parlayShowRetryButton && !coachBuildInFlight ? (
+                  <Pressable
+                    onPress={() => {
+                      composerInputRef.current?.focus();
+                      scrollToEnd(true);
+                    }}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      marginTop: 8,
+                      paddingVertical: 10,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Feather name="edit-3" size={15} color={colors.primary} />
+                    <Text style={{ color: colors.primary, fontFamily: FONT.semibold, fontSize: 13 }}>
+                      Or type a new ask in the box below
+                    </Text>
+                  </Pressable>
                 ) : null}
               </View>
             );
