@@ -180,6 +180,42 @@ test("missing athleteId yields null sim with nullReason", () => {
   assert.equal(result.sampleGames, 0);
 });
 
+test("simulateProp grades when sport comes from game context only", async () => {
+  const sb = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard");
+  const scoreboard = (await sb.json()) as {
+    events?: Array<{
+      competitions?: Array<{
+        competitors?: Array<{ homeAway?: string; team?: { id?: string; displayName?: string } }>;
+      }>;
+    }>;
+  };
+  const comp = scoreboard.events?.[0]?.competitions?.[0];
+  const home = comp?.competitors?.find((c) => c.homeAway === "home");
+  const away = comp?.competitors?.find((c) => c.homeAway === "away");
+  if (!home?.team?.id || !away?.team?.id) return;
+
+  const roster = await fetchGameRoster("wnba", home.team.id, away.team.id);
+  const player = roster.find((r) => r.athleteId);
+  if (!player?.athleteId) return;
+
+  const history = await fetchEspnPlayerHistory("wnba", player.athleteId);
+  assert.ok(history?.recent?.length);
+
+  const result = simulateProp(
+    {
+      player: player.name,
+      market: "player_points",
+      line: 10.5,
+      side: "Over",
+      athleteId: player.athleteId,
+    } as Parameters<typeof simulateProp>[0],
+    history,
+    { sport: "wnba", playerHistories: new Map() },
+    3000,
+  );
+  assert.ok(result.hitProbability != null, "game-level sport should be enough when history loads");
+});
+
 test("roster backfill resolves athleteId from player name", async () => {
   const sb = await fetch("https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard");
   const scoreboard = (await sb.json()) as {
