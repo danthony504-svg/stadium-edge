@@ -148,6 +148,7 @@ import {
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
 import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
+import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
   awaitWarmSlateSeed,
@@ -1911,8 +1912,7 @@ export default function CoachScreen() {
                   const copy = [...prev];
                   const last = copy[copy.length - 1];
                   if (last?.role === "assistant" && !last.content?.trim()) {
-                    const { content: _c, ...rest } = last;
-                    copy[copy.length - 1] = rest;
+                    copy[copy.length - 1] = { ...last, role: "assistant", content: "" };
                   }
                   return copy;
                 });
@@ -5068,13 +5068,15 @@ export default function CoachScreen() {
   useFocusEffect(
     useCallback(() => {
       void resumePendingBackgroundBuild();
-      void (async () => {
-        await hydrateSlatePreAnalysisCache();
-        await hydrateCoachSlateFromServer();
-        startSlatePreAnalysis("coach-focus");
-      })();
-      if (!streamingRef.current && !buildFinishingRef.current) {
-        void prefetchAndMaybeApplyOta(true);
+      if (!OTA_BOOTSTRAP) {
+        void (async () => {
+          await hydrateSlatePreAnalysisCache();
+          await hydrateCoachSlateFromServer();
+          startSlatePreAnalysis("coach-focus");
+        })();
+        if (!streamingRef.current && !buildFinishingRef.current) {
+          void prefetchAndMaybeApplyOta(true);
+        }
       }
       if (streamingRef.current || buildFinishingRef.current) return;
       setMessages((prev) => {

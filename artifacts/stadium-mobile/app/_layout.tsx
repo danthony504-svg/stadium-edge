@@ -29,29 +29,21 @@ import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
 import { OtaRequiredGate } from "@/components/OtaRequiredGate";
 import { OtaStartupGate } from "@/components/OtaStartupGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
-import { hydrateDiscoverCache, DISCOVER_CACHE_SPORTS } from "@/lib/discoverSessionCache";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
+import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
 } from "@/lib/notifications";
 
-// Clerk publishable key + proxy URL come from the environment (dev script /
-// build.js). Empty in dev for the proxy (Clerk hits dev FAPI directly), set in
-// prod. Auth is REQUIRED — the (tabs) layout gates the app behind sign-in, so on
-// first open a signed-out user is sent to the login screen.
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
-// pk_live is proxy-only (Replit host). pk_test talks to Clerk dev FAPI directly —
-// do NOT set a proxy URL for test keys or Clerk never loads on Render.
 const proxyUrl = publishableKey.startsWith("pk_live")
   ? process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined
   : undefined;
 
-// Registers the Clerk session-token getter with the API client so authed sync
-// requests carry a Bearer token. Lives inside ClerkProvider so useAuth works.
 function AuthTokenBridge() {
   const { getToken } = useAuth();
   useEffect(() => {
@@ -61,9 +53,6 @@ function AuthTokenBridge() {
   return null;
 }
 
-// Registers this device for push once Clerk reports a signed-in session (the
-// register call is authed), and wires a tap listener that deep-links to the
-// relevant screen. No-op while signed out; the tap listener is always active.
 function PushNotificationsBridge() {
   const { isSignedIn } = useAuth();
   const router = useRouter();
@@ -86,26 +75,12 @@ function PushNotificationsBridge() {
   return null;
 }
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
-
-// App is dark-only — keep the root surface navy so there is never a white flash.
 SystemUI.setBackgroundColorAsync("#0f172a");
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // Do NOT use keepPreviousData globally — it bleeds the previous league's
-      // odds/games under a new Home sport pill until the fetch lands. Screens
-      // that want refetch-in-place set their own placeholderData per query.
-    },
-  },
-});
+const queryClient = new QueryClient({ defaultOptions: { queries: {} } });
 const DARK_BG = "#0f172a";
 
-// Shown while Clerk is still initializing. If init never completes (e.g. the
-// auth backend is unreachable), surface a retry after a timeout instead of
-// leaving the user on a silent blank navy screen forever.
 function BootScreen() {
   const [showRetry, setShowRetry] = useState(false);
   useEffect(() => {
@@ -134,11 +109,14 @@ function BootScreen() {
               marginTop: 22,
             }}
           >
-            Having trouble connecting. Check your internet connection and try
-            again.
+            Having trouble connecting. Check your internet connection and try again.
           </Text>
           <Pressable
             onPress={() => {
+              if (OTA_BOOTSTRAP) {
+                Updates.reloadAsync().catch(() => {});
+                return;
+              }
               void applyOtaUpdateIfAvailable().finally(() => {
                 Updates.reloadAsync().catch(() => {});
               });
@@ -161,12 +139,29 @@ function BootScreen() {
   );
 }
 
-/** Runs OTA checks only after Clerk has loaded — avoids reload during auth boot. */
+/** Build #58 pattern: background fetch only — never reloadAsync on cold start. */
+function BootstrapOtaBackgroundFetch() {
+  useEffect(() => {
+    if (__DEV__) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const update = await Updates.checkForUpdateAsync();
+          if (!update.isAvailable) return;
+          await Updates.fetchUpdateAsync();
+        } catch {
+          // offline — keep embedded until next foreground
+        }
+      })();
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, []);
+  return null;
+}
+
 function OtaBridge() {
   const otaUpdating = useOtaUpdater(true);
-
   if (!otaUpdating) return null;
-
   return (
     <View
       pointerEvents="none"
@@ -220,12 +215,53 @@ function RootLayoutNav() {
   );
 }
 
-/** OTA TEST 001: discover cache only — coach/slate pre-analysis disabled at startup. */
-function DiscoverHydrateBridge() {
-  useEffect(() => {
-    void hydrateDiscoverCache(DISCOVER_CACHE_SPORTS);
-  }, []);
-  return null;
+function AppShell() {
+  if (OTA_BOOTSTRAP) {
+    return (
+      <>
+        <BootstrapOtaBackgroundFetch />
+        <QueryClientProvider client={queryClient}>
+          <AuthTokenBridge />
+          <PushNotificationsBridge />
+          <BetSlipProvider>
+            <PickTrackerProvider>
+              <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+                <KeyboardProvider>
+                  <StatusBar style="light" />
+                  <RootLayoutNav />
+                  <OtaDiagnosticsBanner />
+                </KeyboardProvider>
+              </GestureHandlerRootView>
+            </PickTrackerProvider>
+          </BetSlipProvider>
+        </QueryClientProvider>
+      </>
+    );
+  }
+
+  return (
+    <OtaStartupGate>
+      <OtaBridge />
+      <QueryClientProvider client={queryClient}>
+        <AuthTokenBridge />
+        <PushNotificationsBridge />
+        <BetSlipProvider>
+          <PickTrackerProvider>
+            <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+              <KeyboardProvider>
+                <StatusBar style="light" />
+                <OtaRequiredGate>
+                  <RootLayoutNav />
+                </OtaRequiredGate>
+                <OtaUpdateBanner />
+                <OtaDiagnosticsBanner />
+              </KeyboardProvider>
+            </GestureHandlerRootView>
+          </PickTrackerProvider>
+        </BetSlipProvider>
+      </QueryClientProvider>
+    </OtaStartupGate>
+  );
 }
 
 export default function RootLayout() {
@@ -234,9 +270,9 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    Bricolage_400Regular: BricolageGrotesque_400Regular,
-    Bricolage_600SemiBold: BricolageGrotesque_600SemiBold,
-    Bricolage_800ExtraBold: BricolageGrotesque_800ExtraBold,
+    BricolageGrotesque_400Regular: BricolageGrotesque_400Regular,
+    BricolageGrotesque_600SemiBold: BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_800ExtraBold: BricolageGrotesque_800ExtraBold,
   });
 
   useEffect(() => {
@@ -266,37 +302,12 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <ClerkProvider
-          publishableKey={publishableKey}
-          tokenCache={tokenCache}
-          proxyUrl={proxyUrl}
-        >
+        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache} proxyUrl={proxyUrl}>
           <ClerkLoading>
             <BootScreen />
           </ClerkLoading>
           <ClerkLoaded>
-            <OtaStartupGate>
-              <OtaBridge />
-              <DiscoverHydrateBridge />
-              <QueryClientProvider client={queryClient}>
-                <AuthTokenBridge />
-                <PushNotificationsBridge />
-                <BetSlipProvider>
-                  <PickTrackerProvider>
-                    <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-                      <KeyboardProvider>
-                        <StatusBar style="light" />
-                        <OtaRequiredGate>
-                          <RootLayoutNav />
-                        </OtaRequiredGate>
-                        <OtaUpdateBanner />
-                        <OtaDiagnosticsBanner />
-                      </KeyboardProvider>
-                    </GestureHandlerRootView>
-                  </PickTrackerProvider>
-                </BetSlipProvider>
-              </QueryClientProvider>
-            </OtaStartupGate>
+            <AppShell />
           </ClerkLoaded>
         </ClerkProvider>
       </ErrorBoundary>

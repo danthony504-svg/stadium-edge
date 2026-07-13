@@ -19,7 +19,7 @@ on:
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') && !contains(github.event.head_commit.message, 'ota-test') }}
+    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') && !contains(github.event.head_commit.message, 'ota-test') && !contains(github.event.head_commit.message, 'bootstrap-ota') && !contains(github.event.head_commit.message, 'BOOTSTRAP OTA') }}
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -1967,7 +1967,9 @@ export default function HomeScreen() {
               letterSpacing: 0.5,
             }}
           >
-            PLAYER PROPS — OTA TEST 002
+            {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
+              ? "PLAYER PROPS — BOOTSTRAP OTA"
+              : "PLAYER PROPS — OTA TEST 002"}
           </Text>
           <Text
             style={{
@@ -1978,7 +1980,9 @@ export default function HomeScreen() {
               letterSpacing: 0.8,
             }}
           >
-            POWERED BY DATA DRIVEN REAL-TIME
+            {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
+              ? "DIAGNOSTICS ONLY — SAFE STARTUP"
+              : "POWERED BY DATA DRIVEN REAL-TIME"}
           </Text>
         </View>
         <OtaHomeDiagnostics />
