@@ -11,6 +11,7 @@ import { buildFightAnalysis } from "../lib/ufc.js";
 import { getCachedSim, setCachedSim, simCacheKey, type SimTier } from "../lib/simCache.js";
 import { fetchEspnPlayerHistory } from "../lib/espnPlayerHistory.js";
 import { fetchEspnInjuries } from "../lib/espnInjuries.js";
+import { resolvePropAthleteIds } from "../lib/resolvePropAthleteIds.js";
 
 const router: IRouter = Router();
 
@@ -386,21 +387,12 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
 
   const homeTeamId = String(req.body?.homeTeamId ?? "").trim();
   const awayTeamId = String(req.body?.awayTeamId ?? "").trim();
-  let propsResolved = props as SimPropRequest[];
-  if (homeTeamId || awayTeamId) {
-    const { fetchGameRoster, normalizePlayerName } = await import("../lib/espnRoster.js");
-    const roster = await fetchGameRoster(sport, homeTeamId, awayTeamId);
-    const byName = new Map(
-      roster
-        .filter((r) => r.athleteId)
-        .map((r) => [normalizePlayerName(r.name), r.athleteId!] as const),
-    );
-    propsResolved = props.map((p) => ({
-      ...p,
-      sport: p.sport ?? sport,
-      athleteId: p.athleteId ?? byName.get(normalizePlayerName(p.player)) ?? null,
-    }));
-  }
+  const propsResolved = await resolvePropAthleteIds(sport, props as SimPropRequest[], {
+    homeTeamId,
+    awayTeamId,
+    homeTeam,
+    awayTeam,
+  });
 
   const baseUrl = apiBaseFromReq(req);
 
@@ -409,8 +401,8 @@ router.post("/sports/simulate/props", async (req, res): Promise<void> => {
   if ((sport === "nba" || sport === "wnba") && homeTeam && awayTeam) {
     try {
       const [homeP, awayP] = await Promise.all([
-        teamPace(homeTeam, sport),
-        teamPace(awayTeam, sport),
+        teamPace(sport, homeTeam),
+        teamPace(sport, awayTeam),
       ]);
       if (homeP != null && awayP != null) {
         oppPace = (homeP + awayP) / 2;

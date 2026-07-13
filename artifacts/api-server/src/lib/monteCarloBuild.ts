@@ -7,6 +7,12 @@ import {
   simulationKey,
 } from "./monteCarlo.js";
 
+export type PropSimNullReason =
+  | "missing_athlete_id"
+  | "no_history"
+  | "insufficient_sample"
+  | "stat_mapping_failed";
+
 export type SimPropRequest = {
   player: string;
   market: string;
@@ -16,6 +22,8 @@ export type SimPropRequest = {
   sport: string;
   isHome?: boolean | null;
   opponentTeamId?: string | null;
+  homeTeamId?: string | null;
+  awayTeamId?: string | null;
   /** Extra alt rungs scored on the same 10k draw as `line`. */
   additionalLines?: number[];
 };
@@ -73,6 +81,19 @@ function keyInjuryWeight(entries: Array<{ status?: string }> | undefined): numbe
   return w;
 }
 
+export function diagnosePropSimNullReason(
+  req: SimPropRequest,
+  history: PlayerHistoryShape | null | undefined,
+): PropSimNullReason {
+  if (!req.athleteId) return "missing_athlete_id";
+  if (!history?.recent?.length) return "no_history";
+  const labels = history.labels ?? [];
+  const recentValues = statSeries(req.market, history.recent, labels);
+  if (recentValues.length === 0) return "stat_mapping_failed";
+  if (recentValues.length < 3) return "insufficient_sample";
+  return "insufficient_sample";
+}
+
 export function buildPropSimulationContext(
   req: SimPropRequest,
   history: PlayerHistoryShape | null | undefined,
@@ -115,7 +136,14 @@ export function simulateProp(
   history: PlayerHistoryShape | null | undefined,
   game: GameSimContext,
   simulations?: number,
-): PropSimulationResult & { key: string; player: string; market: string; line: number; side: PropSimSide } {
+): PropSimulationResult & {
+  key: string;
+  player: string;
+  market: string;
+  line: number;
+  side: PropSimSide;
+  nullReason?: PropSimNullReason | null;
+} {
   const key = simulationKey(req.player, req.market, req.line, req.side);
   const ctx = buildPropSimulationContext(req, history, game);
   if (!ctx) {
@@ -134,6 +162,7 @@ export function simulateProp(
       stdDev: null,
       sampleGames: history?.recent?.length ?? 0,
       percentiles: null,
+      nullReason: diagnosePropSimNullReason(req, history),
     };
   }
   const result = runMonteCarloSimulation(ctx, simulations);
