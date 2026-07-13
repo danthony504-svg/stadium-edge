@@ -65,7 +65,9 @@ export function boardLegPoolRole(
   score: ParsedPick["finalAiScore"],
 ): "main" | "alt" | null {
   if (isMainBoardPick(pick)) {
-    return pickIsAiRecommended(pick, score ?? undefined) ? "main" : null;
+    if (pickIsAiRecommended(pick, score ?? undefined)) return "main";
+    if (pick.isProp && propSimEdgeStagingQualifies(pick, score ?? undefined)) return "main";
+    return null;
   }
   if (isAltBoardPick(pick)) {
     return qualifiesAltPick(pick, score ?? undefined) ? "alt" : null;

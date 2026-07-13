@@ -346,6 +346,26 @@ export function formatCoachBoardScanManifest(manifest: CoachBoardScanManifest): 
   }
 
   lines.push("");
+  lines.push("**Delivery**");
+  if (manifest.scanComplete && manifest.boardExhausted) {
+    if (manifest.deliveredLegs > 0) {
+      lines.push(
+        `- Delivered **${manifest.deliveredLegs}** of **${manifest.requestedLegs || manifest.deliveredLegs}** requested legs after horizon + dedupe gates.`,
+      );
+    } else if (manifest.qualifiedMain + manifest.qualifiedAlt > 0) {
+      lines.push(
+        `- **0 legs delivered** — **${manifest.qualifiedMain + manifest.qualifiedAlt}** passed sim/AI gates but none survived final delivery (horizon, dedupe, or in-flight rescoring).`,
+      );
+    } else {
+      lines.push(
+        `- **0 legs delivered** — no candidates passed sim, edge, EV, and confidence thresholds on this slate.`,
+      );
+    }
+  } else if (manifest.deliveredLegs > 0) {
+    lines.push(`- In progress: **${manifest.deliveredLegs}** leg(s) ready so far.`);
+  }
+
+  lines.push("");
   lines.push(
     `_Simulation: ${manifest.gameSimDraws.toLocaleString()} draws per game line; prop tier **${manifest.propSimTier}** (${manifest.propSimDraws.toLocaleString()} draws per prop)._`,
   );

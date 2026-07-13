@@ -1281,9 +1281,12 @@ export default function CoachScreen() {
         const delivered = deliverCoachBoardScanTicket(partial, enrichWithScan, legTarget);
         ticket = delivered.picks;
         coachDetailNote = delivered.coachDetailNote;
-        if (!ticket.length) return false;
-        if (legTarget > ticket.length) {
-          legNote = ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length);
+        if (legTarget > 0 && ticket.length < legTarget) {
+          legNote = ticket.length
+            ? ensureFixedLegShortfallLegNote(legNote, legTarget, ticket.length)
+            : buildFixedLegCountShortfallLead(legTarget, 0);
+        } else if (!ticket.length) {
+          legNote = legNote.trim() || partial.note;
         }
       } else {
         const progress = deliverCoachBoardScanProgress(partial, enrichWithScan, legTarget);
@@ -1292,8 +1295,42 @@ export default function CoachScreen() {
         legNote = progress.progressNote || legNote;
       }
 
-      ticket = prepareCoachDeliveredTicket(ticket, enrichWithScan);
-      if (!ticket.length) return false;
+      if (!ticket.length) {
+        if (!boardScanIsComplete(partial)) return false;
+        latestBoardScanRef.current = partial;
+        boardTicketSnapshotRef.current = [];
+        setBoardScanPartialLegs(0);
+        setStreaming(false);
+        setWaiting(false);
+        setBuildFinishing(false);
+        setBuildProgressExpired(false);
+        setParlayBuildPhase("idle");
+        if (buildProgressTimerRef.current) {
+          clearTimeout(buildProgressTimerRef.current);
+          buildProgressTimerRef.current = null;
+        }
+        clearBuildStallWatchdog();
+        setMessages((prev) => {
+          const copy = [...prev];
+          for (let i = copy.length - 1; i >= 0; i--) {
+            if (copy[i].role === "assistant") {
+              copy[i] = {
+                ...copy[i],
+                picks: [],
+                content: "",
+                legNote: legNote.trim() || undefined,
+                coachDetailNote: coachDetailNote.trim() || undefined,
+                ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+              };
+              return copy;
+            }
+          }
+          return prev;
+        });
+        setAiPicks([]);
+        if (opts?.pinScroll !== false) scrollToEnd(false);
+        return true;
+      }
 
       latestBoardScanRef.current = partial;
       boardTicketSnapshotRef.current = ticket;
@@ -4558,8 +4595,9 @@ export default function CoachScreen() {
         // Absolute backstop for any other blank reply (e.g. an empty stream) so a
         // 200 with no visible content never lands as a silent dead end.
         if (picks.length === 0 && assistantBubbleText(finalContent, false).trim() === "") {
-          finalContent =
-            "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
+          finalContent = boardScanManifestDetail.trim()
+            ? "_Full board scan finished — no legs cleared delivery gates. Open **View scan manifest** below for coverage and rejection reasons._"
+            : "I couldn't put together a grounded reply just now — the live board may be thin or between updates. Try again in a moment, or ask for a specific game, player, or market.";
         }
         if (isParlayBuild && legTarget >= 3) {
           picks = stripFillerBackfillPicks(picks);
@@ -4605,9 +4643,7 @@ export default function CoachScreen() {
             picks: outPicks,
             ...(legNote.trim() ? { legNote: legNote.trim() } : {}),
             ...(ticketTarget > 0 && outPicks.length > 0 ? { ticketLegTarget: ticketTarget } : {}),
-            ...(picks.length > 0 && coachDetailNote.trim()
-              ? { coachDetailNote: coachDetailNote.trim() }
-              : {}),
+            ...(coachDetailNote.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
             ...(backupPicks.length ? { backupPicks, backupNote } : {}),
           };
           return copy;
@@ -5351,6 +5387,8 @@ export default function CoachScreen() {
                 )
               : [];
             const showTicketPicks = displayPicks.length > 0;
+            const hasScanManifest = /### Scan manifest/i.test(m.coachDetailNote ?? "");
+            const showTicketHeader = showTicketPicks || hasScanManifest;
             const isWaiting = m.role === "assistant" && m.content === "" && waiting;
             // A parlay still mid-stream: PICK lines have arrived in the raw text
             // but haven't been parsed into cards yet. Show a "Building…" hint
@@ -5455,7 +5493,7 @@ export default function CoachScreen() {
             // (generic, honest "ask" copy) instead of the small rotating pill so
             // every question gets the analyzing box.
             const askWaiting = isWaiting && !isBuildingParlay && !analyzeWaiting && !parlayBuildIntent;
-            const ticketActive = showTicketPicks;
+            const ticketActive = showTicketHeader;
             const bubbleText =
               m.role === "assistant"
                 ? ticketActive
@@ -5632,9 +5670,9 @@ export default function CoachScreen() {
                   </Pressable>
                 ) : null}
 
-                {showTicketPicks ? (
+                {showTicketHeader ? (
                   <View style={{ gap: 8, marginTop: 10 }}>
-                    {displayPicks.length > 0 ? (
+                    {showTicketPicks || hasScanManifest ? (
                       <CoachTicketHeader
                         picks={displayPicks}
                         legNote={m.legNote}

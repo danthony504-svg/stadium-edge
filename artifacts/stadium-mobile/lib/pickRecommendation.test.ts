@@ -18,6 +18,7 @@ import {
   propSimEdgeStagingQualifies,
   filterCoachDeliveredPicks,
   boardScanStagedLegQualifies,
+  pickQualifiesForBoardDelivery,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
   topUpBoardBuiltTicket,
@@ -153,7 +154,7 @@ test("finalizeCoachTicketPicks keeps rescored sim-aligned legs when recommends f
   };
   assert.equal(sanitizeCoachTicketPicks([leg], enrich).length, 0);
   const { picks, usedRescoringFallback } = finalizeCoachTicketPicks([leg], enrich);
-  assert.equal(picks.length, 1);
+  assert.equal(picks.length, 0);
   assert.equal(usedRescoringFallback, false);
 });
 
@@ -755,15 +756,13 @@ test("propSimEdgeStagingQualifies rejects borderline confidence props below 52%"
   assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), false);
 });
 
-test("prepareCoachDeliveredTicket drops negative-edge game lines", async () => {
-  const { prepareCoachDeliveredTicket } = await import("./coachTicketKernel.ts");
+test("pickQualifiesForBoardDelivery rejects negative-edge game lines", () => {
   const leg = {
     game: "Washington Mystics @ Toronto Tempo",
     market: "Moneyline",
     pick: "Tempo ML",
     odds: 100,
     isProp: false,
-    ticketRole: "main" as const,
     finalAiScore: {
       composite: 5,
       grade: "C+",
@@ -777,8 +776,8 @@ test("prepareCoachDeliveredTicket drops negative-edge game lines", async () => {
       rubric: { composite: 5, grade: "C+", confidencePct: 52, edgePct: -0.5, scores: {} as never },
     },
   };
-  const enrich = { realOdds: [], propPool: [], gameMeta: [] };
-  assert.equal(prepareCoachDeliveredTicket([leg], enrich).length, 0);
+  assert.equal(pickQualifiesForBoardDelivery(leg, leg.finalAiScore), false);
+  assert.equal(filterCoachDeliveredPicks([leg], {}).length, 0);
 });
 
 test("filterCoachDeliveredPicks drops negative-edge game lines", () => {
@@ -820,14 +819,14 @@ test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tic
     finalAiScore: {
       composite: 5.9,
       grade: "C+",
-      confidencePct: 50,
+      confidencePct: 52,
       edgePct: 1.1,
       simHit: 0.52,
       simAligned: true,
       highRiskValuePlay: false,
       recommends: false,
       factors: [],
-      rubric: { composite: 5.9, grade: "C+", confidencePct: 50, edgePct: 1.1, scores: {} as never },
+      rubric: { composite: 5.9, grade: "C+", confidencePct: 52, edgePct: 1.1, scores: {} as never },
       propHolistic: {
         composite: 5.7,
         grade: "C+",
