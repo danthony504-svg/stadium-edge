@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { PropPoolEntry } from "./api.ts";
-import { enrichAndSortRealProps, preferredPropSide, propSimBatchLimitForLegs, rankPropPoolEntries } from "./propSelection.ts";
+import { enrichAndSortRealProps, lookupPropSimHit, preferredPropSide, propSimBatchLimitForLegs, rankPropPoolEntries } from "./propSelection.ts";
 
 const pool: PropPoolEntry[] = [
   {
@@ -27,6 +27,17 @@ const pool: PropPoolEntry[] = [
     sport: "nba",
   },
 ];
+
+test("lookupPropSimHit returns null when sim map is absent (board prescore)", () => {
+  assert.equal(
+    lookupPropSimHit(
+      { player: "Alpha", propMarketKey: "player_points", propLine: 20.5, propSide: "Over" },
+      { marketKey: "player_points" },
+      undefined,
+    ),
+    null,
+  );
+});
 
 test("preferredPropSide uses evSide when present", () => {
   assert.equal(preferredPropSide({ evSide: "Under", over: -110, under: -110 } as any), "Under");

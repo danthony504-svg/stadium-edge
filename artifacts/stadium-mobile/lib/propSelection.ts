@@ -58,8 +58,9 @@ export function propSimLookupKey(
 export function lookupPropSimHit(
   pick: Parameters<typeof propSimLookupKey>[0],
   poolRow: Parameters<typeof propSimLookupKey>[1],
-  hits: Map<string, { hitProbability: number | null }>,
+  hits: Map<string, { hitProbability: number | null }> | null | undefined,
 ): number | null {
+  if (!hits) return null;
   const keys = new Set<string>();
   const primary = propSimLookupKey(pick, poolRow);
   if (primary) keys.add(primary);
