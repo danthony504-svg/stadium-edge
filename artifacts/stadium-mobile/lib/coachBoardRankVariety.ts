@@ -8,7 +8,7 @@ import { varietyRankKey } from "./varietySeed.ts";
 export const NEAR_EQUAL_RANK_SCORE_BAND = 2;
 
 /** Edge (pct points) and confidence (pct points) must both be close to rotate. */
-export const NEAR_EQUAL_EDGE_PCT = 1.5;
+export const NEAR_EQUAL_EDGE_PCT = 2;
 export const NEAR_EQUAL_CONFIDENCE_PCT = 6;
 
 export function boardLegsNearlyEqual(a: BoardScoredLeg, b: BoardScoredLeg): boolean {

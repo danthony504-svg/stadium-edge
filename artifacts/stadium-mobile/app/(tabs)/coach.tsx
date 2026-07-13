@@ -80,6 +80,7 @@ import { enforceConsistentPropSides, dropPropsOpposingTrackedPicks } from "@/lib
 import { rotatePool, dedupeSameTeamGameLegs, dedupeCoachGameLinePicks, finalizeCoachDeliveryPicks, propShare, prepareDeepParlaySeed, needsParlayBackfill, assembleDeepParlayFromBoard, topUpDeepParlayToTarget, shouldComposeDeepParlayFromBoard, finalizeDeepParlayTicket } from "@/lib/ticketDiversity";
 import {
   recentParlayLegKeys,
+  recentParlayTicketLegSets,
   rememberParlayBuild,
   rotateParlayDisplayOrder,
 } from "@/lib/parlayVarietyMemory";
@@ -163,7 +164,6 @@ import {
   setCoachBuildBusy,
   startSlatePreAnalysis,
   hydrateCoachSlateFromServer,
-  SLATE_PRE_ANALYSIS_TARGET,
 } from "@/lib/slatePreAnalysis";
 import { hydrateSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 import {
@@ -2454,8 +2454,10 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const scanDepthTarget = Math.min(SLATE_PRE_ANALYSIS_TARGET, MAX_LEGS);
-          const boardScanVariety = { varietySeed };
+          const boardScanVariety = {
+            varietySeed,
+            recentTickets: recentParlayTicketLegSets(),
+          };
           const reachFullPreScan = reachFullPreScanEligible;
           if (reachFullPreScan) {
             didReachFullPreScan = true;
@@ -2503,7 +2505,7 @@ export default function CoachScreen() {
               const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
               preBoardScan = await Promise.race([
                 tryReachFullBoardScan({
-                  target: scanDepthTarget,
+                  target: reachTargetPreScan,
                   oddsGames,
                   propPool,
                   realOdds: context.realOdds,

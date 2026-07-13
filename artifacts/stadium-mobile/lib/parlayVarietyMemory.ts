@@ -41,6 +41,22 @@ export function recentParlayLegKeys(): Set<string> {
   return out;
 }
 
+/** Full leg-key sets for recent tickets — used to avoid replaying the same combination. */
+export function recentParlayTicketLegSets(): readonly (readonly string[])[] {
+  return recentBuilds;
+}
+
+/** Share of candidate legs that also appeared on a recent ticket (0–1). */
+export function ticketOverlapRatio(
+  candidateKeys: readonly string[],
+  recentKeys: readonly string[],
+): number {
+  if (!candidateKeys.length || !recentKeys.length) return 0;
+  const recent = new Set(recentKeys);
+  const overlap = candidateKeys.filter((k) => recent.has(k)).length;
+  return overlap / candidateKeys.length;
+}
+
 /** Call after a successful parlay render — feeds the next build's avoid list. */
 export function rememberParlayBuild(picks: ParsedPick[]): void {
   if (!picks.length) return;

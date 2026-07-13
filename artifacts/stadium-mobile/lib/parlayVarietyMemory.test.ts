@@ -8,6 +8,7 @@ import {
   rememberParlayBuild,
   rotateParlayDisplayOrder,
   deprioritizePropPoolEntries,
+  ticketOverlapRatio,
 } from "./parlayVarietyMemory.ts";
 
 test("rememberParlayBuild feeds recentParlayLegKeys", () => {
@@ -31,6 +32,12 @@ test("rotateParlayDisplayOrder changes lead leg per seed", () => {
   const a = rotateParlayDisplayOrder(picks, "seed-a");
   const b = rotateParlayDisplayOrder(picks, "seed-b");
   assert.notEqual(a[0]!.pick, b[0]!.pick);
+});
+
+test("ticketOverlapRatio measures shared legs", () => {
+  const a = ["g1|p1|pts", "g2|p2|reb"];
+  const b = ["g1|p1|pts", "g3|p3|ast"];
+  assert.equal(ticketOverlapRatio(a, b), 0.5);
 });
 
 test("deprioritizePropPoolEntries pushes avoided legs to the end", () => {

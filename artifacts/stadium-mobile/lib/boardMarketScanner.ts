@@ -445,9 +445,15 @@ function buildScanResult(
     boardExhausted?: boolean;
     manifestRecorder: ReturnType<typeof createCoachBoardScanManifestRecorder>;
     varietySeed?: string;
+    recentTickets?: readonly (readonly string[])[];
   },
 ): FullBoardScanResult {
-  const staged = buildStagedTicketFromScan(scored, opts.target, opts.varietySeed);
+  const staged = buildStagedTicketFromScan(
+    scored,
+    opts.target,
+    opts.varietySeed,
+    opts.recentTickets,
+  );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
 
@@ -497,6 +503,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   signal?: AbortSignal;
   onPartial?: (result: FullBoardScanResult) => void;
   varietySeed?: string;
+  recentTickets?: readonly (readonly string[])[];
 }): Promise<FullBoardScanResult> {
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
@@ -560,6 +567,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       preview: true,
       manifestRecorder,
       varietySeed: opts.varietySeed,
+      recentTickets: opts.recentTickets,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };

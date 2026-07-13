@@ -17,6 +17,10 @@ import { selectCorrelationAwareBoardLegs, maxLegsPerThinStatMarket, isThinPropSt
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
 import {
+  buildIndependentCoachTicket,
+  type CoachTicketBuildOpts,
+} from "./coachTicketCombinations.ts";
+import {
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
   qualifiesAltPick,
@@ -345,7 +349,14 @@ export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
+  recentTickets?: readonly (readonly string[])[],
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+  if (target >= 3 && varietySeed) {
+    return buildIndependentCoachTicket(scored, target, {
+      varietySeed,
+      recentTickets,
+    } satisfies CoachTicketBuildOpts);
+  }
   if (target >= 3) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed);
   }
