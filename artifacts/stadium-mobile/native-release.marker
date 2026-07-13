@@ -1,3 +1,3 @@
 # Bump this file to trigger a TestFlight native build (embeds current JS in the binary).
-# 2026-07-12 — recover from corrupt OTA channel; embed PR #196 startup fixes.
-8a55d2746
+# 2026-07-13 — embed MLB ESPN fallback + wordmark Home; recover stale TestFlight JS.
+34c9f013f
