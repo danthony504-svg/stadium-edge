@@ -554,6 +554,8 @@ function assistantHasVisibleContent(m: UIMessage): boolean {
     return true;
   }
   if (m.retry) return true;
+  if (m.parlayBuild) return true;
+  if (m.coachDetailNote?.trim() || m.legNote?.trim()) return true;
   const text = m.content?.trim() ?? "";
   if (!text) return false;
   if (DEAD_BUILD_PROSE_RE.test(text)) return false;
@@ -573,7 +575,23 @@ function isOrphanCoachThread(
   return false;
 }
 
-function recoverOrphanCoachThread(): UIMessage[] {
+function recoverOrphanCoachThread(msgs: UIMessage[]): UIMessage[] {
+  if (msgs.length === 0) {
+    return [{ role: "assistant", content: WELCOME_RETURNING }];
+  }
+  const priorUser = [...msgs].reverse().find((m) => m.role === "user");
+  if (priorUser) {
+    const copy = [...msgs];
+    const lastIdx = copy.length - 1;
+    if (copy[lastIdx]?.role === "assistant") {
+      copy[lastIdx] = {
+        ...copy[lastIdx],
+        parlayBuild: copy[lastIdx].parlayBuild ?? isParlayBuildAsk(priorUser.content),
+        retry: copy[lastIdx].retry ?? priorUser.content,
+      };
+    }
+    return copy;
+  }
   return [{ role: "assistant", content: WELCOME_RETURNING }];
 }
 
@@ -1149,7 +1167,7 @@ export default function CoachScreen() {
           return [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }];
         }
         if (isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) {
-          return [{ role: "assistant", content: returning ? WELCOME_RETURNING : WELCOME_FIRST_TIME }];
+          return recoverOrphanCoachThread(prev);
         }
         return prev;
       });
@@ -5320,16 +5338,30 @@ export default function CoachScreen() {
           await hydrateCoachSlateFromServer();
           startSlatePreAnalysis("coach-focus");
         })();
-        if (!streamingRef.current && !buildFinishingRef.current) {
+        if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
           void prefetchAndMaybeApplyOta(true);
         }
       }
-      if (streamingRef.current || buildFinishingRef.current) return;
+      if (streamingRef.current || buildFinishingRef.current || waiting) return;
+      const partial = latestBoardScanRef.current;
+      if (partial && boardScanIsComplete(partial)) {
+        if (partial.picks?.length) {
+          deliverBoardScanTicket(partial);
+        } else {
+          patchInstantBoardScanTicket(partial);
+        }
+        return;
+      }
       setMessages((prev) => {
         if (!isOrphanCoachThread(prev, { streaming: false, buildFinishing: false })) return prev;
-        return recoverOrphanCoachThread();
+        return recoverOrphanCoachThread(prev);
       });
-    }, [resumePendingBackgroundBuild]),
+    }, [
+      resumePendingBackgroundBuild,
+      deliverBoardScanTicket,
+      patchInstantBoardScanTicket,
+      waiting,
+    ]),
   );
 
   // While a build is handed off, poll the server stash on a timer so the result
