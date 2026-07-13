@@ -601,7 +601,10 @@ export default function StealsScreen() {
   const almostQualified = query.data?.almostQualified ?? [];
   const seasonStats = query.data?.seasonStats;
   const hasResults = steals.length > 0 || almostQualified.length > 0;
-  const feedUnreachable = Boolean(query.data?.feedDegraded);
+  const hasUsableScanMeta = stealScanStatsAreConsistent(meta);
+  // A background refetch failure must not trap the UI in hunting when we already
+  // have a completed scan in cache.
+  const feedUnreachable = Boolean(query.data?.feedDegraded) && !hasUsableScanMeta;
   const scanComplete = stealScanIsComplete(meta, feedUnreachable);
   const awaitingFirstResponse = query.isLoading && !query.data;
   const scanPhase: "loading" | "complete" | "empty" =
@@ -797,6 +800,11 @@ export default function StealsScreen() {
             <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 13, lineHeight: 19, textAlign: "center" }}>
               The board was scanned and no +500 longshots cleared our value bar. We&apos;ll keep checking in the background.
             </Text>
+            {query.isError ? (
+              <Text style={{ color: STEAL_ACCENT, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
+                Connection hiccup — retrying automatically…
+              </Text>
+            ) : null}
           </View>
         ) : (
           <>
