@@ -1,7 +1,6 @@
 import { useAuth } from "@clerk/expo";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -333,7 +332,7 @@ function BaseballMiniPanel() {
   );
 }
 
-/** Compact Discover hero — routes to Coach for a new AI parlay build. */
+/** Classic Discover CTA — full-width pill opens Coach for a new AI parlay. */
 function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   const colors = useColors();
   return (
@@ -342,91 +341,24 @@ function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
       style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 4 }}
     >
       {({ pressed }) => (
-        <LinearGradient
-          colors={["#082554", "#06111f"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+        <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 14,
-            borderWidth: 1,
-            borderColor: colors.primary,
-            borderRadius: colors.radius,
-            padding: 16,
-            opacity: pressed ? 0.92 : 1,
-            overflow: "hidden",
+            justifyContent: "center",
+            gap: 10,
+            backgroundColor: colors.primary,
+            borderRadius: 999,
+            paddingVertical: 16,
+            paddingHorizontal: 24,
+            opacity: pressed ? 0.9 : 1,
           }}
         >
-          <View
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              right: -30,
-              top: -40,
-              width: 120,
-              height: 120,
-              borderRadius: 60,
-              backgroundColor: "rgba(59,130,246,0.2)",
-            }}
-          />
-          <View style={{ width: 52, height: 52, alignItems: "center", justifyContent: "center" }}>
-            <View
-              style={{
-                position: "absolute",
-                width: 34,
-                height: 42,
-                borderRadius: 8,
-                backgroundColor: "rgba(59,130,246,0.35)",
-                borderWidth: 1,
-                borderColor: "rgba(96,165,250,0.5)",
-                transform: [{ rotate: "-8deg" }, { translateX: -6 }],
-              }}
-            />
-            <View
-              style={{
-                width: 34,
-                height: 42,
-                borderRadius: 8,
-                backgroundColor: "rgba(59,130,246,0.55)",
-                borderWidth: 1,
-                borderColor: colors.primary,
-                alignItems: "center",
-                justifyContent: "center",
-                transform: [{ rotate: "6deg" }, { translateX: 4 }],
-              }}
-            >
-              <Feather name="plus" size={18} color="#fff" />
-            </View>
-          </View>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 20 }}>
-              Build best parlay
-            </Text>
-            <Text
-              style={{
-                color: colors.mutedForeground,
-                fontFamily: FONT.medium,
-                fontSize: 13,
-                lineHeight: 18,
-              }}
-            >
-              Get AI-powered picks tailored for the best possible odds.
-            </Text>
-          </View>
-          <View
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: colors.primary,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Feather name="arrow-right" size={18} color="#fff" />
-          </View>
-        </LinearGradient>
+          <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 17 }}>
+            Build best parlay
+          </Text>
+          <Feather name="arrow-right" size={18} color="#fff" />
+        </View>
       )}
     </Pressable>
   );
@@ -1004,21 +936,21 @@ function HomeSportFeed({
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Tonight's top picks",
+      subtitle: "Daily top picks",
       icon: "flash",
       color: "#fb923c",
       onPress: () => askCoach("Build me the best parlay", true),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate tonight",
+      subtitle: "High win rate",
       icon: "currency-usd",
       color: "#34d399",
       onPress: () => askCoach("Build me a safe parlay"),
     },
     {
       label: "Best Value",
-      subtitle: "Top projected edges",
+      subtitle: "Top projections...",
       icon: "bullseye-arrow",
       color: colors.primary,
       onPress: () =>
@@ -1026,7 +958,7 @@ function HomeSportFeed({
     },
     {
       label: "Longshots",
-      subtitle: "High upside plays",
+      subtitle: "High upside picks",
       icon: "rocket-launch",
       color: "#a78bfa",
       onPress: () => router.push("/steals"),
@@ -1615,112 +1547,6 @@ function HomeSportFeed({
           </View>
         ) : null}
 
-        {/* Today's Performance — Home dashboard card, shown in the same position
-            as the target layout. Values stay real; unavailable stats render as
-            em dashes instead of guesses. */}
-        <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-          <Pressable
-            onPress={() => router.push("/steals")}
-            style={({ pressed }) => ({
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: colors.radius,
-              overflow: "hidden",
-              opacity: pressed ? 0.9 : 1,
-            })}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                borderBottomWidth: 1,
-                borderBottomColor: colors.border,
-              }}
-            >
-              <Feather name="bar-chart-2" size={16} color={colors.primary} />
-              <Text
-                style={{
-                  color: colors.foreground,
-                  fontFamily: FONT.display,
-                  fontSize: 16,
-                  flex: 1,
-                }}
-              >
-                Today's Performance
-              </Text>
-              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 13 }}>
-                View all
-              </Text>
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-              }}
-            >
-              <View style={{ flexDirection: "row", flex: 1 }}>
-                {[
-                  { val: showTrack ? `${stealWinPct}%` : "—", label: "Win Rate", sub: "Last 30 Picks", tint: "#34d399" },
-                  {
-                    val: showTrack
-                      ? `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`
-                      : "—",
-                    label: "Record",
-                    sub: "Last 30 Picks",
-                    tint: "#34d399",
-                  },
-                  { val: showTrack ? String(stealRec!.graded) : "—", label: "Graded", sub: "Settled Picks", tint: colors.foreground },
-                ].map((m, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      flex: 1,
-                      alignItems: "center",
-                      gap: 2,
-                      borderLeftWidth: i === 0 ? 0 : 1,
-                      borderLeftColor: colors.border,
-                    }}
-                  >
-                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 18 }}>{m.val}</Text>
-                    <Text style={{ color: colors.foreground, fontFamily: FONT.medium, fontSize: 10 }}>
-                      {m.label}
-                    </Text>
-                    <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 9 }}>
-                      {m.sub}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {showTrack ? (
-                <PerformanceSparkline width={Math.min(140, Math.max(100, width * 0.3))} />
-              ) : stealsQ.isLoading ? (
-                <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 11 }}>
-                  Loading…
-                </Text>
-              ) : (
-                <Text
-                  style={{
-                    color: colors.mutedForeground,
-                    fontFamily: FONT.medium,
-                    fontSize: 11,
-                    maxWidth: 100,
-                    textAlign: "right",
-                  }}
-                >
-                  No settled picks yet
-                </Text>
-              )}
-            </View>
-          </Pressable>
-        </View>
-
         {/* Upcoming games */}
         <View
           style={{
@@ -1739,7 +1565,7 @@ function HomeSportFeed({
                 fontSize: 18,
               }}
             >
-              Upcoming Games
+              Upcoming
             </Text>
             {displayUpcoming.length > 0 ? (
               <View
