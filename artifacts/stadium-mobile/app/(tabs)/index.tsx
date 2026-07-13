@@ -17,6 +17,7 @@ import Svg, { Circle, Line, Polyline } from "react-native-svg";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
 import { AppHeader } from "@/components/AppHeader";
+import { OtaHomeDiagnostics } from "@/components/OtaHomeDiagnostics";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
@@ -1966,7 +1967,7 @@ export default function HomeScreen() {
               letterSpacing: 0.5,
             }}
           >
-            PLAYER PROPS — OTA TEST 001
+            PLAYER PROPS — OTA TEST 002
           </Text>
           <Text
             style={{
@@ -1980,6 +1981,7 @@ export default function HomeScreen() {
             POWERED BY DATA DRIVEN REAL-TIME
           </Text>
         </View>
+        <OtaHomeDiagnostics />
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
