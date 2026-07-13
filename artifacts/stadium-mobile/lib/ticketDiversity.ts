@@ -13,6 +13,7 @@ import {
   enforceConsistentGameSides,
   type GameSideConsistencyResult,
 } from "./gameSideConsistency.ts";
+import { BALANCED_MIX_FRACTIONS } from "./balancedTicketMix.ts";
 
 const norm = (s: string) =>
   String(s ?? "")
@@ -260,7 +261,7 @@ export function shouldComposeDeepParlayFromBoard(
 /** Model scaffold is all/nearly-all chalk game lines — rebuild from the live board. */
 export function isChalkHeavyParlay(picks: ParsedPick[], legTarget: number): boolean {
   if (legTarget < 6 || picks.length === 0) return false;
-  if (propShare(picks) < 0.35) return true;
+  if (propShare(picks) < 0.45) return true;
   if (countDuplicateTeamLegs(picks) > 0) return true;
   const gameLegs = picks.filter((p) => !p.isProp && isGameLinePick(p)).length;
   return gameLegs >= legTarget && propShare(picks) === 0;
@@ -268,10 +269,12 @@ export function isChalkHeavyParlay(picks: ParsedPick[], legTarget: number): bool
 
 function deepParlayMix(legTarget: number, longshotAsk?: boolean, reachFull?: boolean) {
   void reachFull;
-  const props = Math.max(1, Math.round(legTarget * 0.5));
-  const gameLines = Math.max(0, Math.round(legTarget * 0.25));
+  const props = Math.max(1, Math.round(legTarget * BALANCED_MIX_FRACTIONS.props));
+  const gameLines = Math.max(0, Math.round(legTarget * BALANCED_MIX_FRACTIONS.gameLines));
   const minProps = longshotAsk ? Math.max(props, Math.ceil(legTarget * 0.65)) : props;
-  const maxGameLegs = Math.max(gameLines, legTarget - minProps - Math.round(legTarget * 0.1));
+  const reserveAlts = Math.round(legTarget * BALANCED_MIX_FRACTIONS.alternateLines);
+  const reserveTeam = Math.round(legTarget * BALANCED_MIX_FRACTIONS.teamTotals);
+  const maxGameLegs = Math.max(gameLines, legTarget - minProps - reserveAlts - reserveTeam);
   return { minProps, maxGameLegs };
 }
 
@@ -386,7 +389,7 @@ export function finalizeDeepParlayTicket(
   } = {},
 ): ParsedPick[] {
   const { maxGameLegs } = deepParlayMix(legTarget, opts.longshotAsk, opts.reachFull);
-  const minPropShare = opts.reachFull ? 0.3 : opts.longshotAsk ? 0.5 : 0.35;
+  const minPropShare = opts.reachFull ? 0.4 : opts.longshotAsk ? 0.5 : 0.45;
   let out = dedupeSameTeamGameLegs(picks).picks;
   const withoutMl = opts.reachFull
     ? out

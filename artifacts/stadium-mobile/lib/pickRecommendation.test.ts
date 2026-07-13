@@ -16,7 +16,6 @@ import {
   pickGradeDisplayLabel,
   pickIsAiRecommended,
   propSimEdgeStagingQualifies,
-  propBoardFillQualifies,
   boardScanStagedLegQualifies,
   qualifiesAltPick,
   sanitizeCoachTicketPicks,
@@ -711,7 +710,7 @@ test("sanitizeCoachTicketPicks keeps all qualified legs when only some have star
   assert.equal(out.length, 2);
 });
 
-test("propBoardFillQualifies accepts borderline confidence props for fixed-leg fill", () => {
+test("propSimEdgeStagingQualifies rejects borderline confidence props below 52%", () => {
   const pick = {
     isProp: true,
     market: "Hits",
@@ -730,8 +729,7 @@ test("propBoardFillQualifies accepts borderline confidence props for fixed-leg f
     },
   };
   assert.equal(propSimEdgeStagingQualifies(pick, pick.finalAiScore), false);
-  assert.equal(propBoardFillQualifies(pick, pick.finalAiScore), true);
-  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), true);
+  assert.equal(boardScanStagedLegQualifies(pick, pick.finalAiScore), false);
 });
 
 test("finalizeBoardBuiltCoachTicket keeps borderline sim-edge props on board tickets", () => {

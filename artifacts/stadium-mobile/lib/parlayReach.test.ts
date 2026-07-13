@@ -12,10 +12,10 @@ import {
   selectParlayMainBackupPicks,
 } from "./parlayReachCore.ts";
 
-test("reachParlayMix allows more game legs for 15-leg tickets", () => {
+test("reachParlayMix targets ~50% props and caps game lines at ~30%", () => {
   const mix = reachParlayMix(15);
-  assert.ok(mix.maxGameLegs >= 5);
-  assert.ok(mix.minProps <= 6);
+  assert.equal(mix.minProps, 8);
+  assert.equal(mix.maxGameLegs, 5);
 });
 
 test("selectParlayBackupPicks skips main moneylines", () => {

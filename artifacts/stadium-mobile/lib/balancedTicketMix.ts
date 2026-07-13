@@ -9,12 +9,12 @@ export const BOARD_MARKET_CATEGORIES: BoardMarketCategory[] = [
   "alternateLines",
 ];
 
-/** Target mix for multi-leg Coach tickets (must sum to 1). */
+/** Target mix for multi-leg Coach tickets (must sum to 1). Midpoints of spec ranges. */
 export const BALANCED_MIX_FRACTIONS = {
   props: 0.5,
   gameLines: 0.25,
-  teamTotals: 0.15,
-  alternateLines: 0.1,
+  teamTotals: 0.125,
+  alternateLines: 0.125,
 } as const;
 
 export type BalancedMixSlots = Record<BoardMarketCategory, number>;
