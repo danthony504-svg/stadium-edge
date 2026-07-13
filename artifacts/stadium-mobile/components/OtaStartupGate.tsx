@@ -5,6 +5,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { clearDiscoverCache } from "@/lib/discoverSessionCache";
+import { clearSlatePreAnalysisCache } from "@/lib/slatePreAnalysisCache";
 
 /**
  * Blocks the app until expo-updates has checked for (and applied) a pending
@@ -22,6 +23,7 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
     (async () => {
       try {
         await clearDiscoverCache();
+        await clearSlatePreAnalysisCache();
         const pendingBefore = !!latestContext?.isUpdatePending;
         const check = await Updates.checkForUpdateAsync();
         if (check.isAvailable) {

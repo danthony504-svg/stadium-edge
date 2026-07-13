@@ -1,0 +1,19 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { looksLikeCorruptOtaBundle } from "./otaCorruptBundle.ts";
+
+test("looksLikeCorruptOtaBundle flags phantom property errors", () => {
+  assert.equal(looksLikeCorruptOtaBundle("Property 'pickSheetDisplayLabel' doesn't exist"), true);
+});
+
+test("looksLikeCorruptOtaBundle flags coach fingerprint garbage", () => {
+  assert.equal(
+    looksLikeCorruptOtaBundle('fingerprint: "pick@/static/v1/slate/"\ndomain: "coach"'),
+    true,
+  );
+});
+
+test("looksLikeCorruptOtaBundle ignores normal errors", () => {
+  assert.equal(looksLikeCorruptOtaBundle("Network request failed"), false);
+});
