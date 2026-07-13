@@ -19,7 +19,7 @@ on:
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') }}
     runs-on: ubuntu-latest
     defaults:
       run:
