@@ -1276,9 +1276,9 @@ export default function CoachScreen() {
       if (!cleaned.length) return false;
       const legTarget =
         opts?.legTarget ??
-        activeRequestLegTargetRef.current ||
-        requestedLegCount(activeParlayAskRef.current) ||
-        effectiveBuildLegCount(activeParlayAskRef.current);
+        (activeRequestLegTargetRef.current ||
+          requestedLegCount(activeParlayAskRef.current) ||
+          effectiveBuildLegCount(activeParlayAskRef.current));
       const ctx = coachRequestContextRef.current;
       if (legTarget >= 3) {
         const finalized = finalizeCoachTicketForRequest(cleaned, {
