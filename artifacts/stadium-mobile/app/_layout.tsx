@@ -139,9 +139,23 @@ function BootScreen() {
   );
 }
 
-/** Embedded App Store builds: check → fetch → reload so production OTAs actually apply. */
-function BootstrapOtaAutoApply() {
-  useOtaUpdater(true);
+/** Embedded builds: prefetch in background after startup — never reloadAsync here. */
+function BootstrapOtaBackgroundFetch() {
+  useEffect(() => {
+    if (__DEV__) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const update = await Updates.checkForUpdateAsync();
+          if (!update.isAvailable) return;
+          await Updates.fetchUpdateAsync();
+        } catch {
+          // offline — OtaUpdateBanner / OtaRequiredGate handle next foreground
+        }
+      })();
+    }, 12_000);
+    return () => clearTimeout(timer);
+  }, []);
   return null;
 }
 
@@ -204,8 +218,8 @@ function RootLayoutNav() {
 function AppShell() {
   if (OTA_BOOTSTRAP) {
     return (
-      <>
-        <BootstrapOtaAutoApply />
+      <OtaStartupGate>
+        <BootstrapOtaBackgroundFetch />
         <QueryClientProvider client={queryClient}>
           <AuthTokenBridge />
           <PushNotificationsBridge />
@@ -214,14 +228,17 @@ function AppShell() {
               <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
                 <KeyboardProvider>
                   <StatusBar style="light" />
-                  <RootLayoutNav />
+                  <OtaRequiredGate>
+                    <RootLayoutNav />
+                  </OtaRequiredGate>
+                  <OtaUpdateBanner />
                   <OtaDiagnosticsBanner />
                 </KeyboardProvider>
               </GestureHandlerRootView>
             </PickTrackerProvider>
           </BetSlipProvider>
         </QueryClientProvider>
-      </>
+      </OtaStartupGate>
     );
   }
 

@@ -110,8 +110,8 @@ export {
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
-const DOMAIN = process.env.EXPO_PUBLIC_DOMAIN;
-export const API_BASE = DOMAIN ? `https://${DOMAIN}/api` : "/api";
+import { API_BASE } from "./apiBase.ts";
+export { API_BASE };
 
 // ---------- Types (mirror lib/api-spec/openapi.yaml) ----------
 

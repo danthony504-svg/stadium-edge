@@ -1,4 +1,4 @@
-import { API_BASE } from "./api.ts";
+import { API_BASE } from "./apiBase.ts";
 
 export type StealOddsSportProbe = {
   sport: string;
