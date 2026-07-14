@@ -167,8 +167,6 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { prefetchAndMaybeApplyOta } from "@/lib/otaUpdater";
-import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
   readSlatePreAnalysisSeed,
@@ -5556,16 +5554,11 @@ export default function CoachScreen() {
   useFocusEffect(
     useCallback(() => {
       void resumePendingBackgroundBuild();
-      if (!OTA_BOOTSTRAP) {
-        void (async () => {
-          await hydrateSlatePreAnalysisCache();
-          await hydrateCoachSlateFromServer();
-          startSlatePreAnalysis("coach-focus");
-        })();
-        if (!streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void prefetchAndMaybeApplyOta(true);
-        }
-      }
+      void (async () => {
+        await hydrateSlatePreAnalysisCache();
+        await hydrateCoachSlateFromServer();
+        startSlatePreAnalysis("coach-focus");
+      })();
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
       const partial = latestBoardScanRef.current;
       if (partial && boardScanIsComplete(partial)) {

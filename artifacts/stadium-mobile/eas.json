@@ -7,25 +7,58 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
       "ios": {
         "resourceClass": "m-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_OTA_ENABLED": "false",
+        "EXPO_PUBLIC_OTA_CHANNEL": "development"
       }
     },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"
       },
       "env": {
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
-        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ"
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
+        "EXPO_PUBLIC_OTA_ENABLED": "false",
+        "EXPO_PUBLIC_OTA_CHANNEL": "preview"
+      }
+    },
+    "preview-ota": {
+      "distribution": "internal",
+      "channel": "preview",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
+      "ios": {
+        "simulator": false,
+        "resourceClass": "m-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
+        "EXPO_PUBLIC_OTA_ENABLED": "true",
+        "EXPO_PUBLIC_OTA_CHANNEL": "preview"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
       "ios": {
         "resourceClass": "m-medium"
       },
@@ -33,7 +66,8 @@
         "EXPO_PUBLIC_DOMAIN": "stadium-edge.onrender.com",
         "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ",
         "EXPO_PUBLIC_APP_REVIEW_MODE": "false",
-        "EXPO_PUBLIC_OTA_BOOTSTRAP": "true"
+        "EXPO_PUBLIC_OTA_ENABLED": "false",
+        "EXPO_PUBLIC_OTA_CHANNEL": "production"
       }
     }
   },

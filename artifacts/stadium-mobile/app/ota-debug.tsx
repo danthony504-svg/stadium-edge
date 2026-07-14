@@ -16,10 +16,15 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useColors } from "@/hooks/useColors";
 import {
   collectOtaFullDiagnostics,
-  forceOtaCheckFetchAndReload,
   readOtaDebugSnapshot,
   type OtaFullDiagnostics,
 } from "@/lib/otaDebug";
+import {
+  manualCheckForUpdate,
+  manualDownloadUpdate,
+  manualRestartToApplyUpdate,
+  readOtaPendingState,
+} from "@/lib/otaManual";
 import { formatOtaLogLines } from "@/lib/otaLaunchLog";
 
 function initialDiagnostics(): OtaFullDiagnostics {
@@ -163,20 +168,38 @@ function OtaDebugScreenInner() {
     setStatus("Copied full report to clipboard");
   };
 
-  const runCheckFetchReload = async () => {
+  const runManualSteps = async () => {
     setBusy(true);
-    setStatus("checkForUpdateAsync → fetchUpdateAsync → reloadAsync…");
-    const result = await forceOtaCheckFetchAndReload();
-    if (result.reloaded) {
-      setStatus(result.reloadResult ?? "Reloading into new bundle…");
+    setStatus("check → download → (restart only if pending)…");
+    const check = await manualCheckForUpdate();
+    if (!check.available && !readOtaPendingState().isUpdatePending) {
+      const next = await refresh();
+      setDiag(next);
+      setStatus(check.reason);
+      setBusy(false);
       return;
     }
+    const download = await manualDownloadUpdate();
     const next = await refresh();
     setDiag(next);
-    setStatus(
-      [result.reason, result.reloadResult].filter(Boolean).join(" · ") ||
-        "Probe finished — see reloadAsync row",
-    );
+    if (!download.isUpdatePending) {
+      setStatus(download.reason);
+      setBusy(false);
+      return;
+    }
+    setStatus("Update downloaded — use Restart in Account → App update, or tap below");
+    setBusy(false);
+  };
+
+  const runRestartOnly = async () => {
+    setBusy(true);
+    setStatus("reloadAsync (user-initiated)…");
+    const result = await manualRestartToApplyUpdate();
+    if (!result.restarted) {
+      const next = await refresh();
+      setDiag(next);
+      setStatus(result.reason);
+    }
     setBusy(false);
   };
 
@@ -212,15 +235,12 @@ function OtaDebugScreenInner() {
         }}
       >
         <Text style={{ color: colors.mutedForeground, fontFamily: FONT.body, fontSize: 13, lineHeight: 19 }}>
-          Temporary deployment probe. Expected: runtime{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>1.0.0</Text>, channel{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>production</Text>, updates URL{" "}
-          <Text style={{ fontFamily: FONT.semibold }}>u.expo.dev/9af36ab9-…</Text>.
+          Temporary deployment probe. Runtime follows appVersion policy; channel is set per build profile.
           {probeLoading ? (
             <Text style={{ fontFamily: FONT.medium }}> Live probe still running…</Text>
           ) : null}
           {" "}
-          Opening this screen only checks for updates — use the button below to download and restart.
+          Opening this screen runs a check-only probe. Use the buttons below for manual steps.
         </Text>
 
         {embeddedWarning ? (
@@ -335,7 +355,7 @@ function OtaDebugScreenInner() {
           }}
         >
           <LogBlock title="expo-updates native logs (startup / error recovery)" lines={diag.startupLogs} />
-          <LogBlock title="JS OtaStartupGate / manual logs" lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]} />
+          <LogBlock title="JS manual OTA logs" lines={diag.jsLaunchLogs.length ? diag.jsLaunchLogs : ["(none yet)"]} />
         </View>
 
         {status ? (
@@ -344,7 +364,7 @@ function OtaDebugScreenInner() {
 
         <View style={{ gap: 10 }}>
           <Pressable
-            onPress={() => void runCheckFetchReload()}
+            onPress={() => void runManualSteps()}
             disabled={busy}
             style={({ pressed }) => ({
               backgroundColor: colors.primary,
@@ -358,9 +378,27 @@ function OtaDebugScreenInner() {
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text style={{ color: colors.primaryForeground, fontFamily: FONT.bold, fontSize: 15 }}>
-                Check, fetch & reload (expo-updates)
+                Check & download (no auto-restart)
               </Text>
             )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => void runRestartOnly()}
+            disabled={busy}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 10,
+              paddingVertical: 14,
+              alignItems: "center",
+              opacity: pressed || busy ? 0.85 : 1,
+            })}
+          >
+            <Text style={{ color: colors.foreground, fontFamily: FONT.bold, fontSize: 15 }}>
+              Restart now (reloadAsync)
+            </Text>
           </Pressable>
 
           <Pressable

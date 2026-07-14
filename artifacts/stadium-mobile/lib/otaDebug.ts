@@ -3,6 +3,7 @@ import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
 import { launchOtaCheckFetchReload } from "./otaLaunch";
+import { isOtaClientEnabled } from "./otaEnabled";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 
 export type OtaDebugSnapshot = {
@@ -191,7 +192,7 @@ function readOtaDebugSnapshotUnsafe(): OtaDebugSnapshot {
 }
 
 async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
-  if (__DEV__ || !Updates.isEnabled) return ["skipped: dev or Updates.isEnabled=false"];
+  if (!isOtaClientEnabled()) return ["skipped: OTA disabled for this build"];
   try {
     const entries = await withOtaTimeout(
       "readLogEntriesAsync",
@@ -211,11 +212,11 @@ async function readStartupLogs(maxAgeMs = 3_600_000): Promise<string[]> {
 
 /** Run check only — never fetch on the diagnostics screen (fetch without reload corrupts the in-memory bundle). */
 export async function probeOtaCheckOnly(): Promise<OtaProbeResults> {
-  if (__DEV__ || !Updates.isEnabled) {
+  if (!isOtaClientEnabled()) {
     return {
-      checkResult: __DEV__ ? "skipped: __DEV__" : "skipped: Updates.isEnabled=false",
-      fetchResult: "skipped (probe is check-only — use “Check, fetch & reload”)",
-      reloadResult: "skipped (probe does not auto-reload)",
+      checkResult: "skipped: OTA disabled (Expo Go / dev / EXPO_PUBLIC_OTA_ENABLED≠true)",
+      fetchResult: "skipped (OTA disabled)",
+      reloadResult: "skipped (OTA disabled)",
     };
   }
 
@@ -305,12 +306,12 @@ export type OtaCheckResult = {
  * boundaries (that reopens the same in-memory JS bundle).
  */
 export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
-  if (__DEV__ || !Updates.isEnabled) {
-    pushOtaLog("checkForUpdateAsync", false, "manual: dev or Updates disabled");
+  if (!isOtaClientEnabled()) {
+    pushOtaLog("checkForUpdateAsync", false, "manual: OTA disabled");
     return {
       downloaded: false,
       reloaded: false,
-      reason: "Updates disabled (dev build or expo-updates off)",
+      reason: "OTA disabled (Expo Go, dev build, or EXPO_PUBLIC_OTA_ENABLED≠true)",
       reloadResult: "skipped",
     };
   }

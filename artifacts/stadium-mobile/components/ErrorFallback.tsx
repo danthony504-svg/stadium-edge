@@ -1,5 +1,4 @@
 import { Feather } from "@expo/vector-icons";
-import * as Updates from "expo-updates";
 import React, { useState } from "react";
 import {
   Modal,
@@ -35,21 +34,7 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
     try {
       await clearDiscoverCache();
       await clearSlatePreAnalysisCache();
-      if (Updates.isEnabled) {
-        // Never resetError() in production — that reopens the same in-memory JS.
-        // Always reload through expo-updates so a fetched OTA bundle is used.
-        try {
-          const check = await Updates.checkForUpdateAsync();
-          if (check.isAvailable) {
-            await Updates.fetchUpdateAsync();
-          }
-        } catch {
-          // still attempt reload
-        }
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      } else if (__DEV__) {
-        resetError();
-      }
+      resetError();
     } catch {
       if (__DEV__) resetError();
     }

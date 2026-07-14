@@ -1,0 +1,43 @@
+name: Verify dev OTA disabled
+
+on:
+  pull_request:
+    paths:
+      - "artifacts/stadium-mobile/**"
+      - ".github/workflows/verify-dev-no-ota.yml"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/**"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: OTA must be off for Expo Go / dev
+        run: bash scripts/verify-dev-no-ota.sh
+
+      - name: Bundle compiles without OTA env
+        env:
+          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
+          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-dev-verify

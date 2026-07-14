@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Updates from "expo-updates";
 
 import type { EspnGame, OddsGame, PlayerProp } from "./api";
+import { getBundleCacheKey } from "./otaEnabled";
 
 /** One featured prop row cached for the Discover hero / rails. */
 export type CachedPropEntry = {
@@ -43,9 +43,7 @@ type Stored<T> = { at: number; data: T };
 type StoredHero = { at: number; legs: CachedPropEntry[] };
 
 function currentOtaGeneration(): string {
-  if (__DEV__) return "dev";
-  if (!Updates.isEnabled) return "embedded";
-  return Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
+  return getBundleCacheKey();
 }
 
 async function readStored<T>(key: string): Promise<T | null> {

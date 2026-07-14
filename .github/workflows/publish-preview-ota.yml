@@ -1,24 +1,20 @@
-name: Publish production OTA
+name: Publish preview OTA
 
-# FROZEN: blocked until Phase 2 verified (.ota-phase2-verified in repo).
+# Phase 2 only — after preview-ota build on TestFlight and Phase 1 sign-off.
 on:
   workflow_dispatch:
     inputs:
       message:
-        description: OTA update message
+        description: Preview OTA message
         required: false
-        default: "Production OTA after Phase 2 verification"
-      rollout_percentage:
-        description: Staged rollout percentage (1-100)
-        required: false
-        default: "10"
-      confirm_phase2_complete:
-        description: Type PHASE2_COMPLETE to confirm all Phase 2 steps passed on device
+        default: "Preview OTA candidate"
+      confirm_phase1_complete:
+        description: Type PHASE1_COMPLETE to confirm Expo Go + dev + TestFlight (OTA off) passed
         required: true
 
 jobs:
   publish:
-    if: ${{ github.event.inputs.confirm_phase2_complete == 'PHASE2_COMPLETE' }}
+    if: ${{ github.event.inputs.confirm_phase1_complete == 'PHASE1_COMPLETE' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,41 +35,35 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      - name: Require Phase 2 sign-off marker
-        run: |
-          if [ ! -f "${{ github.workspace }}/.ota-phase2-verified" ]; then
-            echo "Missing .ota-phase2-verified — production OTA blocked."
-            exit 1
-          fi
-
       - name: Verify mobile bundle compiles
         env:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
-          EXPO_PUBLIC_OTA_ENABLED: "true"
-          EXPO_PUBLIC_OTA_CHANNEL: "production"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: PREVIEW ${{ github.sha }}-${{ github.run_id }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
 
       - name: Print verification gate
-        run: OTA_CHANNEL=production bash scripts/verify-ota-candidate.sh
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          OTA_CHANNEL: preview
+        run: bash scripts/verify-ota-candidate.sh
 
-      - name: Publish OTA to production
+      - name: Publish OTA to preview channel
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_OTA_ENABLED: "true"
-          EXPO_PUBLIC_OTA_CHANNEL: "production"
+          EXPO_PUBLIC_OTA_CHANNEL: "preview"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
-          ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '10' }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: PREVIEW ${{ github.sha }}-${{ github.run_id }}
+          OTA_SKIP_PHASE_GATE: "1"
         run: |
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
-            MSG="DEPLOY-VERIFY $(git rev-parse HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
+            MSG="PREVIEW $(git rev-parse HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
           fi
-          bash scripts/publish-production-ota.sh "$MSG"
+          bash scripts/publish-preview-ota.sh "$MSG"
