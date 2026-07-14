@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { isOtaClientEnabled } from "@/lib/otaEnabled";
 import {
   clearBiometricLogin,
   getBiometricCapability,
@@ -102,6 +103,7 @@ export default function AccountScreen() {
   // URL (id + domain) — never a code-only or placeholder fallback.
   const referralLink = buildReferralLink(user?.id, process.env.EXPO_PUBLIC_DOMAIN);
   const [copied, setCopied] = React.useState(false);
+  const otaEnabled = isOtaClientEnabled();
 
   const onCopyReferral = async () => {
     if (!referralLink) return;
@@ -294,6 +296,7 @@ export default function AccountScreen() {
           </View>
         ) : null}
 
+        {otaEnabled ? (
         <Pressable
           onPress={() => router.push("/app-update")}
           style={({ pressed }) => ({
@@ -326,6 +329,7 @@ export default function AccountScreen() {
           </View>
           <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
         </Pressable>
+        ) : null}
 
         {bioCap.supported || bioLoginEmail ? (
           <View

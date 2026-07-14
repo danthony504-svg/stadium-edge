@@ -1,11 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Updates from "expo-updates";
 
 import type { ParsedPick } from "@/components/PickCard";
 import type { BuiltChatContext, RealOddsEntry } from "./api.ts";
 import type { CoachGameSimEntry } from "./coachGameMonteCarlo.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import type { TicketStagingBreakdown } from "./fullBoardMarketCopy.ts";
+import { getBundleCacheKey } from "./otaEnabled";
 
 const PREFIX = "slate-preanalysis:v4:invariants:";
 const STORAGE_KEY = `${PREFIX}snapshot`;
@@ -54,9 +54,7 @@ let hydratePromise: Promise<boolean> | null = null;
 let cacheGenerationValid = false;
 
 function currentOtaGeneration(): string {
-  if (__DEV__) return "dev";
-  if (!Updates.isEnabled) return "embedded";
-  return Updates.updateId ?? Updates.runtimeVersion ?? "embedded";
+  return getBundleCacheKey();
 }
 
 export function computeSlateFingerprint(

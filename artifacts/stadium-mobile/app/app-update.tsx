@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import { isOtaClientEnabled } from "@/lib/otaEnabled";
 import { readOtaDebugSnapshot } from "@/lib/otaDebug";
 import {
   manualCheckForUpdate,
@@ -98,6 +99,7 @@ export default function AppUpdateScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const otaEnabled = isOtaClientEnabled();
   const snap = readOtaDebugSnapshot();
   const [pending, setPending] = useState(readOtaPendingState);
   const [checkStatus, setCheckStatus] = useState<StepStatus>("idle");
@@ -106,6 +108,7 @@ export default function AppUpdateScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!otaEnabled) return;
     const sub = addUpdatesStateChangeListener((event) => {
       setPending({
         isUpdatePending: !!event.context.isUpdatePending,
@@ -113,7 +116,7 @@ export default function AppUpdateScreen() {
       });
     });
     return () => sub.remove();
-  }, []);
+  }, [otaEnabled]);
 
   const onCheck = useCallback(async () => {
     setCheckStatus("working");
@@ -182,6 +185,28 @@ export default function AppUpdateScreen() {
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 24, gap: 16 }}
       >
+        {!otaEnabled ? (
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 16,
+              gap: 8,
+            }}
+          >
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+              OTA disabled in this build
+            </Text>
+            <Text style={{ fontFamily: FONT.body, fontSize: 13, color: colors.mutedForeground, lineHeight: 19 }}>
+              Expo Go and development builds run without any update checking, downloading, or
+              reloadAsync. Verify the app here first; OTA is enabled only on production App Store
+              builds with EXPO_PUBLIC_OTA_ENABLED=true.
+            </Text>
+          </View>
+        ) : (
+          <>
         <View
           style={{
             backgroundColor: colors.card,
@@ -279,6 +304,8 @@ export default function AppUpdateScreen() {
             Advanced OTA diagnostics
           </Text>
         </Pressable>
+          </>
+        )}
       </ScrollView>
     </View>
   );

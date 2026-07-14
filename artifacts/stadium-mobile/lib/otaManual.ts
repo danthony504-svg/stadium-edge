@@ -2,6 +2,7 @@ import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
 import { withOtaTimeout } from "./otaDebug";
+import { isOtaClientEnabled } from "./otaEnabled";
 import { pushOtaLog } from "./otaLaunchLog";
 
 export type OtaCheckOutcome = {
@@ -22,7 +23,10 @@ export type OtaRestartOutcome = {
 };
 
 function updatesDisabled(): boolean {
-  return __DEV__ || !Updates.isEnabled;
+  if (!isOtaClientEnabled()) return true;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Updates = require("expo-updates") as typeof import("expo-updates");
+  return !Updates.isEnabled;
 }
 
 export function readOtaPendingState(): {
@@ -38,7 +42,7 @@ export function readOtaPendingState(): {
 /** Step 1 — check only; never downloads or reloads. */
 export async function manualCheckForUpdate(): Promise<OtaCheckOutcome> {
   if (updatesDisabled()) {
-    const reason = "Updates disabled (dev build or expo-updates off)";
+    const reason = "OTA disabled (Expo Go, dev build, or EXPO_PUBLIC_OTA_ENABLED≠true)";
     pushOtaLog("checkForUpdateAsync", false, `manual: ${reason}`);
     return { available: false, isRollBackToEmbedded: false, reason };
   }
@@ -79,7 +83,7 @@ export async function manualCheckForUpdate(): Promise<OtaCheckOutcome> {
 /** Step 2 — download only; never reloads. */
 export async function manualDownloadUpdate(): Promise<OtaDownloadOutcome> {
   if (updatesDisabled()) {
-    const reason = "Updates disabled (dev build or expo-updates off)";
+    const reason = "OTA disabled (Expo Go, dev build, or EXPO_PUBLIC_OTA_ENABLED≠true)";
     pushOtaLog("fetchUpdateAsync", false, `manual: ${reason}`);
     return { downloaded: false, isUpdatePending: false, reason };
   }
@@ -119,7 +123,7 @@ export async function manualDownloadUpdate(): Promise<OtaDownloadOutcome> {
  */
 export async function manualRestartToApplyUpdate(): Promise<OtaRestartOutcome> {
   if (updatesDisabled()) {
-    const reason = "Updates disabled (dev build or expo-updates off)";
+    const reason = "OTA disabled (Expo Go, dev build, or EXPO_PUBLIC_OTA_ENABLED≠true)";
     pushOtaLog("reloadAsync", false, `manual: ${reason}`);
     return { restarted: false, reason };
   }
