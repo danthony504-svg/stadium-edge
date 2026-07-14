@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
 # Promote the exact preview update group tested on TestFlight to production.
-# Uses staged rollout — never releases to 100% immediately.
+# BLOCKED until Phase 2 preview OTA testing is signed off.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+REPO_ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null || pwd)"
+PHASE2_MARKER="$REPO_ROOT/.ota-phase2-verified"
+
+if [[ ! -f "$PHASE2_MARKER" ]] && [[ "${OTA_SKIP_PHASE_GATE:-}" != "1" ]]; then
+  echo "BLOCKED: Production OTA promotion requires Phase 2 sign-off."
+  echo "Complete every step in: bash scripts/verify-testing-phases.sh 2"
+  echo "Then create: $PHASE2_MARKER"
+  exit 1
+fi
 
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"

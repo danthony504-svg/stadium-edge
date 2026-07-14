@@ -1,5 +1,6 @@
 name: Publish preview OTA
 
+# Phase 2 only — after preview-ota build on TestFlight and Phase 1 sign-off.
 on:
   workflow_dispatch:
     inputs:
@@ -7,9 +8,13 @@ on:
         description: Preview OTA message
         required: false
         default: "Preview OTA candidate"
+      confirm_phase1_complete:
+        description: Type PHASE1_COMPLETE to confirm Expo Go + dev + TestFlight (OTA off) passed
+        required: true
 
 jobs:
   publish:
+    if: ${{ github.event.inputs.confirm_phase1_complete == 'PHASE1_COMPLETE' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,8 +56,11 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_ENABLED: "true"
+          EXPO_PUBLIC_OTA_CHANNEL: "preview"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: PREVIEW ${{ github.sha }}-${{ github.run_id }}
+          OTA_SKIP_PHASE_GATE: "1"
         run: |
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then

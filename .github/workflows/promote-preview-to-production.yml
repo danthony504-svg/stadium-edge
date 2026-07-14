@@ -1,6 +1,6 @@
 name: Promote preview OTA to production
 
-# FROZEN: requires manual workflow_dispatch + TestFlight verification pass.
+# FROZEN: blocked until .ota-phase2-verified exists in repo (Phase 2 complete).
 on:
   workflow_dispatch:
     inputs:
@@ -15,9 +15,13 @@ on:
         description: Promotion message
         required: false
         default: "Promote tested preview OTA to production"
+      confirm_phase2_complete:
+        description: Type PHASE2_COMPLETE to confirm all Phase 2 steps passed on device
+        required: true
 
 jobs:
   promote:
+    if: ${{ github.event.inputs.confirm_phase2_complete == 'PHASE2_COMPLETE' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,6 +41,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Require Phase 2 sign-off marker
+        run: |
+          if [ ! -f "${{ github.workspace }}/.ota-phase2-verified" ]; then
+            echo "Missing .ota-phase2-verified in repo root."
+            echo "Complete Phase 2 on device, then commit the marker file."
+            bash scripts/verify-testing-phases.sh 2
+            exit 1
+          fi
 
       - name: Print verification gate
         run: OTA_CHANNEL=production bash scripts/verify-ota-candidate.sh

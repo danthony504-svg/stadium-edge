@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Confirm OTA is disabled for local dev / Expo Go before building TestFlight.
+# Confirm OTA is disabled for local dev / Expo Go before Phase 1 builds.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "════════════════════════════════════════════════════════════"
-echo " DEV / EXPO GO — OTA MUST BE OFF"
+echo " PHASE 1 GATE — OTA MUST BE OFF"
 echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "Expo Go = basic JS smoke test only."
+echo "Real tests = iOS development build + TestFlight (preview profile)."
 echo ""
 echo "Gate: EXPO_PUBLIC_OTA_ENABLED must NOT be 'true' for local dev."
 echo "Current shell: EXPO_PUBLIC_OTA_ENABLED=${EXPO_PUBLIC_OTA_ENABLED:-<unset>}"
 echo ""
 
 if [[ "${EXPO_PUBLIC_OTA_ENABLED:-}" == "true" ]]; then
-  echo "FAIL: Unset EXPO_PUBLIC_OTA_ENABLED or set it to false for Expo Go / dev client testing."
+  echo "FAIL: Unset EXPO_PUBLIC_OTA_ENABLED for Expo Go / development / preview builds."
   exit 1
 fi
 
@@ -30,10 +33,9 @@ if [[ "$ENABLED" == "true" ]] || [[ "$CHECK" == "ON_LOAD" ]]; then
 fi
 
 echo ""
-echo "Verify manually:"
-echo "  1. pnpm exec expo start  → open in Expo Go"
-echo "  2. eas build --profile development → install dev client"
-echo "  3. Cold launch ×2, open Home / Coach / Props / Steals"
-echo "  4. Account screen should NOT show 'App update' link"
+echo "Full checklist: bash scripts/verify-testing-phases.sh 1"
 echo ""
-echo "PASS: OTA disabled for dev. Do not build TestFlight until the above passes."
+echo "PASS: OTA disabled for Phase 1. Next:"
+echo "  1. Expo Go smoke test"
+echo "  2. eas build --profile development --platform ios"
+echo "  3. eas build --profile preview --platform ios  (TestFlight, OTA off)"
