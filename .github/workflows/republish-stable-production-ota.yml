@@ -1,6 +1,6 @@
 name: Republish stable production OTA
 
-# Manual only — do not auto-republish on push while OTA boot is under investigation.
+# Manual or push-triggered — republish known-good group for current 1.0.0 runtime devices.
 on:
   workflow_dispatch:
     inputs:
@@ -8,6 +8,10 @@ on:
         description: Republish message
         required: false
         default: "ROLLBACK stable OTA b9f60bc32 — manual only"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/.ota-republish-stable-trigger"
 
 jobs:
   republish:
