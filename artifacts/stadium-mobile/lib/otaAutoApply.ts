@@ -19,9 +19,10 @@ export function isOtaUpdatePending(): boolean {
   return !!latestContext?.isUpdatePending;
 }
 
-/** True when a downloaded bundle is waiting to replace in-memory JS. */
+/** True when embedded JS has a downloaded OTA waiting — never while already on an OTA bundle. */
 export function shouldApplyDownloadedOta(): boolean {
   if (__DEV__ || !Updates.isEnabled) return false;
+  if (!Updates.isEmbeddedLaunch) return false;
   return isOtaUpdatePending();
 }
 

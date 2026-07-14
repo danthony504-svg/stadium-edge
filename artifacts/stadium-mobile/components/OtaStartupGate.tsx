@@ -7,14 +7,20 @@ import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
 import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
 
 /**
- * Blocks the app until expo-updates check → fetch → reload completes on launch.
- * App Store users receive JS fixes here — no new binary required.
+ * Blocks embedded builds until expo-updates check → fetch → reload completes.
+ * OTA bundles skip this gate entirely — reloadAsync during OTA boot caused
+ * updatePreviouslyFailed rollbacks.
  */
 export function OtaStartupGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(() => __DEV__ || !Updates.isEnabled);
+  const [ready, setReady] = useState(
+    () => __DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch,
+  );
 
   useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled) return;
+    if (__DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch) {
+      void noteOtaBundleActive();
+      return;
+    }
 
     let cancelled = false;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -23,8 +29,6 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
     }, 20_000);
 
     (async () => {
-      await noteOtaBundleActive();
-
       for (let attempt = 0; attempt < 3; attempt++) {
         if (cancelled) return;
         const outcome = await launchOtaCheckFetchReload();

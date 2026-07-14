@@ -31,7 +31,7 @@ import { OtaStartupGate } from "@/components/OtaStartupGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
-import { setAuthTokenGetter } from "@/lib/api";
+import { setAuthTokenGetter } from "@/lib/authToken";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
 import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
@@ -141,10 +141,10 @@ function BootScreen() {
   );
 }
 
-/** After startup, apply a downloaded OTA once (loop-guarded). */
+/** After startup on embedded builds, apply a downloaded OTA once (loop-guarded). */
 function PendingOtaAutoApply() {
   useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled) return;
+    if (__DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch) return;
 
     let cancelled = false;
     void noteOtaBundleActive();

@@ -268,18 +268,8 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
   throw lastErr;
 }
 
-// ---------- Authenticated requests (Clerk Bearer token) ----------
-
-// On mobile there is no browser cookie jar, so the Clerk session token must be
-// attached explicitly. The root layout registers a getter once the user's auth
-// state is known; until then (or when signed out) it returns null and authed
-// calls go out without a token (the server then replies 401).
-type TokenGetter = () => Promise<string | null>;
-let authTokenGetter: TokenGetter | null = null;
-
-export function setAuthTokenGetter(getter: TokenGetter | null): void {
-  authTokenGetter = getter;
-}
+import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
+export { setAuthTokenGetter };
 
 async function authedFetch(
   path: string,
@@ -288,7 +278,8 @@ async function authedFetch(
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
   try {
-    token = authTokenGetter ? await authTokenGetter() : null;
+    const getter = getAuthTokenGetter();
+    token = getter ? await getter() : null;
   } catch {
     token = null;
   }
