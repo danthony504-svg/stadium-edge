@@ -1,6 +1,7 @@
 import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
+import { safeReloadPendingOta, shouldApplyDownloadedOta } from "./otaAutoApply";
 import { pushOtaLog } from "./otaLaunchLog";
 
 const OTA_LAUNCH_TIMEOUT_MS = 12_000;
@@ -34,8 +35,8 @@ function checkDetail(check: Awaited<ReturnType<typeof Updates.checkForUpdateAsyn
 }
 
 /**
- * Launch-time OTA: check → fetch → reload. Logs every step + exact errors.
- * Never uses React error-boundary reset (that keeps stale in-memory JS).
+ * Launch-time OTA: apply pending download → check → fetch → reload.
+ * Logs every step + exact errors. Never uses React error-boundary reset.
  */
 export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
   if (__DEV__ || !Updates.isEnabled) {
@@ -44,6 +45,10 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
   }
 
   try {
+    if (shouldApplyDownloadedOta()) {
+      if (await safeReloadPendingOta("launch-pending-before-check")) return "reloaded";
+    }
+
     pushOtaLog("checkForUpdateAsync", true, "calling…");
     const check = await withLaunchTimeout("checkForUpdateAsync", Updates.checkForUpdateAsync());
     pushOtaLog("checkForUpdateAsync", true, checkDetail(check));
@@ -60,36 +65,23 @@ export async function launchOtaCheckFetchReload(): Promise<LaunchOtaOutcome> {
         throw e;
       }
 
-      try {
-        pushOtaLog("reloadAsync", true, "calling…");
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-        pushOtaLog("reloadAsync", true, "invoked");
-        return "reloaded";
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        pushOtaLog("reloadAsync", false, msg);
-        throw e;
-      }
+      if (await safeReloadPendingOta("launch-after-fetch")) return "reloaded";
     }
 
-    const pending = !!latestContext?.isUpdatePending;
+    const pending = !!latestContext?.isUpdatePending || shouldApplyDownloadedOta();
     if (pending) {
-      try {
-        pushOtaLog("reloadAsync", true, "pending update — calling…");
-        await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-        pushOtaLog("reloadAsync", true, "invoked (pending)");
-        return "reloaded";
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        pushOtaLog("reloadAsync", false, msg);
-        throw e;
-      }
+      if (await safeReloadPendingOta("launch-pending-after-check")) return "reloaded";
     }
 
     return "idle";
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     pushOtaLog("checkForUpdateAsync", false, msg);
+
+    if (shouldApplyDownloadedOta()) {
+      if (await safeReloadPendingOta("launch-pending-after-error")) return "reloaded";
+    }
+
     return "idle";
   }
 }

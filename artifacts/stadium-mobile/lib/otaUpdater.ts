@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { isOtaReloadBlocked } from "@/lib/otaBlock";
+import { safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
 
 const FOREGROUND_DEBOUNCE_MS = 45_000;
 /** First OTA check shortly after Clerk loads — was 2.5s; users reopened before fetch finished. */
@@ -28,6 +29,13 @@ export async function prefetchAndMaybeApplyOta(
   if (isOtaReloadBlocked()) return "none";
 
   try {
+    if (shouldApplyDownloadedOta()) {
+      if (applyWhenReady && !isOtaReloadBlocked()) {
+        if (await safeReloadPendingOta("prefetch-pending")) return "applied";
+      }
+      if (!applyWhenReady) return "pending";
+    }
+
     const pendingBefore = !!latestContext?.isUpdatePending;
     const result = await Updates.checkForUpdateAsync();
 
@@ -35,12 +43,11 @@ export async function prefetchAndMaybeApplyOta(
       await Updates.fetchUpdateAsync();
     }
 
-    const pending = !!latestContext?.isUpdatePending || pendingBefore;
+    const pending = !!latestContext?.isUpdatePending || pendingBefore || shouldApplyDownloadedOta();
     if (!pending) return "none";
 
     if (applyWhenReady && !isOtaReloadBlocked()) {
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      return "applied";
+      if (await safeReloadPendingOta("prefetch-after-fetch")) return "applied";
     }
     return "pending";
   } catch {

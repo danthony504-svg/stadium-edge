@@ -33,6 +33,8 @@ import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/api";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
+import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
+import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
 import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
@@ -139,22 +141,30 @@ function BootScreen() {
   );
 }
 
-/** Embedded builds: prefetch in background after startup — never reloadAsync here. */
-function BootstrapOtaBackgroundFetch() {
+/** After startup, apply a downloaded OTA once (loop-guarded). */
+function PendingOtaAutoApply() {
   useEffect(() => {
-    if (__DEV__) return;
+    if (__DEV__ || !Updates.isEnabled) return;
+
+    let cancelled = false;
+    void noteOtaBundleActive();
+
+    const delayMs = OTA_BOOTSTRAP ? 800 : 400;
     const timer = setTimeout(() => {
       void (async () => {
-        try {
-          const update = await Updates.checkForUpdateAsync();
-          if (!update.isAvailable) return;
-          await Updates.fetchUpdateAsync();
-        } catch {
-          // offline — OtaUpdateBanner / OtaRequiredGate handle next foreground
+        if (cancelled) return;
+        if (shouldApplyDownloadedOta()) {
+          await safeReloadPendingOta("post-startup-pending");
+          return;
         }
+        await launchOtaCheckFetchReload();
       })();
-    }, 12_000);
-    return () => clearTimeout(timer);
+    }, delayMs);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
   return null;
 }
@@ -219,7 +229,7 @@ function AppShell() {
   if (OTA_BOOTSTRAP) {
     return (
       <OtaStartupGate>
-        <BootstrapOtaBackgroundFetch />
+        <PendingOtaAutoApply />
         <QueryClientProvider client={queryClient}>
           <AuthTokenBridge />
           <PushNotificationsBridge />
@@ -244,6 +254,7 @@ function AppShell() {
 
   return (
     <OtaStartupGate>
+      <PendingOtaAutoApply />
       <OtaBridge />
       <QueryClientProvider client={queryClient}>
         <AuthTokenBridge />

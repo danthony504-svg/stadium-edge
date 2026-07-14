@@ -4,6 +4,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
+import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
 
 /**
  * Blocks the app until expo-updates check → fetch → reload completes on launch.
@@ -22,10 +23,15 @@ export function OtaStartupGate({ children }: { children: ReactNode }) {
     }, 20_000);
 
     (async () => {
+      await noteOtaBundleActive();
+
       for (let attempt = 0; attempt < 3; attempt++) {
         if (cancelled) return;
         const outcome = await launchOtaCheckFetchReload();
         if (outcome === "reloaded") return;
+        if (shouldApplyDownloadedOta()) {
+          if (await safeReloadPendingOta(`startup-gate-retry-${attempt}`)) return;
+        }
         if (attempt < 2) await sleep(1500 * (attempt + 1));
       }
 
