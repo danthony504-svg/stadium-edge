@@ -23,6 +23,11 @@ test("looksLikeCorruptOtaBundle flags garbled pick/update module paths", () => {
   assert.equal(looksLikeCorruptOtaBundle("pushNotifications/update"), true);
 });
 
+test("looksLikeCorruptOtaBundle flags Hermes module resolution failures", () => {
+  assert.equal(looksLikeCorruptOtaBundle('Requiring module "715"'), true);
+  assert.equal(looksLikeCorruptOtaBundle("Unknown module 1234"), true);
+});
+
 test("looksLikeCorruptOtaBundle ignores normal errors", () => {
   assert.equal(looksLikeCorruptOtaBundle("Network request failed"), false);
 });

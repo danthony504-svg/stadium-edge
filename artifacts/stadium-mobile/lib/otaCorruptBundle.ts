@@ -8,5 +8,8 @@ export function looksLikeCorruptOtaBundle(message: string | undefined | null): b
   // Garbled native-module paths from mixed chunks (pushNotifications/update, pickBreadHicks/update, etc.)
   if (/[a-z]+\/update/i.test(message)) return true;
   if (/property\s+'[^']*\/[^']*'\s+doesn't exist/i.test(message)) return true;
+  // Hermes failed to resolve a Metro module id — mixed/corrupt OTA chunk on device.
+  if (/requiring module/i.test(m)) return true;
+  if (/unknown module/i.test(m)) return true;
   return false;
 }
