@@ -1,0 +1,46 @@
+name: Republish stable production OTA
+
+# Emergency rollback: republish last known-good update group (no new bundle).
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: Republish message
+        required: false
+        default: "ROLLBACK stable OTA b9f60bc32 — stop crash chain"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/.ota-rollback-stable-trigger"
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Republish stable OTA to production channel
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="ROLLBACK stable OTA b9f60bc32 $(date -u +%Y-%m-%dT%H:%MZ)"
+          fi
+          bash scripts/republish-stable-production-ota.sh "$MSG"

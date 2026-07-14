@@ -1,11 +1,7 @@
 name: Publish production OTA
 
+# FROZEN: production OTAs require manual workflow_dispatch + TestFlight cold-launch pass.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/**"
-      - ".github/workflows/publish-production-ota.yml"
   workflow_dispatch:
     inputs:
       message:

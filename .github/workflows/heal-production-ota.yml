@@ -1,13 +1,8 @@
 name: Heal corrupt production OTA
 
-# OTA-only recovery: rollback to App Store embedded JS, then publish clean OTA.
-# No new App Store binary / review required.
+# FROZEN: heal disabled on push — use workflow_dispatch only after TestFlight verification.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-heal-trigger"
 
 jobs:
   heal:
