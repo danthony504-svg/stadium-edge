@@ -139,23 +139,9 @@ function BootScreen() {
   );
 }
 
-/** Build #58 pattern: background fetch only — never reloadAsync on cold start. */
-function BootstrapOtaBackgroundFetch() {
-  useEffect(() => {
-    if (__DEV__) return;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const update = await Updates.checkForUpdateAsync();
-          if (!update.isAvailable) return;
-          await Updates.fetchUpdateAsync();
-        } catch {
-          // offline — keep embedded until next foreground
-        }
-      })();
-    }, 12000);
-    return () => clearTimeout(timer);
-  }, []);
+/** Embedded App Store builds: check → fetch → reload so production OTAs actually apply. */
+function BootstrapOtaAutoApply() {
+  useOtaUpdater(true);
   return null;
 }
 
@@ -219,7 +205,7 @@ function AppShell() {
   if (OTA_BOOTSTRAP) {
     return (
       <>
-        <BootstrapOtaBackgroundFetch />
+        <BootstrapOtaAutoApply />
         <QueryClientProvider client={queryClient}>
           <AuthTokenBridge />
           <PushNotificationsBridge />
