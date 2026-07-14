@@ -29,6 +29,7 @@ pnpm exec eas channel:edit production --branch production --non-interactive
 pnpm exec eas update \
   --channel production \
   --platform ios \
+  --environment production \
   --message "HEAL-CLEAN ${EXPO_PUBLIC_GIT_COMMIT} ${STAMP}" \
   --non-interactive
 

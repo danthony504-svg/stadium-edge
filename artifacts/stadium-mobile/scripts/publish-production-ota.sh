@@ -30,6 +30,7 @@ fi
 pnpm exec eas update \
   --channel production \
   --platform ios \
+  --environment production \
   --message "$MESSAGE" \
   --non-interactive
 
