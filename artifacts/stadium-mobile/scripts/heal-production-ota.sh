@@ -14,6 +14,7 @@ export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
+export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
 export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
 export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 STAMP="$(date -u +%Y-%m-%dT%H:%MZ)"

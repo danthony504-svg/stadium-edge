@@ -45,6 +45,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
@@ -55,6 +56,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
           ROLLBACK_EMBEDDED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollback_embedded || '0' }}

@@ -36,6 +36,7 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
           EXPO_PUBLIC_DEPLOY_MESSAGE: HEAL-EMBEDDED ${{ github.sha }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-heal-check
@@ -46,5 +47,6 @@ jobs:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
+          EXPO_PUBLIC_OTA_BOOTSTRAP: "true"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
         run: bash scripts/heal-production-ota.sh
