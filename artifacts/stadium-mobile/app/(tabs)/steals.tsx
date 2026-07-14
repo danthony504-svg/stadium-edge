@@ -1,7 +1,7 @@
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -19,6 +19,7 @@ import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
 import { getLiveSteals, fetchLiveSteals, propMarketLabel, type LiveSteal, type NearMissSteal, type StealRecord, type StealScanMeta, type StealSeasonStats } from "@/lib/api";
 import type { StealFeedClientLog } from "@/lib/stealFeedClient";
+import { logStealScanLifecycle } from "@/lib/stealScanLifecycle";
 import { SPORTS, sportLabel } from "@/lib/sports";
 import {
   americanToDecimal,
@@ -680,17 +681,18 @@ export default function StealsScreen() {
   const seasonStats = activeData?.seasonStats;
   const hasResults = steals.length > 0 || almostQualified.length > 0;
   const awaitingFirstResponse = query.isLoading && !activeData && !query.isError;
-  const feedUnavailable = query.isError || (!awaitingFirstResponse && !activeData);
-  const scanComplete = Boolean(activeData && stealScanIsComplete(meta, false));
+  const feedUnavailable = query.isError;
+  const scanComplete = Boolean(activeData && stealScanIsComplete(meta, activeData.feedDegraded));
+  const isScanning = awaitingFirstResponse || (query.isFetching && !scanComplete && !feedUnavailable);
   const scanPhase: "loading" | "complete" | "empty" = awaitingFirstResponse
     ? "loading"
-    : feedUnavailable
-      ? "loading"
     : hasResults
       ? "complete"
       : scanComplete
         ? "empty"
-        : "loading";
+        : isScanning
+          ? "loading"
+          : "empty";
   const filteredSteals = React.useMemo(
     () => steals.filter((s) => !sportFilter || s.sport === sportFilter),
     [steals, sportFilter],
@@ -703,6 +705,37 @@ export default function StealsScreen() {
       void query.refetch();
     }, [query.refetch]),
   );
+
+  useEffect(() => {
+    logStealScanLifecycle({
+      stage: "ui_state",
+      endpoint: feedLog?.endpoint ?? "/sports/live-steals",
+      httpStatus: feedLog?.httpStatus,
+      responseTimeMs: feedLog?.responseTimeMs,
+      scanComplete,
+      booksScanned: meta?.booksScanned,
+      marketsChecked: meta?.marketsChecked,
+      longshotsAnalyzed: meta?.longshotsAnalyzed,
+      stealsFound: meta?.stealsFound,
+      feedDegraded: activeData?.feedDegraded,
+      isScanning,
+      isError: query.isError,
+      detail: scanPhase,
+    });
+  }, [
+    activeData?.feedDegraded,
+    feedLog?.endpoint,
+    feedLog?.httpStatus,
+    feedLog?.responseTimeMs,
+    isScanning,
+    meta?.booksScanned,
+    meta?.longshotsAnalyzed,
+    meta?.marketsChecked,
+    meta?.stealsFound,
+    query.isError,
+    scanComplete,
+    scanPhase,
+  ]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -841,12 +874,14 @@ export default function StealsScreen() {
             isRetrying={query.isFetching}
             onRetry={() => query.refetch()}
           />
-        ) : awaitingFirstResponse ? (
+        ) : isScanning ? (
           <>
-            <ScanProgressPanel phase="loading" />
+            <ScanProgressPanel meta={meta} phase="loading" />
             <RadarScan hideFooter>
               <Text style={{ color: colors.mutedForeground, fontFamily: FONT.medium, fontSize: 12, textAlign: "center" }}>
-                Connecting to live odds scan…
+                {awaitingFirstResponse
+                  ? "Connecting to live odds scan…"
+                  : "Rescanning live odds…"}
               </Text>
             </RadarScan>
           </>

@@ -4,6 +4,7 @@ import {
   stealFeedPath,
   type StealFeedClientLog,
 } from "./stealFeedClient.ts";
+import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -793,10 +794,17 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
   const path = stealFeedPath();
   const fullUrl = stealFeedFullUrl();
   const started = Date.now();
+  logStealScanLifecycle({ stage: "request_start", endpoint: path });
   try {
     const res = await withTimeout(expoFetch(fullUrl, { signal }), 45_000, path);
     const responseTimeMs = Date.now() - started;
     const bodyText = await res.text();
+    logStealScanLifecycle({
+      stage: "response_received",
+      endpoint: path,
+      httpStatus: res.status,
+      responseTimeMs,
+    });
 
     if (!res.ok) {
       let errorReason = `HTTP ${res.status}`;
@@ -818,6 +826,14 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
         sportProbes: [],
       };
       logStealFeedClient(log);
+      logStealScanLifecycle({
+        stage: "http_error",
+        endpoint: path,
+        httpStatus: res.status,
+        responseTimeMs,
+        feedDegraded: true,
+        error: errorReason,
+      });
       throw Object.assign(new Error(errorReason), { stealFeedLog: log });
     }
 
@@ -840,6 +856,19 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
       throw new Error(`invalid JSON from ${path}`);
     }
 
+    logStealScanLifecycle({
+      stage: "parse_ok",
+      endpoint: path,
+      httpStatus: res.status,
+      responseTimeMs,
+      scanComplete: parsed.meta?.scanComplete,
+      booksScanned: parsed.meta?.booksScanned,
+      marketsChecked: parsed.meta?.marketsChecked,
+      longshotsAnalyzed: parsed.meta?.longshotsAnalyzed,
+      stealsFound: parsed.meta?.stealsFound,
+      feedDegraded: parsed.feedDegraded,
+    });
+
     const feedOk =
       parsed.feedDegraded !== true &&
       parsed.feed?.ok !== false &&
@@ -860,6 +889,14 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
     logStealFeedClient(log);
 
     if (!feedOk) {
+      logStealScanLifecycle({
+        stage: "feed_degraded",
+        endpoint: path,
+        httpStatus: res.status,
+        responseTimeMs,
+        feedDegraded: true,
+        error: log.errorReason ?? "odds_feed_unavailable",
+      });
       throw Object.assign(new Error(log.errorReason ?? "odds_feed_unavailable"), { stealFeedLog: log });
     }
 
@@ -874,6 +911,18 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
       feed: parsed.feed,
       ledgerError: parsed.ledgerError ?? null,
     };
+    logStealScanLifecycle({
+      stage: response.meta?.scanComplete ? "scan_complete" : "scan_incomplete",
+      endpoint: path,
+      httpStatus: res.status,
+      responseTimeMs,
+      scanComplete: response.meta?.scanComplete,
+      booksScanned: response.meta?.booksScanned,
+      marketsChecked: response.meta?.marketsChecked,
+      longshotsAnalyzed: response.meta?.longshotsAnalyzed,
+      stealsFound: response.meta?.stealsFound,
+      feedDegraded: false,
+    });
     return { response, log };
   } catch (err) {
     const log: StealFeedClientLog = {
@@ -888,13 +937,34 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
       sportProbes: [],
     };
     logStealFeedClient(log);
+    logStealScanLifecycle({
+      stage: log.httpStatus != null ? "http_error" : "network_error",
+      endpoint: path,
+      httpStatus: log.httpStatus,
+      responseTimeMs: log.responseTimeMs,
+      feedDegraded: true,
+      error: log.errorReason,
+    });
     throw Object.assign(err instanceof Error ? err : new Error(String(err)), { stealFeedLog: log });
   }
 }
 
+/** Soft fetch for Home — never throws; Steals tab uses fetchLiveSteals instead. */
 export async function getLiveSteals(signal?: AbortSignal): Promise<LiveStealsResponse> {
-  const { response } = await fetchLiveSteals(signal);
-  return response;
+  try {
+    const { response } = await fetchLiveSteals(signal);
+    return response;
+  } catch {
+    return {
+      steals: [],
+      record: EMPTY_STEAL_RECORD,
+      history: [],
+      meta: EMPTY_STEAL_SCAN_META,
+      almostQualified: [],
+      seasonStats: { roiPct: null, avgOdds: null },
+      feedDegraded: true,
+    };
+  }
 }
 
 export type GetPropsArgs = {
