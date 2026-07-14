@@ -1,21 +1,15 @@
-name: Publish production OTA
+name: Publish preview OTA
 
-# FROZEN: production OTAs require manual workflow_dispatch + TestFlight cold-launch pass.
 on:
   workflow_dispatch:
     inputs:
       message:
-        description: OTA update message
+        description: Preview OTA message
         required: false
-        default: "Restore Home and login after App Review"
-      rollout_percentage:
-        description: Staged rollout percentage (1-100)
-        required: false
-        default: "10"
+        default: "Preview OTA candidate"
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') && !contains(github.event.head_commit.message, '[force-only]') && !contains(github.event.head_commit.message, '[ota-test-only]') && !contains(github.event.head_commit.message, 'ota-test') && !contains(github.event.head_commit.message, 'bootstrap-ota') && !contains(github.event.head_commit.message, 'BOOTSTRAP OTA') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,28 +36,26 @@ jobs:
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: PREVIEW ${{ github.sha }}-${{ github.run_id }}
         run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
 
       - name: Print verification gate
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          OTA_CHANNEL: preview
         run: bash scripts/verify-ota-candidate.sh
 
-      - name: Publish OTA to production
+      - name: Publish OTA to preview channel
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
           EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
           EXPO_PUBLIC_APP_REVIEW_MODE: "false"
           EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
-          ROLLOUT_PERCENTAGE: ${{ github.event.inputs.rollout_percentage || '10' }}
+          EXPO_PUBLIC_DEPLOY_MESSAGE: PREVIEW ${{ github.sha }}-${{ github.run_id }}
         run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "Add EXPO_TOKEN to repo secrets: https://github.com/${{ github.repository }}/settings/secrets/actions"
-            exit 1
-          fi
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
-            MSG="DEPLOY-VERIFY $(git rev-parse HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
+            MSG="PREVIEW $(git rev-parse HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
           fi
-          bash scripts/publish-production-ota.sh "$MSG"
+          bash scripts/publish-preview-ota.sh "$MSG"

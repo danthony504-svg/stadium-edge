@@ -24,8 +24,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
-import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
@@ -125,13 +123,14 @@ function RootLayoutNav() {
       <Stack.Screen name="upcoming" options={{ presentation: "card" }} />
       <Stack.Screen name="(auth)" options={{ presentation: "card" }} />
       <Stack.Screen name="account" options={{ presentation: "card" }} />
+      <Stack.Screen name="app-update" options={{ presentation: "card" }} />
       <Stack.Screen name="notifications" options={{ presentation: "card" }} />
       <Stack.Screen name="ota-debug" options={{ presentation: "card" }} />
     </Stack>
   );
 }
 
-/** No startup OTA — updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics. */
+/** Boot path has no OTA logic — native ON_LOAD handles background check/download. */
 function AppShell() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -143,8 +142,6 @@ function AppShell() {
             <KeyboardProvider>
               <StatusBar style="light" />
               <RootLayoutNav />
-              <OtaUpdateBanner />
-              <OtaDiagnosticsBanner />
             </KeyboardProvider>
           </GestureHandlerRootView>
         </PickTrackerProvider>

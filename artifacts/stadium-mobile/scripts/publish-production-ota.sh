@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Publish a JS-only OTA to the production channel. Requires EXPO_TOKEN.
 # eas update does NOT inherit eas.json build env — export EXPO_PUBLIC_* before bundling.
+# Always test on preview/TestFlight first; use promote-preview-to-production.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,28 +11,24 @@ if [[ -z "${EXPO_TOKEN:-}" ]]; then
 fi
 
 MESSAGE="${1:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main) $(date -u +%Y-%m-%dT%H:%MZ)}"
+ROLLOUT="${ROLLOUT_PERCENTAGE:-10}"
 export EAS_NO_VCS=1
 export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
 export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
 export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
-export EXPO_PUBLIC_OTA_BOOTSTRAP="${EXPO_PUBLIC_OTA_BOOTSTRAP:-true}"
-export RUNTIME_VERSION="${RUNTIME_VERSION:-1.0.0}"
 export EXPO_PUBLIC_GIT_COMMIT="${EXPO_PUBLIC_GIT_COMMIT:-$(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo unknown)}"
 export EXPO_PUBLIC_DEPLOY_MESSAGE="${EXPO_PUBLIC_DEPLOY_MESSAGE:-DEPLOY-VERIFY $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null)-$(date -u +%Y%m%d-%H%M%S)}"
 
 echo "Linking production channel → production branch…"
 pnpm exec eas channel:edit production --branch production --non-interactive
 
-if [[ "${ROLLBACK_EMBEDDED:-1}" == "1" ]]; then
-  echo "Clearing any corrupt OTA before publishing fresh bundle…"
-  bash scripts/rollback-production-ota.sh "Pre-publish rollback $(git -C "$(dirname "$0")/../.." rev-parse --short HEAD 2>/dev/null || echo main)"
-fi
-
+echo "Publishing OTA to production @ ${ROLLOUT}% rollout (runtime from appVersion policy)…"
 pnpm exec eas update \
   --channel production \
   --platform ios \
   --environment production \
+  --rollout-percentage "$ROLLOUT" \
   --message "$MESSAGE" \
   --non-interactive
 
-echo "OTA published. App Store + TestFlight users on runtime 1.0.0 pick it up on next open."
+echo "OTA published at ${ROLLOUT}% rollout. Increase gradually after verification."

@@ -294,6 +294,39 @@ export default function AccountScreen() {
           </View>
         ) : null}
 
+        <Pressable
+          onPress={() => router.push("/app-update")}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: colors.radius,
+            padding: 16,
+            opacity: pressed ? 0.88 : 1,
+          })}
+        >
+          <Feather name="download-cloud" size={18} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontFamily: FONT.semibold, fontSize: 15, color: colors.foreground }}>
+              App update
+            </Text>
+            <Text
+              style={{
+                fontFamily: FONT.body,
+                fontSize: 13,
+                color: colors.mutedForeground,
+                marginTop: 2,
+              }}
+            >
+              Check, download, or restart to apply an update
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
+
         {bioCap.supported || bioLoginEmail ? (
           <View
             style={{
