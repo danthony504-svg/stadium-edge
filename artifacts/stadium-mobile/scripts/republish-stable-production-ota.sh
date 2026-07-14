@@ -30,7 +30,7 @@ echo ""
 echo "Republishing stable update group to production channel…"
 pnpm exec eas update:republish \
   --group "$STABLE_UPDATE_GROUP" \
-  --channel production \
+  --destination-channel production \
   --platform ios \
   --message "$MESSAGE" \
   --non-interactive
@@ -44,6 +44,6 @@ MANIFEST=$(curl -sS \
   -H "accept: multipart/mixed,application/expo+json,application/json" \
   "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c")
 
-NEW_ID=$(echo "$MANIFEST" | rg -o '"id":"[0-9a-f-]{36}"' | head -1 | cut -d'"' -f4 || true)
+NEW_ID=$(echo "$MANIFEST" | grep -oE '"id":"[0-9a-f-]{36}"' | head -1 | cut -d'"' -f4 || true)
 echo "Production channel now serves update id: ${NEW_ID:-unknown}"
 echo "Stable reference id was: ${STABLE_UPDATE_ID_REF}"
