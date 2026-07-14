@@ -17,7 +17,6 @@ import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
-import * as Updates from "expo-updates";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -26,16 +25,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { OtaDiagnosticsBanner } from "@/components/OtaDiagnosticsBanner";
-import { OtaRequiredGate } from "@/components/OtaRequiredGate";
-import { OtaStartupGate } from "@/components/OtaStartupGate";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
-import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
-import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
-import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
-import { applyOtaUpdateIfAvailable, useOtaUpdater } from "@/lib/otaUpdater";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
@@ -101,105 +94,18 @@ function BootScreen() {
     >
       <ActivityIndicator size="large" color="#38bdf8" />
       {showRetry ? (
-        <>
-          <Text
-            style={{
-              color: "#e2e8f0",
-              fontSize: 15,
-              lineHeight: 21,
-              textAlign: "center",
-              marginTop: 22,
-            }}
-          >
-            Having trouble connecting. Check your internet connection and try again.
-          </Text>
-          <Pressable
-            onPress={() => {
-              if (OTA_BOOTSTRAP) {
-                Updates.reloadAsync().catch(() => {});
-                return;
-              }
-              void applyOtaUpdateIfAvailable().finally(() => {
-                Updates.reloadAsync().catch(() => {});
-              });
-            }}
-            style={{
-              marginTop: 18,
-              paddingVertical: 11,
-              paddingHorizontal: 28,
-              backgroundColor: "#1e293b",
-              borderRadius: 12,
-            }}
-          >
-            <Text style={{ color: "#38bdf8", fontSize: 15, fontWeight: "600" }}>
-              Retry
-            </Text>
-          </Pressable>
-        </>
+        <Text
+          style={{
+            color: "#e2e8f0",
+            fontSize: 15,
+            lineHeight: 21,
+            textAlign: "center",
+            marginTop: 22,
+          }}
+        >
+          Having trouble connecting. Check your internet connection and try again.
+        </Text>
       ) : null}
-    </View>
-  );
-}
-
-/** After startup on embedded builds, apply a downloaded OTA once (loop-guarded). */
-function PendingOtaAutoApply() {
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch) return;
-
-    let cancelled = false;
-    void noteOtaBundleActive();
-
-    const delayMs = OTA_BOOTSTRAP ? 800 : 400;
-    const timer = setTimeout(() => {
-      void (async () => {
-        if (cancelled) return;
-        if (shouldApplyDownloadedOta()) {
-          await safeReloadPendingOta("post-startup-pending");
-          return;
-        }
-        await launchOtaCheckFetchReload();
-      })();
-    }, delayMs);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, []);
-  return null;
-}
-
-function OtaBridge() {
-  const otaUpdating = useOtaUpdater(true);
-  if (!otaUpdating) return null;
-  return (
-    <View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 9999,
-        backgroundColor: "rgba(15,23,42,0.92)",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 32,
-      }}
-    >
-      <ActivityIndicator size="large" color="#38bdf8" />
-      <Text
-        style={{
-          color: "#e2e8f0",
-          fontSize: 15,
-          lineHeight: 21,
-          textAlign: "center",
-          marginTop: 18,
-        }}
-      >
-        Updating Stadium Edge…
-      </Text>
     </View>
   );
 }
@@ -225,56 +131,25 @@ function RootLayoutNav() {
   );
 }
 
+/** No startup OTA — updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics. */
 function AppShell() {
-  if (OTA_BOOTSTRAP) {
-    return (
-      <OtaStartupGate>
-        <PendingOtaAutoApply />
-        <QueryClientProvider client={queryClient}>
-          <AuthTokenBridge />
-          <PushNotificationsBridge />
-          <BetSlipProvider>
-            <PickTrackerProvider>
-              <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-                <KeyboardProvider>
-                  <StatusBar style="light" />
-                  <OtaRequiredGate>
-                    <RootLayoutNav />
-                  </OtaRequiredGate>
-                  <OtaUpdateBanner />
-                  <OtaDiagnosticsBanner />
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </PickTrackerProvider>
-          </BetSlipProvider>
-        </QueryClientProvider>
-      </OtaStartupGate>
-    );
-  }
-
   return (
-    <OtaStartupGate>
-      <PendingOtaAutoApply />
-      <OtaBridge />
-      <QueryClientProvider client={queryClient}>
-        <AuthTokenBridge />
-        <PushNotificationsBridge />
-        <BetSlipProvider>
-          <PickTrackerProvider>
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
-              <KeyboardProvider>
-                <StatusBar style="light" />
-                <OtaRequiredGate>
-                  <RootLayoutNav />
-                </OtaRequiredGate>
-                <OtaUpdateBanner />
-                <OtaDiagnosticsBanner />
-              </KeyboardProvider>
-            </GestureHandlerRootView>
-          </PickTrackerProvider>
-        </BetSlipProvider>
-      </QueryClientProvider>
-    </OtaStartupGate>
+    <QueryClientProvider client={queryClient}>
+      <AuthTokenBridge />
+      <PushNotificationsBridge />
+      <BetSlipProvider>
+        <PickTrackerProvider>
+          <GestureHandlerRootView style={{ flex: 1, backgroundColor: DARK_BG }}>
+            <KeyboardProvider>
+              <StatusBar style="light" />
+              <RootLayoutNav />
+              <OtaUpdateBanner />
+              <OtaDiagnosticsBanner />
+            </KeyboardProvider>
+          </GestureHandlerRootView>
+        </PickTrackerProvider>
+      </BetSlipProvider>
+    </QueryClientProvider>
   );
 }
 

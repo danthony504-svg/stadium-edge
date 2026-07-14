@@ -1,0 +1,2 @@
+# Bump and merge to main to roll production channel back to embedded (clears updatePreviouslyFailed).
+rollback-embedded-2026-07-14T0548Z

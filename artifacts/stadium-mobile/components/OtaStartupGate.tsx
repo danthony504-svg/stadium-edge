@@ -1,78 +1,9 @@
-import * as Updates from "expo-updates";
-import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
-
-import { FONT } from "@/components/ui";
-import { launchOtaCheckFetchReload } from "@/lib/otaLaunch";
-import { noteOtaBundleActive, safeReloadPendingOta, shouldApplyDownloadedOta } from "@/lib/otaAutoApply";
+import type { ReactNode } from "react";
 
 /**
- * Blocks embedded builds until expo-updates check → fetch → reload completes.
- * OTA bundles skip this gate entirely — reloadAsync during OTA boot caused
- * updatePreviouslyFailed rollbacks.
+ * @deprecated Startup OTA gate removed — pass-through only so legacy imports compile.
+ * Updates are user-initiated via OtaUpdateBanner or Menu → OTA Diagnostics.
  */
 export function OtaStartupGate({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(
-    () => __DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch,
-  );
-
-  useEffect(() => {
-    if (__DEV__ || !Updates.isEnabled || !Updates.isEmbeddedLaunch) {
-      void noteOtaBundleActive();
-      return;
-    }
-
-    let cancelled = false;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const maxWait = setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 20_000);
-
-    (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (cancelled) return;
-        const outcome = await launchOtaCheckFetchReload();
-        if (outcome === "reloaded") return;
-        if (shouldApplyDownloadedOta()) {
-          if (await safeReloadPendingOta(`startup-gate-retry-${attempt}`)) return;
-        }
-        if (attempt < 2) await sleep(1500 * (attempt + 1));
-      }
-
-      if (!cancelled) setReady(true);
-    })();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(maxWait);
-    };
-  }, []);
-
-  if (ready) return <>{children}</>;
-
-  return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: "#0f172a",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 32,
-      }}
-    >
-      <ActivityIndicator size="large" color="#38bdf8" />
-      <Text
-        style={{
-          color: "#e2e8f0",
-          fontFamily: FONT.medium,
-          fontSize: 15,
-          lineHeight: 21,
-          textAlign: "center",
-          marginTop: 18,
-        }}
-      >
-        Checking for updates…
-      </Text>
-    </View>
-  );
+  return <>{children}</>;
 }

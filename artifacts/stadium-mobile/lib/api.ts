@@ -3,8 +3,8 @@ import {
   stealFeedFullUrl,
   stealFeedPath,
   type StealFeedClientLog,
-} from "./stealFeedClient.ts";
-import { logStealScanLifecycle } from "./stealScanLifecycle.ts";
+} from "./stealFeedClient";
+import { logStealScanLifecycle } from "./stealScanLifecycle";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
 import { NAME_FALLBACK_SKIP } from "./statLookup";
@@ -110,7 +110,7 @@ export {
 
 // The Express backend (artifacts/api-server) is reached through the Replit dev
 // domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
-import { API_BASE } from "./apiBase.ts";
+import { API_BASE } from "./apiBase";
 export { API_BASE };
 
 // ---------- Types (mirror lib/api-spec/openapi.yaml) ----------

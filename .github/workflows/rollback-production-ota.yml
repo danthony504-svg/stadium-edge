@@ -11,6 +11,10 @@ on:
         description: Runtime version (must match installed app)
         required: false
         default: "1.0.0"
+  push:
+    branches: [main]
+    paths:
+      - "artifacts/stadium-mobile/.ota-rollback-embedded-trigger"
 
 jobs:
   rollback:

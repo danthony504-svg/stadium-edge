@@ -3,7 +3,6 @@ import * as Updates from "expo-updates";
 import { latestContext } from "expo-updates";
 
 import { launchOtaCheckFetchReload } from "./otaLaunch";
-import { safeReloadPendingOta, shouldApplyDownloadedOta } from "./otaAutoApply";
 import { formatOtaLogLines, getOtaLaunchLogs, pushOtaLog } from "./otaLaunchLog";
 
 export type OtaDebugSnapshot = {
@@ -322,35 +321,6 @@ export async function forceOtaCheckFetchAndReload(): Promise<OtaCheckResult> {
       reloaded: true,
       reloadResult: "reloadAsync invoked (app should restart)",
     };
-  }
-
-  const pending = !!latestContext?.isUpdatePending || shouldApplyDownloadedOta();
-  if (pending) {
-    if (await safeReloadPendingOta("manual-pending")) {
-      return {
-        downloaded: true,
-        reloaded: true,
-        reloadResult: "reloadAsync invoked (pending bundle)",
-      };
-    }
-    try {
-      pushOtaLog("reloadAsync", true, "manual: pending update (unguarded fallback)…");
-      await Updates.reloadAsync({ reloadScreenOptions: { fade: true } });
-      return {
-        downloaded: true,
-        reloaded: true,
-        reloadResult: "reloadAsync invoked (pending bundle)",
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      pushOtaLog("reloadAsync", false, msg);
-      return {
-        downloaded: true,
-        reloaded: false,
-        reason: msg,
-        reloadResult: `ERR: ${msg}`,
-      };
-    }
   }
 
   return {

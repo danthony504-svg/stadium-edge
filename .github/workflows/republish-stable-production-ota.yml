@@ -1,17 +1,13 @@
 name: Republish stable production OTA
 
-# Emergency rollback: republish last known-good update group (no new bundle).
+# Manual only — do not auto-republish on push while OTA boot is under investigation.
 on:
   workflow_dispatch:
     inputs:
       message:
         description: Republish message
         required: false
-        default: "ROLLBACK stable OTA b9f60bc32 — stop crash chain"
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-rollback-stable-trigger"
+        default: "ROLLBACK stable OTA b9f60bc32 — manual only"
 
 jobs:
   republish:
