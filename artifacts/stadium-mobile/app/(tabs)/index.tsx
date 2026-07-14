@@ -12,12 +12,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Circle, Line, Polyline } from "react-native-svg";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { ErrorFallbackProps } from "@/components/ErrorFallback";
+import { PerformanceSparkline } from "@/components/PerformanceSparkline";
 import { AppHeader } from "@/components/AppHeader";
-import { OtaHomeDiagnostics } from "@/components/OtaHomeDiagnostics";
 import { TennisHomeFeed } from "@/components/TennisHomeFeed";
 import { FighterAvatar } from "@/components/FighterAvatar";
 import { GameCard, type GameMeta } from "@/components/GameCard";
@@ -42,6 +41,7 @@ import {
   type UpsetSpot,
 } from "@/lib/api";
 import { formatAmerican } from "@/lib/format";
+import { buildRollingWinRateSeries, summarizeRecentPerformance } from "@/lib/performanceChart";
 import { GRADE_POOL, gradePropCands, recommendSide } from "@/lib/propGrade";
 import { DEFAULT_SPORTS, SPORTS } from "@/lib/sports";
 import {
@@ -240,33 +240,6 @@ function FeaturedAvatar({
   );
 }
 
-function PerformanceSparkline({ width }: { width: number }) {
-  const colors = useColors();
-  const height = 78;
-  const values = [18, 24, 22, 31, 28, 39, 34, 47, 41, 50, 57, 44, 49, 46, 54, 51, 60, 56, 64, 68, 59, 66, 73, 78, 74, 83, 88];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const points = values
-    .map((v, i) => {
-      const x = (i / (values.length - 1)) * width;
-      const y = height - 12 - ((v - min) / (max - min || 1)) * (height - 24);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  const pointList = points.split(" ");
-  const lastParts = pointList[pointList.length - 1]?.split(",").map(Number);
-  const lastX = lastParts?.[0] ?? width;
-  const lastY = lastParts?.[1] ?? 12;
-
-  return (
-    <Svg width={width} height={height}>
-      <Line x1="0" y1={height - 16} x2={width} y2={height - 16} stroke={colors.border} strokeWidth="1" strokeDasharray="4 5" />
-      <Polyline points={points} fill="none" stroke={colors.primary} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-      <Circle cx={lastX} cy={lastY} r="4" fill="#60a5fa" />
-    </Svg>
-  );
-}
-
 function BaseballMiniPanel() {
   const colors = useColors();
   const dot = (filled: boolean, color: string) => (
@@ -334,32 +307,68 @@ function BaseballMiniPanel() {
   );
 }
 
-/** Classic Discover CTA — full-width pill opens Coach for a new AI parlay. */
+/** Premium parlay CTA card — opens Coach for a new AI parlay. */
 function BuildBestParlayHero({ onPress }: { onPress: () => void }) {
   const colors = useColors();
   return (
     <Pressable
       onPress={onPress}
-      style={{ marginHorizontal: 16, marginTop: 18, marginBottom: 4 }}
+      style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 4 }}
     >
       {({ pressed }) => (
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            backgroundColor: colors.primary,
-            borderRadius: 999,
+            gap: 14,
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 16,
             paddingVertical: 16,
-            paddingHorizontal: 24,
-            opacity: pressed ? 0.9 : 1,
+            paddingHorizontal: 16,
+            opacity: pressed ? 0.92 : 1,
           }}
         >
-          <Text style={{ color: "#fff", fontFamily: FONT.display, fontSize: 17 }}>
-            Build best parlay
-          </Text>
-          <Feather name="arrow-right" size={18} color="#fff" />
+          <View
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              backgroundColor: "rgba(59,130,246,0.14)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <MaterialCommunityIcons name="cards-playing-outline" size={26} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <Text style={{ color: colors.foreground, fontFamily: FONT.display, fontSize: 17 }}>
+              Build best parlay
+            </Text>
+            <Text
+              style={{
+                color: colors.mutedForeground,
+                fontFamily: FONT.medium,
+                fontSize: 12,
+                lineHeight: 17,
+              }}
+            >
+              Get AI-powered picks tailored for the best possible odds
+            </Text>
+          </View>
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.primary,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Feather name="arrow-right" size={18} color="#fff" />
+          </View>
         </View>
       )}
     </Pressable>
@@ -756,11 +765,14 @@ function HomeSportFeed({
     queryFn: ({ signal }) => getLiveSteals(signal),
     staleTime: 5 * 60_000,
   });
-  const stealRec = stealsQ.data?.record ?? null;
-  const stealDecided = stealRec ? stealRec.wins + stealRec.losses : 0;
-  const stealWinPct =
-    stealRec && stealDecided > 0 ? Math.round((stealRec.wins / stealDecided) * 100) : null;
-  const showTrack = !!stealRec && stealRec.graded > 0 && stealWinPct != null;
+  const gradedHistory = stealsQ.data?.history ?? [];
+  const perfSummary = summarizeRecentPerformance(gradedHistory);
+  const perfSeries = buildRollingWinRateSeries(gradedHistory);
+  const hasPerfData = perfSummary.wins + perfSummary.losses > 0;
+  const perfWinPct = perfSummary.winPct;
+  const perfRecord = hasPerfData
+    ? `${perfSummary.wins}-${perfSummary.losses}${perfSummary.pushes > 0 ? `-${perfSummary.pushes}` : ""}`
+    : null;
 
   const hotGradesQ = useQuery({
     queryKey: ["home-hot-grades", sport, hotKey],
@@ -951,21 +963,21 @@ function HomeSportFeed({
   }[] = [
     {
       label: "Hot Picks",
-      subtitle: "Daily top picks",
+      subtitle: "Tonight's top picks",
       icon: "flash",
       color: "#fb923c",
       onPress: () => askCoach("Build me the best parlay", true),
     },
     {
       label: "Easy Money",
-      subtitle: "High win rate",
+      subtitle: "High win rate tonight",
       icon: "currency-usd",
       color: "#34d399",
       onPress: () => askCoach("Build me a safe parlay"),
     },
     {
       label: "Best Value",
-      subtitle: "Top projections...",
+      subtitle: "Top projected edges",
       icon: "bullseye-arrow",
       color: colors.primary,
       onPress: () =>
@@ -973,17 +985,10 @@ function HomeSportFeed({
     },
     {
       label: "Longshots",
-      subtitle: "High upside picks",
+      subtitle: "High upside plays",
       icon: "rocket-launch",
       color: "#a78bfa",
       onPress: () => router.push("/steals"),
-    },
-    {
-      label: "AI Parlays",
-      subtitle: "Smart combos",
-      icon: "robot",
-      color: "#22d3ee",
-      onPress: () => router.push({ pathname: "/coach", params: { ts: String(Date.now()) } }),
     },
   ];
 
@@ -1013,12 +1018,16 @@ function HomeSportFeed({
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
         <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
 
-        {/* Quick actions — labeled shortcut cards routing to the real Coach /
-            Props / Steals surfaces. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginTop: 4, marginBottom: 22 }}
+        {/* Quick actions — four shortcut cards in a single row. */}
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            paddingHorizontal: 16,
+            gap: 8,
+            marginTop: 4,
+            marginBottom: 22,
+          }}
         >
           {quickActions.map((a) => (
             <Pressable
@@ -1031,7 +1040,7 @@ function HomeSportFeed({
                 borderColor: colors.border,
                 borderRadius: 16,
                 paddingVertical: 14,
-                paddingHorizontal: 10,
+                paddingHorizontal: 8,
                 gap: 8,
                 alignItems: "center",
                 opacity: pressed ? 0.85 : 1,
@@ -1074,12 +1083,111 @@ function HomeSportFeed({
               </Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
 
-        {/* Hot Picks Today — real props ranked by how often the player has
-            cleared THIS posted line in their recent games (a transparent letter
-            grade from real hit-rate, NOT a fabricated model rating). Hidden when
-            nothing grades out. */}
+        {/* Today's Performance — real graded steal picks; honest empty state when none settled. */}
+        <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
+          <Pressable
+            onPress={() => router.push("/pick-performance")}
+            style={({ pressed }) => ({
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: colors.radius,
+              padding: 16,
+              gap: 14,
+              opacity: pressed ? 0.9 : 1,
+            })}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Feather name="bar-chart-2" size={16} color={colors.primary} />
+              <Text
+                style={{
+                  color: colors.foreground,
+                  fontFamily: FONT.display,
+                  fontSize: 16,
+                  flex: 1,
+                }}
+              >
+                Today&apos;s Performance
+              </Text>
+              <Text style={{ color: colors.primary, fontFamily: FONT.display, fontSize: 14 }}>
+                View all
+              </Text>
+            </View>
+            <View
+              style={{
+                flexDirection: isWideLayout ? "row" : "column",
+                alignItems: "center",
+                gap: isWideLayout ? 18 : 10,
+              }}
+            >
+              <View style={{ flexDirection: "row", flex: 1, alignSelf: "stretch" }}>
+                {[
+                  {
+                    val: hasPerfData && perfWinPct != null ? `${perfWinPct}%` : "—",
+                    label: "Win Rate",
+                    tint: hasPerfData ? "#34d399" : colors.mutedForeground,
+                  },
+                  {
+                    val: perfRecord ?? "—",
+                    label: "Record",
+                    tint: hasPerfData ? colors.foreground : colors.mutedForeground,
+                  },
+                  {
+                    val: hasPerfData ? String(perfSummary.wins + perfSummary.losses + perfSummary.pushes) : "—",
+                    label: "Graded",
+                    tint: hasPerfData ? colors.foreground : colors.mutedForeground,
+                  },
+                ].map((m, i) => (
+                  <View
+                    key={m.label}
+                    style={{
+                      flex: 1,
+                      alignItems: "center",
+                      gap: 3,
+                      borderLeftWidth: i === 0 ? 0 : 1,
+                      borderLeftColor: colors.border,
+                    }}
+                  >
+                    <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
+                    <Text
+                      style={{
+                        color: colors.mutedForeground,
+                        fontFamily: FONT.medium,
+                        fontSize: 10,
+                        letterSpacing: 0.4,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {m.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              {perfSeries.length >= 2 ? (
+                <PerformanceSparkline
+                  series={perfSeries}
+                  width={isWideLayout ? Math.min(310, width * 0.42) : width - 64}
+                />
+              ) : null}
+            </View>
+            {!hasPerfData ? (
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontFamily: FONT.medium,
+                  fontSize: 12,
+                  textAlign: "center",
+                }}
+              >
+                No settled picks yet
+              </Text>
+            ) : null}
+          </Pressable>
+        </View>
+
+        {/* Hot Picks Today — disabled for now; graded prop rail preserved below. */}
         {false && featuredEnabled && (hotLoading || topHot.length > 0) ? (
           <View style={{ marginBottom: 22 }}>
             <View
@@ -1222,92 +1330,7 @@ function HomeSportFeed({
           </View>
         ) : null}
 
-        {/* AI Performance — auto-graded W/L of the app's OWN longshot "steal"
-            picks (NOT the user's bets). Win rate excludes pushes. Three real
-            stats only (Win Rate / Record / Graded) — no units-profit number and
-            no profit chart, because we don't track stake or an ordered P&L
-            series. Shown only when there are real graded results. */}
-        {false && showTrack ? (
-          <View style={{ marginHorizontal: 16, marginBottom: 22 }}>
-            <Pressable
-              onPress={() => router.push("/steals")}
-              style={({ pressed }) => ({
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: colors.radius,
-                padding: 16,
-                gap: 14,
-                opacity: pressed ? 0.9 : 1,
-              })}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Feather name="bar-chart-2" size={16} color={colors.primary} />
-                <Text
-                  style={{
-                    color: colors.foreground,
-                    fontFamily: FONT.display,
-                    fontSize: 16,
-                    flex: 1,
-                  }}
-                >
-                  Today's AI Performance
-                </Text>
-                <Feather name="chevron-right" size={20} color={colors.mutedForeground} />
-              </View>
-              <View
-                style={{
-                  flexDirection: isWideLayout ? "row" : "column",
-                  alignItems: "center",
-                  gap: isWideLayout ? 18 : 10,
-                }}
-              >
-                <View style={{ flexDirection: "row", flex: 1, alignSelf: "stretch" }}>
-                  {[
-                    { val: `${stealWinPct}%`, label: "Win Rate", tint: "#34d399" },
-                    {
-                      val: `${stealRec!.wins}-${stealRec!.losses}${stealRec!.pushes > 0 ? `-${stealRec!.pushes}` : ""}`,
-                      label: "Last Picks",
-                      tint: colors.foreground,
-                    },
-                    { val: String(stealRec!.graded), label: "Graded", tint: colors.foreground },
-                  ].map((m, i) => (
-                    <View
-                      key={i}
-                      style={{
-                        flex: 1,
-                        alignItems: "center",
-                        gap: 3,
-                        borderLeftWidth: i === 0 ? 0 : 1,
-                        borderLeftColor: colors.border,
-                      }}
-                    >
-                      <Text style={{ color: m.tint, fontFamily: FONT.display, fontSize: 22 }}>{m.val}</Text>
-                      <Text
-                        style={{
-                          color: colors.mutedForeground,
-                          fontFamily: FONT.medium,
-                          fontSize: 10,
-                          letterSpacing: 0.4,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {m.label}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-                <View style={{ alignItems: "center" }}>
-                  <PerformanceSparkline width={isWideLayout ? Math.min(310, width * 0.42) : width - 64} />
-                </View>
-              </View>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* Disabled value-prop ranking kept for future reuse. Ranked by
-            the server-computed +EV (best posted price vs the de-vigged cross-book
-            consensus fair value). Real ev only; numbered; hidden when empty. */}
+        {/* Value Props — disabled; ranked +EV list preserved for future reuse. */}
         {false && featuredEnabled && valueProps.length > 0 ? (
           <View style={{ marginBottom: 22 }}>
             <View
@@ -1580,7 +1603,7 @@ function HomeSportFeed({
                 fontSize: 18,
               }}
             >
-              Upcoming
+              Upcoming Games
             </Text>
             {displayUpcoming.length > 0 ? (
               <View
@@ -1606,10 +1629,12 @@ function HomeSportFeed({
               </View>
             ) : null}
           </View>
-          {(canExpandUpcoming || upcomingExpanded) && displayUpcoming.length > 0 ? (
+          {displayUpcoming.length > 0 ? (
             <Pressable
               hitSlop={8}
-              onPress={() => setUpcomingExpanded((open) => !open)}
+              onPress={() =>
+                router.push({ pathname: "/upcoming", params: { sport } })
+              }
               style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
               <Text
@@ -1619,7 +1644,7 @@ function HomeSportFeed({
                   fontSize: 14,
                 }}
               >
-                {upcomingExpanded ? "Show less" : "View all"}
+                View all
               </Text>
             </Pressable>
           ) : null}
@@ -1913,8 +1938,8 @@ export default function HomeScreen() {
   const hotCardWidth = isWideLayout
     ? Math.max(118, Math.min(168, (width - 32 - 48) / 5))
     : 168;
-  // Five shortcut cards — horizontal scroll when they don't fit on one screen.
-  const quickCardWidth = Math.max(100, Math.min(112, (width - 32 - 5 * 8) / 5.2));
+  // Four shortcut cards in one row on typical phone widths.
+  const quickCardWidth = Math.max(76, (width - 32 - 3 * 8) / 4);
   const [sport, setSport] = useState(DEFAULT_SPORTS[0]);
   const sportFetchGenRef = useRef(0);
   const sportRef = useRef(sport);
@@ -1957,34 +1982,6 @@ export default function HomeScreen() {
           a sibling ABOVE the ScrollView (not a sticky scroll child) so layout
           reflows in the scrolling content can't shift it down. */}
       <AppHeader bottomGap={0}>
-        <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 10 }}>
-          <Text
-            style={{
-              color: colors.foreground,
-              fontFamily: FONT.display,
-              fontSize: 26,
-              letterSpacing: 0.5,
-            }}
-          >
-            {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
-              ? "STADIUM EDGE — v1.0.3"
-              : "PLAYER PROPS — OTA TEST 002"}
-          </Text>
-          <Text
-            style={{
-              color: colors.primary,
-              fontFamily: FONT.medium,
-              fontSize: 11,
-              marginTop: 4,
-              letterSpacing: 0.8,
-            }}
-          >
-            {process.env.EXPO_PUBLIC_OTA_BOOTSTRAP === "true"
-              ? "EMBEDDED BUILD · OTA DIAGNOSTICS IN MENU"
-              : "POWERED BY DATA DRIVEN REAL-TIME"}
-          </Text>
-        </View>
-        <OtaHomeDiagnostics />
         {/* Search bar → Home-wide game/team/player search */}
         <Pressable
           onPress={() =>
@@ -1995,6 +1992,7 @@ export default function HomeScreen() {
           }
           style={({ pressed }) => ({
             marginHorizontal: 16,
+            marginTop: 4,
             flexDirection: "row",
             alignItems: "center",
             gap: 10,
