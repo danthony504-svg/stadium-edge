@@ -57,5 +57,6 @@ jobs:
             --platform ios \
             --profile development \
             --non-interactive \
+            --refresh-ad-hoc-provisioning-profile \
             --no-wait \
             --message "$MSG"
