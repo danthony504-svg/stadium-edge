@@ -1,0 +1,61 @@
+name: Build iOS development
+
+# Phase 1 — dev client for physical iPhone testing (OTA disabled).
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Git branch to build
+        required: false
+        default: "cursor/ota-redesign-e67e"
+      message:
+        description: EAS build message
+        required: false
+        default: "Development build — OTA off, device verification"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Print release checklist
+        run: bash scripts/verify-stable-release.sh
+
+      - name: Build iOS development client
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_NO_VCS: "1"
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "Add EXPO_TOKEN to repo secrets"
+            exit 1
+          fi
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="Development build $(git rev-parse --short HEAD)"
+          fi
+          pnpm exec eas build \
+            --platform ios \
+            --profile development \
+            --non-interactive \
+            --no-wait \
+            --message "$MSG"

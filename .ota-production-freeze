@@ -1,0 +1,10 @@
+# PRODUCTION OTA FROZEN — do not publish, republish, heal, force, or promote
+# until a new TestFlight build is verified on device.
+#
+# Remove this file only after:
+#   1. iOS development build passes on physical iPhone
+#   2. TestFlight build (preview profile) passes on physical iPhone
+#   3. .ota-testflight-verified marker is committed
+#
+# frozen-at: 2026-07-15T01:47Z
+# reason: Stop production OTA patches; stable release process via EAS builds first
