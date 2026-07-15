@@ -8,9 +8,6 @@
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development",
-      "runtimeVersion": {
-        "policy": "appVersion"
-      },
       "ios": {
         "resourceClass": "m-medium"
       },
@@ -22,9 +19,6 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
-      "runtimeVersion": {
-        "policy": "appVersion"
-      },
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"
@@ -39,9 +33,6 @@
     "preview-ota": {
       "distribution": "internal",
       "channel": "preview",
-      "runtimeVersion": {
-        "policy": "appVersion"
-      },
       "ios": {
         "simulator": false,
         "resourceClass": "m-medium"
@@ -56,9 +47,6 @@
     "production": {
       "autoIncrement": true,
       "channel": "production",
-      "runtimeVersion": {
-        "policy": "appVersion"
-      },
       "ios": {
         "resourceClass": "m-medium"
       },
