@@ -1,5 +1,6 @@
 name: Rollback production OTA (embedded)
 
+# FROZEN — blocked while .ota-production-freeze exists.
 on:
   workflow_dispatch:
     inputs:
@@ -11,10 +12,6 @@ on:
         description: Runtime version (must match installed app)
         required: false
         default: "1.0.0"
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-rollback-embedded-trigger"
 
 jobs:
   rollback:
@@ -37,6 +34,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Production OTA freeze check
+        run: bash scripts/check-ota-production-freeze.sh
 
       - name: Roll back production to embedded bundle
         env:

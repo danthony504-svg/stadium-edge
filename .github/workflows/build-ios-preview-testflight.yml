@@ -1,0 +1,76 @@
+name: Build iOS preview TestFlight
+
+# Step 3 — TestFlight with OTA off (preview profile). No production OTA.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Git branch to build
+        required: false
+        default: "cursor/ota-redesign-e67e"
+      profile:
+        description: EAS profile (preview or preview-ota)
+        required: false
+        default: "preview"
+      message:
+        description: EAS build message
+        required: false
+        default: "TestFlight preview — verify before enabling OTA"
+      auto_submit:
+        description: Auto-submit to TestFlight when build finishes
+        required: false
+        default: "true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Print release checklist
+        run: bash scripts/verify-stable-release.sh
+
+      - name: Build iOS for TestFlight
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_NO_VCS: "1"
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "Add EXPO_TOKEN to repo secrets"
+            exit 1
+          fi
+          PROFILE="${{ github.event.inputs.profile }}"
+          MSG="${{ github.event.inputs.message }}"
+          AUTO="${{ github.event.inputs.auto_submit }}"
+          SUBMIT_FLAG=""
+          if [ "$AUTO" = "true" ]; then
+            SUBMIT_FLAG="--auto-submit"
+          fi
+          if [ -z "$MSG" ]; then
+            MSG="TestFlight $PROFILE $(git rev-parse --short HEAD)"
+          fi
+          pnpm exec eas build \
+            --platform ios \
+            --profile "$PROFILE" \
+            $SUBMIT_FLAG \
+            --non-interactive \
+            --no-wait \
+            --message "$MSG"

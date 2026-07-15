@@ -1,17 +1,13 @@
 name: Republish stable production OTA
 
-# Manual or push-triggered — republish known-good group for current 1.0.0 runtime devices.
+# FROZEN — blocked while .ota-production-freeze exists.
 on:
   workflow_dispatch:
     inputs:
       message:
         description: Republish message
         required: false
-        default: "ROLLBACK stable OTA b9f60bc32 — manual only"
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-republish-stable-trigger"
+        default: "BLOCKED — use stable release process instead"
 
 jobs:
   republish:
@@ -34,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
+
+      - name: Production OTA freeze check
+        run: bash scripts/check-ota-production-freeze.sh
 
       - name: Republish stable OTA to production channel
         env:

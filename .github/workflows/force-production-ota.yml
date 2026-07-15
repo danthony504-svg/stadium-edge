@@ -1,15 +1,11 @@
 name: Force production OTA
 
+# FROZEN — blocked while .ota-production-freeze exists.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "artifacts/stadium-mobile/.ota-force-publish"
 
 jobs:
   publish:
-    if: ${{ !contains(github.event.head_commit.message, '[heal-only]') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -30,26 +26,10 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      - name: Diagnose channel and branch
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: bash scripts/diagnose-production-ota.sh
-
-      - name: Verify bundle compiles from artifacts/stadium-mobile
-        env:
-          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
-          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
-          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: Force latest Stadium Edge UI
-        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-force-ota
+      - name: Production OTA freeze check
+        run: bash scripts/check-ota-production-freeze.sh
 
       - name: Force publish production OTA
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
-          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
-        run: |
-          MSG="Force latest Stadium Edge UI ${{ github.sha }} $(date -u +%Y-%m-%dT%H:%MZ)"
-          bash scripts/force-production-ota.sh "$MSG"
+        run: bash scripts/force-production-ota.sh "Force publish blocked by freeze"

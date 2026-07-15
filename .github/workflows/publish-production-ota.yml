@@ -1,24 +1,20 @@
 name: Publish production OTA
 
-# FROZEN: blocked until Phase 2 verified (.ota-phase2-verified in repo).
+# FROZEN — blocked while .ota-production-freeze exists.
 on:
   workflow_dispatch:
     inputs:
       message:
         description: OTA update message
         required: false
-        default: "Production OTA after Phase 2 verification"
+        default: "BLOCKED — TestFlight must pass first"
       rollout_percentage:
         description: Staged rollout percentage (1-100)
         required: false
         default: "10"
-      confirm_phase2_complete:
-        description: Type PHASE2_COMPLETE to confirm all Phase 2 steps passed on device
-        required: true
 
 jobs:
   publish:
-    if: ${{ github.event.inputs.confirm_phase2_complete == 'PHASE2_COMPLETE' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,26 +35,11 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
-      - name: Require Phase 2 sign-off marker
-        run: |
-          if [ ! -f "${{ github.workspace }}/.ota-phase2-verified" ]; then
-            echo "Missing .ota-phase2-verified — production OTA blocked."
-            exit 1
-          fi
+      - name: Production OTA freeze check
+        run: bash scripts/check-ota-production-freeze.sh
 
-      - name: Verify mobile bundle compiles
-        env:
-          EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
-          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ
-          EXPO_PUBLIC_APP_REVIEW_MODE: "false"
-          EXPO_PUBLIC_OTA_ENABLED: "true"
-          EXPO_PUBLIC_OTA_CHANNEL: "production"
-          EXPO_PUBLIC_GIT_COMMIT: ${{ github.sha }}
-          EXPO_PUBLIC_DEPLOY_MESSAGE: DEPLOY-VERIFY ${{ github.sha }}-${{ github.run_id }}
-        run: pnpm exec expo export --platform ios --output-dir /tmp/expo-ota-check
-
-      - name: Print verification gate
-        run: OTA_CHANNEL=production bash scripts/verify-ota-candidate.sh
+      - name: Print release policy
+        run: bash scripts/ota-release-policy.sh
 
       - name: Publish OTA to production
         env:

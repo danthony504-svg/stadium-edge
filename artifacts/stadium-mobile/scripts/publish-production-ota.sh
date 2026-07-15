@@ -4,12 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO_ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [[ ! -f "$REPO_ROOT/.ota-phase2-verified" ]] && [[ "${OTA_SKIP_PHASE_GATE:-}" != "1" ]]; then
-  echo "BLOCKED: Production OTA publish requires Phase 2 sign-off."
-  echo "See: bash scripts/verify-testing-phases.sh"
-  exit 1
-fi
+bash scripts/check-ota-production-freeze.sh
 
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required. Create one at https://expo.dev/settings/access-tokens"

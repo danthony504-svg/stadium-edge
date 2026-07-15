@@ -5,6 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+bash scripts/check-ota-production-freeze.sh
+
 if [[ -z "${EXPO_TOKEN:-}" ]]; then
   echo "EXPO_TOKEN is required"
   exit 1

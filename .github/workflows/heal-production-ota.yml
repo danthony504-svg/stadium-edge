@@ -26,6 +26,9 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: ${{ github.workspace }}
 
+      - name: Production OTA freeze check
+        run: bash scripts/check-ota-production-freeze.sh
+
       - name: Verify bundle compiles
         env:
           EXPO_PUBLIC_DOMAIN: stadium-edge.onrender.com
