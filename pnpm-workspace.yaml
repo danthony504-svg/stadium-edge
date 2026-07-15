@@ -75,6 +75,9 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Expo SDK 54 / @expo/require-utils still use ts.ModuleKind.CommonJS when
+  # transpiling app.config.ts. TypeScript 7 removed that API (latest on npm is 7.x).
+  typescript: "~5.9.3"
   # replit uses linux-x64 only, we can exclude all other platforms
   "esbuild>@esbuild/darwin-arm64": "-"
   "esbuild>@esbuild/darwin-x64": "-"

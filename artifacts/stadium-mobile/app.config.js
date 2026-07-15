@@ -1,17 +1,15 @@
-import type { ExpoConfig } from "expo/config";
-
-import appJson from "./app.json";
+const appJson = require("./app.json");
 
 const OTA_ENABLED = process.env.EXPO_PUBLIC_OTA_ENABLED === "true";
 const OTA_CHANNEL = process.env.EXPO_PUBLIC_OTA_CHANNEL || "production";
 const UPDATE_URL =
-  (appJson.expo as ExpoConfig).updates?.url ??
+  appJson.expo.updates?.url ??
   "https://u.expo.dev/9af36ab9-f953-4879-9dd2-82807ef7430c";
 
-const expo = appJson.expo as ExpoConfig;
+const expo = appJson.expo;
 
 /** Native + JS OTA are disabled unless EXPO_PUBLIC_OTA_ENABLED=true at build time. */
-export default (): ExpoConfig => ({
+module.exports = () => ({
   ...expo,
   updates: OTA_ENABLED
     ? {
