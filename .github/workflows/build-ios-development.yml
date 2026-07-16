@@ -17,6 +17,41 @@ on:
       - cursor/ota-redesign-e67e
 
 jobs:
+  poll:
+    if: contains(github.event.head_commit.message, '[poll-eas]')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Poll EAS build status
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_NO_VCS: "1"
+        run: |
+          set -euo pipefail
+          BUILD_ID="$(printf '%s' "${{ github.event.head_commit.message }}" | rg -o '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
+          if [ -z "$BUILD_ID" ]; then
+            BUILD_ID="e9274882-ddc9-40c7-a09b-708b83ca5e46"
+          fi
+          echo "Polling EAS build $BUILD_ID"
+          pnpm exec eas build:view "$BUILD_ID" --json
+          pnpm exec eas build:view "$BUILD_ID"
+
   build:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')
     runs-on: ubuntu-latest
@@ -78,5 +113,5 @@ jobs:
             --profile development \
             --non-interactive \
             --refresh-ad-hoc-provisioning-profile \
-            --no-wait \
+            --wait \
             --message "$MSG"
