@@ -1,6 +1,6 @@
-# Development iOS build — uses step-based eas/prebuild so post-prebuild
-# install respects shouldUseFrozenLockfile (frozen for SDK 54).
-# The legacy default builder hardcodes --no-frozen-lockfile after prebuild.
+# Development iOS build — install deps once (frozen lockfile), then prebuild
+# without re-installing. The built-in prebuild step re-runs installNodeModules
+# after prebuild, which fails when prebuild rewrites package.json; use a run step.
 build:
   name: Stadium Edge development iOS (frozen lockfile)
   steps:
@@ -25,9 +25,19 @@ build:
     - eas/resolve_apple_team_id_from_credentials:
         id: resolve_apple_team_id_from_credentials
 
-    - eas/prebuild:
-        inputs:
-          apple_team_id: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
+    - run:
+        name: Expo prebuild (no install, skip dependency updates)
+        command: |
+          set -euo pipefail
+          if [ -n "${APPLE_TEAM_ID:-}" ]; then
+            export APPLE_TEAM_ID
+          fi
+          pnpm exec expo prebuild --no-install --skip-dependency-update expo,react,react-dom,react-native --platform ios
+          git checkout -- package.json
+          echo "Restored package.json after prebuild (deps installed from frozen lockfile only)"
+        env:
+          APPLE_TEAM_ID: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
+          EXPO_IMAGE_UTILS_NO_SHARP: "1"
 
     - run:
         name: Install pods

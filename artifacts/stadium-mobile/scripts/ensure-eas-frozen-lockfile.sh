@@ -49,16 +49,36 @@ verify_custom_ios_workflow() {
     exit 1
   fi
   if ! node -e "
+    const fs = require('fs');
     const cfg = require('./eas.json');
     const config = cfg.build?.development?.ios?.config;
     if (config !== 'development-ios.yml') {
       console.error('eas.json development.ios.config must be development-ios.yml (got ' + config + ')');
       process.exit(1);
     }
+    const workflow = fs.readFileSync('.eas/build/development-ios.yml', 'utf8');
+    if (/^\s*-\s+eas\/prebuild\b/m.test(workflow)) {
+      console.error('development-ios.yml must not use eas/prebuild step (it re-runs install after prebuild)');
+      process.exit(1);
+    }
+    if (!workflow.includes('expo prebuild --no-install')) {
+      console.error('development-ios.yml must run expo prebuild --no-install');
+      process.exit(1);
+    }
+    if (!workflow.includes('git checkout -- package.json')) {
+      console.error('development-ios.yml must restore package.json after prebuild');
+      process.exit(1);
+    }
+    const installIdx = workflow.indexOf('eas/install_node_modules');
+    const prebuildIdx = workflow.indexOf('expo prebuild --no-install');
+    if (installIdx < 0 || prebuildIdx < 0 || installIdx > prebuildIdx) {
+      console.error('development-ios.yml must install node_modules before prebuild');
+      process.exit(1);
+    }
   "; then
     exit 1
   fi
-  echo "eas.json: development iOS uses custom workflow development-ios.yml (frozen post-prebuild install)."
+  echo "eas.json: development iOS uses custom workflow development-ios.yml (install before prebuild, no post-prebuild install)."
 }
 
 purge_remote_eas_no_frozen_lockfile() {
