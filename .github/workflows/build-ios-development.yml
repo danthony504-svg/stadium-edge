@@ -52,22 +52,12 @@ jobs:
           json="$(pnpm exec eas build:view "$BUILD_ID" --json)"
           printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
-          workflow_json="$(pnpm exec eas workflow:runs --json --limit 20 --non-interactive)"
-          workflow_run_id="$(printf '%s' "$workflow_json" | node -e '
-            const builds = JSON.parse(require("fs").readFileSync(0, "utf8"));
-            const target = process.env.BUILD_ID;
-            const match = builds.find((run) =>
-              JSON.stringify(run).includes(target)
-            );
-            if (!match) process.exit(1);
-            process.stdout.write(match.id);
-          ' BUILD_ID="$BUILD_ID")"
           if [ -n "$workflow_run_id" ]; then
             echo "===== EAS workflow logs ($workflow_run_id) ====="
-            pnpm exec eas workflow:logs "$workflow_run_id" --all-steps --non-interactive
-          else
-            echo "WARNING: could not resolve workflow run for build $BUILD_ID" >&2
+            pnpm exec eas workflow:logs "$workflow_run_id" --all-steps --non-interactive || true
           fi
+          echo "===== EAS workflow logs (build id fallback) ====="
+          pnpm exec eas workflow:logs "$BUILD_ID" --all-steps --non-interactive || true
 
   build:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')
