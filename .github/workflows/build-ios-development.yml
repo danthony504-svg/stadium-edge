@@ -52,6 +52,7 @@ jobs:
             exit 1
           fi
 
+          bash scripts/ensure-eas-frozen-lockfile.sh --verify-json-only
           bash scripts/ensure-eas-frozen-lockfile.sh --remote-only
 
           unset EAS_NO_FROZEN_LOCKFILE

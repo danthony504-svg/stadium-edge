@@ -16,15 +16,31 @@ verify_eas_json() {
 const fs = require("fs");
 const cfg = JSON.parse(fs.readFileSync("eas.json", "utf8"));
 for (const profile of Object.keys(cfg.build ?? {})) {
-  const value = cfg.build?.[profile]?.env?.EAS_NO_FROZEN_LOCKFILE;
-  if (value === undefined) continue;
-  console.error(
-    `eas.json build.${profile}.env.EAS_NO_FROZEN_LOCKFILE must be removed (got ${JSON.stringify(value)}).`
-  );
+  const frozen = cfg.build?.[profile]?.env?.EAS_NO_FROZEN_LOCKFILE;
+  if (frozen !== undefined) {
+    console.error(
+      `eas.json build.${profile}.env.EAS_NO_FROZEN_LOCKFILE must be removed (got ${JSON.stringify(frozen)}).`
+    );
+    process.exit(1);
+  }
+  const runtimeVersion = cfg.build?.[profile]?.runtimeVersion;
+  if (runtimeVersion !== undefined) {
+    console.error(
+      `eas.json build.${profile}.runtimeVersion is not allowed (got ${JSON.stringify(runtimeVersion)}). ` +
+        "Set expo.runtimeVersion in app.json or app.config.js instead."
+    );
+    process.exit(1);
+  }
+}
+const appJson = JSON.parse(fs.readFileSync("app.json", "utf8"));
+const runtimeVersion = appJson.expo?.runtimeVersion;
+if (!runtimeVersion) {
+  console.error("app.json expo.runtimeVersion is required (e.g. { policy: \"appVersion\" }).");
   process.exit(1);
 }
 NODE
-  echo "eas.json: EAS_NO_FROZEN_LOCKFILE absent from all build profiles."
+  echo "eas.json: EAS_NO_FROZEN_LOCKFILE and runtimeVersion absent from all build profiles."
+  echo "app.json: expo.runtimeVersion policy is set."
 }
 
 verify_custom_ios_workflow() {
