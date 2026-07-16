@@ -52,6 +52,22 @@ jobs:
           json="$(pnpm exec eas build:view "$BUILD_ID" --json)"
           printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
+          echo "===== EAS worker log file(s) ====="
+          LOG_URL="$(printf '%s' "$json" | node -e '
+            const fs = require("fs");
+            let data = {};
+            try { data = JSON.parse(fs.readFileSync(0, "utf8")); } catch {}
+            const url = data?.logFiles?.[0];
+            if (url) process.stdout.write(url);
+          ')"
+          if [ -n "$LOG_URL" ]; then
+            curl -sSL "$LOG_URL" | tee /tmp/eas-build.log
+            echo
+            echo "===== First error lines ====="
+            grep -nE 'error|Error|ERROR|failed|FAILED|exit code|CommandError' /tmp/eas-build.log | head -40 || true
+          else
+            echo "No logFiles URL in build:view JSON"
+          fi
           echo "===== Expo GraphQL build details ====="
           curl -sS https://api.expo.dev/graphql \
             -H "Authorization: Bearer $EXPO_TOKEN" \
