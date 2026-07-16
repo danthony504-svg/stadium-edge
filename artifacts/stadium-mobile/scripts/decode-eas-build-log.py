@@ -24,6 +24,7 @@ raw = path.read_bytes()
 
 text = None
 decoders = [
+    ("brotli", brotli.decompress if brotli else None),
     ("raw-utf8", lambda b: b.decode("utf-8")),
     ("gzip", gzip.decompress),
     ("zlib", zlib.decompress),
@@ -32,10 +33,10 @@ decoders = [
 ]
 if zstd is not None:
     decoders.append(("zstd", lambda b: zstd.ZstdDecompressor().decompress(b)))
-if brotli is not None:
-    decoders.append(("brotli", brotli.decompress))
 
 for name, fn in decoders:
+    if fn is None:
+        continue
     try:
         out = fn(raw)
         if isinstance(out, bytes):

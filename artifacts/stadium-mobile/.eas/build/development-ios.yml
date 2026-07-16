@@ -49,6 +49,10 @@ build:
         inputs:
           throw_if_not_configured: false
 
+    - eas/configure_ios_credentials
+
+    - eas/configure_ios_version
+
     - eas/generate_gymfile_from_template:
         inputs:
           credentials: ${ eas.job.secrets.buildCredentials }
