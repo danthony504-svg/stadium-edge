@@ -12,9 +12,13 @@ on:
         description: EAS build message
         required: false
         default: "Development build — OTA off, device verification"
+  push:
+    branches:
+      - cursor/ota-redesign-e67e
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -64,7 +68,7 @@ jobs:
           fi
           echo "Confirmed: EAS_NO_FROZEN_LOCKFILE is absent"
 
-          MSG="${{ github.event.inputs.message }}"
+          MSG="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.message || '' }}"
           if [ -z "$MSG" ]; then
             MSG="Development build $(git rev-parse --short HEAD)"
           fi
