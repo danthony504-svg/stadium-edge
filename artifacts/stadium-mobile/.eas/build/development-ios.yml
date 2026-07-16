@@ -1,6 +1,6 @@
 # Development iOS build — install deps once (frozen lockfile), then prebuild
 # without re-installing. The built-in prebuild step re-runs installNodeModules
-# after prebuild, which fails when prebuild rewrites package.json; use a run step.
+# after prebuild; use a run step with package.json backup/restore instead.
 build:
   name: Stadium Edge development iOS (frozen lockfile)
   steps:
@@ -26,17 +26,19 @@ build:
         id: resolve_apple_team_id_from_credentials
 
     - run:
-        name: Expo prebuild (no install, skip dependency updates)
+        name: Expo prebuild (no install)
         inputs:
           apple_team_id: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
         command: |
           set -eo pipefail
+          cp package.json package.json.eas-backup
           export EXPO_IMAGE_UTILS_NO_SHARP=1
           if [ -n "${ inputs.apple_team_id }" ]; then
             export APPLE_TEAM_ID="${ inputs.apple_team_id }"
           fi
-          pnpm exec expo prebuild --no-install --skip-dependency-update expo,react,react-dom,react-native --platform ios
-          echo "Prebuild complete (no post-prebuild install; deps frozen at install_node_modules)"
+          pnpm exec expo prebuild --no-install --platform ios
+          mv package.json.eas-backup package.json
+          echo "Restored package.json from backup after prebuild"
 
     - run:
         name: Install pods
@@ -46,10 +48,6 @@ build:
     - eas/configure_eas_update:
         inputs:
           throw_if_not_configured: false
-
-    - eas/configure_ios_credentials
-
-    - eas/configure_ios_version
 
     - eas/generate_gymfile_from_template:
         inputs:

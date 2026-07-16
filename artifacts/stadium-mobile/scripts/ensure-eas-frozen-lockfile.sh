@@ -61,8 +61,8 @@ verify_custom_ios_workflow() {
       console.error('development-ios.yml must not use eas/prebuild step (it re-runs install after prebuild)');
       process.exit(1);
     }
-    if (!workflow.includes('expo prebuild --no-install')) {
-      console.error('development-ios.yml must run expo prebuild --no-install');
+    if (!workflow.includes('package.json.eas-backup')) {
+      console.error('development-ios.yml must backup/restore package.json around prebuild');
       process.exit(1);
     }
     if (/^\s*env:\s*$/m.test(workflow)) {
