@@ -55,7 +55,7 @@ jobs:
           log_url="$(printf '%s' "$json" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8")); if(j.logFiles?.[0]) process.stdout.write(j.logFiles[0]);')"
           if [ -n "$log_url" ]; then
             echo "===== EAS build log ====="
-            curl -fsSL "$log_url"
+            curl -fsSL "$log_url" | gunzip -c || curl -fsSL "$log_url"
           fi
 
   build:
