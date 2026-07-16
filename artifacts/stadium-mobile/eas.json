@@ -9,6 +9,7 @@
       "distribution": "internal",
       "channel": "development",
       "ios": {
+        "image": "latest",
         "resourceClass": "m-medium"
       },
       "env": {
