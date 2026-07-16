@@ -33,18 +33,76 @@ minimumReleaseAgeExclude:
   # this setting guards against does not apply to our own packages.
   - '@replit/*'
   - stripe-replit-sync
-  # Expo SDK 54 / EAS iOS build — freshly published @expo + @scalar packages in
-  # the current lockfile (required by expo, eas-cli, and expo-dev-client).
-  - '@expo/schema-utils'
-  - '@expo/devtools'
-  - '@expo/plist'
-  - '@expo/fingerprint'
-  - '@expo/image-utils'
-  - '@scalar/helpers'
-  - '@scalar/json-magic'
-  - '@scalar/openapi-parser'
-  - '@scalar/openapi-types'
-  - '@scalar/openapi-upgrader'
+  # Expo SDK 54 / EAS iOS development — trusted publishers with coordinated
+  # releases that may be younger than minimumReleaseAge (1440 minutes).
+  - '@expo/*'
+  - '@scalar/*'
+  - expo
+  - expo-application
+  - expo-asset
+  - expo-auth-session
+  - expo-blur
+  - expo-build-properties
+  - expo-clipboard
+  - expo-constants
+  - expo-crypto
+  - expo-dev-client
+  - expo-dev-launcher
+  - expo-dev-menu
+  - expo-dev-menu-interface
+  - expo-device
+  - expo-eas-client
+  - expo-file-system
+  - expo-font
+  - expo-glass-effect
+  - expo-haptics
+  - expo-image
+  - expo-image-loader
+  - expo-image-manipulator
+  - expo-image-picker
+  - expo-json-utils
+  - expo-keep-awake
+  - expo-linear-gradient
+  - expo-linking
+  - expo-local-authentication
+  - expo-location
+  - expo-manifests
+  - expo-media-library
+  - expo-modules-autolinking
+  - expo-modules-core
+  - expo-notifications
+  - expo-router
+  - expo-secure-store
+  - expo-server
+  - expo-splash-screen
+  - expo-status-bar
+  - expo-structured-headers
+  - expo-symbols
+  - expo-system-ui
+  - expo-updates
+  - expo-updates-interface
+  - expo-web-browser
+  - babel-preset-expo
+  - eas-cli
+  - react-native
+  - react-native-gesture-handler
+  - react-native-is-edge-to-edge
+  - react-native-keyboard-controller
+  - react-native-reanimated
+  - react-native-safe-area-context
+  - react-native-screens
+  - react-native-svg
+  - react-native-url-polyfill
+  - react-native-web
+  - react-native-worklets
+  - react
+  - react-dom
+  - react-is
+  - react-refresh
+  - scheduler
+  - use-sync-external-store
+  - typescript
+  - prettier
 
 packages:
   - artifacts/*

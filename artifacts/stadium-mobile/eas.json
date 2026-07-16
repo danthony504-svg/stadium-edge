@@ -8,6 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "channel": "development",
+      "pnpm": "10.34.4",
       "ios": {
         "image": "latest",
         "resourceClass": "m-medium"
