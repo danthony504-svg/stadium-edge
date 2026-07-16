@@ -53,7 +53,25 @@ jobs:
           printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
           echo "===== EAS workflow logs ====="
-          pnpm exec eas workflow:logs "$BUILD_ID" --all-steps --non-interactive || true
+          set +e
+          pnpm exec eas workflow:runs --json --limit 20 --non-interactive > /tmp/workflow-runs.json 2>/tmp/workflow-runs.err
+          echo "workflow:runs stderr:"; cat /tmp/workflow-runs.err
+          echo "workflow:runs json (first 4000 chars):"; head -c 4000 /tmp/workflow-runs.json; echo
+          WORKFLOW_RUN_ID="$(BUILD_ID="$BUILD_ID" node -e '
+            const fs = require("fs");
+            const target = process.env.BUILD_ID;
+            let runs = [];
+            try { runs = JSON.parse(fs.readFileSync("/tmp/workflow-runs.json", "utf8")); } catch {}
+            const match = runs.find((run) => JSON.stringify(run).includes(target));
+            if (match?.id) process.stdout.write(match.id);
+          ')"
+          if [ -n "$WORKFLOW_RUN_ID" ]; then
+            echo "Resolved workflow run $WORKFLOW_RUN_ID"
+            pnpm exec eas workflow:logs "$WORKFLOW_RUN_ID" --all-steps --non-interactive
+          else
+            pnpm exec eas workflow:logs "$BUILD_ID" --all-steps --non-interactive
+          fi
+          set -e
 
   build:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')
