@@ -40,6 +40,11 @@ jobs:
       - name: Print release checklist
         run: bash scripts/verify-stable-release.sh
 
+      - name: Ensure EAS uses frozen lockfile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: bash scripts/ensure-eas-frozen-lockfile.sh
+
       - name: Build iOS development client
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
