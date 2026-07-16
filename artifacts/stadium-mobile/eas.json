@@ -11,7 +11,8 @@
       "pnpm": "10.34.4",
       "ios": {
         "image": "latest",
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "config": "development-ios.yml"
       },
       "env": {
         "EXPO_PUBLIC_OTA_ENABLED": "false",

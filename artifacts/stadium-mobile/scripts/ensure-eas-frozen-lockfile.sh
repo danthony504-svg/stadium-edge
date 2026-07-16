@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Ensure EAS development builds use pnpm install --frozen-lockfile.
 #
-# EAS skips frozen lockfile when EAS_NO_FROZEN_LOCKFILE is any non-empty value
-# (including "0" or "false") in eas.json or Expo project/account env vars.
-# developmentClient: true auto-selects the EAS "development" environment.
+# Sources of --no-frozen-lockfile on EAS workers:
+# 1. EAS_NO_FROZEN_LOCKFILE set in Expo project/account env vars (any non-empty value)
+# 2. Legacy default iOS builder post-prebuild install (hardcoded in eas-cli prebuildAsync)
+#    — fixed by development-ios.yml custom workflow using eas/prebuild + eas/install_node_modules
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -14,8 +15,7 @@ verify_eas_json() {
   node - <<'NODE'
 const fs = require("fs");
 const cfg = JSON.parse(fs.readFileSync("eas.json", "utf8"));
-const profiles = Object.keys(cfg.build ?? {});
-for (const profile of profiles) {
+for (const profile of Object.keys(cfg.build ?? {})) {
   const value = cfg.build?.[profile]?.env?.EAS_NO_FROZEN_LOCKFILE;
   if (value === undefined) continue;
   console.error(
@@ -27,20 +27,22 @@ NODE
   echo "eas.json: EAS_NO_FROZEN_LOCKFILE absent from all build profiles."
 }
 
-delete_remote_var() {
-  local environment="$1"
-  local scope="$2"
-  local scope_flag="--scope project"
-  if [[ "$scope" == "account" ]]; then
-    scope_flag="--scope account"
+verify_custom_ios_workflow() {
+  if [[ ! -f ".eas/build/development-ios.yml" ]]; then
+    echo "ERROR: missing .eas/build/development-ios.yml custom workflow" >&2
+    exit 1
   fi
-
-  if ! pnpm exec eas env:delete "$environment" \
-    --variable-name EAS_NO_FROZEN_LOCKFILE \
-    $scope_flag \
-    --non-interactive 2>&1; then
-    return 0
+  if ! node -e "
+    const cfg = require('./eas.json');
+    const config = cfg.build?.development?.ios?.config;
+    if (config !== 'development-ios.yml') {
+      console.error('eas.json development.ios.config must be development-ios.yml (got ' + config + ')');
+      process.exit(1);
+    }
+  "; then
+    exit 1
   fi
+  echo "eas.json: development iOS uses custom workflow development-ios.yml (frozen post-prebuild install)."
 }
 
 purge_remote_eas_no_frozen_lockfile() {
@@ -49,19 +51,26 @@ purge_remote_eas_no_frozen_lockfile() {
     return 0
   fi
 
+  export EXPO_NO_DOTENV=1
   local deleted=0
   for environment in development preview production; do
     for scope in project account; do
-      if output="$(pnpm exec eas env:delete "$environment" \
+      set +e
+      output="$(pnpm exec eas env:delete "$environment" \
         --variable-name EAS_NO_FROZEN_LOCKFILE \
         --scope "$scope" \
-        --non-interactive 2>&1)"; then
+        --non-interactive 2>&1)"
+      status=$?
+      set -e
+      if [[ "$status" -eq 0 ]]; then
         echo "Deleted EAS_NO_FROZEN_LOCKFILE from Expo $scope/$environment environment."
         deleted=1
-      elif [[ "$output" != *'not found'* && "$output" != *'Variable "EAS_NO_FROZEN_LOCKFILE" not found'* ]]; then
-        if [[ -n "$output" ]]; then
-          echo "$output"
-        fi
+      elif [[ "$output" == *'not found'* ]]; then
+        :
+      else
+        echo "$output" >&2
+        echo "ERROR: failed to delete EAS_NO_FROZEN_LOCKFILE from Expo $scope/$environment" >&2
+        exit 1
       fi
     done
   done
@@ -77,22 +86,27 @@ audit_remote_eas_no_frozen_lockfile() {
     return 0
   fi
 
+  export EXPO_NO_DOTENV=1 NO_COLOR=1
   local found=0
-  export NO_COLOR=1
   for environment in development preview production; do
     for scope in project account; do
-      if pnpm exec eas env:get "$environment" \
+      set +e
+      pnpm exec eas env:get "$environment" \
         --variable-name EAS_NO_FROZEN_LOCKFILE \
         --scope "$scope" \
         --non-interactive \
-        --format short >/dev/null 2>&1; then
-        echo "FOUND: Expo $scope/$environment still defines EAS_NO_FROZEN_LOCKFILE"
+        --format short >/dev/null 2>&1
+      status=$?
+      set -e
+      if [[ "$status" -eq 0 ]]; then
+        echo "FOUND: Expo $scope/$environment still defines EAS_NO_FROZEN_LOCKFILE" >&2
         found=1
       fi
     done
   done
 
   if [[ "$found" -ne 0 ]]; then
+    echo "ERROR: delete EAS_NO_FROZEN_LOCKFILE from expo.dev project/account env vars" >&2
     return 1
   fi
   echo "Expo project/account environments: EAS_NO_FROZEN_LOCKFILE absent."
@@ -100,14 +114,17 @@ audit_remote_eas_no_frozen_lockfile() {
 
 case "$MODE" in
   --remote-only)
+    verify_custom_ios_workflow
     purge_remote_eas_no_frozen_lockfile
     audit_remote_eas_no_frozen_lockfile
     ;;
   --verify-json-only)
     verify_eas_json
+    verify_custom_ios_workflow
     ;;
   all)
     verify_eas_json
+    verify_custom_ios_workflow
     purge_remote_eas_no_frozen_lockfile
     audit_remote_eas_no_frozen_lockfile
     echo "EAS will use pnpm install --frozen-lockfile for SDK 54 / RN 0.81.5 development builds."
