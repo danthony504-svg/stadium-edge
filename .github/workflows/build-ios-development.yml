@@ -63,36 +63,7 @@ jobs:
           if [ -n "$LOG_URL" ]; then
             curl -sSL "$LOG_URL" -o /tmp/eas-build.log.bin
             echo "log file type: $(file -b /tmp/eas-build.log.bin)"
-            python3 - <<'PY'
-import base64, bz2, gzip, lzma, pathlib, zlib
-
-raw = pathlib.Path("/tmp/eas-build.log.bin").read_bytes()
-text = None
-for name, fn in [
-    ("raw-utf8", lambda b: b.decode("utf-8")),
-    ("gzip", gzip.decompress),
-    ("zlib", zlib.decompress),
-    ("bz2", bz2.decompress),
-    ("lzma", lzma.decompress),
-]:
-    try:
-        out = fn(raw)
-        if isinstance(out, bytes):
-            out = out.decode("utf-8", errors="replace")
-        text = out
-        print(f"decoded via {name}, {len(text)} chars")
-        break
-    except Exception:
-        pass
-
-if text is None:
-    print("could not decode log file")
-else:
-    pathlib.Path("/tmp/eas-build.log").write_text(text)
-    for i, line in enumerate(text.splitlines(), 1):
-        if any(k in line for k in ("error", "Error", "ERROR", "failed", "FAILED", "exit code", "CommandError")):
-            print(f"{i}:{line}")
-PY
+            python3 scripts/decode-eas-build-log.py /tmp/eas-build.log.bin || true
             echo "===== base64 log (for offline decode) ====="
             base64 -w0 /tmp/eas-build.log.bin | head -c 200000; echo
           else
