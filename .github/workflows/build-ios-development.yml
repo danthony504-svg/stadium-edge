@@ -63,9 +63,8 @@ jobs:
           if [ -n "$LOG_URL" ]; then
             curl -sSL "$LOG_URL" -o /tmp/eas-build.log.bin
             echo "log file type: $(file -b /tmp/eas-build.log.bin)"
+            pip install --quiet zstandard brotli
             python3 scripts/decode-eas-build-log.py /tmp/eas-build.log.bin || true
-            echo "===== base64 log (for offline decode) ====="
-            base64 -w0 /tmp/eas-build.log.bin | head -c 200000; echo
           else
             echo "No logFiles URL in build:view JSON"
           fi
@@ -95,6 +94,16 @@ jobs:
             pnpm exec eas workflow:logs "$BUILD_ID" --all-steps --non-interactive
           fi
           set -e
+
+      - name: Upload EAS worker logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eas-build-logs
+          path: |
+            /tmp/eas-build.log.bin
+            /tmp/eas-build.log.bin.txt
+          if-no-files-found: ignore
 
   build:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')

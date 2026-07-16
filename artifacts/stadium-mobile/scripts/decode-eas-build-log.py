@@ -9,17 +9,33 @@ import pathlib
 import sys
 import zlib
 
+try:
+    import zstandard as zstd
+except ImportError:  # pragma: no cover
+    zstd = None
+
+try:
+    import brotli
+except ImportError:  # pragma: no cover
+    brotli = None
+
 path = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/eas-build.log.bin")
 raw = path.read_bytes()
 
 text = None
-for name, fn in [
+decoders = [
     ("raw-utf8", lambda b: b.decode("utf-8")),
     ("gzip", gzip.decompress),
     ("zlib", zlib.decompress),
     ("bz2", bz2.decompress),
     ("lzma", lzma.decompress),
-]:
+]
+if zstd is not None:
+    decoders.append(("zstd", lambda b: zstd.ZstdDecompressor().decompress(b)))
+if brotli is not None:
+    decoders.append(("brotli", brotli.decompress))
+
+for name, fn in decoders:
     try:
         out = fn(raw)
         if isinstance(out, bytes):
@@ -34,7 +50,7 @@ if text is None:
     print("could not decode log file", file=sys.stderr)
     sys.exit(1)
 
-out_path = path.with_suffix(".txt")
+out_path = pathlib.Path(str(path) + ".txt")
 out_path.write_text(text)
 
 for i, line in enumerate(text.splitlines(), 1):
