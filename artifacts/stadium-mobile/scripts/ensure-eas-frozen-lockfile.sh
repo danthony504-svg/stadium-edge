@@ -69,6 +69,10 @@ verify_custom_ios_workflow() {
       console.error('development-ios.yml must restore package.json after prebuild');
       process.exit(1);
     }
+    if (/^\s*env:\s*$/m.test(workflow)) {
+      console.error('development-ios.yml run steps must use inputs, not env (EAS custom builds do not support run.env)');
+      process.exit(1);
+    }
     const installIdx = workflow.indexOf('eas/install_node_modules');
     const prebuildIdx = workflow.indexOf('expo prebuild --no-install');
     if (installIdx < 0 || prebuildIdx < 0 || installIdx > prebuildIdx) {
