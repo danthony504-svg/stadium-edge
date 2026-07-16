@@ -52,11 +52,7 @@ jobs:
           json="$(pnpm exec eas build:view "$BUILD_ID" --json)"
           printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
-          if [ -n "$workflow_run_id" ]; then
-            echo "===== EAS workflow logs ($workflow_run_id) ====="
-            pnpm exec eas workflow:logs "$workflow_run_id" --all-steps --non-interactive || true
-          fi
-          echo "===== EAS workflow logs (build id fallback) ====="
+          echo "===== EAS workflow logs ====="
           pnpm exec eas workflow:logs "$BUILD_ID" --all-steps --non-interactive || true
 
   build:
