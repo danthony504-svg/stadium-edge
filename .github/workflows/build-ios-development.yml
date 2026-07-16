@@ -52,9 +52,15 @@ jobs:
           json="$(pnpm exec eas build:view "$BUILD_ID" --json)"
           printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
+          echo "===== Expo GraphQL build details ====="
+          curl -sS https://api.expo.dev/graphql \
+            -H "Authorization: Bearer $EXPO_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"query { app { byId(appId: \\\"9af36ab9-f953-4879-9dd2-82807ef7430c\\\") { buildById(buildId: \\\"$BUILD_ID\\\") { id status error { message errorCode } logFiles } } } }\"}" || true
+          echo
           echo "===== EAS workflow logs ====="
           set +e
-          pnpm exec eas workflow:runs --json --limit 20 --non-interactive > /tmp/workflow-runs.json 2>/tmp/workflow-runs.err
+          pnpm exec eas workflow:runs --json --limit 20 > /tmp/workflow-runs.json 2>/tmp/workflow-runs.err
           echo "workflow:runs stderr:"; cat /tmp/workflow-runs.err
           echo "workflow:runs json (first 4000 chars):"; head -c 4000 /tmp/workflow-runs.json; echo
           WORKFLOW_RUN_ID="$(BUILD_ID="$BUILD_ID" node -e '
