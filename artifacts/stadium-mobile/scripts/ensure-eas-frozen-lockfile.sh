@@ -65,10 +65,6 @@ verify_custom_ios_workflow() {
       console.error('development-ios.yml must run expo prebuild --no-install');
       process.exit(1);
     }
-    if (!workflow.includes('git checkout -- package.json')) {
-      console.error('development-ios.yml must restore package.json after prebuild');
-      process.exit(1);
-    }
     if (/^\s*env:\s*$/m.test(workflow)) {
       console.error('development-ios.yml run steps must use inputs, not env (EAS custom builds do not support run.env)');
       process.exit(1);

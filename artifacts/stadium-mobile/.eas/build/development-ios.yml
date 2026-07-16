@@ -30,14 +30,13 @@ build:
         inputs:
           apple_team_id: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
         command: |
-          set -euo pipefail
+          set -eo pipefail
           export EXPO_IMAGE_UTILS_NO_SHARP=1
           if [ -n "${ inputs.apple_team_id }" ]; then
             export APPLE_TEAM_ID="${ inputs.apple_team_id }"
           fi
           pnpm exec expo prebuild --no-install --skip-dependency-update expo,react,react-dom,react-native --platform ios
-          git checkout -- package.json
-          echo "Restored package.json after prebuild (deps installed from frozen lockfile only)"
+          echo "Prebuild complete (no post-prebuild install; deps frozen at install_node_modules)"
 
     - run:
         name: Install pods
