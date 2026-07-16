@@ -127,16 +127,22 @@ audit_remote_eas_no_frozen_lockfile() {
   for environment in development preview production; do
     for scope in project account; do
       set +e
-      pnpm exec eas env:get "$environment" \
+      output="$(pnpm exec eas env:get "$environment" \
         --variable-name EAS_NO_FROZEN_LOCKFILE \
         --scope "$scope" \
         --non-interactive \
-        --format short >/dev/null 2>&1
+        --format short 2>&1)"
       status=$?
       set -e
-      if [[ "$status" -eq 0 ]]; then
+      if [[ "$output" =~ ^EAS_NO_FROZEN_LOCKFILE= ]]; then
         echo "FOUND: Expo $scope/$environment still defines EAS_NO_FROZEN_LOCKFILE" >&2
         found=1
+      elif [[ "$status" -ne 0 ]] || [[ "$output" == *'not found'* ]]; then
+        :
+      else
+        echo "$output" >&2
+        echo "ERROR: unexpected eas env:get output for Expo $scope/$environment" >&2
+        return 1
       fi
     done
   done
