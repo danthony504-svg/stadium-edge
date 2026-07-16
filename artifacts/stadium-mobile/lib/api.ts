@@ -4,6 +4,7 @@ import {
   stealFeedPath,
   type StealFeedClientLog,
 } from "./stealFeedClient";
+import { PROP_MARKET_LABEL_MAP, propMarketLabel } from "./propMarketLabel";
 import { logStealScanLifecycle } from "./stealScanLifecycle";
 import { fetch as expoFetch } from "expo/fetch";
 import { oddsSatisfiesThreshold, type OddsThreshold } from "./format";
