@@ -40,25 +40,35 @@ jobs:
       - name: Print release checklist
         run: bash scripts/verify-stable-release.sh
 
-      - name: Ensure EAS uses frozen lockfile
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: bash scripts/ensure-eas-frozen-lockfile.sh
-
       - name: Build iOS development client
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EAS_NO_VCS: "1"
         run: |
+          set -euo pipefail
+
           if [ -z "$EXPO_TOKEN" ]; then
             echo "Add EXPO_TOKEN to repo secrets"
             exit 1
           fi
+
+          bash scripts/ensure-eas-frozen-lockfile.sh --remote-only
+
+          unset EAS_NO_FROZEN_LOCKFILE
+
+          if env | grep -q '^EAS_NO_FROZEN_LOCKFILE='; then
+            echo "ERROR: EAS_NO_FROZEN_LOCKFILE is still present"
+            env | grep '^EAS_NO_FROZEN_LOCKFILE=' || true
+            exit 1
+          fi
+          echo "Confirmed: EAS_NO_FROZEN_LOCKFILE is absent"
+
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
             MSG="Development build $(git rev-parse --short HEAD)"
           fi
-          pnpm exec eas build \
+
+          env -u EAS_NO_FROZEN_LOCKFILE pnpm exec eas build \
             --platform ios \
             --profile development \
             --non-interactive \
