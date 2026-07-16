@@ -33,6 +33,18 @@ minimumReleaseAgeExclude:
   # this setting guards against does not apply to our own packages.
   - '@replit/*'
   - stripe-replit-sync
+  # Expo SDK 54 / EAS iOS build — freshly published @expo + @scalar packages in
+  # the current lockfile (required by expo, eas-cli, and expo-dev-client).
+  - '@expo/schema-utils'
+  - '@expo/devtools'
+  - '@expo/plist'
+  - '@expo/fingerprint'
+  - '@expo/image-utils'
+  - '@scalar/helpers'
+  - '@scalar/json-magic'
+  - '@scalar/openapi-parser'
+  - '@scalar/openapi-types'
+  - '@scalar/openapi-upgrader'
 
 packages:
   - artifacts/*
