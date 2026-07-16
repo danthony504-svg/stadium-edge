@@ -44,13 +44,19 @@ jobs:
           EAS_NO_VCS: "1"
         run: |
           set -euo pipefail
-          BUILD_ID="$(printf '%s' "${{ github.event.head_commit.message }}" | rg -o '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
+          BUILD_ID="$(printf '%s' "${{ github.event.head_commit.message }}" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
           if [ -z "$BUILD_ID" ]; then
             BUILD_ID="e9274882-ddc9-40c7-a09b-708b83ca5e46"
           fi
           echo "Polling EAS build $BUILD_ID"
-          pnpm exec eas build:view "$BUILD_ID" --json
+          json="$(pnpm exec eas build:view "$BUILD_ID" --json)"
+          printf '%s\n' "$json"
           pnpm exec eas build:view "$BUILD_ID"
+          log_url="$(printf '%s' "$json" | node -e 'const j=JSON.parse(require("fs").readFileSync(0,"utf8")); if(j.logFiles?.[0]) process.stdout.write(j.logFiles[0]);')"
+          if [ -n "$log_url" ]; then
+            echo "===== EAS build log ====="
+            curl -fsSL "$log_url"
+          fi
 
   build:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[ios-dev-build]')
