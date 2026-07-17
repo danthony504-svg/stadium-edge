@@ -53,7 +53,7 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
-import { logCoachPickDiag } from "./coachPickDiagnostics.ts";
+import { logCoachPickDiag, logCoachTieredFillDiag } from "./coachPickDiagnostics.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -486,6 +486,9 @@ function buildScanResult(
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
         : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
   const note = tierNote ? `${baseNote}\n\n${tierNote}` : baseNote;
+  if (scanComplete && staged.tieredFill) {
+    logCoachTieredFillDiag(opts.target, picks.length, staged.tieredFill);
+  }
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,
