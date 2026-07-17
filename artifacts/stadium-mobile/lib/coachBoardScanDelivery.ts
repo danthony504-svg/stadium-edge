@@ -8,7 +8,7 @@ import {
   formatCoachBoardScanManifest,
 } from "./coachBoardScanManifest.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
-import { prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
+import { boardScanToCoachTicket, prepareCoachDeliveredTicket } from "./coachTicketKernel.ts";
 import type { CoachFlashEnrich } from "./pickScoreContext.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
@@ -66,25 +66,33 @@ export function deliverCoachBoardScanTicket(
   }
 
   if (legTarget > 0 && !boardScanMatchesLegTarget(scan, legTarget)) {
-    return {
-      picks: [],
-      manifest: {
-        ...manifest,
-        requestedLegs: legTarget,
-        deliveredLegs: 0,
-      },
-      scanComplete: false,
-      coachDetailNote: formatCoachBoardScanManifest({
-        ...manifest,
+    const canSalvage =
+      (scan.picks?.length ?? 0) >= legTarget &&
+      boardScanIsComplete(scan);
+    if (!canSalvage) {
+      return {
+        picks: [],
+        manifest: {
+          ...manifest,
+          requestedLegs: legTarget,
+          deliveredLegs: 0,
+        },
         scanComplete: false,
-        requestedLegs: legTarget,
-      }),
-    };
+        coachDetailNote: formatCoachBoardScanManifest({
+          ...manifest,
+          scanComplete: false,
+          requestedLegs: legTarget,
+        }),
+      };
+    }
   }
 
   const tagged = tagTicketRoles([...scan.picks]);
   const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
-  const picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  let picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
+  if (!picks.length && scan.picks.length) {
+    picks = boardScanToCoachTicket(scan, enrich, legTarget);
+  }
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
