@@ -113,11 +113,15 @@ export function AnalysisProgress({
   // long context/board-scan fetch, then advances through grading while the scan
   // runs. During board-scan with no pick cards yet, cap below 100% until cards land.
   // Allow progress through 93% so the bar doesn't look frozen at 84% while sims run.
+  const scanReady =
+    mode === "build" &&
+    !!boardScanProgress?.scanComplete &&
+    (boardScanProgress.picksReady > 0 || legCount > 0);
   const boardScanWaiting =
-    mode === "build" && buildPhase === "board-scan" && legCount === 0;
+    mode === "build" && buildPhase === "board-scan" && legCount === 0 && !scanReady;
   const maxAuto =
     mode === "build"
-      ? legCount > 0
+      ? legCount > 0 || scanReady
         ? stageList.length - 1
         : boardScanWaiting
           ? 8
@@ -126,15 +130,17 @@ export function AnalysisProgress({
             : 6
       : stageList.length - 1;
   const effectiveIndex =
-    mode === "build" && legCount > 0
+    mode === "build" && (legCount > 0 || scanReady)
       ? stageList.length - 1
       : mode === "build"
         ? Math.min(autoIndex, maxAuto)
         : autoIndex;
-  const target = legCount > 0 && mode === "build" ? 100 : targetList[effectiveIndex];
+  const target = (legCount > 0 || scanReady) && mode === "build" ? 100 : targetList[effectiveIndex];
   const phaseStage =
     mode === "build" && buildPhase === "board-scan"
-      ? "Scanning every posted market on the live board…"
+      ? scanReady
+        ? "Rendering your pick cards…"
+        : "Scanning every posted market on the live board…"
       : mode === "build" && buildPhase === "context"
         ? "Pulling live odds and props…"
         : mode === "build" && buildPhase === "score" && legCount > 0
@@ -202,6 +208,7 @@ export function AnalysisProgress({
 
   if (mode === "build" && boardScanProgress) {
     const p = boardScanProgress;
+    const renderingTicket = p.scanComplete && p.picksReady > 0 && legCount === 0;
     const gamesDone = p.gamesLoaded > 0;
     const propsDone = p.propsAnalyzed > 0;
     const edgeDone = p.marketsScanned > 0;
@@ -232,33 +239,39 @@ export function AnalysisProgress({
         active: edgeDone && !simDone,
       },
       {
-        label: "Building your best parlay…",
-        done: buildingDone,
-        active: simDone && !buildingDone,
+        label: renderingTicket
+          ? "Rendering pick cards…"
+          : "Building your best parlay…",
+        done: buildingDone && !renderingTicket,
+        active: renderingTicket || (simDone && !buildingDone),
       },
     ];
-    const scanStage = buildingDone
-      ? "Building your best parlay…"
-      : simDone
+    const scanStage = renderingTicket
+      ? "Rendering your pick cards…"
+      : buildingDone
         ? "Building your best parlay…"
-        : edgeDone
-          ? "Running AI simulations…"
-          : propsDone
-            ? "Calculating edge…"
-            : gamesDone
-              ? "Analyzing player props…"
-              : "Scanning today's games…";
-    const scanPct = buildingDone
+        : simDone
+          ? "Building your best parlay…"
+          : edgeDone
+            ? "Running AI simulations…"
+            : propsDone
+              ? "Calculating edge…"
+              : gamesDone
+                ? "Analyzing player props…"
+                : "Scanning today's games…";
+    const scanPct = renderingTicket
       ? 100
-      : simDone
-        ? 92
-        : edgeDone
-          ? 74
-          : propsDone
-            ? 52
-            : gamesDone
-              ? 28
-              : 12;
+      : buildingDone
+        ? 100
+        : simDone
+          ? 92
+          : edgeDone
+            ? 74
+            : propsDone
+              ? 52
+              : gamesDone
+                ? 28
+                : 12;
 
     return (
       <View
@@ -401,6 +414,7 @@ export function AnalysisProgress({
   // The first not-yet-done checklist item is the one currently in progress.
   const activeChecklist = checklist.findIndex((c) => {
     if (boardScanWaiting && c.label === "Final ticket ready") return false;
+    if (c.label === "Final ticket ready" && scanReady) return false;
     return effectiveIndex < c.doneAt;
   });
 
@@ -501,7 +515,7 @@ export function AnalysisProgress({
         {checklist.map((item, idx) => {
           const done =
             item.label === "Final ticket ready"
-              ? legCount > 0
+              ? legCount > 0 || scanReady
               : effectiveIndex >= item.doneAt;
           const active = idx === activeChecklist;
           return (

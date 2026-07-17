@@ -1176,6 +1176,20 @@ export default function CoachScreen() {
   const [boardScanAwaiting, setBoardScanAwaiting] = useState(false);
   const [boardScanLiveProgress, setBoardScanLiveProgress] =
     useState<BoardScanLiveProgress | null>(null);
+  const activeBoardScanProgress = useMemo((): BoardScanLiveProgress | null => {
+    if (boardScanLiveProgress) return boardScanLiveProgress;
+    if (boardScanPartialLegs > 0) {
+      return {
+        gamesLoaded: 1,
+        propsAnalyzed: 1,
+        marketsScanned: 1,
+        simRunning: boardScanAwaiting,
+        scanComplete: !boardScanAwaiting,
+        picksReady: boardScanPartialLegs,
+      };
+    }
+    return null;
+  }, [boardScanLiveProgress, boardScanPartialLegs, boardScanAwaiting]);
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1373,10 +1387,10 @@ export default function CoachScreen() {
   }, []);
 
   const boardScanStillRunning = useCallback((): boolean => {
-    if (boardScanInFlightRef.current || boardScanAwaiting) return true;
+    if (boardScanInFlightRef.current) return true;
     const partial = latestBoardScanRef.current;
     return !!partial && !boardScanIsComplete(partial);
-  }, [boardScanAwaiting]);
+  }, []);
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -1764,7 +1778,8 @@ export default function CoachScreen() {
     if (
       legTarget > 0 &&
       boardScanIsComplete(scan) &&
-      !boardScanMatchesLegTarget(scan, legTarget)
+      !boardScanMatchesLegTarget(scan, legTarget) &&
+      (scan.picks?.length ?? 0) < legTarget
     ) {
       return false;
     }
@@ -1999,12 +2014,24 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      const sendGenNow = sendGenerationRef.current;
+      const progressApplies =
+        (ctx?.sendGeneration ?? sendGenNow) === sendGenNow &&
+        (!ctx?.requestId || !partial.requestId || partial.requestId === ctx.requestId);
+      if (progressApplies) {
+        latestBoardScanRef.current = partial;
+        setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial));
+        setBoardScanAwaiting(!boardScanIsComplete(partial));
+        if (partial.picks.length) {
+          setBoardScanPartialLegs(partial.picks.length);
+        }
+      }
       if (
         !boardScanAppliesToRequest(
           partial,
           legTarget,
-          ctx?.sendGeneration ?? sendGenerationRef.current,
-          sendGenerationRef.current,
+          ctx?.sendGeneration ?? sendGenNow,
+          sendGenNow,
           ctx?.requestId,
         )
       ) {
@@ -2016,15 +2043,18 @@ export default function CoachScreen() {
           extra: {
             requestId: ctx?.requestId,
             previousRequestId: ctx?.previousRequestId,
-            sendGen: sendGenerationRef.current,
+            sendGen: sendGenNow,
             expectedSendGen: ctx?.sendGeneration,
           },
         });
+        if (boardScanIsComplete(partial) && progressApplies) {
+          boardScanInFlightRef.current = false;
+          if (!boardTicketSnapshotRef.current?.length) {
+            deliverPendingBoardScanIfReady();
+          }
+        }
         return;
       }
-      latestBoardScanRef.current = partial;
-      setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial));
-      setBoardScanAwaiting(!boardScanIsComplete(partial));
       if (!boardScanIsComplete(partial)) {
         setParlayBuildPhase("board-scan");
         setBuildFinishing(true);
@@ -3437,9 +3467,23 @@ export default function CoachScreen() {
             return;
           }
           if (useParlayKernel && boardScanIsComplete(finalScan)) {
-            setBoardScanAwaiting(false);
-            setBoardScanLiveProgress(null);
-            kernelParlayActiveRef.current = false;
+            if (
+              !kernelParlayDelivered &&
+              !boardTicketSnapshotRef.current?.length &&
+              !deliverPendingBoardScanIfReady()
+            ) {
+              setBuildFinishing(true);
+              setBoardScanAwaiting(true);
+              setParlayBuildPhase("board-scan");
+              if (finalScan) {
+                setBoardScanLiveProgress(deriveBoardScanLiveProgress(finalScan));
+                setBoardScanPartialLegs(finalScan.picks.length);
+              }
+            } else if (boardTicketSnapshotRef.current?.length) {
+              setBoardScanAwaiting(false);
+              setBoardScanLiveProgress(null);
+              kernelParlayActiveRef.current = false;
+            }
           }
         }
         // Merge server rows the client pool is missing (the client pool wins on
@@ -5785,6 +5829,26 @@ export default function CoachScreen() {
           scrollToEnd(false);
           return;
         }
+        const partialAfterSend = latestBoardScanRef.current;
+        const pendingScanDelivery =
+          isParlayBuildAsk(trimmed) &&
+          !boardTicketSnapshotRef.current?.length &&
+          boardScanIsComplete(partialAfterSend ?? undefined) &&
+          (partialAfterSend?.picks?.length ?? 0) > 0;
+        if (pendingScanDelivery) {
+          deliverPendingBoardScanIfReady();
+          setBuildFinishing(true);
+          setBoardScanAwaiting(true);
+          setParlayBuildPhase("board-scan");
+          if (partialAfterSend) {
+            setBoardScanLiveProgress(deriveBoardScanLiveProgress(partialAfterSend));
+            setBoardScanPartialLegs(partialAfterSend.picks.length);
+          }
+          releaseOtaBlock();
+          abortRef.current = null;
+          scrollToEnd(false);
+          return;
+        }
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -6164,61 +6228,8 @@ export default function CoachScreen() {
     clearBuildStallWatchdog,
   ]);
 
-  // Board scan finished but delivery gates zeroed the ticket — replay from stash.
+  // Keep trying board-scan delivery while the build is in flight or picks are stashed.
   useEffect(() => {
-    if (!buildFinishing && !streaming && !waiting) return;
-    const last = messages[messages.length - 1];
-    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
-    const partial = latestBoardScanRef.current;
-    if (!partial?.picks?.length) return;
-    const legTarget =
-      activeRequestLegTargetRef.current ||
-      last.ticketLegTarget ||
-      requestedLegCount(activeParlayAskRef.current) ||
-      effectiveBuildLegCount(activeParlayAskRef.current);
-    const ctx = coachRequestContextRef.current;
-    if (
-      !boardScanAppliesToRequest(
-        partial,
-        legTarget,
-        ctx?.sendGeneration ?? sendGenerationRef.current,
-        sendGenerationRef.current,
-      )
-    ) {
-      return;
-    }
-    setBoardScanPartialLegs(partial.picks.length);
-    patchInstantBoardScanTicket(partial, undefined, {
-      ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-    });
-    const interval = setInterval(() => {
-      if (!buildFinishingRef.current && !streamingRef.current && !waiting) {
-        clearInterval(interval);
-        return;
-      }
-      const partialRetry = latestBoardScanRef.current;
-      if (!partialRetry?.picks?.length) return;
-      if (
-        !boardScanAppliesToRequest(
-          partialRetry,
-          legTarget,
-          ctx?.sendGeneration ?? sendGenerationRef.current,
-          sendGenerationRef.current,
-        )
-      ) {
-        return;
-      }
-      setBoardScanPartialLegs(partialRetry.picks.length);
-      patchInstantBoardScanTicket(partialRetry, undefined, {
-        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
-
-  // Scrub legacy dead-end copy (older OTAs) and keep trying delivery while scan picks exist.
-  useEffect(() => {
-    if (streaming || buildFinishing || waiting) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     const staleDeadEnd = STALE_PARLAY_DEAD_END_RE.test(last.content ?? "");
@@ -6227,35 +6238,42 @@ export default function CoachScreen() {
     }
     const priorUser = [...messages].reverse().find((m) => m.role === "user");
     const parlayIntent = !!last.parlayBuild || isParlayBuildAsk(priorUser?.content ?? "");
-    const undeliveredScanLegs =
-      boardScanPartialLegs > 0 || (latestBoardScanRef.current?.picks?.length ?? 0) > 0;
-    if (!parlayIntent || (!staleDeadEnd && !undeliveredScanLegs)) return;
+    if (!parlayIntent) return;
 
-    deliverPendingBoardScanIfReady();
+    const partial = latestBoardScanRef.current;
+    const undeliveredScanLegs =
+      boardScanPartialLegs > 0 || (partial?.picks?.length ?? 0) > 0;
+    const buildActive = streaming || buildFinishing || waiting || boardScanAwaiting;
+    if (!buildActive && !undeliveredScanLegs && !staleDeadEnd) return;
+
+    const tryDeliver = (): boolean => {
+      const cur = messagesRef.current[messagesRef.current.length - 1];
+      if (cur?.picks?.length) return true;
+      return deliverPendingBoardScanIfReady();
+    };
+
+    if (tryDeliver()) return;
+
     let attempts = 0;
     const interval = setInterval(() => {
       attempts += 1;
-      if (attempts > 40) {
+      if (attempts > 60) {
         clearInterval(interval);
         return;
       }
-      const cur = messagesRef.current[messagesRef.current.length - 1];
-      if (streamingRef.current || buildFinishingRef.current || waiting) {
+      if (messagesRef.current[messagesRef.current.length - 1]?.picks?.length) {
         clearInterval(interval);
         return;
       }
-      if (cur?.picks?.length) {
-        clearInterval(interval);
-        return;
-      }
-      if (deliverPendingBoardScanIfReady()) clearInterval(interval);
-    }, 750);
+      if (tryDeliver()) clearInterval(interval);
+    }, 500);
     return () => clearInterval(interval);
   }, [
     messages,
     streaming,
     buildFinishing,
     waiting,
+    boardScanAwaiting,
     boardScanPartialLegs,
     deliverPendingBoardScanIfReady,
   ]);
@@ -6652,7 +6670,9 @@ export default function CoachScreen() {
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
                     boardScanProgress={
-                      boardScanAwaiting || parlayAwaitingDelivery ? boardScanLiveProgress : null
+                      boardScanAwaiting || parlayAwaitingDelivery || parlayBuildPhase === "board-scan"
+                        ? activeBoardScanProgress
+                        : null
                     }
                   />
                 ) : analyzeWaiting ? (
