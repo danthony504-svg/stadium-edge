@@ -11,6 +11,12 @@ const expo = appJson.expo;
 /** Native + JS OTA are disabled unless EXPO_PUBLIC_OTA_ENABLED=true at build time. */
 module.exports = () => ({
   ...expo,
+  extra: {
+    ...expo.extra,
+    /** Baked on EAS native builds; Metro may also inline EXPO_PUBLIC_* at bundle time. */
+    clerkPublishableKey: process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY || "",
+    publicDomain: process.env.EXPO_PUBLIC_DOMAIN || "",
+  },
   updates: OTA_ENABLED
     ? {
         url: UPDATE_URL,

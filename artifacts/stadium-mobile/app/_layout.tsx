@@ -27,12 +27,13 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BetSlipProvider } from "@/context/BetSlipContext";
 import { PickTrackerProvider } from "@/context/PickTrackerContext";
 import { setAuthTokenGetter } from "@/lib/authToken";
+import { clerkPublishableKey } from "@/lib/publicEnv";
 import {
   addNotificationResponseListener,
   registerForPushAsync,
 } from "@/lib/notifications";
 
-const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "";
+const publishableKey = clerkPublishableKey();
 const proxyUrl = publishableKey.startsWith("pk_live")
   ? process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined
   : undefined;

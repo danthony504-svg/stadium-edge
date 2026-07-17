@@ -6,9 +6,8 @@ cd "$(dirname "$0")/.."
 
 unset CI EXPO_NO_INTERACTIVE 2>/dev/null || true
 
-export EXPO_PUBLIC_DOMAIN="${EXPO_PUBLIC_DOMAIN:-stadium-edge.onrender.com}"
-export EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY="${EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_cHJvZm91bmQtcmFwdG9yLTkyLmNsZXJrLmFjY291bnRzLmRldiQ}"
-export EXPO_PUBLIC_APP_REVIEW_MODE="${EXPO_PUBLIC_APP_REVIEW_MODE:-false}"
+# shellcheck source=scripts/export-dev-public-env.sh
+source "$(dirname "$0")/export-dev-public-env.sh"
 # OTA must stay off for Phase 1 — do not set EXPO_PUBLIC_OTA_ENABLED=true
 
 echo "══ Stadium Edge — Expo Go (Phase 1a) ══"
