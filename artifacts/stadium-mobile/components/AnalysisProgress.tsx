@@ -5,6 +5,7 @@ import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
+import type { BoardScanLiveProgress } from "@/lib/coachBoardScanProgress";
 
 // Cyan glow accent that pairs with the brand blue (#3b82f6). Kept local so the
 // loading screen reads as "AI analysis in progress" without changing the global
@@ -89,10 +90,13 @@ export function AnalysisProgress({
   mode = "build",
   legCount = 0,
   buildPhase,
+  boardScanProgress,
 }: {
   mode?: "build" | "analyze" | "ask";
   legCount?: number;
   buildPhase?: ParlayBuildPhase;
+  /** When set during a live board scan, shows scan-specific checklist copy. */
+  boardScanProgress?: BoardScanLiveProgress | null;
 }) {
   const colors = useColors();
   const [autoIndex, setAutoIndex] = useState(0);
@@ -195,6 +199,205 @@ export function AnalysisProgress({
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
   const displayPct = Math.round(pct);
+
+  if (mode === "build" && boardScanProgress) {
+    const p = boardScanProgress;
+    const gamesDone = p.gamesLoaded > 0;
+    const propsDone = p.propsAnalyzed > 0;
+    const edgeDone = p.marketsScanned > 0;
+    const simDone = p.simRunning || p.scanComplete || p.picksReady > 0;
+    const buildingDone = p.picksReady > 0 || p.scanComplete;
+    const scanChecklist: { label: string; done: boolean; active: boolean }[] = [
+      {
+        label: p.gamesLoaded > 0 ? `${p.gamesLoaded} games loaded` : "Loading today's games…",
+        done: gamesDone,
+        active: !gamesDone,
+      },
+      {
+        label:
+          p.propsAnalyzed > 0
+            ? `${p.propsAnalyzed.toLocaleString()} props analyzed`
+            : "Analyzing player props…",
+        done: propsDone,
+        active: gamesDone && !propsDone,
+      },
+      {
+        label: "Calculating edge…",
+        done: edgeDone,
+        active: propsDone && !edgeDone,
+      },
+      {
+        label: "Running AI simulations…",
+        done: simDone,
+        active: edgeDone && !simDone,
+      },
+      {
+        label: "Building your best parlay…",
+        done: buildingDone,
+        active: simDone && !buildingDone,
+      },
+    ];
+    const scanStage = buildingDone
+      ? "Building your best parlay…"
+      : simDone
+        ? "Building your best parlay…"
+        : edgeDone
+          ? "Running AI simulations…"
+          : propsDone
+            ? "Calculating edge…"
+            : gamesDone
+              ? "Analyzing player props…"
+              : "Scanning today's games…";
+    const scanPct = buildingDone
+      ? 100
+      : simDone
+        ? 92
+        : edgeDone
+          ? 74
+          : propsDone
+            ? 52
+            : gamesDone
+              ? 28
+              : 12;
+
+    return (
+      <View
+        style={{
+          alignSelf: "stretch",
+          marginTop: 10,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: "rgba(34,211,238,0.35)",
+          borderRadius: 16,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+          gap: 14,
+          shadowColor: CYAN,
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.3,
+          shadowRadius: 16,
+          elevation: 8,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Animated.View
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              backgroundColor: CYAN,
+              opacity: pulseOpacity,
+              shadowColor: CYAN,
+              shadowOffset: { width: 0, height: 0 },
+              shadowOpacity: 0.9,
+              shadowRadius: 6,
+              elevation: 4,
+            }}
+          />
+          <Text
+            numberOfLines={2}
+            style={{
+              flex: 1,
+              color: colors.foreground,
+              fontFamily: FONT.semibold,
+              fontSize: 14,
+            }}
+          >
+            {scanStage}
+          </Text>
+          <Text
+            style={{
+              color: CYAN,
+              fontFamily: FONT.bold,
+              fontSize: 15,
+              fontVariant: ["tabular-nums"],
+            }}
+          >
+            {scanPct}%
+          </Text>
+        </View>
+
+        <View
+          style={{
+            height: 8,
+            borderRadius: 999,
+            backgroundColor: "rgba(148,163,184,0.18)",
+            overflow: "hidden",
+          }}
+        >
+          <LinearGradient
+            colors={[BLUE, CYAN]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              width: `${Math.max(scanPct, 2)}%`,
+              height: "100%",
+              borderRadius: 999,
+            }}
+          />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: colors.border,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            gap: 9,
+          }}
+        >
+          {scanChecklist.map((item) => (
+            <View
+              key={item.label}
+              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
+            >
+              {item.done ? (
+                <View
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 999,
+                    backgroundColor: CYAN,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Feather name="check" size={13} color={colors.card} />
+                </View>
+              ) : item.active ? (
+                <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
+                  <ActivityIndicator size="small" color={CYAN} />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 999,
+                    borderWidth: 2,
+                    borderColor: colors.border,
+                  }}
+                />
+              )}
+              <Text
+                style={{
+                  flex: 1,
+                  color: item.done || item.active ? colors.foreground : colors.mutedForeground,
+                  fontFamily: item.done || item.active ? FONT.semibold : FONT.medium,
+                  fontSize: 13,
+                }}
+              >
+                {item.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
   // The first not-yet-done checklist item is the one currently in progress.
   const activeChecklist = checklist.findIndex((c) => {
     if (boardScanWaiting && c.label === "Final ticket ready") return false;

@@ -150,6 +150,11 @@ import {
   stripFillerBackfillPicks,
 } from "@/lib/coachScanPolicy";
 import { logCoachPickDiag } from "@/lib/coachPickDiagnostics";
+import { awaitBoardScanUntilComplete } from "@/lib/coachBoardScanAwait";
+import {
+  deriveBoardScanLiveProgress,
+  type BoardScanLiveProgress,
+} from "@/lib/coachBoardScanProgress";
 import { traceCoachTicket } from "@/lib/coachTicketTrace";
 import {
   boardScanAppliesToRequest,
@@ -335,21 +340,12 @@ function buildStallBudgetMs(requestedLegs: number): number {
   return 120_000;
 }
 
-/** Wait for an in-flight board scan (early or inline) up to budgetMs. */
+/** Wait for an in-flight board scan — no timer; scan must finish or abort. */
 async function awaitInFlightBoardScan(
   inflight: Promise<FullBoardScanResult | null> | null | undefined,
-  budgetMs: number,
+  signal?: AbortSignal,
 ): Promise<FullBoardScanResult | null> {
-  if (!inflight) return null;
-  logCoachPickDiag("delivery-attempt", { stage: "await-inflight-scan", budgetMs });
-  const settled = await Promise.race([
-    inflight.catch(() => null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), budgetMs)),
-  ]);
-  if (!settled) {
-    logCoachPickDiag("board-scan-timeout", { stage: "await-inflight-scan", budgetMs });
-  }
-  return settled;
+  return awaitBoardScanUntilComplete(inflight, signal);
 }
 
 async function resolveScanForKernelDelivery(
@@ -359,6 +355,7 @@ async function resolveScanForKernelDelivery(
     latest: FullBoardScanResult | null;
     earlyInflight: Promise<FullBoardScanResult | null> | null;
   },
+  signal?: AbortSignal,
 ): Promise<FullBoardScanResult | null> {
   const target = Math.min(legTarget, MAX_LEGS);
   let scan = preferFinalBoardScanForDelivery(
@@ -374,10 +371,7 @@ async function resolveScanForKernelDelivery(
     });
     return scan;
   }
-  const early = await awaitInFlightBoardScan(
-    candidates.earlyInflight,
-    boardScanBudgetMs(target),
-  );
+  const early = await awaitInFlightBoardScan(candidates.earlyInflight, signal);
   scan = preferFinalBoardScanForDelivery(
     target,
     early,
@@ -385,6 +379,22 @@ async function resolveScanForKernelDelivery(
     candidates.latest,
     candidates.preBoardScan,
   );
+  if (scan?.scanComplete) {
+    logCoachPickDiag("delivery-result", {
+      stage: "resolve-scan-after-await",
+      pickCount: scan.picks.length,
+      scanComplete: true,
+    });
+    return scan;
+  }
+  if (early?.scanComplete) {
+    logCoachPickDiag("delivery-result", {
+      stage: "resolve-scan-early-complete",
+      pickCount: early.picks.length,
+      scanComplete: true,
+    });
+    return early;
+  }
   logCoachPickDiag("delivery-result", {
     stage: "resolve-scan-after-await",
     pickCount: scan?.picks.length ?? 0,
@@ -1151,6 +1161,9 @@ export default function CoachScreen() {
   const [buildFinishing, setBuildFinishing] = useState(false);
   const [parlayBuildPhase, setParlayBuildPhase] = useState<ParlayBuildPhase | "idle">("idle");
   const [boardScanPartialLegs, setBoardScanPartialLegs] = useState(0);
+  const [boardScanAwaiting, setBoardScanAwaiting] = useState(false);
+  const [boardScanLiveProgress, setBoardScanLiveProgress] =
+    useState<BoardScanLiveProgress | null>(null);
   const [buildProgressExpired, setBuildProgressExpired] = useState(false);
   const buildProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buildStallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1326,6 +1339,7 @@ export default function CoachScreen() {
   const coachRequestContextRef = useRef<CoachTicketRequestContext | null>(null);
   const activeRequestLegTargetRef = useRef(0);
   const liveScanDeliveredRef = useRef(false);
+  const kernelParlayActiveRef = useRef(false);
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -1367,6 +1381,9 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setBoardScanAwaiting(false);
+        setBoardScanLiveProgress(null);
+        kernelParlayActiveRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1470,6 +1487,9 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setBoardScanAwaiting(false);
+        setBoardScanLiveProgress(null);
+        kernelParlayActiveRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1533,6 +1553,9 @@ export default function CoachScreen() {
         setBuildFinishing(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setBoardScanAwaiting(false);
+        setBoardScanLiveProgress(null);
+        kernelParlayActiveRef.current = false;
         if (buildProgressTimerRef.current) {
           clearTimeout(buildProgressTimerRef.current);
           buildProgressTimerRef.current = null;
@@ -1788,19 +1811,41 @@ export default function CoachScreen() {
         return;
       }
       latestBoardScanRef.current = partial;
+      setBoardScanLiveProgress(deriveBoardScanLiveProgress(partial));
+      setBoardScanAwaiting(!boardScanIsComplete(partial));
+      if (!boardScanIsComplete(partial)) {
+        setParlayBuildPhase("board-scan");
+      }
       if (partial.picks.length) {
         setBoardScanPartialLegs(partial.picks.length);
         setParlayBuildPhase("stream");
       }
-      patchInstantBoardScanTicket(partial, undefined, {
-        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-      });
+      if (boardScanIsComplete(partial) && kernelParlayActiveRef.current) {
+        const enrich = {
+          ...flashEnrichRef.current,
+          realOdds: [
+            ...flashEnrichRef.current.realOdds,
+            ...[...partial.evalLinesByGame.values()].flat(),
+          ],
+        };
+        if (deliverKernelBoardScan(partial, enrich, legTarget)) {
+          setBoardScanAwaiting(false);
+          setBoardScanLiveProgress(null);
+          kernelParlayActiveRef.current = false;
+          return;
+        }
+      }
+      if (partial.picks.length || boardScanIsComplete(partial)) {
+        patchInstantBoardScanTicket(partial, undefined, {
+          ticketLegTarget: legTarget > 0 ? legTarget : undefined,
+        });
+      }
       const ask = activeParlayAskRef.current;
       if (ask && sendGenerationRef.current > 0) {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, deliverKernelBoardScan],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -1842,8 +1887,8 @@ export default function CoachScreen() {
             );
           }
           const reachTarget = Math.min(target, MAX_LEGS);
-          return await Promise.race([
-            tryReachFullBoardScan({
+          setBoardScanAwaiting(true);
+          return await tryReachFullBoardScan({
               target: reachTarget,
               oddsGames,
               propPool: seedBuilt?.propPool ?? [],
@@ -1864,11 +1909,7 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
               signal,
-            }),
-            new Promise<null>((resolve) =>
-              setTimeout(() => resolve(null), boardScanBudgetMs(reachTarget)),
-            ),
-          ]);
+            });
         } catch {
           return null;
         }
@@ -1964,7 +2005,10 @@ export default function CoachScreen() {
       coachRequestContextRef.current = null;
       activeRequestLegTargetRef.current = 0;
       liveScanDeliveredRef.current = false;
+      kernelParlayActiveRef.current = false;
       setBoardScanPartialLegs(0);
+      setBoardScanAwaiting(false);
+      setBoardScanLiveProgress(null);
       setAiPicks([]);
 
       const resetInFlightBuild = () => {
@@ -1986,6 +2030,9 @@ export default function CoachScreen() {
         setWaiting(false);
         setBuildProgressExpired(false);
         setParlayBuildPhase("idle");
+        setBoardScanAwaiting(false);
+        setBoardScanLiveProgress(null);
+        kernelParlayActiveRef.current = false;
       };
       if (mayInterrupt) {
         resetInFlightBuild();
@@ -2764,38 +2811,27 @@ export default function CoachScreen() {
                     return { espnGames: eg, oddsGames: og, liveFeed: lf };
                   })();
               const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-              const boardScanMs = boardScanBudgetMs(reachTargetPreScan);
-              preBoardScan = await Promise.race([
-                tryReachFullBoardScan({
-                  target: reachTargetPreScan,
-                  oddsGames,
-                  propPool,
-                  realOdds: context.realOdds,
-                  liveOdds: liveFeed.odds,
-                  espnGames,
-                  gameMeta,
-                  teamIdMap: scanTeamIdMap,
-                  excludedSports,
-                  matchupHistory: context.matchupHistory,
-                  matchupInjuries: context.matchupInjuries,
-                  playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              preBoardScan = await tryReachFullBoardScan({
+                target: reachTargetPreScan,
+                oddsGames,
+                propPool,
+                realOdds: context.realOdds,
+                liveOdds: liveFeed.odds,
+                espnGames,
+                gameMeta,
+                teamIdMap: scanTeamIdMap,
+                excludedSports,
+                matchupHistory: context.matchupHistory,
+                matchupInjuries: context.matchupInjuries,
+                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
             mlbPlatoon: context.mlbPlatoon,
             mlbGameEnv: context.mlbGameEnv,
-                  perfByFamily: marketPerf,
-                  calibration: modelCalibration,
-                  onPartial: onBoardScanPartial,
-                  signal: abortRef.current?.signal,
-                  ...boardScanVariety,
-                }),
-                new Promise<null>((resolve) => setTimeout(() => resolve(null), boardScanMs)),
-              ]);
-              if (!preBoardScan) {
-                logCoachPickDiag("board-scan-timeout", {
-                  stage: "preBoardScan-race",
-                  budgetMs: boardScanMs,
-                  legTarget: reachTargetPreScan,
-                });
-              }
+                perfByFamily: marketPerf,
+                calibration: modelCalibration,
+                onPartial: onBoardScanPartial,
+                signal: abortRef.current?.signal,
+                ...boardScanVariety,
+              });
               freshBoardScanComplete = !!(
                 preBoardScan?.picks?.length &&
                 boardScanIsComplete(preBoardScan) &&
@@ -2935,13 +2971,21 @@ export default function CoachScreen() {
           try {
             if (skipModelStreamForBoardScan || useParlayKernel) {
               full = "";
-              setWaiting(false);
+              if (useParlayKernel) {
+                kernelParlayActiveRef.current = true;
+                setBoardScanAwaiting(true);
+                setParlayBuildPhase("board-scan");
+              }
               const kernelLegTarget = Math.min(reachTargetPreScan || legTarget, MAX_LEGS);
-              const scanForDelivery = await resolveScanForKernelDelivery(kernelLegTarget, {
-                preBoardScan,
-                latest: latestBoardScanRef.current,
-                earlyInflight: earlyReachBoardScanRef.current,
-              });
+              const scanForDelivery = await resolveScanForKernelDelivery(
+                kernelLegTarget,
+                {
+                  preBoardScan,
+                  latest: latestBoardScanRef.current,
+                  earlyInflight: earlyReachBoardScanRef.current,
+                },
+                controller.signal,
+              );
               const scanEnrich = {
                 ...flashEnrichRef.current,
                 realOdds: scanForDelivery
@@ -2962,24 +3006,32 @@ export default function CoachScreen() {
                   deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
                   kernelParlayDelivered = true;
-                } else {
+                  setBoardScanAwaiting(false);
+                  setBoardScanLiveProgress(null);
+                  kernelParlayActiveRef.current = false;
+                } else if (boardScanIsComplete(scanForDelivery)) {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
               } else if (scanForDelivery) {
                 deliverBoardScanTicket(scanForDelivery, scanEnrich);
-              } else {
+              } else if (!useParlayKernel) {
                 tryInstantSlateSeedDelivery(legTarget);
               }
             } else if (useParlayKernel) {
               full = "";
-              setWaiting(false);
               setParlayBuildPhase("board-scan");
+              setBoardScanAwaiting(true);
+              kernelParlayActiveRef.current = true;
               const kernelLegTarget = Math.min(reachTargetPreScan || legTarget, MAX_LEGS);
-              const scanForDelivery = await resolveScanForKernelDelivery(kernelLegTarget, {
-                preBoardScan,
-                latest: latestBoardScanRef.current,
-                earlyInflight: earlyReachBoardScanRef.current,
-              });
+              const scanForDelivery = await resolveScanForKernelDelivery(
+                kernelLegTarget,
+                {
+                  preBoardScan,
+                  latest: latestBoardScanRef.current,
+                  earlyInflight: earlyReachBoardScanRef.current,
+                },
+                controller.signal,
+              );
               logCoachPickDiag("delivery-attempt", {
                 stage: "kernel-fallback",
                 kernelLegTarget,
@@ -2987,7 +3039,7 @@ export default function CoachScreen() {
                 pickCount: scanForDelivery?.picks.length ?? 0,
               });
               if (!scanForDelivery) {
-                tryInstantSlateSeedDelivery(legTarget);
+                if (!boardScanAwaiting) tryInstantSlateSeedDelivery(legTarget);
               } else {
                 const scanEnrich = {
                   ...flashEnrichRef.current,
@@ -3000,7 +3052,10 @@ export default function CoachScreen() {
                   deliverKernelBoardScan(scanForDelivery, scanEnrich, kernelLegTarget)
                 ) {
                   kernelParlayDelivered = true;
-                } else {
+                  setBoardScanAwaiting(false);
+                  setBoardScanLiveProgress(null);
+                  kernelParlayActiveRef.current = false;
+                } else if (boardScanIsComplete(scanForDelivery)) {
                   tryInstantSlateSeedDelivery(legTarget);
                 }
               }
@@ -3119,9 +3174,32 @@ export default function CoachScreen() {
             setBuildProgressExpired(false);
             setParlayBuildPhase("idle");
             setBoardScanPartialLegs(0);
+            setBoardScanAwaiting(false);
+            setBoardScanLiveProgress(null);
+            kernelParlayActiveRef.current = false;
             abortRef.current = null;
             scrollToEnd();
             return;
+          }
+          if (
+            useParlayKernel &&
+            !kernelParlayDelivered &&
+            finalScan &&
+            !boardScanIsComplete(finalScan)
+          ) {
+            setBuildFinishing(true);
+            setBoardScanAwaiting(true);
+            setParlayBuildPhase("board-scan");
+            releaseOtaBlock();
+            setCoachBuildBusy(false);
+            abortRef.current = null;
+            scrollToEnd();
+            return;
+          }
+          if (useParlayKernel && boardScanIsComplete(finalScan)) {
+            setBoardScanAwaiting(false);
+            setBoardScanLiveProgress(null);
+            kernelParlayActiveRef.current = false;
           }
         }
         // Merge server rows the client pool is missing (the client pool wins on
@@ -3639,9 +3717,7 @@ export default function CoachScreen() {
             getLiveOdds(scanSports, abortRef.current?.signal).catch(() => ({ games: [], odds: [] })),
           ]);
           const scanTeamIdMap = buildGameTeamIdMap(espnGames);
-          const inlineBoardScanMs = boardScanBudgetMs(reachTarget);
-          const inlineScan = await Promise.race([
-            tryReachFullBoardScan({
+          const inlineScan = await tryReachFullBoardScan({
               target: reachTarget,
               oddsGames,
               propPool: mergedPropPool,
@@ -3664,9 +3740,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), inlineBoardScanMs)),
-          ]);
+            });
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
             if (
@@ -5885,7 +5959,7 @@ export default function CoachScreen() {
 
   // Silent dead-end: parlay build finished with no pick cards (blank or generic fallback).
   useEffect(() => {
-    if (streaming || buildFinishing || waiting) return;
+    if (streaming || buildFinishing || waiting || boardScanAwaiting) return;
     const last = messages[messages.length - 1];
     if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
     if (coachReplyHasScanManifest(undefined, last.coachDetailNote)) return;
@@ -5950,7 +6024,9 @@ export default function CoachScreen() {
     const retryText = priorUser?.content?.trim();
     if (retryText) {
       const partial = latestBoardScanRef.current;
-      const stillScanning = !!partial && !boardScanIsComplete(partial);
+      const stillScanning =
+        boardScanAwaiting || (!!partial && !boardScanIsComplete(partial));
+      if (stillScanning) return;
       const exhaustedEmpty = !!partial?.scanComplete && !(partial.picks?.length);
       logCoachPickDiag("dead-end", {
         legTarget: requestedLegCount(retryText) || effectiveBuildLegCount(retryText),
@@ -5992,7 +6068,7 @@ export default function CoachScreen() {
       if (tryStashedDelivery()) clearInterval(interval);
     }, 2000);
     return () => clearInterval(interval);
-  }, [messages, streaming, buildFinishing, waiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
+  }, [messages, streaming, buildFinishing, waiting, boardScanAwaiting, deliverBoardScanTicket, patchInstantBoardScanTicket, tryInstantSlateSeedDelivery, marketPerf]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
@@ -6052,11 +6128,13 @@ export default function CoachScreen() {
               m.ticketLegTarget ?? (parlayBuildIntent ? requestedLegCount(priorUserText) : 0);
             const picksShortOfTarget =
               showTicketPicks && ticketLegTarget > 0 && displayPicks.length < ticketLegTarget;
-            const buildIdle = !buildFinishing && !streaming && !waiting;
+            const buildIdle = !buildFinishing && !streaming && !waiting && !boardScanAwaiting;
             const parlayScanInProgress =
               i === messages.length - 1 &&
               parlayBuildIntent &&
-              picksShortOfTarget &&
+              (boardScanAwaiting ||
+                picksShortOfTarget ||
+                parlayBuildPhase === "board-scan") &&
               !buildIdle;
             const deadBuildProse =
               m.role === "assistant" && DEAD_BUILD_PROSE_RE.test(m.content);
@@ -6072,8 +6150,10 @@ export default function CoachScreen() {
               m.role === "assistant" &&
               i === messages.length - 1 &&
               !hasPicks &&
-              (buildFinishing ||
+              (boardScanAwaiting ||
+                buildFinishing ||
                 streaming ||
+                parlayBuildPhase === "board-scan" ||
                 (buildProgressExpired &&
                   parlayBuildPhase !== "board-scan" &&
                   parlayBuildPhase !== "stream") ||
@@ -6088,6 +6168,7 @@ export default function CoachScreen() {
               i === messages.length - 1 &&
               !hasPicks &&
               parlayBuildIntent &&
+              !boardScanAwaiting &&
               !streaming &&
               !buildFinishing &&
               !waiting &&
@@ -6097,6 +6178,7 @@ export default function CoachScreen() {
               i === messages.length - 1 &&
               !hasPicks &&
               parlayBuildIntent &&
+              !boardScanAwaiting &&
               buildProgressExpired &&
               !streaming &&
               !buildFinishing &&
@@ -6116,6 +6198,7 @@ export default function CoachScreen() {
             const parlayShowRetryButton =
               i === messages.length - 1 &&
               !hasPicks &&
+              !boardScanAwaiting &&
               (parlayStalledEmpty ||
                 parlayStuckDeadProse ||
                 parlayBuildHung ||
@@ -6262,13 +6345,14 @@ export default function CoachScreen() {
                 {/* Step-by-step AI progress: shown while a parlay BUILDS (grounded
                     in the live leg count so it finalizes when real picks stream)
                     or while an "analyze my ticket" request is WAITING. */}
-                {((isBuildingParlay || parlayStillFilling || (parlayStillBuilding && !parlayBuildHung)) &&
+                {((isBuildingParlay || parlayStillFilling || parlayStillBuilding || boardScanAwaiting) &&
                   !showTicketPicks &&
                   !hasPicks) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
                     buildPhase={parlayBuildPhase === "idle" ? undefined : parlayBuildPhase}
+                    boardScanProgress={boardScanAwaiting ? boardScanLiveProgress : null}
                   />
                 ) : analyzeWaiting ? (
                   <AnalysisProgress mode="analyze" />

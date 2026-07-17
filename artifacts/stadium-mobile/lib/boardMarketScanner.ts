@@ -597,7 +597,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
     });
-    if (partial.picks.length > 0) {
+    if (partial.totalScanned > 0 || partial.picks.length > 0 || (partial.manifest?.propsFound ?? 0) > 0) {
       logCoachPickDiag("board-scan-partial", {
         target: opts.target,
         requestId: opts.requestId,
