@@ -6,10 +6,10 @@ export const COACH_FULL_BOARD_SCAN_POLICY =
 
 /** User-facing fixed-leg ticket policy (3, 5, 6, 10, 15, …). */
 export const COACH_FIXED_LEG_TICKET_POLICY =
-  "Scan every posted market and every player prop first. Score all markets the same way, then fill from separate ranked pools (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Promote only AI-approved picks with positive EV, positive edge, passing simulation, and confidence above the minimum threshold. If there are not enough qualified picks, return fewer legs — never add ungraded or negative-EV filler to reach the requested count.";
+  "Scan every posted market and every player prop first. Score all markets the same way, then fill from separate ranked pools (~50% player props, ~20–30% game lines, ~10–20% team totals, ~10–20% alternate lines). Start with elite legs (A+, confidence ≥9/10). If there are not enough, expand to A or better with confidence ≥8.5/10. If still short, top up with the highest-EV legs that still pass minimum safety gates (positive EV, positive edge, passing simulation, grade floor for the ticket style). Never pad with ungraded or negative-EV filler.";
 
 export const COACH_NO_FILLER_SHORTFALL =
-  "Every posted market was scanned — these are every AI Recommended and qualifying alt pick on the board. No filler was added to reach your requested leg count.";
+  "Every posted market was scanned — these legs cleared simulation, positive EV, and positive edge. When elite picks ran short, the ticket expanded through graded tiers and safety-gated EV fill rather than leaving you empty-handed. No ungraded or negative-EV filler was added.";
 
 export const COACH_FIXED_LEG_SHORTFALL_LEAD =
   "Every qualifying market was evaluated across the live board — only this many AI-backed picks met the quality bar.";

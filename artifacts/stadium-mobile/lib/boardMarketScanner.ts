@@ -29,6 +29,7 @@ import {
   fullBoardScanSuccessNote,
   type TicketStagingBreakdown,
 } from "./fullBoardMarketCopy.ts";
+import { buildTieredFillLegNote } from "./coachTicketTieredFill.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
 import { parsedPickFromPoolEntry } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
@@ -467,6 +468,9 @@ function buildScanResult(
   );
   const picks = staged.picks;
   const breakdown = staged.breakdown;
+  const tierNote = staged.tieredFill
+    ? buildTieredFillLegNote(staged.tieredFill, opts.target, picks.length)
+    : "";
 
   const totalQualified = breakdown.mainQualified + breakdown.altQualified;
   const scanComplete = !opts.preview && opts.boardExhausted === true;
@@ -475,12 +479,13 @@ function buildScanResult(
     boardExhausted: opts.boardExhausted === true,
     deliveredLegs: scanComplete ? picks.length : 0,
   });
-  const note =
+  const baseNote =
     picks.length >= opts.target
       ? fullBoardScanSuccessNote(opts.totalScanned, picks.length)
       : picks.length > 0 && opts.preview
         ? `Scoring live board — ${picks.length} leg${picks.length === 1 ? "" : "s"} ready so far (${opts.totalScanned} markets scanned)…`
         : fullBoardScanShortfallNote(opts.totalScanned, totalQualified, picks.length, breakdown);
+  const note = tierNote ? `${baseNote}\n\n${tierNote}` : baseNote;
   traceCoachTicket("board-scan-staged", {
     requestedLegs: opts.target,
     pickIds: picks,

@@ -21,6 +21,7 @@ import {
   tieredBackfillStagedTicket,
   type CoachTicketBuildOpts,
 } from "./coachTicketCombinations.ts";
+import type { TieredFillSummary } from "./coachTicketTieredFill.ts";
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
@@ -364,13 +365,19 @@ export type CoachTicketStagingContext = Partial<CoachParlayVarietyContext> & {
   ticketStyle?: CoachTicketStyle;
 };
 
+export type StagedTicketFromScanResult = {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  tieredFill?: TieredFillSummary;
+};
+
 /** Step 2: highest-rated mains first. Step 3: qualifying alts to reach target. */
 export function buildStagedTicketFromScan(
   scored: BoardScoredLeg[],
   target: number,
   varietySeed?: string,
   varietyContext?: CoachTicketStagingContext,
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
+): StagedTicketFromScanResult {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
   if (target >= 3 && varietySeed) {
     return buildIndependentCoachTicket(scored, target, {

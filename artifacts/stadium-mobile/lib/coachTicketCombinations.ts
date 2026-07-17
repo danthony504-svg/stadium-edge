@@ -31,6 +31,11 @@ import {
   qualityTiersForStyle,
 } from "./coachTicketQualityTiers.ts";
 import {
+  resolveQualifyingPoolForTarget,
+  tieredFillToTarget,
+  type TieredFillSummary,
+} from "./coachTicketTieredFill.ts";
+import {
   boardLegPoolRole,
   capThinStatMarketsOnTicket,
   type BoardScoredLeg,
@@ -683,8 +688,8 @@ function generateTicketCandidates(
   target: number,
   opts: CoachTicketBuildOpts,
 ): TicketCandidate[] {
-  const qualifying = qualifyingScoredLegs(scored);
   const ticketStyle = opts.ticketStyle ?? "balanced";
+  const { pool: qualifying } = resolveQualifyingPoolForTarget(scored, target, ticketStyle);
   const out: TicketCandidate[] = [];
   const profile = ticketSizeProfile(target);
   const sizeSeed = sizeScopedSeed(opts.varietySeed, target);
@@ -846,21 +851,33 @@ function stagingBreakdown(
   };
 }
 
+export type CoachTicketBuildResult = {
+  picks: ParsedPick[];
+  breakdown: TicketStagingBreakdown;
+  tieredFill?: TieredFillSummary;
+};
+
 /** Build an independent ticket for the requested leg count — not a slice of another size. */
 export function buildIndependentCoachTicket(
   scored: BoardScoredLeg[],
   target: number,
   opts: CoachTicketBuildOpts,
-): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
-  const qualifying = qualifyingScoredLegs(scored);
+): CoachTicketBuildResult {
+  const ticketStyle = opts.ticketStyle ?? "balanced";
+  const { pool: qualifying, summary: poolSummary } = resolveQualifyingPoolForTarget(
+    scored,
+    target,
+    ticketStyle,
+  );
+  const strictQualifying = qualifyingScoredLegs(scored);
   const candidates = generateTicketCandidates(scored, target, opts);
   traceCoachTicket("combinator-candidates", {
     requestedLegs: target,
     candidateIds: candidates.map((c, i) => `c${i}:${c.legKeys.slice(0, 2).join("+")}`),
-    extra: { candidateCount: candidates.length },
+    extra: { candidateCount: candidates.length, tierPool: poolSummary.selectedPool },
   });
   const chosen = pickBestDistinctCandidate(candidates, opts, target, qualifying);
-  const picks = chosen?.picks ?? [];
+  let picks = chosen?.picks ?? [];
   traceCoachTicket("combinator-selected", {
     requestedLegs: target,
     candidateId: chosen
@@ -868,9 +885,41 @@ export function buildIndependentCoachTicket(
       : "none",
     pickIds: picks,
   });
+
+  let tieredFill: TieredFillSummary = poolSummary;
+  if (picks.length < target) {
+    const filled = tieredFillToTarget(
+      picks,
+      target,
+      scored,
+      ticketStyle,
+      opts.varietySeed,
+    );
+    picks = filled.picks;
+    tieredFill = {
+      ...filled.summary,
+      selectedPool: poolSummary.selectedPool,
+    };
+  }
+  if (picks.length < target) {
+    picks = tieredBackfillStagedTicket(picks, target, scored, ticketStyle, opts.varietySeed);
+  }
+
+  traceCoachTicket("combinator-tiered-fill", {
+    requestedLegs: target,
+    pickIds: picks,
+    extra: {
+      eliteCount: tieredFill.eliteCount,
+      expandedCount: tieredFill.expandedCount,
+      safetyFillCount: tieredFill.safetyFillCount,
+      selectedPool: tieredFill.selectedPool,
+    },
+  });
+
   return {
     picks,
-    breakdown: stagingBreakdown(picks, qualifying),
+    breakdown: stagingBreakdown(picks, strictQualifying),
+    tieredFill,
   };
 }
 
