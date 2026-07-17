@@ -2442,7 +2442,7 @@ export default function CoachScreen() {
           role: "assistant",
           content: "",
           ...(analyzeSlipSnapshot ? { analyzeSlip: analyzeSlipSnapshot } : {}),
-          ...(openingParlayBuild ? { parlayBuild: true } : {}),
+          ...(openingParlayBuild ? { parlayBuild: true, retry: undefined } : {}),
           ...(openingPicks?.length
             ? {
                 picks: openingPicks,
@@ -2679,6 +2679,7 @@ export default function CoachScreen() {
         const requestedLegs = requestedLegCount(trimmed);
         const buildLegs = effectiveBuildLegCount(trimmed);
         const legTarget = requestedLegs > 0 ? requestedLegs : buildLegs;
+        const coachTicketStyle = detectCoachTicketStyle(trimmed);
         activeRequestLegTargetRef.current = legTarget;
         if (coachRequestContextRef.current) {
           coachRequestContextRef.current = {
@@ -2802,7 +2803,6 @@ export default function CoachScreen() {
         // replay mode this is seeded from the stashed result. Real bookmaker rows
         // only — never fabricated.
         const serverPropPool: PropPoolEntry[] = [];
-        const coachTicketStyle = detectCoachTicketStyle(trimmed);
 
         if (replay) {
           // Background-finished build: reuse the saved context + stashed reply.
@@ -3139,6 +3139,15 @@ export default function CoachScreen() {
                 setBoardScanLiveProgress(deriveBoardScanLiveProgress(preBoardScan));
                 if (preBoardScan.picks.length) {
                   setBoardScanPartialLegs(preBoardScan.picks.length);
+                }
+                if (
+                  boardScanIsComplete(preBoardScan) &&
+                  preBoardScan.picks.length &&
+                  !boardTicketSnapshotRef.current?.length
+                ) {
+                  patchInstantBoardScanTicket(preBoardScan, flashEnrichRef.current, {
+                    ticketLegTarget: reachTargetPreScan,
+                  });
                 }
               }
               freshBoardScanComplete = !!(
@@ -3599,6 +3608,13 @@ export default function CoachScreen() {
           );
           if (cachedBoardScan && !didReachFullPreScan) {
             reachBoardScan = cachedBoardScan;
+          } else if (didReachFullPreScan && boardScanIsComplete(preBoardScan ?? undefined)) {
+            reachBoardScan =
+              preferFinalBoardScanForDelivery(
+                Math.min(legTarget, MAX_LEGS),
+                preBoardScan,
+                latestBoardScanRef.current,
+              ) ?? preBoardScan;
           } else if (!didReachFullPreScan || !freshBoardScanComplete) {
             const scanSports = coachLiveScanSports(excludedSports);
             const [espnGames, oddsGames, liveFeed] = await Promise.all([
@@ -5849,12 +5865,20 @@ export default function CoachScreen() {
             hasOutgoingImages && !(e instanceof ChatStreamError)
               ? "Sorry — I couldn't finish reading your slip photo. Check your connection and try again."
               : chatStreamFailureMessage(e);
+          const internalBug =
+            e instanceof ReferenceError ||
+            (e instanceof Error &&
+              (/doesn't exist/i.test(e.message) ||
+                /is not defined/i.test(e.message) ||
+                /^Property '/i.test(e.message)));
           setMessages((prev) => {
             const copy = [...prev];
             copy[copy.length - 1] = {
               role: "assistant",
-              content: failMsg,
-              ...(isParlayBuildAsk(trimmed) ? { retry: trimmed } : {}),
+              content: internalBug
+                ? "Something went wrong while building your ticket. Tap below to try again."
+                : failMsg,
+              ...(isParlayBuildAsk(trimmed) ? { retry: trimmed, parlayBuild: true } : {}),
             };
             return copy;
           });
@@ -6587,6 +6611,9 @@ export default function CoachScreen() {
             const parlayShowRetryButton =
               i === messages.length - 1 &&
               !hasPicks &&
+              !coachBuildInFlight &&
+              !parlayStillBuilding &&
+              !isBuildingParlay &&
               !boardScanAwaiting &&
               !parlayAwaitingDelivery &&
               parlayBuildPhase !== "board-scan" &&

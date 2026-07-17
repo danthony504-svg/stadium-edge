@@ -4895,7 +4895,10 @@ export function chatStreamFailureMessage(err: unknown): string {
       m !== "chat stream failed" &&
       !/^HTTP \d+$/.test(m) &&
       !/undefined is not a function/i.test(m) &&
-      !/is not a function/i.test(m)
+      !/is not a function/i.test(m) &&
+      !/doesn't exist/i.test(m) &&
+      !/is not defined/i.test(m) &&
+      !/^Property '/i.test(m)
     ) {
       return m;
     }
