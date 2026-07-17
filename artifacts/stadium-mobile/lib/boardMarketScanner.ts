@@ -52,6 +52,7 @@ export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type Boa
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
+import { logCoachPickDiag } from "./coachPickDiagnostics.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
 
 import {
@@ -591,7 +592,16 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       ticketStyle: opts.ticketStyle,
       requestId: opts.requestId,
     });
-    if (partial.picks.length > 0) opts.onPartial(partial);
+    if (partial.picks.length > 0) {
+      logCoachPickDiag("board-scan-partial", {
+        target: opts.target,
+        requestId: opts.requestId,
+        pickCount: partial.picks.length,
+        scanComplete: partial.scanComplete,
+        totalScanned: partial.totalScanned,
+      });
+      opts.onPartial(partial);
+    }
   };
 
   const scoreGamesAndMaybePartial = (games: string[]) => {
@@ -736,9 +746,32 @@ export function reachBoardScanEligible(opts: {
 export async function tryReachFullBoardScan(
   opts: Parameters<typeof buildTopLegsFromFullBoardScan>[0],
 ): Promise<FullBoardScanResult | null> {
+  logCoachPickDiag("board-scan-start", {
+    target: opts.target,
+    oddsGames: opts.oddsGames.length,
+    propPool: opts.propPool.length,
+    realOdds: opts.realOdds.length,
+    requestId: opts.requestId,
+  });
   try {
-    return await buildTopLegsFromFullBoardScan(opts);
-  } catch {
+    const result = await buildTopLegsFromFullBoardScan(opts);
+    logCoachPickDiag("board-scan-complete", {
+      target: opts.target,
+      requestId: opts.requestId,
+      scanComplete: result.scanComplete,
+      pickCount: result.picks.length,
+      totalScanned: result.totalScanned,
+      totalQualified: result.totalQualified,
+      requestedLegs: result.requestedLegs,
+      note: result.note.slice(0, 120),
+    });
+    return result;
+  } catch (err) {
+    logCoachPickDiag("board-scan-error", {
+      target: opts.target,
+      requestId: opts.requestId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }

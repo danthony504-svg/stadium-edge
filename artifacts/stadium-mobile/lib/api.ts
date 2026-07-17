@@ -4,6 +4,7 @@ import {
   stealFeedPath,
   type StealFeedClientLog,
 } from "./stealFeedClient";
+import { logCoachPickDiag } from "./coachPickDiagnostics";
 import { propMarketLabel } from "./propMarketLabel";
 import { logStealScanLifecycle } from "./stealScanLifecycle";
 import { fetch as expoFetch } from "expo/fetch";
@@ -4991,6 +4992,14 @@ export async function streamChat({
     buildId,
   });
   const bodyKB = bodyStr.length / 1024;
+  logCoachPickDiag("stream-request", {
+    bodyKB: Math.round(bodyKB * 10) / 10,
+    contextStashId: contextStashId ?? null,
+    messageCount: messages.length,
+    hasVisionImages,
+    buildId: buildId ?? null,
+    notifyOnBackground: !!notifyOnBackground,
+  });
   const FIRST_TOKEN_MS =
     firstTokenMsOverride ??
     (hasVisionImages ? 90_000 : bodyKB > 120 ? 120_000 : bodyKB > 80 ? 90_000 : bodyKB > 40 ? 60_000 : 45_000);
@@ -5132,9 +5141,20 @@ export async function streamChat({
         }
       }
       cleanup();
+      logCoachPickDiag("stream-response", {
+        attempt: attempt + 1,
+        contentChars: fullText.length,
+        sawContent,
+      });
       return fullText;
     } catch (err) {
       cleanup();
+      logCoachPickDiag("stream-error", {
+        attempt: attempt + 1,
+        sawContent,
+        error: err instanceof Error ? err.message : String(err),
+        retryable: !(err instanceof ChatStreamError && !err.retryable),
+      });
       // A real caller abort (unmount / user cancel) wins — never retry.
       if (signal?.aborted) throw abortError();
       // Tokens already streamed → retrying would duplicate the reply. Propagate.
