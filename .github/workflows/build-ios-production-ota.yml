@@ -1,0 +1,75 @@
+name: Build iOS production (OTA enabled)
+
+# Production App Store binary with expo-updates ON (runtime 1.0.0).
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: EAS build message
+        required: false
+        default: "Production build — OTA enabled, runtime 1.0.0"
+      auto_submit:
+        description: Auto-submit to App Store Connect
+        required: false
+        default: "false"
+  push:
+    branches:
+      - cursor/ota-redesign-e67e
+    paths:
+      - .github/ios-ota-enable-build-trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: artifacts/stadium-mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Verify production OTA config before native build
+        run: bash scripts/verify-build-ota-config.sh production
+
+      - name: Build iOS production (OTA on)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_NO_VCS: "1"
+        run: |
+          set -euo pipefail
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN required"
+            exit 1
+          fi
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="Production OTA-enabled runtime 1.0.0 $(git rev-parse --short HEAD) $(date -u +%Y-%m-%dT%H:%MZ)"
+          fi
+          AUTO_SUBMIT="${{ github.event.inputs.auto_submit }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            AUTO_SUBMIT="false"
+          fi
+          SUBMIT_FLAG=""
+          if [ "$AUTO_SUBMIT" = "true" ]; then
+            SUBMIT_FLAG="--auto-submit"
+          fi
+          pnpm exec eas build \
+            --platform ios \
+            --profile production \
+            $SUBMIT_FLAG \
+            --non-interactive \
+            --no-wait \
+            --message "$MSG"
+          echo "Build queued — check EAS dashboard for build number and TestFlight processing."
