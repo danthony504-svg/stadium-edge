@@ -156,6 +156,12 @@ import {
   mergeBoardScanSnapshot,
   shouldFireEmptyScanTerminal,
 } from "@/lib/coachEmptyScanTerminal";
+import {
+  logDeliveryPoll,
+  readBoardScanFinal,
+  stashBoardScanFinal,
+  type BoardScanFinalRegistry,
+} from "@/lib/coachBoardScanLifecycle";
 import { awaitBoardScanUntilComplete } from "@/lib/coachBoardScanAwait";
 import {
   deriveBoardScanLiveProgress,
@@ -1262,6 +1268,7 @@ export default function CoachScreen() {
   }, [messages]);
   const sendGenerationRef = useRef(0);
   const emptyScanTerminalFiredRef = useRef(false);
+  const boardScanFinalByRequestRef = useRef<BoardScanFinalRegistry>(new Map());
   const flashEnrichRef = useRef<CoachFlashEnrich>({
     realOdds: [],
     propPool: [],
@@ -1862,9 +1869,14 @@ export default function CoachScreen() {
       activeRequestLegTargetRef.current ||
       requestedLegCount(activeParlayAskRef.current) ||
       effectiveBuildLegCount(activeParlayAskRef.current);
-    const scan =
-      preferFinalBoardScanForDelivery(legTarget, latestBoardScanRef.current) ??
-      latestBoardScanRef.current;
+    const requestId = coachRequestContextRef.current?.requestId;
+    const scan = readBoardScanFinal(
+      boardScanFinalByRequestRef.current,
+      requestId,
+      preferFinalBoardScanForDelivery(legTarget, latestBoardScanRef.current),
+      latestBoardScanRef.current,
+    );
+    logDeliveryPoll(requestId, scan);
     if (!scan) return false;
     if (
       legTarget > 0 &&
@@ -2125,10 +2137,17 @@ export default function CoachScreen() {
         (ctx?.sendGeneration ?? sendGenNow) === sendGenNow &&
         (!ctx?.requestId || !partial.requestId || partial.requestId === ctx.requestId);
       if (progressApplies) {
+        if (!boardScanIsComplete(partial) && partial.requestId) {
+          const stashed = boardScanFinalByRequestRef.current.get(partial.requestId);
+          if (stashed && boardScanIsComplete(stashed)) return;
+        }
         latestBoardScanRef.current = mergeBoardScanSnapshot(
           latestBoardScanRef.current,
           partial,
         );
+        if (boardScanIsComplete(partial) && partial.requestId) {
+          stashBoardScanFinal(boardScanFinalByRequestRef.current, partial);
+        }
         if (shouldFireEmptyScanTerminal(partial)) {
           fireEmptyScanTerminal(partial, {
             legTarget: legTarget > 0 ? legTarget : undefined,
@@ -2298,6 +2317,8 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
               signal,
+              requestId: coachRequestContextRef.current?.requestId,
+              scanTimeoutMs: boardScanBudgetMs(reachTarget),
             });
         } catch {
           return null;
@@ -2388,6 +2409,7 @@ export default function CoachScreen() {
 
       const sendGen = ++sendGenerationRef.current;
       emptyScanTerminalFiredRef.current = false;
+      boardScanFinalByRequestRef.current.clear();
       autoScrollRef.current = true;
       boardTicketSnapshotRef.current = null;
       latestBoardScanRef.current = null;
@@ -3227,6 +3249,7 @@ export default function CoachScreen() {
                 calibration: modelCalibration,
                 onPartial: onBoardScanPartial,
                 signal: abortRef.current?.signal,
+                scanTimeoutMs: boardScanBudgetMs(reachTargetPreScan),
                 ...boardScanVariety,
               });
               if (preBoardScan) {
@@ -3725,39 +3748,38 @@ export default function CoachScreen() {
               })),
             ]);
             const reachBoardScanMs = boardScanBudgetMs(Math.min(legTarget, MAX_LEGS));
-            reachBoardScan = await Promise.race([
-              tryReachFullBoardScan({
-                target: Math.min(legTarget, MAX_LEGS),
-                oddsGames,
-                propPool: mergedPropPool,
-                realOdds: context.realOdds,
-                liveOdds: liveFeed.odds,
-                espnGames,
-                gameMeta,
-                teamIdMap: buildGameTeamIdMap(espnGames),
-                excludedSports,
-                matchupHistory: context.matchupHistory,
-                matchupInjuries: context.matchupInjuries,
-                playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
-                mlbPlatoon: context.mlbPlatoon,
-                mlbGameEnv: context.mlbGameEnv,
-                perfByFamily: marketPerf,
-                calibration: modelCalibration,
-                onPartial: onBoardScanPartial,
-                varietySeed,
-                varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
-                ticketStyle: coachTicketStyle,
-                requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
-              }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), reachBoardScanMs)),
-            ]);
-            if (!reachBoardScan && boardScanIsComplete(latestBoardScanRef.current)) {
-              const ref = latestBoardScanRef.current;
-              if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
-                reachBoardScan = ref;
-              }
+            reachBoardScan = await tryReachFullBoardScan({
+              target: Math.min(legTarget, MAX_LEGS),
+              oddsGames,
+              propPool: mergedPropPool,
+              realOdds: context.realOdds,
+              liveOdds: liveFeed.odds,
+              espnGames,
+              gameMeta,
+              teamIdMap: buildGameTeamIdMap(espnGames),
+              excludedSports,
+              matchupHistory: context.matchupHistory,
+              matchupInjuries: context.matchupInjuries,
+              playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
+              mlbPlatoon: context.mlbPlatoon,
+              mlbGameEnv: context.mlbGameEnv,
+              perfByFamily: marketPerf,
+              calibration: modelCalibration,
+              onPartial: onBoardScanPartial,
+              varietySeed,
+              varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
+              ticketStyle: coachTicketStyle,
+              requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              signal: abortRef.current?.signal,
+              scanTimeoutMs: reachBoardScanMs,
+            });
+            if (!reachBoardScan) {
+              const requestId = coachRequestContextRef.current?.requestId;
+              reachBoardScan = readBoardScanFinal(
+                boardScanFinalByRequestRef.current,
+                requestId,
+                latestBoardScanRef.current,
+              );
             } else if (
               !reachBoardScan?.picks?.length &&
               latestBoardScanRef.current?.picks?.length
@@ -4204,6 +4226,7 @@ export default function CoachScreen() {
               varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
               ticketStyle: coachTicketStyle,
               requestId: coachRequestContextRef.current?.requestId ?? varietySeed,
+              scanTimeoutMs: boardScanBudgetMs(reachTarget),
             });
           if (inlineScan) {
             fullBoardScanMeta = inlineScan;
@@ -6749,6 +6772,9 @@ export default function CoachScreen() {
               (boardScanLiveProgress?.exhaustedEmpty ||
                 (!!latestBoardScanRef.current?.scanComplete &&
                   !(latestBoardScanRef.current?.picks?.length ?? 0)));
+            const emptyScanTerminalMessage =
+              m.role === "assistant" &&
+              /Full board scan finished — no legs cleared delivery gates/i.test(m.content ?? "");
             const parlayShowRetryButton =
               i === messages.length - 1 &&
               !hasPicks &&
@@ -6902,7 +6928,8 @@ export default function CoachScreen() {
                     or while an "analyze my ticket" request is WAITING. */}
                 {((isBuildingParlay || parlayStillFilling || parlayStillBuilding || boardScanAwaiting || parlayAwaitingDelivery) &&
                   !showTicketPicks &&
-                  !hasPicks) ? (
+                  !hasPicks &&
+                  !emptyScanTerminalMessage) ? (
                   <AnalysisProgress
                     mode="build"
                     legCount={progressLegCount}
