@@ -184,7 +184,6 @@ import {
   unsupportedSoccerDisciplineReply,
 } from "@/lib/unsupportedCoachMarkets";
 import { blockOtaReload } from "@/lib/otaBlock";
-import { prefetchOtaInBackground } from "@/lib/otaUpdater";
 import { OTA_BOOTSTRAP } from "@/lib/otaBootstrap";
 import { coachTicketUpgraded, notifyCoachTicketOptimized } from "@/lib/coachOptimizationNotify";
 import {
@@ -2284,6 +2283,7 @@ export default function CoachScreen() {
       // replay the same ranked props and game-line walk order every tap.
       const varietySeed = makeBuildId();
       varietySeedRef.current = varietySeed;
+      const coachTicketStyle = detectCoachTicketStyle(trimmed);
       if (openingParlayBuild && earlyLegTarget >= 3) {
         activeRequestLegTargetRef.current = earlyLegTarget;
         coachRequestContextRef.current = startCoachTicketRequest({
@@ -2836,7 +2836,6 @@ export default function CoachScreen() {
           );
           rehydrateVisibleBoardTicket();
           const reachTargetPreScan = Math.min(legTarget, MAX_LEGS);
-          const coachTicketStyle = detectCoachTicketStyle(trimmed);
           const boardScanVariety = {
             varietySeed,
             varietyContext: varietyContextWithLastDelivered(recentParlayVarietyContext()),
@@ -3334,8 +3333,6 @@ export default function CoachScreen() {
                 matchupHistory: context.matchupHistory,
                 matchupInjuries: context.matchupInjuries,
                 playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
                 mlbPlatoon: context.mlbPlatoon,
                 mlbGameEnv: context.mlbGameEnv,
                 perfByFamily: marketPerf,
@@ -4011,7 +4008,7 @@ export default function CoachScreen() {
             picks,
             excludedSports,
             mergedPropPool,
-            mergedGameOdds,
+            context.realOdds,
             gameMeta,
           );
           if (dedupedAfterBackfill.dropped > 0 && !diversityNote) {
@@ -4039,7 +4036,7 @@ export default function CoachScreen() {
               picks,
               excludedSports,
               mergedPropPool,
-              mergedGameOdds,
+              context.realOdds,
               gameMeta,
             );
           }
@@ -4423,8 +4420,6 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
               mlbPlatoon: context.mlbPlatoon,
               mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
@@ -4589,8 +4584,6 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
               mlbPlatoon: context.mlbPlatoon,
               mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
@@ -4670,8 +4663,6 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
               mlbPlatoon: context.mlbPlatoon,
               mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
@@ -4802,8 +4793,6 @@ export default function CoachScreen() {
               matchupInjuries: context.matchupInjuries,
               perfByFamily: marketPerf,
               playerHistory: context.playerHistory as Record<string, PlayerHistorySlice> | undefined,
-            mlbPlatoon: context.mlbPlatoon,
-            mlbGameEnv: context.mlbGameEnv,
               mlbPlatoon: context.mlbPlatoon,
               mlbGameEnv: context.mlbGameEnv,
               gameSimulations,
@@ -5812,15 +5801,6 @@ export default function CoachScreen() {
           await hydrateCoachSlateFromServer();
           startSlatePreAnalysis("coach-focus");
         })();
-        if (!__DEV__ && !streamingRef.current && !buildFinishingRef.current && !waiting) {
-          void (async () => {
-            try {
-              await prefetchOtaInBackground();
-            } catch (err) {
-              console.warn("[coach-ota] prefetch failed", err);
-            }
-          })();
-        }
       }
       if (streamingRef.current || buildFinishingRef.current || waiting) return;
       const partial = latestBoardScanRef.current;
@@ -6638,7 +6618,6 @@ export default function CoachScreen() {
                         m.retry ||
                           activeParlayAskRef.current ||
                           priorUserText ||
-                          trimmed ||
                           "Build me a 15-leg longshot parlay",
                         { freshThread: true },
                       );
