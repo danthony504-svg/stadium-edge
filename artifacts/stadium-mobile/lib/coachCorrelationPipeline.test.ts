@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  advanceCoachBuildStage,
+  coachBuildProgressFromPhase,
+  coachBuildProgressTick,
+  COACH_BUILD_STAGES,
+  createCoachBuildProgress,
+} from "./coachBuildProgress.ts";
+import {
   COACH_CORRELATION_MAX_CANDIDATES,
   COACH_CORRELATION_TIMEOUT_MS,
   runCoachCorrelationStage,
@@ -58,25 +65,38 @@ test("runCoachCorrelationStage completes within candidate cap", async () => {
     varietySeed: "seed-corr-5leg",
   });
   assert.ok(result.outputTicketCount > 0);
+  assert.equal(result.selectedLegs.length, result.outputTicketCount);
+  assert.equal(result.requestedLegCount, 5);
   assert.ok(result.candidateTicketCount <= COACH_CORRELATION_MAX_CANDIDATES);
   assert.ok(result.durationMs < COACH_CORRELATION_TIMEOUT_MS + 500);
+  assert.equal(result.fallbackUsed, false);
   clearCoachScanPipeline("req-corr-1");
 });
 
-test("runCoachCorrelationStage hard-timeout falls back to pre-correlation ranking", async () => {
+test("runCoachCorrelationStage timeout returns pre-correlation ticket with fallback metadata", async () => {
   beginCoachScanPipeline("req-corr-2");
   const scored = Array.from({ length: 7 }, (_, i) =>
     leg(`G${i} @ H${i}`, `P${i}`, "Points", 90 - i),
   );
   const started = Date.now();
+  const progressStages: string[] = [];
   const result = await runCoachCorrelationStage(scored, 5, {
     requestId: "req-corr-2",
     varietySeed: "seed-corr-timeout",
     timeoutMs: 1,
+    onBuildProgress: (stageId) => {
+      progressStages.push(stageId);
+    },
   });
   assert.ok(Date.now() - started < 3_000);
+  assert.equal(result.fallbackUsed, true);
   assert.equal(result.usedFallback, true);
-  assert.ok(result.outputTicketCount > 0);
+  assert.equal(result.fallbackReason, "correlation-timeout");
+  assert.equal(result.outputTicketCount, 5);
+  assert.equal(result.selectedLegs.length, 5);
+  assert.equal(result.requestedLegCount, 5);
+  assert.ok(progressStages.includes("correlation-fallback"));
+  assert.ok(progressStages.includes("building-ticket"));
   clearCoachScanPipeline("req-corr-2");
 });
 
@@ -88,4 +108,40 @@ test("runCoachCorrelationStage never throws on empty pool", async () => {
   });
   assert.equal(result.outputTicketCount, 0);
   clearCoachScanPipeline("req-corr-3");
+});
+
+test("coachBuildProgressTick does not terminal-fail during correlation stage", () => {
+  let state = createCoachBuildProgress({ requestId: "r-corr", sendGeneration: 1, legTarget: 5 });
+  for (const stageId of [
+    "starting",
+    "loading-games",
+    "matchups",
+    "injuries",
+    "line-value",
+    "simulations",
+    "correlation",
+  ] as const) {
+    state = advanceCoachBuildStage(state, stageId, {
+      requestId: "r-corr",
+      sendGeneration: 1,
+      now: 0,
+    });
+  }
+  state = { ...state, activeStageStartedAt: 0 };
+  const ticked = coachBuildProgressTick(state, 60_000);
+  assert.equal(ticked.status, "active");
+  assert.notEqual(ticked.status, "timed-out");
+});
+
+test("correlation fallback advances to building-ticket at 95%", () => {
+  let state = createCoachBuildProgress({ requestId: "r-fb", sendGeneration: 1, legTarget: 5 });
+  for (const stageId of COACH_BUILD_STAGES.map((s) => s.id)) {
+    if (stageId === "final-ticket") break;
+    state = advanceCoachBuildStage(state, stageId, {
+      requestId: "r-fb",
+      sendGeneration: 1,
+    });
+  }
+  const snap = coachBuildProgressFromPhase("score", 0, state);
+  assert.ok(snap.percent >= 95);
 });

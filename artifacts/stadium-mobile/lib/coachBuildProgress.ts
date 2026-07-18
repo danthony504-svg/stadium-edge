@@ -10,6 +10,7 @@ export type CoachBuildStageId =
   | "line-value"
   | "simulations"
   | "correlation"
+  | "correlation-fallback"
   | "building-ticket"
   | "final-ticket";
 
@@ -29,8 +30,14 @@ export const COACH_BUILD_STAGES: readonly CoachBuildStageDef[] = [
   { id: "injuries", percent: 40, label: "Checking injuries and lineups", timeoutMs: 45_000 },
   { id: "line-value", percent: 55, label: "Calculating line value and EV", timeoutMs: 90_000 },
   { id: "simulations", percent: 70, label: "Running simulations", timeoutMs: 120_000 },
-  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 3_000 },
-  { id: "building-ticket", percent: 90, label: "Building final ticket", timeoutMs: 60_000 },
+  { id: "correlation", percent: 85, label: "Scoring correlation", timeoutMs: 120_000 },
+  {
+    id: "correlation-fallback",
+    percent: 85,
+    label: "Correlation timed out, using best available ranking",
+    timeoutMs: 120_000,
+  },
+  { id: "building-ticket", percent: 95, label: "Building final ticket", timeoutMs: 60_000 },
   { id: "final-ticket", percent: 100, label: "Final ticket ready", timeoutMs: 30_000 },
 ] as const;
 
@@ -85,6 +92,12 @@ export function coachBuildStageTimeoutMs(stageId: CoachBuildStageId, legTarget: 
   if (stageId === "building-ticket" && legTarget >= 9) return 90_000;
   return base;
 }
+
+/** Correlation deadline is enforced by the pipeline — never terminal-fail in the UI tick. */
+const PIPELINE_OWNED_STAGE_IDS = new Set<CoachBuildStageId>([
+  "correlation",
+  "correlation-fallback",
+]);
 
 function activeStageIndex(state: CoachBuildProgressState): number {
   if (state.status !== "active") return COACH_BUILD_STAGES.length - 1;
@@ -224,7 +237,10 @@ export function coachBuildProgressTick(
   }
 
   const timeoutMs = coachBuildStageTimeoutMs(activeStage.id, state.legTarget);
-  if (now - state.activeStageStartedAt >= timeoutMs) {
+  if (
+    !PIPELINE_OWNED_STAGE_IDS.has(activeStage.id) &&
+    now - state.activeStageStartedAt >= timeoutMs
+  ) {
     return {
       ...next,
       status: "timed-out",
@@ -302,7 +318,12 @@ const INJURIES_IDX = coachBuildStageIndex("injuries");
 const LINE_VALUE_IDX = coachBuildStageIndex("line-value");
 const SIMULATIONS_IDX = coachBuildStageIndex("simulations");
 const CORRELATION_IDX = coachBuildStageIndex("correlation");
+const CORRELATION_FALLBACK_IDX = coachBuildStageIndex("correlation-fallback");
 const FINAL_TICKET_IDX = coachBuildStageIndex("final-ticket");
+
+function correlationStageComplete(completedThroughIndex: number): boolean {
+  return completedThroughIndex >= CORRELATION_FALLBACK_IDX;
+}
 
 function coachBuildChecklistFromIndex(
   completedThroughIndex: number,
@@ -314,7 +335,7 @@ function coachBuildChecklistFromIndex(
     injuryComplete: idx >= INJURIES_IDX,
     lineValueComplete: idx >= LINE_VALUE_IDX,
     simulationComplete: idx >= SIMULATIONS_IDX,
-    correlationComplete: idx >= CORRELATION_IDX,
+    correlationComplete: correlationStageComplete(idx),
     ticketComplete: legCount > 0 || idx >= FINAL_TICKET_IDX,
   };
 }
@@ -459,6 +480,7 @@ export function coachBuildProgressViewFromSnapshot(
     "line-value",
     "simulations",
     "correlation",
+    "correlation-fallback",
     "building-ticket",
     "final-ticket",
   ];
@@ -470,7 +492,8 @@ export function coachBuildProgressViewFromSnapshot(
     snapshot.lineValueComplete,
     snapshot.simulationComplete,
     snapshot.correlationComplete,
-    snapshot.percent >= 90,
+    snapshot.correlationComplete,
+    snapshot.percent >= 95,
     snapshot.ticketComplete,
   ];
   let activeIdx = checklistStageIds.findIndex((_, idx) => !flags[idx]);

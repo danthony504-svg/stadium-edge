@@ -66,8 +66,9 @@ console.log(
       candidateCount: result.candidateTicketCount,
       maxCandidates: COACH_CORRELATION_MAX_CANDIDATES,
       ticketsScored: result.correlationsScored,
-      correlationDurationMs: result.durationMs,
-      usedFallback: result.usedFallback,
+      correlationDurationMs: result.correlationDurationMs,
+      usedFallback: result.fallbackUsed,
+      fallbackReason: result.fallbackReason,
       timedOut: result.timedOut,
       finalPickCount: result.outputTicketCount,
       totalRequestDurationMs: totalDurationMs,
@@ -91,3 +92,46 @@ if (result.outputTicketCount === 0 && scored.length >= 5) {
 }
 
 console.log("PASS: 5-leg correlation smoke test");
+
+// Forced timeout — must still return 5 legs via pre-correlation fallback.
+const timeoutRequestId = "test-5leg-correlation-timeout";
+beginCoachScanPipeline(timeoutRequestId);
+const timeoutStart = Date.now();
+const timeoutResult = await runCoachCorrelationStage(scored, 5, {
+  requestId: timeoutRequestId,
+  varietySeed: "test-5leg-seed-timeout",
+  timeoutMs: 1,
+});
+const timeoutDurationMs = Date.now() - timeoutStart;
+
+console.log(
+  JSON.stringify(
+    {
+      requestId: timeoutRequestId,
+      legTarget: 5,
+      candidateCount: timeoutResult.candidateCount,
+      ticketsScored: timeoutResult.ticketsScored,
+      correlationDurationMs: timeoutResult.correlationDurationMs,
+      usedFallback: timeoutResult.fallbackUsed,
+      fallbackReason: timeoutResult.fallbackReason,
+      finalPickCount: timeoutResult.outputTicketCount,
+      totalRequestDurationMs: timeoutDurationMs,
+    },
+    null,
+    2,
+  ),
+);
+
+clearCoachScanPipeline(timeoutRequestId);
+
+if (!timeoutResult.fallbackUsed || timeoutResult.fallbackReason !== "correlation-timeout") {
+  console.error("FAIL: forced timeout must set fallbackUsed and correlation-timeout reason");
+  process.exit(1);
+}
+
+if (timeoutResult.outputTicketCount !== 5) {
+  console.error(`FAIL: forced timeout expected 5 picks, got ${timeoutResult.outputTicketCount}`);
+  process.exit(1);
+}
+
+console.log("PASS: 5-leg correlation forced-timeout fallback");

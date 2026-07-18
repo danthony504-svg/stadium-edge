@@ -153,6 +153,7 @@ import {
   coachScanPipelineIsStale,
   type CoachScanPhaseCallback,
 } from "@/lib/coachScanPipeline";
+import { logCoachTicketRenderComplete } from "@/lib/coachCorrelationPipeline";
 import { CoachMatchupStageError } from "@/lib/coachMatchupPipeline";
 import { CoachEvStageError } from "@/lib/coachEvPipeline";
 import {
@@ -1661,6 +1662,9 @@ export default function CoachScreen() {
           coachBuildProgressRef.current = next;
           return next;
         });
+        const reqId =
+          partial.requestId ?? coachRequestContextRef.current?.requestId ?? "unknown";
+        logCoachTicketRenderComplete(reqId, ticket.length, legTarget);
         deliverCoachTicket(ticket, legNote);
       } else {
         patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
@@ -6162,7 +6166,9 @@ export default function CoachScreen() {
     coachBuildProgress,
   );
   const buildProgressUi = coachBuildProgressViewFromSnapshot(buildProgressSnapshot, {
-    timedOut: buildProgressExpired || coachBuildProgress?.status === "timed-out",
+    timedOut:
+      (buildProgressExpired || coachBuildProgress?.status === "timed-out") &&
+      coachBuildProgress?.status !== "complete",
     timedOutLabel: coachBuildProgress?.timedOutStageId
       ? buildProgressSnapshot.label
       : buildProgressSnapshot.label,

@@ -31,15 +31,32 @@ export class CoachCorrelationStageError extends Error {
 }
 
 let activeRequestId: string | null = null;
+const settledCorrelationRequestIds = new Set<string>();
 
 export function beginCoachScanPipeline(requestId: string): void {
   activeRequestId = requestId;
+  for (const id of settledCorrelationRequestIds) {
+    if (id !== requestId) settledCorrelationRequestIds.delete(id);
+  }
 }
 
 export function clearCoachScanPipeline(requestId?: string): void {
   if (!requestId || activeRequestId === requestId) {
     activeRequestId = null;
   }
+  if (requestId) settledCorrelationRequestIds.delete(requestId);
+}
+
+/** Claim correlation completion for a request — rejects stale/duplicate late results. */
+export function claimCoachCorrelationCompletion(requestId: string): boolean {
+  if (coachScanPipelineIsStale(requestId)) return false;
+  if (settledCorrelationRequestIds.has(requestId)) return false;
+  settledCorrelationRequestIds.add(requestId);
+  return true;
+}
+
+export function coachCorrelationAlreadySettled(requestId: string): boolean {
+  return settledCorrelationRequestIds.has(requestId);
 }
 
 export function coachScanPipelineIsStale(requestId: string | undefined): boolean {

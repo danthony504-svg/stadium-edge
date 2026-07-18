@@ -32,7 +32,7 @@ test("coachBuildProgressFromPhase maps phases to 0–100 ladder", () => {
     { phase: "context", percent: 25 },
     { phase: "board-scan", percent: 70 },
     { phase: "stream", percent: 85 },
-    { phase: "score", percent: 90 },
+    { phase: "score", percent: 95 },
   ];
   for (const { phase, percent } of phases) {
     const snap = coachBuildProgressFromPhase(phase, 0);
