@@ -34,7 +34,46 @@ export class CoachCorrelationStageError extends Error {
 let activeRequestId: string | null = null;
 const settledCorrelationRequestIds = new Set<string>();
 
+export function coachPipelineIsDev(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any;
+  if (typeof g.__DEV__ === "boolean") return g.__DEV__;
+  return process.env.NODE_ENV !== "production";
+}
+
+export function activeCoachScanRequestId(): string | null {
+  return activeRequestId;
+}
+
+/** Throw in development when requestId is missing — never emit events as "unknown". */
+export function assertCoachScanRequestId(
+  requestId: string | null | undefined,
+  source: string,
+): asserts requestId is string {
+  const id = requestId?.trim();
+  if (id && id !== "unknown") return;
+  const msg = `[coach-scan] missing requestId at ${source} (active=${activeRequestId ?? "none"})`;
+  if (coachPipelineIsDev()) {
+    throw new Error(msg);
+  }
+  console.error(msg);
+}
+
+/** Resolve explicit requestId or fall back to the active scan pipeline id. */
+export function resolveCoachScanRequestId(
+  explicit?: string | null,
+  source = "resolveCoachScanRequestId",
+): string {
+  const id = explicit?.trim() || activeRequestId?.trim() || "";
+  if (!id || id === "unknown") {
+    assertCoachScanRequestId(id, source);
+    return activeRequestId ?? explicit ?? id;
+  }
+  return id;
+}
+
 export function beginCoachScanPipeline(requestId: string): void {
+  assertCoachScanRequestId(requestId, "beginCoachScanPipeline");
   activeRequestId = requestId;
   for (const id of settledCorrelationRequestIds) {
     if (id !== requestId) settledCorrelationRequestIds.delete(id);

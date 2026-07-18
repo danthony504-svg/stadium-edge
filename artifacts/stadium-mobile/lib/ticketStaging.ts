@@ -24,11 +24,12 @@ import {
 import type { CoachTicketStyle } from "./coachTicketQualityTiers.ts";
 import type { CoachParlayVarietyContext } from "./parlayVarietyMemory.ts";
 import {
+  correlationDeadline,
   correlationTimedOut,
   logCoachScanLineValueComplete,
   logCoachScanLineValueStart,
+  resolveCoachScanRequestId,
   shouldSkipCorrelationScoring,
-  correlationDeadline,
 } from "./coachScanPipeline.ts";
 import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
 import { runCoachCorrelationStage } from "./coachCorrelationPipeline.ts";
@@ -397,11 +398,15 @@ export function buildStagedTicketFromScan(
   varietyContext?: CoachTicketStagingContext & { preview?: boolean },
 ): { picks: ParsedPick[]; breakdown: TicketStagingBreakdown } {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
-  const requestId = varietyContext?.requestId ?? varietySeed ?? "unknown";
 
   if (varietyContext?.preview) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
+
+  const requestId = resolveCoachScanRequestId(
+    varietyContext?.requestId ?? varietySeed,
+    "buildStagedTicketFromScan",
+  );
 
   const onBuildProgress = varietyContext?.onBuildProgress;
   const deadlineAt = varietyContext?.correlationDeadlineAt ?? correlationDeadline();
@@ -455,11 +460,15 @@ export async function buildStagedTicketFromScanAsync(
   varietyContext?: CoachTicketStagingContext & { preview?: boolean },
 ): Promise<{ picks: ParsedPick[]; breakdown: TicketStagingBreakdown }> {
   const ticketStyle = varietyContext?.ticketStyle ?? "balanced";
-  const requestId = varietyContext?.requestId ?? varietySeed ?? "unknown";
 
   if (varietyContext?.preview) {
     return buildBalancedStagedTicketFromScan(scored, target, varietySeed, ticketStyle);
   }
+
+  const requestId = resolveCoachScanRequestId(
+    varietyContext?.requestId ?? varietySeed,
+    "buildStagedTicketFromScanAsync",
+  );
 
   logPipelineCorrelationStart(requestId, {
     target,

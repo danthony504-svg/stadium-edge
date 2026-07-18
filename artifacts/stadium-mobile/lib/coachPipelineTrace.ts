@@ -1,14 +1,57 @@
 /** Structured pipeline trace logs — each tag marks a mandatory handoff point. */
 
-function log(tag: string, payload: Record<string, unknown>): void {
+import { assertCoachScanRequestId } from "./coachScanPipeline.ts";
+
+export type CoachPipelineLogPhase =
+  | "EV_CALCULATION"
+  | "LINE_VALUE"
+  | "SIMULATIONS"
+  | "SCORING_CORRELATION"
+  | "CORRELATION_TIMEOUT_FALLBACK"
+  | "BUILDING_FINAL_TICKET"
+  | "FINAL_TICKET_READY"
+  | "COMPLETE"
+  | "BOARD_SCAN";
+
+export type CoachPipelineEventPayload = {
+  requestId: string;
+  phase: CoachPipelineLogPhase | string;
+  elapsedMs: number;
+  candidateCount?: number;
+  [key: string]: unknown;
+};
+
+function log(tag: string, payload: CoachPipelineEventPayload): void {
+  assertCoachScanRequestId(payload.requestId, tag);
   console.log(tag, JSON.stringify(payload));
+}
+
+export function logCoachPipelineEvent(
+  tag: string,
+  payload: CoachPipelineEventPayload,
+): void {
+  log(tag, payload);
+}
+
+export function logCoachPipelineError(
+  tag: string,
+  payload: CoachPipelineEventPayload,
+): void {
+  assertCoachScanRequestId(payload.requestId, tag);
+  console.error(tag, JSON.stringify(payload));
 }
 
 export function logPipelineCorrelationStart(
   requestId: string,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] correlation-start", { requestId, ...extra });
+  logCoachPipelineEvent("[coach-pipeline] correlation-start", {
+    requestId,
+    phase: "SCORING_CORRELATION",
+    elapsedMs: 0,
+    candidateCount: typeof extra?.poolSize === "number" ? extra.poolSize : undefined,
+    ...extra,
+  });
 }
 
 export function logPipelineCorrelationTimeoutFired(
@@ -16,14 +59,26 @@ export function logPipelineCorrelationTimeoutFired(
   durationMs: number,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] correlation-timeout-fired", { requestId, durationMs, ...extra });
+  logCoachPipelineEvent("[coach-pipeline] correlation-timeout-fired", {
+    requestId,
+    phase: "CORRELATION_TIMEOUT_FALLBACK",
+    elapsedMs: durationMs,
+    candidateCount: typeof extra?.candidateCount === "number" ? extra.candidateCount : undefined,
+    ...extra,
+  });
 }
 
 export function logPipelineFallbackBuilderStart(
   requestId: string,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] fallback-builder-start", { requestId, ...extra });
+  logCoachPipelineEvent("[coach-pipeline] fallback-builder-start", {
+    requestId,
+    phase: "CORRELATION_TIMEOUT_FALLBACK",
+    elapsedMs: typeof extra?.elapsedMs === "number" ? extra.elapsedMs : 0,
+    candidateCount: typeof extra?.poolSize === "number" ? extra.poolSize : undefined,
+    ...extra,
+  });
 }
 
 export function logPipelineFallbackBuilderComplete(
@@ -32,8 +87,11 @@ export function logPipelineFallbackBuilderComplete(
   requestedLegCount: number,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] fallback-builder-complete", {
+  logCoachPipelineEvent("[coach-pipeline] fallback-builder-complete", {
     requestId,
+    phase: "CORRELATION_TIMEOUT_FALLBACK",
+    elapsedMs: typeof extra?.elapsedMs === "number" ? extra.elapsedMs : 0,
+    candidateCount: pickCount,
     pickCount,
     requestedLegCount,
     ...extra,
@@ -46,8 +104,11 @@ export function logPipelineFinalTicketBuildStart(
   requestedLegCount: number,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] final-ticket-build-start", {
+  logCoachPipelineEvent("[coach-pipeline] final-ticket-build-start", {
     requestId,
+    phase: "BUILDING_FINAL_TICKET",
+    elapsedMs: typeof extra?.elapsedMs === "number" ? extra.elapsedMs : 0,
+    candidateCount: pickCount,
     pickCount,
     requestedLegCount,
     ...extra,
@@ -60,8 +121,11 @@ export function logPipelineFinalTicketBuildComplete(
   requestedLegCount: number,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] final-ticket-build-complete", {
+  logCoachPipelineEvent("[coach-pipeline] final-ticket-build-complete", {
     requestId,
+    phase: "FINAL_TICKET_READY",
+    elapsedMs: typeof extra?.elapsedMs === "number" ? extra.elapsedMs : 0,
+    candidateCount: pickCount,
     pickCount,
     requestedLegCount,
     ...extra,
@@ -72,7 +136,18 @@ export function logPipelineComplete(
   requestId: string,
   extra?: Record<string, unknown>,
 ): void {
-  log("[coach-pipeline] pipeline-complete", { requestId, ...extra });
+  logCoachPipelineEvent("[coach-pipeline] pipeline-complete", {
+    requestId,
+    phase: "COMPLETE",
+    elapsedMs: typeof extra?.durationMs === "number" ? extra.durationMs : 0,
+    candidateCount:
+      typeof extra?.pickCount === "number"
+        ? extra.pickCount
+        : typeof extra?.candidateCount === "number"
+          ? extra.candidateCount
+          : undefined,
+    ...extra,
+  });
 }
 
 export function logCoachTicketRenderComplete(
@@ -80,7 +155,14 @@ export function logCoachTicketRenderComplete(
   pickCount: number,
   requestedLegCount: number,
 ): void {
-  log("[coach-ticket] render-complete", { requestId, pickCount, requestedLegCount });
+  logCoachPipelineEvent("[coach-ticket] render-complete", {
+    requestId,
+    phase: "COMPLETE",
+    elapsedMs: 0,
+    candidateCount: pickCount,
+    pickCount,
+    requestedLegCount,
+  });
 }
 
 export function logPipelineProgressBumpRejected(
@@ -90,9 +172,10 @@ export function logPipelineProgressBumpRejected(
   sendGen: number,
   expectedSendGen: number | undefined,
 ): void {
-  log("[coach-pipeline] progress-bump-rejected", {
-    stageId,
+  logCoachPipelineError("[coach-pipeline] progress-bump-rejected", {
     requestId,
+    phase: stageId,
+    elapsedMs: 0,
     expectedRequestId,
     sendGen,
     expectedSendGen,

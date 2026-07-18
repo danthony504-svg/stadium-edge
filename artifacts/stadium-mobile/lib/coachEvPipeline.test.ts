@@ -71,8 +71,16 @@ test("runCoachEvPropPrescore times out on slow prop scoring", async () => {
   await assert.rejects(
     () =>
       runCoachEvPropPrescore(picks, { propPool: [] }, { requestId: "req-ev-4", timeoutMs: 30 }),
-    (err: unknown) => err instanceof CoachEvStageError && err.timedOut,
+    (err: unknown) => err instanceof CoachEvStageError && err.timedOut && err.requestId === "req-ev-4",
   );
   assert.ok(Date.now() - started < 2_000);
   clearCoachScanPipeline("req-ev-4");
+});
+
+test("runCoachEvPropPrescore resolves requestId from active pipeline", async () => {
+  beginCoachScanPipeline("req-ev-active");
+  const picks = [propPick("P1"), propPick("P2")];
+  const result = await runCoachEvPropPrescore(picks, { propPool: [] }, {});
+  assert.equal(result.outputCount, 2);
+  clearCoachScanPipeline("req-ev-active");
 });

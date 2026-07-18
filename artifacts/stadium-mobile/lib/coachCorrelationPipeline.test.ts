@@ -14,6 +14,7 @@ import {
   runCoachCorrelationStage,
 } from "./coachCorrelationPipeline.ts";
 import { beginCoachScanPipeline, clearCoachScanPipeline } from "./coachScanPipeline.ts";
+import { coachPipelineCurrentPhase } from "./coachPipelineStateMachine.ts";
 import type { BoardScoredLeg } from "./ticketStaging.ts";
 
 function leg(game: string, player: string, market: string, composite = 80): BoardScoredLeg {
@@ -151,6 +152,25 @@ test("runCoachCorrelationStage timeout emits full pipeline trace and resolves", 
   assert.ok(stages.includes("correlation-fallback"));
   assert.ok(stages.includes("building-ticket"));
   clearCoachScanPipeline("req-trace");
+});
+
+test("correlation timeout transitions through fallback → build → complete with requestId", async () => {
+  beginCoachScanPipeline("req-timeout-chain");
+  const scored = Array.from({ length: 7 }, (_, i) =>
+    leg(`G${i} @ H${i}`, `P${i}`, "Points", 90 - i),
+  );
+  const stages: string[] = [];
+  const result = await runCoachCorrelationStage(scored, 5, {
+    requestId: "req-timeout-chain",
+    varietySeed: "seed-chain",
+    timeoutMs: 1,
+    onBuildProgress: (stageId) => stages.push(stageId),
+  });
+  assert.equal(result.fallbackUsed, true);
+  assert.equal(coachPipelineCurrentPhase("req-timeout-chain"), "COMPLETE");
+  assert.ok(stages.includes("correlation-fallback"));
+  assert.ok(stages.includes("building-ticket"));
+  clearCoachScanPipeline("req-timeout-chain");
 });
 
 test("correlation fallback advances to building-ticket at 95%", () => {

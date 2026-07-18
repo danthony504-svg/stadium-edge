@@ -54,7 +54,11 @@ import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
 import { CoachEvStageError, runCoachEvPropPrescore } from "./coachEvPipeline.ts";
-import { CoachCorrelationStageError } from "./coachScanPipeline.ts";
+import {
+  CoachCorrelationStageError,
+  beginCoachScanPipeline,
+  resolveCoachScanRequestId,
+} from "./coachScanPipeline.ts";
 import { logPipelineCorrelationStart } from "./coachPipelineTrace.ts";
 import { beginCoachPipelineCorrelation } from "./coachPipelineStateMachine.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
@@ -389,12 +393,12 @@ async function simPropPoolUntilQualified(
       perfByFamily: opts.perfByFamily,
     },
     {
-      requestId: opts.requestId ?? "unknown",
+      requestId: opts.requestId,
       signal,
       onProgress: opts.onBuildProgress,
     },
   );
-  opts.onBuildProgress?.("simulations", opts.requestId ?? "unknown");
+  opts.onBuildProgress?.("simulations", opts.requestId);
 
   const rankedProps = [...prescorePool]
     .filter(isRealisticBoardPropCandidate)
@@ -559,7 +563,7 @@ async function buildScanResultFinal(
     onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
   },
 ): Promise<FullBoardScanResult> {
-  const requestId = opts.requestId ?? "unknown";
+  const requestId = resolveCoachScanRequestId(opts.requestId, "buildScanResultFinal");
   logPipelineCorrelationStart(requestId, {
     target: opts.target,
     poolSize: scored.length,
@@ -571,11 +575,11 @@ async function buildScanResultFinal(
   const staged = await buildStagedTicketFromScanAsync(scored, opts.target, opts.varietySeed, {
     ...opts.varietyContext,
     ticketStyle: opts.ticketStyle,
-    requestId: opts.requestId,
+    requestId,
     onBuildPhase: opts.onBuildPhase,
     onBuildProgress: opts.onBuildProgress,
   });
-  return finalizeScanResult(staged, scored, { ...opts, preview: false });
+  return finalizeScanResult(staged, scored, { ...opts, preview: false, requestId });
 }
 
 export async function buildTopLegsFromFullBoardScan(opts: {
@@ -604,6 +608,9 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   onBuildPhase?: import("./coachScanPipeline.ts").CoachScanPhaseCallback;
   onBuildProgress?: import("./coachBuildProgress.ts").CoachBuildProgressCallback;
 }): Promise<FullBoardScanResult> {
+  const requestId = resolveCoachScanRequestId(opts.requestId, "buildTopLegsFromFullBoardScan");
+  beginCoachScanPipeline(requestId);
+
   const poolBase = filterBettablePropPool(
     opts.excludedSports?.size ? filterForExcludedSports(opts.propPool, opts.excludedSports) : opts.propPool,
   );
@@ -667,7 +674,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       varietySeed: opts.varietySeed,
       varietyContext: opts.varietyContext,
       ticketStyle: opts.ticketStyle,
-      requestId: opts.requestId,
+      requestId,
     });
     if (partial.picks.length > 0) opts.onPartial(partial);
   };
@@ -690,7 +697,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
           "[coach-scan] ev-error",
-          JSON.stringify({ requestId: opts.requestId ?? "unknown", game, message }),
+          JSON.stringify({ requestId, game, message }),
         );
         continue;
       }
@@ -752,7 +759,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
       target: opts.target,
       ...propScoreOpts,
       teamIdsByGame: opts.teamIdMap,
-      requestId: opts.requestId,
+      requestId,
       onBuildProgress: opts.onBuildProgress,
       onWave: () => {
         emitBoardScanPartial();
@@ -769,15 +776,14 @@ export async function buildTopLegsFromFullBoardScan(opts: {
 
   totalScanned += pool.length;
 
-  const correlationRequestId = opts.requestId ?? "unknown";
-  beginCoachPipelineCorrelation(correlationRequestId, "post-simulations-handoff");
-  logPipelineCorrelationStart(correlationRequestId, {
+  beginCoachPipelineCorrelation(requestId, "post-simulations-handoff");
+  logPipelineCorrelationStart(requestId, {
     target: opts.target,
     poolSize: scored.length,
     phase: "pre-collapse-handoff",
   });
-  opts.onBuildProgress?.("correlation", correlationRequestId);
-  opts.onBuildPhase?.("stream", correlationRequestId);
+  opts.onBuildProgress?.("correlation", requestId);
+  opts.onBuildPhase?.("stream", requestId);
 
   const collapsed = await collapseAndSortScoredLegs(scored, opts.varietySeed);
   manifestRecorder.recomputeQualificationFromScored(collapsed);
@@ -791,7 +797,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
     varietySeed: opts.varietySeed,
     varietyContext: opts.varietyContext,
     ticketStyle: opts.ticketStyle,
-    requestId: opts.requestId,
+    requestId,
     onBuildPhase: opts.onBuildPhase,
     onBuildProgress: opts.onBuildProgress,
   });

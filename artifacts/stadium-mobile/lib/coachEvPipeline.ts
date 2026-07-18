@@ -3,7 +3,11 @@
 import type { ParsedPick } from "../components/PickCard.tsx";
 import type { RealOddsEntry } from "./api.ts";
 import type { CoachBuildProgressCallback } from "./coachBuildProgress.ts";
-import { coachScanPipelineIsStale } from "./coachScanPipeline.ts";
+import { logCoachPipelineError, logCoachPipelineEvent } from "./coachPipelineTrace.ts";
+import {
+  coachScanPipelineIsStale,
+  resolveCoachScanRequestId,
+} from "./coachScanPipeline.ts";
 import { attachPickScores } from "./pickScoreContext.ts";
 import type { EvaluatedGameLine } from "./gameLineOptimizer.ts";
 
@@ -38,13 +42,15 @@ export class CoachEvStageError extends Error {
   }
 }
 
-function logJson(tag: string, payload: Record<string, unknown>): void {
-  console.log(tag, JSON.stringify(payload));
-}
-
 export function logCoachScanEvStart(requestId: string, propCount: number): void {
-  if (coachScanPipelineIsStale(requestId)) return;
-  logJson("[coach-scan] ev-start", { requestId, propCount });
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvStart");
+  if (coachScanPipelineIsStale(id)) return;
+  logCoachPipelineEvent("[coach-scan] ev-start", {
+    requestId: id,
+    phase: "EV_CALCULATION",
+    elapsedMs: 0,
+    candidateCount: propCount,
+  });
 }
 
 export function logCoachScanEvProgress(
@@ -53,12 +59,15 @@ export function logCoachScanEvProgress(
   total: number,
   lastDurationMs?: number,
 ): void {
-  if (coachScanPipelineIsStale(requestId)) return;
-  logJson("[coach-scan] ev-progress", {
-    requestId,
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvProgress");
+  if (coachScanPipelineIsStale(id)) return;
+  logCoachPipelineEvent("[coach-scan] ev-progress", {
+    requestId: id,
+    phase: "EV_CALCULATION",
+    elapsedMs: lastDurationMs ?? 0,
+    candidateCount: total,
     completed,
     total,
-    ...(lastDurationMs != null ? { lastDurationMs } : {}),
   });
 }
 
@@ -70,15 +79,18 @@ export function logCoachScanEvComplete(
   propDurations: CoachEvPropDuration[],
   onProgress?: CoachBuildProgressCallback,
 ): void {
-  if (coachScanPipelineIsStale(requestId)) return;
-  logJson("[coach-scan] ev-complete", {
-    requestId,
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvComplete");
+  if (coachScanPipelineIsStale(id)) return;
+  logCoachPipelineEvent("[coach-scan] ev-complete", {
+    requestId: id,
+    phase: "EV_CALCULATION",
+    elapsedMs: durationMs,
+    candidateCount: inputCount,
     inputCount,
     outputCount,
-    durationMs,
     propDurations,
   });
-  onProgress?.("line-value", requestId);
+  onProgress?.("line-value", id);
 }
 
 export function logCoachScanEvError(
@@ -87,15 +99,26 @@ export function logCoachScanEvError(
   durationMs: number,
   stack?: string,
 ): never {
-  console.error("[coach-scan] ev-error", JSON.stringify({ requestId, message, durationMs }));
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvError");
+  logCoachPipelineError("[coach-scan] ev-error", {
+    requestId: id,
+    phase: "EV_CALCULATION",
+    elapsedMs: durationMs,
+    message,
+  });
   if (stack) console.error(stack);
-  throw new CoachEvStageError(message, { requestId, durationMs });
+  throw new CoachEvStageError(message, { requestId: id, durationMs });
 }
 
 export function logCoachScanEvTimeout(requestId: string, durationMs: number): never {
-  console.error("[coach-scan] ev-timeout", JSON.stringify({ requestId, durationMs }));
+  const id = resolveCoachScanRequestId(requestId, "logCoachScanEvTimeout");
+  logCoachPipelineError("[coach-scan] ev-timeout", {
+    requestId: id,
+    phase: "EV_CALCULATION",
+    elapsedMs: durationMs,
+  });
   throw new CoachEvStageError(`EV calculation timed out after ${durationMs}ms`, {
-    requestId,
+    requestId: id,
     durationMs,
     timedOut: true,
   });
@@ -142,7 +165,7 @@ export async function runCoachEvPropPrescore(
   picks: ParsedPick[],
   scoreOpts: CoachEvPickScoreOpts,
   opts: {
-    requestId: string;
+    requestId?: string;
     signal?: AbortSignal;
     onProgress?: CoachBuildProgressCallback;
     timeoutMs?: number;
@@ -156,7 +179,7 @@ export async function runCoachEvPropPrescore(
   timedOut: boolean;
 }> {
   const start = Date.now();
-  const requestId = opts.requestId;
+  const requestId = resolveCoachScanRequestId(opts.requestId, "runCoachEvPropPrescore");
   const inputCount = picks.length;
   const deadlineAt = start + (opts.timeoutMs ?? COACH_EV_TIMEOUT_MS);
   const propDurations: CoachEvPropDuration[] = [];
@@ -188,10 +211,14 @@ export async function runCoachEvPropPrescore(
         const message = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack : undefined;
         propDurations.push({ index, durationMs, error: message });
-        console.error(
-          "[coach-scan] ev-error",
-          JSON.stringify({ requestId, index, message, durationMs }),
-        );
+        logCoachPipelineError("[coach-scan] ev-error", {
+          requestId,
+          phase: "EV_CALCULATION",
+          elapsedMs: durationMs,
+          candidateCount: inputCount,
+          index,
+          message,
+        });
         if (stack) console.error(stack);
         return null;
       }
@@ -237,7 +264,7 @@ export async function runCoachEvGameLines(
   games: { game: string; lines: RealOddsEntry[] }[],
   evaluate: (game: string, lines: RealOddsEntry[]) => EvaluatedGameLine[],
   opts: {
-    requestId: string;
+    requestId?: string;
     signal?: AbortSignal;
     onProgress?: CoachBuildProgressCallback;
   },
@@ -249,7 +276,7 @@ export async function runCoachEvGameLines(
   propDurations: CoachEvPropDuration[];
 }> {
   const start = Date.now();
-  const requestId = opts.requestId;
+  const requestId = resolveCoachScanRequestId(opts.requestId, "runCoachEvGameLines");
   const inputCount = games.reduce((n, g) => n + (g.lines?.length ?? 0), 0);
   const deadlineAt = start + COACH_EV_TIMEOUT_MS;
   const propDurations: CoachEvPropDuration[] = [];
@@ -280,10 +307,14 @@ export async function runCoachEvGameLines(
         const durationMs = Date.now() - itemStart;
         const message = err instanceof Error ? err.message : String(err);
         propDurations.push({ index, durationMs, error: message });
-        console.error(
-          "[coach-scan] ev-error",
-          JSON.stringify({ requestId, game: entry.game, message, durationMs }),
-        );
+        logCoachPipelineError("[coach-scan] ev-error", {
+          requestId,
+          phase: "EV_CALCULATION",
+          elapsedMs: durationMs,
+          candidateCount: inputCount,
+          game: entry.game,
+          message,
+        });
         return null;
       }
     },

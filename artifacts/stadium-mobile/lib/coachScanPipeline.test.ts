@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 
 import { selectTopBoardLegs, type BoardScoredLeg } from "./ticketStaging.ts";
 import {
+  activeCoachScanRequestId,
   beginCoachScanPipeline,
   clearCoachScanPipeline,
+  coachPipelineIsDev,
   coachScanPipelineIsStale,
+  resolveCoachScanRequestId,
   shouldSkipCorrelationScoring,
 } from "./coachScanPipeline.ts";
 
@@ -64,4 +67,32 @@ test("coachScanPipelineIsStale rejects stale requestId", () => {
   assert.equal(coachScanPipelineIsStale("req-b"), true);
   assert.equal(coachScanPipelineIsStale("req-a"), false);
   clearCoachScanPipeline("req-a");
+});
+
+test("resolveCoachScanRequestId uses active pipeline id when explicit is missing", () => {
+  beginCoachScanPipeline("req-active");
+  assert.equal(resolveCoachScanRequestId(undefined, "test"), "req-active");
+  assert.equal(resolveCoachScanRequestId("req-explicit", "test"), "req-explicit");
+  clearCoachScanPipeline("req-active");
+});
+
+test("resolveCoachScanRequestId rejects unknown literal", () => {
+  beginCoachScanPipeline("req-active");
+  if (coachPipelineIsDev()) {
+    assert.throws(
+      () => resolveCoachScanRequestId("unknown", "test"),
+      /missing requestId/,
+    );
+  } else {
+    assert.equal(resolveCoachScanRequestId("unknown", "test"), "req-active");
+  }
+  clearCoachScanPipeline("req-active");
+});
+
+test("activeCoachScanRequestId tracks beginCoachScanPipeline", () => {
+  assert.equal(activeCoachScanRequestId(), null);
+  beginCoachScanPipeline("req-track");
+  assert.equal(activeCoachScanRequestId(), "req-track");
+  clearCoachScanPipeline("req-track");
+  assert.equal(activeCoachScanRequestId(), null);
 });

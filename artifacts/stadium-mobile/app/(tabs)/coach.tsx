@@ -151,6 +151,7 @@ import {
   clearCoachScanPipeline,
   CoachCorrelationStageError,
   coachScanPipelineIsStale,
+  resolveCoachScanRequestId,
   type CoachScanPhaseCallback,
 } from "@/lib/coachScanPipeline";
 import {
@@ -1666,8 +1667,10 @@ export default function CoachScreen() {
           coachBuildProgressRef.current = next;
           return next;
         });
-        const reqId =
-          partial.requestId ?? coachRequestContextRef.current?.requestId ?? "unknown";
+        const reqId = resolveCoachScanRequestId(
+          partial.requestId ?? coachRequestContextRef.current?.requestId ?? coachBuildProgressRef.current?.requestId,
+          "deliverBoardScanTicket",
+        );
         logCoachTicketRenderComplete(reqId, ticket.length, legTarget);
         settleCoachPipeline(reqId, "ticket-delivered");
         deliverCoachTicket(ticket, legNote);
@@ -1926,6 +1929,10 @@ export default function CoachScreen() {
             );
           }
           const reachTarget = Math.min(target, MAX_LEGS);
+          const scanRequestId = resolveCoachScanRequestId(
+            coachRequestContextRef.current?.requestId ?? coachBuildProgressRef.current?.requestId ?? varietySeedRef.current,
+            "kickoffEarlyReachBoardScan",
+          );
           return await Promise.race([
             tryReachFullBoardScan({
               target: reachTarget,
@@ -1948,6 +1955,7 @@ export default function CoachScreen() {
               calibration: modelCalibration,
               onPartial: onBoardScanPartial,
               signal,
+              requestId: scanRequestId,
             }),
             new Promise<null>((resolve) =>
               setTimeout(() => resolve(null), boardScanBudgetMs(reachTarget)),
