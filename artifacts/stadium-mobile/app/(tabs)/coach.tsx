@@ -175,6 +175,12 @@ import {
   markFinalTicketProgress100,
   salvageHighestRanked,
 } from "@/lib/coachFinalTicketAssembly";
+import {
+  coachFinalTicketNoValidPicksMessage,
+  resolveCoachFinalTicketAfterCorrelation,
+  resolveCoachFinalTicketFallback,
+  type CoachFinalTicketCompletionPhase,
+} from "@/lib/coachFinalTicketCompletion";
 import { detectCoachTicketStyle } from "@/lib/coachTicketQualityTiers";
 import { stripTrailingReminder } from "@/lib/reminderStrip";
 import { coachBuildSports, excludedSportsFromThread, filterEvalLinesByExcludedSports, filterForExcludedSports, focalSportsFromText, resolveExcludedSports, scrubExcludedSportsFromPicks } from "@/lib/chatContextPriority";
@@ -1289,6 +1295,12 @@ export default function CoachScreen() {
   const orphanRecoveryRequestIdRef = useRef<string | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
+  const finalizedRequestIdRef = useRef<string | null>(null);
+  const finalizationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const deliverCoachTicket = useCallback(
     (ticket: ParsedPick[], legNote?: string, opts?: { legTarget?: number; source?: string }): boolean => {
@@ -1687,6 +1699,228 @@ export default function CoachScreen() {
     [clearBuildStallWatchdog, scrollToEnd],
   );
 
+  const clearFinalizationTimer = useCallback(() => {
+    if (finalizationTimerRef.current) {
+      clearTimeout(finalizationTimerRef.current);
+      finalizationTimerRef.current = null;
+    }
+  }, []);
+
+  const commitCoachFinalTicket = useCallback(
+    (
+      picks: ParsedPick[],
+      opts: {
+        requestId: string;
+        legTarget: number;
+        legNote?: string;
+        coachDetailNote?: string;
+      },
+    ) => {
+      const { requestId, legTarget, legNote, coachDetailNote } = opts;
+      boardTicketSnapshotRef.current = picks;
+      liveScanDeliveredRef.current = picks.length > 0;
+      setBoardScanPartialLegs(picks.length);
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              role: "assistant",
+              content: picks.length > 0 ? "" : copy[i].content,
+              picks,
+              ...(legNote?.trim() ? { legNote: legNote.trim() } : {}),
+              ...(coachDetailNote?.trim() ? { coachDetailNote: coachDetailNote.trim() } : {}),
+              ...(legTarget > 0 ? { ticketLegTarget: legTarget } : {}),
+            };
+            return copy;
+          }
+        }
+        return prev;
+      });
+      setStreaming(false);
+      setWaiting(false);
+      setBuildFinishing(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      setCoachBuildBusy(false);
+      if (buildProgressTimerRef.current) {
+        clearTimeout(buildProgressTimerRef.current);
+        buildProgressTimerRef.current = null;
+      }
+      clearBuildStallWatchdog();
+      if (picks.length > 0) {
+        setAiPicks(picks);
+        markFinalTicketMessageAdded(requestId, picks.length);
+        markFinalTicketProgress100(requestId);
+        markFinalTicketCardsRendered(requestId, picks.length);
+        setTimeout(() => captureFromCoach(picks), 0);
+      }
+      scrollToEnd(false);
+    },
+    [captureFromCoach, clearBuildStallWatchdog, scrollToEnd],
+  );
+
+  const commitCoachFinalTicketEmpty = useCallback(
+    (opts: {
+      requestId: string;
+      legTarget: number;
+      legNote?: string;
+      coachDetailNote?: string;
+    }) => {
+      const message = coachFinalTicketNoValidPicksMessage();
+      setMessages((prev) => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].role === "assistant") {
+            copy[i] = {
+              ...copy[i],
+              picks: [],
+              content: message,
+              ...(opts.legNote?.trim() ? { legNote: opts.legNote.trim() } : {}),
+              ...(opts.coachDetailNote?.trim()
+                ? { coachDetailNote: opts.coachDetailNote.trim() }
+                : {}),
+              ...(opts.legTarget > 0 ? { ticketLegTarget: opts.legTarget } : {}),
+            };
+            return copy;
+          }
+        }
+        return prev;
+      });
+      boardTicketSnapshotRef.current = [];
+      setBoardScanPartialLegs(0);
+      setAiPicks([]);
+      setStreaming(false);
+      setWaiting(false);
+      setBuildFinishing(false);
+      setBuildProgressExpired(false);
+      setParlayBuildPhase("idle");
+      setCoachBuildBusy(false);
+      if (buildProgressTimerRef.current) {
+        clearTimeout(buildProgressTimerRef.current);
+        buildProgressTimerRef.current = null;
+      }
+      clearBuildStallWatchdog();
+      markFinalTicketProgress100(opts.requestId);
+      scrollToEnd(false);
+    },
+    [clearBuildStallWatchdog, scrollToEnd],
+  );
+
+  const attemptCoachFinalTicketCompletion = useCallback(
+    (
+      partial: FullBoardScanResult,
+      phase: CoachFinalTicketCompletionPhase,
+    ): boolean => {
+      if (!boardScanIsComplete(partial)) return false;
+      const ctx = coachRequestContextRef.current;
+      const requestId = ctx?.requestId ?? partial.requestId ?? null;
+      if (!requestId) return false;
+      if (finalizedRequestIdRef.current === requestId) return false;
+
+      const legTarget =
+        activeRequestLegTargetRef.current ||
+        partial.requestedLegs ||
+        requestedLegCount(activeParlayAskRef.current) ||
+        effectiveBuildLegCount(activeParlayAskRef.current);
+
+      finalizedRequestIdRef.current = requestId;
+      clearFinalizationTimer();
+
+      const scanOdds = [...partial.evalLinesByGame.values()].flat();
+      const enrich: CoachFlashEnrich = {
+        ...flashEnrichRef.current,
+        realOdds: [...flashEnrichRef.current.realOdds, ...scanOdds],
+        perfByFamily: flashEnrichRef.current.perfByFamily ?? marketPerf,
+      };
+
+      finalizationTimerRef.current = setTimeout(() => {
+        finalizationTimerRef.current = null;
+        const last = messagesRef.current[messagesRef.current.length - 1];
+        if ((last?.picks?.length ?? 0) > 0) return;
+        const scan = latestBoardScanRef.current;
+        if (!scan?.picks?.length || !boardScanIsComplete(scan)) return;
+        const fallback = resolveCoachFinalTicketFallback(scan, enrich, legTarget, {
+          requestId,
+          messageCount: messagesRef.current.length,
+        });
+        if (fallback.selectedCount > 0) {
+          commitCoachFinalTicket(fallback.picks, {
+            requestId,
+            legTarget,
+            legNote: scan.note,
+            coachDetailNote: fallback.coachDetailNote,
+          });
+        } else {
+          commitCoachFinalTicketEmpty({
+            requestId,
+            legTarget,
+            legNote: scan.note,
+            coachDetailNote: fallback.coachDetailNote,
+          });
+        }
+      }, FINAL_TICKET_ASSEMBLY_DEADLINE_MS);
+
+      const result = resolveCoachFinalTicketAfterCorrelation(partial, enrich, legTarget, {
+        requestId,
+        messageCount: messagesRef.current.length,
+        phase,
+      });
+
+      if (result.outcome === "no-valid-picks") {
+        clearFinalizationTimer();
+        commitCoachFinalTicketEmpty({
+          requestId,
+          legTarget,
+          legNote: partial.note,
+          coachDetailNote: result.coachDetailNote,
+        });
+        return true;
+      }
+
+      if (result.selectedCount > 0) {
+        clearFinalizationTimer();
+        commitCoachFinalTicket(result.picks, {
+          requestId,
+          legTarget,
+          legNote: partial.note,
+          coachDetailNote: result.coachDetailNote,
+        });
+        return true;
+      }
+
+      const salvage = resolveCoachFinalTicketFallback(partial, enrich, legTarget, {
+        requestId,
+        messageCount: messagesRef.current.length,
+      });
+      clearFinalizationTimer();
+      if (salvage.selectedCount > 0) {
+        commitCoachFinalTicket(salvage.picks, {
+          requestId,
+          legTarget,
+          legNote: partial.note,
+          coachDetailNote: salvage.coachDetailNote,
+        });
+        return true;
+      }
+
+      commitCoachFinalTicketEmpty({
+        requestId,
+        legTarget,
+        legNote: partial.note,
+        coachDetailNote: result.coachDetailNote,
+      });
+      return true;
+    },
+    [
+      clearFinalizationTimer,
+      commitCoachFinalTicket,
+      commitCoachFinalTicketEmpty,
+      marketPerf,
+    ],
+  );
+
   const rehydrateVisibleBoardTicket = useCallback(() => {
     const enrich = flashEnrichRef.current;
     if (
@@ -1759,6 +1993,9 @@ export default function CoachScreen() {
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
       const scanComplete = boardScanIsComplete(partial);
+      if (scanComplete && attemptCoachFinalTicketCompletion(partial, "correlation-complete")) {
+        return true;
+      }
       const source = coachHandoffSource(partial);
       const ticket = boardScanPartialToTicket(partial, enrichOverride);
       logCoachDeliveryAttempt({
@@ -1797,7 +2034,7 @@ export default function CoachScreen() {
       }
       return patchInstantBoardScanTicket(partial, enrichOverride, { legNote, ticketLegTarget: legTarget });
     },
-    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket],
+    [boardScanPartialToTicket, deliverCoachTicket, patchInstantBoardScanTicket, attemptCoachFinalTicketCompletion],
   );
 
   const deliverKernelBoardScan = useCallback(
@@ -1899,6 +2136,15 @@ export default function CoachScreen() {
         requestedLegCount(activeParlayAskRef.current) ||
         effectiveBuildLegCount(activeParlayAskRef.current);
       const ctx = coachRequestContextRef.current;
+      if (boardScanIsComplete(partial)) {
+        latestBoardScanRef.current = partial;
+        const genOk =
+          (ctx?.sendGeneration ?? sendGenerationRef.current) === sendGenerationRef.current;
+        if (genOk) {
+          attemptCoachFinalTicketCompletion(partial, "board-scan-complete");
+        }
+        return;
+      }
       if (
         !boardScanAppliesToRequest(
           partial,
@@ -1938,7 +2184,7 @@ export default function CoachScreen() {
         armBuildStallWatchdog(sendGenerationRef.current, ask);
       }
     },
-    [patchInstantBoardScanTicket, armBuildStallWatchdog],
+    [patchInstantBoardScanTicket, armBuildStallWatchdog, attemptCoachFinalTicketCompletion],
   );
 
   const kickoffEarlyReachBoardScan = useCallback(
@@ -2304,6 +2550,7 @@ export default function CoachScreen() {
         orphanRecoveryRequestIdRef.current = varietySeed;
         activeRequestIdRef.current = varietySeed;
         setActiveRequestId(varietySeed);
+        finalizedRequestIdRef.current = null;
       }
 
       const controller = new AbortController();
@@ -2502,6 +2749,7 @@ export default function CoachScreen() {
           orphanRecoveryRequestIdRef.current = requestId;
           activeRequestIdRef.current = requestId;
           setActiveRequestId(requestId);
+          finalizedRequestIdRef.current = null;
         }
         // Period/same-game ask ("2nd-half ticket", "Q3 legs", "same game"): surface
         // game-level period markets (1H/2H/Q1–Q4) in the context so the model has
@@ -6094,66 +6342,6 @@ export default function CoachScreen() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
-
-  // 5s finalization deadline — never leave a parlay stuck at 93% after correlation.
-  useEffect(() => {
-    if (!buildFinishing && !streaming && !waiting) return;
-    const partial = latestBoardScanRef.current;
-    if (!partial || !boardScanIsComplete(partial) || !partial.picks.length) return;
-    const last = messages[messages.length - 1];
-    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
-    const legTarget =
-      activeRequestLegTargetRef.current ||
-      last.ticketLegTarget ||
-      requestedLegCount(activeParlayAskRef.current) ||
-      effectiveBuildLegCount(activeParlayAskRef.current);
-    const ctx = coachRequestContextRef.current;
-    const requestId = ctx?.requestId ?? partial.requestId ?? null;
-    const timer = setTimeout(() => {
-      const scan = latestBoardScanRef.current;
-      const lastMsg = messages[messages.length - 1];
-      if (!scan?.picks?.length || !boardScanIsComplete(scan)) return;
-      if (lastMsg?.picks?.length) return;
-      if (typeof __DEV__ !== "undefined" && __DEV__) {
-        console.warn(
-          `[coach-final] finalization exceeded ${FINAL_TICKET_ASSEMBLY_DEADLINE_MS}ms — forcing salvage delivery`,
-          { requestId, candidateCount: scan.picks.length, legTarget },
-        );
-      }
-      patchInstantBoardScanTicket(scan, undefined, {
-        ticketLegTarget: legTarget > 0 ? legTarget : undefined,
-      });
-      const delivered = boardTicketSnapshotRef.current?.length ?? 0;
-      if (delivered > 0) {
-        markFinalTicketProgress100(requestId ?? undefined);
-        markFinalTicketCardsRendered(requestId ?? undefined, delivered);
-        return;
-      }
-      const fallback = salvageHighestRanked(scan.picks, flashEnrichRef.current, legTarget);
-      if (!fallback.length) return;
-      boardTicketSnapshotRef.current = fallback;
-      setBoardScanPartialLegs(fallback.length);
-      setMessages((prev) => {
-        const copy = [...prev];
-        for (let i = copy.length - 1; i >= 0; i--) {
-          if (copy[i].role === "assistant") {
-            copy[i] = { ...copy[i], picks: fallback, content: "" };
-            return copy;
-          }
-        }
-        return prev;
-      });
-      setAiPicks(fallback);
-      setStreaming(false);
-      setWaiting(false);
-      setBuildFinishing(false);
-      setParlayBuildPhase("idle");
-      markFinalTicketMessageAdded(requestId ?? undefined, fallback.length);
-      markFinalTicketProgress100(requestId ?? undefined);
-      markFinalTicketCardsRendered(requestId ?? undefined, fallback.length);
-    }, FINAL_TICKET_ASSEMBLY_DEADLINE_MS);
-    return () => clearTimeout(timer);
   }, [buildFinishing, streaming, waiting, messages, patchInstantBoardScanTicket]);
 
   // Silent dead-end: parlay build finished with no pick cards (blank or generic fallback).
