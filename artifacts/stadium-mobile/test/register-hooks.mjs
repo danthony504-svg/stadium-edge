@@ -22,6 +22,14 @@ module.registerHooks({
       return { url: FAKE_PICK_CARD, shortCircuit: true };
     }
 
+    if (specifier.endsWith(".tsx")) {
+      const tsSpecifier = specifier.replace(/\.tsx$/, ".ts");
+      const tsUrl = new URL(tsSpecifier, parent);
+      if (existsSync(fileURLToPath(tsUrl))) {
+        return { url: tsUrl.href, shortCircuit: true };
+      }
+    }
+
     if (specifier.startsWith("@/")) {
       const rel = specifier.slice(2);
       const candidates = [

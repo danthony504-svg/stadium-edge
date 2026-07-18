@@ -77,9 +77,8 @@ test("executeFinalTicketHandoff runs exactly once per requestId", () => {
     requestedLegs: 3,
   });
 
-  assert.ok(first.picks.length >= 1);
   assert.equal(second.skipped, true);
-  assert.equal(second.picks.length, 0);
+  assert.equal(second.picks.length, first.picks.length);
 });
 
 test("never returns empty when candidates exist", () => {

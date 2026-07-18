@@ -1,6 +1,6 @@
 // Single Coach board-scan delivery pipeline — final handoff after correlation.
 
-import type { ParsedPick } from "../components/PickCard.tsx";
+import type { ParsedPick } from "../components/PickCard.ts";
 import type { FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanIsComplete } from "./coachScanPolicy.ts";
 import { traceCoachTicket } from "./coachTicketTrace.ts";
@@ -12,8 +12,7 @@ import {
 import { logCoachRun } from "./coachRunTrace.ts";
 import {
   executeFinalTicketHandoff,
-  logFinalTicketCardsRendered,
-  markFinalTicketMessageAdded,
+  salvageHighestRanked,
 } from "./coachFinalTicketAssembly.ts";
 import { tagTicketRoles } from "./ticketStaging.ts";
 import { finalizeBoardBuiltCoachTicket } from "./pickRecommendation.ts";
@@ -90,12 +89,12 @@ export function deliverCoachBoardScanTicket(
   });
   let picks = assembly.picks;
 
-  if (!picks.length && scan.picks.length) {
+  if (!picks.length && scan.picks.length && !assembly.stale) {
     const tagged = tagTicketRoles([...scan.picks]);
     const finalized = finalizeBoardBuiltCoachTicket(tagged, enrich);
     picks = prepareCoachDeliveredTicket(finalized.picks, enrich);
     if (!picks.length) {
-      picks = assembly.picks.length ? assembly.picks : tagged.slice(0, legTarget > 0 ? legTarget : tagged.length);
+      picks = salvageHighestRanked(scan.picks, enrich, legTarget);
     }
   }
 
@@ -105,11 +104,9 @@ export function deliverCoachBoardScanTicket(
       requested: legTarget,
       selected: picks.length,
       failureReason: assembly.failureReason,
+      timedOut: assembly.timedOut,
     });
   }
-
-  markFinalTicketMessageAdded(requestId, picks.length);
-  logFinalTicketCardsRendered(requestId, picks.length);
 
   const finalManifest: CoachBoardScanManifest = {
     ...manifest,
