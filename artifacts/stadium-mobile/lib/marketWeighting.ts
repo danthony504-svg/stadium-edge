@@ -176,7 +176,7 @@ export function applyMarketWeighting(
 // wins + losses (pushes are no-action). Kept structural so this module stays
 // db-free and unit-testable under `node --test`.
 export function perfMapFromByFamily(
-  byFamily: Array<{ key: string; tally: { wins: number; losses: number; pushes: number } }>,
+  byFamily: { key: string; tally: { wins: number; losses: number; pushes: number } }[],
 ): Map<string, MarketPerf> {
   const map = new Map<string, MarketPerf>();
   for (const b of byFamily) {

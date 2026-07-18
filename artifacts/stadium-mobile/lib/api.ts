@@ -4,6 +4,7 @@ import {
   stealFeedPath,
   type StealFeedClientLog,
 } from "./stealFeedClient";
+import { logStealScanLifecycle } from "./stealScanLifecycle";
 import { propMarketLabel, propMarketKeyForLabel } from "./propMarketLabel";
 import { normalizePropSide } from "./propPoolNormalize";
 import { fetch as expoFetch } from "expo/fetch";
@@ -63,6 +64,12 @@ import {
   wantsSoccerScorerGoalkeeperPicks,
 } from "./slate";
 
+// The Express backend (artifacts/api-server) is reached through the Replit dev
+// domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
+import { API_BASE } from "./apiBase";
+
+import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
+
 // Re-exported so existing callers (e.g. coach.tsx) keep importing it from ./api.
 export {
   gameMatchesFocalText,
@@ -108,10 +115,6 @@ export {
   explicitSingleGameIntent,
   tonightExhaustedNote,
 };
-
-// The Express backend (artifacts/api-server) is reached through the Replit dev
-// domain. EXPO_PUBLIC_DOMAIN is injected by the dev script.
-import { API_BASE } from "./apiBase";
 export { API_BASE };
 
 // ---------- Types (mirror lib/api-spec/openapi.yaml) ----------
@@ -236,7 +239,7 @@ function sleepBackoff(attempt: number): Promise<void> {
 // each wait the full per-request timeout, so we cap THOSE at a single retry to
 // avoid stacking long stalls onto the chat-context fan-outs that share this
 // fetcher (they have no shared deadline).
-async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+export async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   const MAX_ATTEMPTS = 3;
   let networkRetried = false;
   let lastErr: unknown = new Error(`request failed: ${path}`);
@@ -268,13 +271,11 @@ async function getJson<T>(path: string, signal?: AbortSignal, timeoutMs = REQUES
   }
   throw lastErr;
 }
-
-import { getAuthTokenGetter, setAuthTokenGetter } from "./authToken";
 export { setAuthTokenGetter };
 
 async function authedFetch(
   path: string,
-  init?: { method?: string; body?: string; headers?: Record<string, string> },
+  init?: { method?: string; body?: string; headers?: Record<string, string>; signal?: AbortSignal },
 ): Promise<Response> {
   const headers: Record<string, string> = { ...(init?.headers ?? {}) };
   let token: string | null = null;
@@ -289,6 +290,7 @@ async function authedFetch(
     method: init?.method ?? "GET",
     headers,
     body: init?.body,
+    signal: init?.signal,
   }) as unknown as Promise<Response>;
 }
 
@@ -1886,7 +1888,7 @@ function resolvePropSimTeamIds(
 
 /** Run Monte Carlo on resolved prop picks (server-side, tiered + cached). */
 export async function fetchPropSimulations(
-  picks: Array<{
+  picks: {
     isProp?: boolean;
     player?: string;
     propLine?: number | null;
@@ -1895,7 +1897,7 @@ export async function fetchPropSimulations(
     athleteId?: string | null;
     game?: string;
     sport?: string;
-  }>,
+  }[],
   propPool: PropPoolEntry[],
   opts?: {
     homeTeam?: string;
@@ -2060,7 +2062,7 @@ export type GameCoverQueryInput = {
 };
 
 export type LiveOddsFeed = {
-  games: Array<{
+  games: {
     sport: string;
     game: string;
     status: string;
@@ -2069,16 +2071,14 @@ export type LiveOddsFeed = {
     periodLabel: string | null;
     clock: string | null;
     eventId: string;
-  }>;
-  odds: Array<
-    RealOddsEntry & {
+  }[];
+  odds: (RealOddsEntry & {
       live: true;
       awayScore?: number | null;
       homeScore?: number | null;
       periodLabel?: string | null;
       clock?: string | null;
-    }
-  >;
+    })[];
 };
 
 export async function getLiveOdds(sports: string[], signal?: AbortSignal): Promise<LiveOddsFeed> {
@@ -2122,13 +2122,13 @@ export async function fetchGameOutcomeSimulation(
 
 export async function fetchPropSimulationsBatch(
   sport: string,
-  props: Array<{
+  props: {
     player: string;
     market: string;
     line: number;
     side: "Over" | "Under";
     athleteId?: string | null;
-  }>,
+  }[],
   opts?: {
     homeTeam?: string;
     awayTeam?: string;
@@ -2408,6 +2408,8 @@ export type ChatContext = {
   // a transparent guide from real severity × position — NOT a fabricated player
   // rating. Omitted when no pickable game had a betting-relevant injury.
   matchupInjuries?: Record<string, GameInjuryReport>;
+  /** Raw ESPN injury rows keyed by team — used for prop injury scoring when present. */
+  injuryTeams?: InjuryTeam[];
 };
 
 // One real upset spot — a game where the app's deterministic analytics lean
@@ -4876,7 +4878,8 @@ export async function fetchFullBoardPropPool(
 export async function warmApiForCoachBuild(signal?: AbortSignal): Promise<void> {
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    const getter = getAuthTokenGetter();
+    authToken = getter ? await getter() : null;
   } catch {
     authToken = null;
   }
@@ -5061,7 +5064,8 @@ export async function streamChat({
   // under the account); harmless for normal chats. Resolved once up front.
   let authToken: string | null = null;
   try {
-    authToken = authTokenGetter ? await authTokenGetter() : null;
+    const getter = getAuthTokenGetter();
+    authToken = getter ? await getter() : null;
   } catch {
     authToken = null;
   }

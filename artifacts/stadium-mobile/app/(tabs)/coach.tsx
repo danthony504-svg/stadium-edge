@@ -256,6 +256,7 @@ import {
   ChatStreamError,
   isAbortLikeError,
   type AltSign,
+  type BuiltChatContext,
   type ChatContext,
   type ChatMessage,
   type CoachBuildStash,
@@ -1006,7 +1007,7 @@ export default function CoachScreen() {
     () => perfMapFromByFamily(computeAnalytics(results).byFamily),
     [results],
   );
-  const modelCalibration = useMemo(() => calibrationFromTrackedPicks(results), [results]);
+  const modelCalibration = useMemo(() => calibrationFromTrackedPicks(trackedPicks), [trackedPicks]);
   const slipClearance = useCoachSlipClearance();
   const router = useRouter();
   const params = useLocalSearchParams<{
@@ -1735,6 +1736,7 @@ export default function CoachScreen() {
       const scan = seed?.boardScan;
       if (!scan?.picks?.length) return false;
       if (!boardScanMatchesLegTarget(scan, legTarget)) return false;
+      if (!seed) return false;
       const enrich = coachFlashEnrichFromBuilt(seed.built, { perfByFamily: marketPerf });
       flashEnrichRef.current = enrich;
       return patchInstantBoardScanTicket(markBoardScanAsPreview(scan), enrich, {
@@ -2434,7 +2436,7 @@ export default function CoachScreen() {
         if (e?.name === "AbortError" || isAbortLikeError(e)) {
           if (sendGenerationRef.current !== sendGen) return;
           if (openingParlayBuild) {
-            const partial = latestBoardScanRef.current;
+            const partial = latestBoardScanRef.current as FullBoardScanResult | null;
             if (partial?.picks?.length) {
               deliverBoardScanTicket(partial);
             } else {
@@ -2759,7 +2761,8 @@ export default function CoachScreen() {
               ticketLegTarget: legTarget,
             });
           }
-          const earlyReachBoardScanPromise = earlyReachBoardScanRef.current;
+          const earlyReachBoardScanPromise =
+            earlyReachBoardScanRef.current as Promise<FullBoardScanResult | null> | null;
           const rawBuilt = slipImageVerdictOnly
             ? {
                 context: {
@@ -2771,7 +2774,9 @@ export default function CoachScreen() {
                 } satisfies ChatContext,
                 propPool: [] as PropPoolEntry[],
                 gameMeta: [] as GameMeta[],
+                upsetSpots: [],
                 todayOnly: false,
+                tomorrowOnly: false,
               }
             : useTinyParlayPath
             ? await buildTinyParlayContext(controller.signal, { excludeSports: excludeSportsList })
@@ -2812,11 +2817,11 @@ export default function CoachScreen() {
             !usePropsOnlyParlayPath &&
             rawBuilt.propPool.length > 0 &&
             rawBuilt.context.realProps?.length
-              ? await enrichChatContextProps(rawBuilt, controller.signal, { requestedLegs: buildLegs })
+              ? await enrichChatContextProps(rawBuilt as BuiltChatContext, controller.signal, { requestedLegs: buildLegs })
               : !isParlayBuild &&
                   rawBuilt.propPool.length > 0 &&
                   rawBuilt.context.realProps?.length
-                ? await enrichChatContextProps(rawBuilt, controller.signal)
+                ? await enrichChatContextProps(rawBuilt as BuiltChatContext, controller.signal)
                 : { built: rawBuilt, propSimulations: new Map<string, { hitProbability: number | null }>() };
           ({ context, propPool, gameMeta, todayOnly } = enriched.built);
           propSimulations = enriched.propSimulations;
@@ -2950,7 +2955,7 @@ export default function CoachScreen() {
             boardScanIsComplete(preBoardScan) ||
             boardScanIsComplete(latestBoardScanRef.current) ||
             preBoardScan?.picks?.length ||
-            latestBoardScanRef.current?.picks?.length
+            (latestBoardScanRef.current as FullBoardScanResult | null)?.picks?.length
           );
           const skipModelStreamForBoardScan = useParlayKernel
             ? freshBoardScanComplete && kernelScanReady
@@ -3253,7 +3258,8 @@ export default function CoachScreen() {
             setBuildProgressExpired(false);
             setParlayBuildPhase("idle");
             const deliveredLegs = boardTicketSnapshotRef.current?.length ?? 0;
-            const scanCandidates = latestBoardScanRef.current?.picks?.length ?? 0;
+            const scanCandidates =
+              (latestBoardScanRef.current as FullBoardScanResult | null)?.picks?.length ?? 0;
             setBoardScanPartialLegs(deliveredLegs > 0 ? deliveredLegs : scanCandidates);
             abortRef.current = null;
             scrollToEnd();
@@ -3352,7 +3358,7 @@ export default function CoachScreen() {
               }
             } else if (
               !reachBoardScan?.picks?.length &&
-              latestBoardScanRef.current?.picks?.length
+              (latestBoardScanRef.current as FullBoardScanResult | null)?.picks?.length
             ) {
               const ref = latestBoardScanRef.current;
               if (ref && boardScanReadyForDelivery(ref, Math.min(legTarget, MAX_LEGS))) {
@@ -4084,7 +4090,7 @@ export default function CoachScreen() {
                 .map((p) => p.sport)
                 .filter(Boolean),
             ),
-          ].filter((s) => !excludedSports.has(s)) as string[];
+          ].filter((s): s is string => !!s && !excludedSports.has(s));
           const espnGames = (
             await Promise.all(
               gameSports.map((s) => getGames(s).catch(() => [])),
@@ -4389,7 +4395,7 @@ export default function CoachScreen() {
                   Boolean,
                 ),
               ),
-            ].filter((s) => !excludedSports.has(s)) as string[];
+            ].filter((s): s is string => !!s && !excludedSports.has(s));
             const [reachOdds, reachEspn] = await Promise.all([
               Promise.all(reachSports.map((s) => getOdds(s).catch(() => []))).then((rows) =>
                 rows.flat(),
@@ -4480,7 +4486,7 @@ export default function CoachScreen() {
                   Boolean,
                 ),
               ),
-            ].filter((s) => !excludedSports.has(s)) as string[];
+            ].filter((s): s is string => !!s && !excludedSports.has(s));
             const reachOdds = (
               await Promise.all(reachSports.map((s) => getOdds(s).catch(() => [])))
             ).flat();

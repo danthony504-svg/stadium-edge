@@ -49,7 +49,7 @@ export function windCarryLabel(
   if (cf == null) return null;
 
   const blowingTo = (windDeg + 180) % 360;
-  const fields: Array<{ id: "LF" | "CF" | "RF"; bearing: number }> = [
+  const fields: { id: "LF" | "CF" | "RF"; bearing: number }[] = [
     { id: "LF", bearing: (cf - 45 + 360) % 360 },
     { id: "CF", bearing: cf },
     { id: "RF", bearing: (cf + 45) % 360 },
@@ -261,7 +261,7 @@ export function gameWeatherEffects(report: ParkWeatherReport): GameEffectCard[] 
     temp != null && temp >= 75 ? "Warm air" : temp != null && temp <= 55 ? "Cold air" : "Temperature";
   const rainNote = precip != null && precip >= 50 ? "Rain risk" : "Conditions";
 
-  const specs: Array<{ label: string; trend: GameEffectTrend }> = [
+  const specs: { label: string; trend: GameEffectTrend }[] = [
     { label: "Home Runs", trend: hrTrend },
     { label: "Total Runs", trend: runsTrend },
     { label: "Strikeouts", trend: kTrend },

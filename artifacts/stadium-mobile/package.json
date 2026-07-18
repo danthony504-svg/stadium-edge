@@ -12,6 +12,7 @@
     "release:ios": "eas build --platform ios --profile production --auto-submit",
     "update:ios": "bash scripts/publish-production-ota.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "expo lint",
     "test": "node --import ./test/register-hooks.mjs --test 'lib/**/*.test.ts'"
   },
   "devDependencies": {
@@ -30,6 +31,7 @@
     "@workspace/api-client-react": "workspace:*",
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
     "eas-cli": "^20.0.0",
+    "eslint": "^9.39.5",
     "expo": "~54.0.27",
     "expo-auth-session": "~7.0.11",
     "expo-blur": "~15.0.8",
@@ -67,6 +69,7 @@
   },
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+    "eslint-config-expo": "~10.0.0",
     "expo-build-properties": "~1.0.10",
     "expo-clipboard": "~8.0.8",
     "expo-device": "~8.0.10",

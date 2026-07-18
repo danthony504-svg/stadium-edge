@@ -48,7 +48,7 @@ export function TennisPlayerSheet({
   const career = data?.career || null;
   const form = data?.recentForm || [];
 
-  const bioChips: Array<{ label: string; value: string }> = [];
+  const bioChips: { label: string; value: string }[] = [];
   if (data?.country) bioChips.push({ label: "Country", value: data.country });
   if (bio?.age != null) bioChips.push({ label: "Age", value: String(bio.age) });
   if (bio?.height) bioChips.push({ label: "Height", value: bio.height });
@@ -57,7 +57,7 @@ export function TennisPlayerSheet({
   if (bio?.turnedPro != null) bioChips.push({ label: "Turned pro", value: String(bio.turnedPro) });
   if (bio?.birthPlace) bioChips.push({ label: "Birthplace", value: bio.birthPlace });
 
-  const careerStats: Array<{ label: string; value: string }> = [];
+  const careerStats: { label: string; value: string }[] = [];
   if (career?.wins != null && career?.losses != null)
     careerStats.push({ label: "Singles W-L", value: `${career.wins}-${career.losses}` });
   if (career?.winPct != null) careerStats.push({ label: "Win %", value: `${career.winPct}%` });

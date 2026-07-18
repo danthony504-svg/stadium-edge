@@ -299,10 +299,10 @@ export function enrichPicksWithStartsAt<
 >(
   picks: T[],
   sources: {
-    realOdds?: Array<{ game: string; market?: string; pick?: string; startsAt?: string | null }>;
-    propPool?: Array<{ game: string; player?: string; startsAt?: string | null }>;
-    gameMeta?: Array<{ game: string; startsAt?: string | null }>;
-    realGames?: Array<{ game?: string; startsAt?: string | null; commenceTime?: string }>;
+    realOdds?: { game: string; market?: string; pick?: string; startsAt?: string | null }[];
+    propPool?: { game: string; player?: string; startsAt?: string | null }[];
+    gameMeta?: { game: string; startsAt?: string | null }[];
+    realGames?: { game?: string; startsAt?: string | null; commenceTime?: string }[];
   },
 ): T[] {
   const byGame = new Map<string, string>();

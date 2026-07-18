@@ -189,7 +189,7 @@ export function formatCountdownSeconds(totalSeconds: number): string {
 
 /** Sum game counts from structured feed probes when meta.gamesScanned is absent. */
 export function gamesScannedFromFeedProbes(
-  probes: Array<{ games?: number }> | null | undefined,
+  probes: { games?: number }[] | null | undefined,
 ): number {
   if (!probes?.length) return 0;
   return probes.reduce((sum, p) => sum + (p.games ?? 0), 0);

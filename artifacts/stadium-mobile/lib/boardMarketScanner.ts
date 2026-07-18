@@ -3,7 +3,7 @@
 // Scan policy: coachScanPolicy.ts — AI Recommended picks only, never filler.
 
 import type { ParsedPick } from "../components/PickCard.tsx";
-import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry } from "./api.ts";
+import type { EspnGame, GameMeta, OddsGame, PropPoolEntry, PropSimTeamIds, RealOddsEntry , MatchupHistoryEntry } from "./api.ts";
 import { fetchFullBoardPropPool, fetchPropSimulations } from "./api.ts";
 import { enrichCoachPropSimHits } from "./coachPropSimFallback.ts";
 import { filterForExcludedSports } from "./chatContextPriority.ts";
@@ -30,7 +30,7 @@ import {
   type TicketStagingBreakdown,
 } from "./fullBoardMarketCopy.ts";
 import { attachPickScores, type PlayerHistorySlice } from "./pickScoreContext.ts";
-import { parsedPickFromPoolEntry } from "./propSelection.ts";
+import { parsedPickFromPoolEntry , propSimKey, propSimLookupKey } from "./propSelection.ts";
 import { augmentEvalLinesWithPostedOdds } from "./postedGameLineMerge.ts";
 import { buildFullEvalLinesForGame } from "./postedMarketDiscovery.ts";
 import { collapseScoredLegsByMarketLadder } from "./marketLadderExhaustion.ts";
@@ -38,17 +38,14 @@ import type { MarketPerf } from "./marketWeighting.ts";
 import { marketConfidenceDelta } from "./marketWeighting.ts";
 import { scoreLineShopping } from "./pickScore.ts";
 import type { GameInjuryReport } from "./injuries.ts";
-import type { MatchupHistoryEntry } from "./api.ts";
 import { impliedProb } from "./format.ts";
 import { marketSupportsSimulation, pickHasSimGrade } from "./simMarketSupport.ts";
 import { pickLegFingerprint } from "./parlayReachCore.ts";
 import { compareBoardLegsForRank } from "./coachBoardRankVariety.ts";
-import { propSimKey, propSimLookupKey } from "./propSelection.ts";
 import {
   buildStagedTicketFromScan,
   type BoardScoredLeg,
 } from "./ticketStaging.ts";
-export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 import type { CalibrationBucket } from "./modelCalibration.ts";
 import { calibrationDeltaForPick } from "./modelCalibration.ts";
 import { coachCompositeRankScore } from "./coachCompositeRank.ts";
@@ -60,6 +57,7 @@ import {
   countQualifiedBoardLegs,
   isRealisticBoardPropCandidate,
 } from "./boardPropSimExpansion.ts";
+export { buildStagedTicketFromScan, selectTopBoardLegs, tagTicketRoles, type BoardScoredLeg } from "./ticketStaging.ts";
 export {
   boardPropSimExpansionBatchSize,
   boardPropSimInitialBatchSize,
@@ -104,7 +102,7 @@ function aliasPropSimHitsForBatch(
     const altMarket = pick.propMarketKey ? pick.market : pick.propMarketKey;
     const altKey =
       altMarket && altMarket !== market
-        ? propSimKey(pick.player, altMarket, pick.propLine, pick.propSide ?? "")
+        ? propSimKey(pick.player ?? "", altMarket, pick.propLine, pick.propSide ?? "")
         : null;
     if (altKey && out.has(altKey)) {
       out.set(clientKey, out.get(altKey)!);
@@ -149,7 +147,7 @@ function unifiedRankScore(leg: Omit<BoardScoredLeg, "rankScore">): number {
 }
 
 function lineShoppingFromPick(pick: ParsedPick, entry?: RealOddsEntry): number | null {
-  const rubric = pick.finalAiScore?.rubricScores?.lineShopping ?? pick.scores?.lineShopping ?? null;
+  const rubric = pick.finalAiScore?.rubric?.scores?.lineShopping ?? pick.scores?.scores?.lineShopping ?? null;
   if (rubric != null) return rubric;
   if (entry?.bookSpread != null) return scoreLineShopping(entry.bookSpread);
   return null;
@@ -328,7 +326,7 @@ function prescorePropRank(pick: ParsedPick): number {
     impliedProbPct: null,
     lineShoppingScore:
       pick.finalAiScore?.rubric?.scores?.lineShopping ??
-      pick.scores?.lineShopping ??
+      pick.scores?.scores?.lineShopping ??
       null,
     grade: pick.finalAiScore?.grade ?? pick.scores?.grade ?? null,
     simHit: pick.finalAiScore?.simHit ?? null,
@@ -545,7 +543,7 @@ export async function buildTopLegsFromFullBoardScan(opts: {
   ]);
   const mergedOdds = mergeOddsEntries(
     opts.realOdds,
-    ...(opts.liveOdds ?? []),
+    opts.liveOdds ?? [],
     ...evalLinesByGame.values(),
   );
 

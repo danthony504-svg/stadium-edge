@@ -70,7 +70,7 @@ export function auditPropLabelNormalization(picks: readonly ParsedPick[]): PropL
     (p) => !!(p.propMarketKey?.trim() || p.market?.trim()),
   ).length;
   const withMarketLabel = propCandidates.filter(
-    (p) => !!(p.marketLabel?.trim() || p.market?.trim()),
+    (p) => !!((p as { marketLabel?: string }).marketLabel?.trim() || p.market?.trim()),
   ).length;
   return {
     propCandidates: propCandidates.length,

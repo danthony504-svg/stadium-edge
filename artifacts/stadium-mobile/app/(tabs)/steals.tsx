@@ -827,7 +827,7 @@ export default function StealsScreen() {
     },
     staleTime: 3_000,
     refetchInterval: (q) => {
-      if (q.state.isError) return 5_000;
+      if (q.state.error) return 5_000;
       const found =
         (q.state.data?.steals?.length ?? 0) > 0 || (q.state.data?.almostQualified?.length ?? 0) > 0;
       return found ? REFETCH_WITH_RESULTS_MS : REFETCH_EMPTY_MS;

@@ -6,14 +6,13 @@ import {
   getLiveOdds,
   getOdds,
   type BuiltChatContext,
-} from "./api.ts";
+ MatchupHistoryEntry } from "./api.ts";
 import { tryReachFullBoardScan, type FullBoardScanResult } from "./boardMarketScanner.ts";
 import { boardScanMeetsLegTarget, boardScanReadyForDelivery } from "./coachScanPolicy.ts";
 import { buildGameTeamIdMap } from "./coachGameMonteCarlo.ts";
 import { enrichChatContextProps } from "./propSelection.ts";
 import { filterBettableOddsGames, filterBettablePropPool, filterCoachHorizonPicksAfterEnrich, isPregameBettableForSport } from "./slate.ts";
 import { finalizeCoachDeliveryPicks } from "./ticketDiversity.ts";
-import type { MatchupHistoryEntry } from "./api.ts";
 import { DEFAULT_SPORTS } from "./sports.ts";
 import {
   computeSlateFingerprint,

@@ -8,7 +8,7 @@ import {
   wonPicks,
 } from "./performanceChart.ts";
 
-function hist(statuses: Array<"win" | "loss" | "push">) {
+function hist(statuses: ("win" | "loss" | "push")[]) {
   return statuses.map((status, i) => ({
     status,
     gradedAt: new Date(Date.UTC(2026, 0, 1 + i)).toISOString(),
