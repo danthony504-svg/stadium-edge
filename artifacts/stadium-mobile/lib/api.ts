@@ -762,6 +762,11 @@ export type LiveStealsResponse = {
   /** Structured scan diagnostics from the API server. */
   feed?: import("./stealFeedClient.ts").StealFeedDiagnostics;
   ledgerError?: string | null;
+  scanError?: {
+    message: string;
+    failedStage: string | null;
+    scanStages?: Array<{ stage: string; ok: boolean; count?: number; error?: string }>;
+  };
 };
 
 export type LiveStealsFetchResult = {
@@ -871,15 +876,18 @@ export async function fetchLiveSteals(signal?: AbortSignal): Promise<LiveStealsF
       parsed.feedDegraded !== true &&
       parsed.feed?.ok !== false &&
       parsed.feed?.errorReason == null;
+    const scanFail = parsed.scanError;
+    const degradedReason =
+      scanFail?.failedStage && scanFail.message
+        ? `${scanFail.failedStage}: ${scanFail.message}`
+        : (parsed.feed?.errorReason ?? (feedOk ? null : "feed_degraded"));
     const log: StealFeedClientLog = {
       endpoint: path,
       fullUrl,
       httpStatus: res.status,
       responseTimeMs,
       provider: parsed.feed?.provider ?? "the-odds-api",
-      errorReason:
-        parsed.feed?.errorReason ??
-        (feedOk ? null : "feed_degraded"),
+      errorReason: degradedReason,
       feedDegraded: !feedOk,
       ok: feedOk,
       sportProbes: parsed.feed?.sportProbes ?? [],

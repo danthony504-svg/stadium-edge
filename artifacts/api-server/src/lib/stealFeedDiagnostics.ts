@@ -1,5 +1,7 @@
 /** Structured odds-feed diagnostics for +500 Steals — surfaced to mobile clients. */
 
+import type { LiveStealsStageRecord } from "./liveStealsPipelineTrace.ts";
+
 export type StealOddsSportProbe = {
   sport: string;
   endpoint: string;
@@ -20,15 +22,24 @@ export type StealFeedDiagnostics = {
   sportsFailed: number;
   sportProbes: StealOddsSportProbe[];
   errorReason: string | null;
+  /** Per-stage scan log — exact failure point when scan degrades. */
+  scanStages?: LiveStealsStageRecord[];
+  failedStage?: string | null;
 };
 
 export class StealFeedScanError extends Error {
   readonly diagnostics: StealFeedDiagnostics;
+  readonly failedStage?: string | null;
 
-  constructor(message: string, diagnostics: StealFeedDiagnostics) {
-    super(message);
+  constructor(
+    message: string,
+    diagnostics: StealFeedDiagnostics,
+    opts?: { failedStage?: string | null; cause?: unknown },
+  ) {
+    super(message, opts?.cause != null ? { cause: opts.cause } : undefined);
     this.name = "StealFeedScanError";
     this.diagnostics = diagnostics;
+    this.failedStage = opts?.failedStage ?? diagnostics.failedStage ?? null;
   }
 }
 
