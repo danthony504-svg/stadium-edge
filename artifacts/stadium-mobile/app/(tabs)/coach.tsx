@@ -114,6 +114,7 @@ import { parseOddsThreshold, oddsSatisfiesThreshold, wantsPeriodMarkets } from "
 import { FONT } from "@/components/ui";
 import {
   dedupeCoachProgressMessages,
+  lockCoachProgressDeadEnd,
   lockCoachProgressTerminal,
   upsertCoachProgressMessage,
 } from "@/lib/coachProgressMessages";
@@ -642,6 +643,8 @@ const PICK_SCAFFOLD_RE = /^(?:PICK|ALT)\s*:.*\|.*\|/i;
 
 /** Legacy 25s watchdog copy from older OTAs — never show as a chat bubble. */
 const DEAD_BUILD_PROSE_RE = /still scoring every market/i;
+const PARLAY_GROUND_FAIL_RE =
+  /couldn't ground a real ticket|couldn't ground any of those legs|couldn't put together a grounded reply/i;
 /** Stale Try again dead-end from builds that ended before scan delivery finished. */
 const STALE_PARLAY_DEAD_END_RE =
   /finished without pick cards|board scan may still be scoring|tap below to try again/i;
@@ -1313,10 +1316,17 @@ export default function CoachScreen() {
     },
     [applyCoachProgressPatch, boardScanPartialLegs],
   );
-  const finalizeCoachProgress = useCallback((requestId?: string | null) => {
-    if (!requestId) return;
-    setMessages((prev) => lockCoachProgressTerminal(prev, requestId));
-  }, []);
+  const finalizeCoachProgress = useCallback(
+    (requestId?: string | null, opts?: { delivered?: boolean }) => {
+      if (!requestId) return;
+      setMessages((prev) =>
+        opts?.delivered === false
+          ? lockCoachProgressDeadEnd(prev, requestId)
+          : lockCoachProgressTerminal(prev, requestId),
+      );
+    },
+    [],
+  );
   // The build currently eligible to be finished server-side if the app is
   // backgrounded (set when a signed-in parlay build starts; cleared when it
   // completes in-app). Holds the buildId tying it to the local PendingBuild.
@@ -5844,12 +5854,20 @@ export default function CoachScreen() {
           setParlayBuildPhase("idle");
           setAiPicks(outPicks);
           captureFromCoach(outPicks);
-        } else if (isParlayBuild && coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote)) {
-          setStreaming(false);
-          setWaiting(false);
-          setBuildFinishing(false);
-          setBuildProgressExpired(false);
-          setParlayBuildPhase("idle");
+          finalizeCoachProgress(coachRequestContextRef.current?.requestId, { delivered: true });
+        } else {
+          finalizeCoachProgress(coachRequestContextRef.current?.requestId, { delivered: false });
+          if (
+            isParlayBuild &&
+            (coachReplyHasScanManifest(boardScanManifestDetail, outCoachDetailNote) ||
+              PARLAY_GROUND_FAIL_RE.test(finalContent))
+          ) {
+            setStreaming(false);
+            setWaiting(false);
+            setBuildFinishing(false);
+            setBuildProgressExpired(false);
+            setParlayBuildPhase("idle");
+          }
         }
         // Server-side Monte Carlo: quick tier first, deep tier refines in the
         // background. Picks are already on screen — simulation is one rubric input.
@@ -6129,6 +6147,7 @@ export default function CoachScreen() {
             };
             return copy;
           });
+          finalizeCoachProgress(coachRequestContextRef.current?.requestId, { delivered: false });
         }
       } finally {
         if (sendGenerationRef.current !== sendGen) return;
@@ -6195,6 +6214,20 @@ export default function CoachScreen() {
         }
         clearBuildStallWatchdog();
         releaseOtaBlock();
+        const lastAssistant = messagesRef.current[messagesRef.current.length - 1];
+        if (
+          lastAssistant?.role === "assistant" &&
+          !(lastAssistant.picks?.length ?? 0) &&
+          lastAssistant.coachProgress &&
+          !lastAssistant.coachProgress.terminal
+        ) {
+          finalizeCoachProgress(
+            lastAssistant.requestId ??
+              lastAssistant.coachProgress.requestId ??
+              coachRequestContextRef.current?.requestId,
+            { delivered: false },
+          );
+        }
         clearParlayBuildUiFlags();
         abortRef.current = null;
         scrollToEnd();
@@ -6222,6 +6255,7 @@ export default function CoachScreen() {
       kickoffEarlyReachBoardScan,
       watchBoardScanCompletion,
       clearParlayBuildUiFlags,
+      finalizeCoachProgress,
       boardScanStillRunning,
       attachedImages,
       isSignedIn,
@@ -6493,6 +6527,23 @@ export default function CoachScreen() {
       return scrubbed === prev ? prev : scrubbed;
     });
   }, [streaming, buildFinishing, waiting]);
+
+  // Dead-end parlay replies must not leave the 92% progress card spinning.
+  useEffect(() => {
+    if (streaming || buildFinishing || waiting || boardScanAwaiting) return;
+    const last = messagesRef.current[messagesRef.current.length - 1];
+    if (last?.role !== "assistant" || (last.picks?.length ?? 0) > 0) return;
+    if (!last.coachProgress || last.coachProgress.terminal) return;
+    const content = last.content ?? "";
+    const deadEnd =
+      PARLAY_GROUND_FAIL_RE.test(content) ||
+      coachReplyHasScanManifest(undefined, last.coachDetailNote);
+    if (!deadEnd) return;
+    finalizeCoachProgress(
+      last.requestId ?? last.coachProgress.requestId ?? coachRequestContextRef.current?.requestId,
+      { delivered: false },
+    );
+  }, [streaming, buildFinishing, waiting, boardScanAwaiting, finalizeCoachProgress, messages]);
 
   const showQuickPrompts =
     !messages.some((m) => m.role === "user") ||

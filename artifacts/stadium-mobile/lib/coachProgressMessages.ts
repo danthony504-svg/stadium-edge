@@ -116,6 +116,7 @@ export function dedupeCoachProgressMessages<T extends CoachProgressMessage>(mess
 export function lockCoachProgressTerminal<T extends CoachProgressMessage>(
   messages: T[],
   requestId: string,
+  opts?: { ticketComplete?: boolean },
 ): T[] {
   const idx = findCoachProgressMessageIndex(messages, requestId);
   if (idx < 0) return messages;
@@ -127,10 +128,18 @@ export function lockCoachProgressTerminal<T extends CoachProgressMessage>(
     propsComplete: true,
     edgeComplete: true,
     simulationsComplete: true,
-    ticketComplete: true,
+    ticketComplete: opts?.ticketComplete ?? true,
   });
   if (!merged) return messages;
   const copy = [...messages];
   copy[idx] = { ...copy[idx], coachProgress: merged };
   return copy;
+}
+
+/** Lock progress when a build ends without a delivered ticket (dead-end prose). */
+export function lockCoachProgressDeadEnd<T extends CoachProgressMessage>(
+  messages: T[],
+  requestId: string,
+): T[] {
+  return lockCoachProgressTerminal(messages, requestId, { ticketComplete: false });
 }

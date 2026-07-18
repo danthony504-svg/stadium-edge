@@ -699,7 +699,7 @@ export function buildCoachCardHolistic(pick: ParsedPick): PropHolisticScore | nu
       score: formScore,
       display: formDisplay,
       applicable: true,
-      present: formPresent && formScore != null,
+      present: !!(formPresent && formScore != null),
     },
     factor("injury") ?? {
       key: "injury",

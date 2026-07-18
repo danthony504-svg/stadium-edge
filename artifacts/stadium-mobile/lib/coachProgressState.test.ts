@@ -65,3 +65,10 @@ test("mergeCoachProgress preserves empty-scan terminal without ticket", () => {
   assert.equal(merged.ticketComplete, false);
   assert.equal(merged.stage, "complete");
 });
+
+test("mergeCoachProgress returns null when unchanged", () => {
+  const base = initialCoachProgress("req-1");
+  const merged = mergeCoachProgress(base, { requestId: "req-1", stage: "loading-games" });
+  assert.equal(merged, null);
+  assert.equal(coachProgressSignature(base), coachProgressSignature(base));
+});

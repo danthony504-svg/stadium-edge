@@ -312,6 +312,7 @@ test("resolvePropHolisticForDisplay merges rubric factors into thin propHolistic
         confidencePct: 48,
         coveragePct: 12,
         missingCount: 7,
+        missingSignals: ["Recent Form", "Matchup History"],
         applicableCount: 8,
         recommends: false,
         factors: [
