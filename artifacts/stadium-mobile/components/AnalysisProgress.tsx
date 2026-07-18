@@ -5,52 +5,15 @@ import { ActivityIndicator, Animated, Easing, Text, View } from "react-native";
 
 import { FONT } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import type { BoardScanLiveProgress } from "@/lib/coachBoardScanProgress";
+import {
+  coachProgressChecklist,
+  coachProgressHeadline,
+  type CoachCanonicalProgress,
+} from "@/lib/coachProgressState";
 
-// Cyan glow accent that pairs with the brand blue (#3b82f6). Kept local so the
-// loading screen reads as "AI analysis in progress" without changing the global
-// theme tokens.
 const CYAN = "#22d3ee";
 const BLUE = "#3b82f6";
 
-// The ordered work the Coach actually performs while building a ticket: it reads
-// the prompt, fetches real props + matchups + injuries, compares odds across the
-// books in context, then the model reasons over edge / correlation / weak legs
-// and finalizes. Each label maps to a genuine phase — see the stage→phase
-// grounding in coach.tsx (context fetch → reasoning → picks streaming).
-const STAGES = [
-  "Reading your ticket…",
-  "Scanning available props…",
-  "Checking player matchups…",
-  "Reviewing injuries and lineups…",
-  "Comparing odds across sportsbooks…",
-  "Calculating edge and confidence…",
-  "Checking parlay correlation…",
-  "Finding weak legs…",
-  "Building final AI grade…",
-  "Finalizing your ticket…",
-] as const;
-
-// Where the progress bar sits for each stage. Climbs steadily through the data
-// phases, eases through model reasoning, and only hits 100% on the final stage.
-const TARGETS = [6, 16, 28, 40, 52, 64, 74, 84, 93, 100] as const;
-
-// The live checklist. Each item flips to "done" once we pass the stage where
-// that work genuinely completes.
-const CHECKLIST: { label: string; doneAt: number }[] = [
-  { label: "Matchups analyzed", doneAt: 3 },
-  { label: "Injury report checked", doneAt: 4 },
-  { label: "Line value calculated", doneAt: 6 },
-  { label: "Correlation scored", doneAt: 7 },
-  { label: "Final ticket ready", doneAt: 9 },
-];
-
-// "ask" mode: a plain question (not a parlay build / ticket analysis). The Coach
-// still does real work — it pulls live odds + props + matchup context and the
-// model reasons over it — but there is no ticket, no correlation, and no weak-leg
-// pass, so the copy stays generic and honest (no ticket-specific claims). Like
-// analyze mode there is no leg stream, so it walks to the final stage on its own
-// and is replaced the moment the answer streams in.
 const ASK_STAGES = [
   "Reading your question…",
   "Pulling live odds and props…",
@@ -73,127 +36,40 @@ const ASK_CHECKLIST: { label: string; doneAt: number }[] = [
   { label: "Answer ready", doneAt: 8 },
 ];
 
+const ANALYZE_STAGES = [
+  "Reading your ticket…",
+  "Scanning available props…",
+  "Checking player matchups…",
+  "Reviewing injuries and lineups…",
+  "Comparing odds across sportsbooks…",
+  "Calculating edge and confidence…",
+  "Running AI analysis…",
+  "Writing your breakdown…",
+] as const;
+
+const ANALYZE_TARGETS = [8, 20, 32, 44, 56, 68, 80, 100] as const;
+
+const ANALYZE_CHECKLIST: { label: string; doneAt: number }[] = [
+  { label: "Ticket understood", doneAt: 1 },
+  { label: "Live data pulled", doneAt: 4 },
+  { label: "Matchups analyzed", doneAt: 5 },
+  { label: "Edge calculated", doneAt: 6 },
+  { label: "Analysis ready", doneAt: 7 },
+];
+
 export type ParlayBuildPhase = "context" | "board-scan" | "stream" | "score";
 
-/**
- * A step-by-step "AI is analyzing real data" loading screen shown while the
- * Coach builds a parlay or analyzes a ticket. Shows the current stage, a
- * 0→100% progress bar, and a live checklist that ticks off as work completes.
- *
- * It is grounded in the real build, not a cosmetic timer: stages advance while
- * context (odds/props/matchups) is fetched and the model reasons, and the final
- * "Finalizing your ticket…" stage + 100% only lands once real PICK lines start
- * streaming back (`legCount` > 0). In analyze mode there is no leg stream, so it
- * progresses on its own and is replaced by the analysis the moment it arrives.
- */
-export function AnalysisProgress({
-  mode = "build",
-  legCount = 0,
-  buildPhase,
-  boardScanProgress,
+function CanonicalProgressCard({
+  colors,
+  headline,
+  percent,
+  checklist,
 }: {
-  mode?: "build" | "analyze" | "ask";
-  legCount?: number;
-  buildPhase?: ParlayBuildPhase;
-  /** When set during a live board scan, shows scan-specific checklist copy. */
-  boardScanProgress?: BoardScanLiveProgress | null;
+  colors: ReturnType<typeof useColors>;
+  headline: string;
+  percent: number;
+  checklist: { label: string; done: boolean; active: boolean }[];
 }) {
-  const colors = useColors();
-  const [autoIndex, setAutoIndex] = useState(0);
-  const [pct, setPct] = useState(0);
-
-  // "ask" (plain question) has its own generic, honest stage set; build + analyze
-  // share the ticket-oriented one.
-  const isAsk = mode === "ask";
-  const stageList = isAsk ? ASK_STAGES : STAGES;
-  const targetList = isAsk ? ASK_TARGETS : TARGETS;
-  const checklist = isAsk ? ASK_CHECKLIST : CHECKLIST;
-
-  // In build mode the auto-timer holds below the penultimate stage during the
-  // long context/board-scan fetch, then advances through grading while the scan
-  // runs. During board-scan with no pick cards yet, cap below 100% until cards land.
-  // Allow progress through 93% so the bar doesn't look frozen at 84% while sims run.
-  const scanReady =
-    mode === "build" &&
-    !!boardScanProgress?.scanComplete &&
-    (boardScanProgress.picksReady > 0 || legCount > 0);
-  const scanExhaustedEmpty =
-    mode === "build" &&
-    !!boardScanProgress?.scanComplete &&
-    boardScanProgress.picksReady === 0;
-  const boardScanWaiting =
-    mode === "build" &&
-    buildPhase === "board-scan" &&
-    legCount === 0 &&
-    !scanReady &&
-    !scanExhaustedEmpty;
-  const maxAuto =
-    mode === "build"
-      ? legCount > 0 || scanReady || scanExhaustedEmpty
-        ? stageList.length - 1
-        : boardScanWaiting
-          ? 8
-          : buildPhase === "board-scan" || buildPhase === "stream" || buildPhase === "score"
-            ? 8
-            : 6
-      : stageList.length - 1;
-  const effectiveIndex =
-    mode === "build" && (legCount > 0 || scanReady || scanExhaustedEmpty)
-      ? stageList.length - 1
-      : mode === "build"
-        ? Math.min(autoIndex, maxAuto)
-        : autoIndex;
-  const target =
-    (legCount > 0 || scanReady || scanExhaustedEmpty) && mode === "build"
-      ? 100
-      : targetList[effectiveIndex];
-  const phaseStage =
-    mode === "build" && scanExhaustedEmpty
-      ? "Board scan complete — no legs cleared"
-      : mode === "build" && buildPhase === "board-scan"
-      ? scanReady
-        ? "Rendering your pick cards…"
-        : "Scanning every posted market on the live board…"
-      : mode === "build" && buildPhase === "context"
-        ? "Pulling live odds and props…"
-        : mode === "build" && buildPhase === "score" && legCount > 0
-          ? "Finalizing your ticket…"
-          : null;
-  const displayStage = phaseStage ?? stageList[effectiveIndex];
-
-  // Advance the stage on a steady cadence (capped at maxAuto).
-  useEffect(() => {
-    const id = setInterval(() => {
-      setAutoIndex((i) => (i < maxAuto ? i + 1 : i));
-    }, 1500);
-    return () => clearInterval(id);
-  }, [maxAuto]);
-
-  // Full-board scans can take a minute with no streamed PICK lines — hold on the
-  // penultimate stage until real pick cards land so we never show a false 100%.
-  // (The bar still eases to 93%; finalize only when legCount > 0.)
-
-  // Ease the displayed percentage toward the current stage's target so the bar
-  // glides instead of jumping, and never looks frozen or goes backwards.
-  useEffect(() => {
-    if (mode === "build" && legCount === 0) {
-      setPct((p) => Math.min(p, targetList[Math.min(autoIndex, maxAuto)]));
-    }
-  }, [mode, legCount, autoIndex, maxAuto, targetList]);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setPct((p) => {
-        if (p >= target) return target;
-        const next = p + Math.max(0.4, (target - p) * 0.14);
-        return next >= target ? target : next;
-      });
-    }, 70);
-    return () => clearInterval(id);
-  }, [target]);
-
-  // Soft pulse for the header glow dot + the progress bar so the surface always
-  // reads as "actively working".
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -217,258 +93,6 @@ export function AnalysisProgress({
   }, [pulse]);
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
 
-  const displayPct = Math.round(pct);
-
-  if (mode === "build" && boardScanProgress) {
-    const p = boardScanProgress;
-    if (p.exhaustedEmpty || (p.scanComplete && p.picksReady === 0)) {
-      return (
-        <View
-          style={{
-            alignSelf: "stretch",
-            marginTop: 10,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 16,
-            paddingHorizontal: 14,
-            paddingVertical: 14,
-            gap: 10,
-          }}
-        >
-          <Text
-            style={{
-              color: colors.foreground,
-              fontFamily: FONT.semibold,
-              fontSize: 14,
-            }}
-          >
-            Board scan complete — 100%
-          </Text>
-          <Text
-            style={{
-              color: colors.mutedForeground,
-              fontFamily: FONT.body,
-              fontSize: 13,
-              lineHeight: 19,
-            }}
-          >
-            {p.emptyReason ??
-              "Full board scan finished, but no legs passed sim, edge, and confidence gates. Open View scan manifest for rejection detail."}
-          </Text>
-        </View>
-      );
-    }
-    const renderingTicket = p.scanComplete && p.picksReady > 0 && legCount === 0;
-    const gamesDone = p.gamesLoaded > 0;
-    const propsDone = p.propsAnalyzed > 0;
-    const edgeDone = p.marketsScanned > 0;
-    const simDone = p.simRunning || p.scanComplete || p.picksReady > 0;
-    const buildingDone = p.picksReady > 0 || p.scanComplete;
-    const scanChecklist: { label: string; done: boolean; active: boolean }[] = [
-      {
-        label: p.gamesLoaded > 0 ? `${p.gamesLoaded} games loaded` : "Loading today's games…",
-        done: gamesDone,
-        active: !gamesDone,
-      },
-      {
-        label:
-          p.propsAnalyzed > 0
-            ? `${p.propsAnalyzed.toLocaleString()} props analyzed`
-            : "Analyzing player props…",
-        done: propsDone,
-        active: gamesDone && !propsDone,
-      },
-      {
-        label: "Calculating edge…",
-        done: edgeDone,
-        active: propsDone && !edgeDone,
-      },
-      {
-        label: "Running AI simulations…",
-        done: simDone,
-        active: edgeDone && !simDone,
-      },
-      {
-        label: renderingTicket
-          ? "Rendering pick cards…"
-          : "Building your best parlay…",
-        done: buildingDone && !renderingTicket,
-        active: renderingTicket || (simDone && !buildingDone),
-      },
-    ];
-    const scanStage = renderingTicket
-      ? "Rendering your pick cards…"
-      : buildingDone
-        ? "Building your best parlay…"
-        : simDone
-          ? "Building your best parlay…"
-          : edgeDone
-            ? "Running AI simulations…"
-            : propsDone
-              ? "Calculating edge…"
-              : gamesDone
-                ? "Analyzing player props…"
-                : "Scanning today's games…";
-    const scanPct = renderingTicket
-      ? 100
-      : buildingDone
-        ? 100
-        : simDone
-          ? 92
-          : edgeDone
-            ? 74
-            : propsDone
-              ? 52
-              : gamesDone
-                ? 28
-                : 12;
-
-    return (
-      <View
-        style={{
-          alignSelf: "stretch",
-          marginTop: 10,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: "rgba(34,211,238,0.35)",
-          borderRadius: 16,
-          paddingHorizontal: 14,
-          paddingVertical: 14,
-          gap: 14,
-          shadowColor: CYAN,
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0.3,
-          shadowRadius: 16,
-          elevation: 8,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Animated.View
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 999,
-              backgroundColor: CYAN,
-              opacity: pulseOpacity,
-              shadowColor: CYAN,
-              shadowOffset: { width: 0, height: 0 },
-              shadowOpacity: 0.9,
-              shadowRadius: 6,
-              elevation: 4,
-            }}
-          />
-          <Text
-            numberOfLines={2}
-            style={{
-              flex: 1,
-              color: colors.foreground,
-              fontFamily: FONT.semibold,
-              fontSize: 14,
-            }}
-          >
-            {scanStage}
-          </Text>
-          <Text
-            style={{
-              color: CYAN,
-              fontFamily: FONT.bold,
-              fontSize: 15,
-              fontVariant: ["tabular-nums"],
-            }}
-          >
-            {scanPct}%
-          </Text>
-        </View>
-
-        <View
-          style={{
-            height: 8,
-            borderRadius: 999,
-            backgroundColor: "rgba(148,163,184,0.18)",
-            overflow: "hidden",
-          }}
-        >
-          <LinearGradient
-            colors={[BLUE, CYAN]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{
-              width: `${Math.max(scanPct, 2)}%`,
-              height: "100%",
-              borderRadius: 999,
-            }}
-          />
-        </View>
-
-        <View
-          style={{
-            backgroundColor: colors.surface,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
-            paddingHorizontal: 12,
-            paddingVertical: 10,
-            gap: 9,
-          }}
-        >
-          {scanChecklist.map((item) => (
-            <View
-              key={item.label}
-              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-            >
-              {item.done ? (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    backgroundColor: CYAN,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Feather name="check" size={13} color={colors.card} />
-                </View>
-              ) : item.active ? (
-                <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
-                  <ActivityIndicator size="small" color={CYAN} />
-                </View>
-              ) : (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: colors.border,
-                  }}
-                />
-              )}
-              <Text
-                style={{
-                  flex: 1,
-                  color: item.done || item.active ? colors.foreground : colors.mutedForeground,
-                  fontFamily: item.done || item.active ? FONT.semibold : FONT.medium,
-                  fontSize: 13,
-                }}
-              >
-                {item.label}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
-
-  // The first not-yet-done checklist item is the one currently in progress.
-  const activeChecklist = checklist.findIndex((c) => {
-    if (boardScanWaiting && c.label === "Final ticket ready") return false;
-    if (c.label === "Final ticket ready" && scanReady) return false;
-    return effectiveIndex < c.doneAt;
-  });
-
   return (
     <View
       style={{
@@ -481,7 +105,6 @@ export function AnalysisProgress({
         paddingHorizontal: 14,
         paddingVertical: 14,
         gap: 14,
-        // Cyan glow
         shadowColor: CYAN,
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.3,
@@ -489,7 +112,6 @@ export function AnalysisProgress({
         elevation: 8,
       }}
     >
-      {/* Header: pulsing dot + current stage + live percentage */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Animated.View
           style={{
@@ -498,23 +120,13 @@ export function AnalysisProgress({
             borderRadius: 999,
             backgroundColor: CYAN,
             opacity: pulseOpacity,
-            shadowColor: CYAN,
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.9,
-            shadowRadius: 6,
-            elevation: 4,
           }}
         />
         <Text
-          numberOfLines={1}
-          style={{
-            flex: 1,
-            color: colors.foreground,
-            fontFamily: FONT.semibold,
-            fontSize: 14,
-          }}
+          numberOfLines={2}
+          style={{ flex: 1, color: colors.foreground, fontFamily: FONT.semibold, fontSize: 14 }}
         >
-          {displayStage}
+          {headline}
         </Text>
         <Text
           style={{
@@ -524,34 +136,28 @@ export function AnalysisProgress({
             fontVariant: ["tabular-nums"],
           }}
         >
-          {displayPct}%
+          {percent}%
         </Text>
       </View>
-
-      {/* Progress bar 0 → 100% */}
-      <Animated.View style={{ opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }}>
-        <View
+      <View
+        style={{
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: "rgba(148,163,184,0.18)",
+          overflow: "hidden",
+        }}
+      >
+        <LinearGradient
+          colors={[BLUE, CYAN]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
           style={{
-            height: 8,
+            width: `${Math.max(percent, 2)}%`,
+            height: "100%",
             borderRadius: 999,
-            backgroundColor: "rgba(148,163,184,0.18)",
-            overflow: "hidden",
           }}
-        >
-          <LinearGradient
-            colors={[BLUE, CYAN]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={{
-              width: `${Math.max(displayPct, 2)}%`,
-              height: "100%",
-              borderRadius: 999,
-            }}
-          />
-        </View>
-      </Animated.View>
-
-      {/* Live checklist */}
+        />
+      </View>
       <View
         style={{
           backgroundColor: colors.surface,
@@ -563,71 +169,123 @@ export function AnalysisProgress({
           gap: 9,
         }}
       >
-        {checklist.map((item, idx) => {
-          const done =
-            item.label === "Final ticket ready"
-              ? legCount > 0 || scanReady
-              : effectiveIndex >= item.doneAt;
-          const active = idx === activeChecklist;
-          return (
-            <View
-              key={item.label}
-              style={{ flexDirection: "row", alignItems: "center", gap: 10 }}
-            >
-              {done ? (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    backgroundColor: CYAN,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    shadowColor: CYAN,
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.8,
-                    shadowRadius: 5,
-                    elevation: 3,
-                  }}
-                >
-                  <Feather name="check" size={13} color={colors.card} />
-                </View>
-              ) : active ? (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <ActivityIndicator size="small" color={CYAN} />
-                </View>
-              ) : (
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 999,
-                    borderWidth: 2,
-                    borderColor: colors.border,
-                  }}
-                />
-              )}
-              <Text
+        {checklist.map((item) => (
+          <View key={item.label} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {item.done ? (
+              <View
                 style={{
-                  flex: 1,
-                  color: done ? colors.foreground : active ? colors.foreground : colors.mutedForeground,
-                  fontFamily: done || active ? FONT.semibold : FONT.medium,
-                  fontSize: 13,
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  backgroundColor: CYAN,
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                {item.label}
-              </Text>
-            </View>
-          );
-        })}
+                <Feather name="check" size={13} color={colors.card} />
+              </View>
+            ) : item.active ? (
+              <View style={{ width: 20, height: 20, alignItems: "center", justifyContent: "center" }}>
+                <ActivityIndicator size="small" color={CYAN} />
+              </View>
+            ) : (
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 999,
+                  borderWidth: 2,
+                  borderColor: colors.border,
+                }}
+              />
+            )}
+            <Text
+              style={{
+                flex: 1,
+                color: item.done || item.active ? colors.foreground : colors.mutedForeground,
+                fontFamily: item.done || item.active ? FONT.semibold : FONT.medium,
+                fontSize: 13,
+              }}
+            >
+              {item.label}
+            </Text>
+          </View>
+        ))}
       </View>
     </View>
   );
+}
+
+function TimedAnalysisProgress({ mode }: { mode: "analyze" | "ask" }) {
+  const colors = useColors();
+  const [autoIndex, setAutoIndex] = useState(0);
+  const [pct, setPct] = useState(0);
+  const stageList = mode === "ask" ? ASK_STAGES : ANALYZE_STAGES;
+  const targetList = mode === "ask" ? ASK_TARGETS : ANALYZE_TARGETS;
+  const checklist = mode === "ask" ? ASK_CHECKLIST : ANALYZE_CHECKLIST;
+  const maxAuto = stageList.length - 1;
+  const target = targetList[Math.min(autoIndex, maxAuto)];
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setAutoIndex((i) => (i < maxAuto ? i + 1 : i));
+    }, 1500);
+    return () => clearInterval(id);
+  }, [maxAuto]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPct((p) => {
+        if (p >= target) return target;
+        const next = p + Math.max(0.4, (target - p) * 0.14);
+        return next >= target ? target : next;
+      });
+    }, 70);
+    return () => clearInterval(id);
+  }, [target]);
+
+  const activeChecklist = checklist.findIndex((c) => autoIndex < c.doneAt);
+  const displayPct = Math.round(pct);
+
+  return (
+    <CanonicalProgressCard
+      colors={colors}
+      headline={stageList[Math.min(autoIndex, maxAuto)]}
+      percent={displayPct}
+      checklist={checklist.map((item, idx) => ({
+        label: item.label,
+        done: autoIndex >= item.doneAt,
+        active: idx === activeChecklist,
+      }))}
+    />
+  );
+}
+
+export function AnalysisProgress({
+  mode = "build",
+  progress,
+}: {
+  mode?: "build" | "analyze" | "ask";
+  legCount?: number;
+  buildPhase?: ParlayBuildPhase;
+  progress?: CoachCanonicalProgress | null;
+}) {
+  const colors = useColors();
+
+  if (progress) {
+    return (
+      <CanonicalProgressCard
+        colors={colors}
+        headline={coachProgressHeadline(progress.stage)}
+        percent={progress.percent}
+        checklist={coachProgressChecklist(progress)}
+      />
+    );
+  }
+
+  if (mode === "analyze" || mode === "ask") {
+    return <TimedAnalysisProgress mode={mode} />;
+  }
+
+  return null;
 }
