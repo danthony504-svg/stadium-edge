@@ -23,7 +23,11 @@ import { GameCard, type GameMeta } from "@/components/GameCard";
 import { useSlipClearance } from "@/components/SlipBar";
 import { EmptyState, ErrorState, FONT, Loading, Pill } from "@/components/ui";
 import { useColors } from "@/hooks/useColors";
-import { markCoachHomeLaunch } from "@/lib/coachSilentLaunch";
+import {
+  clearCoachHomeLaunch,
+  coachIdleNavParams,
+  markCoachHomeLaunch,
+} from "@/lib/coachSilentLaunch";
 import {
   fetchUpsetSpots,
   getGames,
@@ -386,6 +390,7 @@ type HomeSportFeedProps = {
   isWideLayout: boolean;
   hotCardWidth: number;
   quickCardWidth: number;
+  onOpenCoachIdle: () => void;
 };
 
 function HomeSportFeed({
@@ -399,6 +404,7 @@ function HomeSportFeed({
   isWideLayout,
   hotCardWidth,
   quickCardWidth,
+  onOpenCoachIdle,
 }: HomeSportFeedProps) {
   const queryClient = useQueryClient();
   const [upcomingExpanded, setUpcomingExpanded] = useState(false);
@@ -944,13 +950,13 @@ function HomeSportFeed({
     });
   };
 
-  // Open Coach without auto-sending — user can edit the prompt and tap send.
+  // Open Coach with composer prefill only — user must tap send.
   const goCoach = (prefill?: string) =>
     router.push({
       pathname: "/coach",
       params: {
+        ...coachIdleNavParams(),
         ...(prefill ? { prefill } : {}),
-        ts: String(Date.now()),
       },
     });
 
@@ -1016,7 +1022,7 @@ function HomeSportFeed({
       >
 
         {/* Static hero — opens Coach for a fresh AI parlay (no stale leg cache). */}
-        <BuildBestParlayHero onPress={() => askCoach("Build me the best parlay", true)} />
+        <BuildBestParlayHero onPress={onOpenCoachIdle} />
 
         {/* Quick actions — four shortcut cards in a single row. */}
         <View
@@ -1932,6 +1938,13 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const slipClearance = useSlipClearance();
   const router = useRouter();
+  const openCoachIdle = useCallback(() => {
+    clearCoachHomeLaunch();
+    router.push({
+      pathname: "/coach",
+      params: coachIdleNavParams(),
+    });
+  }, [router]);
   const queryClient = useQueryClient();
   const { width } = useWindowDimensions();
   const isWideLayout = width >= 680;
@@ -2075,17 +2088,7 @@ export default function HomeScreen() {
             width={width}
             slipClearance={slipClearance}
             bottomInset={insets.bottom}
-            onBuildParlay={() => {
-              markCoachHomeLaunch();
-              router.push({
-                pathname: "/coach",
-                params: {
-                  autoMsg: "Build me the best parlay",
-                  send: "1",
-                  ts: String(Date.now()),
-                },
-              });
-            }}
+            onBuildParlay={openCoachIdle}
           />
         </ErrorBoundary>
       ) : (
@@ -2101,6 +2104,7 @@ export default function HomeScreen() {
           isWideLayout={isWideLayout}
           hotCardWidth={hotCardWidth}
           quickCardWidth={quickCardWidth}
+          onOpenCoachIdle={openCoachIdle}
         />
       )}
     </View>
